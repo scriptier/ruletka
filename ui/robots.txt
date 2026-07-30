@@ -1,0 +1,21 @@
+# https://ruletka.vip
+User-agent: *
+Allow: /
+
+# Do not index admin / API / private paths
+Disallow: /admin.html
+Disallow: /v1/
+Disallow: /ws
+Disallow: /config.json
+Disallow: /health
+
+# Prefer the sitemap for discovery
+Sitemap: https://ruletka.vip/sitemap.xml
+
+# Yandex-specific (optional crawl delay is usually unnecessary)
+User-agent: Yandex
+Allow: /
+Disallow: /admin.html
+Disallow: /v1/
+Disallow: /ws
+Sitemap: https://ruletka.vip/sitemap.xml
