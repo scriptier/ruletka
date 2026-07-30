@@ -406,5 +406,10 @@
   "seed.footDl": "Helper",
   "pwa.installTitle": "Install ruletka",
   "pwa.installLead": "Add to home screen for a full-screen chat app.",
-  "pwa.install": "Install"
+  "pwa.install": "Install",
+  "arch.fed": "Mesh match",
+  "arch.fedTitle": "Matched via a cooperating hub (nextface-fed/1). Video stays peer-to-peer.",
+  "log.fedMatch": "Matched across hubs (federated pool)",
+  "home.share": "Share site",
+  "home.shareOk": "Link copied"
 }

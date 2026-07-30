@@ -42,7 +42,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="home.css?v=50" />
+  <link rel="stylesheet" href="home.css?v=51" />
   <script src="analytics.js?v=1" defer></script>
   <script src="pwa-install.js?v=1" defer></script>
   <script type="application/ld+json">
@@ -102,6 +102,7 @@
       <span>ruletka.vip</span>
     </a>
     <div class="home-nav-right">
+      <button type="button" class="nav-share-btn" id="btn-share-site" data-i18n="home.share" title="Share ruletka.vip">Share site</button>
       <a class="nav-live-link" href="/live.html" data-i18n="home.cta">Start chatting</a>
       <label class="home-lang" title="Language">
         <span aria-hidden="true">🌐</span>
@@ -298,6 +299,8 @@ export ROULETTE_FEDERATION_PEERS=https://ruletka.vip
           "home.lead":
             "Random video chat with strangers — or call friends when they’re online. Media stays between browsers. No account required.",
           "home.cta": "Start chatting",
+          "home.share": "Share site",
+          "home.shareOk": "Link copied",
           "home.finalTitle": "Ready when you are",
           "home.finalLead": "No account. Camera stays peer-to-peer. Tap in and spin.",
           "home.nowOnline": "Online now",
@@ -345,6 +348,8 @@ export ROULETTE_FEDERATION_PEERS=https://ruletka.vip
           "home.lead":
             "Случайный видеочат с незнакомцами — или звонки друзьям, когда они онлайн. Медиа идёт между браузерами. Без аккаунта.",
           "home.cta": "Начать чат",
+          "home.share": "Поделиться",
+          "home.shareOk": "Ссылка скопирована",
           "home.finalTitle": "Можно начинать",
           "home.finalLead": "Без аккаунта. Видео peer-to-peer. Заходите и крутите.",
           "home.nowOnline": "Сейчас онлайн",
@@ -532,6 +537,45 @@ export ROULETTE_FEDERATION_PEERS=https://ruletka.vip
       }
       refreshHomeStats();
       setInterval(refreshHomeStats, 12000);
+
+      // Share site (native share sheet or clipboard)
+      var shareBtn = document.getElementById("btn-share-site");
+      if (shareBtn) {
+        shareBtn.addEventListener("click", function () {
+          var url = location.origin + "/";
+          var title = "ruletka.vip — peer-to-peer chat roulette";
+          var dict = packCache[getLang()] || STR[getLang()] || STR.en;
+          var okLabel = (dict && dict["home.shareOk"]) || "Link copied";
+          var done = function () {
+            var prev = shareBtn.textContent;
+            shareBtn.textContent = okLabel;
+            setTimeout(function () {
+              shareBtn.textContent =
+                (dict && dict["home.share"]) || prev || "Share site";
+            }, 1600);
+          };
+          if (navigator.share) {
+            navigator
+              .share({ title: title, url: url, text: title })
+              .then(done)
+              .catch(function () {});
+            return;
+          }
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(url).then(done).catch(function () {});
+          } else {
+            var ta = document.createElement("textarea");
+            ta.value = url;
+            document.body.appendChild(ta);
+            ta.select();
+            try {
+              document.execCommand("copy");
+            } catch (_) {}
+            ta.remove();
+            done();
+          }
+        });
+      }
     })();
   </script>
 </body>

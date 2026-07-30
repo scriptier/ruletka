@@ -406,5 +406,10 @@
   "seed.footDl": "Helper",
   "pwa.installTitle": "Installer ruletka",
   "pwa.installLead": "Ajoutez à l’écran d’accueil pour un chat plein écran.",
-  "pwa.install": "Installer"
+  "pwa.install": "Installer",
+  "arch.fed": "Maillage",
+  "arch.fedTitle": "Match via un hub partenaire. Vidéo toujours P2P.",
+  "log.fedMatch": "Match entre hubs",
+  "home.share": "Partager",
+  "home.shareOk": "Lien copié"
 }

@@ -406,5 +406,10 @@
   "seed.footDl": "Helper",
   "pwa.installTitle": "Установить ruletka",
   "pwa.installLead": "На домашний экран — полноэкранный чат.",
-  "pwa.install": "Установить"
+  "pwa.install": "Установить",
+  "arch.fed": "Сеть",
+  "arch.fedTitle": "Матч через другой хаб (nextface-fed/1). Видео всё ещё peer-to-peer.",
+  "log.fedMatch": "Матч между хабами (федерация)",
+  "home.share": "Поделиться",
+  "home.shareOk": "Ссылка скопирована"
 }

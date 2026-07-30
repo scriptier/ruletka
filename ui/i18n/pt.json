@@ -406,5 +406,10 @@
   "seed.footDl": "Helper",
   "pwa.installTitle": "Instalar ruletka",
   "pwa.installLead": "Adicione à tela inicial para chat em tela cheia.",
-  "pwa.install": "Instalar"
+  "pwa.install": "Instalar",
+  "arch.fed": "Malha",
+  "arch.fedTitle": "Match via outro hub. Vídeo continua P2P.",
+  "log.fedMatch": "Match entre hubs",
+  "home.share": "Compartilhar",
+  "home.shareOk": "Link copiado"
 }

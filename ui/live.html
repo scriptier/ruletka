@@ -27,8 +27,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=50" />
-  <link rel="stylesheet" href="live-stage.css?v=50" />
+  <link rel="stylesheet" href="style.css?v=51" />
+  <link rel="stylesheet" href="live-stage.css?v=51" />
 </head>
 <body class="stage-body">
   <!-- Stroke icon sprite (currentColor) -->
@@ -129,6 +129,9 @@
         <span class="room-chip" id="room-chip" hidden title="Current room">
           <svg class="icon icon-sm" aria-hidden="true"><use href="#i-door"/></svg>
           <span id="room-chip-label"></span>
+        </span>
+        <span class="fed-chip" id="fed-chip" hidden title="Matched via cooperating hub (nextface-fed/1). Video still P2P.">
+          <span data-i18n="arch.fed">Mesh match</span>
         </span>
         <span class="pool-hint" id="pool-hint" hidden></span>
         <span class="arch-pill" id="arch-pill" title="Media is peer-to-peer WebRTC">P2P media · bridge match</span>
@@ -820,11 +823,11 @@
   <!-- cache-bust so browsers always get auto-connect / auto-media fixes -->
   <script src="analytics.js?v=1" defer></script>
   <script src="pwa-install.js?v=1" defer></script>
-  <script src="i18n.js?v=50"></script>
-  <script src="identity.js?v=50"></script>
-  <script src="hubs.js?v=50"></script>
-  <script src="webrtc.js?v=50"></script>
-  <script src="live.js?v=50"></script>
+  <script src="i18n.js?v=51"></script>
+  <script src="identity.js?v=51"></script>
+  <script src="hubs.js?v=51"></script>
+  <script src="webrtc.js?v=51"></script>
+  <script src="live.js?v=51"></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

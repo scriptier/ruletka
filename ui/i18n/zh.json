@@ -406,5 +406,10 @@
   "seed.footDl": "Helper",
   "pwa.installTitle": "安装 ruletka",
   "pwa.installLead": "添加到主屏幕，全屏聊天。",
-  "pwa.install": "安装"
+  "pwa.install": "安装",
+  "arch.fed": "互联",
+  "arch.fedTitle": "通过协作节点匹配。视频仍是点对点。",
+  "log.fedMatch": "跨节点匹配",
+  "home.share": "分享",
+  "home.shareOk": "链接已复制"
 }

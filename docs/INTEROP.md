@@ -45,6 +45,25 @@ Authorization: Bearer <ROULETTE_FEDERATION_TOKEN>
 
 If the token is unset on a bridge, it **publishes info** but **rejects claims** (`accepts_claims: false`).
 
+### Claim peer list
+
+Outbound claims try each peer base every ~2s while a local user is waiting solo:
+
+| Source | Change without restart? |
+|--------|-------------------------|
+| `ROULETTE_FEDERATION_PEERS` (env/CLI) | No |
+| `data/federation_peers.json` via admin | **Yes** |
+
+Admin (token required):
+
+```http
+POST /v1/admin/federation_peers
+Authorization: Bearer <ROULETTE_ADMIN_TOKEN>
+{"action":"add"|"remove","base":"https://partner.example.com"}
+```
+
+Status: `GET /v1/admin/mesh` → `federation.peers_env` / `peers_file` / `peers_effective`.
+
 ### `GET /v1/federation/info`
 
 Public snapshot (no auth).

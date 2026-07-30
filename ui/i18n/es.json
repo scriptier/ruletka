@@ -406,5 +406,10 @@
   "seed.footDl": "Helper",
   "pwa.installTitle": "Instalar ruletka",
   "pwa.installLead": "Añade a la pantalla de inicio para chat a pantalla completa.",
-  "pwa.install": "Instalar"
+  "pwa.install": "Instalar",
+  "arch.fed": "Malla",
+  "arch.fedTitle": "Emparejado vía otro hub. El video sigue P2P.",
+  "log.fedMatch": "Emparejado entre hubs",
+  "home.share": "Compartir",
+  "home.shareOk": "Enlace copiado"
 }

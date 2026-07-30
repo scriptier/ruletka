@@ -213,13 +213,21 @@
 
     <h2>Mesh / federation</h2>
     <p class="hint">
-      Public <strong>directory hubs</strong> are discovery hints for client failover (editable live).
-      Full stranger-pool federation still needs <code>ROULETTE_FEDERATION_TOKEN</code> + peers (restart to change claim peers).
+      <strong>Directory hubs</strong> = client failover discovery (no trust).
+      <strong>Claim peers</strong> = shared stranger pool via <code>nextface-fed/1</code> (needs shared
+      <code>ROULETTE_FEDERATION_TOKEN</code> + <code>ROULETTE_PUBLIC_BASE</code>). File claim peers edit live — no restart.
     </p>
     <div class="card" id="mesh-card" style="padding:0.85rem 1rem;margin-bottom:1rem">
       <div class="empty" id="mesh-empty">Sign in to load mesh status</div>
       <div id="mesh-body" hidden>
         <p class="hint" id="mesh-fed-line"></p>
+        <p class="settings-section-label" style="margin:0.75rem 0 0.4rem;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted)">Claim peers — shared pool (live file)</p>
+        <ul id="mesh-fed-list" style="margin:0;padding-left:1.1rem;font-size:0.85rem"></ul>
+        <div class="auth" style="margin:0.75rem 0 0;padding:0;border:none;background:transparent">
+          <input id="fed-peer-url" type="url" placeholder="https://trusted-hub.example.com" style="flex:1" />
+          <button type="button" class="primary" id="btn-fed-add">Add claim peer</button>
+        </div>
+        <p class="hint" id="mesh-fed-note" style="margin-top:0.5rem"></p>
         <p class="settings-section-label" style="margin:0.75rem 0 0.4rem;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted)">Directory hubs (live)</p>
         <ul id="mesh-dir-list" style="margin:0;padding-left:1.1rem;font-size:0.85rem"></ul>
         <div class="auth" style="margin:0.75rem 0 0;padding:0;border:none;background:transparent">
@@ -516,6 +524,9 @@
       empty.hidden = true;
       body.hidden = false;
       const f = data.federation || {};
+      const envN = (f.peers_env || []).length || 0;
+      const fileN = (f.peers_file || []).length || 0;
+      const effN = (f.peers_effective || []).length || 0;
       $("mesh-fed-line").textContent =
         "instance " +
         (f.instance_id || "—") +
@@ -523,11 +534,60 @@
         (f.accepts_claims ? "on" : "off") +
         " · token " +
         (f.token_set ? "set" : "unset") +
-        " · env peers " +
-        ((f.peers_env || []).length || 0) +
+        " · peers env/file/total " +
+        envN +
+        "/" +
+        fileN +
+        "/" +
+        effN +
         " · fed sessions " +
         (f.sessions ?? 0) +
         (f.public_base ? " · " + f.public_base : "");
+      const note = $("mesh-fed-note");
+      if (note) {
+        if (!f.token_set) {
+          note.textContent =
+            "Outbound claims need ROULETTE_FEDERATION_TOKEN in admin.env (restart once after setting token).";
+        } else if (!f.public_base) {
+          note.textContent = "Set ROULETTE_PUBLIC_BASE so peers can relay signals back.";
+        } else if (!effN) {
+          note.textContent =
+            "Add a claim peer below (or ROULETTE_FEDERATION_PEERS) to share the stranger pool.";
+        } else {
+          note.textContent =
+            "Outbound ready — waiting solo users may claim partners on listed hubs.";
+        }
+      }
+      const fedUl = $("mesh-fed-list");
+      if (fedUl) {
+        const filePeers = f.peers_file || [];
+        const envPeers = f.peers_env || [];
+        const parts = [];
+        if (!filePeers.length && !envPeers.length) {
+          parts.push("<li class='muted'>No claim peers yet</li>");
+        } else {
+          envPeers.forEach((b) => {
+            parts.push(
+              `<li style="margin-bottom:0.35rem"><span class="pill ok" style="margin-right:0.35rem">env</span>
+                <a href="${escapeAttr(b)}" target="_blank" rel="noopener">${escapeHtml(b)}</a>
+                <span class="muted" style="margin-left:0.35rem">(restart to change)</span></li>`
+            );
+          });
+          filePeers.forEach((b) => {
+            parts.push(
+              `<li style="margin-bottom:0.35rem"><span class="pill" style="margin-right:0.35rem">file</span>
+                <a href="${escapeAttr(b)}" target="_blank" rel="noopener">${escapeHtml(b)}</a>
+                <button type="button" data-fed-rm="${escapeAttr(b)}" style="margin-left:0.4rem">Remove</button></li>`
+            );
+          });
+        }
+        fedUl.innerHTML = parts.join("");
+        fedUl.querySelectorAll("[data-fed-rm]").forEach((btn) => {
+          btn.addEventListener("click", () =>
+            fedPeerAction("remove", btn.getAttribute("data-fed-rm"))
+          );
+        });
+      }
       const ul = $("mesh-dir-list");
       const hubs = data.directory_hubs || [];
       if (!hubs.length) {
@@ -565,6 +625,19 @@
       if (!base) return;
       try {
         await api("/v1/admin/directory_hubs", {
+          method: "POST",
+          body: JSON.stringify({ action, base }),
+        });
+        await loadMesh();
+      } catch (e) {
+        showErr(e.message || String(e));
+      }
+    }
+
+    async function fedPeerAction(action, base) {
+      if (!base) return;
+      try {
+        await api("/v1/admin/federation_peers", {
           method: "POST",
           body: JSON.stringify({ action, base }),
         });
@@ -704,6 +777,10 @@
     $("btn-dir-add")?.addEventListener("click", () => {
       const u = ($("dir-hub-url").value || "").trim();
       if (u) dirHubAction("add", u);
+    });
+    $("btn-fed-add")?.addEventListener("click", () => {
+      const u = ($("fed-peer-url").value || "").trim();
+      if (u) fedPeerAction("add", u);
     });
     $("btn-clear-token").addEventListener("click", () => {
       $("token").value = "";

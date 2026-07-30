@@ -124,6 +124,14 @@ struct Args {
         env = "ROULETTE_DIRECTORY_FILE"
     )]
     directory_file: PathBuf,
+    /// JSON file for admin-managed federation claim peers (shared stranger pool).
+    /// Merged with ROULETTE_FEDERATION_PEERS; live-editable via admin API.
+    #[arg(
+        long,
+        default_value = "data/federation_peers.json",
+        env = "ROULETTE_FEDERATION_PEERS_FILE"
+    )]
+    federation_peers_file: PathBuf,
     /// Yandex Metrica counter id (public). Empty = disabled.
     #[arg(long, default_value = "", env = "ROULETTE_YANDEX_METRICA_ID")]
     yandex_metrica_id: String,
@@ -151,6 +159,9 @@ struct AppState {
     /// Extra hubs listed in the public directory (discovery only). Runtime-editable.
     directory_hubs: Arc<Mutex<Vec<String>>>,
     directory_file: PathBuf,
+    /// Claim peers for nextface-fed/1 (merged with env). Runtime-editable.
+    federation_peers: Arc<Mutex<Vec<String>>>,
+    federation_peers_file: PathBuf,
     /// Empty disables /v1/admin/*
     admin_token: String,
     analytics: AnalyticsPublic,
@@ -214,6 +225,75 @@ fn save_directory_file(path: &std::path::Path, hubs: &[String]) -> Result<(), St
         .map_err(|e| e.to_string())
 }
 
+/// Load claim-peer bases from JSON (array or `{ "peers": [...] }`). HTTPS only.
+fn load_federation_peers_file(path: &std::path::Path) -> Vec<String> {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return Vec::new();
+    };
+    let arr = if let Some(a) = v.as_array() {
+        a.clone()
+    } else if let Some(a) = v.get("peers").and_then(|h| h.as_array()) {
+        a.clone()
+    } else if let Some(a) = v.get("hubs").and_then(|h| h.as_array()) {
+        a.clone()
+    } else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for item in arr {
+        let base = item
+            .as_str()
+            .map(|s| s.to_string())
+            .or_else(|| {
+                item.get("base")
+                    .and_then(|b| b.as_str())
+                    .map(|s| s.to_string())
+            })
+            .unwrap_or_default();
+        let b = normalize_base(&base);
+        if b.starts_with("https://") && seen.insert(b.clone()) {
+            out.push(b);
+        }
+    }
+    out
+}
+
+fn save_federation_peers_file(path: &std::path::Path, peers: &[String]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let body = serde_json::json!({
+        "protocol": PROTOCOL,
+        "updated": chrono_like_now(),
+        "peers": peers.iter().map(|b| serde_json::json!({"base": b})).collect::<Vec<_>>(),
+    });
+    std::fs::write(path, serde_json::to_string_pretty(&body).unwrap_or_else(|_| "{}".into()))
+        .map_err(|e| e.to_string())
+}
+
+/// Env claim peers + live-editable file peers (deduped, order: env then file).
+async fn effective_claim_peers(state: &AppState) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for b in state.fed.peers.iter() {
+        let n = normalize_base(b);
+        if !n.is_empty() && seen.insert(n.clone()) {
+            out.push(n);
+        }
+    }
+    for b in state.federation_peers.lock().await.iter() {
+        let n = normalize_base(b);
+        if !n.is_empty() && seen.insert(n.clone()) {
+            out.push(n);
+        }
+    }
+    out
+}
+
 fn chrono_like_now() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -262,6 +342,7 @@ async fn config_handler(State(state): State<AppState>) -> Json<PublicConfig> {
 }
 
 async fn health_handler(State(state): State<AppState>) -> impl IntoResponse {
+    let peer_count = effective_claim_peers(&state).await.len();
     let hub = state.hub.lock().await;
     Json(serde_json::json!({
         "ok": true,
@@ -279,7 +360,7 @@ async fn health_handler(State(state): State<AppState>) -> impl IntoResponse {
             "protocol": PROTOCOL,
             "instance_id": state.fed.instance_id,
             "accepts_claims": state.fed.accepts_claims(),
-            "peers": state.fed.peers.len(),
+            "peers": peer_count,
             "sessions": hub.fed_session_count(),
             "public_base": state.fed.public_base,
         }
@@ -288,6 +369,7 @@ async fn health_handler(State(state): State<AppState>) -> impl IntoResponse {
 
 /// Public multi-hub directory (discovery only — not an auto-trust federation join).
 async fn directory_handler(State(state): State<AppState>) -> impl IntoResponse {
+    let claim_peers = effective_claim_peers(&state).await;
     let hub = state.hub.lock().await;
     let dir_hubs = state.directory_hubs.lock().await.clone();
     let self_base = if state.fed.public_base.is_empty() {
@@ -311,7 +393,7 @@ async fn directory_handler(State(state): State<AppState>) -> impl IntoResponse {
     if !state.fed.public_base.is_empty() {
         seen.insert(state.fed.public_base.clone());
     }
-    for base in dir_hubs.iter().chain(state.fed.peers.iter()) {
+    for base in dir_hubs.iter().chain(claim_peers.iter()) {
         let b = normalize_base(base);
         if b.is_empty() || !seen.insert(b.clone()) {
             continue;
@@ -603,6 +685,8 @@ async fn admin_mesh_handler(
         )
             .into_response();
     }
+    let claim_peers = effective_claim_peers(&state).await;
+    let file_peers = state.federation_peers.lock().await.clone();
     let hub = state.hub.lock().await;
     let dir = state.directory_hubs.lock().await.clone();
     Json(serde_json::json!({
@@ -614,11 +698,14 @@ async fn admin_mesh_handler(
             "accepts_claims": state.fed.accepts_claims(),
             "token_set": !state.fed.token.is_empty(),
             "peers_env": state.fed.peers,
+            "peers_file": file_peers,
+            "peers_effective": claim_peers,
             "sessions": hub.fed_session_count(),
-            "note": "Claim peers (ROULETTE_FEDERATION_PEERS) require process restart to change. Directory hubs below are live-editable.",
+            "note": "Claim peers: env peers need restart; file peers (below) are live-editable. Token + public_base still required for outbound claims.",
         },
         "directory_hubs": dir,
         "directory_file": state.directory_file.display().to_string(),
+        "federation_peers_file": state.federation_peers_file.display().to_string(),
         "online": hub.online(),
         "waiting": hub.waiting_count(),
     }))
@@ -683,6 +770,80 @@ async fn admin_directory_hubs_handler(
         "directory_hubs": dir.clone(),
         "action": action,
         "base": base,
+    }))
+    .into_response()
+}
+
+/// Live-edit claim peers for nextface-fed/1 (requires shared token + public_base for claims).
+async fn admin_federation_peers_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<DirectoryHubBody>,
+) -> impl IntoResponse {
+    if !admin_token_ok(&state, &headers) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"ok": false, "error": "unauthorized"})),
+        )
+            .into_response();
+    }
+    let base = normalize_base(&body.base);
+    if !base.starts_with("https://") {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"ok": false, "error": "https base required"})),
+        )
+            .into_response();
+    }
+    // Do not allow listing ourselves as a claim peer
+    let self_base = normalize_base(&state.fed.public_base);
+    if !self_base.is_empty() && base == self_base {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"ok": false, "error": "cannot add self as claim peer"})),
+        )
+            .into_response();
+    }
+    let mut peers = state.federation_peers.lock().await;
+    let action = body.action.trim().to_lowercase();
+    match action.as_str() {
+        "add" => {
+            if !peers.iter().any(|b| b == &base) {
+                peers.push(base.clone());
+            }
+        }
+        "remove" => {
+            peers.retain(|b| b != &base);
+        }
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"ok": false, "error": "action must be add|remove"})),
+            )
+                .into_response();
+        }
+    }
+    if let Err(e) = save_federation_peers_file(&state.federation_peers_file, &peers) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"ok": false, "error": e})),
+        )
+            .into_response();
+    }
+    let file_peers = peers.clone();
+    drop(peers);
+    let effective = effective_claim_peers(&state).await;
+    Json(serde_json::json!({
+        "ok": true,
+        "action": action,
+        "base": base,
+        "peers_file": file_peers,
+        "peers_effective": effective,
+        "token_set": !state.fed.token.is_empty(),
+        "public_base": state.fed.public_base,
+        "outbound_ready": !state.fed.token.is_empty()
+            && !state.fed.public_base.is_empty()
+            && !effective.is_empty(),
     }))
     .into_response()
 }
@@ -873,19 +1034,26 @@ async fn client_connection(socket: WebSocket, state: AppState) {
 }
 
 /// Periodically claim partners from peer hubs for local solo waiters.
+/// Peers are re-read each tick so admin file edits apply without restart.
 async fn federation_worker(state: AppState) {
-    if !state.fed.enabled_outbound() {
-        tracing::info!("federation outbound disabled (set token, public_base, and peers)");
+    if state.fed.token.is_empty() || state.fed.public_base.is_empty() {
+        tracing::info!(
+            "federation outbound disabled (set ROULETTE_FEDERATION_TOKEN + ROULETTE_PUBLIC_BASE; claim peers via env or admin)"
+        );
         return;
     }
     tracing::info!(
-        peers = state.fed.peers.len(),
+        env_peers = state.fed.peers.len(),
         instance = %state.fed.instance_id,
-        "federation outbound worker started"
+        "federation outbound worker started (claim peers live-editable)"
     );
     let mut tick = tokio::time::interval(Duration::from_secs(2));
     loop {
         tick.tick().await;
+        let peers = effective_claim_peers(&state).await;
+        if peers.is_empty() {
+            continue;
+        }
         let candidate = {
             let hub = state.hub.lock().await;
             hub.pick_waiting_solo_for_federation()
@@ -894,7 +1062,7 @@ async fn federation_worker(state: AppState) {
             continue;
         };
 
-        for peer_base in &state.fed.peers {
+        for peer_base in &peers {
             let req = ClaimRequest {
                 room: room.clone(),
                 caller_instance_id: state.fed.instance_id.clone(),
@@ -1092,6 +1260,22 @@ async fn main() {
         );
     }
 
+    let fed_peers_file = if args.federation_peers_file.is_absolute() {
+        args.federation_peers_file.clone()
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(&args.federation_peers_file)
+    };
+    let federation_peers = load_federation_peers_file(&fed_peers_file);
+    if !federation_peers.is_empty() {
+        tracing::info!(
+            count = federation_peers.len(),
+            path = %fed_peers_file.display(),
+            "federation claim peers loaded from file"
+        );
+    }
+
     let yandex = args.yandex_metrica_id.trim().to_string();
     let ga = args.ga_measurement_id.trim().to_string();
     let analytics = AnalyticsPublic {
@@ -1117,6 +1301,8 @@ async fn main() {
         fed: fed.clone(),
         directory_hubs: Arc::new(Mutex::new(directory_hubs)),
         directory_file: dir_file,
+        federation_peers: Arc::new(Mutex::new(federation_peers)),
+        federation_peers_file: fed_peers_file,
         admin_token,
         analytics,
     };
@@ -1151,6 +1337,10 @@ async fn main() {
         .route("/v1/admin/seeders", get(admin_seeders_handler))
         .route("/v1/admin/mesh", get(admin_mesh_handler))
         .route("/v1/admin/directory_hubs", post(admin_directory_hubs_handler))
+        .route(
+            "/v1/admin/federation_peers",
+            post(admin_federation_peers_handler),
+        )
         .route("/v1/admin/ban", post(admin_ban_handler))
         .route("/v1/admin/unban", post(admin_unban_handler))
         .route("/v1/seeder/request", post(seeder_request_handler))

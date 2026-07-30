@@ -406,5 +406,10 @@
   "seed.footDl": "Helper",
   "pwa.installTitle": "ruletka installieren",
   "pwa.installLead": "Zum Startbildschirm für Vollbild-Chat hinzufügen.",
-  "pwa.install": "Installieren"
+  "pwa.install": "Installieren",
+  "arch.fed": "Mesh",
+  "arch.fedTitle": "Match über einen Partner-Hub. Video bleibt P2P.",
+  "log.fedMatch": "Hub-übergreifender Match",
+  "home.share": "Teilen",
+  "home.shareOk": "Link kopiert"
 }

@@ -406,5 +406,10 @@
   "seed.footDl": "Helper",
   "pwa.installTitle": "Zainstaluj ruletka",
   "pwa.installLead": "Dodaj do ekranu głównego — czat na pełnym ekranie.",
-  "pwa.install": "Zainstaluj"
+  "pwa.install": "Zainstaluj",
+  "arch.fed": "Mesh",
+  "arch.fedTitle": "Match przez inny hub. Wideo nadal P2P.",
+  "log.fedMatch": "Match między hubami",
+  "home.share": "Udostępnij",
+  "home.shareOk": "Link skopiowany"
 }

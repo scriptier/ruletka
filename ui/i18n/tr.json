@@ -406,5 +406,10 @@
   "seed.footDl": "Helper",
   "pwa.installTitle": "ruletka yükle",
   "pwa.installLead": "Tam ekran sohbet için ana ekrana ekle.",
-  "pwa.install": "Yükle"
+  "pwa.install": "Yükle",
+  "arch.fed": "Ağ",
+  "arch.fedTitle": "İşbirlikçi hub üzerinden eşleşme. Video hâlâ P2P.",
+  "log.fedMatch": "Hub’lar arası eşleşme",
+  "home.share": "Paylaş",
+  "home.shareOk": "Bağlantı kopyalandı"
 }

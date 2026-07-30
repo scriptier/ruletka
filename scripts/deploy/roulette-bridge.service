@@ -21,9 +21,10 @@ EnvironmentFile=-/opt/ruletka/data/admin.env
 # Public identity for multi-hub directory (GET /v1/directory)
 Environment=ROULETTE_PUBLIC_BASE=https://ruletka.vip
 Environment=ROULETTE_INSTANCE_ID=ruletka-vip
-# Optional federation with trusted operator peers:
-# Environment=ROULETTE_FEDERATION_TOKEN=...
-# Environment=ROULETTE_FEDERATION_PEERS=https://other-hub.example.com
+# Optional federation with trusted operator peers (shared stranger pool):
+# Environment=ROULETTE_FEDERATION_TOKEN=...   # required for claims (restart once)
+# Environment=ROULETTE_FEDERATION_PEERS=https://other-hub.example.com  # optional env seed
+# Live claim peers also via admin: data/federation_peers.json (no restart)
 # Environment=ROULETTE_DIRECTORY_HUBS=https://other-hub.example.com
 # Optional analytics (public ids only — also via data/analytics.env):
 # Environment=ROULETTE_YANDEX_METRICA_ID=

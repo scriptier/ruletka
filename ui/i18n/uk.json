@@ -406,5 +406,10 @@
   "seed.footDl": "Helper",
   "pwa.installTitle": "Встановити ruletka",
   "pwa.installLead": "На головний екран — повноекранний чат.",
-  "pwa.install": "Встановити"
+  "pwa.install": "Встановити",
+  "arch.fed": "Мережа",
+  "arch.fedTitle": "Матч через інший хаб. Відео peer-to-peer.",
+  "log.fedMatch": "Матч між хабами",
+  "home.share": "Поділитися",
+  "home.shareOk": "Посилання скопійовано"
 }

@@ -986,6 +986,17 @@ function setArchPill(mode) {
   }
 }
 
+function setFedChip(on) {
+  const el = $("fed-chip");
+  if (!el) return;
+  el.hidden = !on;
+  if (on) {
+    el.title = _t("arch.fedTitle");
+    const span = el.querySelector("[data-i18n]") || el;
+    if (span) span.textContent = _t("arch.fed");
+  }
+}
+
 function setIcePathBadge(kind) {
   const el = $("ice-path");
   if (!el) return;
@@ -2487,6 +2498,7 @@ function handleServer(msg) {
           resetRemoteEmptyCopy();
           matchMode = "solo";
           yourRole = "solo";
+          setFedChip(false);
         }
         setArchPill("default");
         if (detailRaw) log(detailRu);
@@ -2581,6 +2593,13 @@ function handleMatched(msg) {
           name: msg.partner_short,
         },
       ];
+
+  // Federated match: remote peer_id is fed/{session}/{id} (nextface-fed/1)
+  const isFedMatch = peers.some((p) =>
+    String(p.peer_id || "").startsWith("fed/")
+  );
+  setFedChip(isFedMatch);
+  if (isFedMatch) log(_t("log.fedMatch"));
 
   // Prefer friend/stranger for Block target (not party co-browser)
   const primary =

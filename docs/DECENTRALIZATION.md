@@ -51,8 +51,14 @@ Only with operators you trust:
 ```bash
 export ROULETTE_FEDERATION_TOKEN='shared-secret-among-ops'
 export ROULETTE_PUBLIC_BASE=https://your-hub.example.com
+# Optional bootstrap peers (require restart to change):
 export ROULETTE_FEDERATION_PEERS=https://other.example.com
 ```
+
+**Live claim peers (no restart):** after both hubs share the same token and
+public bases, operators can add/remove HTTPS claim peers in **Admin → Mesh**
+(`POST /v1/admin/federation_peers` → `data/federation_peers.json`).  
+Env peers and file peers are merged. Outbound claims need **token + public_base + at least one peer**.
 
 Protocol: [`INTEROP.md`](INTEROP.md).  
 Helpers **announce** via `/v1/seeder/request` but are **not auto-joined** (by design).
