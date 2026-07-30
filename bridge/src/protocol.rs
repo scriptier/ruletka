@@ -191,6 +191,9 @@ pub enum ServerMsg {
         from_name: String,
         from_short: String,
         from_peer: String,
+        /// Caller friend code (for local history / re-add).
+        #[serde(default)]
+        from_code: String,
     },
     CallEnded {
         reason: String,

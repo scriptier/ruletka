@@ -2156,6 +2156,7 @@ impl SimpleHub {
         let my_name = me.name.clone();
         let my_short = me.short_id.clone();
         let my_peer = me.peer_id.clone();
+        let my_code = me.friend_code.clone();
 
         // Mutual friendship required (both must have accepted)
         let i_have = self
@@ -2236,6 +2237,7 @@ impl SimpleHub {
                 from_name: my_name,
                 from_short: my_short,
                 from_peer: my_peer,
+                from_code: my_code,
             },
         );
         self.status(id, "calling friend…");

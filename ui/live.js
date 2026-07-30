@@ -471,7 +471,7 @@ function setStatus(s) {
   $("status").textContent = s;
 }
 
-function setPool({ online, waiting, offers }) {
+function setPool({ online, waiting, offers, room }) {
   if (online != null && $("stat-online")) $("stat-online").textContent = String(online);
   if (waiting != null) {
     lastWaitingCount = waiting;
@@ -480,7 +480,24 @@ function setPool({ online, waiting, offers }) {
   // offers optional in new UI
   const o = $("stat-offers");
   if (offers != null && o) o.textContent = String(offers);
+  if (room !== undefined) updateRoomChip(room);
+  else updateRoomChip(currentRoom());
   updatePoolHint();
+}
+
+function updateRoomChip(room) {
+  const chip = $("room-chip");
+  const label = $("room-chip-label");
+  if (!chip) return;
+  const r = (room != null ? room : currentRoom() || "").trim();
+  if (!r) {
+    chip.hidden = true;
+    if (label) label.textContent = "";
+    return;
+  }
+  chip.hidden = false;
+  if (label) label.textContent = r.length > 18 ? r.slice(0, 16) + "…" : r;
+  chip.title = _t("room.chipTitle", { r }) || `Room: ${r}`;
 }
 
 function updatePoolHint() {
@@ -493,7 +510,16 @@ function updatePoolHint() {
   }
   const n = lastWaitingCount || 0;
   const others = Math.max(0, n - 1);
-  if (others > 0) {
+  const room = (currentRoom() || "").trim();
+  if (room) {
+    if (others > 0) {
+      hint.textContent = _t("pool.roomOthers", { n: others, r: room });
+    } else if (inQueue || wantSearch) {
+      hint.textContent = _t("pool.roomAlone", { r: room });
+    } else {
+      hint.textContent = "";
+    }
+  } else if (others > 0) {
     hint.textContent = _t("pool.othersWaiting", { n: others });
   } else if (inQueue || wantSearch) {
     hint.textContent = _t("pool.alone");
@@ -626,6 +652,8 @@ function syncRoomInputs(value) {
   const v = value == null ? currentRoom() : String(value);
   if ($("room") && $("room").value !== v) $("room").value = v;
   if ($("room-settings") && $("room-settings").value !== v) $("room-settings").value = v;
+  updateRoomChip(v);
+  updatePoolHint();
 }
 
 function spinPayload() {
@@ -703,6 +731,129 @@ function playMatchChime() {
       o.stop(now + t + d + 0.02);
     }
   } catch (_) {}
+}
+
+/** Incoming friend-call ring (repeats until answered/declined). */
+let ringTimer = 0;
+let titleFlashTimer = 0;
+let titleFlashBase = "";
+/** @type {Notification | null} */
+let activeCallNotification = null;
+
+function playRingBurst() {
+  if (!matchSoundEnabled()) return;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!chimeCtx || chimeCtx.state === "closed") chimeCtx = new AC();
+    const ctx = chimeCtx;
+    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    const now = ctx.currentTime;
+    const tones = [
+      { f: 520, t: 0, d: 0.14 },
+      { f: 780, t: 0.16, d: 0.16 },
+      { f: 520, t: 0.36, d: 0.14 },
+    ];
+    for (const { f, t, d } of tones) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = "triangle";
+      o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, now + t);
+      g.gain.exponentialRampToValueAtTime(0.14, now + t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + t + d);
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.start(now + t);
+      o.stop(now + t + d + 0.02);
+    }
+  } catch (_) {}
+}
+
+function startIncomingRing(name) {
+  stopIncomingRing();
+  playRingBurst();
+  ringTimer = setInterval(() => {
+    if (!incomingCallFrom) {
+      stopIncomingRing();
+      return;
+    }
+    playRingBurst();
+  }, 2200);
+  // Flash document title when tab is in background
+  titleFlashBase = document.title;
+  let flip = false;
+  titleFlashTimer = setInterval(() => {
+    if (!incomingCallFrom) {
+      stopIncomingRing();
+      return;
+    }
+    flip = !flip;
+    document.title = flip
+      ? `📞 ${name || "Call"} — ruletka.vip`
+      : titleFlashBase || "ruletka.vip";
+  }, 900);
+  // System notification if page is hidden
+  tryShowCallNotification(name);
+}
+
+function stopIncomingRing() {
+  if (ringTimer) {
+    clearInterval(ringTimer);
+    ringTimer = 0;
+  }
+  if (titleFlashTimer) {
+    clearInterval(titleFlashTimer);
+    titleFlashTimer = 0;
+  }
+  if (titleFlashBase) {
+    document.title = titleFlashBase;
+    titleFlashBase = "";
+  }
+  if (activeCallNotification) {
+    try {
+      activeCallNotification.close();
+    } catch (_) {}
+    activeCallNotification = null;
+  }
+}
+
+function tryShowCallNotification(name) {
+  if (typeof Notification === "undefined") return;
+  if (document.visibilityState === "visible") return;
+  const show = () => {
+    try {
+      activeCallNotification = new Notification(_t("friends.incomingNotifTitle"), {
+        body: _t("friends.incomingNotifBody", { n: name || "Friend" }),
+        tag: "ruletka-friend-call",
+        renotify: true,
+        silent: false,
+      });
+      activeCallNotification.onclick = () => {
+        window.focus();
+        activeCallNotification?.close();
+      };
+    } catch (_) {}
+  };
+  if (Notification.permission === "granted") show();
+  else if (Notification.permission === "default") {
+    Notification.requestPermission().then((p) => {
+      if (p === "granted" && incomingCallFrom && document.visibilityState !== "visible") {
+        show();
+      }
+    });
+  }
+}
+
+function ensureNotifPermissionSoft() {
+  if (typeof Notification === "undefined") return;
+  if (Notification.permission !== "default") return;
+  // Only prompt once after user opens friends (user gesture path)
+  try {
+    if (sessionStorage.getItem("rulet-notif-asked")) return;
+    sessionStorage.setItem("rulet-notif-asked", "1");
+  } catch (_) {}
+  Notification.requestPermission().catch(() => {});
 }
 
 function flashPartnerTile() {
@@ -2205,10 +2356,11 @@ function handleServer(msg) {
       setPool({
         online: msg.online,
         waiting:
-          msg.room_waiting != null && currentRoom()
+          msg.room_waiting != null && (msg.room || currentRoom())
             ? msg.room_waiting
             : msg.waiting_peers,
         offers: msg.offers,
+        room: msg.room,
       });
       break;
     case "status": {
@@ -2217,6 +2369,7 @@ function handleServer(msg) {
         online: msg.online,
         waiting: msg.waiting_peers,
         offers: msg.offers,
+        room: msg.room,
       });
       const detailRaw = msg.detail || "";
       const detailRu = _srv(detailRaw);
@@ -2811,45 +2964,75 @@ function kindLabel(kind) {
   return _t("friends.kindStranger");
 }
 
+function formatDurationShort(secs) {
+  if (!secs || secs < 1) return "";
+  if (secs < 60) return `${secs}s`;
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return s ? `${m}m ${s}s` : `${m}m`;
+}
+
 function renderHistoryList() {
   const el = $("history-list");
   if (!el) return;
   const list = loadHistory();
-  if (!list.length) {
-    el.hidden = true;
-    el.innerHTML = "";
-    return;
-  }
   el.hidden = false;
   const friendIds = new Set(friendsCache.map((f) => f.user_id));
-  el.innerHTML =
-    `<div class="hint-inline history-head"><strong>${escapeHtml(
-      _t("friends.historyTitle")
-    )}</strong>
+  const head = `<div class="hint-inline history-head"><strong>${escapeHtml(
+    _t("friends.historyTitle")
+  )}</strong>
       <button type="button" class="pill tight ghost" id="btn-clear-history">${escapeHtml(
         _t("friends.historyClear")
       )}</button>
-    </div>` +
+    </div>`;
+  if (!list.length) {
+    el.innerHTML =
+      head +
+      `<p class="hint-inline muted">${escapeHtml(_t("friends.historyEmpty"))}</p>`;
+    $("btn-clear-history")?.addEventListener("click", () => {
+      saveHistory([]);
+      renderHistoryList();
+    });
+    return;
+  }
+  el.innerHTML =
+    head +
     list
-      .slice(0, 20)
+      .slice(0, 24)
       .map((h) => {
         const isFriend = h.user_id && friendIds.has(h.user_id);
-        const onlineFriend = isFriend && friendsCache.find((f) => f.user_id === h.user_id)?.online;
+        const fr = isFriend
+          ? friendsCache.find((f) => f.user_id === h.user_id)
+          : null;
+        const onlineFriend = !!(fr && fr.online);
+        const dur = formatDurationShort(h.duration_secs);
+        const metaBits = [
+          kindLabel(h.kind),
+          formatHistoryTime(h.t),
+          dur ? dur : "",
+          isFriend && !onlineFriend ? _t("friends.offline") : "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
         let actions = "";
         if (onlineFriend) {
           actions = `<button type="button" class="pill tight btn-hist-call" data-uid="${escapeAttr(
             h.user_id
           )}">${escapeHtml(_t("friends.redial"))}</button>`;
+        } else if (isFriend && h.user_id) {
+          actions = `<button type="button" class="pill tight ghost" disabled title="${escapeAttr(
+            _t("friends.offline")
+          )}">${escapeHtml(_t("friends.offline"))}</button>`;
         } else if (h.friend_code && !isFriend) {
           actions = `<button type="button" class="pill tight btn-hist-add" data-code="${escapeAttr(
             h.friend_code
           )}">${escapeHtml(_t("friends.addFromHistory"))}</button>`;
         }
         return `<div class="friend-row">
-          <span class="dot"></span>
+          <span class="dot ${onlineFriend ? "online" : ""}"></span>
           <div class="meta">
             <strong>${escapeHtml(h.name || h.short_id || "anon")}</strong>
-            <span>${escapeHtml(kindLabel(h.kind))} · ${escapeHtml(formatHistoryTime(h.t))}</span>
+            <span>${escapeHtml(metaBits)}</span>
           </div>
           <div class="friend-actions">${actions}</div>
         </div>`;
@@ -3007,12 +3190,25 @@ function stopMatchTimer() {
     clearInterval(matchTimerInterval);
     matchTimerInterval = 0;
   }
+  if (matchTimerStartedAt && lastMatchMeta?.user_id) {
+    const secs = Math.max(0, Math.round((Date.now() - matchTimerStartedAt) / 1000));
+    patchHistoryDuration(lastMatchMeta.user_id, secs);
+  }
   matchTimerStartedAt = 0;
   const el = $("match-timer");
   if (el) {
     el.hidden = true;
     el.textContent = "0:00";
   }
+}
+
+function patchHistoryDuration(userId, secs) {
+  if (!userId || secs < 1) return;
+  const list = loadHistory();
+  const row = list.find((h) => h.user_id === userId);
+  if (!row) return;
+  row.duration_secs = Math.max(row.duration_secs || 0, secs);
+  saveHistory(list);
 }
 
 /** Long-wait tips while searching with no match */
@@ -3147,6 +3343,7 @@ function showFriendRequestToast(msg) {
 }
 
 function openFriends() {
+  ensureNotifPermissionSoft();
   if ($("friends-sheet")) $("friends-sheet").hidden = false;
   if ($("friends-backdrop")) $("friends-backdrop").hidden = false;
   syncNameInputs(getDisplayName());
@@ -3162,6 +3359,7 @@ function closeFriends() {
 
 function hideIncomingCall() {
   incomingCallFrom = null;
+  stopIncomingRing();
   const toast = $("call-toast");
   if (toast) toast.remove();
 }
@@ -3176,7 +3374,7 @@ function showIncomingCall(msg) {
   toast.id = "call-toast";
   toast.className = "call-toast";
   toast.setAttribute("role", "dialog");
-  toast.setAttribute("aria-live", "polite");
+  toast.setAttribute("aria-live", "assertive");
   toast.innerHTML = `
     <div class="call-toast-body">
       <strong id="call-toast-name">${escapeHtml(name)}</strong>
@@ -3206,13 +3404,15 @@ function showIncomingCall(msg) {
       name,
       user_id: incomingCallFrom,
       short_id: msg.from_short || "",
+      friend_code: msg.from_code || "",
     });
     send({ type: "call_respond", user_id: incomingCallFrom, accept: false });
     hideIncomingCall();
   });
 
-  playMatchChime();
+  startIncomingRing(name);
   log(`${name} calling…`);
+  setStatus(_t("friends.incoming"));
 }
 
 function toggleFullscreenPartner() {

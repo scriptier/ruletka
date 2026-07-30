@@ -298,7 +298,11 @@ html.stage-html {
   background: #4a5568;
   flex-shrink: 0;
 }
-.friend-row.online .dot { background: #3dd68c; box-shadow: 0 0 8px #3dd68c; }
+.friend-row.online .dot,
+.friend-row .dot.online {
+  background: #3dd68c;
+  box-shadow: 0 0 8px #3dd68c;
+}
 .friend-row .meta { flex: 1; min-width: 0; }
 .friend-row .meta strong { display: block; }
 .friend-row .meta span { color: #8b9bb0; font-size: 0.72rem; }
@@ -482,6 +486,28 @@ html.stage-html {
   color: #9ec5ff;
   font-weight: 600;
   margin-left: 0.25rem;
+}
+
+/* Room lobby chip in pool bar */
+.room-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #cfe0ff;
+  background: rgba(91, 157, 255, 0.14);
+  border: 1px solid rgba(91, 157, 255, 0.3);
+  max-width: 10rem;
+}
+.room-chip[hidden] { display: none !important; }
+.room-chip .icon { width: 0.85rem; height: 0.85rem; opacity: 0.85; }
+#room-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Match session timer on partner tile */
