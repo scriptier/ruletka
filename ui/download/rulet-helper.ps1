@@ -47,7 +47,26 @@ function Sync-Ui {
 Sync-Ui
 
 if (-not (Test-Path $Bin)) {
-  Get-File "$BaseUrl/download/roulette-bridge-windows-amd64.exe" $Bin
+  $tmp = "$Bin.download"
+  Get-File "$BaseUrl/download/roulette-bridge-windows-amd64.exe" $tmp
+  try {
+    $sumsPath = Join-Path $Dir "SHA256SUMS"
+    Get-File "$BaseUrl/download/SHA256SUMS" $sumsPath
+    $line = Get-Content $sumsPath | Where-Object { $_ -match "roulette-bridge-windows-amd64\.exe\s*$" } | Select-Object -First 1
+    if ($line) {
+      $expect = ($line -split "\s+")[0].ToLower()
+      $got = (Get-FileHash -Path $tmp -Algorithm SHA256).Hash.ToLower()
+      if ($got -ne $expect) {
+        Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+        throw "Checksum mismatch for windows binary (expected $expect got $got)"
+      }
+      Write-Host "  ✓ SHA256 verified"
+    }
+  } catch {
+    if ($_.Exception.Message -match "Checksum mismatch") { throw }
+    # Missing SHA256SUMS is non-fatal
+  }
+  Move-Item -Force $tmp $Bin
 }
 if (-not (Test-Path $Cf)) {
   Get-File "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" $Cf

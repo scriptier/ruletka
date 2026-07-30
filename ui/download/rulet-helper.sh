@@ -85,6 +85,21 @@ sync_ui
 if [[ ! -x "$BIN" ]]; then
   echo "Downloading bridge binary…"
   curl -fsSL "$BASE_URL/download/roulette-bridge-linux-amd64" -o "$BIN.tmp"
+  # Verify against published SHA256SUMS when available
+  if curl -fsSL "$BASE_URL/download/SHA256SUMS" -o "$DIR/SHA256SUMS" 2>/dev/null; then
+    expect=$(awk '/roulette-bridge-linux-amd64$/ {print $1; exit}' "$DIR/SHA256SUMS" || true)
+    if [[ -n "$expect" ]] && command -v sha256sum >/dev/null 2>&1; then
+      got=$(sha256sum "$BIN.tmp" | awk '{print $1}')
+      if [[ "$got" != "$expect" ]]; then
+        echo "ERROR: checksum mismatch for roulette-bridge-linux-amd64" >&2
+        echo "  expected: $expect" >&2
+        echo "  got:      $got" >&2
+        rm -f "$BIN.tmp"
+        exit 1
+      fi
+      echo "  ✓ SHA256 verified"
+    fi
+  fi
   chmod +x "$BIN.tmp"
   mv "$BIN.tmp" "$BIN"
 fi

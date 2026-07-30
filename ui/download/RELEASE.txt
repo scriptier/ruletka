@@ -1,0 +1,15 @@
+ruletka helper artifacts
+Generated: 2026-07-30T23:15Z
+Host: Linux/x86_64
+
+Verify:
+  cd ui/download
+  sha256sum -c SHA256SUMS
+
+Optional GPG:
+  gpg --verify SHA256SUMS.asc SHA256SUMS
+
+Note: Platform code-signing (Apple Developer / EV Authenticode) is separate
+from these checksums. Until signed, macOS Gatekeeper / Windows SmartScreen
+may warn on first run — use “Open Anyway” / “More info → Run anyway” if you
+trust this build source.

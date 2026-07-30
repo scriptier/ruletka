@@ -53,6 +53,24 @@ fi
 if [[ ! -x "$BIN" ]]; then
   echo "Downloading bridge ($BRIDGE_NAME)…"
   curl -fsSL "$BASE_URL/download/$BRIDGE_NAME" -o "$BIN.tmp"
+  if curl -fsSL "$BASE_URL/download/SHA256SUMS" -o "$DIR/SHA256SUMS" 2>/dev/null; then
+    expect=$(awk -v n="$BRIDGE_NAME" '$2==n {print $1; exit}' "$DIR/SHA256SUMS" || true)
+    if [[ -n "$expect" ]]; then
+      if command -v shasum >/dev/null 2>&1; then
+        got=$(shasum -a 256 "$BIN.tmp" | awk '{print $1}')
+      elif command -v sha256sum >/dev/null 2>&1; then
+        got=$(sha256sum "$BIN.tmp" | awk '{print $1}')
+      else
+        got=""
+      fi
+      if [[ -n "$got" && "$got" != "$expect" ]]; then
+        echo "ERROR: checksum mismatch for $BRIDGE_NAME" >&2
+        rm -f "$BIN.tmp"
+        exit 1
+      fi
+      [[ -n "$got" ]] && echo "  ✓ SHA256 verified"
+    fi
+  fi
   chmod +x "$BIN.tmp"
   mv "$BIN.tmp" "$BIN"
   xattr -dr com.apple.quarantine "$BIN" 2>/dev/null || true

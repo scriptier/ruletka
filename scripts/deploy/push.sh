@@ -39,7 +39,11 @@ for f in \
   roulette-bridge-macos-amd64 \
   rulet-helper.sh \
   rulet-helper-mac.sh \
-  rulet-helper.ps1
+  rulet-helper.ps1 \
+  SHA256SUMS \
+  SHA256SUMS.asc \
+  RELEASE.txt \
+  README.md
 do
   if [[ -f "ui/download/$f" ]]; then
     cp -a "ui/download/$f" "$STAGE/ui/download/"
@@ -55,7 +59,28 @@ done
 [[ -f target/x86_64-apple-darwin/release/roulette-bridge ]] && \
   cp -a target/x86_64-apple-darwin/release/roulette-bridge \
     "$STAGE/ui/download/roulette-bridge-macos-amd64"
-chmod +x "$STAGE/ui/download/"* 2>/dev/null || true
+chmod +x "$STAGE/ui/download/"roulette-bridge-* "$STAGE/ui/download/"rulet-helper*.sh 2>/dev/null || true
+# Always recompute checksums for what we actually ship (linux binary is freshly built)
+(
+  cd "$STAGE/ui/download"
+  files=()
+  for f in \
+    roulette-bridge-linux-amd64 \
+    roulette-bridge-windows-amd64.exe \
+    roulette-bridge-macos-arm64 \
+    roulette-bridge-macos-amd64 \
+    rulet-helper.sh \
+    rulet-helper-mac.sh \
+    rulet-helper.ps1
+  do
+    [[ -f "$f" ]] && files+=("$f")
+  done
+  if [[ ${#files[@]} -gt 0 ]]; then
+    sha256sum "${files[@]}" > SHA256SUMS
+    echo "Helper SHA256SUMS:"
+    cat SHA256SUMS
+  fi
+)
 cp -a scripts/deploy/Caddyfile \
   scripts/deploy/roulette-bridge.service \
   scripts/deploy/install-on-server.sh \

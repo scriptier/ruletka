@@ -1,0 +1,88 @@
+name: Release helpers
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build Linux amd64
+        run: |
+          cargo build -p freenet-roulette-bridge --release
+          mkdir -p dist
+          cp target/release/roulette-bridge dist/roulette-bridge-linux-amd64
+          chmod +x dist/roulette-bridge-linux-amd64
+          cp ui/download/rulet-helper.sh ui/download/rulet-helper-mac.sh ui/download/rulet-helper.ps1 dist/
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: helpers-linux
+          path: dist/*
+
+  build-windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      - name: Install mingw
+        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
+      - uses: Swatinem/rust-cache@v2
+      - name: Build Windows amd64
+        run: |
+          cargo build -p freenet-roulette-bridge --release --target x86_64-pc-windows-gnu
+          mkdir -p dist
+          cp target/x86_64-pc-windows-gnu/release/roulette-bridge.exe dist/roulette-bridge-windows-amd64.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: helpers-windows
+          path: dist/*
+
+  release:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Assemble
+        run: |
+          mkdir -p out
+          cp artifacts/helpers-linux/* out/
+          cp artifacts/helpers-windows/* out/ 2>/dev/null || true
+          cd out
+          sha256sum roulette-bridge-* rulet-helper* 2>/dev/null | tee SHA256SUMS
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          generate_release_notes: true
+          body: |
+            ## Helper binaries
+
+            Verify downloads:
+            ```bash
+            sha256sum -c SHA256SUMS
+            ```
+
+            Platform code-signing (SmartScreen / Gatekeeper) is not included in this workflow.
+            Prefer checksum verification from this release page.

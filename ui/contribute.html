@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="home.css?v=47" />
+  <link rel="stylesheet" href="home.css?v=48" />
   <style>
     .contrib-main {
       max-width: 900px;
@@ -302,8 +302,20 @@ chmod +x rulet-helper.sh && ./rulet-helper.sh</div>
     </ol>
 
     <p class="note">
+      <strong>Verify downloads</strong> —
+      <a href="/download/SHA256SUMS">SHA256SUMS</a>
+      ·
+      <a href="/download/RELEASE.txt">RELEASE.txt</a>
+      <br />
+      Linux/macOS: <code>sha256sum -c SHA256SUMS</code>
+      · Windows: <code>Get-FileHash file.exe -Algorithm SHA256</code>
+      <br />
+      Helper scripts auto-check the bridge binary against SHA256SUMS when present.
+    </p>
+    <p class="note">
       macOS may ask to allow the binary under <em>Privacy &amp; Security</em> the first time.
-      Windows may show SmartScreen for an unsigned .exe — choose “More info → Run anyway” if you trust this site.
+      Windows may show SmartScreen for an unsigned .exe — choose “More info → Run anyway” if you trust this site after verifying the checksum.
+      Full Apple/Microsoft code-signing is optional and not required for open-source builds.
     </p>
 
     <div class="contrib-cta-band">
