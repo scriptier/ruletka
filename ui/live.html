@@ -17,8 +17,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=42" />
-  <link rel="stylesheet" href="live-stage.css?v=42" />
+  <link rel="stylesheet" href="style.css?v=43" />
+  <link rel="stylesheet" href="live-stage.css?v=43" />
 </head>
 <body class="stage-body">
   <!-- Stroke icon sprite (currentColor) -->
@@ -154,6 +154,7 @@
         </div>
         <div class="tile-tag" id="remote-tile-tag" hidden>
           <span class="name-on-tile" id="remote-tag"></span>
+          <span class="match-timer" id="match-timer" hidden title="Time with partner">0:00</span>
           <span class="quality" id="call-quality"></span>
         </div>
         <aside class="side-rail side-rail-left">
@@ -274,6 +275,39 @@
       <span class="conn-ice" id="conn-ice"></span>
     </div>
 
+  </div>
+
+  <!-- Long-wait tips (empty pool / slow match) -->
+  <div class="wait-tips" id="wait-tips" hidden role="status">
+    <div class="wait-tips-card">
+      <strong data-i18n="wait.title">Still looking…</strong>
+      <p id="wait-tips-body" data-i18n="wait.body">Few people online right now. Keep this tab open, try a room code with a friend, or come back later.</p>
+      <div class="wait-tips-actions">
+        <button type="button" class="pill" id="btn-wait-spin" data-i18n="btn.spin">Spin</button>
+        <button type="button" class="pill ghost" id="btn-wait-dismiss" data-i18n="coach.dismiss">Dismiss</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Keyboard shortcuts help -->
+  <div class="keys-help" id="keys-help" hidden role="dialog" aria-labelledby="keys-help-title">
+    <div class="keys-help-card">
+      <header class="keys-help-head">
+        <h3 id="keys-help-title" data-i18n="keys.title">Keyboard shortcuts</h3>
+        <button type="button" class="sheet-close" id="keys-help-close" aria-label="Close">✕</button>
+      </header>
+      <ul class="keys-help-list">
+        <li><kbd>Space</kbd> <span data-i18n="keys.next">Next partner</span></li>
+        <li><kbd>M</kbd> <span data-i18n="keys.mic">Mute mic</span></li>
+        <li><kbd>V</kbd> <span data-i18n="keys.cam">Camera on/off</span></li>
+        <li><kbd>P</kbd> <span data-i18n="keys.partner">Mute partner</span></li>
+        <li><kbd>B</kbd> <span data-i18n="keys.blur">Blur partner</span></li>
+        <li><kbd>F</kbd> <span data-i18n="keys.full">Fullscreen partner</span></li>
+        <li><kbd>?</kbd> <span data-i18n="keys.this">This help</span></li>
+        <li><kbd>Esc</kbd> <span data-i18n="keys.esc">Close menus</span></li>
+      </ul>
+      <p class="hint-inline" data-i18n="keys.hint">Click partner video for friend / block / report</p>
+    </div>
   </div>
 
   <!-- Failed-call coach (WebRTC / ICE problems) -->
@@ -710,11 +744,11 @@
   </div>
 
   <!-- cache-bust so browsers always get auto-connect / auto-media fixes -->
-  <script src="i18n.js?v=42"></script>
-  <script src="identity.js?v=42"></script>
-  <script src="hubs.js?v=42"></script>
-  <script src="webrtc.js?v=42"></script>
-  <script src="live.js?v=42"></script>
+  <script src="i18n.js?v=43"></script>
+  <script src="identity.js?v=43"></script>
+  <script src="hubs.js?v=43"></script>
+  <script src="webrtc.js?v=43"></script>
+  <script src="live.js?v=43"></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

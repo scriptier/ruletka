@@ -208,6 +208,28 @@
       <div class="stat">Waiting <strong id="st-waiting">0</strong></div>
       <div class="stat">Reports (shown) <strong id="st-reports">0</strong></div>
       <div class="stat">Active bans <strong id="st-bans">0</strong></div>
+      <div class="stat">Seeders <strong id="st-seeders">0</strong></div>
+    </div>
+
+    <h2>Network helpers (seeders)</h2>
+    <p class="hint">
+      Helpers that posted <code>/v1/seeder/request</code>. Discovery only — never auto-joined to federation.
+      <button type="button" id="btn-probe-seeders" style="margin-left:0.5rem">Probe health</button>
+    </p>
+    <div class="card" id="seeders-card">
+      <div class="empty" id="seeders-empty">Sign in to load seeders</div>
+      <table id="seeders-table" hidden>
+        <thead>
+          <tr>
+            <th>When</th>
+            <th>URL</th>
+            <th>Instance</th>
+            <th>Note</th>
+            <th>Reachable</th>
+          </tr>
+        </thead>
+        <tbody id="seeders-body"></tbody>
+      </table>
     </div>
 
     <h2>Active match bans</h2>
@@ -418,6 +440,46 @@
         .join("");
     }
 
+    function renderSeeders(list) {
+      const body = $("seeders-body");
+      const empty = $("seeders-empty");
+      const table = $("seeders-table");
+      if (!list || !list.length) {
+        empty.hidden = false;
+        empty.textContent = "No helper announcements yet";
+        table.hidden = true;
+        body.innerHTML = "";
+        return;
+      }
+      empty.hidden = true;
+      table.hidden = false;
+      body.innerHTML = list
+        .map((s) => {
+          const base = s.public_base || "";
+          let reach = "—";
+          if (s.reachable === true) {
+            reach = `<span class="pill ok">up</span> ${s.online ?? "?"} online`;
+          } else if (s.reachable === false) {
+            reach = `<span class="pill bad">down</span>`;
+          }
+          return `<tr>
+          <td class="muted">${escapeHtml(fmtTime(s.t))}</td>
+          <td>
+            <a href="${escapeAttr(base)}" target="_blank" rel="noopener">${escapeHtml(base)}</a>
+            <div class="row-actions" style="margin-top:0.25rem">
+              <a class="btn" href="${escapeAttr(base)}/live.html" target="_blank" rel="noopener">Live</a>
+              <a class="btn" href="${escapeAttr(base)}/health" target="_blank" rel="noopener">Health</a>
+              <a class="btn" href="${escapeAttr(base)}/v1/directory" target="_blank" rel="noopener">Dir</a>
+            </div>
+          </td>
+          <td class="uid">${escapeHtml(s.instance_id || s.instance_live || "—")}</td>
+          <td>${escapeHtml(s.note || "—")}</td>
+          <td>${reach}</td>
+        </tr>`;
+        })
+        .join("");
+    }
+
     function renderTargets(list) {
       const body = $("targets-body");
       const empty = $("targets-empty");
@@ -489,9 +551,26 @@
         $("st-waiting").textContent = data.waiting ?? 0;
         $("st-reports").textContent = (data.reports || []).length;
         $("st-bans").textContent = (data.bans || []).length;
+        $("st-seeders").textContent = (data.seeders || []).length;
         renderBans(data.bans || []);
         renderReports(data.reports || []);
         renderTargets(data.targets || []);
+        renderSeeders(data.seeders || []);
+      } catch (e) {
+        showErr(e.message || String(e));
+      }
+    }
+
+    async function probeSeeders() {
+      showErr("");
+      if (!token()) {
+        showErr("Enter admin token");
+        return;
+      }
+      try {
+        const data = await api("/v1/admin/seeders?probe=1");
+        $("st-seeders").textContent = (data.seeders || []).length;
+        renderSeeders(data.seeders || []);
       } catch (e) {
         showErr(e.message || String(e));
       }
@@ -526,6 +605,7 @@
     }
 
     $("btn-load").addEventListener("click", refresh);
+    $("btn-probe-seeders")?.addEventListener("click", probeSeeders);
     $("btn-clear-token").addEventListener("click", () => {
       $("token").value = "";
       saveToken("");
@@ -540,6 +620,10 @@
 
     loadSaved();
     if (token()) refresh();
+    // Auto-refresh pool stats every 20s while token present
+    setInterval(() => {
+      if (token() && document.visibilityState === "visible") refresh().catch(() => {});
+    }, 20000);
   </script>
 </body>
 </html>

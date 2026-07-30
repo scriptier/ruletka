@@ -423,8 +423,17 @@ function setPhase(p) {
       : _phase(p);
   el.textContent = label;
   el.className = "phase " + p;
+  const wasQueue = inQueue;
   inQueue = p === "waiting" || p === "claiming";
   if (inQueue) wantSearch = true;
+  if (inQueue && !wasQueue) startWaitTipsWatch();
+  if (!inQueue) {
+    clearWaitTipsWatch();
+    hideWaitTips();
+  }
+  if (p !== "matched" && p !== "friend_call" && !matched) {
+    stopMatchTimer();
+  }
   updatePoolHint();
   updateFriendActionButtons();
 }
@@ -2119,17 +2128,34 @@ function handleServer(msg) {
       if (msg.signaling === "freenet") setArchPill("freenet");
       break;
     case "friends":
-      friendsCache = msg.friends || [];
-      blockedCache = Array.isArray(msg.blocked) ? msg.blocked : [];
-      incomingRequests = Array.isArray(msg.incoming_requests) ? msg.incoming_requests : [];
-      outgoingRequests = Array.isArray(msg.outgoing_requests) ? msg.outgoing_requests : [];
-      if (msg.friend_code) {
-        myFriendCode = msg.friend_code;
-        if ($("my-friend-code")) $("my-friend-code").textContent = myFriendCode;
+      {
+        const prevOnline = new Map(
+          (friendsCache || []).map((f) => [f.user_id, !!f.online])
+        );
+        friendsCache = msg.friends || [];
+        blockedCache = Array.isArray(msg.blocked) ? msg.blocked : [];
+        incomingRequests = Array.isArray(msg.incoming_requests)
+          ? msg.incoming_requests
+          : [];
+        outgoingRequests = Array.isArray(msg.outgoing_requests)
+          ? msg.outgoing_requests
+          : [];
+        if (msg.friend_code) {
+          myFriendCode = msg.friend_code;
+          if ($("my-friend-code")) $("my-friend-code").textContent = myFriendCode;
+        }
+        // Toast when a known friend comes online (not first empty→full load)
+        if (prevOnline.size) {
+          for (const f of friendsCache) {
+            if (f.online && prevOnline.has(f.user_id) && !prevOnline.get(f.user_id)) {
+              showFriendOnlineToast(f);
+            }
+          }
+        }
+        renderFriendsList();
+        renderRequestLists();
+        renderHistoryList();
       }
-      renderFriendsList();
-      renderRequestLists();
-      renderHistoryList();
       break;
     case "friend_request":
       if (!msg.from_user_id) break;
@@ -2281,6 +2307,8 @@ function handleMatched(msg) {
   matched = true;
   inQueue = false;
   clearCallTimeout();
+  clearWaitTipsWatch();
+  hideWaitTips();
   wantSearch = msg.mode !== "friend";
   isOfferer = !!msg.is_offerer;
   matchMode = msg.mode || "solo";
@@ -2292,6 +2320,7 @@ function handleMatched(msg) {
   showChatPanel(false);
   updateConnFromState();
   startWebrtcWatch();
+  startMatchTimer();
   {
     const titleEl = $("remote-empty")?.querySelector(".empty-title");
     const subEl = $("remote-empty")?.querySelector(".empty-sub");
@@ -2408,6 +2437,7 @@ function handleIncomingSignal(msg) {
 }
 
 function closeAllPeers({ keepFriend = false } = {}) {
+  stopMatchTimer();
   for (const [pid, pc] of [...peerPcs.entries()]) {
     const keep =
       keepFriend &&
@@ -2939,6 +2969,142 @@ function renderRequestLists() {
       });
     }
   }
+}
+
+/** Match duration timer (partner tile) */
+let matchTimerStartedAt = 0;
+let matchTimerInterval = 0;
+
+function formatMatchDuration(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  if (m >= 60) {
+    const h = Math.floor(m / 60);
+    const mm = m % 60;
+    return `${h}:${String(mm).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+  }
+  return `${m}:${String(r).padStart(2, "0")}`;
+}
+
+function startMatchTimer() {
+  stopMatchTimer();
+  matchTimerStartedAt = Date.now();
+  const el = $("match-timer");
+  if (el) {
+    el.hidden = false;
+    el.textContent = "0:00";
+  }
+  matchTimerInterval = setInterval(() => {
+    const el2 = $("match-timer");
+    if (!el2 || !matched) return;
+    el2.textContent = formatMatchDuration(Date.now() - matchTimerStartedAt);
+  }, 1000);
+}
+
+function stopMatchTimer() {
+  if (matchTimerInterval) {
+    clearInterval(matchTimerInterval);
+    matchTimerInterval = 0;
+  }
+  matchTimerStartedAt = 0;
+  const el = $("match-timer");
+  if (el) {
+    el.hidden = true;
+    el.textContent = "0:00";
+  }
+}
+
+/** Long-wait tips while searching with no match */
+let waitTipsTimer = 0;
+let waitTipsShown = false;
+
+function clearWaitTipsWatch() {
+  if (waitTipsTimer) {
+    clearTimeout(waitTipsTimer);
+    waitTipsTimer = 0;
+  }
+}
+
+function hideWaitTips() {
+  const el = $("wait-tips");
+  if (el) el.hidden = true;
+  waitTipsShown = false;
+}
+
+function showWaitTips() {
+  if (!inQueue || matched) return;
+  const el = $("wait-tips");
+  if (!el) return;
+  const body = $("wait-tips-body");
+  if (body) {
+    const online = Number($("stat-online")?.textContent || 0);
+    const waiting = Number($("stat-waiting")?.textContent || 0);
+    if (online <= 1) body.textContent = _t("wait.alone");
+    else if (waiting <= 1) body.textContent = _t("wait.few");
+    else body.textContent = _t("wait.body");
+  }
+  el.hidden = false;
+  waitTipsShown = true;
+}
+
+function startWaitTipsWatch() {
+  clearWaitTipsWatch();
+  hideWaitTips();
+  // After 18s still searching → gentle tips (not a full-screen blocker)
+  waitTipsTimer = setTimeout(() => {
+    if (inQueue && !matched) showWaitTips();
+  }, 18000);
+}
+
+function wireWaitTips() {
+  on("btn-wait-dismiss", "click", () => hideWaitTips());
+  on("btn-wait-spin", "click", () => {
+    hideWaitTips();
+    $("btn-spin")?.click();
+  });
+}
+
+/** Friend came online */
+function showFriendOnlineToast(f) {
+  const name = f?.name || f?.friend_code || "Friend";
+  const id = "presence-toast";
+  const existing = $(id);
+  if (existing) existing.remove();
+  const toast = document.createElement("div");
+  toast.id = id;
+  toast.className = "presence-toast";
+  toast.setAttribute("role", "status");
+  toast.innerHTML = `<strong>${escapeHtml(name)}</strong> · ${escapeHtml(
+    _t("friends.onlineNow")
+  )}`;
+  toast.addEventListener("click", () => {
+    toast.remove();
+    openFriends();
+  });
+  document.body.appendChild(toast);
+  setTimeout(() => {
+    if (toast.parentNode) toast.remove();
+  }, 5500);
+}
+
+/** Keyboard shortcuts help */
+function keysHelpOpen() {
+  return $("keys-help") && !$("keys-help").hidden;
+}
+function openKeysHelp() {
+  const el = $("keys-help");
+  if (el) el.hidden = false;
+}
+function closeKeysHelp() {
+  const el = $("keys-help");
+  if (el) el.hidden = true;
+}
+function wireKeysHelp() {
+  on("keys-help-close", "click", () => closeKeysHelp());
+  $("keys-help")?.addEventListener("click", (e) => {
+    if (e.target === $("keys-help")) closeKeysHelp();
+  });
 }
 
 function showFriendRequestToast(msg) {
@@ -3498,6 +3664,12 @@ function onLangChange() {
 document.addEventListener("keydown", (e) => {
   const tag = (e.target && e.target.tagName) || "";
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+  if (e.key === "?" || (e.shiftKey && e.key === "/")) {
+    e.preventDefault();
+    if (keysHelpOpen()) closeKeysHelp();
+    else openKeysHelp();
+    return;
+  }
   if (e.key === "m" || e.key === "M") {
     e.preventDefault();
     toggleMicMute();
@@ -3514,12 +3686,18 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     toggleFullscreenPartner();
   } else if (e.key === "Escape") {
-    if (settingsIsOpen()) {
+    if (keysHelpOpen()) {
+      e.preventDefault();
+      closeKeysHelp();
+    } else if (settingsIsOpen()) {
       e.preventDefault();
       closeSettings();
     } else if (partnerMenuOpen()) {
       e.preventDefault();
       closePartnerMenu();
+    } else if ($("wait-tips") && !$("wait-tips").hidden) {
+      e.preventDefault();
+      hideWaitTips();
     }
   } else if (e.code === "Space") {
     e.preventDefault();
@@ -3559,6 +3737,8 @@ setArchPill("default");
 hideIncomingCall();
 hideCallCoach();
 wireCallCoach();
+wireWaitTips();
+wireKeysHelp();
 wireHubSettings();
 wireNameInputs();
 {

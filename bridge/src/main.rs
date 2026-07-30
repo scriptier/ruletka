@@ -325,6 +325,37 @@ fn read_reports_jsonl(path: &std::path::Path, limit: usize) -> Vec<serde_json::V
         .collect()
 }
 
+fn seeders_path_from_reports(reports_path: &std::path::Path) -> std::path::PathBuf {
+    reports_path
+        .parent()
+        .map(|p| p.join("seeders.jsonl"))
+        .unwrap_or_else(|| std::path::PathBuf::from("data/seeders.jsonl"))
+}
+
+/// Newest-first unique seeders by public_base (helpers that announced interest).
+fn read_seeders_unique(path: &std::path::Path, limit: usize) -> Vec<serde_json::Value> {
+    let raw = read_reports_jsonl(path, 500);
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for row in raw {
+        let base = row
+            .get("public_base")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .trim_end_matches('/')
+            .to_string();
+        if base.is_empty() || !seen.insert(base.clone()) {
+            continue;
+        }
+        out.push(row);
+        if out.len() >= limit {
+            break;
+        }
+    }
+    out
+}
+
 async fn admin_reports_handler(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -341,14 +372,99 @@ async fn admin_reports_handler(
     let reports = read_reports_jsonl(&path, 200);
     let bans = hub.admin_bans();
     let targets = hub.admin_report_targets();
+    let seeders = read_seeders_unique(&seeders_path_from_reports(&path), 40);
     Json(serde_json::json!({
         "ok": true,
         "reports_path": path.display().to_string(),
         "reports": reports,
         "bans": bans,
         "targets": targets,
+        "seeders": seeders,
         "online": hub.online(),
         "waiting": hub.waiting_count(),
+    }))
+    .into_response()
+}
+
+/// List helper / seeder announcements; optional live health probe (`?probe=1`).
+async fn admin_seeders_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
+    if !admin_token_ok(&state, &headers) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"ok": false, "error": "unauthorized"})),
+        )
+            .into_response();
+    }
+    let path = {
+        let hub = state.hub.lock().await;
+        seeders_path_from_reports(&hub.reports_file_path())
+    };
+    let mut seeders = read_seeders_unique(&path, 40);
+    let probe = q
+        .get("probe")
+        .map(|s| s == "1" || s.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if probe {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(3))
+            .build()
+            .ok();
+        if let Some(client) = client {
+            for row in seeders.iter_mut() {
+                let base = row
+                    .get("public_base")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .trim_end_matches('/');
+                if base.is_empty() {
+                    continue;
+                }
+                let url = format!("{base}/health");
+                match client.get(&url).send().await {
+                    Ok(resp) if resp.status().is_success() => {
+                        if let Ok(j) = resp.json::<serde_json::Value>().await {
+                            row.as_object_mut().map(|o| {
+                                o.insert("reachable".into(), serde_json::json!(true));
+                                o.insert(
+                                    "online".into(),
+                                    j.get("online").cloned().unwrap_or(serde_json::json!(0)),
+                                );
+                                o.insert(
+                                    "waiting".into(),
+                                    j.get("waiting").cloned().unwrap_or(serde_json::json!(0)),
+                                );
+                                o.insert(
+                                    "instance_live".into(),
+                                    j.pointer("/federation/instance_id")
+                                        .or_else(|| j.get("service"))
+                                        .cloned()
+                                        .unwrap_or(serde_json::Value::Null),
+                                );
+                            });
+                        } else {
+                            row.as_object_mut()
+                                .map(|o| o.insert("reachable".into(), serde_json::json!(true)));
+                        }
+                    }
+                    _ => {
+                        row.as_object_mut()
+                            .map(|o| o.insert("reachable".into(), serde_json::json!(false)));
+                    }
+                }
+            }
+        }
+    }
+    Json(serde_json::json!({
+        "ok": true,
+        "seeders_path": path.display().to_string(),
+        "seeders": seeders,
+        "probed": probe,
+        "note": "Seeders are discovery hints only — never auto-trusted for federation",
     }))
     .into_response()
 }
@@ -831,6 +947,7 @@ async fn main() {
         .route("/v1/federation/claim", post(federation_claim_handler))
         .route("/v1/federation/relay", post(federation_relay_handler))
         .route("/v1/admin/reports", get(admin_reports_handler))
+        .route("/v1/admin/seeders", get(admin_seeders_handler))
         .route("/v1/admin/ban", post(admin_ban_handler))
         .route("/v1/admin/unban", post(admin_unban_handler))
         .route("/v1/seeder/request", post(seeder_request_handler))
