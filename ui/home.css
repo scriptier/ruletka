@@ -23,7 +23,10 @@
 
 * { box-sizing: border-box; }
 
-html { scroll-behavior: smooth; }
+html {
+  scroll-behavior: smooth;
+  color-scheme: dark;
+}
 
 .home-body {
   margin: 0;
@@ -36,6 +39,7 @@ html { scroll-behavior: smooth; }
   position: relative;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
+  color-scheme: dark;
 }
 
 /* —— Background —— */
@@ -192,26 +196,36 @@ html { scroll-behavior: smooth; }
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  padding: 0.32rem 0.6rem;
+  padding: 0.28rem 0.45rem 0.28rem 0.55rem;
   border-radius: 999px;
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid #2a3548;
+  background: #141a22;
   font-size: 0.85rem;
-  color: var(--muted);
+  color: #9aa8bc;
   transition: border-color 0.15s, background 0.15s;
 }
 .home-lang:hover {
-  border-color: var(--border-strong);
-  background: rgba(255, 255, 255, 0.06);
+  border-color: #3a4a62;
+  background: #1a222e;
 }
+/* Match live page language control — solid dark surface (not transparent) */
 .home-lang select {
   border: none;
-  background: transparent;
-  color: var(--text);
+  background: #141a22;
+  color: #e8eef7;
   font: inherit;
   font-weight: 600;
   cursor: pointer;
   outline: none;
+  border-radius: 6px;
+  padding: 0.1rem 0.2rem;
+  /* Prefer native dark dropdown chrome where supported */
+  color-scheme: dark;
+}
+.home-lang select option,
+.home-lang select optgroup {
+  background-color: #141a22;
+  color: #e8eef7;
 }
 
 /* —— Main layout —— */

@@ -42,7 +42,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="home.css?v=51" />
+  <link rel="stylesheet" href="home.css?v=55" />
   <script src="analytics.js?v=1" defer></script>
   <script src="pwa-install.js?v=1" defer></script>
   <script type="application/ld+json">
@@ -239,10 +239,9 @@
   <footer class="home-foot">
     <span data-i18n="home.foot">18+ · Be respectful · Use Block if needed</span>
     <span class="foot-links">
-      <a href="#seed" class="foot-link" data-i18n="seed.foot">Help the network</a>
-      <a href="/contribute.html" class="foot-link" data-i18n="seed.footDl">Helper</a>
       <a href="#why" class="foot-link" data-i18n="home.diffTitle">How we’re different</a>
       <a href="#open" class="foot-link" data-i18n="home.openTitle">Open source</a>
+      <a href="/contribute.html" class="foot-link" data-i18n="home.openHelper">Run a helper</a>
     </span>
   </footer>
 
@@ -278,25 +277,6 @@
           "home.openHubs": "hubs.json",
           "home.openHelper": "Run a helper",
           "home.foot": "18+ · Be respectful · Use Block if needed",
-          "seed.title": "Help the network",
-          "seed.lead":
-            "When you chat, your camera goes <strong>straight to the other person</strong> — not to our media servers. That’s already peer-to-peer. You can also run a small helper on your computer so more people can find each other, without controlling this website.",
-          "seed.c1t": "Just chat",
-          "seed.c1d": "Open live, match someone. Your video is P2P. No install.",
-          "seed.c1b": "Start chatting",
-          "seed.c2t": "Run the helper",
-          "seed.c2d":
-            "One download for Windows, Mac, or Linux. It runs in the background and helps the match pool. You don’t get site admin access.",
-          "seed.c2b": "Download helper",
-          "seed.advSum": "Advanced: run a full hub (operators)",
-          "seed.advLead":
-            "For people who already have a VPS and HTTPS. Federation is by invite only so random nodes can’t take over the site.",
-          "seed.copy": "Copy",
-          "seed.copied": "Copied",
-          "seed.contact":
-            "Contact operators with your hub URL to join the live mesh. We do not auto-trust unknown hubs.",
-          "seed.foot": "Help the network",
-          "seed.footDl": "Helper",
         },
         ru: {
           "home.eyebrow": "Peer-to-peer чат-рулетка",
@@ -327,25 +307,6 @@
           "home.diffBody":
             "Обычные чат-рулетки гонят видео через серверы компаний и навязывают аккаунты или рекламу. <strong>ruletka.vip</strong> устроен так, что видео идёт между двумя браузерами (peer-to-peer), без регистрации. Есть друзья, блок, жалобы и фильтры безопасности на устройстве — и можно помогать сети расти, не отдавая никому контроль над этим сайтом.",
           "home.foot": "18+ · Уважайте других · Есть «В блок»",
-          "seed.title": "Помогите сети",
-          "seed.lead":
-            "Когда вы в чате, камера идёт <strong>напрямую к собеседнику</strong> — не на наш медиасервер. Это уже peer-to-peer. Можно также запустить маленький helper на компьютере, чтобы больше людей находили друг друга — без доступа к управлению сайтом.",
-          "seed.c1t": "Просто чат",
-          "seed.c1d": "Откройте live, найдите собеседника. Видео P2P. Без установки.",
-          "seed.c1b": "Начать чат",
-          "seed.c2t": "Запустить helper",
-          "seed.c2d":
-            "Одна загрузка для Windows, Mac или Linux. Работает в фоне и помогает пулу матчей. Админки сайта у вас нет.",
-          "seed.c2b": "Скачать helper",
-          "seed.advSum": "Для продвинутых: полный хаб (операторы)",
-          "seed.advLead":
-            "Если уже есть VPS и HTTPS. Федерация только по приглашению — чужие ноды не получают контроль над сайтом.",
-          "seed.copy": "Копировать",
-          "seed.copied": "Скопировано",
-          "seed.contact":
-            "Свяжитесь с операторами и пришлите URL хаба. Чужие хабы автоматически не доверяются.",
-          "seed.foot": "Помочь сети",
-          "seed.footDl": "Helper",
         },
       };
 
@@ -432,36 +393,6 @@
         });
       }
       setLang(getLang());
-
-      var copyBtn = document.getElementById("seed-copy");
-      var seedCode = document.getElementById("seed-code");
-      if (copyBtn && seedCode) {
-        copyBtn.addEventListener("click", function () {
-          var text = seedCode.innerText || seedCode.textContent || "";
-          var done = function () {
-            var dict = STR[getLang()] || STR.en;
-            copyBtn.textContent = dict["seed.copied"] || "Copied";
-            setTimeout(function () {
-              copyBtn.textContent = dict["seed.copy"] || "Copy";
-            }, 1600);
-          };
-          if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(text).then(done).catch(function () {
-              /* fallback */
-            });
-          } else {
-            var ta = document.createElement("textarea");
-            ta.value = text;
-            document.body.appendChild(ta);
-            ta.select();
-            try {
-              document.execCommand("copy");
-            } catch (_) {}
-            ta.remove();
-            done();
-          }
-        });
-      }
 
       // Live pool snapshot from bridge /health (no account, public)
       function refreshHomeStats() {
