@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="ru" class="stage-html">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <meta name="description" content="ruletka.vip — random peer-to-peer video chat" />
+  <meta name="theme-color" content="#0a0b0e" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <link rel="icon" href="/brand/favicon-32.png" type="image/png" sizes="32x32" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/brand/apple-touch-icon-180.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <title>ruletka.vip — random video chat</title>
+  <!-- Cyrillic-capable UI fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css?v=41" />
+  <link rel="stylesheet" href="live-stage.css?v=41" />
+</head>
+<body class="stage-body">
+  <!-- Stroke icon sprite (currentColor) -->
+  <svg xmlns="http://www.w3.org/2000/svg" class="icon-sprite" aria-hidden="true" focusable="false">
+    <defs>
+      <symbol id="i-volume" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/>
+      </symbol>
+      <symbol id="i-volume-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="m22 9-6 6"/><path d="m16 9 6 6"/>
+      </symbol>
+      <symbol id="i-blur" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/><path d="M12 3v2"/><path d="M12 19v2"/><path d="m5 5 1.5 1.5"/><path d="m17.5 17.5 1.5 1.5"/><path d="M3 12h2"/><path d="M19 12h2"/><path d="m5 19 1.5-1.5"/><path d="m17.5 6.5 1.5-1.5"/>
+      </symbol>
+      <symbol id="i-blur-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/><path d="m3 3 18 18"/>
+      </symbol>
+      <symbol id="i-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/>
+      </symbol>
+      <symbol id="i-camera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3.5"/>
+      </symbol>
+      <symbol id="i-camera-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m2 2 20 20"/><path d="M7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h13"/><path d="M9.5 4h5L17 7h3a2 2 0 0 1 2 2v6.5"/><path d="M14.1 9.9a3.5 3.5 0 1 1-4.2 4.2"/>
+      </symbol>
+      <symbol id="i-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v4"/><path d="M8 22h8"/>
+      </symbol>
+      <symbol id="i-mic-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m2 2 20 20"/><path d="M9 5v4a3 3 0 0 0 5.1 2.1"/><path d="M15 9.3V5a3 3 0 0 0-5.8-1"/><path d="M5 11a7 7 0 0 0 11 5.6"/><path d="M19 11v1"/><path d="M12 18v4"/><path d="M8 22h8"/>
+      </symbol>
+      <symbol id="i-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+      </symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9c.3.6.9 1 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>
+      </symbol>
+      <symbol id="i-skip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 4v16l11-8z"/><path d="M19 5v14"/>
+      </symbol>
+      <symbol id="i-share" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"/><path d="M16 6l-4-4-4 4"/><path d="M12 2v13"/>
+      </symbol>
+      <symbol id="i-pointer" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 4l7.07 17 2.51-7.39L21 11.07 4 4z"/>
+      </symbol>
+      <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+      </symbol>
+      <symbol id="i-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+      </symbol>
+      <symbol id="i-door" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/><path d="M3 21h18"/><path d="M14 11h.01"/>
+      </symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 14.5A8.5 8.5 0 1 1 9.5 3a7 7 0 0 0 11.5 11.5z"/>
+      </symbol>
+      <symbol id="i-mail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>
+      </symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>
+      </symbol>
+      <symbol id="i-file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>
+      </symbol>
+      <symbol id="i-heart-hand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8.5c1.5 0 2.5 1.2 2.5 2.6 0 2.4-3.5 4.9-2.5 4.9s-2.5-2.5-2.5-4.9c0-1.4 1-2.6 2.5-2.6z"/>
+      </symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6"/><path d="M14 11v6"/>
+      </symbol>
+      <symbol id="i-user-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6"/><path d="M22 11h-6"/>
+      </symbol>
+      <symbol id="i-ban" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>
+      </symbol>
+      <symbol id="i-flag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/>
+      </symbol>
+    </defs>
+  </svg>
+
+  <div class="stage-app">
+    <!-- Top chrome -->
+    <header class="stage-top">
+      <div class="brand">
+        <img class="brand-logo" src="/brand/logo-mark.png" width="28" height="28" alt="" />
+        <span data-i18n="brand.name">ruletka.vip</span>
+        <span class="badge" data-i18n="brand.badge" data-i18n-title="brand.badgeTitle" title="Matchmaking + P2P video">live</span>
+      </div>
+      <div class="pool-bar" id="pool-bar">
+        <span><span data-i18n="pool.online">Online</span> <strong id="stat-online">0</strong></span>
+        <span><span data-i18n="pool.waiting">Waiting</span> <strong id="stat-waiting">0</strong></span>
+        <span class="pool-hint" id="pool-hint" hidden></span>
+        <span class="arch-pill" id="arch-pill" title="Media is peer-to-peer WebRTC">P2P media · bridge match</span>
+        <span class="ice-path" id="ice-path" hidden title="WebRTC media path"></span>
+      </div>
+      <div class="stage-top-actions">
+        <label class="name-chip" title="Your display name">
+          <span class="name-chip-lbl" data-i18n="name.you">You</span>
+          <input id="display-name-top" type="text" maxlength="32" placeholder="anon" autocomplete="nickname" spellcheck="false" />
+        </label>
+        <span class="phase" id="phase" data-i18n="phase.idle">idle</span>
+        <span id="status" class="status-pill" data-i18n="status.disconnected">disconnected</span>
+        <label class="lang-switch lang-top-right" title="Language / Язык">
+          <svg class="icon icon-sm" aria-hidden="true"><use href="#i-globe"/></svg>
+          <select id="sel-lang" aria-label="Language">
+            <option value="ru" selected>RU</option>
+            <option value="en">EN</option>
+          </select>
+        </label>
+      </div>
+    </header>
+
+    <!-- Dual video stage -->
+    <main class="stage">
+      <!-- PARTNER (left) — solo: one video; stranger vs party: vertical split -->
+      <section class="tile tile-remote" id="tile-remote">
+        <div class="remote-stack" id="remote-stack">
+          <video id="remote" class="vid remote" autoplay playsinline playsInline></video>
+          <video id="remote2" class="vid remote remote-b" autoplay playsinline playsInline hidden></video>
+        </div>
+        <div class="tile-empty" id="remote-empty">
+          <div class="empty-icon" aria-hidden="true">
+            <svg class="icon icon-empty"><use href="#i-pointer"/></svg>
+          </div>
+          <div class="empty-title" data-i18n="remote.emptyTitle">Tap Next to start chatting</div>
+          <div class="empty-sub" data-i18n="remote.emptySub">Partner appears here</div>
+        </div>
+        <div class="tile-tag" id="remote-tile-tag" hidden>
+          <span class="name-on-tile" id="remote-tag"></span>
+          <span class="quality" id="call-quality"></span>
+        </div>
+        <aside class="side-rail side-rail-left">
+          <button type="button" class="side-btn" id="btn-mute-remote" data-i18n-title="btn.partnerTitle" title="Mute partner (P)">
+            <span class="ico" id="ico-partner" aria-hidden="true">
+              <svg class="icon icon-on"><use href="#i-volume"/></svg>
+              <svg class="icon icon-off"><use href="#i-volume-off"/></svg>
+            </span>
+            <span class="lbl" data-i18n="btn.partner">Partner</span>
+          </button>
+          <div class="side-vol">
+            <input id="remote-vol" type="range" min="0" max="100" value="100" orient="vertical"
+              data-i18n-title="vol.partner" data-i18n-aria="vol.partnerAria"
+              title="Partner volume" aria-label="Partner volume" />
+          </div>
+          <button type="button" class="side-btn" id="btn-blur-remote" data-i18n-title="btn.blurTitle" title="Blur partner video (B)">
+            <span class="ico" id="ico-blur" aria-hidden="true">
+              <svg class="icon icon-on"><use href="#i-blur"/></svg>
+              <svg class="icon icon-off"><use href="#i-blur-on"/></svg>
+            </span>
+            <span class="lbl" data-i18n="btn.blur">Blur</span>
+          </button>
+          <button type="button" class="side-btn" id="btn-fs-remote" data-i18n-title="btn.fullTitle" title="Fullscreen (F)">
+            <span class="ico" aria-hidden="true"><svg class="icon"><use href="#i-expand"/></svg></span>
+            <span class="lbl" data-i18n="btn.full">Full</span>
+          </button>
+        </aside>
+        <!-- In-camera match controls (was bottom footer) -->
+        <div class="tile-dock tile-dock-remote">
+          <div class="dock-row dock-row-context">
+            <button type="button" id="btn-browse-together" class="dock-pill accent" hidden data-i18n="friends.browseTogether">Browse together</button>
+            <button type="button" id="btn-hangup-friend" class="dock-pill danger" hidden data-i18n="friends.hangup">Hang up</button>
+            <button type="button" id="btn-block" class="dock-pill danger" hidden data-i18n="friends.block">Block</button>
+          </div>
+          <div class="dock-row dock-row-main">
+            <button type="button" id="btn-spin" class="dock-pill ghost" data-i18n="btn.spin">Spin</button>
+            <button type="button" id="btn-next" class="next-big next-in-tile">
+              <svg class="icon icon-next" aria-hidden="true"><use href="#i-skip"/></svg>
+              <span data-i18n="btn.next">Next</span>
+            </button>
+          </div>
+        </div>
+        <!-- Floating chat bubbles (when open) -->
+        <aside class="chat-panel" id="chat-panel" hidden>
+          <header class="chat-panel-head">
+            <span data-i18n="chat.title">Chat</span>
+            <button type="button" class="chat-clear" id="btn-clear-chat" title="Clear">✕</button>
+          </header>
+          <div class="chat-messages" id="chat-messages" aria-live="polite"></div>
+        </aside>
+      </section>
+
+      <!-- YOU (right) -->
+      <section class="tile tile-local" id="tile-local">
+        <video id="local" class="vid local" autoplay playsinline playsInline webkit-playsinline muted></video>
+        <div class="tile-empty" id="local-empty">
+          <div class="empty-icon" aria-hidden="true">
+            <svg class="icon icon-empty"><use href="#i-camera"/></svg>
+          </div>
+          <div class="empty-title" data-i18n="local.emptyTitle">Your camera</div>
+          <div class="empty-sub" id="local-empty-sub" data-i18n="local.emptySub">Allow camera &amp; mic when prompted</div>
+          <button type="button" class="enable-cam-btn" id="btn-enable-cam" hidden data-i18n="local.enableCam">
+            Enable camera
+          </button>
+        </div>
+        <div class="tile-tag">
+          <span class="name-on-tile" id="local-name">anon</span>
+        </div>
+        <aside class="side-rail side-rail-right">
+          <button type="button" class="side-btn" id="btn-mute-cam" data-i18n-title="btn.camTitle" title="Camera on/off (V)">
+            <span class="ico" id="ico-cam" aria-hidden="true">
+              <svg class="icon icon-on"><use href="#i-camera"/></svg>
+              <svg class="icon icon-off"><use href="#i-camera-off"/></svg>
+            </span>
+            <span class="lbl" data-i18n="btn.cam">Cam</span>
+          </button>
+          <button type="button" class="side-btn" id="btn-mute-mic" data-i18n-title="btn.micTitle" title="Mute mic (M)">
+            <span class="ico" id="ico-mic" aria-hidden="true">
+              <svg class="icon icon-on"><use href="#i-mic"/></svg>
+              <svg class="icon icon-off"><use href="#i-mic-off"/></svg>
+            </span>
+            <span class="lbl" data-i18n="btn.mic">Mic</span>
+          </button>
+          <div class="side-vol mic-meter-rail" data-i18n-title="btn.levelTitle" title="Mic level">
+            <div class="meter-v"><span id="mic-meter"></span></div>
+            <span class="lbl" data-i18n="btn.level">Level</span>
+          </div>
+          <button type="button" class="side-btn" id="btn-friends" data-i18n-title="friends.open" title="Friends">
+            <span class="ico" aria-hidden="true"><svg class="icon"><use href="#i-users"/></svg></span>
+            <span class="lbl" data-i18n="friends.open">Friends</span>
+            <span class="friends-badge" id="friends-badge" hidden>0</span>
+          </button>
+        </aside>
+        <!-- In-camera social / chat dock — settings pinned bottom-right -->
+        <div class="tile-dock tile-dock-local">
+          <label class="room-field room-in-tile" title="Optional private lobby">
+            <span data-i18n="room.label">Room</span>
+            <input id="room" type="text" maxlength="64" data-i18n-placeholder="room.placeholder" placeholder="public" autocomplete="off" spellcheck="false" />
+            <button type="button" class="dock-pill ghost tight" id="btn-share-room" data-i18n-title="room.shareTitle" title="Share room" aria-label="Share room">
+              <svg class="icon icon-sm" aria-hidden="true"><use href="#i-share"/></svg>
+            </button>
+          </label>
+          <form class="bottom-chat dock-chat" id="compose">
+            <input id="msg" type="text" data-i18n-placeholder="chat.placeholder" placeholder="Say something…" autocomplete="off" inputmode="text" enterkeyhint="send" spellcheck="true" />
+            <button type="submit" class="dock-pill" data-i18n="chat.send">Send</button>
+          </form>
+          <button type="button" class="dock-settings" id="btn-settings" data-i18n-title="btn.settingsTitle" title="Settings" aria-label="Settings">
+            <svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg>
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <!-- Connection strip (compact, only when not idle) -->
+    <div class="conn-strip" id="conn-strip" aria-live="polite">
+      <span class="conn-dot" id="conn-dot"></span>
+      <span id="conn-label" data-i18n="conn.connecting">Connecting…</span>
+      <span class="conn-ice" id="conn-ice"></span>
+    </div>
+
+  </div>
+
+  <!-- Failed-call coach (WebRTC / ICE problems) -->
+  <div class="call-coach" id="call-coach" hidden role="dialog" aria-labelledby="call-coach-title">
+    <div class="call-coach-card">
+      <h3 id="call-coach-title" data-i18n="coach.title">Connection problem</h3>
+      <p class="call-coach-lead" id="call-coach-lead" data-i18n="coach.lead">
+        Video couldn’t connect cleanly. Try the tips below — most issues are Wi‑Fi, permissions, or a strict network.
+      </p>
+      <ul class="call-coach-tips">
+        <li data-i18n="coach.t1">Use Wi‑Fi if possible (some mobile networks block WebRTC)</li>
+        <li data-i18n="coach.t2">Allow camera &amp; mic for this site, then reload</li>
+        <li data-i18n="coach.t3">Tap Next to find someone else (their network may be blocked)</li>
+        <li data-i18n="coach.t4">VPN or corporate networks often break peer video — try without VPN</li>
+      </ul>
+      <p class="call-coach-meta muted" id="call-coach-meta"></p>
+      <div class="call-coach-actions">
+        <button type="button" class="pill primary" id="btn-coach-next" data-i18n="coach.next">Next partner</button>
+        <button type="button" class="pill" id="btn-coach-retry" data-i18n="coach.retry">Retry camera</button>
+        <button type="button" class="pill ghost" id="btn-coach-dismiss" data-i18n="coach.dismiss">Dismiss</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Friends sheet -->
+  <div class="sheet-backdrop" id="friends-backdrop" hidden></div>
+  <div class="sheet" id="friends-sheet" hidden>
+    <header>
+      <h3 data-i18n="friends.title">Friends</h3>
+      <button type="button" class="sheet-close" id="friends-close">✕</button>
+    </header>
+    <div class="sheet-body">
+      <p class="hint-inline">
+        <span data-i18n="friends.yourCode">Your code</span>:
+        <code id="my-friend-code">—</code>
+        <button type="button" class="pill tight" id="btn-copy-code" data-i18n="friends.copyCode">Copy</button>
+        <button type="button" class="pill tight" id="btn-copy-invite" data-i18n="friends.copyInvite">Invite link</button>
+        <button type="button" class="pill tight accent" id="btn-share-invite" data-i18n="friends.shareInvite">Share</button>
+      </p>
+      <label>
+        <span data-i18n="friends.yourName">Display name</span>
+        <input id="display-name" class="display-name-input" type="text" maxlength="32" placeholder="anon" autocomplete="nickname" />
+      </label>
+      <p class="hint-inline" data-i18n="friends.nameHint">
+        This name is what strangers and friends see in chat and when you match.
+      </p>
+      <p class="hint-inline" data-i18n="friends.mutualHint">
+        Friend requests need Accept on both sides. You can only Call after they approve.
+      </p>
+      <label>
+        <span data-i18n="friends.addCode">Add friend by code</span>
+        <div class="row-inline">
+          <input id="add-friend-code" type="text" maxlength="16" autocomplete="off" spellcheck="false" />
+          <button type="button" class="pill" id="btn-add-friend" data-i18n="friends.add">Request</button>
+        </div>
+      </label>
+      <div id="incoming-requests" class="friends-list req-panel" hidden></div>
+      <div id="outgoing-requests" class="friends-list" hidden></div>
+      <div id="friends-list" class="friends-list"></div>
+      <div id="history-list" class="friends-list" hidden></div>
+      <div id="blocked-list" class="friends-list" hidden></div>
+      <p class="hint-inline" data-i18n="friends.hint">
+        Call a friend when they are online, then Browse together (max 2) to scroll strangers as a pair.
+        A stranger sees both of you stacked vertically.
+      </p>
+    </div>
+  </div>
+
+  <!-- Incoming call toast is created only when someone rings (see live.js) -->
+
+  <!-- Partner actions: click partner video (not fullscreen) -->
+  <div class="partner-menu-backdrop" id="partner-menu-backdrop" hidden></div>
+  <div class="partner-menu" id="partner-menu" hidden role="dialog" aria-modal="true" aria-labelledby="partner-menu-title">
+    <div class="partner-menu-head">
+      <strong id="partner-menu-title" data-i18n="partnerMenu.title">Partner</strong>
+      <span class="partner-menu-name" id="partner-menu-name"></span>
+    </div>
+    <div class="partner-menu-actions" id="partner-menu-main">
+      <button type="button" class="partner-menu-btn" id="btn-partner-friend">
+        <span class="pm-ico" aria-hidden="true"><svg class="icon"><use href="#i-user-plus"/></svg></span>
+        <span data-i18n="partnerMenu.addFriend">Add friend</span>
+      </button>
+      <button type="button" class="partner-menu-btn warn" id="btn-partner-block">
+        <span class="pm-ico" aria-hidden="true"><svg class="icon"><use href="#i-ban"/></svg></span>
+        <span data-i18n="partnerMenu.block">Block</span>
+      </button>
+      <button type="button" class="partner-menu-btn danger" id="btn-partner-report">
+        <span class="pm-ico" aria-hidden="true"><svg class="icon"><use href="#i-flag"/></svg></span>
+        <span data-i18n="partnerMenu.report">Report</span>
+      </button>
+      <button type="button" class="partner-menu-btn ghost" id="btn-partner-menu-cancel" data-i18n="partnerMenu.cancel">
+        Cancel
+      </button>
+    </div>
+    <div class="partner-menu-actions" id="partner-menu-report" hidden>
+      <p class="partner-menu-hint" data-i18n="partnerMenu.reportHint">Why are you reporting?</p>
+      <button type="button" class="partner-menu-btn" data-report-reason="explicit" data-i18n="partnerMenu.rExplicit">Explicit content</button>
+      <button type="button" class="partner-menu-btn" data-report-reason="harassment" data-i18n="partnerMenu.rHarassment">Harassment</button>
+      <button type="button" class="partner-menu-btn" data-report-reason="underage" data-i18n="partnerMenu.rUnderage">Underage concern</button>
+      <button type="button" class="partner-menu-btn" data-report-reason="spam" data-i18n="partnerMenu.rSpam">Spam / scam</button>
+      <button type="button" class="partner-menu-btn" data-report-reason="other" data-i18n="partnerMenu.rOther">Other</button>
+      <button type="button" class="partner-menu-btn ghost" id="btn-partner-report-back" data-i18n="partnerMenu.back">Back</button>
+    </div>
+  </div>
+
+  <!-- First-run rules / age gate -->
+  <div class="rules-overlay" id="rules-overlay" hidden>
+    <div class="rules-card" role="dialog" aria-modal="true" aria-labelledby="rules-title">
+      <h2 id="rules-title" data-i18n="rules.title">Before you start</h2>
+      <ul class="rules-list">
+        <li data-i18n="rules.age">You must be 18+ to use ruletka.vip.</li>
+        <li data-i18n="rules.respect">Be respectful. No harassment, hate, or illegal content.</li>
+        <li data-i18n="rules.media">Video is peer-to-peer. Use Block if someone is inappropriate.</li>
+        <li data-i18n="rules.privacy">Do not share secrets; friends are stored on this server instance.</li>
+      </ul>
+      <label class="check-row rules-check">
+        <input type="checkbox" id="chk-rules-age" />
+        <span data-i18n="rules.ageConfirm">I am 18 or older</span>
+      </label>
+      <button type="button" class="pill primary rules-accept" id="btn-rules-accept" disabled data-i18n="rules.accept">
+        Enter ruletka.vip
+      </button>
+    </div>
+  </div>
+
+  <!-- Settings sheet (competitor-style grouped list) -->
+  <div class="sheet-backdrop" id="sheet-backdrop" hidden></div>
+  <div class="sheet settings-app" id="settings-sheet" hidden>
+    <!-- MAIN — short hub; details live in sub-pages -->
+    <div class="settings-view" id="settings-view-main">
+      <header class="settings-header">
+        <span class="sheet-nav-spacer"></span>
+        <h3 data-i18n="settings.title">Settings</h3>
+        <button type="button" class="sheet-nav-btn sheet-close-x" id="sheet-close" aria-label="Close">✕</button>
+      </header>
+      <div class="sheet-body settings-body settings-body-main">
+        <div class="settings-hero">
+          <div class="settings-hero-avatar" id="settings-hero-avatar" aria-hidden="true">
+            <span class="settings-hero-letter" id="settings-hero-letter">?</span>
+            <svg class="icon settings-hero-fallback"><use href="#i-user"/></svg>
+          </div>
+          <div class="settings-hero-text">
+            <input id="display-name-settings" class="settings-hero-name" type="text" maxlength="32" placeholder="anon" autocomplete="nickname" data-i18n-placeholder="friends.yourName" />
+            <p class="settings-hero-sub" data-i18n="settings.heroHint">Shown to partners in chat</p>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <label class="settings-row settings-row-input">
+            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-door"/></svg></span><span data-i18n="room.label">Room</span></span>
+            <span class="row-right-input">
+              <input id="room-settings" type="text" maxlength="64" data-i18n-placeholder="room.placeholder" placeholder="public" autocomplete="off" spellcheck="false" />
+              <button type="button" class="settings-icon-btn" id="btn-share-room-settings" data-i18n-title="room.shareTitle" title="Share" aria-label="Share">
+                <svg class="icon icon-sm" aria-hidden="true"><use href="#i-share"/></svg>
+              </button>
+            </span>
+          </label>
+          <button type="button" class="settings-row" data-settings-open="lang">
+            <span class="row-left"><span class="row-flag" id="settings-lang-flag">🇷🇺</span> <span id="settings-lang-label" data-i18n="settings.lang">Language</span></span>
+            <span class="row-right"><span id="settings-lang-value" class="row-value">Русский</span> <span class="chev">›</span></span>
+          </button>
+        </div>
+
+        <p class="settings-section-label" data-i18n="settings.secMore">Preferences</p>
+        <div class="settings-group">
+          <button type="button" class="settings-row" data-settings-open="devices">
+            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-camera"/></svg></span><span data-i18n="settings.secHardware">Devices</span></span>
+            <span class="row-right"><span id="settings-devices-summary" class="row-value">—</span> <span class="chev">›</span></span>
+          </button>
+          <button type="button" class="settings-row" data-settings-open="safety">
+            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-blur"/></svg></span><span data-i18n="settings.secSafety">Safety</span></span>
+            <span class="row-right"><span id="settings-safety-summary" class="row-value">—</span> <span class="chev">›</span></span>
+          </button>
+          <button type="button" class="settings-row" data-settings-open="hub">
+            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-globe"/></svg></span><span data-i18n="settings.secHub">Network hub</span></span>
+            <span class="row-right"><span id="settings-hub-summary" class="row-value">—</span> <span class="chev">›</span></span>
+          </button>
+          <button type="button" class="settings-row" data-settings-open="about">
+            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-file"/></svg></span><span data-i18n="settings.secAbout">About &amp; legal</span></span>
+            <span class="chev">›</span>
+          </button>
+        </div>
+
+        <div class="settings-status-card settings-status-compact" id="settings-security">
+          <div class="status-pills">
+            <span class="status-pill-chip" id="sec-media-path">—</span>
+            <span class="status-pill-chip muted" id="sec-turn-trust">—</span>
+          </div>
+          <p class="status-note" id="sec-partner-note" data-i18n="sec.partnerRecord">Partner can screenshot — use Block / Report</p>
+          <span id="sec-identity" hidden></span>
+        </div>
+
+        <!-- Hidden selects still used by device code -->
+        <select id="sel-lang-sheet" class="settings-hidden-select" hidden>
+          <option value="ru" data-i18n="lang.ru">Русский</option>
+          <option value="en" data-i18n="lang.en">English</option>
+        </select>
+        <select id="sel-camera" class="settings-hidden-select" hidden></select>
+        <select id="sel-mic" class="settings-hidden-select" hidden></select>
+        <select id="sel-speaker" class="settings-hidden-select" hidden></select>
+      </div>
+      <footer class="settings-footer">
+        <button type="button" class="settings-done-btn" id="btn-settings-done" data-i18n="settings.done">
+          Done
+        </button>
+      </footer>
+    </div>
+
+    <!-- DEVICES -->
+    <div class="settings-view" id="settings-view-devices" hidden>
+      <header class="settings-header">
+        <button type="button" class="sheet-nav-btn" data-settings-back aria-label="Back">‹</button>
+        <h3 data-i18n="settings.secHardware">Devices</h3>
+        <span class="sheet-nav-spacer"></span>
+      </header>
+      <div class="sheet-body settings-body">
+        <div class="settings-group">
+          <button type="button" class="settings-row" data-settings-open="camera">
+            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-camera"/></svg></span><span data-i18n="settings.camera">Camera</span></span>
+            <span class="row-right"><span id="settings-camera-value" class="row-value" data-i18n="settings.systemDefault">System default</span> <span class="chev">›</span></span>
+          </button>
+          <button type="button" class="settings-row" data-settings-open="mic">
+            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-mic"/></svg></span><span data-i18n="settings.mic">Microphone</span></span>
+            <span class="row-right"><span id="settings-mic-value" class="row-value" data-i18n="settings.systemDefault">System default</span> <span class="chev">›</span></span>
+          </button>
+          <button type="button" class="settings-row" data-settings-open="speaker">
+            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-volume"/></svg></span><span data-i18n="settings.speaker">Speaker</span></span>
+            <span class="row-right"><span id="settings-speaker-value" class="row-value" data-i18n="settings.systemDefault">System default</span> <span class="chev">›</span></span>
+          </button>
+        </div>
+        <p class="settings-section-label" data-i18n="settings.secAudio">Partner audio</p>
+        <div class="settings-group">
+          <div class="settings-row settings-row-static settings-vol-row">
+            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-volume"/></svg></span><span data-i18n="settings.partnerVol">Partner volume</span></span>
+            <input id="remote-vol-sheet" type="range" min="0" max="100" value="100" />
+          </div>
+        </div>
+        <div class="settings-row-actions settings-row-actions-loose">
+          <button type="button" class="settings-mini-btn" id="btn-refresh-devices" data-i18n="settings.refresh">Refresh devices</button>
+          <button type="button" class="settings-mini-btn" id="btn-restart-cam" data-i18n="settings.restartCam">Restart camera</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SAFETY -->
+    <div class="settings-view" id="settings-view-safety" hidden>
+      <header class="settings-header">
+        <button type="button" class="sheet-nav-btn" data-settings-back aria-label="Back">‹</button>
+        <h3 data-i18n="settings.secSafety">Safety</h3>
+        <span class="sheet-nav-spacer"></span>
+      </header>
+      <div class="sheet-body settings-body">
+        <div class="settings-group">
+          <label class="settings-row settings-row-toggle">
+            <span class="row-left toggle-copy">
+              <span class="toggle-title" data-i18n="settings.blurFirst">Blur strangers until I unblur</span>
+              <span class="toggle-hint" data-i18n="settings.blurFirstHint">Partner video starts blurred</span>
+            </span>
+            <span class="switch">
+              <input type="checkbox" id="chk-blur-first" checked />
+              <span class="switch-ui" aria-hidden="true"></span>
+            </span>
+          </label>
+          <label class="settings-row settings-row-toggle">
+            <span class="row-left toggle-copy">
+              <span class="toggle-title" data-i18n="settings.nsfwAuto">Auto-skip explicit video</span>
+              <span class="toggle-hint" data-i18n="settings.nsfwHintShort">On-device AI · not perfect</span>
+            </span>
+            <span class="switch">
+              <input type="checkbox" id="chk-nsfw-auto" checked />
+              <span class="switch-ui" aria-hidden="true"></span>
+            </span>
+          </label>
+          <label class="settings-row settings-row-toggle">
+            <span class="row-left toggle-copy">
+              <span class="toggle-title" data-i18n="settings.matchSound">Sound on match</span>
+            </span>
+            <span class="switch">
+              <input type="checkbox" id="chk-match-sound" checked />
+              <span class="switch-ui" aria-hidden="true"></span>
+            </span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- ABOUT / LEGAL -->
+    <div class="settings-view" id="settings-view-about" hidden>
+      <header class="settings-header">
+        <button type="button" class="sheet-nav-btn" data-settings-back aria-label="Back">‹</button>
+        <h3 data-i18n="settings.secAbout">About &amp; legal</h3>
+        <span class="sheet-nav-spacer"></span>
+      </header>
+      <div class="sheet-body settings-body">
+        <div class="settings-group">
+          <a class="settings-row" href="mailto:support@ruletka.vip">
+            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-mail"/></svg></span><span data-i18n="settings.contact">Contact us</span></span>
+            <span class="chev">›</span>
+          </a>
+          <a class="settings-row" href="/legal/privacy.html" target="_blank" rel="noopener">
+            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-lock"/></svg></span><span data-i18n="settings.privacy">Privacy policy</span></span>
+            <span class="chev">›</span>
+          </a>
+          <a class="settings-row" href="/legal/terms.html" target="_blank" rel="noopener">
+            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-file"/></svg></span><span data-i18n="settings.terms">Terms of service</span></span>
+            <span class="chev">›</span>
+          </a>
+          <a class="settings-row" href="/legal/community.html" target="_blank" rel="noopener">
+            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-users"/></svg></span><span data-i18n="settings.community">Community guidelines</span></span>
+            <span class="chev">›</span>
+          </a>
+          <a class="settings-row" href="/legal/eula.html" target="_blank" rel="noopener">
+            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-file"/></svg></span><span data-i18n="settings.eula">EULA</span></span>
+            <span class="chev">›</span>
+          </a>
+        </div>
+        <p class="settings-section-label" data-i18n="settings.secOther">Data</p>
+        <div class="settings-group">
+          <button type="button" class="settings-row settings-row-danger" id="btn-clear-local">
+            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-trash"/></svg></span><span data-i18n="settings.clearData">Clear local data</span></span>
+            <span class="chev">›</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- NETWORK HUB (multi-hub / decentralized) -->
+    <div class="settings-view" id="settings-view-hub" hidden>
+      <header class="settings-header">
+        <button type="button" class="sheet-nav-btn" data-settings-back aria-label="Back">‹</button>
+        <h3 data-i18n="settings.secHub">Network hub</h3>
+        <span class="sheet-nav-spacer"></span>
+      </header>
+      <div class="sheet-body settings-body">
+        <p class="hint-inline" data-i18n="hub.explain">
+          Matchmaking runs on a hub you choose. Video stays peer-to-peer. If one hub is down, the app can try another.
+        </p>
+        <div class="settings-group">
+          <div class="settings-row static">
+            <span class="row-left"><span data-i18n="hub.current">Current hub</span></span>
+          </div>
+          <p class="hub-url mono" id="hub-current-url">—</p>
+          <label class="settings-row settings-row-toggle">
+            <span class="row-left toggle-copy">
+              <span class="toggle-title" data-i18n="hub.auto">Auto-switch if offline</span>
+              <span class="toggle-hint" data-i18n="hub.autoHint">Use the public hub directory to fail over</span>
+            </span>
+            <span class="switch">
+              <input type="checkbox" id="chk-hub-auto" checked />
+              <span class="switch-ui" aria-hidden="true"></span>
+            </span>
+          </label>
+        </div>
+        <p class="settings-section-label" data-i18n="hub.directory">Known hubs</p>
+        <div class="settings-group" id="hub-directory-list"></div>
+        <div class="settings-group">
+          <button type="button" class="settings-mini-btn" id="btn-hub-refresh" data-i18n="hub.refresh">Refresh list</button>
+          <button type="button" class="settings-mini-btn" id="btn-hub-reset" data-i18n="hub.usePage">Use this page’s hub</button>
+        </div>
+        <p class="hint-inline" data-i18n="hub.runOwn">
+          Run your own: open-source bridge — see docs/DECENTRALIZATION.md
+        </p>
+      </div>
+    </div>
+
+    <!-- LANGUAGE -->
+    <div class="settings-view" id="settings-view-lang" hidden>
+      <header class="settings-header">
+        <button type="button" class="sheet-nav-btn" data-settings-back aria-label="Back">‹</button>
+        <h3 data-i18n="settings.lang">Language</h3>
+        <span class="sheet-nav-spacer"></span>
+      </header>
+      <div class="sheet-body settings-body">
+        <div class="settings-group" id="settings-lang-list">
+          <button type="button" class="settings-row settings-choice" data-lang="ru">
+            <span class="row-left"><span class="row-flag">🇷🇺</span> Русский</span>
+            <span class="choice-check" data-check-for="ru">✓</span>
+          </button>
+          <button type="button" class="settings-row settings-choice" data-lang="en">
+            <span class="row-left"><span class="row-flag">🇬🇧</span> English</span>
+            <span class="choice-check" data-check-for="en">✓</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CAMERA -->
+    <div class="settings-view" id="settings-view-camera" hidden>
+      <header class="settings-header">
+        <button type="button" class="sheet-nav-btn" data-settings-back aria-label="Back">‹</button>
+        <h3 data-i18n="settings.camera">Camera</h3>
+        <span class="sheet-nav-spacer"></span>
+      </header>
+      <div class="sheet-body settings-body">
+        <div class="settings-group" id="settings-camera-list"></div>
+      </div>
+    </div>
+
+    <!-- MIC -->
+    <div class="settings-view" id="settings-view-mic" hidden>
+      <header class="settings-header">
+        <button type="button" class="sheet-nav-btn" data-settings-back aria-label="Back">‹</button>
+        <h3 data-i18n="settings.mic">Microphone</h3>
+        <span class="sheet-nav-spacer"></span>
+      </header>
+      <div class="sheet-body settings-body">
+        <div class="settings-group" id="settings-mic-list"></div>
+      </div>
+    </div>
+
+    <!-- SPEAKER -->
+    <div class="settings-view" id="settings-view-speaker" hidden>
+      <header class="settings-header">
+        <button type="button" class="sheet-nav-btn" data-settings-back aria-label="Back">‹</button>
+        <h3 data-i18n="settings.speaker">Speaker</h3>
+        <span class="sheet-nav-spacer"></span>
+      </header>
+      <div class="sheet-body settings-body">
+        <div class="settings-group" id="settings-speaker-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- cache-bust so browsers always get auto-connect / auto-media fixes -->
+  <script src="i18n.js?v=41"></script>
+  <script src="identity.js?v=41"></script>
+  <script src="hubs.js?v=41"></script>
+  <script src="webrtc.js?v=41"></script>
+  <script src="live.js?v=41"></script>
+  <script>
+    // Belt-and-suspenders: if live.js deferred somehow, still try after load
+    window.addEventListener("load", function () {
+      var boot = window.__ruletBooted || window.__nextfaceBooted;
+      if (typeof boot !== "function") return;
+      boot();
+    });
+  </script>
+</body>
+</html>
+

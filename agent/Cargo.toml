@@ -1,0 +1,28 @@
+[package]
+name = "freenet-roulette-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Match on Freenet: WebApi lobby client + dual-peer demo"
+
+[lib]
+name = "freenet_roulette_agent"
+path = "src/lib.rs"
+
+[[bin]]
+name = "roulette-agent"
+path = "src/main.rs"
+
+[dependencies]
+freenet-roulette-common = { workspace = true, features = ["client"] }
+freenet-stdlib = { version = "0.8.5", features = ["net"] }
+ciborium = { workspace = true }
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+# Must match freenet-stdlib's tokio-tungstenite (0.27) for WebApi::start
+tokio-tungstenite = "0.27"
+futures = "0.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+hex = { workspace = true }
+serde = { workspace = true }

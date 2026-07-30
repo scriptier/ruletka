@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="description" content="ruletka.vip — random peer-to-peer video chat. Meet someone new." />
+  <meta name="theme-color" content="#0a0b0e" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta property="og:title" content="ruletka.vip — random video chat" />
+  <meta property="og:description" content="Peer-to-peer stranger video chat. No account required." />
+  <meta property="og:image" content="/brand/logo-hero.jpg" />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="/brand/logo-hero.jpg" />
+  <link rel="icon" href="/brand/favicon-32.png" type="image/png" sizes="32x32" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/brand/apple-touch-icon-180.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <title>ruletka.vip — random video chat</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="home.css?v=41" />
+</head>
+<body class="home-body">
+  <div class="home-bg" aria-hidden="true"></div>
+
+  <header class="home-nav">
+    <a class="home-brand" href="/" aria-label="ruletka.vip home">
+      <img class="home-brand-logo" src="/brand/logo-mark.png" width="36" height="36" alt="" />
+      <span>ruletka.vip</span>
+    </a>
+    <div class="home-nav-right">
+      <label class="home-lang" title="Language">
+        <span aria-hidden="true">🌐</span>
+        <select id="home-lang" aria-label="Language">
+          <option value="ru" selected>RU</option>
+          <option value="en">EN</option>
+        </select>
+      </label>
+    </div>
+  </header>
+
+  <main class="home-hero">
+    <div class="home-logo-wrap">
+      <img
+        class="home-logo"
+        src="/brand/logo-hero.jpg"
+        width="320"
+        height="320"
+        alt="ruletka.vip"
+        decoding="async"
+        fetchpriority="high"
+      />
+    </div>
+    <p class="home-eyebrow" data-i18n="home.eyebrow">Peer-to-peer video</p>
+    <h1 data-i18n="home.title">Meet someone new.<br />Face to face.</h1>
+    <p class="home-lead" data-i18n="home.lead">
+      Random video chat with strangers — or call friends when they’re online.
+      Media stays between browsers. No account required.
+    </p>
+
+    <div class="home-cta-row">
+      <a class="home-cta" id="btn-enter" href="/live.html">
+        <span data-i18n="home.cta">Start chatting</span>
+        <span class="cta-arrow" aria-hidden="true">→</span>
+      </a>
+    </div>
+
+    <p class="home-live-stats" id="home-live-stats" hidden>
+      <span data-i18n="home.nowOnline">Online now</span>
+      <strong id="home-stat-online">0</strong>
+      <span class="dot-sep">·</span>
+      <span data-i18n="home.nowWaiting">Waiting</span>
+      <strong id="home-stat-waiting">0</strong>
+    </p>
+
+    <ul class="home-points">
+      <li>
+        <span class="pt-ico" aria-hidden="true">⚡</span>
+        <div>
+          <strong data-i18n="home.p1t">Instant match</strong>
+          <span data-i18n="home.p1d">Spin, match, next — skip anytime</span>
+        </div>
+      </li>
+      <li>
+        <span class="pt-ico" aria-hidden="true">🔒</span>
+        <div>
+          <strong data-i18n="home.p2t">P2P media</strong>
+          <span data-i18n="home.p2d">Video goes peer-to-peer, not uploaded to us</span>
+        </div>
+      </li>
+      <li>
+        <span class="pt-ico" aria-hidden="true">👥</span>
+        <div>
+          <strong data-i18n="home.p3t">Friends &amp; block</strong>
+          <span data-i18n="home.p3d">Share a code, accept requests, call when online</span>
+        </div>
+      </li>
+    </ul>
+
+    <section class="home-diff" id="why">
+      <h2 data-i18n="home.diffTitle">How we’re different</h2>
+      <p class="home-diff-body" data-i18n="home.diffBody">
+        Most chat roulettes send your video through big company servers and push ads or accounts.
+        <strong>ruletka.vip</strong> is built so video stays between two browsers (peer-to-peer),
+        with no signup required. You get friends, block, report, and on-device safety tools —
+        and you can even help the network grow without giving anyone else control of this site.
+      </p>
+    </section>
+
+    <section class="home-diff" id="open">
+      <h2 data-i18n="home.openTitle">Open source &amp; multi-hub</h2>
+      <p class="home-diff-body" data-i18n="home.openBody">
+        This software is <strong>open source</strong> (LGPL-2.1). Anyone can run their own hub.
+        This site is a public seed — not the only network. If a hub goes down, the live app can
+        try other hubs from a public directory. Helpers run a full chat node you can share.
+      </p>
+      <p class="home-open-links">
+        <a class="foot-link" href="/v1/directory" data-i18n="home.openDir">Hub directory API</a>
+        <span class="dot-sep">·</span>
+        <a class="foot-link" href="/hubs.json" data-i18n="home.openHubs">hubs.json</a>
+        <span class="dot-sep">·</span>
+        <a class="foot-link" href="/contribute.html" data-i18n="home.openHelper">Run a helper</a>
+      </p>
+    </section>
+
+    <!-- Contribute — human language, not ops docs -->
+    <section class="home-seed" id="seed">
+      <h2 data-i18n="seed.title">Help the network</h2>
+      <p class="seed-lead" data-i18n="seed.lead">
+        When you chat, your camera goes <strong>straight to the other person</strong> — not to our media servers.
+        That’s already peer-to-peer. You can also run a small helper on your computer so more people can find each other,
+        without controlling this website.
+      </p>
+
+      <div class="seed-cards">
+        <article class="seed-card">
+          <div class="seed-card-num">1</div>
+          <h3 data-i18n="seed.c1t">Just chat</h3>
+          <p data-i18n="seed.c1d">Open live, match someone. Your video is P2P. No install.</p>
+          <a class="seed-card-btn" href="/live.html" data-i18n="seed.c1b">Start chatting</a>
+        </article>
+        <article class="seed-card seed-card-accent">
+          <div class="seed-card-num">2</div>
+          <h3 data-i18n="seed.c2t">Run the helper</h3>
+          <p data-i18n="seed.c2d">One download for Windows, Mac, or Linux. It runs in the background and helps the match pool. You don’t get site admin access.</p>
+          <a class="seed-card-btn primary" href="/contribute.html" data-i18n="seed.c2b">Download helper</a>
+        </article>
+      </div>
+
+      <details class="seed-advanced">
+        <summary data-i18n="seed.advSum">Advanced: run a full hub (operators)</summary>
+        <p class="seed-adv-lead" data-i18n="seed.advLead">
+          For people who already have a VPS and HTTPS. Federation is by invite only so random nodes can’t take over the site.
+        </p>
+        <pre class="seed-code" id="seed-code"># Full hub (HTTPS public URL required)
+export ROULETTE_INSTANCE_ID=my-hub
+export ROULETTE_FEDERATION_TOKEN='agree-with-operators'
+export ROULETTE_PUBLIC_BASE=https://your-hub.example.com
+export ROULETTE_FEDERATION_PEERS=https://ruletka.vip
+./scripts/run-bridge.sh</pre>
+        <button type="button" class="seed-copy" id="seed-copy" data-i18n="seed.copy">Copy</button>
+        <p class="seed-note" data-i18n="seed.contact">
+          Contact operators with your hub URL to join the live mesh. We do not auto-trust unknown hubs.
+        </p>
+      </details>
+    </section>
+  </main>
+
+  <footer class="home-foot">
+    <span data-i18n="home.foot">18+ · Be respectful · Use Block if needed</span>
+    <span class="foot-links">
+      <a href="#seed" class="foot-link" data-i18n="seed.foot">Help the network</a>
+      <a href="/contribute.html" class="foot-link" data-i18n="seed.footDl">Helper</a>
+      <a href="#why" class="foot-link" data-i18n="home.diffTitle">How we’re different</a>
+      <a href="#open" class="foot-link" data-i18n="home.openTitle">Open source</a>
+    </span>
+  </footer>
+
+  <script>
+    (function () {
+      var STR = {
+        en: {
+          "home.eyebrow": "Peer-to-peer video",
+          "home.title": "Meet someone new.<br />Face to face.",
+          "home.lead":
+            "Random video chat with strangers — or call friends when they’re online. Media stays between browsers. No account required.",
+          "home.cta": "Start chatting",
+          "home.nowOnline": "Online now",
+          "home.nowWaiting": "Waiting",
+          "home.p1t": "Instant match",
+          "home.p1d": "Spin, match, next — skip anytime",
+          "home.p2t": "P2P media",
+          "home.p2d": "Video goes peer-to-peer, not uploaded to us",
+          "home.p3t": "Friends & block",
+          "home.p3d": "Share a code, accept requests, call when online",
+          "home.diffTitle": "How we’re different",
+          "home.diffBody":
+            "Most chat roulettes send your video through big company servers and push ads or accounts. <strong>ruletka.vip</strong> is built so video stays between two browsers (peer-to-peer), with no signup required. You get friends, block, report, and on-device safety tools — and you can even help the network grow without giving anyone else control of this site.",
+          "home.openTitle": "Open source & multi-hub",
+          "home.openBody":
+            "This software is <strong>open source</strong> (LGPL-2.1). Anyone can run their own hub. This site is a public seed — not the only network. If a hub goes down, the live app can try other hubs from a public directory. Helpers run a full chat node you can share.",
+          "home.openDir": "Hub directory API",
+          "home.openHubs": "hubs.json",
+          "home.openHelper": "Run a helper",
+          "home.foot": "18+ · Be respectful · Use Block if needed",
+          "seed.title": "Help the network",
+          "seed.lead":
+            "When you chat, your camera goes <strong>straight to the other person</strong> — not to our media servers. That’s already peer-to-peer. You can also run a small helper on your computer so more people can find each other, without controlling this website.",
+          "seed.c1t": "Just chat",
+          "seed.c1d": "Open live, match someone. Your video is P2P. No install.",
+          "seed.c1b": "Start chatting",
+          "seed.c2t": "Run the helper",
+          "seed.c2d":
+            "One download for Windows, Mac, or Linux. It runs in the background and helps the match pool. You don’t get site admin access.",
+          "seed.c2b": "Download helper",
+          "seed.advSum": "Advanced: run a full hub (operators)",
+          "seed.advLead":
+            "For people who already have a VPS and HTTPS. Federation is by invite only so random nodes can’t take over the site.",
+          "seed.copy": "Copy",
+          "seed.copied": "Copied",
+          "seed.contact":
+            "Contact operators with your hub URL to join the live mesh. We do not auto-trust unknown hubs.",
+          "seed.foot": "Help the network",
+          "seed.footDl": "Helper",
+        },
+        ru: {
+          "home.eyebrow": "Видео peer-to-peer",
+          "home.title": "Познакомьтесь с кем-то новым.<br />Лицом к лицу.",
+          "home.lead":
+            "Случайный видеочат с незнакомцами — или звонки друзьям, когда они онлайн. Медиа идёт между браузерами. Без аккаунта.",
+          "home.cta": "Начать чат",
+          "home.nowOnline": "Сейчас онлайн",
+          "home.nowWaiting": "В очереди",
+          "home.p1t": "Быстрый матч",
+          "home.p1d": "Спин, матч, далее — можно пропустить",
+          "home.p2t": "P2P медиа",
+          "home.p2d": "Видео идёт напрямую, не загружается к нам",
+          "home.p3t": "Друзья и блок",
+          "home.p3d": "Код, подтверждение запроса, звонок онлайн",
+          "home.openTitle": "Open source и мульти-хаб",
+          "home.openBody":
+            "Софт <strong>открытый</strong> (LGPL-2.1). Любой может поднять свой хаб. Этот сайт — публичное семя, не единственная сеть. Если хаб упал, live-клиент может взять другой из каталога. Helper — полноценная нода, которой можно делиться.",
+          "home.openDir": "API каталога хабов",
+          "home.openHubs": "hubs.json",
+          "home.openHelper": "Запустить helper",
+          "home.diffTitle": "Чем мы отличаемся",
+          "home.diffBody":
+            "Обычные чат-рулетки гонят видео через серверы компаний и навязывают аккаунты или рекламу. <strong>ruletka.vip</strong> устроен так, что видео идёт между двумя браузерами (peer-to-peer), без регистрации. Есть друзья, блок, жалобы и фильтры безопасности на устройстве — и можно помогать сети расти, не отдавая никому контроль над этим сайтом.",
+          "home.foot": "18+ · Уважайте других · Есть «В блок»",
+          "seed.title": "Помогите сети",
+          "seed.lead":
+            "Когда вы в чате, камера идёт <strong>напрямую к собеседнику</strong> — не на наш медиасервер. Это уже peer-to-peer. Можно также запустить маленький helper на компьютере, чтобы больше людей находили друг друга — без доступа к управлению сайтом.",
+          "seed.c1t": "Просто чат",
+          "seed.c1d": "Откройте live, найдите собеседника. Видео P2P. Без установки.",
+          "seed.c1b": "Начать чат",
+          "seed.c2t": "Запустить helper",
+          "seed.c2d":
+            "Одна загрузка для Windows, Mac или Linux. Работает в фоне и помогает пулу матчей. Админки сайта у вас нет.",
+          "seed.c2b": "Скачать helper",
+          "seed.advSum": "Для продвинутых: полный хаб (операторы)",
+          "seed.advLead":
+            "Если уже есть VPS и HTTPS. Федерация только по приглашению — чужие ноды не получают контроль над сайтом.",
+          "seed.copy": "Копировать",
+          "seed.copied": "Скопировано",
+          "seed.contact":
+            "Свяжитесь с операторами и пришлите URL хаба. Чужие хабы автоматически не доверяются.",
+          "seed.foot": "Помочь сети",
+          "seed.footDl": "Helper",
+        },
+      };
+
+      function getLang() {
+        try {
+          var q = new URLSearchParams(location.search).get("lang");
+          if (q === "ru" || q === "en") return q;
+          var s = localStorage.getItem("nextface-lang-v1");
+          if (s === "ru" || s === "en") return s;
+        } catch (_) {}
+        return "ru";
+      }
+
+      function setLang(lang) {
+        if (lang !== "ru" && lang !== "en") lang = "ru";
+        try {
+          localStorage.setItem("nextface-lang-v1", lang);
+        } catch (_) {}
+        document.documentElement.lang = lang;
+        var dict = STR[lang] || STR.en;
+        document.querySelectorAll("[data-i18n]").forEach(function (el) {
+          var k = el.getAttribute("data-i18n");
+          if (dict[k] != null) el.innerHTML = dict[k];
+        });
+        var sel = document.getElementById("home-lang");
+        if (sel) sel.value = lang;
+        var cta = document.getElementById("btn-enter");
+        if (cta) {
+          var u = new URL(cta.href, location.origin);
+          if (lang === "ru") u.searchParams.set("lang", "ru");
+          else u.searchParams.delete("lang");
+          cta.href = u.pathname + u.search;
+        }
+      }
+
+      var sel = document.getElementById("home-lang");
+      if (sel) {
+        sel.addEventListener("change", function () {
+          setLang(sel.value);
+        });
+      }
+      setLang(getLang());
+
+      var copyBtn = document.getElementById("seed-copy");
+      var seedCode = document.getElementById("seed-code");
+      if (copyBtn && seedCode) {
+        copyBtn.addEventListener("click", function () {
+          var text = seedCode.innerText || seedCode.textContent || "";
+          var done = function () {
+            var dict = STR[getLang()] || STR.en;
+            copyBtn.textContent = dict["seed.copied"] || "Copied";
+            setTimeout(function () {
+              copyBtn.textContent = dict["seed.copy"] || "Copy";
+            }, 1600);
+          };
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(done).catch(function () {
+              /* fallback */
+            });
+          } else {
+            var ta = document.createElement("textarea");
+            ta.value = text;
+            document.body.appendChild(ta);
+            ta.select();
+            try {
+              document.execCommand("copy");
+            } catch (_) {}
+            ta.remove();
+            done();
+          }
+        });
+      }
+
+      // Live pool snapshot from bridge /health (no account, public)
+      function refreshHomeStats() {
+        var wrap = document.getElementById("home-live-stats");
+        var onlineEl = document.getElementById("home-stat-online");
+        var waitingEl = document.getElementById("home-stat-waiting");
+        if (!wrap || !onlineEl || !waitingEl) return;
+        fetch("/health", { cache: "no-store", credentials: "omit" })
+          .then(function (r) {
+            if (!r.ok) throw new Error("health " + r.status);
+            return r.json();
+          })
+          .then(function (j) {
+            if (!j || j.ok === false) return;
+            var online = typeof j.online === "number" ? j.online : 0;
+            var waiting =
+              typeof j.waiting === "number"
+                ? j.waiting
+                : typeof j.waiting_solo === "number"
+                  ? j.waiting_solo
+                  : 0;
+            onlineEl.textContent = String(online);
+            waitingEl.textContent = String(waiting);
+            wrap.hidden = false;
+          })
+          .catch(function () {
+            /* keep hidden if hub unreachable */
+          });
+      }
+      refreshHomeStats();
+      setInterval(refreshHomeStats, 12000);
+    })();
+  </script>
+</body>
+</html>

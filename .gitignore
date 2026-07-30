@@ -1,0 +1,46 @@
+# Build
+/target/
+**/*.rs.bk
+*.o
+*.so
+*.dylib
+*.dll
+*.exe
+.intentionally-empty-file.o
+
+# Runtime / secrets (never commit)
+.env
+.env.*
+!.env.example
+data/admin.env
+data/turn.env
+data/*.env
+data/friends.json
+data/reports.jsonl
+data/seeders.jsonl
+data/*.jsonl
+*.pem
+*.key
+
+# Prebuilt helper binaries (build or download from releases)
+ui/download/roulette-bridge-*
+!ui/download/*.sh
+!ui/download/*.ps1
+!ui/download/README.md
+
+# Local ops / personal
+phone-url.txt
+phone-qr.png
+*.log
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Packaged webapp staging
+/webapp/dist/
+/target/webapp/
+
+# Node (if any tools added later)
+node_modules/

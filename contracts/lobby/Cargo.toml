@@ -1,0 +1,22 @@
+[package]
+name = "freenet-roulette-lobby"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Freenet WASM lobby contract for Chat Roulette"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+freenet-stdlib = { workspace = true, features = ["contract"] }
+freenet-roulette-common = { workspace = true, default-features = false }
+serde = { workspace = true }
+ciborium = { workspace = true }
+
+[features]
+# Enable when building the WASM artifact for a Freenet node.
+# Host-side tests run with this off so ContractInterface is callable.
+default = []
+freenet-main-contract = ["freenet-stdlib/freenet-main-contract"]

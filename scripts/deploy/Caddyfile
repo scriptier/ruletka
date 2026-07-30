@@ -1,0 +1,43 @@
+# HTTPS reverse proxy for ruletka.vip → roulette-bridge
+# Install: /etc/caddy/Caddyfile
+
+ruletka.vip, www.ruletka.vip {
+	encode gzip zstd
+
+	# WebSocket match + signaling
+	@ws {
+		path /ws
+		header Connection *Upgrade*
+		header Upgrade websocket
+	}
+	handle @ws {
+		reverse_proxy 127.0.0.1:8790
+	}
+
+	# API / health / federation / ICE config
+	handle /health {
+		reverse_proxy 127.0.0.1:8790
+	}
+	handle /config.json {
+		reverse_proxy 127.0.0.1:8790
+	}
+	handle /v1/* {
+		reverse_proxy 127.0.0.1:8790
+	}
+
+	# Static UI + fallback (bridge ServeDir)
+	handle {
+		reverse_proxy 127.0.0.1:8790
+	}
+
+	header {
+		# Basic hardening
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	log {
+		output file /var/log/caddy/ruletka.log
+	}
+}

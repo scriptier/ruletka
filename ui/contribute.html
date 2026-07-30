@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="description" content="Run the ruletka.vip network helper on Windows, Mac, or Linux — contribute capacity, not site control." />
+  <meta name="theme-color" content="#0a0b0e" />
+  <link rel="icon" href="/brand/favicon-32.png" type="image/png" />
+  <title>ruletka.vip — network helper</title>
+  <link rel="stylesheet" href="home.css" />
+  <style>
+    .contrib-main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 1.5rem 1.25rem 3rem;
+      position: relative;
+      z-index: 1;
+    }
+    .contrib-main h1 {
+      margin: 0 0 0.75rem;
+      font-size: clamp(1.5rem, 4vw, 2rem);
+      letter-spacing: -0.03em;
+    }
+    .contrib-main .lead {
+      color: var(--muted);
+      line-height: 1.55;
+      margin: 0 0 1.5rem;
+    }
+    .os-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 0.85rem;
+      margin-bottom: 1.75rem;
+    }
+    .os-card {
+      padding: 1.15rem 1.1rem 1.2rem;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+    }
+    .os-card h3 {
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+    .os-card p {
+      margin: 0;
+      flex: 1;
+      font-size: 0.85rem;
+      line-height: 1.4;
+      color: var(--muted);
+    }
+    .os-card a {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 0.45rem;
+      padding: 0.65rem 1rem;
+      border-radius: 999px;
+      text-decoration: none;
+      font-weight: 650;
+      font-size: 0.88rem;
+      color: #fff;
+      background: linear-gradient(135deg, #3b82f6, #6366f1);
+      box-shadow: 0 8px 24px rgba(59, 130, 246, 0.28);
+    }
+    .os-card a.secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+      box-shadow: none;
+      margin-top: 0.35rem;
+    }
+    .steps {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 0.75rem;
+    }
+    .steps li {
+      padding: 0.95rem 1rem;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      font-size: 0.92rem;
+      line-height: 1.45;
+      color: var(--muted);
+    }
+    .steps strong { color: var(--text); display: block; margin-bottom: 0.25rem; }
+    .code-block {
+      margin: 0.65rem 0 0;
+      padding: 0.75rem 0.9rem;
+      border-radius: 12px;
+      background: #0e131a;
+      border: 1px solid var(--border);
+      overflow-x: auto;
+      font-family: ui-monospace, monospace;
+      font-size: 0.78rem;
+      color: #c5d0e0;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+    .note {
+      font-size: 0.85rem;
+      color: var(--muted);
+      line-height: 1.5;
+      margin-top: 1.5rem;
+    }
+    .note a { color: var(--accent); }
+  </style>
+</head>
+<body class="home-body">
+  <div class="home-bg" aria-hidden="true"></div>
+  <header class="home-nav">
+    <a class="home-brand" href="/">
+      <img class="home-brand-logo" src="/brand/logo-mark.png" width="36" height="36" alt="" />
+      <span>ruletka.vip</span>
+    </a>
+    <a class="home-secondary" href="/live.html">Live →</a>
+  </header>
+
+  <main class="contrib-main">
+    <h1>Network helper</h1>
+    <p class="lead">
+      A small program for <strong>your computer</strong>. It runs a full mini-hub with the chat UI
+      and a public HTTPS tunnel — an <strong>independent island</strong> people can open even if
+      this seed site is down. It does <strong>not</strong> give you control of this website or admin tools.
+      Open source (LGPL-2.1). Stop anytime with Ctrl+C.
+    </p>
+
+    <div class="os-grid">
+      <article class="os-card">
+        <h3>Windows</h3>
+        <p>PowerShell script · 64-bit PC</p>
+        <a href="/download/rulet-helper.ps1" download>Download .ps1</a>
+        <a class="secondary" href="/download/roulette-bridge-windows-amd64.exe" download>Binary only</a>
+      </article>
+      <article class="os-card">
+        <h3>macOS</h3>
+        <p>Apple Silicon &amp; Intel</p>
+        <a href="/download/rulet-helper-mac.sh" download>Download .sh</a>
+        <a class="secondary" href="/download/roulette-bridge-macos-arm64" download>Apple Silicon binary</a>
+        <a class="secondary" href="/download/roulette-bridge-macos-amd64" download>Intel binary</a>
+      </article>
+      <article class="os-card">
+        <h3>Linux</h3>
+        <p>x86_64 desktop / VPS</p>
+        <a href="/download/rulet-helper.sh" download>Download .sh</a>
+        <a class="secondary" href="/download/roulette-bridge-linux-amd64" download>Binary only</a>
+      </article>
+    </div>
+
+    <ol class="steps">
+      <li>
+        <strong>1 · What it does</strong>
+        Runs a mini match node on your machine and a free HTTPS tunnel so others can reach it.
+        Video still goes browser-to-browser — not through you as a media server.
+      </li>
+      <li>
+        <strong>2 · Run it</strong>
+        <div class="code-block"># Windows (PowerShell as user)
+powershell -ExecutionPolicy Bypass -File .\rulet-helper.ps1
+
+# macOS
+chmod +x rulet-helper-mac.sh && ./rulet-helper-mac.sh
+
+# Linux
+chmod +x rulet-helper.sh && ./rulet-helper.sh</div>
+        First run downloads the bridge (+ cloudflared if needed) into
+        <code>~/.ruletka-helper</code> (or <code>%USERPROFILE%\.ruletka-helper</code> on Windows).
+      </li>
+      <li>
+        <strong>3 · Join the main pool (optional)</strong>
+        The helper prints a public URL. Email
+        <a href="mailto:support@ruletka.vip">support@ruletka.vip</a>
+        if you want your node linked into the shared stranger queue.
+        Without that, you still have a personal hub — you never control ruletka.vip itself.
+      </li>
+    </ol>
+
+    <p class="note">
+      macOS may ask to allow the binary under <em>Privacy &amp; Security</em> the first time.
+      Windows may show SmartScreen for an unsigned .exe — choose “More info → Run anyway” if you trust this site.
+    </p>
+    <p class="note">
+      Prefer chat only? <a href="/live.html">Start chatting</a> — that already uses peer-to-peer video.
+    </p>
+  </main>
+</body>
+</html>

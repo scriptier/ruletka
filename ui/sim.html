@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="description" content="ruletka.vip — random peer-to-peer video chat" />
+  <meta name="theme-color" content="#0a0b0e" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <title>ruletka.vip — random video chat</title>
+  <!-- Cyrillic-capable UI fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="live-stage.css" />
+</head>
+<body class="stage-body">
+  <div class="stage-app">
+    <!-- Top chrome -->
+    <header class="stage-top">
+      <div class="brand">
+        <span class="brand-mark">●</span>
+        <span data-i18n="brand.name">ruletka.vip</span>
+        <span class="badge" data-i18n="brand.badge" data-i18n-title="brand.badgeTitle" title="Matchmaking + P2P video">live</span>
+      </div>
+      <div class="pool-bar" id="pool-bar">
+        <span><span data-i18n="pool.online">Online</span> <strong id="stat-online">0</strong></span>
+        <span><span data-i18n="pool.waiting">Waiting</span> <strong id="stat-waiting">0</strong></span>
+        <span class="arch-pill" id="arch-pill" title="Media is peer-to-peer WebRTC">P2P media · bridge match</span>
+        <span id="search-flag" class="searching" hidden data-i18n="pool.searching">Searching…</span>
+      </div>
+      <div class="stage-top-actions">
+        <label class="lang-switch" title="Language / Язык">
+          <span class="lang-ico" aria-hidden="true">🌐</span>
+          <select id="sel-lang" aria-label="Language">
+            <option value="en">EN</option>
+            <option value="ru">RU</option>
+          </select>
+        </label>
+        <span class="phase" id="phase" data-i18n="phase.idle">idle</span>
+        <code class="pid" id="pid">—</code>
+        <span id="status" class="status-pill" data-i18n="status.disconnected">disconnected</span>
+      </div>
+    </header>
+
+    <!-- Dual video stage -->
+    <main class="stage">
+      <!-- PARTNER (left) — solo: one video; stranger vs party: vertical split -->
+      <section class="tile tile-remote" id="tile-remote">
+        <div class="remote-stack" id="remote-stack">
+          <video id="remote" class="vid remote" autoplay playsinline playsInline></video>
+          <video id="remote2" class="vid remote remote-b" autoplay playsinline playsInline hidden></video>
+        </div>
+        <div class="tile-empty" id="remote-empty">
+          <div class="empty-icon">👆</div>
+          <div class="empty-title" data-i18n="remote.emptyTitle">Tap Next to start chatting</div>
+          <div class="empty-sub" data-i18n="remote.emptySub">Partner appears here</div>
+        </div>
+        <div class="tile-tag">
+          <span data-i18n="remote.tag" id="remote-tag">Partner</span>
+          <span class="quality" id="call-quality"></span>
+        </div>
+        <aside class="side-rail side-rail-left">
+          <button type="button" class="side-btn" id="btn-mute-remote" data-i18n-title="btn.partnerTitle" title="Mute partner (P)">
+            <span class="ico" id="ico-partner">🔊</span>
+            <span class="lbl" data-i18n="btn.partner">Partner</span>
+          </button>
+          <div class="side-vol">
+            <input id="remote-vol" type="range" min="0" max="100" value="100" orient="vertical"
+              data-i18n-title="vol.partner" data-i18n-aria="vol.partnerAria"
+              title="Partner volume" aria-label="Partner volume" />
+          </div>
+          <button type="button" class="side-btn" id="btn-fs-remote" data-i18n-title="btn.fullTitle" title="Fullscreen (F)">
+            <span class="ico">⛶</span>
+            <span class="lbl" data-i18n="btn.full">Full</span>
+          </button>
+        </aside>
+      </section>
+
+      <!-- YOU (right) -->
+      <section class="tile tile-local" id="tile-local">
+        <video id="local" class="vid local" autoplay playsinline muted></video>
+        <div class="tile-empty" id="local-empty">
+          <div class="empty-icon">📷</div>
+          <div class="empty-title" data-i18n="local.emptyTitle">Your camera</div>
+          <div class="empty-sub" data-i18n="local.emptySub">Allow camera &amp; mic when prompted</div>
+        </div>
+        <div class="tile-tag">
+          <span data-i18n="local.tag">You</span>
+          <span id="mic-pill" class="mic-pill">mic</span>
+        </div>
+        <aside class="side-rail side-rail-right">
+          <button type="button" class="side-btn" id="btn-mute-cam" data-i18n-title="btn.camTitle" title="Camera on/off (V)">
+            <span class="ico" id="ico-cam">📹</span>
+            <span class="lbl" data-i18n="btn.cam">Cam</span>
+          </button>
+          <button type="button" class="side-btn" id="btn-mute-mic" data-i18n-title="btn.micTitle" title="Mute mic (M)">
+            <span class="ico" id="ico-mic">🎤</span>
+            <span class="lbl" data-i18n="btn.mic">Mic</span>
+          </button>
+          <div class="side-vol mic-meter-rail" data-i18n-title="btn.levelTitle" title="Mic level">
+            <div class="meter-v"><span id="mic-meter"></span></div>
+            <span class="lbl" data-i18n="btn.level">Level</span>
+          </div>
+          <button type="button" class="side-btn" id="btn-settings" data-i18n-title="btn.audioTitle" title="Devices & speaker">
+            <span class="ico">⚙</span>
+            <span class="lbl" data-i18n="btn.audio">Audio</span>
+          </button>
+        </aside>
+      </section>
+    </main>
+
+    <!-- Bottom bar -->
+    <footer class="stage-bottom">
+      <div class="bottom-left">
+        <button type="button" id="btn-connect" class="pill primary" data-i18n="btn.connect">Connect</button>
+        <button type="button" id="btn-friends" class="pill" data-i18n="friends.open">Friends</button>
+        <button type="button" id="btn-browse-together" class="pill accent" hidden data-i18n="friends.browseTogether">Browse together</button>
+        <button type="button" id="btn-hangup-friend" class="pill danger" hidden data-i18n="friends.hangup">Hang up</button>
+        <label class="room-field" title="Optional private lobby">
+          <span data-i18n="room.label">Room</span>
+          <input id="room" type="text" maxlength="64" data-i18n-placeholder="room.placeholder" placeholder="public" autocomplete="off" spellcheck="false" />
+          <button type="button" class="pill ghost tight" id="btn-share-room" data-i18n-title="room.shareTitle" title="Copy room link">↗</button>
+        </label>
+      </div>
+      <div class="bottom-center">
+        <button type="button" id="btn-next" class="next-big">
+          <span class="next-arrow">⏭</span>
+          <span data-i18n="btn.next">Next</span>
+        </button>
+        <button type="button" id="btn-spin" class="pill ghost" data-i18n="btn.spin">Spin / search</button>
+      </div>
+      <form class="bottom-chat" id="compose">
+        <input id="msg" type="text" data-i18n-placeholder="chat.placeholder" placeholder="Say something…" autocomplete="off" inputmode="text" enterkeyhint="send" spellcheck="true" />
+        <button type="submit" class="pill" data-i18n="chat.send">Send</button>
+      </form>
+    </footer>
+
+  </div>
+
+  <!-- Friends sheet -->
+  <div class="sheet-backdrop" id="friends-backdrop" hidden></div>
+  <div class="sheet" id="friends-sheet" hidden>
+    <header>
+      <h3 data-i18n="friends.title">Friends</h3>
+      <button type="button" class="sheet-close" id="friends-close">✕</button>
+    </header>
+    <div class="sheet-body">
+      <p class="hint-inline">
+        <span data-i18n="friends.yourCode">Your code</span>:
+        <code id="my-friend-code">—</code>
+        <button type="button" class="pill tight" id="btn-copy-code" data-i18n="friends.copyCode">Copy</button>
+      </p>
+      <label>
+        <span data-i18n="friends.yourName">Display name</span>
+        <input id="display-name" type="text" maxlength="32" placeholder="anon" autocomplete="nickname" />
+      </label>
+      <label>
+        <span data-i18n="friends.addCode">Add friend by code</span>
+        <div class="row-inline">
+          <input id="add-friend-code" type="text" maxlength="16" autocomplete="off" spellcheck="false" />
+          <button type="button" class="pill" id="btn-add-friend" data-i18n="friends.add">Add</button>
+        </div>
+      </label>
+      <div id="friends-list" class="friends-list"></div>
+      <p class="hint-inline" data-i18n="friends.hint">
+        Call a friend when they are online, then Browse together (max 2) to scroll strangers as a pair.
+        A stranger sees both of you stacked vertically.
+      </p>
+    </div>
+  </div>
+
+  <!-- Incoming call toast is created only when someone rings (see live.js) -->
+
+  <!-- Settings sheet -->
+  <div class="sheet-backdrop" id="sheet-backdrop" hidden></div>
+  <div class="sheet" id="settings-sheet" hidden>
+    <header>
+      <h3 data-i18n="settings.title">Devices &amp; volume</h3>
+      <button type="button" class="sheet-close" id="sheet-close">✕</button>
+    </header>
+    <div class="sheet-body">
+      <label>
+        <span data-i18n="settings.lang">Language</span>
+        <select id="sel-lang-sheet">
+          <option value="en" data-i18n="lang.en">English</option>
+          <option value="ru" data-i18n="lang.ru">Русский</option>
+        </select>
+      </label>
+      <label>
+        <span data-i18n="settings.camera">Camera</span>
+        <select id="sel-camera"></select>
+      </label>
+      <label>
+        <span data-i18n="settings.mic">Microphone</span>
+        <select id="sel-mic"></select>
+      </label>
+      <label>
+        <span data-i18n="settings.speaker">Speaker (partner audio)</span>
+        <select id="sel-speaker"></select>
+      </label>
+      <label>
+        <span data-i18n="settings.partnerVol">Partner volume</span>
+        <input id="remote-vol-sheet" type="range" min="0" max="100" value="100" />
+      </label>
+      <label class="check-row">
+        <input type="checkbox" id="chk-match-sound" checked />
+        <span data-i18n="settings.matchSound">Sound on match</span>
+      </label>
+      <div class="sheet-actions">
+        <button type="button" id="btn-refresh-devices" class="pill" data-i18n="settings.refresh">Refresh devices</button>
+        <button type="button" id="btn-restart-cam" class="pill" data-i18n="settings.restartCam">Restart camera</button>
+      </div>
+      <p class="hint-inline" data-i18n="settings.hint">
+        Choices are saved. Side buttons control mute &amp; partner volume during a call.
+        Shortcuts: <kbd>M</kbd> mic · <kbd>V</kbd> cam · <kbd>P</kbd> partner · <kbd>Space</kbd> next/spin
+      </p>
+    </div>
+  </div>
+
+  <script src="i18n.js"></script>
+  <script src="webrtc.js"></script>
+  <script src="live.js"></script>
+</body>
+</html>

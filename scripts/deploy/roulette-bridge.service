@@ -1,0 +1,45 @@
+[Unit]
+Description=ruletka.vip roulette-bridge (match + signaling)
+After=network-online.target coturn.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ruletka
+Group=ruletka
+WorkingDirectory=/opt/ruletka
+Environment=RUST_LOG=info
+Environment=ROULETTE_LISTEN=127.0.0.1:8790
+# Self-hosted coturn (see scripts/deploy/setup-turn.sh)
+Environment=ROULETTE_OPEN_TURN=false
+Environment=ROULETTE_TURN=turn:ruletka.vip:3478?transport=udp,turn:ruletka.vip:3478?transport=tcp
+Environment=ROULETTE_TURN_TTL=21600
+# Secrets (not in git) — created by setup scripts
+EnvironmentFile=-/opt/ruletka/data/turn.env
+EnvironmentFile=-/opt/ruletka/data/admin.env
+# admin.env: ROULETTE_ADMIN_TOKEN=long-random  →  /admin.html + /v1/admin/*
+# Public identity for multi-hub directory (GET /v1/directory)
+Environment=ROULETTE_PUBLIC_BASE=https://ruletka.vip
+Environment=ROULETTE_INSTANCE_ID=ruletka-vip
+# Optional federation with trusted operator peers:
+# Environment=ROULETTE_FEDERATION_TOKEN=...
+# Environment=ROULETTE_FEDERATION_PEERS=https://other-hub.example.com
+# Environment=ROULETTE_DIRECTORY_HUBS=https://other-hub.example.com
+ExecStart=/opt/ruletka/bin/roulette-bridge \
+  --mode simple \
+  --listen 127.0.0.1:8790 \
+  --ui-dir /opt/ruletka/ui \
+  --friends-file /opt/ruletka/data/friends.json
+Restart=always
+RestartSec=2
+LimitNOFILE=65535
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/ruletka/data
+
+[Install]
+WantedBy=multi-user.target

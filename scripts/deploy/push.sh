@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# Build + upload + install to DigitalOcean droplet.
+# Usage:
+#   ./scripts/deploy/push.sh
+#   HOST=root@209.38.204.153 ./scripts/deploy/push.sh
+#   SSH_KEY=~/.ssh/ruletka_ed25519 ./scripts/deploy/push.sh
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$ROOT"
+source "$HOME/.cargo/env" 2>/dev/null || true
+
+HOST="${HOST:-root@209.38.204.153}"
+SSH_KEY="${SSH_KEY:-$HOME/.ssh/ruletka_ed25519}"
+SSH=(ssh -i "$SSH_KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new)
+SCP=(scp -i "$SSH_KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new)
+RSYNC_SSH="ssh -i $SSH_KEY -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+
+echo "Building release binary…"
+cargo build -p freenet-roulette-bridge --release
+
+STAGE=$(mktemp -d)
+trap 'rm -rf "$STAGE"' EXIT
+mkdir -p "$STAGE"/{bin,ui,data,deploy}
+
+cp -a target/release/roulette-bridge "$STAGE/bin/"
+# UI only (not whole repo)
+rsync -a --delete \
+  --exclude '*.map' \
+  ui/ "$STAGE/ui/"
+# Public helper downloads (Linux / Windows / macOS)
+mkdir -p "$STAGE/ui/download"
+cp -a target/release/roulette-bridge "$STAGE/ui/download/roulette-bridge-linux-amd64"
+chmod +x "$STAGE/ui/download/roulette-bridge-linux-amd64"
+# Prefer prebuilt multi-arch artifacts from ui/download if present (cross-compiled)
+for f in \
+  roulette-bridge-windows-amd64.exe \
+  roulette-bridge-macos-arm64 \
+  roulette-bridge-macos-amd64 \
+  rulet-helper.sh \
+  rulet-helper-mac.sh \
+  rulet-helper.ps1
+do
+  if [[ -f "ui/download/$f" ]]; then
+    cp -a "ui/download/$f" "$STAGE/ui/download/"
+  fi
+done
+# If Windows/Mac builds exist in target/, refresh them into the stage
+[[ -f target/x86_64-pc-windows-gnu/release/roulette-bridge.exe ]] && \
+  cp -a target/x86_64-pc-windows-gnu/release/roulette-bridge.exe \
+    "$STAGE/ui/download/roulette-bridge-windows-amd64.exe"
+[[ -f target/aarch64-apple-darwin/release/roulette-bridge ]] && \
+  cp -a target/aarch64-apple-darwin/release/roulette-bridge \
+    "$STAGE/ui/download/roulette-bridge-macos-arm64"
+[[ -f target/x86_64-apple-darwin/release/roulette-bridge ]] && \
+  cp -a target/x86_64-apple-darwin/release/roulette-bridge \
+    "$STAGE/ui/download/roulette-bridge-macos-amd64"
+chmod +x "$STAGE/ui/download/"* 2>/dev/null || true
+cp -a scripts/deploy/Caddyfile \
+  scripts/deploy/roulette-bridge.service \
+  scripts/deploy/install-on-server.sh \
+  scripts/deploy/coturn.conf \
+  scripts/deploy/setup-turn.sh \
+  "$STAGE/deploy/"
+chmod +x "$STAGE/bin/roulette-bridge" "$STAGE/deploy/install-on-server.sh" "$STAGE/deploy/setup-turn.sh"
+# seed empty friends store if missing
+[[ -f data/friends.json ]] && cp data/friends.json "$STAGE/data/" || echo '{}' > "$STAGE/data/friends.json"
+
+echo "Testing SSH to $HOST …"
+if ! "${SSH[@]}" "$HOST" 'echo ssh_ok'; then
+  cat <<EOF
+
+SSH failed. Add this public key to the droplet, then re-run:
+
+  $(cat "$SSH_KEY.pub")
+
+DigitalOcean → Droplets → your droplet → Access → Launch Droplet Console
+  or Settings → add SSH key, then:
+
+  # as root in web console:
+  mkdir -p /root/.ssh && chmod 700 /root/.ssh
+  echo '$(cat "$SSH_KEY.pub")' >> /root/.ssh/authorized_keys
+  chmod 600 /root/.ssh/authorized_keys
+
+EOF
+  exit 1
+fi
+
+echo "Uploading to $HOST:/opt/ruletka …"
+"${SSH[@]}" "$HOST" 'mkdir -p /opt/ruletka && apt-get update -qq && apt-get install -y -qq rsync >/dev/null || true'
+rsync -az --delete -e "$RSYNC_SSH" \
+  "$STAGE"/ "$HOST:/opt/ruletka/"
+
+echo "Running install on server…"
+"${SSH[@]}" "$HOST" 'bash /opt/ruletka/deploy/install-on-server.sh'
+
+echo
+echo "Done. Open:"
+echo "  https://ruletka.vip/"
+echo "  https://ruletka.vip/live.html"
+echo
+"${SSH[@]}" "$HOST" 'curl -sS http://127.0.0.1:8790/health; echo; curl -sS -o /dev/null -w "https_home:%{http_code}\n" --connect-timeout 15 https://ruletka.vip/ || true'

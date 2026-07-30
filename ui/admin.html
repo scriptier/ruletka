@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>ruletka.vip — admin reports</title>
+  <link rel="icon" href="/brand/favicon-32.png" type="image/png" />
+  <style>
+    :root {
+      --bg: #0a0b0e;
+      --panel: #141a22;
+      --border: #243041;
+      --text: #e8eef7;
+      --muted: #8b9bb0;
+      --accent: #5b9dff;
+      --good: #3dd68c;
+      --warn: #f5a524;
+      --danger: #ff2d55;
+      --sans: "Inter", "Noto Sans", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100dvh;
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      padding: 1.25rem 1rem 3rem;
+    }
+    .wrap { max-width: 980px; margin: 0 auto; }
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem 1rem;
+      margin-bottom: 1.25rem;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.2rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .badge {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 0.2rem 0.5rem;
+      border-radius: 999px;
+      background: rgba(255, 45, 85, 0.15);
+      color: #ff8fab;
+      border: 1px solid rgba(255, 45, 85, 0.35);
+    }
+    .auth {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      padding: 0.85rem 1rem;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      margin-bottom: 1.25rem;
+    }
+    .auth input {
+      flex: 1 1 12rem;
+      min-width: 0;
+      border: 1px solid var(--border);
+      background: #0e131a;
+      color: var(--text);
+      border-radius: 10px;
+      padding: 0.55rem 0.75rem;
+      font: inherit;
+    }
+    button, .btn {
+      border: 1px solid var(--border);
+      background: #1a2230;
+      color: var(--text);
+      border-radius: 10px;
+      padding: 0.5rem 0.85rem;
+      font: inherit;
+      font-weight: 600;
+      font-size: 0.88rem;
+      cursor: pointer;
+    }
+    button.primary {
+      background: linear-gradient(135deg, #3b82f6, #6366f1);
+      border-color: transparent;
+      color: #fff;
+    }
+    button.danger {
+      color: #ff8fab;
+      border-color: rgba(255, 45, 85, 0.35);
+      background: rgba(60, 20, 36, 0.5);
+    }
+    button:hover { filter: brightness(1.08); }
+    .stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 1.25rem;
+    }
+    .stat {
+      padding: 0.55rem 0.85rem;
+      border-radius: 12px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .stat strong { color: var(--text); margin-left: 0.25rem; }
+    h2 {
+      margin: 1.5rem 0 0.65rem;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.65rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    th {
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      background: rgba(0,0,0,0.2);
+    }
+    tr:last-child td { border-bottom: none; }
+    .uid {
+      font-family: ui-monospace, monospace;
+      font-size: 0.72rem;
+      color: #9ec5ff;
+      word-break: break-all;
+    }
+    .muted { color: var(--muted); }
+    .pill {
+      display: inline-block;
+      padding: 0.12rem 0.45rem;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 600;
+    }
+    .pill.ok { background: rgba(61,214,140,0.12); color: var(--good); }
+    .pill.warn { background: rgba(245,165,36,0.12); color: var(--warn); }
+    .pill.bad { background: rgba(255,45,85,0.12); color: #ff8fab; }
+    .empty {
+      padding: 1.25rem;
+      color: var(--muted);
+      text-align: center;
+      font-size: 0.9rem;
+    }
+    .err {
+      color: #ff8fab;
+      margin: 0.5rem 0 0;
+      font-size: 0.85rem;
+    }
+    .row-actions { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+    .hint {
+      margin: 0.35rem 0 0;
+      font-size: 0.78rem;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <img src="/brand/logo-mark.png" width="32" height="32" alt="" style="border-radius:8px" />
+      <h1>ruletka.vip admin</h1>
+      <span class="badge">reports</span>
+      <span style="flex:1"></span>
+      <a href="/live.html">← Live</a>
+    </header>
+
+    <div class="auth">
+      <input id="token" type="password" placeholder="Admin token (ROULETTE_ADMIN_TOKEN)" autocomplete="current-password" />
+      <button type="button" class="primary" id="btn-load">Load</button>
+      <button type="button" id="btn-clear-token">Forget</button>
+    </div>
+    <p class="hint">
+      Token is stored only in this browser’s <code>localStorage</code>. API: <code>GET /v1/admin/reports</code>
+    </p>
+    <p class="err" id="err" hidden></p>
+
+    <div class="stats" id="stats" hidden>
+      <div class="stat">Online <strong id="st-online">0</strong></div>
+      <div class="stat">Waiting <strong id="st-waiting">0</strong></div>
+      <div class="stat">Reports (shown) <strong id="st-reports">0</strong></div>
+      <div class="stat">Active bans <strong id="st-bans">0</strong></div>
+    </div>
+
+    <h2>Active match bans</h2>
+    <div class="card" id="bans-card">
+      <div class="empty" id="bans-empty">Sign in to load bans</div>
+      <table id="bans-table" hidden>
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Until</th>
+            <th>Reporters</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="bans-body"></tbody>
+      </table>
+    </div>
+
+    <h2>Manual ban</h2>
+    <div class="auth">
+      <input id="ban-uid" type="text" placeholder="user_id to ban" autocomplete="off" />
+      <input id="ban-days" type="number" min="1" max="365" value="7" style="flex:0 0 5rem" title="Days" />
+      <button type="button" class="danger" id="btn-ban">Ban days</button>
+    </div>
+
+    <h2>Recent reports</h2>
+    <div class="card" id="reports-card">
+      <div class="empty" id="reports-empty">Sign in to load reports</div>
+      <table id="reports-table" hidden>
+        <thead>
+          <tr>
+            <th>When</th>
+            <th>Target</th>
+            <th>Reporter</th>
+            <th>Reason</th>
+            <th>#</th>
+          </tr>
+        </thead>
+        <tbody id="reports-body"></tbody>
+      </table>
+    </div>
+
+    <h2>Top reported targets</h2>
+    <div class="card" id="targets-card">
+      <div class="empty" id="targets-empty">—</div>
+      <table id="targets-table" hidden>
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Unique reporters</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="targets-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const KEY = "rulet.admin.token";
+    const $ = (id) => document.getElementById(id);
+
+    function token() {
+      return ($("token").value || "").trim();
+    }
+
+    function saveToken(t) {
+      try {
+        if (t) localStorage.setItem(KEY, t);
+        else localStorage.removeItem(KEY);
+      } catch (_) {}
+    }
+
+    function loadSaved() {
+      try {
+        const t = localStorage.getItem(KEY) || "";
+        if (t) $("token").value = t;
+        const q = new URLSearchParams(location.search).get("token");
+        if (q) $("token").value = q;
+      } catch (_) {}
+    }
+
+    function headers() {
+      const t = token();
+      return {
+        Authorization: "Bearer " + t,
+        "X-Admin-Token": t,
+        "Content-Type": "application/json",
+      };
+    }
+
+    function showErr(msg) {
+      const el = $("err");
+      if (!msg) {
+        el.hidden = true;
+        el.textContent = "";
+        return;
+      }
+      el.hidden = false;
+      el.textContent = msg;
+    }
+
+    function fmtTime(ms) {
+      if (!ms) return "—";
+      try {
+        return new Date(Number(ms)).toLocaleString();
+      } catch {
+        return String(ms);
+      }
+    }
+
+    function fmtUntil(sec) {
+      if (!sec) return "—";
+      try {
+        return new Date(Number(sec) * 1000).toLocaleString();
+      } catch {
+        return String(sec);
+      }
+    }
+
+    function shortId(s) {
+      s = String(s || "");
+      if (s.length <= 16) return s;
+      return s.slice(0, 10) + "…" + s.slice(-4);
+    }
+
+    async function api(path, opts) {
+      const r = await fetch(path, {
+        ...opts,
+        headers: { ...headers(), ...(opts && opts.headers) },
+        cache: "no-store",
+      });
+      if (r.status === 401) throw new Error("Unauthorized — check admin token");
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || r.statusText || "request failed");
+      return j;
+    }
+
+    function renderBans(bans) {
+      const body = $("bans-body");
+      const empty = $("bans-empty");
+      const table = $("bans-table");
+      if (!bans || !bans.length) {
+        empty.hidden = false;
+        empty.textContent = "No active match bans";
+        table.hidden = true;
+        body.innerHTML = "";
+        return;
+      }
+      empty.hidden = true;
+      table.hidden = false;
+      body.innerHTML = bans
+        .map(
+          (b) => `<tr>
+          <td>
+            <div>${escapeHtml(b.name || "—")}</div>
+            <div class="uid" title="${escapeAttr(b.user_id)}">${escapeHtml(shortId(b.user_id))}</div>
+          </td>
+          <td>
+            ${escapeHtml(fmtUntil(b.until))}
+            <div class="muted">${Math.ceil((b.remaining_secs || 0) / 3600)}h left</div>
+          </td>
+          <td>${b.unique_reporters ?? "—"}</td>
+          <td class="row-actions">
+            <button type="button" data-unban="${escapeAttr(b.user_id)}">Unban</button>
+          </td>
+        </tr>`
+        )
+        .join("");
+      body.querySelectorAll("[data-unban]").forEach((btn) => {
+        btn.addEventListener("click", () => unban(btn.getAttribute("data-unban")));
+      });
+    }
+
+    function renderReports(list) {
+      const body = $("reports-body");
+      const empty = $("reports-empty");
+      const table = $("reports-table");
+      if (!list || !list.length) {
+        empty.hidden = false;
+        empty.textContent = "No reports yet";
+        table.hidden = true;
+        body.innerHTML = "";
+        return;
+      }
+      empty.hidden = true;
+      table.hidden = false;
+      body.innerHTML = list
+        .map((r) => {
+          const banned = r.auto_banned
+            ? '<span class="pill bad">auto-ban</span>'
+            : "";
+          return `<tr>
+          <td class="muted">${escapeHtml(fmtTime(r.t))}</td>
+          <td>
+            <div>${escapeHtml(r.target_name || "—")} ${banned}</div>
+            <div class="uid" title="${escapeAttr(r.target_user_id)}">${escapeHtml(shortId(r.target_user_id))}</div>
+          </td>
+          <td>
+            <div>${escapeHtml(r.reporter_name || r.reporter_short || "—")}</div>
+            <div class="uid" title="${escapeAttr(r.reporter_user_id)}">${escapeHtml(shortId(r.reporter_user_id))}</div>
+          </td>
+          <td>${escapeHtml(r.reason || "—")}</td>
+          <td>${r.unique_reporters ?? "—"}</td>
+        </tr>`;
+        })
+        .join("");
+    }
+
+    function renderTargets(list) {
+      const body = $("targets-body");
+      const empty = $("targets-empty");
+      const table = $("targets-table");
+      if (!list || !list.length) {
+        empty.hidden = false;
+        empty.textContent = "No report aggregates";
+        table.hidden = true;
+        body.innerHTML = "";
+        return;
+      }
+      empty.hidden = true;
+      table.hidden = false;
+      body.innerHTML = list
+        .map((t) => {
+          const st = t.banned
+            ? '<span class="pill bad">banned</span>'
+            : t.unique_reporters >= 3
+            ? '<span class="pill warn">threshold</span>'
+            : '<span class="pill ok">open</span>';
+          return `<tr>
+          <td>
+            <div>${escapeHtml(t.name || "—")}</div>
+            <div class="uid" title="${escapeAttr(t.user_id)}">${escapeHtml(shortId(t.user_id))}</div>
+          </td>
+          <td>${t.unique_reporters ?? 0}</td>
+          <td>${st}</td>
+          <td class="row-actions">
+            ${
+              t.banned
+                ? `<button type="button" data-unban="${escapeAttr(t.user_id)}">Unban</button>`
+                : `<button type="button" class="danger" data-ban="${escapeAttr(t.user_id)}">Ban 7d</button>`
+            }
+          </td>
+        </tr>`;
+        })
+        .join("");
+      body.querySelectorAll("[data-unban]").forEach((btn) => {
+        btn.addEventListener("click", () => unban(btn.getAttribute("data-unban")));
+      });
+      body.querySelectorAll("[data-ban]").forEach((btn) => {
+        btn.addEventListener("click", () => ban(btn.getAttribute("data-ban"), 7));
+      });
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+    function escapeAttr(s) {
+      return escapeHtml(s).replace(/'/g, "&#39;");
+    }
+
+    async function refresh() {
+      showErr("");
+      const t = token();
+      if (!t) {
+        showErr("Enter admin token");
+        return;
+      }
+      saveToken(t);
+      try {
+        const data = await api("/v1/admin/reports");
+        $("stats").hidden = false;
+        $("st-online").textContent = data.online ?? 0;
+        $("st-waiting").textContent = data.waiting ?? 0;
+        $("st-reports").textContent = (data.reports || []).length;
+        $("st-bans").textContent = (data.bans || []).length;
+        renderBans(data.bans || []);
+        renderReports(data.reports || []);
+        renderTargets(data.targets || []);
+      } catch (e) {
+        showErr(e.message || String(e));
+      }
+    }
+
+    async function unban(uid) {
+      if (!uid || !confirm("Unban " + uid + "?")) return;
+      try {
+        await api("/v1/admin/unban", {
+          method: "POST",
+          body: JSON.stringify({ user_id: uid }),
+        });
+        await refresh();
+      } catch (e) {
+        showErr(e.message || String(e));
+      }
+    }
+
+    async function ban(uid, days) {
+      if (!uid) return;
+      const secs = Math.max(1, Number(days) || 7) * 86400;
+      if (!confirm("Ban " + uid + " for " + (days || 7) + " days?")) return;
+      try {
+        await api("/v1/admin/ban", {
+          method: "POST",
+          body: JSON.stringify({ user_id: uid, secs }),
+        });
+        await refresh();
+      } catch (e) {
+        showErr(e.message || String(e));
+      }
+    }
+
+    $("btn-load").addEventListener("click", refresh);
+    $("btn-clear-token").addEventListener("click", () => {
+      $("token").value = "";
+      saveToken("");
+      showErr("");
+    });
+    $("btn-ban").addEventListener("click", () => {
+      ban($("ban-uid").value.trim(), $("ban-days").value);
+    });
+    $("token").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") refresh();
+    });
+
+    loadSaved();
+    if (token()) refresh();
+  </script>
+</body>
+</html>

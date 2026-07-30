@@ -1,0 +1,29 @@
+[workspace]
+members = [
+    "common",
+    "sim",
+    "demo",
+    "tools",
+    "agent",
+    "bridge",
+    "contracts/lobby",
+    "contracts/session",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "LGPL-2.1-only"
+version = "0.1.0"
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+hex = "0.4"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"
+# Contracts depend without default features (no OsRng / getrandom on wasm).
+freenet-stdlib = { version = "0.8.5", features = ["contract"] }
+ciborium = "0.2"
+freenet-roulette-common = { path = "common", default-features = false }

@@ -1,0 +1,24 @@
+[package]
+name = "freenet-roulette-common"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Lobby monoid + match algorithm for Freenet Chat Roulette"
+
+[features]
+default = ["client"]
+# Client/agent code needs OsRng for ephemeral identities.
+client = ["dep:rand", "ed25519-dalek/rand_core"]
+
+[dependencies]
+serde = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+ciborium = { workspace = true }
+ed25519-dalek = { version = "2", default-features = false, features = ["std", "alloc"] }
+rand = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+rand = { workspace = true }
+ed25519-dalek = { workspace = true }

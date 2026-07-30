@@ -1,0 +1,17 @@
+[package]
+name = "freenet-roulette-tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Dev helpers: empty CBOR state, key dumps"
+
+[[bin]]
+name = "roulette-tools"
+path = "src/main.rs"
+
+[dependencies]
+freenet-roulette-common = { workspace = true, features = ["client"] }
+ciborium = { workspace = true }
+clap = { version = "4", features = ["derive"] }
+hex = { workspace = true }
+serde = { workspace = true }

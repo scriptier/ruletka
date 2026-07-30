@@ -1,0 +1,13 @@
+{
+  "protocol": "ruletka-directory/1",
+  "updated": "2026-07-30",
+  "notes": "Public bootstrap list. Anyone can run a hub; this file is only a seed. Prefer same-origin when you open a hub's own URL.",
+  "hubs": [
+    {
+      "base": "https://ruletka.vip",
+      "name": "ruletka.vip (seed)",
+      "region": "fra",
+      "operator": "seed"
+    }
+  ]
+}
