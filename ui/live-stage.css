@@ -1247,11 +1247,12 @@ html.stage-html {
 .mic-pill.hot { background: rgba(61, 214, 140, 0.35); color: #3dd68c; }
 .mic-pill.muted { background: rgba(243, 18, 96, 0.35); color: #ff6b9d; }
 
-/* Side rails — floating circular controls */
+/* Side rails — floating circular controls (vertical stack, parked low above docks) */
 .side-rail {
   position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
+  top: auto;
+  bottom: 5.5rem; /* clear Spin/Next + chat docks */
+  transform: none;
   z-index: 4;
   display: flex;
   flex-direction: column;
