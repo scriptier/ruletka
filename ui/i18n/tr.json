@@ -30,12 +30,12 @@
   "settings.secSafety": "Güvenlik",
   "settings.secAudio": "Partner sesi",
   "settings.secLegal": "Yasal ve yardım",
-  "settings.secHardware": "Donanım",
+  "settings.secHardware": "Cihazlar",
   "settings.secAbout": "Hakkında ve yasal",
   "settings.secMore": "Tercihler",
   "settings.heroHint": "Sohbette partnerlere gösterilir",
   "settings.sumBlur": "Bulanık",
-  "settings.sumNsfw": "Otomatik atla",
+  "settings.sumNsfw": "Atla",
   "settings.sumSound": "Ses",
   "settings.sumOff": "Hepsi kapalı",
   "settings.blurFirst": "Yabancılar bulanık kalsın, ben açana kadar",
@@ -411,5 +411,12 @@
   "arch.fedTitle": "İşbirlikçi hub üzerinden eşleşme. Video hâlâ P2P.",
   "log.fedMatch": "Hub’lar arası eşleşme",
   "home.share": "Paylaş",
-  "home.shareOk": "Bağlantı kopyalandı"
+  "home.shareOk": "Bağlantı kopyalandı",
+  "settings.secNetwork": "Ağ",
+  "settings.secConnection": "Bağlantı",
+  "settings.sumAllOn": "Hepsi açık",
+  "sec.mediaP2pShort": "P2P medya",
+  "sec.turnEphemeralShort": "Özel TURN",
+  "sec.partnerRecordShort": "Partner kaydedebilir — Engelle / Bildir",
+  "hub.autoShort": "otomatik"
 }

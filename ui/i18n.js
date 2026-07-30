@@ -245,7 +245,7 @@
       "settings.lang": "Language",
       "settings.secProfile": "Profile",
       "settings.secAppearance": "Appearance",
-      "settings.secHardware": "Hardware settings",
+      "settings.secHardware": "Devices",
       "settings.secHelp": "Help & support",
       "settings.secOther": "Other",
       "settings.theme": "Theme",

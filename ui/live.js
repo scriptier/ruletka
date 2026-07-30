@@ -1035,26 +1035,37 @@ function refreshSecurityPanel() {
   const turnEl = $("sec-turn-trust");
   const idEl = $("sec-identity");
   const noteEl = $("sec-partner-note");
+  // Prefer short labels in the settings sheet (long strings truncate / wrap badly)
   if (pathEl) {
-    pathEl.textContent = matched
-      ? $("ice-path")?.textContent || _t("sec.pathUnknown")
-      : _t("sec.mediaP2p");
+    if (matched) {
+      const live = $("ice-path")?.textContent;
+      pathEl.textContent =
+        live || _t("sec.pathUnknownShort") || _t("sec.pathUnknown");
+    } else {
+      pathEl.textContent = _t("sec.mediaP2pShort") || _t("sec.mediaP2p");
+    }
   }
   if (turnEl) {
     const trust = meta?.security?.turn_trust || "";
-    if (trust === "open_relay_demo") turnEl.textContent = _t("sec.turnOpen");
-    else if (trust === "self_hosted_ephemeral") turnEl.textContent = _t("sec.turnEphemeral");
-    else if (trust === "self_hosted_static") turnEl.textContent = _t("sec.turnStatic");
-    else if (trust === "no_turn") turnEl.textContent = _t("sec.turnNone");
-    else if (meta?.has_turn) turnEl.textContent = _t("sec.turnOn");
-    else turnEl.textContent = _t("sec.turnNone");
+    if (trust === "open_relay_demo")
+      turnEl.textContent = _t("sec.turnOpenShort") || _t("sec.turnOpen");
+    else if (trust === "self_hosted_ephemeral")
+      turnEl.textContent = _t("sec.turnEphemeralShort") || _t("sec.turnEphemeral");
+    else if (trust === "self_hosted_static")
+      turnEl.textContent = _t("sec.turnStaticShort") || _t("sec.turnStatic");
+    else if (trust === "no_turn")
+      turnEl.textContent = _t("sec.turnNoneShort") || _t("sec.turnNone");
+    else if (meta?.has_turn)
+      turnEl.textContent = _t("sec.turnOnShort") || _t("sec.turnOn");
+    else turnEl.textContent = _t("sec.turnNoneShort") || _t("sec.turnNone");
   }
   if (idEl) {
     const idn = loadIdentity();
     const cryptoOn = !!idn.cryptoBound || String(idn.user_id || "").startsWith("k");
     idEl.textContent = cryptoOn ? _t("sec.idCrypto") : _t("sec.idLegacy");
   }
-  if (noteEl) noteEl.textContent = _t("sec.partnerRecord");
+  if (noteEl)
+    noteEl.textContent = _t("sec.partnerRecordShort") || _t("sec.partnerRecord");
 }
 
 function selectedDevices() {
@@ -1872,7 +1883,12 @@ function syncHubSettingsUi() {
   const b =
     typeof RuletHub !== "undefined" && RuletHub.base ? RuletHub.base() : location.origin;
   if ($("settings-hub-summary")) {
-    $("settings-hub-summary").textContent = shortHubLabel(b, 18);
+    const auto =
+      typeof RuletHub === "undefined" || RuletHub.autoFailoverEnabled();
+    const host = shortHubLabel(b, 14);
+    $("settings-hub-summary").textContent = auto
+      ? `${host} · ${_t("hub.autoShort") || "auto"}`
+      : host;
   }
   if ($("hub-current-url")) {
     $("hub-current-url").textContent = b || "—";
@@ -1960,11 +1976,15 @@ function wireHubSettings() {
 
 function syncSettingsSummary() {
   const lang = NextfaceI18n?.getLang?.() || "ru";
+  const langs = NextfaceI18n?.listLanguages?.() || [];
+  const langMeta = langs.find((l) => l.code === lang);
   if ($("settings-lang-value")) {
-    $("settings-lang-value").textContent = lang === "en" ? "English" : "Русский";
+    $("settings-lang-value").textContent =
+      langMeta?.native || (lang === "en" ? "English" : lang === "ru" ? "Русский" : lang);
   }
   if ($("settings-lang-flag")) {
-    $("settings-lang-flag").textContent = lang === "en" ? "🇬🇧" : "🇷🇺";
+    $("settings-lang-flag").textContent =
+      (typeof LANG_FLAGS !== "undefined" && LANG_FLAGS[lang]) || "🌐";
   }
   if ($("settings-theme-value")) {
     $("settings-theme-value").textContent = _t("settings.themeNight");
@@ -1990,9 +2010,9 @@ function syncSettingsSummary() {
     $("settings-speaker-value").textContent = spkShort;
   }
   if ($("settings-devices-summary")) {
-    $("settings-devices-summary").textContent = shortDeviceLabel(cam, 18) || camShort;
+    $("settings-devices-summary").textContent = shortDeviceLabel(cam, 16) || camShort;
   }
-  // Safety summary chips
+  // Safety summary — keep short so it never truncates mid-word
   if ($("settings-safety-summary")) {
     const prefs = loadPrefs();
     const parts = [];
@@ -2001,11 +2021,17 @@ function syncSettingsSummary() {
     if (typeof prefs.matchSound === "boolean" ? prefs.matchSound : true) {
       parts.push(_t("settings.sumSound"));
     }
-    $("settings-safety-summary").textContent =
-      parts.length ? parts.join(" · ") : _t("settings.sumOff");
+    if (parts.length === 3) {
+      $("settings-safety-summary").textContent = _t("settings.sumAllOn") || "All on";
+    } else if (parts.length) {
+      $("settings-safety-summary").textContent = parts.join(" · ");
+    } else {
+      $("settings-safety-summary").textContent = _t("settings.sumOff");
+    }
   }
   syncMatchPrefsUi();
   syncHubSettingsUi();
+  refreshSecurityPanel();
   // Avatar letter from display name
   const letterEl = $("settings-hero-letter");
   const av = $("settings-hero-avatar");

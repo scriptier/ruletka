@@ -30,12 +30,12 @@
   "settings.secSafety": "Seguridad",
   "settings.secAudio": "Audio del partner",
   "settings.secLegal": "Legal y ayuda",
-  "settings.secHardware": "Hardware",
+  "settings.secHardware": "Dispositivos",
   "settings.secAbout": "Acerca de y legal",
   "settings.secMore": "Preferencias",
   "settings.heroHint": "Visible para partners en el chat",
   "settings.sumBlur": "Desenfoque",
-  "settings.sumNsfw": "Auto-saltar",
+  "settings.sumNsfw": "Skip",
   "settings.sumSound": "Sonido",
   "settings.sumOff": "Todo off",
   "settings.blurFirst": "Desenfocar desconocidos hasta que quite el blur",
@@ -411,5 +411,12 @@
   "arch.fedTitle": "Emparejado vía otro hub. El video sigue P2P.",
   "log.fedMatch": "Emparejado entre hubs",
   "home.share": "Compartir",
-  "home.shareOk": "Enlace copiado"
+  "home.shareOk": "Enlace copiado",
+  "settings.secNetwork": "Red",
+  "settings.secConnection": "Conexión",
+  "settings.sumAllOn": "Todo on",
+  "sec.mediaP2pShort": "Medios P2P",
+  "sec.turnEphemeralShort": "TURN propio",
+  "sec.partnerRecordShort": "La pareja puede grabar — Bloquear / Reportar",
+  "hub.autoShort": "auto"
 }

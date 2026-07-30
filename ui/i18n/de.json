@@ -30,12 +30,12 @@
   "settings.secSafety": "Sicherheit",
   "settings.secAudio": "Partner-Audio",
   "settings.secLegal": "Rechtliches & Hilfe",
-  "settings.secHardware": "Hardware",
+  "settings.secHardware": "Geräte",
   "settings.secAbout": "Über & Rechtliches",
   "settings.secMore": "Einstellungen",
   "settings.heroHint": "Für Partner im Chat sichtbar",
   "settings.sumBlur": "Unschärfe",
-  "settings.sumNsfw": "Auto-Skip",
+  "settings.sumNsfw": "Skip",
   "settings.sumSound": "Ton",
   "settings.sumOff": "Alles aus",
   "settings.blurFirst": "Fremde unscharf, bis ich aufhebe",
@@ -411,5 +411,12 @@
   "arch.fedTitle": "Match über einen Partner-Hub. Video bleibt P2P.",
   "log.fedMatch": "Hub-übergreifender Match",
   "home.share": "Teilen",
-  "home.shareOk": "Link kopiert"
+  "home.shareOk": "Link kopiert",
+  "settings.secNetwork": "Netzwerk",
+  "settings.secConnection": "Verbindung",
+  "settings.sumAllOn": "Alles an",
+  "sec.mediaP2pShort": "P2P-Medien",
+  "sec.turnEphemeralShort": "Eigener TURN",
+  "sec.partnerRecordShort": "Partner kann aufnehmen — Block / Melden",
+  "hub.autoShort": "auto"
 }

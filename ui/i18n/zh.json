@@ -30,12 +30,12 @@
   "settings.secSafety": "安全",
   "settings.secAudio": "对方音频",
   "settings.secLegal": "法律与帮助",
-  "settings.secHardware": "硬件设置",
+  "settings.secHardware": "设备",
   "settings.secAbout": "关于与法律",
   "settings.secMore": "偏好设置",
   "settings.heroHint": "聊天中向对方显示",
   "settings.sumBlur": "模糊",
-  "settings.sumNsfw": "自动跳过",
+  "settings.sumNsfw": "跳过",
   "settings.sumSound": "声音",
   "settings.sumOff": "全部关闭",
   "settings.blurFirst": "陌生人先模糊，直到我取消",
@@ -411,5 +411,12 @@
   "arch.fedTitle": "通过协作节点匹配。视频仍是点对点。",
   "log.fedMatch": "跨节点匹配",
   "home.share": "分享",
-  "home.shareOk": "链接已复制"
+  "home.shareOk": "链接已复制",
+  "settings.secNetwork": "网络",
+  "settings.secConnection": "连接",
+  "settings.sumAllOn": "全部开启",
+  "sec.mediaP2pShort": "P2P 媒体",
+  "sec.turnEphemeralShort": "自建 TURN",
+  "sec.partnerRecordShort": "对方可录制 — 拉黑 / 举报",
+  "hub.autoShort": "自动"
 }

@@ -30,12 +30,12 @@
   "settings.secSafety": "Безпека",
   "settings.secAudio": "Звук співрозмовника",
   "settings.secLegal": "Правове та допомога",
-  "settings.secHardware": "Обладнання",
+  "settings.secHardware": "Пристрої",
   "settings.secAbout": "Про сервіс",
   "settings.secMore": "Налаштування",
   "settings.heroHint": "Бачать співрозмовники в чаті",
   "settings.sumBlur": "Блюр",
-  "settings.sumNsfw": "Авто-скіп",
+  "settings.sumNsfw": "Скіп",
   "settings.sumSound": "Звук",
   "settings.sumOff": "Усе вимк.",
   "settings.blurFirst": "Блюр незнайомців, доки не зніму",
@@ -411,5 +411,12 @@
   "arch.fedTitle": "Матч через інший хаб. Відео peer-to-peer.",
   "log.fedMatch": "Матч між хабами",
   "home.share": "Поділитися",
-  "home.shareOk": "Посилання скопійовано"
+  "home.shareOk": "Посилання скопійовано",
+  "settings.secNetwork": "Мережа",
+  "settings.secConnection": "З’єднання",
+  "settings.sumAllOn": "Усе ввімк.",
+  "sec.mediaP2pShort": "P2P медіа",
+  "sec.turnEphemeralShort": "Свій TURN",
+  "sec.partnerRecordShort": "Партнер може записувати — Блок / Скарга",
+  "hub.autoShort": "авто"
 }
