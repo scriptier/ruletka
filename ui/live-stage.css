@@ -2565,3 +2565,324 @@ html.stage-html {
   .mic-meter-rail { display: none; }
   .tile-empty { padding: 1.25rem 3rem 4rem; }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   Visual polish — align live stage with homepage metallic / glass
+   ═══════════════════════════════════════════════════════════ */
+
+html:has(.stage-body),
+html.stage-html {
+  background: #07080c;
+}
+
+.stage-body {
+  background: #07080c !important;
+}
+
+.stage-app {
+  background:
+    radial-gradient(900px 400px at 10% -10%, rgba(91, 157, 255, 0.08) 0%, transparent 55%),
+    radial-gradient(700px 360px at 95% 0%, rgba(255, 45, 85, 0.06) 0%, transparent 50%),
+    #07080c;
+}
+
+/* Top chrome — frosted glass */
+.stage-top {
+  padding: 0.55rem 0.95rem;
+  border-bottom: 1px solid transparent;
+  background: linear-gradient(
+    180deg,
+    rgba(10, 12, 18, 0.92) 0%,
+    rgba(10, 12, 18, 0.78) 100%
+  );
+  backdrop-filter: blur(16px) saturate(1.15);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+.stage-top::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.1),
+    transparent
+  );
+  pointer-events: none;
+}
+.stage-app > .stage-top {
+  position: relative;
+}
+
+.brand {
+  font-weight: 750;
+  letter-spacing: -0.025em;
+}
+.brand-logo {
+  border-radius: 0.45rem;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.12),
+    0 4px 12px rgba(0, 0, 0, 0.4);
+}
+.brand .badge {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.18rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(255, 45, 85, 0.15);
+  color: #ff8fab;
+  border: 1px solid rgba(255, 45, 85, 0.35);
+}
+
+.pool-bar {
+  gap: 0.55rem;
+  font-family: inherit;
+  font-size: 0.76rem;
+  color: #8b9bb0;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.pool-bar > span:not(.room-chip):not(.arch-pill):not(.ice-path):not(.pool-hint) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+.pool-bar strong {
+  color: #f0f4fa;
+  font-variant-numeric: tabular-nums;
+}
+
+.room-chip {
+  background: rgba(91, 157, 255, 0.12);
+  border-color: rgba(91, 157, 255, 0.32);
+}
+
+.arch-pill {
+  font-size: 0.66rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid rgba(61, 214, 140, 0.32);
+  color: #8ee4b4;
+  background: rgba(20, 48, 36, 0.5);
+}
+
+.name-chip {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(8px);
+}
+.name-chip input {
+  background: transparent;
+  border: none;
+  color: #eef2f7;
+  font-weight: 600;
+}
+.name-chip input:focus {
+  outline: none;
+}
+
+.lang-top-right {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.stage-top-actions .phase {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+.stage-top-actions .phase.waiting,
+.stage-top-actions .phase.claiming {
+  color: #f5c56b;
+  background: rgba(245, 165, 36, 0.12);
+  border-color: rgba(245, 165, 36, 0.28);
+}
+.stage-top-actions .phase.matched,
+.stage-top-actions .phase.friend_call {
+  color: #6ee7a8;
+  background: rgba(61, 214, 140, 0.12);
+  border-color: rgba(61, 214, 140, 0.3);
+}
+
+.status-pill {
+  font-family: inherit;
+  font-size: 0.72rem;
+  color: #7a8a9e;
+  max-width: 11rem;
+}
+
+/* Stage tiles */
+.stage {
+  background: #05060a;
+  gap: 0;
+}
+.tile {
+  background: #0a0c12;
+}
+.tile-remote {
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+}
+.tile::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+/* Side rails — denser glass */
+.side-btn {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(14, 18, 28, 0.72);
+  backdrop-filter: blur(14px) saturate(1.1);
+  box-shadow:
+    0 6px 20px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.side-btn:hover {
+  background: rgba(30, 38, 54, 0.88);
+  border-color: rgba(126, 182, 255, 0.35);
+}
+
+/* Docks */
+.tile-dock {
+  background: linear-gradient(
+    to top,
+    rgba(5, 7, 12, 0.9) 0%,
+    rgba(5, 7, 12, 0.55) 50%,
+    transparent 100%
+  );
+  padding-top: 1.5rem;
+}
+.dock-pill {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(16, 20, 30, 0.78);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+.dock-pill:hover {
+  border-color: rgba(126, 182, 255, 0.5);
+  background: rgba(28, 36, 52, 0.9);
+}
+
+/* Next — homepage coral CTA */
+.next-big {
+  font-weight: 750;
+  letter-spacing: -0.01em;
+  padding: 0.62rem 1.4rem;
+  background: linear-gradient(135deg, #ff2d55 0%, #ff5c3a 55%, #ff7a3b 100%);
+  box-shadow:
+    0 8px 28px rgba(255, 45, 85, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+.next-big:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 12px 36px rgba(255, 45, 85, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+.next-big.next-in-tile {
+  min-width: 8rem;
+}
+
+.dock-settings {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(16, 20, 30, 0.8);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+.dock-settings:hover {
+  border-color: rgba(126, 182, 255, 0.4);
+}
+
+/* Chat glass */
+.chat-panel {
+  background: rgba(12, 16, 26, 0.9);
+  border-color: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(14px);
+  border-radius: 14px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+.chat-bubble.mine {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.45), rgba(99, 102, 241, 0.4));
+  border-color: rgba(99, 102, 241, 0.45);
+}
+
+/* Name chip on video */
+.tile-tag .name-on-tile {
+  background: rgba(0, 0, 0, 0.5);
+  border-color: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(8px);
+  padding: 0.28rem 0.65rem;
+}
+.match-timer {
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(6px);
+}
+
+/* Sheets / menus */
+.partner-menu {
+  background: rgba(14, 18, 28, 0.96);
+  border-color: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(16px);
+  border-radius: 18px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55);
+}
+.sheet {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: #0e121a;
+}
+.sheet header {
+  border-bottom-color: rgba(255, 255, 255, 0.07);
+}
+
+/* Pills in sheets */
+.pill {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+}
+.pill:hover {
+  border-color: rgba(126, 182, 255, 0.45);
+}
+.pill.primary {
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.3);
+}
+
+/* Conn strip */
+.conn-strip {
+  backdrop-filter: blur(10px);
+  background: rgba(12, 16, 24, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  padding: 0.28rem 0.7rem;
+}
+
+/* Settings hub polish hooks */
+.settings-sheet,
+#settings-sheet {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Mobile: keep glass but slightly denser header */
+@media (max-width: 700px) {
+  .stage-top {
+    padding: 0.45rem 0.65rem;
+  }
+  .pool-bar > span:not(.room-chip):not(.arch-pill):not(.ice-path):not(.pool-hint) {
+    padding: 0.15rem 0.4rem;
+    font-size: 0.7rem;
+  }
+  .arch-pill {
+    display: none; /* free space on narrow; still in settings */
+  }
+}
