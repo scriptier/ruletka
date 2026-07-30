@@ -20,10 +20,15 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="home.css?v=42" />
+  <link rel="stylesheet" href="home.css?v=46" />
 </head>
 <body class="home-body">
-  <div class="home-bg" aria-hidden="true"></div>
+  <div class="home-bg" aria-hidden="true">
+    <div class="home-bg-grid"></div>
+    <div class="home-bg-orb home-bg-orb-a"></div>
+    <div class="home-bg-orb home-bg-orb-b"></div>
+    <div class="home-bg-orb home-bg-orb-c"></div>
+  </div>
 
   <header class="home-nav">
     <a class="home-brand" href="/" aria-label="ruletka.vip home">
@@ -31,6 +36,7 @@
       <span>ruletka.vip</span>
     </a>
     <div class="home-nav-right">
+      <a class="nav-live-link" href="/live.html" data-i18n="home.cta">Start chatting</a>
       <label class="home-lang" title="Language">
         <span aria-hidden="true">🌐</span>
         <select id="home-lang" aria-label="Language">
@@ -41,40 +47,57 @@
     </div>
   </header>
 
-  <main class="home-hero">
-    <div class="home-logo-wrap">
-      <img
-        class="home-logo"
-        src="/brand/logo-hero.jpg"
-        width="320"
-        height="320"
-        alt="ruletka.vip"
-        decoding="async"
-        fetchpriority="high"
-      />
-    </div>
-    <p class="home-eyebrow" data-i18n="home.eyebrow">Peer-to-peer video</p>
-    <h1 data-i18n="home.title">Meet someone new.<br />Face to face.</h1>
-    <p class="home-lead" data-i18n="home.lead">
-      Random video chat with strangers — or call friends when they’re online.
-      Media stays between browsers. No account required.
-    </p>
+  <main class="home-main">
+    <!-- Hero -->
+    <section class="hero-stage">
+      <div class="hero-visual">
+        <div class="hero-logo-ring" aria-hidden="true"></div>
+        <div class="home-logo-wrap">
+          <img
+            class="home-logo"
+            src="/brand/logo-hero.jpg"
+            width="360"
+            height="360"
+            alt="ruletka.vip"
+            decoding="async"
+            fetchpriority="high"
+          />
+        </div>
+      </div>
+      <div class="hero-copy">
+        <p class="home-eyebrow">
+          <span class="eyebrow-dot" aria-hidden="true"></span>
+          <span data-i18n="home.eyebrow">Peer-to-peer chat roulette</span>
+        </p>
+        <h1 data-i18n="home.title">Meet someone new.<br />Face to face.</h1>
+        <p class="home-lead" data-i18n="home.lead">
+          Random video chat with strangers — or call friends when they’re online.
+          Media stays between browsers. No account required.
+        </p>
 
-    <div class="home-cta-row">
-      <a class="home-cta" id="btn-enter" href="/live.html">
-        <span data-i18n="home.cta">Start chatting</span>
-        <span class="cta-arrow" aria-hidden="true">→</span>
-      </a>
-    </div>
+        <div class="home-cta-row">
+          <a class="home-cta" id="btn-enter" href="/live.html">
+            <span data-i18n="home.cta">Start chatting</span>
+            <span class="cta-arrow" aria-hidden="true">→</span>
+          </a>
+          <a class="home-secondary" href="#why" data-i18n="home.diffTitle">How we’re different</a>
+        </div>
 
-    <p class="home-live-stats" id="home-live-stats" hidden>
-      <span data-i18n="home.nowOnline">Online now</span>
-      <strong id="home-stat-online">0</strong>
-      <span class="dot-sep">·</span>
-      <span data-i18n="home.nowWaiting">Waiting</span>
-      <strong id="home-stat-waiting">0</strong>
-    </p>
+        <div class="home-live-stats" id="home-live-stats" hidden>
+          <span class="stat-pill">
+            <span class="live-dot" aria-hidden="true"></span>
+            <span data-i18n="home.nowOnline">Online now</span>
+            <strong id="home-stat-online">0</strong>
+          </span>
+          <span class="stat-pill muted">
+            <span data-i18n="home.nowWaiting">Waiting</span>
+            <strong id="home-stat-waiting">0</strong>
+          </span>
+        </div>
+      </div>
+    </section>
 
+    <!-- Feature cards -->
     <ul class="home-points">
       <li>
         <span class="pt-ico" aria-hidden="true">⚡</span>
@@ -109,7 +132,7 @@
       </p>
     </section>
 
-    <section class="home-diff" id="open">
+    <section class="home-diff home-diff-open" id="open">
       <h2 data-i18n="home.openTitle">Open source &amp; multi-hub</h2>
       <p class="home-diff-body" data-i18n="home.openBody">
         This software is <strong>open source</strong> (LGPL-2.1). Anyone can run their own hub.
@@ -117,17 +140,14 @@
         try other hubs from a public directory. Helpers run a full chat node you can share.
       </p>
       <p class="home-open-links">
-        <a class="foot-link" href="https://github.com/scriptier/ruletka" target="_blank" rel="noopener" data-i18n="home.openSrc">GitHub</a>
-        <span class="dot-sep">·</span>
-        <a class="foot-link" href="/v1/directory" data-i18n="home.openDir">Hub directory API</a>
-        <span class="dot-sep">·</span>
-        <a class="foot-link" href="/hubs.json" data-i18n="home.openHubs">hubs.json</a>
-        <span class="dot-sep">·</span>
-        <a class="foot-link" href="/contribute.html" data-i18n="home.openHelper">Run a helper</a>
+        <a class="chip-link" href="https://github.com/scriptier/ruletka" target="_blank" rel="noopener" data-i18n="home.openSrc">GitHub</a>
+        <a class="chip-link" href="/v1/directory" data-i18n="home.openDir">Hub directory API</a>
+        <a class="chip-link" href="/hubs.json" data-i18n="home.openHubs">hubs.json</a>
+        <a class="chip-link" href="/contribute.html" data-i18n="home.openHelper">Run a helper</a>
       </p>
     </section>
 
-    <!-- Contribute — human language, not ops docs -->
+    <!-- Contribute -->
     <section class="home-seed" id="seed">
       <h2 data-i18n="seed.title">Help the network</h2>
       <p class="seed-lead" data-i18n="seed.lead">
@@ -156,13 +176,15 @@
         <p class="seed-adv-lead" data-i18n="seed.advLead">
           For people who already have a VPS and HTTPS. Federation is by invite only so random nodes can’t take over the site.
         </p>
-        <pre class="seed-code" id="seed-code"># Full hub (HTTPS public URL required)
+        <div class="seed-code-wrap">
+          <pre class="seed-code" id="seed-code"># Full hub (HTTPS public URL required)
 export ROULETTE_INSTANCE_ID=my-hub
 export ROULETTE_FEDERATION_TOKEN='agree-with-operators'
 export ROULETTE_PUBLIC_BASE=https://your-hub.example.com
 export ROULETTE_FEDERATION_PEERS=https://ruletka.vip
 ./scripts/run-bridge.sh</pre>
-        <button type="button" class="seed-copy" id="seed-copy" data-i18n="seed.copy">Copy</button>
+          <button type="button" class="seed-copy" id="seed-copy" data-i18n="seed.copy">Copy</button>
+        </div>
         <p class="seed-note" data-i18n="seed.contact">
           Contact operators with your hub URL to join the live mesh. We do not auto-trust unknown hubs.
         </p>
@@ -184,7 +206,7 @@ export ROULETTE_FEDERATION_PEERS=https://ruletka.vip
     (function () {
       var STR = {
         en: {
-          "home.eyebrow": "Peer-to-peer video",
+          "home.eyebrow": "Peer-to-peer chat roulette",
           "home.title": "Meet someone new.<br />Face to face.",
           "home.lead":
             "Random video chat with strangers — or call friends when they’re online. Media stays between browsers. No account required.",
@@ -229,7 +251,7 @@ export ROULETTE_FEDERATION_PEERS=https://ruletka.vip
           "seed.footDl": "Helper",
         },
         ru: {
-          "home.eyebrow": "Видео peer-to-peer",
+          "home.eyebrow": "Peer-to-peer чат-рулетка",
           "home.title": "Познакомьтесь с кем-то новым.<br />Лицом к лицу.",
           "home.lead":
             "Случайный видеочат с незнакомцами — или звонки друзьям, когда они онлайн. Медиа идёт между браузерами. Без аккаунта.",
