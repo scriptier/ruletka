@@ -25,6 +25,10 @@ Environment=ROULETTE_INSTANCE_ID=ruletka-vip
 # Environment=ROULETTE_FEDERATION_TOKEN=...
 # Environment=ROULETTE_FEDERATION_PEERS=https://other-hub.example.com
 # Environment=ROULETTE_DIRECTORY_HUBS=https://other-hub.example.com
+# Optional analytics (public ids only — also via data/analytics.env):
+# Environment=ROULETTE_YANDEX_METRICA_ID=
+# Environment=ROULETTE_GA_ID=
+EnvironmentFile=-/opt/ruletka/data/analytics.env
 ExecStart=/opt/ruletka/bin/roulette-bridge \
   --mode simple \
   --listen 127.0.0.1:8790 \

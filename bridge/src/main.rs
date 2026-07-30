@@ -25,7 +25,7 @@ use axum::{
     Json, Router,
 };
 use clap::{Parser, ValueEnum};
-use config::{build_public_config, PublicConfig, TurnAuth};
+use config::{build_public_config, AnalyticsPublic, PublicConfig, TurnAuth};
 use federation::{
     auth_ok, normalize_base, post_claim, post_relay, ClaimRequest, FedOutbound, FederationConfig,
     FederationInfo, RelayRequest, PROTOCOL,
@@ -114,8 +114,22 @@ struct Args {
     public_base: String,
     /// Comma-separated hub base URLs advertised in GET /v1/directory (client failover hints).
     /// Does not grant federation trust — discovery only.
+    /// Merged with data/directory_hubs.json (admin-editable).
     #[arg(long, default_value = "", env = "ROULETTE_DIRECTORY_HUBS")]
     directory_hubs: String,
+    /// JSON file for admin-managed public directory hubs (discovery only).
+    #[arg(
+        long,
+        default_value = "data/directory_hubs.json",
+        env = "ROULETTE_DIRECTORY_FILE"
+    )]
+    directory_file: PathBuf,
+    /// Yandex Metrica counter id (public). Empty = disabled.
+    #[arg(long, default_value = "", env = "ROULETTE_YANDEX_METRICA_ID")]
+    yandex_metrica_id: String,
+    /// Google Analytics 4 measurement id G-XXXX (public). Empty = disabled.
+    #[arg(long, default_value = "", env = "ROULETTE_GA_ID")]
+    ga_measurement_id: String,
     /// Admin API + /admin.html token (empty = admin API disabled).
     #[arg(long, default_value = "", env = "ROULETTE_ADMIN_TOKEN")]
     admin_token: String,
@@ -134,16 +148,78 @@ struct AppState {
     stun: String,
     turn: TurnAuth,
     fed: FederationConfig,
-    /// Extra hubs listed in the public directory (discovery only).
-    directory_hubs: Vec<String>,
+    /// Extra hubs listed in the public directory (discovery only). Runtime-editable.
+    directory_hubs: Arc<Mutex<Vec<String>>>,
+    directory_file: PathBuf,
     /// Empty disables /v1/admin/*
     admin_token: String,
+    analytics: AnalyticsPublic,
 }
 
 impl AppState {
     fn ice_config(&self) -> PublicConfig {
-        build_public_config("simple", &self.stun, &self.turn)
+        let mut cfg = build_public_config("simple", &self.stun, &self.turn);
+        let a = &self.analytics;
+        if a.yandex_metrica_id.is_some() || a.ga_measurement_id.is_some() {
+            cfg.analytics = Some(a.clone());
+        }
+        cfg
     }
+}
+
+fn load_directory_file(path: &std::path::Path) -> Vec<String> {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return Vec::new();
+    };
+    let arr = if let Some(a) = v.as_array() {
+        a.clone()
+    } else if let Some(a) = v.get("hubs").and_then(|h| h.as_array()) {
+        a.clone()
+    } else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for item in arr {
+        let base = item
+            .as_str()
+            .map(|s| s.to_string())
+            .or_else(|| {
+                item.get("base")
+                    .and_then(|b| b.as_str())
+                    .map(|s| s.to_string())
+            })
+            .unwrap_or_default();
+        let b = normalize_base(&base);
+        if b.starts_with("https://") && seen.insert(b.clone()) {
+            out.push(b);
+        }
+    }
+    out
+}
+
+fn save_directory_file(path: &std::path::Path, hubs: &[String]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let body = serde_json::json!({
+        "protocol": "ruletka-directory/1",
+        "updated": chrono_like_now(),
+        "hubs": hubs.iter().map(|b| serde_json::json!({"base": b})).collect::<Vec<_>>(),
+    });
+    std::fs::write(path, serde_json::to_string_pretty(&body).unwrap_or_else(|_| "{}".into()))
+        .map_err(|e| e.to_string())
+}
+
+fn chrono_like_now() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    format!("{secs}")
 }
 
 fn parse_peer_list(csv: &str) -> Vec<String> {
@@ -181,7 +257,7 @@ async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl
 }
 
 async fn config_handler(State(state): State<AppState>) -> Json<PublicConfig> {
-    // Fresh TURN credentials when ROULETTE_TURN_SECRET is set
+    // Fresh TURN credentials when ROULETTE_TURN_SECRET is set + optional analytics ids
     Json(state.ice_config())
 }
 
@@ -213,6 +289,7 @@ async fn health_handler(State(state): State<AppState>) -> impl IntoResponse {
 /// Public multi-hub directory (discovery only — not an auto-trust federation join).
 async fn directory_handler(State(state): State<AppState>) -> impl IntoResponse {
     let hub = state.hub.lock().await;
+    let dir_hubs = state.directory_hubs.lock().await.clone();
     let self_base = if state.fed.public_base.is_empty() {
         String::new()
     } else {
@@ -234,11 +311,7 @@ async fn directory_handler(State(state): State<AppState>) -> impl IntoResponse {
     if !state.fed.public_base.is_empty() {
         seen.insert(state.fed.public_base.clone());
     }
-    for base in state
-        .directory_hubs
-        .iter()
-        .chain(state.fed.peers.iter())
-    {
+    for base in dir_hubs.iter().chain(state.fed.peers.iter()) {
         let b = normalize_base(base);
         if b.is_empty() || !seen.insert(b.clone()) {
             continue;
@@ -516,6 +589,102 @@ async fn admin_unban_handler(
     let mut hub = state.hub.lock().await;
     let ok = hub.admin_unban(&body.user_id);
     Json(serde_json::json!({"ok": ok})).into_response()
+}
+
+/// Federation + public directory status for operators.
+async fn admin_mesh_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if !admin_token_ok(&state, &headers) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"ok": false, "error": "unauthorized"})),
+        )
+            .into_response();
+    }
+    let hub = state.hub.lock().await;
+    let dir = state.directory_hubs.lock().await.clone();
+    Json(serde_json::json!({
+        "ok": true,
+        "federation": {
+            "protocol": PROTOCOL,
+            "instance_id": state.fed.instance_id,
+            "public_base": state.fed.public_base,
+            "accepts_claims": state.fed.accepts_claims(),
+            "token_set": !state.fed.token.is_empty(),
+            "peers_env": state.fed.peers,
+            "sessions": hub.fed_session_count(),
+            "note": "Claim peers (ROULETTE_FEDERATION_PEERS) require process restart to change. Directory hubs below are live-editable.",
+        },
+        "directory_hubs": dir,
+        "directory_file": state.directory_file.display().to_string(),
+        "online": hub.online(),
+        "waiting": hub.waiting_count(),
+    }))
+    .into_response()
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct DirectoryHubBody {
+    /// add | remove
+    action: String,
+    base: String,
+}
+
+async fn admin_directory_hubs_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<DirectoryHubBody>,
+) -> impl IntoResponse {
+    if !admin_token_ok(&state, &headers) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"ok": false, "error": "unauthorized"})),
+        )
+            .into_response();
+    }
+    let base = normalize_base(&body.base);
+    if !base.starts_with("https://") {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"ok": false, "error": "https base required"})),
+        )
+            .into_response();
+    }
+    let mut dir = state.directory_hubs.lock().await;
+    let action = body.action.trim().to_lowercase();
+    match action.as_str() {
+        "add" => {
+            if !dir.iter().any(|b| b == &base) {
+                dir.push(base.clone());
+            }
+        }
+        "remove" => {
+            dir.retain(|b| b != &base);
+        }
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"ok": false, "error": "action must be add|remove"})),
+            )
+                .into_response();
+        }
+    }
+    if let Err(e) = save_directory_file(&state.directory_file, &dir) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"ok": false, "error": e})),
+        )
+            .into_response();
+    }
+    Json(serde_json::json!({
+        "ok": true,
+        "directory_hubs": dir.clone(),
+        "action": action,
+        "base": base,
+    }))
+    .into_response()
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -902,9 +1071,39 @@ async fn main() {
         tracing::info!("admin API enabled at /v1/admin/reports (token required)");
     }
 
-    let directory_hubs = parse_peer_list(&args.directory_hubs);
+    let dir_file = if args.directory_file.is_absolute() {
+        args.directory_file.clone()
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(&args.directory_file)
+    };
+    let mut directory_hubs = parse_peer_list(&args.directory_hubs);
+    for b in load_directory_file(&dir_file) {
+        if !directory_hubs.iter().any(|x| x == &b) {
+            directory_hubs.push(b);
+        }
+    }
     if !directory_hubs.is_empty() {
-        tracing::info!(count = directory_hubs.len(), "public directory lists extra hubs");
+        tracing::info!(
+            count = directory_hubs.len(),
+            path = %dir_file.display(),
+            "public directory lists extra hubs"
+        );
+    }
+
+    let yandex = args.yandex_metrica_id.trim().to_string();
+    let ga = args.ga_measurement_id.trim().to_string();
+    let analytics = AnalyticsPublic {
+        yandex_metrica_id: if yandex.is_empty() {
+            None
+        } else {
+            Some(yandex)
+        },
+        ga_measurement_id: if ga.is_empty() { None } else { Some(ga) },
+    };
+    if analytics.yandex_metrica_id.is_some() || analytics.ga_measurement_id.is_some() {
+        tracing::info!("analytics ids published via /config.json (no secrets)");
     }
 
     let state = AppState {
@@ -916,8 +1115,10 @@ async fn main() {
         stun: args.stun.clone(),
         turn,
         fed: fed.clone(),
-        directory_hubs,
+        directory_hubs: Arc::new(Mutex::new(directory_hubs)),
+        directory_file: dir_file,
         admin_token,
+        analytics,
     };
 
     // Background federation claimer
@@ -948,6 +1149,8 @@ async fn main() {
         .route("/v1/federation/relay", post(federation_relay_handler))
         .route("/v1/admin/reports", get(admin_reports_handler))
         .route("/v1/admin/seeders", get(admin_seeders_handler))
+        .route("/v1/admin/mesh", get(admin_mesh_handler))
+        .route("/v1/admin/directory_hubs", post(admin_directory_hubs_handler))
         .route("/v1/admin/ban", post(admin_ban_handler))
         .route("/v1/admin/unban", post(admin_unban_handler))
         .route("/v1/seeder/request", post(seeder_request_handler))

@@ -37,6 +37,19 @@ pub struct PublicConfig {
     pub notes: Vec<String>,
     /// Lightweight security hints for the UI security panel.
     pub security: SecurityHints,
+    /// Optional analytics IDs (public; never put secrets here).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub analytics: Option<AnalyticsPublic>,
+}
+
+#[derive(Clone, Debug, Serialize, Default)]
+pub struct AnalyticsPublic {
+    /// Yandex Metrica counter id (digits only), empty = disabled
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub yandex_metrica_id: Option<String>,
+    /// Google Analytics 4 measurement id (G-XXXX)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ga_measurement_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -259,5 +272,6 @@ pub fn build_public_config(
         turn_ttl_secs: ttl,
         notes,
         security: security_hints(has_turn, turn.is_open_relay, ephemeral),
+        analytics: None,
     }
 }

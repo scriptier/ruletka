@@ -211,9 +211,28 @@
       <div class="stat">Seeders <strong id="st-seeders">0</strong></div>
     </div>
 
+    <h2>Mesh / federation</h2>
+    <p class="hint">
+      Public <strong>directory hubs</strong> are discovery hints for client failover (editable live).
+      Full stranger-pool federation still needs <code>ROULETTE_FEDERATION_TOKEN</code> + peers (restart to change claim peers).
+    </p>
+    <div class="card" id="mesh-card" style="padding:0.85rem 1rem;margin-bottom:1rem">
+      <div class="empty" id="mesh-empty">Sign in to load mesh status</div>
+      <div id="mesh-body" hidden>
+        <p class="hint" id="mesh-fed-line"></p>
+        <p class="settings-section-label" style="margin:0.75rem 0 0.4rem;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted)">Directory hubs (live)</p>
+        <ul id="mesh-dir-list" style="margin:0;padding-left:1.1rem;font-size:0.85rem"></ul>
+        <div class="auth" style="margin:0.75rem 0 0;padding:0;border:none;background:transparent">
+          <input id="dir-hub-url" type="url" placeholder="https://other-hub.example.com" style="flex:1" />
+          <button type="button" class="primary" id="btn-dir-add">Add hub</button>
+        </div>
+      </div>
+    </div>
+
     <h2>Network helpers (seeders)</h2>
     <p class="hint">
       Helpers that posted <code>/v1/seeder/request</code>. Discovery only — never auto-joined to federation.
+      Use <strong>Add to directory</strong> to list a reachable helper for client failover (still not claim-federation).
       <button type="button" id="btn-probe-seeders" style="margin-left:0.5rem">Probe health</button>
     </p>
     <div class="card" id="seeders-card">
@@ -470,6 +489,7 @@
               <a class="btn" href="${escapeAttr(base)}/live.html" target="_blank" rel="noopener">Live</a>
               <a class="btn" href="${escapeAttr(base)}/health" target="_blank" rel="noopener">Health</a>
               <a class="btn" href="${escapeAttr(base)}/v1/directory" target="_blank" rel="noopener">Dir</a>
+              <button type="button" data-dir-add="${escapeAttr(base)}">Add to directory</button>
             </div>
           </td>
           <td class="uid">${escapeHtml(s.instance_id || s.instance_live || "—")}</td>
@@ -478,6 +498,80 @@
         </tr>`;
         })
         .join("");
+      body.querySelectorAll("[data-dir-add]").forEach((btn) => {
+        btn.addEventListener("click", () =>
+          dirHubAction("add", btn.getAttribute("data-dir-add"))
+        );
+      });
+    }
+
+    function renderMesh(data) {
+      const empty = $("mesh-empty");
+      const body = $("mesh-body");
+      if (!data) {
+        empty.hidden = false;
+        body.hidden = true;
+        return;
+      }
+      empty.hidden = true;
+      body.hidden = false;
+      const f = data.federation || {};
+      $("mesh-fed-line").textContent =
+        "instance " +
+        (f.instance_id || "—") +
+        " · claims " +
+        (f.accepts_claims ? "on" : "off") +
+        " · token " +
+        (f.token_set ? "set" : "unset") +
+        " · env peers " +
+        ((f.peers_env || []).length || 0) +
+        " · fed sessions " +
+        (f.sessions ?? 0) +
+        (f.public_base ? " · " + f.public_base : "");
+      const ul = $("mesh-dir-list");
+      const hubs = data.directory_hubs || [];
+      if (!hubs.length) {
+        ul.innerHTML = "<li class='muted'>No extra directory hubs yet</li>";
+      } else {
+        ul.innerHTML = hubs
+          .map(
+            (b) =>
+              `<li style="margin-bottom:0.35rem">
+                <a href="${escapeAttr(b)}" target="_blank" rel="noopener">${escapeHtml(b)}</a>
+                <button type="button" data-dir-rm="${escapeAttr(b)}" style="margin-left:0.4rem">Remove</button>
+              </li>`
+          )
+          .join("");
+        ul.querySelectorAll("[data-dir-rm]").forEach((btn) => {
+          btn.addEventListener("click", () =>
+            dirHubAction("remove", btn.getAttribute("data-dir-rm"))
+          );
+        });
+      }
+    }
+
+    async function loadMesh() {
+      try {
+        const data = await api("/v1/admin/mesh");
+        renderMesh(data);
+      } catch (e) {
+        $("mesh-empty").textContent = e.message || String(e);
+        $("mesh-empty").hidden = false;
+        $("mesh-body").hidden = true;
+      }
+    }
+
+    async function dirHubAction(action, base) {
+      if (!base) return;
+      try {
+        await api("/v1/admin/directory_hubs", {
+          method: "POST",
+          body: JSON.stringify({ action, base }),
+        });
+        await loadMesh();
+      } catch (e) {
+        showErr(e.message || String(e));
+      }
     }
 
     function renderTargets(list) {
@@ -556,6 +650,7 @@
         renderReports(data.reports || []);
         renderTargets(data.targets || []);
         renderSeeders(data.seeders || []);
+        await loadMesh();
       } catch (e) {
         showErr(e.message || String(e));
       }
@@ -606,6 +701,10 @@
 
     $("btn-load").addEventListener("click", refresh);
     $("btn-probe-seeders")?.addEventListener("click", probeSeeders);
+    $("btn-dir-add")?.addEventListener("click", () => {
+      const u = ($("dir-hub-url").value || "").trim();
+      if (u) dirHubAction("add", u);
+    });
     $("btn-clear-token").addEventListener("click", () => {
       $("token").value = "";
       saveToken("");
