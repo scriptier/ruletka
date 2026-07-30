@@ -403,5 +403,8 @@
   "seed.copied": "Skopiowano",
   "seed.contact": "Skontaktuj się z operatorami i podaj URL huba. Nie ufamy automatycznie nieznanym hubom.",
   "seed.foot": "Pomóż sieci",
-  "seed.footDl": "Helper"
+  "seed.footDl": "Helper",
+  "pwa.installTitle": "Zainstaluj ruletka",
+  "pwa.installLead": "Dodaj do ekranu głównego — czat na pełnym ekranie.",
+  "pwa.install": "Zainstaluj"
 }

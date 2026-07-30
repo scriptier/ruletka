@@ -403,5 +403,8 @@
   "seed.copied": "Kopyalandı",
   "seed.contact": "Operatörlere hub URL’nizi yazın. Bilinmeyen hub’lara otomatik güvenilmez.",
   "seed.foot": "Ağa yardım",
-  "seed.footDl": "Helper"
+  "seed.footDl": "Helper",
+  "pwa.installTitle": "ruletka yükle",
+  "pwa.installLead": "Tam ekran sohbet için ana ekrana ekle.",
+  "pwa.install": "Yükle"
 }

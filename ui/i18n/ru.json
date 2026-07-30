@@ -403,5 +403,8 @@
   "seed.copied": "Скопировано",
   "seed.contact": "Свяжитесь с операторами и пришлите URL хаба. Чужие хабы автоматически не доверяются.",
   "seed.foot": "Помочь сети",
-  "seed.footDl": "Helper"
+  "seed.footDl": "Helper",
+  "pwa.installTitle": "Установить ruletka",
+  "pwa.installLead": "На домашний экран — полноэкранный чат.",
+  "pwa.install": "Установить"
 }

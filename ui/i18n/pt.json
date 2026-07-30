@@ -403,5 +403,8 @@
   "seed.copied": "Copiado",
   "seed.contact": "Contate os operadores com a URL do hub. Não confiamos automaticamente em hubs desconhecidos.",
   "seed.foot": "Ajudar a rede",
-  "seed.footDl": "Helper"
+  "seed.footDl": "Helper",
+  "pwa.installTitle": "Instalar ruletka",
+  "pwa.installLead": "Adicione à tela inicial para chat em tela cheia.",
+  "pwa.install": "Instalar"
 }

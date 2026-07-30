@@ -403,5 +403,8 @@
   "seed.copied": "Kopiert",
   "seed.contact": "Kontaktiere Betreiber mit deiner Hub-URL. Unbekannte Hubs werden nicht auto-vertrauenswürdig.",
   "seed.foot": "Netz helfen",
-  "seed.footDl": "Helper"
+  "seed.footDl": "Helper",
+  "pwa.installTitle": "ruletka installieren",
+  "pwa.installLead": "Zum Startbildschirm für Vollbild-Chat hinzufügen.",
+  "pwa.install": "Installieren"
 }

@@ -403,5 +403,8 @@
   "seed.copied": "Copied",
   "seed.contact": "Contact operators with your hub URL to join the live mesh. We do not auto-trust unknown hubs.",
   "seed.foot": "Help the network",
-  "seed.footDl": "Helper"
+  "seed.footDl": "Helper",
+  "pwa.installTitle": "Install ruletka",
+  "pwa.installLead": "Add to home screen for a full-screen chat app.",
+  "pwa.install": "Install"
 }

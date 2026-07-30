@@ -403,5 +403,8 @@
   "seed.copied": "已复制",
   "seed.contact": "将 hub URL 发给运营者。我们不会自动信任未知 hub。",
   "seed.foot": "帮助网络",
-  "seed.footDl": "Helper"
+  "seed.footDl": "Helper",
+  "pwa.installTitle": "安装 ruletka",
+  "pwa.installLead": "添加到主屏幕，全屏聊天。",
+  "pwa.install": "安装"
 }

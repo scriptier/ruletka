@@ -4257,10 +4257,7 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-// PWA service worker (same origin only; no-op on file://)
-if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
-  navigator.serviceWorker.register("/sw.js").catch(() => {});
-}
+// PWA service worker is registered by pwa-install.js (home + live)
 
 // Device crypto identity + ICE config (must not block connect/media long)
 (async function secureBootBackground() {
