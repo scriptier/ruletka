@@ -1,0 +1,13 @@
+{
+  "name": "ruletka",
+  "license": "LGPL-2.1-only",
+  "homepage": "https://ruletka.vip",
+  "repository": "https://github.com/scriptier/ruletka",
+  "issues": "https://github.com/scriptier/ruletka/issues",
+  "docs": {
+    "decentralization": "/docs not served — see repository docs/DECENTRALIZATION.md",
+    "directory": "/v1/directory",
+    "hubs": "/hubs.json"
+  },
+  "notes": "Seed hub is ruletka.vip. Software is open source — run your own hub under any domain."
+}

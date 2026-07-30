@@ -17,8 +17,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=41" />
-  <link rel="stylesheet" href="live-stage.css?v=41" />
+  <link rel="stylesheet" href="style.css?v=42" />
+  <link rel="stylesheet" href="live-stage.css?v=42" />
 </head>
 <body class="stage-body">
   <!-- Stroke icon sprite (currentColor) -->
@@ -589,6 +589,18 @@
             <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-file"/></svg></span><span data-i18n="settings.eula">EULA</span></span>
             <span class="chev">›</span>
           </a>
+          <a class="settings-row" href="https://github.com/scriptier/ruletka" target="_blank" rel="noopener">
+            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-share"/></svg></span><span data-i18n="settings.source">Source code (GitHub)</span></span>
+            <span class="chev">›</span>
+          </a>
+          <a class="settings-row" href="https://github.com/scriptier/ruletka/blob/main/docs/DECENTRALIZATION.md" target="_blank" rel="noopener">
+            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-globe"/></svg></span><span data-i18n="settings.decentralDocs">Multi-hub &amp; decentralization</span></span>
+            <span class="chev">›</span>
+          </a>
+          <a class="settings-row" href="/source.json" target="_blank" rel="noopener">
+            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-file"/></svg></span><span data-i18n="settings.license">License · LGPL-2.1</span></span>
+            <span class="chev">›</span>
+          </a>
         </div>
         <p class="settings-section-label" data-i18n="settings.secOther">Data</p>
         <div class="settings-group">
@@ -634,7 +646,7 @@
           <button type="button" class="settings-mini-btn" id="btn-hub-reset" data-i18n="hub.usePage">Use this page’s hub</button>
         </div>
         <p class="hint-inline" data-i18n="hub.runOwn">
-          Run your own: open-source bridge — see docs/DECENTRALIZATION.md
+          Run your own hub: github.com/scriptier/ruletka
         </p>
       </div>
     </div>
@@ -698,11 +710,11 @@
   </div>
 
   <!-- cache-bust so browsers always get auto-connect / auto-media fixes -->
-  <script src="i18n.js?v=41"></script>
-  <script src="identity.js?v=41"></script>
-  <script src="hubs.js?v=41"></script>
-  <script src="webrtc.js?v=41"></script>
-  <script src="live.js?v=41"></script>
+  <script src="i18n.js?v=42"></script>
+  <script src="identity.js?v=42"></script>
+  <script src="hubs.js?v=42"></script>
+  <script src="webrtc.js?v=42"></script>
+  <script src="live.js?v=42"></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

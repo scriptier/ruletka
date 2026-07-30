@@ -1,9 +1,9 @@
 {
-  "name": "Freenet Chat Roulette",
-  "slug": "freenet-roulette",
+  "name": "ruletka",
+  "slug": "ruletka",
   "version": "0.1.0",
-  "summary": "Decentralized stranger video chat: lobby monoid matchmaking, 1:1 sessions, WebRTC P2P media, friends and party-of-two browse.",
-  "description": "Chat Roulette for Freenet. Mutual-claim lobby matching (no central queue), per-match session contracts for chat and WebRTC signaling, and peer-to-peer camera/mic. Includes a simple WebSocket bridge for demos and a Freenet agent/contracts path for on-network matchmaking.",
+  "summary": "Open-source stranger video chat: WebRTC P2P media, multi-hub matchmaking, friends, safety tools.",
+  "description": "Chat roulette with peer-to-peer camera/mic. Matchmaking via roulette-bridge hubs (public directory + optional federation). Freenet lobby/session contracts remain available as a research path.",
   "tags": [
     "chat",
     "video",
@@ -13,22 +13,23 @@
     "social",
     "friends",
     "p2p",
-    "freenet",
-    "monoid"
+    "open-source",
+    "freenet"
   ],
   "categories": ["social", "communication", "video"],
-  "homepage": "https://github.com/drakosik/freenet-roulette",
-  "repository": "https://github.com/drakosik/freenet-roulette",
-  "license": "MIT OR Apache-2.0",
+  "homepage": "https://ruletka.vip",
+  "repository": "https://github.com/scriptier/ruletka",
+  "license": "LGPL-2.1-only",
   "atlas": {
-    "title": "Freenet Chat Roulette",
-    "one_liner": "Stranger video chat with monoid lobby matching and P2P WebRTC",
-    "keywords": ["chat roulette", "video chat", "webrtc", "lobby", "session"]
+    "title": "ruletka",
+    "one_liner": "Open P2P video roulette with multi-hub failover",
+    "keywords": ["chat roulette", "video chat", "webrtc", "p2p", "multi-hub"]
   },
   "components": {
     "lobby_contract": "contracts/lobby",
     "session_contract": "contracts/session",
     "agent": "agent",
-    "bridge_demo": "bridge"
+    "bridge": "bridge",
+    "ui": "ui"
   }
 }

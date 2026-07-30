@@ -260,7 +260,8 @@ async fn directory_handler(State(state): State<AppState>) -> impl IntoResponse {
         "federation_protocol": PROTOCOL,
         "open_source": true,
         "license": "LGPL-2.1-only",
-        "docs": "https://github.com/search?q=ruletka+roulette-bridge",
+        "repository": "https://github.com/scriptier/ruletka",
+        "docs": "https://github.com/scriptier/ruletka/blob/main/docs/DECENTRALIZATION.md",
         "hubs": hubs,
     }))
 }

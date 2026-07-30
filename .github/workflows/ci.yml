@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: cargo test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test workspace (default features)
+        run: cargo test --workspace --exclude freenet-roulette-lobby --exclude freenet-roulette-session
+      - name: Build bridge release
+        run: cargo build -p freenet-roulette-bridge --release
+
+  ui-sanity:
+    name: UI static checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Required UI files
+        run: |
+          set -e
+          for f in ui/live.html ui/live.js ui/hubs.js ui/hubs.json ui/i18n.js ui/webrtc.js ui/index.html; do
+            test -f "$f" && echo "ok $f"
+          done
+          grep -q 'ruletka-directory/1' ui/hubs.json
+          grep -q 'RuletHub' ui/hubs.js

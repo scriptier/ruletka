@@ -72,18 +72,27 @@ export ROULETTE_DIRECTORY_HUBS=https://ruletka.vip,https://friend.example.com
 - **Brand** “ruletka.vip” and production secrets are separate; do not imply you operate the seed site without permission.
 - Prebuilt helper binaries are **not** in git (build or attach to releases). Scripts live under `ui/download/`.
 
-## Publishing this repo
+## Publishing / clone
+
+Public repository (intended): **https://github.com/scriptier/ruletka**
 
 ```bash
-cd freenet-roulette
-git init
-git add .
-git status   # confirm no .env / friends.json / large binaries
-git commit -m "Open-source ruletka: multi-hub directory and LGPL-2.1"
-# create a GitHub repo, then:
-gh auth login
-gh repo create ruletka --public --source=. --remote=origin --push
+git clone https://github.com/scriptier/ruletka.git
+cd ruletka
+cargo build -p freenet-roulette-bridge --release
+./scripts/run-bridge.sh
 ```
+
+Maintainers (push):
+
+```bash
+# SSH key must be on the GitHub account (scriptier)
+export GIT_SSH_COMMAND='ssh -i ~/.ssh/github_ed25519 -o IdentitiesOnly=yes'
+gh auth login   # once
+gh repo create scriptier/ruletka --public --source=. --remote=origin --push
+```
+
+CI: `.github/workflows/ci.yml` runs `cargo test` + UI sanity on push.
 
 ## Honest limits
 
