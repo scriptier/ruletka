@@ -221,50 +221,6 @@
       </p>
     </section>
 
-    <!-- Contribute -->
-    <section class="home-seed" id="seed">
-      <h2 data-i18n="seed.title">Help the network</h2>
-      <p class="seed-lead" data-i18n="seed.lead">
-        When you chat, your camera goes <strong>straight to the other person</strong> — not to our media servers.
-        That’s already peer-to-peer. You can also run a small helper on your computer so more people can find each other,
-        without controlling this website.
-      </p>
-
-      <div class="seed-cards">
-        <article class="seed-card">
-          <div class="seed-card-num">1</div>
-          <h3 data-i18n="seed.c1t">Just chat</h3>
-          <p data-i18n="seed.c1d">Open live, match someone. Your video is P2P. No install.</p>
-          <a class="seed-card-btn" href="/live.html" data-i18n="seed.c1b">Start chatting</a>
-        </article>
-        <article class="seed-card seed-card-accent">
-          <div class="seed-card-num">2</div>
-          <h3 data-i18n="seed.c2t">Run the helper</h3>
-          <p data-i18n="seed.c2d">One download for Windows, Mac, or Linux. It runs in the background and helps the match pool. You don’t get site admin access.</p>
-          <a class="seed-card-btn primary" href="/contribute.html" data-i18n="seed.c2b">Download helper</a>
-        </article>
-      </div>
-
-      <details class="seed-advanced">
-        <summary data-i18n="seed.advSum">Advanced: run a full hub (operators)</summary>
-        <p class="seed-adv-lead" data-i18n="seed.advLead">
-          For people who already have a VPS and HTTPS. Federation is by invite only so random nodes can’t take over the site.
-        </p>
-        <div class="seed-code-wrap">
-          <pre class="seed-code" id="seed-code"># Full hub (HTTPS public URL required)
-export ROULETTE_INSTANCE_ID=my-hub
-export ROULETTE_FEDERATION_TOKEN='agree-with-operators'
-export ROULETTE_PUBLIC_BASE=https://your-hub.example.com
-export ROULETTE_FEDERATION_PEERS=https://ruletka.vip
-./scripts/run-bridge.sh</pre>
-          <button type="button" class="seed-copy" id="seed-copy" data-i18n="seed.copy">Copy</button>
-        </div>
-        <p class="seed-note" data-i18n="seed.contact">
-          Contact operators with your hub URL to join the live mesh. We do not auto-trust unknown hubs.
-        </p>
-      </details>
-    </section>
-
     <!-- Bottom CTA -->
     <section class="home-final-cta" aria-label="Start">
       <div class="final-cta-inner">
