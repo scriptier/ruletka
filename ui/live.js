@@ -2076,16 +2076,7 @@ function wireSettingsNav() {
       }
     });
   });
-  document.querySelectorAll("[data-lang]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const lang = btn.getAttribute("data-lang");
-      if (!lang) return;
-      NextfaceI18n?.setLang?.(lang);
-      if ($("sel-lang")) $("sel-lang").value = lang;
-      if ($("sel-lang-sheet")) $("sel-lang-sheet").value = lang;
-      showSettingsView("main");
-    });
-  });
+  rebuildSettingsLangList();
   $("btn-settings-done")?.addEventListener("click", () => closeSettings());
   $("btn-clear-local")?.addEventListener("click", async () => {
     if (!confirm(_t("settings.clearConfirm"))) return;
@@ -4008,26 +3999,87 @@ if (navigator.mediaDevices?.addEventListener) {
   });
 }
 
+const LANG_FLAGS = {
+  en: "🇬🇧",
+  ru: "🇷🇺",
+  uk: "🇺🇦",
+  es: "🇪🇸",
+  de: "🇩🇪",
+  fr: "🇫🇷",
+  pt: "🇧🇷",
+  tr: "🇹🇷",
+  pl: "🇵🇱",
+  zh: "🇨🇳",
+};
+
+function rebuildSettingsLangList() {
+  const list = $("settings-lang-list");
+  if (!list) return;
+  const langs =
+    NextfaceI18n?.listLanguages?.() || [
+      { code: "ru", native: "Русский" },
+      { code: "en", native: "English" },
+    ];
+  const cur = NextfaceI18n?.getLang?.() || "ru";
+  list.innerHTML = langs
+    .map((l) => {
+      const flag = LANG_FLAGS[l.code] || "🌐";
+      const sel = l.code === cur ? " is-selected" : "";
+      return `<button type="button" class="settings-row settings-choice${sel}" data-lang="${l.code}">
+        <span class="row-left"><span class="row-flag">${flag}</span> ${escapeHtml(
+          l.native
+        )}</span>
+        <span class="choice-check" data-check-for="${l.code}">${
+        l.code === cur ? "✓" : ""
+      }</span>
+      </button>`;
+    })
+    .join("");
+  list.querySelectorAll("[data-lang]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const code = btn.getAttribute("data-lang");
+      if (!code) return;
+      Promise.resolve(NextfaceI18n?.setLang?.(code)).then(() => {
+        if ($("sel-lang")) $("sel-lang").value = code;
+        if ($("sel-lang-sheet")) $("sel-lang-sheet").value = code;
+        rebuildSettingsLangList();
+        showSettingsView("main");
+        syncSettingsSummary();
+      });
+    });
+  });
+}
+
 // Language switchers
 function bindLangSelect(el) {
   if (!el) return;
   el.value = NextfaceI18n?.getLang?.() || "ru";
   el.addEventListener("change", () => {
-    NextfaceI18n?.setLang?.(el.value);
-    const other = el.id === "sel-lang" ? $("sel-lang-sheet") : $("sel-lang");
-    if (other) other.value = el.value;
-    syncSettingsSummary();
+    Promise.resolve(NextfaceI18n?.setLang?.(el.value)).then(() => {
+      const other = el.id === "sel-lang" ? $("sel-lang-sheet") : $("sel-lang");
+      if (other) other.value = el.value;
+      rebuildSettingsLangList();
+      syncSettingsSummary();
+    });
   });
 }
 bindLangSelect($("sel-lang"));
 bindLangSelect($("sel-lang-sheet"));
 window.addEventListener("nextface:lang", () => {
   onLangChange();
+  rebuildSettingsLangList();
   syncSettingsSummary();
 });
 wireSettingsNav();
 
-// Boot
+// Boot (wait for optional external lang packs)
+const _i18nReady = NextfaceI18n?.ready || Promise.resolve();
+_i18nReady.then(() => {
+  NextfaceI18n?.applyI18n?.();
+  rebuildSettingsLangList();
+}).catch(() => {
+  NextfaceI18n?.applyI18n?.();
+});
 NextfaceI18n?.applyI18n?.();
 syncChatInputLang();
 setArchPill("default");

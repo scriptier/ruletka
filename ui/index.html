@@ -31,7 +31,46 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="home.css?v=47" />
+  <link rel="stylesheet" href="home.css?v=48" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        "@id": "https://ruletka.vip/#website",
+        "url": "https://ruletka.vip/",
+        "name": "ruletka.vip",
+        "description": "Peer-to-peer chat roulette — random video chat without accounts.",
+        "inLanguage": ["ru", "en"],
+        "publisher": { "@id": "https://ruletka.vip/#org" }
+      },
+      {
+        "@type": "Organization",
+        "@id": "https://ruletka.vip/#org",
+        "name": "ruletka.vip",
+        "url": "https://ruletka.vip/",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "https://ruletka.vip/brand/logo-hero.jpg"
+        }
+      },
+      {
+        "@type": "SoftwareApplication",
+        "name": "ruletka.vip",
+        "applicationCategory": "SocialNetworkingApplication",
+        "operatingSystem": "Web",
+        "url": "https://ruletka.vip/live.html",
+        "description": "Random peer-to-peer video chat roulette. No account required.",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        }
+      }
+    ]
+  }
+  </script>
 </head>
 <body class="home-body">
   <div class="home-bg" aria-hidden="true">
@@ -51,8 +90,15 @@
       <label class="home-lang" title="Language">
         <span aria-hidden="true">🌐</span>
         <select id="home-lang" aria-label="Language">
-          <option value="ru" selected>RU</option>
-          <option value="en">EN</option>
+          <option value="ru" selected>Русский</option>
+          <option value="en">English</option>
+          <option value="uk">Українська</option>
+          <option value="es">Español</option>
+          <option value="de">Deutsch</option>
+          <option value="fr">Français</option>
+          <option value="pt">Português</option>
+          <option value="tr">Türkçe</option>
+          <option value="pl">Polski</option>
         </select>
       </label>
     </div>
@@ -326,36 +372,50 @@ export ROULETTE_FEDERATION_PEERS=https://ruletka.vip
         },
       };
 
+      var HOME_LANGS = ["ru", "en", "uk", "es", "de", "fr", "pt", "tr", "pl"];
+
       function getLang() {
         try {
           var q = new URLSearchParams(location.search).get("lang");
-          if (q === "ru" || q === "en") return q;
+          if (q && HOME_LANGS.indexOf(q) >= 0) return q;
           var s = localStorage.getItem("nextface-lang-v1");
-          if (s === "ru" || s === "en") return s;
+          if (s && HOME_LANGS.indexOf(s) >= 0) return s;
         } catch (_) {}
         return "ru";
       }
 
       function setLang(lang) {
-        if (lang !== "ru" && lang !== "en") lang = "ru";
+        if (HOME_LANGS.indexOf(lang) < 0) lang = "ru";
         try {
           localStorage.setItem("nextface-lang-v1", lang);
         } catch (_) {}
         document.documentElement.lang = lang;
+        // Homepage copy: full RU/EN; other langs fall back to English for marketing text
+        // (live app has full UI packs under /i18n/{lang}.json)
         var dict = STR[lang] || STR.en;
         document.querySelectorAll("[data-i18n]").forEach(function (el) {
           var k = el.getAttribute("data-i18n");
           if (dict[k] != null) el.innerHTML = dict[k];
+          else if (STR.en[k] != null) el.innerHTML = STR.en[k];
         });
         var sel = document.getElementById("home-lang");
         if (sel) sel.value = lang;
         var cta = document.getElementById("btn-enter");
         if (cta) {
           var u = new URL(cta.href, location.origin);
-          if (lang === "ru") u.searchParams.set("lang", "ru");
+          if (lang && lang !== "en") u.searchParams.set("lang", lang);
           else u.searchParams.delete("lang");
           cta.href = u.pathname + u.search;
         }
+        // Keep nav Live link in sync
+        document.querySelectorAll(".nav-live-link").forEach(function (a) {
+          try {
+            var nu = new URL(a.href, location.origin);
+            if (lang && lang !== "en") nu.searchParams.set("lang", lang);
+            else nu.searchParams.delete("lang");
+            a.href = nu.pathname + nu.search;
+          } catch (_) {}
+        });
       }
 
       var sel = document.getElementById("home-lang");

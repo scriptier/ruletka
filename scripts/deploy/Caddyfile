@@ -1,7 +1,12 @@
 # HTTPS reverse proxy for ruletka.vip → roulette-bridge
 # Install: /etc/caddy/Caddyfile
 
-ruletka.vip, www.ruletka.vip {
+# Canonical host: apex only (SEO — avoid split indexing)
+www.ruletka.vip {
+	redir https://ruletka.vip{uri} permanent
+}
+
+ruletka.vip {
 	encode gzip zstd
 
 	# WebSocket match + signaling

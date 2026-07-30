@@ -1,11 +1,12 @@
 /**
- * ruletka.vip i18n — English + Russian.
- * Usage: t("key"), t("key", { n: 2 }), setLang("ru"), applyI18n()
+ * ruletka.vip i18n — multi-language (EN/RU bundled; others load from /i18n/{code}.json).
+ * Usage: t("key"), t("key", { n: 2 }), setLang("es"), applyI18n()
  * Storage key kept as nextface-lang-v1 for continuity.
  */
 (function (global) {
   const LANG_KEY = "nextface-lang-v1";
 
+  /** Bundled + dynamically loaded packs. Always fall back to en. */
   const STR = {
     en: {
       // meta / brand
@@ -812,23 +813,66 @@
     [/frame too large/i, "srv.frameLarge"],
   ];
 
+  /** Built-in codes; extra packs under /i18n/{code}.json */
+  const BUNDLED = new Set(["en", "ru"]);
+  let META = {
+    languages: [
+      { code: "en", native: "English", dir: "ltr" },
+      { code: "ru", native: "Русский", dir: "ltr" },
+      { code: "uk", native: "Українська", dir: "ltr" },
+      { code: "es", native: "Español", dir: "ltr" },
+      { code: "de", native: "Deutsch", dir: "ltr" },
+      { code: "fr", native: "Français", dir: "ltr" },
+      { code: "pt", native: "Português", dir: "ltr" },
+      { code: "tr", native: "Türkçe", dir: "ltr" },
+      { code: "pl", native: "Polski", dir: "ltr" },
+      { code: "zh", native: "中文", dir: "ltr" },
+    ],
+    default: "ru",
+  };
+  const SUPPORTED = () => new Set(META.languages.map((l) => l.code));
+  const loading = {};
+
   // Default product language for ruletka.vip is Russian
   let lang = "ru";
 
+  function normalizeLang(code) {
+    if (!code) return "";
+    const c = String(code).toLowerCase().replace("_", "-");
+    const primary = c.split("-")[0];
+    // zh-CN / zh-TW → zh pack
+    if (primary === "zh") return "zh";
+    if (primary === "pt") return "pt";
+    return primary;
+  }
+
+  function isSupported(code) {
+    return SUPPORTED().has(normalizeLang(code));
+  }
+
   function detectLang() {
     const q = new URLSearchParams(location.search).get("lang");
-    if (q === "ru" || q === "en") return q;
+    const nq = normalizeLang(q);
+    if (nq && isSupported(nq)) return nq;
     try {
       const saved = localStorage.getItem(LANG_KEY);
-      if (saved === "ru" || saved === "en") return saved;
+      const ns = normalizeLang(saved);
+      if (ns && isSupported(ns)) return ns;
     } catch (_) {}
-    // No saved preference: Russian by default (site targets RU audience)
-    return "ru";
+    // Browser preference
+    try {
+      const nav = navigator.languages || [navigator.language || ""];
+      for (const raw of nav) {
+        const n = normalizeLang(raw);
+        if (n && isSupported(n)) return n;
+      }
+    } catch (_) {}
+    return META.default || "ru";
   }
 
   function t(key, vars) {
-    const table = STR[lang] || STR.en;
-    let s = table[key] ?? STR.en[key] ?? key;
+    const table = STR[lang] || {};
+    let s = table[key] ?? STR.en?.[key] ?? key;
     if (vars && typeof vars === "object") {
       for (const [k, v] of Object.entries(vars)) {
         s = s.replace(new RegExp(`\\{${k}\\}`, "g"), String(v));
@@ -847,8 +891,24 @@
 
   function phaseLabel(phase) {
     const k = `phase.${phase}`;
-    const table = STR[lang] || STR.en;
-    return table[k] || phase;
+    return t(k) !== k ? t(k) : phase;
+  }
+
+  function fillLangSelects() {
+    const opts = META.languages
+      .map(
+        (l) =>
+          `<option value="${l.code}">${l.native}</option>`
+      )
+      .join("");
+    ["sel-lang", "sel-lang-sheet", "home-lang"].forEach((id) => {
+      const sel = document.getElementById(id);
+      if (!sel) return;
+      const cur = sel.value || lang;
+      sel.innerHTML = opts;
+      if (isSupported(cur)) sel.value = normalizeLang(cur);
+      else sel.value = lang;
+    });
   }
 
   function applyI18n(root) {
@@ -875,28 +935,91 @@
       const key = el.getAttribute("data-i18n-aria");
       if (key) el.setAttribute("aria-label", t(key));
     });
-    document.documentElement.lang = lang === "ru" ? "ru" : "en";
+    const meta = META.languages.find((l) => l.code === lang);
+    document.documentElement.lang = lang === "zh" ? "zh-CN" : lang;
+    document.documentElement.dir = meta?.dir || "ltr";
     document.title = t("meta.title");
+    fillLangSelects();
     const sel = document.getElementById("sel-lang");
     if (sel) sel.value = lang;
+    const sel2 = document.getElementById("sel-lang-sheet");
+    if (sel2) sel2.value = lang;
+  }
+
+  function loadPack(code) {
+    const c = normalizeLang(code);
+    if (!c || BUNDLED.has(c) || STR[c]) return Promise.resolve(STR[c] || STR.en);
+    if (loading[c]) return loading[c];
+    loading[c] = fetch(`/i18n/${c}.json?v=1`, { cache: "force-cache" })
+      .then((r) => {
+        if (!r.ok) throw new Error("lang pack " + c);
+        return r.json();
+      })
+      .then((j) => {
+        if (j && typeof j === "object") STR[c] = j;
+        return STR[c];
+      })
+      .catch(() => {
+        console.warn("[i18n] failed to load", c);
+        return null;
+      })
+      .finally(() => {
+        delete loading[c];
+      });
+    return loading[c];
+  }
+
+  function loadMeta() {
+    return fetch("/i18n/meta.json?v=1", { cache: "force-cache" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (j && Array.isArray(j.languages)) META = j;
+        return META;
+      })
+      .catch(() => META);
   }
 
   function setLang(next) {
-    if (next !== "ru" && next !== "en") return;
-    lang = next;
-    try {
-      localStorage.setItem(LANG_KEY, lang);
-    } catch (_) {}
-    applyI18n();
-    // Notify app so dynamic bits (phase, empty tiles, mic pill) refresh
-    global.dispatchEvent(new CustomEvent("nextface:lang", { detail: { lang } }));
+    const n = normalizeLang(next);
+    if (!n || !isSupported(n)) return Promise.resolve();
+    const apply = () => {
+      lang = n;
+      try {
+        localStorage.setItem(LANG_KEY, lang);
+      } catch (_) {}
+      applyI18n();
+      global.dispatchEvent(new CustomEvent("nextface:lang", { detail: { lang } }));
+    };
+    if (BUNDLED.has(n) || STR[n]) {
+      apply();
+      return Promise.resolve();
+    }
+    return loadPack(n).then(() => apply());
   }
 
   function getLang() {
     return lang;
   }
 
+  function listLanguages() {
+    return META.languages.slice();
+  }
+
   lang = detectLang();
+
+  // Boot: load meta + current pack if external
+  const boot = loadMeta()
+    .then(() => {
+      // re-detect if meta changed supported set
+      if (!isSupported(lang)) lang = META.default || "ru";
+      if (!BUNDLED.has(lang) && !STR[lang]) return loadPack(lang);
+    })
+    .then(() => {
+      applyI18n();
+    })
+    .catch(() => {
+      applyI18n();
+    });
 
   const api = {
     t,
@@ -905,6 +1028,9 @@
     applyI18n,
     translateServerDetail,
     phaseLabel,
+    listLanguages,
+    loadPack,
+    ready: boot,
     STR,
   };
   // Brand: ruletka.vip — NextfaceI18n kept as alias for older code
