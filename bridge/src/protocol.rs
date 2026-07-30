@@ -11,6 +11,19 @@ pub enum ClientMsg {
         user_id: String,
         #[serde(default)]
         name: String,
+        /// Soft match: "man" | "woman" | "other" | "" (unset)
+        #[serde(default)]
+        gender: String,
+        /// Soft match: "any" | "man" | "woman" | "" (any)
+        #[serde(default)]
+        looking: String,
+    },
+    /// Update soft match preferences without re-hello.
+    SetPrefs {
+        #[serde(default)]
+        gender: String,
+        #[serde(default)]
+        looking: String,
     },
     Spin {
         #[serde(default)]

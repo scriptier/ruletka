@@ -68,6 +68,10 @@ pub struct Client {
     friend_call: Option<Uuid>,
     /// Other party member when browsing together
     party_with: Option<Uuid>,
+    /// Soft match identity: man | woman | other | ""
+    gender: String,
+    /// Soft match preference: any | man | woman | ""
+    looking: String,
     limiter: ClientLimiter,
 }
 
@@ -126,6 +130,36 @@ fn friend_code_for(user_id: &str) -> String {
         .take(4)
         .map(|b| format!("{b:02X}"))
         .collect::<String>()
+}
+
+fn normalize_gender(raw: &str) -> String {
+    match raw.trim().to_lowercase().as_str() {
+        "man" | "male" | "m" => "man".into(),
+        "woman" | "female" | "f" | "w" => "woman".into(),
+        "other" | "nb" | "nonbinary" | "non-binary" => "other".into(),
+        _ => String::new(),
+    }
+}
+
+fn normalize_looking(raw: &str) -> String {
+    match raw.trim().to_lowercase().as_str() {
+        "man" | "male" | "m" => "man".into(),
+        "woman" | "female" | "f" | "w" => "woman".into(),
+        "any" | "all" | "" => "any".into(),
+        _ => "any".into(),
+    }
+}
+
+/// Soft preference: empty/any accepts all; unknown other gender is allowed (soft).
+fn looking_accepts(looking: &str, other_gender: &str) -> bool {
+    let l = if looking.is_empty() { "any" } else { looking };
+    if l == "any" {
+        return true;
+    }
+    if other_gender.is_empty() {
+        return true;
+    }
+    l == other_gender
 }
 
 fn peer_id_hex(id: Uuid) -> String {
@@ -359,6 +393,38 @@ impl SimpleHub {
             }
         }
         true
+    }
+
+    /// Soft gender prefs for solo↔solo. Parties always pass (prefers don't apply).
+    fn entries_prefs_soft_ok(&self, left: &QueueEntry, right: &QueueEntry) -> bool {
+        match (left, right) {
+            (QueueEntry::Solo(a), QueueEntry::Solo(b)) => {
+                let (Some(ca), Some(cb)) = (self.clients.get(a), self.clients.get(b)) else {
+                    return false;
+                };
+                looking_accepts(&ca.looking, &cb.gender)
+                    && looking_accepts(&cb.looking, &ca.gender)
+            }
+            // Party browse: soft prefs only on the solo stranger vs each party member
+            (QueueEntry::Solo(s), QueueEntry::Party { a, b })
+            | (QueueEntry::Party { a, b }, QueueEntry::Solo(s)) => {
+                let Some(cs) = self.clients.get(s) else {
+                    return false;
+                };
+                for pid in [a, b] {
+                    let Some(cp) = self.clients.get(pid) else {
+                        return false;
+                    };
+                    if !looking_accepts(&cs.looking, &cp.gender)
+                        || !looking_accepts(&cp.looking, &cs.gender)
+                    {
+                        return false;
+                    }
+                }
+                true
+            }
+            _ => true,
+        }
     }
 
     fn deny_if_match_banned(&mut self, id: Uuid) -> bool {
@@ -808,6 +874,8 @@ impl SimpleHub {
                 room: String::new(),
                 friend_call: None,
                 party_with: None,
+                gender: String::new(),
+                looking: "any".into(),
                 limiter: ClientLimiter::new(),
             },
         );
@@ -1299,8 +1367,9 @@ impl SimpleHub {
                 QueueEntry::Party { a, .. } => self.room_of(*a),
             };
 
-            // Find compatible second entry
+            // Find compatible second entry — prefer soft gender prefs, then any
             let mut found_idx = None;
+            let mut found_fallback = None;
             for (i, e) in self.queue.iter().enumerate() {
                 let eroom = match e {
                     QueueEntry::Solo(id) => self.room_of(*id),
@@ -1337,10 +1406,18 @@ impl SimpleHub {
                         if !self.entries_compatible(&first, e) {
                             continue;
                         }
-                        found_idx = Some(i);
-                        break;
+                        if self.entries_prefs_soft_ok(&first, e) {
+                            found_idx = Some(i);
+                            break;
+                        }
+                        if found_fallback.is_none() {
+                            found_fallback = Some(i);
+                        }
                     }
                 }
+            }
+            if found_idx.is_none() {
+                found_idx = found_fallback;
             }
 
             let Some(i) = found_idx else {
@@ -1425,8 +1502,16 @@ impl SimpleHub {
         }
 
         match msg {
-            ClientMsg::Hello { user_id, name } => {
-                self.handle_hello(id, user_id, name);
+            ClientMsg::Hello {
+                user_id,
+                name,
+                gender,
+                looking,
+            } => {
+                self.handle_hello(id, user_id, name, gender, looking);
+            }
+            ClientMsg::SetPrefs { gender, looking } => {
+                self.handle_set_prefs(id, gender, looking);
             }
             ClientMsg::Ping => self.send(id, ServerMsg::Pong),
             ClientMsg::SetRoom { room } => {
@@ -1601,7 +1686,33 @@ impl SimpleHub {
         self.party_requeue(a, b, room, "next together — searching again");
     }
 
-    fn handle_hello(&mut self, id: Uuid, user_id: String, name: String) {
+    fn handle_set_prefs(&mut self, id: Uuid, gender: String, looking: String) {
+        let g = normalize_gender(&gender);
+        let l = normalize_looking(&looking);
+        if let Some(c) = self.clients.get_mut(&id) {
+            c.gender = g;
+            c.looking = l;
+        }
+        self.status(id, "match prefs updated");
+        // Re-try match if waiting — soft prefs may unlock a pair
+        if self
+            .clients
+            .get(&id)
+            .map(|c| c.phase == Phase::Waiting)
+            .unwrap_or(false)
+        {
+            self.try_match();
+        }
+    }
+
+    fn handle_hello(
+        &mut self,
+        id: Uuid,
+        user_id: String,
+        name: String,
+        gender: String,
+        looking: String,
+    ) {
         let user_id = if user_id.trim().is_empty() {
             id.to_string()
         } else {
@@ -1609,6 +1720,8 @@ impl SimpleHub {
         };
         let name = normalize_name(&name);
         let code = friend_code_for(&user_id);
+        let gender = normalize_gender(&gender);
+        let looking = normalize_looking(&looking);
 
         // Kick previous connection for same user
         if let Some(old) = self.by_user.get(&user_id).copied() {
@@ -1636,6 +1749,8 @@ impl SimpleHub {
             c.user_id = user_id.clone();
             c.name = name.clone();
             c.friend_code = code.clone();
+            c.gender = gender;
+            c.looking = looking;
         }
         self.by_user.insert(user_id.clone(), id);
         self.code_index.insert(code.clone(), user_id.clone());

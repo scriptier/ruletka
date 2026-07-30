@@ -178,13 +178,98 @@ function syncNameInputs(name) {
   if (tile) tile.textContent = n || "anon";
 }
 
+function matchPrefs() {
+  const p = loadPrefs();
+  const gender = ["man", "woman", "other"].includes(p.gender) ? p.gender : "";
+  const looking = ["man", "woman", "any"].includes(p.looking) ? p.looking : "any";
+  return { gender, looking };
+}
+
+function sendHelloPayload(name) {
+  const idn = loadIdentity();
+  const prefs = matchPrefs();
+  send({
+    type: "hello",
+    user_id: idn.user_id,
+    name: name || getDisplayName(),
+    gender: prefs.gender,
+    looking: prefs.looking,
+  });
+}
+
+function sendMatchPrefs() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const prefs = matchPrefs();
+  send({ type: "set_prefs", gender: prefs.gender, looking: prefs.looking });
+}
+
+function prefsLabel(key, val) {
+  if (key === "gender") {
+    if (val === "man") return _t("prefs.man");
+    if (val === "woman") return _t("prefs.woman");
+    if (val === "other") return _t("prefs.other");
+    return _t("prefs.unset");
+  }
+  if (val === "man") return _t("prefs.man");
+  if (val === "woman") return _t("prefs.woman");
+  return _t("prefs.any");
+}
+
+function syncMatchPrefsUi() {
+  const { gender, looking } = matchPrefs();
+  document.querySelectorAll("[data-pref-gender]").forEach((btn) => {
+    const v = btn.getAttribute("data-pref-gender") || "";
+    btn.classList.toggle("is-selected", v === gender);
+  });
+  document.querySelectorAll("[data-check-gender]").forEach((el) => {
+    const v = el.getAttribute("data-check-gender") || "";
+    el.style.opacity = v === gender ? "1" : "0";
+  });
+  document.querySelectorAll("[data-pref-looking]").forEach((btn) => {
+    const v = btn.getAttribute("data-pref-looking") || "any";
+    btn.classList.toggle("is-selected", v === looking);
+  });
+  document.querySelectorAll("[data-check-looking]").forEach((el) => {
+    const v = el.getAttribute("data-check-looking") || "any";
+    el.style.opacity = v === looking ? "1" : "0";
+  });
+  if ($("settings-match-summary")) {
+    $("settings-match-summary").textContent =
+      prefsLabel("looking", looking) +
+      (gender ? " · " + prefsLabel("gender", gender) : "");
+  }
+}
+
+function wireMatchPrefs() {
+  document.querySelectorAll("[data-pref-gender]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const gender = btn.getAttribute("data-pref-gender") || "";
+      savePrefs({ gender });
+      syncMatchPrefsUi();
+      sendMatchPrefs();
+      log(_t("prefs.saved"));
+    });
+  });
+  document.querySelectorAll("[data-pref-looking]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const looking = btn.getAttribute("data-pref-looking") || "any";
+      savePrefs({ looking });
+      syncMatchPrefsUi();
+      sendMatchPrefs();
+      log(_t("prefs.saved"));
+    });
+  });
+  document.querySelectorAll('[data-settings-open="matchprefs"]').forEach((el) => {
+    el.addEventListener("click", () => syncMatchPrefsUi());
+  });
+}
+
 function pushNameToServer(name) {
   const n = (name || getDisplayName() || "anon").trim().slice(0, 32) || "anon";
   saveIdentity({ name: n === "anon" ? "" : n });
   syncNameInputs(n);
   if (ws && ws.readyState === WebSocket.OPEN) {
-    const idn = loadIdentity();
-    send({ type: "hello", user_id: idn.user_id, name: n });
+    sendHelloPayload(n);
   }
 }
 
@@ -1908,6 +1993,7 @@ function syncSettingsSummary() {
     $("settings-safety-summary").textContent =
       parts.length ? parts.join(" · ") : _t("settings.sumOff");
   }
+  syncMatchPrefsUi();
   syncHubSettingsUi();
   // Avatar letter from display name
   const letterEl = $("settings-hero-letter");
@@ -2170,11 +2256,7 @@ function connect(isRetry = false) {
     updateConnFromState();
     const idn = loadIdentity();
     myUserId = idn.user_id;
-    send({
-      type: "hello",
-      user_id: idn.user_id,
-      name: getDisplayName(),
-    });
+    sendHelloPayload(getDisplayName());
     const room = currentRoom();
     if (room) send({ type: "set_room", room });
     // Apply pending friend invite from URL
@@ -3955,7 +4037,9 @@ wireCallCoach();
 wireWaitTips();
 wireKeysHelp();
 wireHubSettings();
+wireMatchPrefs();
 wireNameInputs();
+syncMatchPrefsUi();
 {
   const prefs = loadPrefs();
   const idn = loadIdentity();
