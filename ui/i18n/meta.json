@@ -44,6 +44,11 @@
       "code": "pl",
       "native": "Polski",
       "dir": "ltr"
+    },
+    {
+      "code": "zh",
+      "native": "中文",
+      "dir": "ltr"
     }
   ],
   "default": "ru"

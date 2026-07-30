@@ -31,7 +31,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="home.css?v=48" />
+  <link rel="stylesheet" href="home.css?v=49" />
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -384,15 +384,10 @@ export ROULETTE_FEDERATION_PEERS=https://ruletka.vip
         return "ru";
       }
 
-      function setLang(lang) {
-        if (HOME_LANGS.indexOf(lang) < 0) lang = "ru";
-        try {
-          localStorage.setItem("nextface-lang-v1", lang);
-        } catch (_) {}
-        document.documentElement.lang = lang;
-        // Homepage copy: full RU/EN; other langs fall back to English for marketing text
-        // (live app has full UI packs under /i18n/{lang}.json)
-        var dict = STR[lang] || STR.en;
+      var packCache = {};
+
+      function applyDict(lang, dict) {
+        document.documentElement.lang = lang === "zh" ? "zh-CN" : lang;
         document.querySelectorAll("[data-i18n]").forEach(function (el) {
           var k = el.getAttribute("data-i18n");
           if (dict[k] != null) el.innerHTML = dict[k];
@@ -407,7 +402,6 @@ export ROULETTE_FEDERATION_PEERS=https://ruletka.vip
           else u.searchParams.delete("lang");
           cta.href = u.pathname + u.search;
         }
-        // Keep nav Live link in sync
         document.querySelectorAll(".nav-live-link").forEach(function (a) {
           try {
             var nu = new URL(a.href, location.origin);
@@ -418,8 +412,44 @@ export ROULETTE_FEDERATION_PEERS=https://ruletka.vip
         });
       }
 
+      function setLang(lang) {
+        if (HOME_LANGS.indexOf(lang) < 0) lang = "ru";
+        try {
+          localStorage.setItem("nextface-lang-v1", lang);
+        } catch (_) {}
+        // Bundled RU/EN first
+        if (STR[lang]) {
+          applyDict(lang, STR[lang]);
+          return;
+        }
+        // Other langs: load full pack from /i18n/{lang}.json (includes home.* keys)
+        if (packCache[lang]) {
+          applyDict(lang, packCache[lang]);
+          return;
+        }
+        applyDict(lang, STR.en); // show EN until pack loads
+        fetch("/i18n/" + lang + ".json?v=2", { cache: "force-cache" })
+          .then(function (r) {
+            if (!r.ok) throw new Error("pack");
+            return r.json();
+          })
+          .then(function (j) {
+            packCache[lang] = j;
+            if (getLang() === lang) applyDict(lang, j);
+          })
+          .catch(function () {});
+      }
+
       var sel = document.getElementById("home-lang");
       if (sel) {
+        // include Chinese if pack available
+        if (![].some.call(sel.options, function (o) { return o.value === "zh"; })) {
+          var oz = document.createElement("option");
+          oz.value = "zh";
+          oz.textContent = "中文";
+          sel.appendChild(oz);
+        }
+        HOME_LANGS.push("zh");
         sel.addEventListener("change", function () {
           setLang(sel.value);
         });
