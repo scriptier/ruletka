@@ -4,61 +4,112 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="description" content="Run the ruletka.vip network helper on Windows, Mac, or Linux — contribute capacity, not site control." />
-  <meta name="theme-color" content="#0a0b0e" />
+  <meta name="theme-color" content="#07080c" />
   <link rel="icon" href="/brand/favicon-32.png" type="image/png" />
+  <link rel="apple-touch-icon" href="/brand/apple-touch-icon-180.png" />
   <title>ruletka.vip — network helper</title>
-  <link rel="stylesheet" href="home.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="home.css?v=47" />
   <style>
     .contrib-main {
-      max-width: 720px;
+      max-width: 900px;
       margin: 0 auto;
-      padding: 1.5rem 1.25rem 3rem;
+      padding: 1.25rem 1.25rem 3.5rem;
       position: relative;
       z-index: 1;
     }
+    .contrib-hero {
+      margin-bottom: 1.75rem;
+      padding-bottom: 0.25rem;
+    }
+    .contrib-kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      margin: 0 0 0.85rem;
+      padding: 0.32rem 0.7rem;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 650;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #c5ecd6;
+      background: rgba(61, 214, 140, 0.1);
+      border: 1px solid rgba(61, 214, 140, 0.28);
+    }
     .contrib-main h1 {
       margin: 0 0 0.75rem;
-      font-size: clamp(1.5rem, 4vw, 2rem);
-      letter-spacing: -0.03em;
+      font-size: clamp(1.75rem, 4.5vw, 2.35rem);
+      font-weight: 800;
+      letter-spacing: -0.035em;
+      line-height: 1.12;
+      background: linear-gradient(180deg, #fff 20%, #b8c4d8 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
     }
     .contrib-main .lead {
       color: var(--muted);
-      line-height: 1.55;
-      margin: 0 0 1.5rem;
+      line-height: 1.6;
+      margin: 0 0 0.5rem;
+      font-size: 1.02rem;
+      max-width: 40rem;
     }
+    .contrib-main .lead strong { color: var(--text); }
     .os-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 0.85rem;
-      margin-bottom: 1.75rem;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1rem;
+      margin: 1.75rem 0 2rem;
     }
     .os-card {
-      padding: 1.15rem 1.1rem 1.2rem;
-      border-radius: 16px;
+      padding: 1.25rem 1.15rem 1.3rem;
+      border-radius: 18px;
       border: 1px solid var(--border);
-      background: var(--panel);
+      background: linear-gradient(165deg, rgba(255,255,255,0.05) 0%, rgba(12,16,24,0.6) 100%);
+      backdrop-filter: blur(14px);
       display: flex;
       flex-direction: column;
       gap: 0.45rem;
+      box-shadow: 0 10px 32px rgba(0,0,0,0.22);
+      transition: border-color 0.15s, transform 0.15s;
+    }
+    .os-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(126, 182, 255, 0.3);
+    }
+    .os-card .os-badge {
+      width: 2.35rem;
+      height: 2.35rem;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      font-size: 1.1rem;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+      margin-bottom: 0.2rem;
     }
     .os-card h3 {
       margin: 0;
-      font-size: 1.05rem;
+      font-size: 1.08rem;
       font-weight: 700;
+      letter-spacing: -0.02em;
     }
     .os-card p {
       margin: 0;
       flex: 1;
-      font-size: 0.85rem;
-      line-height: 1.4;
+      font-size: 0.86rem;
+      line-height: 1.45;
       color: var(--muted);
     }
     .os-card a {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      margin-top: 0.45rem;
-      padding: 0.65rem 1rem;
+      margin-top: 0.5rem;
+      padding: 0.68rem 1rem;
       border-radius: 999px;
       text-decoration: none;
       font-weight: 650;
@@ -66,7 +117,9 @@
       color: #fff;
       background: linear-gradient(135deg, #3b82f6, #6366f1);
       box-shadow: 0 8px 24px rgba(59, 130, 246, 0.28);
+      transition: filter 0.12s, transform 0.12s;
     }
+    .os-card a:hover { filter: brightness(1.06); transform: translateY(-1px); }
     .os-card a.secondary {
       background: transparent;
       color: var(--text);
@@ -74,72 +127,137 @@
       box-shadow: none;
       margin-top: 0.35rem;
     }
+    .os-card a.secondary:hover {
+      border-color: rgba(255,255,255,0.2);
+      background: rgba(255,255,255,0.05);
+      filter: none;
+    }
     .steps {
       margin: 0;
       padding: 0;
       list-style: none;
       display: grid;
-      gap: 0.75rem;
+      gap: 0.85rem;
     }
     .steps li {
-      padding: 0.95rem 1rem;
-      border-radius: 14px;
+      padding: 1.1rem 1.15rem;
+      border-radius: 16px;
       border: 1px solid var(--border);
-      background: var(--panel);
+      background: linear-gradient(165deg, rgba(255,255,255,0.04) 0%, rgba(10,14,22,0.55) 100%);
+      backdrop-filter: blur(12px);
       font-size: 0.92rem;
-      line-height: 1.45;
+      line-height: 1.5;
       color: var(--muted);
     }
-    .steps strong { color: var(--text); display: block; margin-bottom: 0.25rem; }
+    .steps strong {
+      color: var(--text);
+      display: block;
+      margin-bottom: 0.35rem;
+      font-size: 0.98rem;
+      letter-spacing: -0.015em;
+    }
+    .steps a { color: var(--accent); }
     .code-block {
-      margin: 0.65rem 0 0;
-      padding: 0.75rem 0.9rem;
+      margin: 0.7rem 0 0.55rem;
+      padding: 0.85rem 1rem;
       border-radius: 12px;
-      background: #0e131a;
-      border: 1px solid var(--border);
+      background: #0a0d14;
+      border: 1px solid rgba(255,255,255,0.06);
       overflow-x: auto;
       font-family: ui-monospace, monospace;
-      font-size: 0.78rem;
+      font-size: 0.76rem;
       color: #c5d0e0;
-      line-height: 1.5;
+      line-height: 1.55;
       white-space: pre-wrap;
     }
     .note {
+      font-size: 0.86rem;
+      color: var(--muted);
+      line-height: 1.55;
+      margin-top: 1.25rem;
+      padding: 0.95rem 1.05rem;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,0.22);
+    }
+    .note a { color: var(--accent); text-decoration: none; }
+    .note a:hover { text-decoration: underline; }
+    .note code {
+      font-size: 0.85em;
+      color: #b8c9e0;
+      background: rgba(255,255,255,0.04);
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+    }
+    .contrib-cta-band {
+      margin-top: 2rem;
+      padding: 1.35rem 1.25rem;
+      border-radius: 18px;
+      border: 1px solid rgba(255, 45, 85, 0.25);
+      background: linear-gradient(135deg, rgba(255,45,85,0.12), rgba(14,18,28,0.8));
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+    .contrib-cta-band p {
+      margin: 0;
+      font-weight: 600;
+      color: var(--text);
+      font-size: 0.98rem;
+    }
+    .contrib-cta-band span {
+      display: block;
+      font-weight: 500;
       font-size: 0.85rem;
       color: var(--muted);
-      line-height: 1.5;
-      margin-top: 1.5rem;
+      margin-top: 0.2rem;
     }
-    .note a { color: var(--accent); }
   </style>
 </head>
 <body class="home-body">
-  <div class="home-bg" aria-hidden="true"></div>
+  <div class="home-bg" aria-hidden="true">
+    <div class="home-bg-grid"></div>
+    <div class="home-bg-orb home-bg-orb-a"></div>
+    <div class="home-bg-orb home-bg-orb-b"></div>
+  </div>
+
   <header class="home-nav">
-    <a class="home-brand" href="/">
+    <a class="home-brand" href="/" aria-label="ruletka.vip home">
       <img class="home-brand-logo" src="/brand/logo-mark.png" width="36" height="36" alt="" />
       <span>ruletka.vip</span>
     </a>
-    <a class="home-secondary" href="/live.html">Live →</a>
+    <div class="home-nav-right">
+      <a class="nav-live-link" href="/live.html">Start chatting</a>
+      <a class="home-secondary" href="/">← Home</a>
+    </div>
   </header>
 
   <main class="contrib-main">
-    <h1>Network helper</h1>
-    <p class="lead">
-      A small program for <strong>your computer</strong>. It runs a full mini-hub with the chat UI
-      and a public HTTPS tunnel — an <strong>independent island</strong> people can open even if
-      this seed site is down. It does <strong>not</strong> give you control of this website or admin tools.
-      Open source (LGPL-2.1). Stop anytime with Ctrl+C.
-    </p>
+    <div class="contrib-hero">
+      <p class="contrib-kicker">Open source · LGPL-2.1</p>
+      <h1>Network helper</h1>
+      <p class="lead">
+        A small program for <strong>your computer</strong>. It runs a full mini-hub with the chat UI
+        and a public HTTPS tunnel — an <strong>independent island</strong> people can open even if
+        this seed site is down.
+      </p>
+      <p class="lead">
+        It does <strong>not</strong> give you control of this website or admin tools. Stop anytime with Ctrl+C.
+      </p>
+    </div>
 
     <div class="os-grid">
       <article class="os-card">
+        <div class="os-badge" aria-hidden="true">🪟</div>
         <h3>Windows</h3>
         <p>PowerShell script · 64-bit PC</p>
         <a href="/download/rulet-helper.ps1" download>Download .ps1</a>
         <a class="secondary" href="/download/roulette-bridge-windows-amd64.exe" download>Binary only</a>
       </article>
       <article class="os-card">
+        <div class="os-badge" aria-hidden="true"></div>
         <h3>macOS</h3>
         <p>Apple Silicon &amp; Intel</p>
         <a href="/download/rulet-helper-mac.sh" download>Download .sh</a>
@@ -147,6 +265,7 @@
         <a class="secondary" href="/download/roulette-bridge-macos-amd64" download>Intel binary</a>
       </article>
       <article class="os-card">
+        <div class="os-badge" aria-hidden="true">🐧</div>
         <h3>Linux</h3>
         <p>x86_64 desktop / VPS</p>
         <a href="/download/rulet-helper.sh" download>Download .sh</a>
@@ -174,11 +293,11 @@ chmod +x rulet-helper.sh && ./rulet-helper.sh</div>
         <code>~/.ruletka-helper</code> (or <code>%USERPROFILE%\.ruletka-helper</code> on Windows).
       </li>
       <li>
-        <strong>3 · Join the main pool (optional)</strong>
-        The helper prints a public URL. Email
+        <strong>3 · Share your island URL</strong>
+        The helper prints a public URL — open <code>/live.html</code> on it to chat on
+        <em>your</em> hub even if the seed site is offline. Optional: email
         <a href="mailto:support@ruletka.vip">support@ruletka.vip</a>
-        if you want your node linked into the shared stranger queue.
-        Without that, you still have a personal hub — you never control ruletka.vip itself.
+        if you want operators to consider federation into the shared stranger pool.
       </li>
     </ol>
 
@@ -186,9 +305,26 @@ chmod +x rulet-helper.sh && ./rulet-helper.sh</div>
       macOS may ask to allow the binary under <em>Privacy &amp; Security</em> the first time.
       Windows may show SmartScreen for an unsigned .exe — choose “More info → Run anyway” if you trust this site.
     </p>
-    <p class="note">
-      Prefer chat only? <a href="/live.html">Start chatting</a> — that already uses peer-to-peer video.
-    </p>
+
+    <div class="contrib-cta-band">
+      <p>
+        Prefer chat only?
+        <span>No install needed — video is already peer-to-peer in the browser.</span>
+      </p>
+      <a class="home-cta" href="/live.html">
+        <span>Start chatting</span>
+        <span class="cta-arrow" aria-hidden="true">→</span>
+      </a>
+    </div>
   </main>
+
+  <footer class="home-foot">
+    <span>18+ · Be respectful · Open source LGPL-2.1</span>
+    <span class="foot-links">
+      <a href="/" class="foot-link">Home</a>
+      <a href="/live.html" class="foot-link">Live</a>
+      <a href="https://github.com/scriptier/ruletka" class="foot-link" target="_blank" rel="noopener">GitHub</a>
+    </span>
+  </footer>
 </body>
 </html>
