@@ -1058,9 +1058,55 @@ html.stage-html {
   background: radial-gradient(ellipse at center, #141a24 0%, #0a0c10 70%);
   pointer-events: none;
   z-index: 1;
+  overflow: hidden;
 }
 
 .tile-empty.hidden { display: none; }
+
+/* Looping brand loading video behind idle partner copy */
+.empty-bg-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  z-index: 0;
+  pointer-events: none;
+  /* subtle scale so edges don’t flash letterbox on some aspect ratios */
+  transform: scale(1.02);
+}
+.empty-bg-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 70% 60% at 50% 45%, rgba(8, 10, 14, 0.25) 0%, rgba(8, 10, 14, 0.72) 100%),
+    linear-gradient(180deg, rgba(6, 8, 12, 0.35) 0%, rgba(6, 8, 12, 0.55) 100%);
+}
+.empty-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 18rem;
+}
+#remote-empty .empty-title {
+  color: #f2f5fa;
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.75);
+}
+#remote-empty .empty-sub {
+  color: rgba(200, 210, 224, 0.9);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.7);
+}
+#remote-empty .empty-icon {
+  background: rgba(0, 0, 0, 0.35);
+  border-color: rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(6px);
+}
 
 .empty-icon {
   display: grid;

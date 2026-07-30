@@ -638,6 +638,21 @@ function setRemoteEmpty(show) {
     if (wrap) wrap.hidden = true;
     if (tag) tag.textContent = "";
   }
+  // Loop brand loading video only while partner slot is empty
+  const v = $("remote-empty-video");
+  if (v) {
+    if (show) {
+      try {
+        v.muted = true;
+        const p = v.play();
+        if (p && typeof p.catch === "function") p.catch(() => {});
+      } catch (_) {}
+    } else {
+      try {
+        v.pause();
+      } catch (_) {}
+    }
+  }
 }
 
 function send(obj) {
