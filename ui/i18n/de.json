@@ -221,8 +221,8 @@
   "settings.secHelp": "Hilfe & Support",
   "settings.secOther": "Sonstiges",
   "settings.theme": "Design",
-  "settings.themeNight": "Nacht",
-  "settings.themeHint": "Nachtdesign ist Standard. Weitere Designs später.",
+  "settings.themeNight": "Dunkel",
+  "settings.themeHint": "So sieht der Chat aus. Design wird auf diesem Gerät gespeichert.",
   "settings.systemDefault": "Systemstandard",
   "settings.contact": "Kontakt",
   "settings.eula": "EULA",
@@ -454,5 +454,12 @@
   "srv.reportOk": "Meldung erhalten — danke",
   "srv.reportRestricted": "Meldung erhalten — Nutzer eingeschränkt",
   "srv.restricted": "wegen Meldungen vorübergehend eingeschränkt",
-  "srv.reportRate": "zu viele Meldungen — später"
+  "srv.reportRate": "zu viele Meldungen — später",
+  "settings.themeDark": "Dunkel",
+  "settings.themeLight": "Hell",
+  "settings.themeSaloon": "Saloon",
+  "settings.themeDarkSub": "Nacht-Chrome · Standard",
+  "settings.themeLightSub": "Helle Flächen · weiches Grau",
+  "settings.themeSaloonSub": "Western · Gold & Leder",
+  "settings.themeSet": "Design: {theme}"
 }

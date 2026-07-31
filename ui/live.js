@@ -47,6 +47,127 @@ function savePrefs(partial) {
   localStorage.setItem(PREFS_KEY, JSON.stringify({ ...loadPrefs(), ...partial }));
 }
 
+/** @typedef {"dark"|"light"|"saloon"} UiTheme */
+const THEME_IDS = ["dark", "light", "saloon"];
+const THEME_META = {
+  dark: { color: "#0a0b0e", labelKey: "settings.themeDark", fallback: "Dark" },
+  light: { color: "#f4f6fa", labelKey: "settings.themeLight", fallback: "Light" },
+  saloon: { color: "#1a1008", labelKey: "settings.themeSaloon", fallback: "Saloon" },
+};
+/** Default chrome icons → saloon western set */
+const THEME_ICON_REMAP = {
+  saloon: {
+    "#i-skip": "#i-star",
+    "#i-settings": "#i-spur",
+    "#i-users": "#i-hat",
+    "#i-door": "#i-saloon-doors",
+    "#i-pointer": "#i-star",
+    "#i-globe": "#i-horseshoe",
+    "#i-user": "#i-hat",
+    "#i-expand": "#i-star",
+    "#i-share": "#i-lantern",
+    "#i-camera": "#i-lantern",
+    "#i-camera-off": "#i-cactus",
+  },
+};
+
+function normalizeTheme(v) {
+  const t = String(v || "").toLowerCase();
+  if (t === "night") return "dark";
+  return THEME_IDS.includes(t) ? t : "dark";
+}
+
+function getTheme() {
+  return normalizeTheme(loadPrefs().theme);
+}
+
+function themeLabel(theme) {
+  const id = normalizeTheme(theme);
+  const meta = THEME_META[id];
+  return _t(meta.labelKey) || meta.fallback;
+}
+
+function applyThemeIcons(theme) {
+  const map = THEME_ICON_REMAP[theme] || {};
+  document.querySelectorAll("svg use").forEach((use) => {
+    if (use.closest(".theme-icon-fixed") || use.closest(".theme-pick")) return;
+    const href =
+      use.getAttribute("href") ||
+      use.getAttributeNS("http://www.w3.org/1999/xlink", "href") ||
+      "";
+    if (!href || href.charAt(0) !== "#") return;
+    if (!use.dataset.iconBase) {
+      // Only lock base when current href is a default (non-saloon) icon,
+      // or already stored after first visit.
+      const id = href.slice(1);
+      if (
+        id === "i-star" ||
+        id === "i-spur" ||
+        id === "i-hat" ||
+        id === "i-saloon-doors" ||
+        id === "i-horseshoe" ||
+        id === "i-cactus" ||
+        id === "i-lantern" ||
+        id === "i-sun"
+      ) {
+        // Already remapped without a base — skip until we can infer
+        if (!use.dataset.iconBase) return;
+      } else {
+        use.dataset.iconBase = href;
+      }
+    }
+    const base = use.dataset.iconBase;
+    if (!base) return;
+    const next = map[base] || base;
+    use.setAttribute("href", next);
+  });
+}
+
+function applyTheme(theme, { persist = true } = {}) {
+  const id = normalizeTheme(theme);
+  document.documentElement.setAttribute("data-theme", id);
+  document.documentElement.style.colorScheme = id === "light" ? "light" : "dark";
+  const meta = document.getElementById("meta-theme-color");
+  if (meta) meta.setAttribute("content", THEME_META[id].color);
+  applyThemeIcons(id);
+  if (persist) savePrefs({ theme: id });
+  syncThemeChoices();
+  if ($("settings-theme-value")) {
+    $("settings-theme-value").textContent = themeLabel(id);
+  }
+  // Main theme row icon
+  const rowIco = document.querySelector('[data-settings-open="theme"] .row-ico use');
+  if (rowIco) {
+    const ico =
+      id === "light" ? "#i-sun" : id === "saloon" ? "#i-star" : "#i-moon";
+    rowIco.setAttribute("href", ico);
+  }
+}
+
+function syncThemeChoices() {
+  const cur = getTheme();
+  document.querySelectorAll("[data-theme-pick]").forEach((btn) => {
+    const id = btn.getAttribute("data-theme-pick");
+    btn.classList.toggle("is-selected", id === cur);
+  });
+  document.querySelectorAll("[data-check-theme]").forEach((el) => {
+    const id = el.getAttribute("data-check-theme");
+    const row = el.closest(".settings-choice");
+    if (row) row.classList.toggle("is-selected", id === cur);
+  });
+}
+
+function wireThemeSettings() {
+  document.querySelectorAll("[data-theme-pick]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-theme-pick");
+      if (!id) return;
+      applyTheme(id, { persist: true });
+      log(_t("settings.themeSet", { theme: themeLabel(id) }) || `Theme: ${themeLabel(id)}`);
+    });
+  });
+}
+
 let ws = null;
 /** @type {Map<string, InstanceType<typeof RouletteWebRtc>>} peer_id → pc */
 const peerPcs = new Map();
@@ -1889,13 +2010,6 @@ function syncLangChoices() {
   });
 }
 
-function syncThemeChoices() {
-  document.querySelectorAll("[data-check-theme]").forEach((el) => {
-    const row = el.closest(".settings-choice");
-    if (row) row.classList.add("is-selected");
-  });
-}
-
 function selectedOptionLabel(sel) {
   if (!sel || !sel.options || !sel.options.length) return "";
   const opt = sel.options[sel.selectedIndex];
@@ -2035,7 +2149,7 @@ function syncSettingsSummary() {
       (typeof LANG_FLAGS !== "undefined" && LANG_FLAGS[lang]) || "🌐";
   }
   if ($("settings-theme-value")) {
-    $("settings-theme-value").textContent = _t("settings.themeNight");
+    $("settings-theme-value").textContent = themeLabel(getTheme());
   }
   const cam = selectedOptionLabel($("sel-camera"));
   const mic = selectedOptionLabel($("sel-mic"));
@@ -2162,6 +2276,8 @@ function wireSettingsNav() {
     });
   });
   rebuildSettingsLangList();
+  wireThemeSettings();
+  applyTheme(getTheme(), { persist: false });
   $("btn-settings-done")?.addEventListener("click", () => closeSettings());
   $("btn-export-profile")?.addEventListener("click", () => exportProfileFile());
   $("btn-import-profile")?.addEventListener("click", () => {

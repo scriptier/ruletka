@@ -221,8 +221,8 @@
   "settings.secHelp": "Pomoc i wsparcie",
   "settings.secOther": "Inne",
   "settings.theme": "Motyw",
-  "settings.themeNight": "Noc",
-  "settings.themeHint": "Motyw nocny domyślny. Więcej motywów później.",
+  "settings.themeNight": "Ciemny",
+  "settings.themeHint": "Wygląd czatu. Motyw zapisany na tym urządzeniu.",
   "settings.systemDefault": "Domyślny systemowy",
   "settings.contact": "Kontakt",
   "settings.eula": "EULA",
@@ -454,5 +454,12 @@
   "srv.reportOk": "zgłoszenie przyjęte — dziękujemy",
   "srv.reportRestricted": "zgłoszenie przyjęte — użytkownik ograniczony",
   "srv.restricted": "tymczasowo ograniczony z powodu zgłoszeń",
-  "srv.reportRate": "za dużo zgłoszeń — później"
+  "srv.reportRate": "za dużo zgłoszeń — później",
+  "settings.themeDark": "Ciemny",
+  "settings.themeLight": "Jasny",
+  "settings.themeSaloon": "Saloon",
+  "settings.themeDarkSub": "Nocny wygląd · domyślny",
+  "settings.themeLightSub": "Jasne panele · miękka szarość",
+  "settings.themeSaloonSub": "Western · złoto i skóra",
+  "settings.themeSet": "Motyw: {theme}"
 }

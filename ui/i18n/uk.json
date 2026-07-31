@@ -221,8 +221,8 @@
   "settings.secHelp": "Допомога та підтримка",
   "settings.secOther": "Інше",
   "settings.theme": "Тема",
-  "settings.themeNight": "Ніч",
-  "settings.themeHint": "Нічна тема за замовчуванням. Інші теми пізніше.",
+  "settings.themeNight": "Темна",
+  "settings.themeHint": "Вигляд чату. Тему збережено на цьому пристрої.",
   "settings.systemDefault": "Системна",
   "settings.contact": "Зв’язатися з нами",
   "settings.eula": "Ліцензія (EULA)",
@@ -454,5 +454,12 @@
   "srv.reportOk": "скаргу прийнято — дякуємо",
   "srv.reportRestricted": "скаргу прийнято — користувача обмежено",
   "srv.restricted": "тимчасово обмежено через скарги",
-  "srv.reportRate": "надто багато скарг — пізніше"
+  "srv.reportRate": "надто багато скарг — пізніше",
+  "settings.themeDark": "Темна",
+  "settings.themeLight": "Світла",
+  "settings.themeSaloon": "Салун",
+  "settings.themeDarkSub": "Нічний інтерфейс · типово",
+  "settings.themeLightSub": "Світлі панелі · м’який сірий",
+  "settings.themeSaloonSub": "Вестерн · золото і шкіра",
+  "settings.themeSet": "Тема: {theme}"
 }

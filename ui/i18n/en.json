@@ -221,8 +221,8 @@
   "settings.secHelp": "Help & support",
   "settings.secOther": "Other",
   "settings.theme": "Theme",
-  "settings.themeNight": "Night",
-  "settings.themeHint": "Night theme is the default. More themes later.",
+  "settings.themeNight": "Dark",
+  "settings.themeHint": "Choose how the chat looks. Theme is saved on this device.",
   "settings.systemDefault": "System default",
   "settings.contact": "Contact us",
   "settings.eula": "EULA",
@@ -463,5 +463,12 @@
   "srv.reportOk": "report received — thank you",
   "srv.reportRestricted": "report received — user restricted",
   "srv.restricted": "temporarily restricted due to reports",
-  "srv.reportRate": "too many reports — try again later"
+  "srv.reportRate": "too many reports — try again later",
+  "settings.themeDark": "Dark",
+  "settings.themeLight": "Light",
+  "settings.themeSaloon": "Saloon",
+  "settings.themeDarkSub": "Night chrome · default",
+  "settings.themeLightSub": "Bright panels · soft gray",
+  "settings.themeSaloonSub": "Western · gold & leather",
+  "settings.themeSet": "Theme: {theme}"
 }

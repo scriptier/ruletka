@@ -221,8 +221,8 @@
   "settings.secHelp": "Помощь и поддержка",
   "settings.secOther": "Другое",
   "settings.theme": "Тема",
-  "settings.themeNight": "Ночь",
-  "settings.themeHint": "Ночная тема по умолчанию. Другие темы позже.",
+  "settings.themeNight": "Тёмная",
+  "settings.themeHint": "Внешний вид чата. Тема сохраняется на этом устройстве.",
   "settings.systemDefault": "Системный",
   "settings.contact": "Связаться с нами",
   "settings.eula": "Лицензия (EULA)",
@@ -463,5 +463,12 @@
   "srv.reportOk": "жалоба принята — спасибо",
   "srv.reportRestricted": "жалоба принята — пользователь ограничен",
   "srv.restricted": "временно ограничен из‑за жалоб",
-  "srv.reportRate": "слишком много жалоб — позже"
+  "srv.reportRate": "слишком много жалоб — позже",
+  "settings.themeDark": "Тёмная",
+  "settings.themeLight": "Светлая",
+  "settings.themeSaloon": "Салун",
+  "settings.themeDarkSub": "Ночной интерфейс · по умолчанию",
+  "settings.themeLightSub": "Светлые панели · мягкий серый",
+  "settings.themeSaloonSub": "Вестерн · золото и кожа",
+  "settings.themeSet": "Тема: {theme}"
 }

@@ -221,8 +221,8 @@
   "settings.secHelp": "Ayuda y soporte",
   "settings.secOther": "Otros",
   "settings.theme": "Tema",
-  "settings.themeNight": "Noche",
-  "settings.themeHint": "El tema noche es el predeterminado. Más temas pronto.",
+  "settings.themeNight": "Oscuro",
+  "settings.themeHint": "Elige el aspecto del chat. Se guarda en este dispositivo.",
   "settings.systemDefault": "Predeterminado del sistema",
   "settings.contact": "Contacto",
   "settings.eula": "EULA",
@@ -454,5 +454,12 @@
   "srv.reportOk": "reporte recibido — gracias",
   "srv.reportRestricted": "reporte recibido — usuario restringido",
   "srv.restricted": "restringido temporalmente por reportes",
-  "srv.reportRate": "demasiados reportes — más tarde"
+  "srv.reportRate": "demasiados reportes — más tarde",
+  "settings.themeDark": "Oscuro",
+  "settings.themeLight": "Claro",
+  "settings.themeSaloon": "Saloon",
+  "settings.themeDarkSub": "Nocturno · predeterminado",
+  "settings.themeLightSub": "Paneles claros · gris suave",
+  "settings.themeSaloonSub": "Western · oro y cuero",
+  "settings.themeSet": "Tema: {theme}"
 }

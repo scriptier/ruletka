@@ -221,8 +221,8 @@
   "settings.secHelp": "Aide & support",
   "settings.secOther": "Autre",
   "settings.theme": "Thème",
-  "settings.themeNight": "Nuit",
-  "settings.themeHint": "Le thème nuit est par défaut. Plus de thèmes plus tard.",
+  "settings.themeNight": "Sombre",
+  "settings.themeHint": "Apparence du chat. Thème enregistré sur cet appareil.",
   "settings.systemDefault": "Par défaut système",
   "settings.contact": "Nous contacter",
   "settings.eula": "EULA",
@@ -454,5 +454,12 @@
   "srv.reportOk": "signalement reçu — merci",
   "srv.reportRestricted": "signalement reçu — utilisateur restreint",
   "srv.restricted": "temporairement restreint pour signalements",
-  "srv.reportRate": "trop de signalements — plus tard"
+  "srv.reportRate": "trop de signalements — plus tard",
+  "settings.themeDark": "Sombre",
+  "settings.themeLight": "Clair",
+  "settings.themeSaloon": "Saloon",
+  "settings.themeDarkSub": "Chrome nuit · par défaut",
+  "settings.themeLightSub": "Panneaux clairs · gris doux",
+  "settings.themeSaloonSub": "Western · or & cuir",
+  "settings.themeSet": "Thème : {theme}"
 }

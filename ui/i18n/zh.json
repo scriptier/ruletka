@@ -221,8 +221,8 @@
   "settings.secHelp": "帮助与支持",
   "settings.secOther": "其他",
   "settings.theme": "主题",
-  "settings.themeNight": "夜间",
-  "settings.themeHint": "默认夜间主题。更多主题敬请期待。",
+  "settings.themeNight": "深色",
+  "settings.themeHint": "聊天外观。主题保存在此设备。",
   "settings.systemDefault": "系统默认",
   "settings.contact": "联系我们",
   "settings.eula": "EULA",
@@ -454,5 +454,12 @@
   "srv.reportOk": "已收到举报 — 谢谢",
   "srv.reportRestricted": "已收到举报 — 用户已受限",
   "srv.restricted": "因举报暂时限制匹配",
-  "srv.reportRate": "举报过多 — 请稍后再试"
+  "srv.reportRate": "举报过多 — 请稍后再试",
+  "settings.themeDark": "深色",
+  "settings.themeLight": "浅色",
+  "settings.themeSaloon": "西部沙龙",
+  "settings.themeDarkSub": "夜间界面 · 默认",
+  "settings.themeLightSub": "明亮面板 · 柔和灰",
+  "settings.themeSaloonSub": "西部风 · 金与皮革",
+  "settings.themeSet": "主题：{theme}"
 }
