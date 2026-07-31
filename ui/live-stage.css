@@ -961,13 +961,53 @@ html.stage-html {
   }
 }
 
-/* Partner blur (manual safety) */
+/* Partner blur (manual + 2s intro) — local view only */
 .tile-remote.partner-blurred .vid.remote {
   filter: blur(28px) saturate(0.85);
   transform: scale(1.08);
 }
 .tile-remote.partner-blurred .remote-stack {
   overflow: hidden;
+}
+
+/* Self-hide: local preview looks blurred; partner gets black via track replace */
+.tile-local.self-blurred .vid.local {
+  filter: blur(26px) saturate(0.8);
+  transform: scaleX(-1) scale(1.06);
+}
+.tile-local.self-blurred {
+  overflow: hidden;
+}
+.self-blur-badge {
+  position: absolute;
+  top: 0.55rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 8;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #ffe8c8;
+  background: rgba(20, 12, 8, 0.78);
+  border: 1px solid rgba(255, 180, 100, 0.45);
+  padding: 0.28rem 0.65rem;
+  border-radius: 999px;
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.self-blur-badge[hidden] {
+  display: none !important;
+}
+#btn-blur-self.active {
+  border-color: rgba(245, 165, 36, 0.55);
+  background: rgba(245, 165, 36, 0.16);
+  color: #f5c56b;
+}
+#btn-blur-remote.active {
+  border-color: rgba(91, 157, 255, 0.5);
+  background: rgba(91, 157, 255, 0.14);
 }
 
 /* Click partner video for actions (not fullscreen) */

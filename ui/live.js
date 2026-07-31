@@ -186,8 +186,10 @@ let statsTimer = 0;
 let micMuted = false;
 let camOff = false;
 let partnerMuted = false;
-/** Manual blur of partner video */
+/** Manual blur of partner video (local view only) */
 let partnerBlurred = false;
+/** Hide your camera from partners until you reveal (disables outbound video track) */
+let selfBlurred = false;
 /** NSFWJS model + scan timer */
 let nsfwModel = null;
 let nsfwLoadPromise = null;
@@ -2041,6 +2043,86 @@ function updateSideIcons() {
   $("btn-mute-remote")?.classList.toggle("muted-on", partnerMuted);
   $("btn-blur-remote")?.classList.toggle("active", partnerBlurred);
   $("tile-remote")?.classList.toggle("partner-blurred", partnerBlurred);
+  $("btn-blur-self")?.classList.toggle("active", selfBlurred);
+  $("tile-local")?.classList.toggle("self-blurred", selfBlurred && !camOff);
+  // Label on self-blur button
+  const selfLbl = $("btn-blur-self")?.querySelector(".lbl");
+  if (selfLbl) {
+    selfLbl.textContent = selfBlurred
+      ? _t("btn.selfReveal") || "Reveal"
+      : _t("btn.selfBlur") || "Hide me";
+  }
+  const badge = $("self-blur-badge");
+  if (badge) badge.hidden = !(selfBlurred && !camOff);
+}
+
+/** Black silent canvas stream for privacy hide (partner sees black, local keeps preview). */
+let _blackVideoTrack = null;
+function getBlackVideoTrack() {
+  if (_blackVideoTrack && _blackVideoTrack.readyState === "live") return _blackVideoTrack;
+  const c = document.createElement("canvas");
+  c.width = 640;
+  c.height = 480;
+  const ctx = c.getContext("2d");
+  if (!ctx) return null;
+  ctx.fillStyle = "#0a0b0e";
+  ctx.fillRect(0, 0, c.width, c.height);
+  // Keep canvas "live" for some browsers
+  const tick = () => {
+    if (!_blackVideoTrack || _blackVideoTrack.readyState !== "live") return;
+    ctx.fillStyle = "#0a0b0e";
+    ctx.fillRect(0, 0, c.width, c.height);
+    requestAnimationFrame(tick);
+  };
+  const stream = c.captureStream(5);
+  _blackVideoTrack = stream.getVideoTracks()[0] || null;
+  if (_blackVideoTrack) requestAnimationFrame(tick);
+  return _blackVideoTrack;
+}
+
+async function pushOutboundVideoTracks() {
+  const real = previewStream?.getVideoTracks()?.[0] || null;
+  // Local element always uses real preview stream (CSS handles self-blur look)
+  const local = $("local");
+  if (local && previewStream) {
+    if (local.srcObject !== previewStream) local.srcObject = previewStream;
+  }
+  for (const pc of peerPcs.values()) {
+    try {
+      if (camOff) {
+        pc.setCamEnabled?.(false);
+        continue;
+      }
+      if (selfBlurred) {
+        const black = getBlackVideoTrack();
+        if (black && pc.pc) {
+          const vSender = pc.pc.getSenders().find((s) => s.track?.kind === "video");
+          if (vSender) await vSender.replaceTrack(black);
+          else pc.pc.addTrack(black, new MediaStream([black]));
+        } else {
+          pc.setCamEnabled?.(false);
+        }
+      } else if (real) {
+        real.enabled = true;
+        if (pc.pc) {
+          const vSender = pc.pc.getSenders().find((s) => s.track?.kind === "video");
+          if (vSender) await vSender.replaceTrack(real);
+        }
+        pc.setCamEnabled?.(true);
+      }
+    } catch (e) {
+      console.warn("[self-blur] push tracks", e);
+      try {
+        if (selfBlurred || camOff) pc.setCamEnabled?.(false);
+        else pc.setCamEnabled?.(true);
+      } catch (_) {}
+    }
+  }
+  // Local track enabled for preview when cam on (even if self-blurred — CSS blurs)
+  previewStream?.getVideoTracks().forEach((t) => {
+    t.enabled = !camOff;
+  });
+  updateSideIcons();
 }
 
 function setPartnerBlur(on) {
@@ -2054,6 +2136,26 @@ function togglePartnerBlur() {
   introBlurGen++;
   setPartnerBlur(!partnerBlurred);
   log(partnerBlurred ? _t("log.blurOn") : _t("log.blurOff"));
+}
+
+function setSelfBlur(on) {
+  selfBlurred = !!on;
+  pushOutboundVideoTracks().catch(() => {});
+  updateSideIcons();
+}
+
+function toggleSelfBlur() {
+  if (camOff) {
+    log(_t("log.selfBlurNeedCam") || "Turn camera on to hide/reveal");
+    setStatus(_t("log.selfBlurNeedCam") || "Turn camera on first");
+    return;
+  }
+  setSelfBlur(!selfBlurred);
+  log(
+    selfBlurred
+      ? _t("log.selfBlurOn") || "You are hidden — partner sees black"
+      : _t("log.selfBlurOff") || "You revealed yourself"
+  );
 }
 
 function nsfwAutoEnabled() {
@@ -2225,7 +2327,7 @@ async function attachLocalStream(stream) {
     t.enabled = !micMuted;
   });
   previewStream.getVideoTracks().forEach((t) => {
-    t.enabled = !camOff;
+    t.enabled = !camOff; // local preview; outbound privacy via pushOutboundVideoTracks
   });
   const local = $("local");
   if (local) {
@@ -2272,6 +2374,7 @@ async function attachLocalStream(stream) {
     pc.setLocalStream(previewStream);
     await pc.syncLocalTracksToPc();
   }
+  await pushOutboundVideoTracks();
 
   await refreshDevices().catch(() => {});
   if (vId && $("sel-camera") && [...$("sel-camera").options].some((o) => o.value === vId)) {
@@ -2536,12 +2639,19 @@ function toggleMicMute() {
 
 function toggleCam() {
   camOff = !camOff;
-  const tracks = previewStream?.getVideoTracks() || [];
-  tracks.forEach((tr) => {
-    tr.enabled = !camOff;
-  });
-  for (const pc of peerPcs.values()) {
-    pc.setCamEnabled?.(!camOff);
+  if (camOff) {
+    // Full camera off clears self-hide state visually
+    previewStream?.getVideoTracks().forEach((tr) => {
+      tr.enabled = false;
+    });
+    for (const pc of peerPcs.values()) {
+      pc.setCamEnabled?.(false);
+    }
+  } else {
+    previewStream?.getVideoTracks().forEach((tr) => {
+      tr.enabled = true;
+    });
+    pushOutboundVideoTracks().catch(() => {});
   }
   updateSideIcons();
   log(camOff ? _t("log.camOff") : _t("log.camOn"));
@@ -3912,6 +4022,8 @@ async function joinPeers(peers) {
       showFriendPip(true);
     }
   }
+  // Apply hide-me / cam privacy to all new peer connections
+  await pushOutboundVideoTracks();
 }
 
 function stopStats() {
@@ -4809,6 +4921,7 @@ on("btn-mute-mic", "click", () => toggleMicMute());
 on("btn-mute-cam", "click", () => toggleCam());
 on("btn-mute-remote", "click", () => togglePartnerMute());
 on("btn-blur-remote", "click", () => togglePartnerBlur());
+on("btn-blur-self", "click", () => toggleSelfBlur());
 on("btn-fs-remote", "click", () => toggleFullscreenPartner());
 on("btn-partner-friend", "click", () => invitePartnerFriend());
 on("btn-partner-block", "click", () => blockPartnerFromMenu());
@@ -5132,7 +5245,11 @@ document.addEventListener("keydown", (e) => {
     togglePartnerMute();
   } else if (e.key === "b" || e.key === "B") {
     e.preventDefault();
-    togglePartnerBlur();
+    if (e.shiftKey) toggleSelfBlur();
+    else togglePartnerBlur();
+  } else if (e.key === "h" || e.key === "H") {
+    e.preventDefault();
+    toggleSelfBlur();
   } else if (e.key === "f" || e.key === "F") {
     e.preventDefault();
     toggleFullscreenPartner();

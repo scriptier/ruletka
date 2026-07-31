@@ -27,8 +27,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&family=Rye&family=Source+Serif+4:opsz,wght@8..60,400;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=74" />
-  <link rel="stylesheet" href="live-stage.css?v=74" />
+  <link rel="stylesheet" href="style.css?v=75" />
+  <link rel="stylesheet" href="live-stage.css?v=75" />
   <script>
     /* Apply saved theme before paint to avoid flash */
     (function () {
@@ -249,12 +249,12 @@
               data-i18n-title="vol.partner" data-i18n-aria="vol.partnerAria"
               title="Partner volume" aria-label="Partner volume" />
           </div>
-          <button type="button" class="side-btn" id="btn-blur-remote" data-i18n-title="btn.blurTitle" title="Blur partner video (B)">
+          <button type="button" class="side-btn" id="btn-blur-remote" data-i18n-title="btn.blurTitle" title="Blur partner video (B) — 2s auto-blur on new matches">
             <span class="ico" id="ico-blur" aria-hidden="true">
               <svg class="icon icon-on"><use href="#i-blur"/></svg>
               <svg class="icon icon-off"><use href="#i-blur-on"/></svg>
             </span>
-            <span class="lbl" data-i18n="btn.blur">Blur</span>
+            <span class="lbl" data-i18n="btn.blur">Blur them</span>
           </button>
           <button type="button" class="side-btn" id="btn-fs-remote" data-i18n-title="btn.fullTitle" title="Fullscreen (F)">
             <span class="ico" aria-hidden="true"><svg class="icon"><use href="#i-expand"/></svg></span>
@@ -320,6 +320,13 @@
             </span>
             <span class="lbl" data-i18n="btn.cam">Cam</span>
           </button>
+          <button type="button" class="side-btn" id="btn-blur-self" data-i18n-title="btn.selfBlurTitle" title="Hide yourself from partner (H) — tap again to reveal">
+            <span class="ico" id="ico-blur-self" aria-hidden="true">
+              <svg class="icon icon-on"><use href="#i-blur"/></svg>
+              <svg class="icon icon-off"><use href="#i-blur-on"/></svg>
+            </span>
+            <span class="lbl" data-i18n="btn.selfBlur">Hide me</span>
+          </button>
           <button type="button" class="side-btn" id="btn-mute-mic" data-i18n-title="btn.micTitle" title="Mute mic (M)">
             <span class="ico" id="ico-mic" aria-hidden="true">
               <svg class="icon icon-on"><use href="#i-mic"/></svg>
@@ -337,6 +344,7 @@
             <span class="friends-badge" id="friends-badge" hidden>0</span>
           </button>
         </aside>
+        <span class="self-blur-badge" id="self-blur-badge" hidden data-i18n="btn.selfBlurBadge">Hidden from them</span>
         <!-- In-camera social / chat dock — settings pinned bottom-right -->
         <div class="tile-dock tile-dock-local">
           <!-- div not label: nested share button is invalid inside <label> -->
@@ -1018,11 +1026,11 @@
   <!-- cache-bust so browsers always get auto-connect / auto-media fixes -->
   <script src="analytics.js?v=1" defer></script>
   <script src="pwa-install.js?v=1" defer></script>
-  <script src="i18n.js?v=74"></script>
-  <script src="identity.js?v=74"></script>
-  <script src="hubs.js?v=74"></script>
-  <script src="webrtc.js?v=74"></script>
-  <script src="live.js?v=74"></script>
+  <script src="i18n.js?v=75"></script>
+  <script src="identity.js?v=75"></script>
+  <script src="hubs.js?v=75"></script>
+  <script src="webrtc.js?v=75"></script>
+  <script src="live.js?v=75"></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {
