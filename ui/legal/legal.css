@@ -81,6 +81,50 @@ html {
   font-weight: 700;
   letter-spacing: -0.015em;
   color: var(--text);
+  scroll-margin-top: 1rem;
+}
+
+.legal-card h2:first-of-type {
+  margin-top: 1.1rem;
+}
+
+/* In-page table of contents for long policies */
+.legal-toc {
+  margin: 0.25rem 0 1.15rem;
+  padding: 0.85rem 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.22);
+}
+.legal-toc strong {
+  display: block;
+  margin-bottom: 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.legal-toc ol {
+  margin: 0;
+  padding-left: 1.15rem;
+  columns: 1;
+}
+@media (min-width: 560px) {
+  .legal-toc ol {
+    columns: 2;
+    column-gap: 1.25rem;
+  }
+}
+.legal-toc li {
+  margin-bottom: 0.28rem;
+  break-inside: avoid;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+.legal-toc a {
+  color: #ffb4a8;
+  border-bottom-color: rgba(255, 107, 53, 0.25);
 }
 
 .legal-card p,

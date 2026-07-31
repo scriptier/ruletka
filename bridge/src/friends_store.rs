@@ -1,8 +1,18 @@
-//! Persist friendships, friend codes, blocks, pending requests, and abuse bans.
+//! Persist friendships, friend codes, blocks, pending requests, abuse bans, and friend DMs.
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+
+/// One stored friend direct message (online or offline delivery).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoredDm {
+    pub id: String,
+    pub from: String,
+    pub to: String,
+    pub body: String,
+    pub ts: u64,
+}
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct FriendsFile {
@@ -15,6 +25,9 @@ pub struct FriendsFile {
     /// user_id → last known display name
     #[serde(default)]
     pub names: HashMap<String, String>,
+    /// user_id → last known avatar data URL (for friend list when offline)
+    #[serde(default)]
+    pub avatars: HashMap<String, String>,
     /// user_id → set of blocked user_ids (blocker → blocked)
     #[serde(default)]
     pub blocks: HashMap<String, HashSet<String>>,
@@ -27,6 +40,18 @@ pub struct FriendsFile {
     /// user_id → ban expiry unix seconds (matchmaking ban from reports)
     #[serde(default)]
     pub match_bans: HashMap<String, u64>,
+    /// conversation_key (sorted uid_a|uid_b) → messages (newest last)
+    #[serde(default)]
+    pub dms: HashMap<String, Vec<StoredDm>>,
+}
+
+/// Stable conversation key for two user ids (order-independent).
+pub fn dm_conv_key(a: &str, b: &str) -> String {
+    if a <= b {
+        format!("{a}|{b}")
+    } else {
+        format!("{b}|{a}")
+    }
 }
 
 pub fn load(path: &Path) -> FriendsFile {

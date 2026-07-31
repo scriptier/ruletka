@@ -3,11 +3,73 @@
 const $ = (id) => document.getElementById(id);
 const PREFS_KEY = "freenet-roulette-media-prefs-v1";
 
+/**
+ * Private rooms (codes, share room, room QR, ?room= deep-links).
+ * Off while the public pool is small — flip to true to restore fully.
+ */
+const ROOMS_ENABLED = false;
+
+/** Stranger 1v1 → invite partner to find a 3rd (party browse). */
+const TRIO_FIND_ENABLED = true;
+
+/** Friend / find-third co-search partner roles (keep media on Next). */
+function isTeammateRole(role) {
+  return role === "friend" || role === "teammate";
+}
+
+function applyRoomsFeatureFlag() {
+  try {
+    document.documentElement.classList.toggle("rooms-disabled", !ROOMS_ENABLED);
+  } catch (_) {}
+  const roomBtnIds = [
+    "btn-empty-share",
+    "btn-empty-copy",
+    "btn-empty-qr",
+    "btn-mobile-share",
+    "btn-share-room",
+    "btn-share-room-settings",
+  ];
+  const settingsRoom = document.querySelector(".settings-row-room");
+  const roomField = document.querySelector(".room-field");
+  if (!ROOMS_ENABLED) {
+    // Force public lobby; clear any stale room field so re-enable starts clean
+    try {
+      if ($("room")) $("room").value = "";
+      if ($("room-settings")) $("room-settings").value = "";
+    } catch (_) {}
+    try {
+      const chip = $("room-chip");
+      if (chip) chip.hidden = true;
+    } catch (_) {}
+    roomBtnIds.forEach((id) => {
+      const el = $(id);
+      if (el) el.hidden = true;
+    });
+    if (settingsRoom) settingsRoom.hidden = true;
+    if (roomField) roomField.hidden = true;
+    return;
+  }
+  // Re-enabled: show room controls again
+  roomBtnIds.forEach((id) => {
+    const el = $(id);
+    if (el) el.hidden = false;
+  });
+  if (settingsRoom) settingsRoom.hidden = false;
+  if (roomField) roomField.hidden = false;
+}
+
 // i18n helpers (fallback if i18n.js missing)
 const _t =
   typeof t === "function"
     ? t
     : (k) => k;
+
+/** Funnel analytics (no-op until YM/GA ids in /config.json). */
+function trackEvent(name, params) {
+  try {
+    if (typeof RuletTrack === "function") RuletTrack(name, params || {});
+  } catch (_) {}
+}
 const _phase =
   NextfaceI18n?.phaseLabel?.bind(NextfaceI18n) || ((p) => p);
 const _srv =
@@ -178,6 +240,10 @@ let isOfferer = false;
 let matched = false;
 let matchMode = "solo"; // solo | friend | party_browse
 let yourRole = "solo"; // solo | party | friend
+/** Find-third invite: null | "out" | "in" */
+let findThirdPending = null;
+/** Stranger party hunting for a 3rd (trio layout). */
+let trioBrowse = false;
 let intentionalClose = false;
 let reconnectAttempt = 0;
 let reconnectTimer = 0;
@@ -223,6 +289,35 @@ let lastWaitingCount = 0;
 const RULES_KEY = "nextface-rules-v1";
 const HISTORY_KEY = "nextface-history-v1";
 const MAX_HISTORY = 40;
+/** Local match + friend chat threads (survive hangup / reload). */
+const CHAT_THREADS_KEY = "ruletka-chat-threads-v1";
+/** last-read timestamps per thread key (for friend unread badges). */
+const CHAT_READ_KEY = "ruletka-chat-read-v1";
+/** Local mirror of friends from hub — recovery if identity still matches / re-request by code. */
+const FRIENDS_BACKUP_KEY = "ruletka-friends-backup-v1";
+/** Personal nicknames for friends (local only): { [user_id]: "My name for them" } */
+const FRIEND_NICKS_KEY = "ruletka-friend-nicks-v1";
+const MAX_THREAD_MSGS = 80;
+const MAX_CHAT_THREADS = 40;
+/**
+ * Active compose/target for the dock chat input.
+ * mode: none | match | friend | history
+ * live: true while matched with this peer (match chat protocol) or always for friend DMs
+ * @type {{ mode: string, peerUserId: string, peerName: string, threadKey: string, live: boolean }}
+ */
+let activeChat = {
+  mode: "none",
+  peerUserId: "",
+  peerName: "",
+  threadKey: "",
+  live: false,
+};
+/** Messages inbox tab: "friends" | "matches" */
+let messagesTab = "friends";
+/** Whether the Messages sheet is open */
+let messagesSheetOpen = false;
+/** Whether inbox is showing a thread (vs list) */
+let messagesInThread = false;
 /** @type {AudioContext | null} */
 let meterCtx = null;
 /** @type {AudioContext | null} */
@@ -752,13 +847,44 @@ function wireAvatarSettings() {
   refreshAvatarUi();
 }
 
+/** Soft interest tags — must match bridge ALLOWED_TAGS. */
+const INTEREST_TAGS = [
+  "music",
+  "games",
+  "movies",
+  "tech",
+  "travel",
+  "sports",
+  "art",
+  "chat",
+  "langs",
+  "anime",
+];
+const MAX_INTEREST_TAGS = 3;
+
+function normalizeInterestTags(raw) {
+  const list = Array.isArray(raw) ? raw : [];
+  const out = [];
+  for (const t of list) {
+    const key = String(t || "")
+      .trim()
+      .toLowerCase();
+    if (!INTEREST_TAGS.includes(key)) continue;
+    if (out.includes(key)) continue;
+    out.push(key);
+    if (out.length >= MAX_INTEREST_TAGS) break;
+  }
+  return out;
+}
+
 function matchPrefs() {
   const p = loadPrefs();
   const gender = ["man", "woman", "other"].includes(p.gender) ? p.gender : "";
   const looking = ["man", "woman", "any"].includes(p.looking) ? p.looking : "any";
   const flag = normalizeFlagCode(p.flag);
   const avatar = isValidAvatarDataUrl(p.avatar) ? p.avatar : "";
-  return { gender, looking, flag, avatar };
+  const tags = normalizeInterestTags(p.tags);
+  return { gender, looking, flag, avatar, tags };
 }
 
 function sendHelloPayload(name) {
@@ -772,6 +898,7 @@ function sendHelloPayload(name) {
     looking: prefs.looking,
     flag: prefs.flag || "",
     avatar: prefs.avatar || "",
+    tags: prefs.tags || [],
   });
 }
 
@@ -784,6 +911,7 @@ function sendMatchPrefs() {
     looking: prefs.looking,
     flag: prefs.flag || "",
     avatar: prefs.avatar || "",
+    tags: prefs.tags || [],
   });
 }
 
@@ -854,7 +982,7 @@ function prefsLabel(key, val) {
 }
 
 function syncMatchPrefsUi() {
-  const { gender, looking } = matchPrefs();
+  const { gender, looking, tags } = matchPrefs();
   document.querySelectorAll("[data-pref-gender]").forEach((btn) => {
     const v = btn.getAttribute("data-pref-gender") || "";
     btn.classList.toggle("is-selected", v === gender);
@@ -871,10 +999,19 @@ function syncMatchPrefsUi() {
     const v = el.getAttribute("data-check-looking") || "any";
     el.style.opacity = v === looking ? "1" : "0";
   });
+  document.querySelectorAll("[data-pref-tag]").forEach((btn) => {
+    const v = btn.getAttribute("data-pref-tag") || "";
+    btn.classList.toggle("is-selected", tags.includes(v));
+  });
   if ($("settings-match-summary")) {
+    const tagBits = tags
+      .map((t) => _t(`prefs.tag.${t}`) || t)
+      .slice(0, 3)
+      .join(", ");
     $("settings-match-summary").textContent =
       prefsLabel("looking", looking) +
-      (gender ? " · " + prefsLabel("gender", gender) : "");
+      (gender ? " · " + prefsLabel("gender", gender) : "") +
+      (tagBits ? " · " + tagBits : "");
   }
 }
 
@@ -892,6 +1029,27 @@ function wireMatchPrefs() {
     btn.addEventListener("click", () => {
       const looking = btn.getAttribute("data-pref-looking") || "any";
       savePrefs({ looking });
+      syncMatchPrefsUi();
+      sendMatchPrefs();
+      log(_t("prefs.saved"));
+    });
+  });
+  document.querySelectorAll("[data-pref-tag]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const tag = btn.getAttribute("data-pref-tag") || "";
+      if (!tag) return;
+      let tags = normalizeInterestTags(loadPrefs().tags);
+      if (tags.includes(tag)) {
+        tags = tags.filter((t) => t !== tag);
+      } else if (tags.length >= MAX_INTEREST_TAGS) {
+        setStatus(
+          _t("prefs.tagsMax") || `Pick up to ${MAX_INTEREST_TAGS} interests`
+        );
+        return;
+      } else {
+        tags = normalizeInterestTags([...tags, tag]);
+      }
+      savePrefs({ tags });
       syncMatchPrefsUi();
       sendMatchPrefs();
       log(_t("prefs.saved"));
@@ -947,7 +1105,20 @@ function wireNameInputs() {
 function log(line, cls = "sys") {
   if (cls === "mine" || cls === "theirs") {
     console.log(`[chat:${cls}]`, line);
-    appendChatBubble(line, cls);
+    // Match chat path still uses log("[author] body", mine|theirs)
+    let who = "";
+    let body = line;
+    const m = /^\[([^\]]+)\]\s*(.*)$/s.exec(line);
+    if (m) {
+      who = m[1];
+      body = m[2];
+    }
+    recordChatMessage({
+      author: who,
+      body,
+      mine: cls === "mine",
+      cls,
+    });
   } else {
     console.log(`[ruletka.vip]`, line);
   }
@@ -959,16 +1130,1519 @@ function showChatPanel(show) {
   panel.hidden = !show;
 }
 
-function clearChat() {
+function loadChatThreads() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(CHAT_THREADS_KEY) || "{}");
+    return raw && typeof raw === "object" ? raw : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveChatThreads(map) {
+  try {
+    // Cap total threads by updated time
+    const entries = Object.entries(map || {});
+    entries.sort((a, b) => (b[1]?.updated || 0) - (a[1]?.updated || 0));
+    const trimmed = {};
+    for (const [k, v] of entries.slice(0, MAX_CHAT_THREADS)) trimmed[k] = v;
+    localStorage.setItem(CHAT_THREADS_KEY, JSON.stringify(trimmed));
+    maybeShowChatCleanupTip();
+  } catch (e) {
+    // Quota exceeded — force prune match threads and retry once
+    if (e && (e.name === "QuotaExceededError" || e.code === 22)) {
+      try {
+        pruneOldMatchChats({ aggressive: true });
+        localStorage.setItem(
+          CHAT_THREADS_KEY,
+          JSON.stringify(loadChatThreads())
+        );
+      } catch (_) {}
+    }
+  }
+}
+
+const CHAT_CLEANUP_TIP_KEY = "ruletka-chat-cleanup-tip-v1";
+
+function chatCleanupTipDone() {
+  try {
+    return localStorage.getItem(CHAT_CLEANUP_TIP_KEY) === "1";
+  } catch {
+    return true;
+  }
+}
+
+function markChatCleanupTipDone() {
+  try {
+    localStorage.setItem(CHAT_CLEANUP_TIP_KEY, "1");
+  } catch (_) {}
+}
+
+function chatStorageApproxBytes() {
+  try {
+    const a = localStorage.getItem(CHAT_THREADS_KEY) || "";
+    const b = localStorage.getItem(CHAT_READ_KEY) || "";
+    return (a.length + b.length) * 2;
+  } catch {
+    return 0;
+  }
+}
+
+function countMatchChatThreads() {
+  try {
+    return Object.keys(loadChatThreads()).filter((k) =>
+      String(k).startsWith("match:")
+    ).length;
+  } catch {
+    return 0;
+  }
+}
+
+/** Drop oldest match chats; keep all friend: threads. */
+function pruneOldMatchChats({ aggressive = false } = {}) {
+  const map = loadChatThreads();
+  const friends = [];
+  const matches = [];
+  for (const [k, v] of Object.entries(map)) {
+    if (String(k).startsWith("friend:")) friends.push([k, v]);
+    else matches.push([k, v]);
+  }
+  matches.sort((a, b) => (b[1]?.updated || 0) - (a[1]?.updated || 0));
+  const keepN = aggressive
+    ? Math.min(8, Math.floor(MAX_CHAT_THREADS / 4))
+    : Math.min(20, Math.floor(MAX_CHAT_THREADS / 2));
+  const kept = matches.slice(0, keepN);
+  const next = {};
+  for (const [k, v] of friends) next[k] = v;
+  for (const [k, v] of kept) next[k] = v;
+  // Cap messages inside kept threads
+  for (const k of Object.keys(next)) {
+    const thr = next[k];
+    if (thr && Array.isArray(thr.messages) && thr.messages.length > MAX_THREAD_MSGS) {
+      thr.messages = thr.messages.slice(-MAX_THREAD_MSGS);
+    }
+  }
+  try {
+    localStorage.setItem(CHAT_THREADS_KEY, JSON.stringify(next));
+  } catch (_) {}
+  // Prune read map for dropped keys
+  try {
+    const read = loadChatRead();
+    const keepKeys = new Set(Object.keys(next));
+    for (const k of Object.keys(read)) {
+      if (!keepKeys.has(k)) delete read[k];
+    }
+    saveChatRead(read);
+  } catch (_) {}
+  return matches.length - kept.length;
+}
+
+/**
+ * Soft one-shot when local match chats grow large (not a forced modal).
+ */
+function maybeShowChatCleanupTip() {
+  try {
+    if (chatCleanupTipDone()) return;
+    if ($("chat-cleanup-tip") || $("match-path-summary-toast")) return;
+    const bytes = chatStorageApproxBytes();
+    const nMatch = countMatchChatThreads();
+    // ~180KB chat data or many match threads
+    if (bytes < 180_000 && nMatch < 28) return;
+    markChatCleanupTipDone();
+    const tip = document.createElement("div");
+    tip.id = "chat-cleanup-tip";
+    tip.className = "weak-conn-tip chat-cleanup-tip";
+    tip.setAttribute("role", "status");
+    tip.style.pointerEvents = "auto";
+    tip.innerHTML = `
+      <span>${escapeHtml(
+        _t("chat.cleanupTip") ||
+          "Match chat history is getting large on this device. Clear old match chats to free space? Friend chats are kept."
+      )}</span>
+      <button type="button" class="pill tight ghost" id="btn-chat-cleanup-later">${escapeHtml(
+        _t("friends.exportNudgeLater") || "Later"
+      )}</button>
+      <button type="button" class="pill tight accent" id="btn-chat-cleanup-go">${escapeHtml(
+        _t("chat.cleanupAction") || "Clear old matches"
+      )}</button>`;
+    document.body.appendChild(tip);
+    const dismiss = () => {
+      if (tip.parentNode) tip.remove();
+    };
+    $("btn-chat-cleanup-later")?.addEventListener("click", () => {
+      trackEvent("chat_cleanup_later");
+      dismiss();
+    });
+    $("btn-chat-cleanup-go")?.addEventListener("click", () => {
+      const n = pruneOldMatchChats({ aggressive: false });
+      trackEvent("chat_cleanup_go", { removed: n });
+      setStatus(
+        _t("chat.cleanupDone", { n }) ||
+          (n > 0
+            ? `Cleared ${n} old match chats`
+            : "Match chats already trimmed")
+      );
+      try {
+        updateMessagesBadge?.();
+        if (messagesSheetOpen) {
+          showMsgListView?.();
+        }
+      } catch (_) {}
+      dismiss();
+    });
+    setTimeout(dismiss, 16000);
+    trackEvent("chat_cleanup_tip_show", { bytes, matchThreads: nMatch });
+  } catch (_) {}
+}
+
+function loadChatRead() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(CHAT_READ_KEY) || "{}");
+    return raw && typeof raw === "object" ? raw : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveChatRead(map) {
+  try {
+    localStorage.setItem(CHAT_READ_KEY, JSON.stringify(map || {}));
+  } catch (_) {}
+}
+
+function markThreadRead(threadKey, ts) {
+  if (!threadKey) return;
+  const map = loadChatRead();
+  map[threadKey] = Math.max(map[threadKey] || 0, ts || Date.now());
+  saveChatRead(map);
+  updateFriendsUnreadBadge();
+}
+
+function friendThreadKey(userId) {
+  return `friend:${userId || ""}`;
+}
+
+function matchThreadKey(userId, friendCode, shortId) {
+  const id = userId || friendCode || shortId || "anon";
+  return `match:${id}`;
+}
+
+function updateChatHeader() {
+  const title = $("chat-panel-title");
+  const sub = $("chat-panel-sub");
+  if (!title) return;
+  const name = activeChat.peerName || _t("chat.title") || "Chat";
+  if (activeChat.mode === "friend") {
+    title.textContent = name;
+    if (sub) {
+      const fr = friendsCache.find((f) => f.user_id === activeChat.peerUserId);
+      const online = fr ? !!fr.online : false;
+      sub.hidden = false;
+      if ((inFriendCall || matchMode === "friend") && anyChatDcOpen()) {
+        sub.textContent = _t("chat.p2pLive") || "P2P · not via hub";
+        sub.classList.add("chat-sub-p2p");
+      } else {
+        sub.classList.remove("chat-sub-p2p");
+        sub.textContent = online
+          ? _t("friends.online") || "online"
+          : _t("chat.friendOffline") ||
+            "offline · messages deliver when they open chat";
+      }
+    }
+  } else if (activeChat.mode === "match" || activeChat.mode === "history") {
+    title.textContent = name;
+    if (sub) {
+      if (activeChat.live) {
+        if (anyChatDcOpen()) {
+          sub.hidden = false;
+          sub.textContent = _t("chat.p2pLive") || "P2P · not via hub";
+          sub.classList.add("chat-sub-p2p");
+        } else {
+          sub.hidden = false;
+          sub.textContent = _t("chat.hubRelay") || "via hub until P2P ready";
+          sub.classList.remove("chat-sub-p2p");
+        }
+      } else {
+        sub.hidden = false;
+        sub.textContent = _t("chat.ended") || "Call ended · chat saved";
+        sub.classList.remove("chat-sub-p2p");
+      }
+    }
+  } else {
+    title.textContent = _t("chat.title") || "Chat";
+    if (sub) {
+      sub.hidden = true;
+      sub.textContent = "";
+    }
+  }
+  updateComposePlaceholder();
+}
+
+function updateComposePlaceholder() {
+  const input = $("msg");
+  if (!input) return;
+  if (activeChat.mode === "friend") {
+    input.placeholder = _t("chat.placeholderFriend") || "Message friend…";
+    input.disabled = false;
+  } else if (activeChat.mode === "match" && activeChat.live) {
+    input.placeholder = _t("chat.placeholder") || "Say something…";
+    input.disabled = false;
+  } else if (activeChat.mode === "match" || activeChat.mode === "history") {
+    // Stranger history after hangup — keep visible but no send unless they became a friend
+    const isFriend =
+      activeChat.peerUserId &&
+      friendsCache.some((f) => f.user_id === activeChat.peerUserId);
+    if (isFriend) {
+      // Promote to friend DM target so they can keep chatting
+      activeChat.mode = "friend";
+      activeChat.live = true;
+      activeChat.threadKey = friendThreadKey(activeChat.peerUserId);
+      input.placeholder = _t("chat.placeholderFriend") || "Message friend…";
+      input.disabled = false;
+      updateChatHeader();
+    } else {
+      input.placeholder = _t("chat.placeholderEnded") || "Chat saved · match ended";
+      input.disabled = true;
+    }
+  } else {
+    input.placeholder = _t("chat.placeholder") || "Say something…";
+    input.disabled = false;
+  }
+}
+
+/** Clear only the visible bubbles (does not wipe localStorage). */
+function clearChatDom() {
   const box = $("chat-messages");
   if (box) box.innerHTML = "";
 }
 
-function appendChatBubble(text, cls) {
+/** Clear current thread from storage + UI. */
+function clearChat() {
+  if (activeChat.threadKey) {
+    const map = loadChatThreads();
+    delete map[activeChat.threadKey];
+    saveChatThreads(map);
+  }
+  clearChatDom();
+  showChatPanel(false);
+}
+
+/** Keep chat visible after hangup — do not wipe history. */
+function endActiveMatchChat() {
+  if (activeChat.mode === "match" && activeChat.threadKey) {
+    activeChat.live = false;
+    activeChat.mode = "history";
+    updateChatHeader();
+    // Leave panel open if it has messages
+    const map = loadChatThreads();
+    const thr = map[activeChat.threadKey];
+    if (thr && thr.msgs && thr.msgs.length) {
+      showChatPanel(true);
+    }
+  }
+}
+
+/**
+ * Soft post-match “Add friend?” after a real stranger call ends (Next/Stop).
+ * Only if: had partner code, not already friends, match lasted ≥25s, once per partner/session.
+ */
+const friendNudgeShown = new Set();
+
+/** Last call duration in seconds (survives stopMatchTimer zeroing the clock). */
+let lastMatchDurationSec = 0;
+
+function matchDurationSec() {
+  if (matchTimerStartedAt) {
+    return Math.max(0, Math.floor((Date.now() - matchTimerStartedAt) / 1000));
+  }
+  return lastMatchDurationSec || 0;
+}
+
+/**
+ * Snapshot path + quality for the call that is about to end (call while still matched).
+ * @returns {{ ice: string, grade: string, sec: number, mode: string } | null}
+ */
+function captureMatchPathSummary() {
+  const sec = matchDurationSec();
+  if (sec < 3) return null;
+  const ice = lastIceKind || "unknown";
+  const grade = lastConnGrade || "";
+  return {
+    ice,
+    grade,
+    sec,
+    mode: matchMode || "solo",
+  };
+}
+
+/**
+ * Soft post-match path summary: Direct/Relay · Good/OK/Weak · time.
+ * Status line always; short toast only for meaningful stranger calls (≥8s).
+ */
+function maybeShowMatchPathSummary(reason) {
+  try {
+    const s = captureMatchPathSummary();
+    if (!s) return;
+    if (s.mode === "friend" || inFriendCall) return;
+    const path =
+      s.ice === "direct"
+        ? _t("conn.chipDirect") || "Direct"
+        : s.ice === "relay"
+          ? _t("conn.chipRelay") || "Relay"
+          : _t("conn.chipConnecting") || "Path?";
+    const grade =
+      s.grade === "good"
+        ? _t("conn.chipGood") || "Good"
+        : s.grade === "weak"
+          ? _t("conn.chipWeak") || "Weak"
+          : s.grade === "ok"
+            ? _t("conn.chipOk") || "OK"
+            : "";
+    const t = formatMatchDuration(s.sec * 1000);
+    const bits = [path];
+    if (grade) bits.push(grade);
+    bits.push(t);
+    const line =
+      _t("conn.matchSummary", {
+        path,
+        grade: grade || "—",
+        t,
+      }) || `Last call: ${bits.join(" · ")}`;
+    setStatus(line);
+    log(line);
+    trackEvent("match_summary", {
+      ice: s.ice,
+      grade: s.grade || "",
+      sec: s.sec,
+      reason: reason || "",
+    });
+    // Toast only when long enough and not fighting friend-add dialog
+    if (s.sec < 8) return;
+    if ($("post-match-friend-nudge") || $("stop-invite-nudge") || $("path-stats-tip"))
+      return;
+    const id = "match-path-summary-toast";
+    const existing = $(id);
+    if (existing) existing.remove();
+    const toast = document.createElement("div");
+    toast.id = id;
+    toast.className = "friend-soft-toast match-path-summary-toast";
+    toast.setAttribute("role", "status");
+    toast.innerHTML = `
+      <strong>${escapeHtml(_t("conn.matchSummaryTitle") || "Last call")}</strong>
+      <span>${escapeHtml(bits.join(" · "))}</span>`;
+    document.body.appendChild(toast);
+    setTimeout(() => {
+      if (toast.parentNode) toast.remove();
+    }, 5500);
+  } catch (_) {}
+}
+
+function maybeShowPostMatchFriendNudge(reason) {
+  try {
+    if (matchMode === "friend" || inFriendCall) return;
+    const code = lastMatchMeta?.friend_code || "";
+    const uid = primaryPartnerUserId || lastMatchMeta?.user_id || "";
+    if (!code || !uid) return;
+    if (isPartnerAlreadyFriend(uid) || isPartnerRequestPending(uid)) return;
+    if (matchDurationSec() < 25) return;
+    const key = uid || code;
+    if (friendNudgeShown.has(key)) return;
+    if ($("post-match-friend-nudge")) return;
+    friendNudgeShown.add(key);
+    const name =
+      lastMatchMeta?.name || lastMatchMeta?.short_id || code || "Partner";
+    const toast = document.createElement("div");
+    toast.id = "post-match-friend-nudge";
+    toast.className = "friend-soft-toast post-match-friend-nudge";
+    toast.setAttribute("role", "dialog");
+    toast.style.pointerEvents = "auto";
+    toast.innerHTML = `
+      <strong>${escapeHtml(
+        _t("friends.postMatchTitle") || "Add as friend?"
+      )}</strong>
+      <span>${escapeHtml(name)} · ${escapeHtml(
+      _t("friends.postMatchBody") ||
+        "Optional — request only if you want to meet again."
+    )}</span>
+      <div class="export-nudge-actions" style="margin-top:0.45rem">
+        <button type="button" class="pill tight ghost" id="btn-post-friend-no">${escapeHtml(
+          _t("friends.postMatchNo") || "No thanks"
+        )}</button>
+        <button type="button" class="pill tight accent" id="btn-post-friend-yes">${escapeHtml(
+          _t("friends.postMatchYes") || "Add friend"
+        )}</button>
+      </div>`;
+    document.body.appendChild(toast);
+    const dismiss = () => {
+      if (toast.parentNode) toast.remove();
+    };
+    $("btn-post-friend-no")?.addEventListener("click", () => {
+      trackEvent("friend_nudge_dismiss", { reason: reason || "" });
+      dismiss();
+    });
+    $("btn-post-friend-yes")?.addEventListener("click", () => {
+      trackEvent("friend_nudge_accept", { reason: reason || "" });
+      dismiss();
+      requestAddFriend(code);
+    });
+    setTimeout(dismiss, 14000);
+  } catch (_) {}
+}
+
+/** Soft invite after Stop when the public pool was quiet — once, never a nag loop. */
+const STOP_INVITE_KEY = "ruletka-stop-invite-nudge-v1";
+
+function stopInviteNudgeDone() {
+  try {
+    return localStorage.getItem(STOP_INVITE_KEY) === "1";
+  } catch {
+    return true;
+  }
+}
+
+function markStopInviteNudgeDone() {
+  try {
+    localStorage.setItem(STOP_INVITE_KEY, "1");
+  } catch (_) {}
+}
+
+function maybeShowStopInviteNudge() {
+  try {
+    if (stopInviteNudgeDone()) return;
+    if (matched || inFriendCall || inQueue || wantSearch) return;
+    if ($("post-match-friend-nudge") || $("stop-invite-nudge")) return;
+    // Only when pool felt empty (alone / quiet)
+    const others = Math.max(0, (lastWaitingCount || 0) - 1);
+    if (others > 0) return;
+    markStopInviteNudgeDone();
+    const toast = document.createElement("div");
+    toast.id = "stop-invite-nudge";
+    toast.className = "friend-soft-toast stop-invite-nudge";
+    toast.setAttribute("role", "status");
+    toast.style.pointerEvents = "auto";
+    toast.innerHTML = `
+      <strong>${escapeHtml(
+        _t("remote.stopInviteTitle") || "Bring a friend"
+      )}</strong>
+      <span>${escapeHtml(
+        _t("remote.stopInviteBody") ||
+          "Pool was quiet — share a room link or your friend code when you want company."
+      )}</span>
+      <div class="export-nudge-actions" style="margin-top:0.45rem">
+        <button type="button" class="pill tight ghost" id="btn-stop-invite-later">${escapeHtml(
+          _t("friends.exportNudgeLater") || "Later"
+        )}</button>
+        <button type="button" class="pill tight" id="btn-stop-invite-friends">${escapeHtml(
+          _t("friends.open") || "Friends"
+        )}</button>
+        <button type="button" class="pill tight accent" id="btn-stop-invite-share">${escapeHtml(
+          ROOMS_ENABLED
+            ? _t("remote.shareRoom") || "Share room"
+            : _t("remote.inviteFriend") || "Invite friend"
+        )}</button>
+      </div>`;
+    document.body.appendChild(toast);
+    const dismiss = () => {
+      if (toast.parentNode) toast.remove();
+    };
+    $("btn-stop-invite-later")?.addEventListener("click", () => {
+      trackEvent("stop_invite_later");
+      dismiss();
+    });
+    $("btn-stop-invite-friends")?.addEventListener("click", () => {
+      trackEvent("stop_invite_friends");
+      dismiss();
+      openFriends();
+    });
+    $("btn-stop-invite-share")?.addEventListener("click", () => {
+      trackEvent("stop_invite_share");
+      dismiss();
+      if (ROOMS_ENABLED) {
+        shareOrCopy(
+          roomShareUrl({ mintIfEmpty: true }),
+          siteBrandName() + " room",
+          "room.shared",
+          "room.copied",
+          { preferShare: true }
+        );
+      } else {
+        shareFriendInvite({ preferShare: true });
+      }
+    });
+    setTimeout(dismiss, 16000);
+  } catch (_) {}
+}
+
+function refreshHubChip() {
+  const chip = $("hub-chip");
+  const label = $("hub-chip-label");
+  if (!chip || !label) return;
+  let base = location.origin;
+  try {
+    if (typeof RuletHub !== "undefined" && RuletHub.base) base = RuletHub.base();
+  } catch (_) {}
+  let host = "";
+  try {
+    host = new URL(base).host;
+  } catch {
+    host = String(base || "").replace(/^https?:\/\//, "");
+  }
+  // Hide when same as brand seed names and same origin (less chrome noise)
+  const pageHost = location.host;
+  if (!host || host === pageHost) {
+    chip.hidden = true;
+    return;
+  }
+  label.textContent = host;
+  chip.hidden = false;
+  chip.title = (_t("hub.current") || "Current hub") + ": " + base;
+}
+
+function renderChatBubbleEl(msg) {
+  const d = document.createElement("div");
+  const cls = msg.cls || (msg.mine ? "mine" : "theirs");
+  d.className = "chat-bubble " + (cls === "mine" ? "mine" : cls === "theirs" ? "theirs" : "sys");
+  if (msg.author && !msg.mine) {
+    const w = document.createElement("span");
+    w.className = "who";
+    w.textContent = msg.author;
+    d.appendChild(w);
+  }
+  appendLinkified(d, msg.body || "");
+  return d;
+}
+
+/** Auto-link http(s) URLs in chat bodies. */
+function appendLinkified(parent, text) {
+  const re = /(https?:\/\/[^\s<>"']+)/gi;
+  let last = 0;
+  let m;
+  const s = String(text || "");
+  while ((m = re.exec(s)) !== null) {
+    if (m.index > last) {
+      parent.appendChild(document.createTextNode(s.slice(last, m.index)));
+    }
+    let href = m[1];
+    // strip trailing punctuation often stuck to URLs
+    let trail = "";
+    while (/[.,);:!?]/.test(href.slice(-1))) {
+      trail = href.slice(-1) + trail;
+      href = href.slice(0, -1);
+    }
+    const a = document.createElement("a");
+    a.className = "chat-link";
+    a.href = href;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.textContent = href;
+    parent.appendChild(a);
+    if (trail) parent.appendChild(document.createTextNode(trail));
+    last = m.index + m[0].length;
+  }
+  if (last < s.length) {
+    parent.appendChild(document.createTextNode(s.slice(last)));
+  }
+}
+
+function renderThreadToDom(threadKey) {
   const box = $("chat-messages");
   if (!box) return;
-  showChatPanel(true);
-  // Parse "[author] body" if present
+  clearChatDom();
+  const map = loadChatThreads();
+  const thr = map[threadKey];
+  if (!thr || !Array.isArray(thr.msgs)) return;
+  for (const msg of thr.msgs) {
+    box.appendChild(renderChatBubbleEl(msg));
+  }
+  box.scrollTop = box.scrollHeight;
+}
+
+/** True if any live peer has an open chat data channel (E2E path). */
+function anyChatDcOpen() {
+  for (const pc of peerPcs.values()) {
+    if (pc && typeof pc.isChatDcOpen === "function" && pc.isChatDcOpen()) return true;
+  }
+  return false;
+}
+
+/**
+ * Peers that should receive live match chat (strangers/party; friend when in friend call).
+ * @returns {InstanceType<typeof RouletteWebRtc>[]}
+ */
+function chatPeerPcs() {
+  const out = [];
+  for (const pc of peerPcs.values()) {
+    if (!pc) continue;
+    const role = pc._role || "stranger";
+    if (role === "friend") {
+      if (matchMode === "friend" || inFriendCall) out.push(pc);
+    } else {
+      out.push(pc);
+    }
+  }
+  return out;
+}
+
+/**
+ * Send live match/friend-call chat. Prefers WebRTC data channel (E2E);
+ * falls back to bridge WSS so chat still works before ICE completes.
+ * @param {string} body
+ * @param {{ asFriend?: boolean, peerUserId?: string }} [opts]
+ * @returns {"p2p"|"hub"|false}
+ */
+function sendLiveChat(body, opts = {}) {
+  const text = String(body || "").trim().slice(0, 500);
+  if (!text) return false;
+  const id =
+    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+  const ts = Date.now();
+  const asFriend = !!opts.asFriend;
+  const payload = {
+    v: 1,
+    type: asFriend ? "friend_chat" : "chat",
+    id,
+    body: text,
+    name: getDisplayName() || "anon",
+    user_id: myUserId || "",
+    to_user_id: opts.peerUserId || "",
+    ts,
+  };
+  let p2p = false;
+  for (const pc of chatPeerPcs()) {
+    if (pc.sendChatMessage && pc.sendChatMessage(payload)) p2p = true;
+  }
+  if (p2p) {
+    if (asFriend && opts.peerUserId) {
+      // Keep friend thread context
+      activeChat = {
+        mode: "friend",
+        peerUserId: opts.peerUserId,
+        peerName:
+          friendDisplayName(
+            friendsCache.find((f) => f.user_id === opts.peerUserId)
+          ) || activeChat.peerName || "friend",
+        threadKey: friendThreadKey(opts.peerUserId),
+        live: true,
+      };
+    }
+    recordChatMessage({
+      author: payload.name,
+      body: text,
+      mine: true,
+      id,
+      ts,
+      fromUserId: myUserId || "",
+      via: "p2p",
+    });
+    noteP2pChatId(id, text, ts);
+    trackEvent("chat_p2p", { friend: asFriend ? 1 : 0 });
+    // Friend offline store: still mirror to hub (receiver skips UI dup if P2P won)
+    if (asFriend && opts.peerUserId && ws && ws.readyState === WebSocket.OPEN) {
+      send({
+        type: "friend_chat",
+        to_user_id: opts.peerUserId,
+        body: text,
+        // client-only correlation; server ignores unknown fields
+        client_id: id,
+      });
+    }
+    return "p2p";
+  }
+  // Hub relay until data channel is up (server echoes Chat → UI)
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    if (asFriend && opts.peerUserId) {
+      send({ type: "friend_chat", to_user_id: opts.peerUserId, body: text });
+    } else {
+      send({ type: "chat", body: text });
+    }
+    return "hub";
+  }
+  return false;
+}
+
+/**
+ * Handle inbound P2P data-channel messages (match or friend live chat).
+ * @param {object} msg
+ * @param {InstanceType<typeof RouletteWebRtc>} [fromPc]
+ */
+function handleP2pDataMessage(msg, fromPc) {
+  if (!msg || (msg.type !== "chat" && msg.type !== "friend_chat")) return;
+  const body = String(msg.body || "").trim();
+  if (!body) return;
+  const uid = String(msg.user_id || primaryPartnerUserId || "").slice(0, 64);
+  const name = String(
+    msg.name ||
+      friendDisplayName(friendsCache.find((f) => f.user_id === uid)) ||
+      lastMatchMeta?.name ||
+      "partner"
+  ).slice(0, 32);
+  const ts = typeof msg.ts === "number" ? msg.ts : Date.now();
+  const id = msg.id || `p2p-${ts}`;
+
+  if (msg.type === "friend_chat" || (inFriendCall && matchMode === "friend")) {
+    const peerId = uid === myUserId ? msg.to_user_id || primaryPartnerUserId : uid;
+    if (peerId) {
+      activeChat = {
+        mode: "friend",
+        peerUserId: peerId,
+        peerName: name,
+        threadKey: friendThreadKey(peerId),
+        live: true,
+      };
+    }
+  } else if (!activeChat.live && (matched || inFriendCall)) {
+    openMatchChatForPartner(
+      primaryPartnerUserId
+        ? [{ user_id: primaryPartnerUserId, name, role: "stranger" }]
+        : null
+    );
+  }
+  recordChatMessage({
+    author: name,
+    body,
+    mine: false,
+    id,
+    ts,
+    fromUserId: uid,
+    via: "p2p",
+  });
+  // Remember recent P2P ids so hub echo of friend_chat can be skipped
+  noteP2pChatId(id, body, ts);
+  updateChatHeader();
+}
+
+/** @type {Map<string, number>} */
+const recentP2pChatKeys = new Map();
+
+function noteP2pChatId(id, body, ts) {
+  const key = id || `${body}|${Math.floor((ts || Date.now()) / 5000)}`;
+  recentP2pChatKeys.set(key, Date.now());
+  // prune
+  if (recentP2pChatKeys.size > 40) {
+    const cutoff = Date.now() - 60_000;
+    for (const [k, t] of recentP2pChatKeys) {
+      if (t < cutoff) recentP2pChatKeys.delete(k);
+    }
+  }
+}
+
+function wasRecentP2pChat(id, body, ts) {
+  if (id && recentP2pChatKeys.has(id)) return true;
+  const fuzzy = `${body}|${Math.floor((ts || Date.now()) / 5000)}`;
+  if (recentP2pChatKeys.has(fuzzy)) return true;
+  // also match body in last 8s
+  const now = Date.now();
+  for (const [k, t] of recentP2pChatKeys) {
+    if (now - t < 8000 && k.startsWith(String(body).slice(0, 80))) return true;
+  }
+  return false;
+}
+
+/**
+ * Persist + show a chat message on the active thread.
+ * @param {{ author?: string, body: string, mine: boolean, cls?: string, id?: string, ts?: number, fromUserId?: string, via?: string }} msg
+ */
+function recordChatMessage(msg) {
+  if (!msg || !msg.body) return;
+  // Ensure we have a thread — create ephemeral match thread if needed
+  if (!activeChat.threadKey) {
+    const uid = msg.fromUserId || primaryPartnerUserId || "";
+    const name = msg.mine
+      ? getDisplayName() || "you"
+      : msg.author || lastMatchMeta?.name || "partner";
+    activeChat = {
+      mode: matched || inFriendCall ? "match" : "history",
+      peerUserId: uid,
+      peerName: name,
+      threadKey: matchThreadKey(uid, lastMatchMeta?.friend_code, lastMatchMeta?.short_id),
+      live: !!(matched || inFriendCall),
+    };
+  }
+  const ts = msg.ts || Date.now();
+  const entry = {
+    id: msg.id || `${ts}-${Math.random().toString(36).slice(2, 8)}`,
+    author: msg.author || "",
+    body: String(msg.body).slice(0, 500),
+    mine: !!msg.mine,
+    cls: msg.cls || (msg.mine ? "mine" : "theirs"),
+    ts,
+  };
+  const map = loadChatThreads();
+  const thr = map[activeChat.threadKey] || {
+    title: activeChat.peerName || "Chat",
+    peerUserId: activeChat.peerUserId,
+    kind: activeChat.mode === "friend" ? "friend" : "match",
+    msgs: [],
+    updated: ts,
+  };
+  // Dedupe by id if present (server echo / history merge)
+  const isDup = !!(entry.id && thr.msgs.some((m) => m.id === entry.id));
+  if (!isDup) {
+    thr.msgs.push(entry);
+    while (thr.msgs.length > MAX_THREAD_MSGS) thr.msgs.shift();
+  }
+  thr.updated = ts;
+  thr.title = activeChat.peerName || thr.title;
+  thr.peerUserId = activeChat.peerUserId || thr.peerUserId;
+  map[activeChat.threadKey] = thr;
+  saveChatThreads(map);
+
+  if (isDup) return;
+
+  const box = $("chat-messages");
+  if (box) {
+    // Keep compact tile panel for live match; inbox handles deeper nav
+    if (activeChat.live || activeChat.mode === "match" || activeChat.mode === "history") {
+      showChatPanel(true);
+    }
+    updateChatHeader();
+    box.appendChild(renderChatBubbleEl(entry));
+    box.scrollTop = box.scrollHeight;
+  }
+  appendToInboxIfOpen(entry);
+  markThreadRead(activeChat.threadKey, ts);
+  if (messagesSheetOpen && !messagesInThread) renderMessagesList();
+  updateMessagesBadge();
+}
+
+function openMatchChatForPartner(peers) {
+  const primary =
+    (Array.isArray(peers) &&
+      (peers.find((p) => p.role !== "friend" && p.user_id) ||
+        peers.find((p) => p.user_id) ||
+        peers[0])) ||
+    null;
+  const uid = primary?.user_id || primaryPartnerUserId || "";
+  const name =
+    (primary?.name && primary.name !== "anon" ? primary.name : "") ||
+    primary?.short_id ||
+    lastMatchMeta?.name ||
+    "partner";
+  const key = matchThreadKey(uid, primary?.friend_code, primary?.short_id);
+  activeChat = {
+    mode: "match",
+    peerUserId: uid,
+    peerName: name,
+    threadKey: key,
+    live: true,
+  };
+  // Seed empty thread so hangup still has a key
+  const map = loadChatThreads();
+  if (!map[key]) {
+    map[key] = {
+      title: name,
+      peerUserId: uid,
+      kind: "match",
+      msgs: [],
+      updated: Date.now(),
+    };
+    saveChatThreads(map);
+  } else if (map[key].msgs && map[key].msgs.length) {
+    // Rematch same person — restore history
+    renderThreadToDom(key);
+    showChatPanel(true);
+  } else {
+    clearChatDom();
+    showChatPanel(false);
+  }
+  updateChatHeader();
+}
+
+function openFriendChat(userId, opts = {}) {
+  if (!userId) return;
+  const fr = friendsCache.find((f) => f.user_id === userId);
+  const name =
+    opts.name ||
+    (fr ? friendDisplayName(fr) : "") ||
+    fr?.name ||
+    fr?.short_id ||
+    "friend";
+  const key = friendThreadKey(userId);
+  closeFriends();
+  openMessages("friends");
+  openInboxThread(key, {
+    mode: "friend",
+    peerUserId: userId,
+    peerName: name,
+    live: true,
+  });
+}
+
+/**
+ * Build sorted inbox entries for a tab.
+ * @param {"friends"|"matches"} tab
+ * @returns {Array<{threadKey:string, title:string, preview:string, updated:number, unread:boolean, online:boolean, mode:string, peerUserId:string, live:boolean}>}
+ */
+function buildInboxEntries(tab) {
+  const threads = loadChatThreads();
+  const read = loadChatRead();
+  const out = [];
+
+  if (tab === "friends") {
+    const seen = new Set();
+    for (const f of friendsCache) {
+      const key = friendThreadKey(f.user_id);
+      seen.add(key);
+      const thr = threads[key];
+      const last = thr?.msgs?.length ? thr.msgs[thr.msgs.length - 1] : null;
+      const updated = last?.ts || (f.last_msg_ts ? f.last_msg_ts * 1000 : 0) || thr?.updated || 0;
+      const preview = last
+        ? (last.mine ? "You: " : "") + last.body
+        : f.last_msg || _t("msg.noMessages") || "No messages yet — say hi";
+      const unread = !!(
+        last &&
+        !last.mine &&
+        (last.ts || 0) > (read[key] || 0)
+      ) || (!last && f.last_msg_ts * 1000 > (read[key] || 0) && f.last_msg);
+      out.push({
+        threadKey: key,
+        title: friendDisplayName(f),
+        preview: String(preview).slice(0, 90),
+        updated,
+        unread: !!unread,
+        online: !!f.online,
+        mode: "friend",
+        peerUserId: f.user_id,
+        live: true,
+        avatar: f.avatar || "",
+      });
+    }
+    // Friend threads no longer in friends list (removed) but still have history
+    for (const [key, thr] of Object.entries(threads)) {
+      if (!key.startsWith("friend:") || seen.has(key)) continue;
+      if (!thr?.msgs?.length) continue;
+      const last = thr.msgs[thr.msgs.length - 1];
+      out.push({
+        threadKey: key,
+        title: thr.title || thr.peerUserId?.slice(0, 8) || "friend",
+        preview: ((last.mine ? "You: " : "") + (last.body || "")).slice(0, 90),
+        updated: last.ts || thr.updated || 0,
+        unread: !last.mine && (last.ts || 0) > (read[key] || 0),
+        online: false,
+        mode: "friend",
+        peerUserId: thr.peerUserId || key.slice(7),
+        live: true,
+      });
+    }
+  } else {
+    // Matches / previous conversationalists
+    for (const [key, thr] of Object.entries(threads)) {
+      if (!key.startsWith("match:")) continue;
+      if (!thr?.msgs?.length) continue;
+      const last = thr.msgs[thr.msgs.length - 1];
+      const isLive =
+        activeChat.threadKey === key &&
+        activeChat.live &&
+        (matched || inFriendCall);
+      // If this peer is now a friend, still show under Matches (history) but note it
+      const isFriend =
+        thr.peerUserId && friendsCache.some((f) => f.user_id === thr.peerUserId);
+      out.push({
+        threadKey: key,
+        title: thr.title || last.author || thr.peerUserId?.slice(0, 8) || "match",
+        preview: ((last.mine ? "You: " : "") + (last.body || "")).slice(0, 90),
+        updated: last.ts || thr.updated || 0,
+        unread: !last.mine && (last.ts || 0) > (read[key] || 0),
+        online: isLive,
+        mode: isLive ? "match" : "history",
+        peerUserId: thr.peerUserId || "",
+        live: isLive,
+        isFriend: !!isFriend,
+      });
+    }
+  }
+
+  out.sort((a, b) => {
+    // Unread first, then online, then recent
+    if (a.unread !== b.unread) return a.unread ? -1 : 1;
+    if (a.online !== b.online) return a.online ? -1 : 1;
+    return (b.updated || 0) - (a.updated || 0);
+  });
+  return out;
+}
+
+function formatInboxWhen(ts) {
+  if (!ts) return "";
+  try {
+    const d = new Date(ts);
+    const now = Date.now();
+    const diff = now - ts;
+    if (diff < 60_000) return _t("msg.justNow") || "now";
+    if (diff < 3600_000) return `${Math.floor(diff / 60_000)}m`;
+    if (diff < 86400_000) {
+      return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    }
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  } catch {
+    return "";
+  }
+}
+
+function initialsFor(name) {
+  const s = String(name || "?").trim();
+  if (!s) return "?";
+  const parts = s.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return s.slice(0, 2).toUpperCase();
+}
+
+function setMessagesTab(tab) {
+  messagesTab = tab === "matches" ? "matches" : "friends";
+  const tf = $("msg-tab-friends");
+  const tm = $("msg-tab-matches");
+  if (tf) {
+    tf.classList.toggle("active", messagesTab === "friends");
+    tf.setAttribute("aria-selected", messagesTab === "friends" ? "true" : "false");
+  }
+  if (tm) {
+    tm.classList.toggle("active", messagesTab === "matches");
+    tm.setAttribute("aria-selected", messagesTab === "matches" ? "true" : "false");
+  }
+  const hint = $("msg-list-hint");
+  if (hint) {
+    hint.textContent =
+      messagesTab === "friends"
+        ? _t("msg.hintFriends") ||
+          "Chat with friends anytime — online or offline."
+        : _t("msg.hintMatches") ||
+          "Past video chats. History is saved on this device.";
+  }
+  renderMessagesList();
+}
+
+function renderMessagesList() {
+  const list = $("msg-thread-list");
+  if (!list) return;
+  const entries = buildInboxEntries(messagesTab);
+
+  // Tab counts (unread)
+  const fu = buildInboxEntries("friends").filter((e) => e.unread).length;
+  const mu = buildInboxEntries("matches").filter((e) => e.unread).length;
+  const cf = $("msg-count-friends");
+  const cm = $("msg-count-matches");
+  if (cf) {
+    cf.hidden = fu === 0;
+    cf.textContent = String(fu > 99 ? "99+" : fu);
+  }
+  if (cm) {
+    cm.hidden = mu === 0;
+    cm.textContent = String(mu > 99 ? "99+" : mu);
+  }
+  updateMessagesBadge();
+
+  if (!entries.length) {
+    list.innerHTML = `<div class="msg-empty">${escapeHtml(
+      messagesTab === "friends"
+        ? _t("msg.emptyFriends") ||
+            "No friends yet. Add a friend code, then message them here."
+        : _t("msg.emptyMatches") ||
+            "No match chats yet. When you text someone during a call, it shows up here."
+    )}</div>`;
+    return;
+  }
+
+  list.innerHTML = entries
+    .map((e) => {
+      const liveTag = e.live
+        ? ` · ${escapeHtml(_t("msg.live") || "live")}`
+        : e.online
+          ? ` · ${escapeHtml(_t("friends.online") || "online")}`
+          : messagesTab === "friends"
+            ? ` · ${escapeHtml(_t("friends.offline") || "offline")}`
+            : e.isFriend
+              ? ` · ${escapeHtml(_t("friends.kindFriend") || "friend")}`
+              : "";
+      return `<button type="button" class="msg-thread-row${e.unread ? " unread" : ""}${
+        e.online || e.live ? " online" : ""
+      }" data-key="${escapeAttr(e.threadKey)}" data-mode="${escapeAttr(e.mode)}" data-uid="${escapeAttr(
+        e.peerUserId || ""
+      )}" data-name="${escapeAttr(e.title)}" data-live="${e.live ? "1" : "0"}">
+        ${
+          e.avatar && /^data:image\//i.test(e.avatar)
+            ? `<span class="msg-thread-avatar has-img"><img src="${escapeAttr(
+                e.avatar
+              )}" alt="" /></span>`
+            : `<span class="msg-thread-avatar" aria-hidden="true">${escapeHtml(
+                initialsFor(e.title)
+              )}</span>`
+        }
+        <span class="meta">
+          <strong>${escapeHtml(e.title)}${liveTag ? `<span style="font-weight:500;color:#8b9bb0;font-size:0.75rem">${liveTag}</span>` : ""}</strong>
+          <span class="preview">${escapeHtml(e.preview)}</span>
+        </span>
+        <span class="when">${escapeHtml(formatInboxWhen(e.updated))}</span>
+        ${e.unread ? '<span class="unread-dot" aria-hidden="true"></span>' : ""}
+      </button>`;
+    })
+    .join("");
+
+  list.querySelectorAll(".msg-thread-row").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      openInboxThread(btn.getAttribute("data-key"), {
+        mode: btn.getAttribute("data-mode") || "history",
+        peerUserId: btn.getAttribute("data-uid") || "",
+        peerName: btn.getAttribute("data-name") || "",
+        live: btn.getAttribute("data-live") === "1",
+      });
+    });
+  });
+}
+
+function showMsgListView() {
+  messagesInThread = false;
+  const list = $("msg-view-list");
+  const thr = $("msg-view-thread");
+  if (list) list.hidden = false;
+  if (thr) thr.hidden = true;
+  renderMessagesList();
+}
+
+function showMsgThreadView() {
+  messagesInThread = true;
+  const list = $("msg-view-list");
+  const thr = $("msg-view-thread");
+  if (list) list.hidden = true;
+  if (thr) thr.hidden = false;
+}
+
+function renderInboxThreadBody() {
+  const box = $("msg-thread-messages");
+  if (!box || !activeChat.threadKey) return;
+  box.innerHTML = "";
+  const map = loadChatThreads();
+  const thr = map[activeChat.threadKey];
+  if (!thr?.msgs?.length) {
+    box.innerHTML = `<div class="msg-empty">${escapeHtml(
+      _t("chat.empty") || "Say hi — messages appear here"
+    )}</div>`;
+    return;
+  }
+  for (const msg of thr.msgs) {
+    box.appendChild(renderChatBubbleEl(msg));
+  }
+  box.scrollTop = box.scrollHeight;
+}
+
+function updateInboxThreadHeader() {
+  const title = $("msg-thread-title");
+  const sub = $("msg-thread-sub");
+  const input = $("msg-compose-input");
+  if (title) title.textContent = activeChat.peerName || _t("chat.title") || "Chat";
+  if (sub) {
+    if (activeChat.mode === "friend") {
+      const fr = friendsCache.find((f) => f.user_id === activeChat.peerUserId);
+      sub.textContent = fr?.online
+        ? _t("friends.online") || "online"
+        : _t("chat.friendOffline") || "offline · delivered when they open chat";
+    } else if (activeChat.live) {
+      sub.textContent = _t("msg.liveChat") || "Live match chat";
+    } else {
+      sub.textContent = _t("chat.ended") || "Call ended · chat saved";
+    }
+  }
+  if (input) {
+    const canSend =
+      activeChat.mode === "friend" ||
+      (activeChat.mode === "match" && activeChat.live) ||
+      (activeChat.peerUserId &&
+        friendsCache.some((f) => f.user_id === activeChat.peerUserId));
+    input.disabled = !canSend;
+    input.placeholder = canSend
+      ? activeChat.mode === "friend" ||
+        friendsCache.some((f) => f.user_id === activeChat.peerUserId)
+        ? _t("chat.placeholderFriend") || "Message friend…"
+        : _t("chat.placeholder") || "Say something…"
+      : _t("chat.placeholderEnded") || "Chat saved · match ended";
+  }
+}
+
+/**
+ * Open a thread inside the Messages sheet.
+ */
+function openInboxThread(threadKey, meta = {}) {
+  if (!threadKey) return;
+  const map = loadChatThreads();
+  const thr = map[threadKey] || null;
+  const mode =
+    meta.mode ||
+    (threadKey.startsWith("friend:")
+      ? "friend"
+      : thr && activeChat.threadKey === threadKey && activeChat.live
+        ? "match"
+        : "history");
+  const peerUserId =
+    meta.peerUserId || thr?.peerUserId || (threadKey.startsWith("friend:") ? threadKey.slice(7) : "");
+  const peerName = meta.peerName || thr?.title || "Chat";
+  let live = !!meta.live;
+  if (mode === "match" && matched && activeChat.threadKey === threadKey) live = true;
+  if (mode === "friend") live = true;
+
+  activeChat = {
+    mode,
+    peerUserId,
+    peerName,
+    threadKey,
+    live,
+  };
+
+  // Ensure thread exists in storage
+  if (!map[threadKey]) {
+    map[threadKey] = {
+      title: peerName,
+      peerUserId,
+      kind: mode === "friend" ? "friend" : "match",
+      msgs: [],
+      updated: Date.now(),
+    };
+    saveChatThreads(map);
+  }
+
+  // Also mirror to in-tile panel for live match convenience
+  renderThreadToDom(threadKey);
+  if (live && (mode === "match" || matched)) {
+    showChatPanel(true);
+  }
+  updateChatHeader();
+  updateInboxThreadHeader();
+  renderInboxThreadBody();
+  showMsgThreadView();
+  markThreadRead(threadKey, Date.now());
+  renderMessagesList(); // refresh unread badges in background tab counts
+
+  if (mode === "friend" && peerUserId) {
+    send({ type: "friend_chat_history", with_user_id: peerUserId });
+  }
+  setTimeout(() => {
+    if (!$("msg-compose-input")?.disabled) $("msg-compose-input")?.focus();
+  }, 40);
+}
+
+function openMessages(tab) {
+  closeFriends();
+  if (tab) setMessagesTab(tab);
+  else setMessagesTab(messagesTab || "friends");
+  messagesSheetOpen = true;
+  const sheet = $("messages-sheet");
+  const bd = $("messages-backdrop");
+  if (sheet) sheet.hidden = false;
+  if (bd) bd.hidden = false;
+  showMsgListView();
+  updateMessagesBadge();
+  bindSheetFocusTrap(sheet);
+  // Soft storage tip when match history is huge
+  setTimeout(() => {
+    try {
+      maybeShowChatCleanupTip();
+    } catch (_) {}
+  }, 600);
+}
+
+function closeMessages() {
+  messagesSheetOpen = false;
+  messagesInThread = false;
+  const sheet = $("messages-sheet");
+  const bd = $("messages-backdrop");
+  releaseSheetFocusTrap(sheet);
+  if (sheet) sheet.hidden = true;
+  if (bd) bd.hidden = true;
+  // Return to list next open
+  showMsgListView();
+}
+
+function updateMessagesBadge() {
+  const badge = $("messages-badge");
+  if (!badge) return;
+  const n =
+    buildInboxEntries("friends").filter((e) => e.unread).length +
+    buildInboxEntries("matches").filter((e) => e.unread).length;
+  if (n > 0) {
+    badge.hidden = false;
+    badge.textContent = String(n > 99 ? "99+" : n);
+  } else {
+    badge.hidden = true;
+    badge.textContent = "0";
+  }
+}
+
+/** Append to inbox thread body if that thread is open in the sheet. */
+function appendToInboxIfOpen(entry) {
+  if (!messagesSheetOpen || !messagesInThread) return;
+  if (!activeChat.threadKey) return;
+  const box = $("msg-thread-messages");
+  if (!box) return;
+  // Remove empty state
+  const empty = box.querySelector(".msg-empty");
+  if (empty) empty.remove();
+  box.appendChild(renderChatBubbleEl(entry));
+  box.scrollTop = box.scrollHeight;
+  updateInboxThreadHeader();
+}
+
+function mergeFriendHistory(withUserId, messages) {
+  if (!withUserId || !Array.isArray(messages)) return;
+  const key = friendThreadKey(withUserId);
+  const map = loadChatThreads();
+  const thr = map[key] || {
+    title: activeChat.peerUserId === withUserId ? activeChat.peerName : "friend",
+    peerUserId: withUserId,
+    kind: "friend",
+    msgs: [],
+    updated: Date.now(),
+  };
+  const byId = new Map(thr.msgs.map((m) => [m.id, m]));
+  for (const m of messages) {
+    if (!m || !m.body) continue;
+    const id = m.id || `${m.ts}-${m.from_user_id}`;
+    if (byId.has(id)) continue;
+    const mine = m.from_user_id === myUserId;
+    const entry = {
+      id,
+      author: mine ? "" : m.from_name || "",
+      body: m.body,
+      mine,
+      cls: mine ? "mine" : "theirs",
+      ts: (m.ts || 0) * 1000 || Date.now(),
+    };
+    byId.set(id, entry);
+  }
+  thr.msgs = Array.from(byId.values()).sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  while (thr.msgs.length > MAX_THREAD_MSGS) thr.msgs.shift();
+  thr.updated = Date.now();
+  map[key] = thr;
+  saveChatThreads(map);
+  if (activeChat.threadKey === key) {
+    renderThreadToDom(key);
+    if (activeChat.live && activeChat.mode === "match") showChatPanel(true);
+    renderInboxThreadBody();
+    markThreadRead(key, Date.now());
+  }
+  if (messagesSheetOpen && !messagesInThread) renderMessagesList();
+  updateFriendsUnreadBadge();
+  updateMessagesBadge();
+}
+
+function handleIncomingFriendChat(msg) {
+  if (!msg || !msg.body) return;
+  const from = msg.from_user_id || "";
+  const to = msg.to_user_id || "";
+  // Conversation peer is the other person
+  const peerId = from === myUserId ? to : from;
+  if (!peerId) return;
+  const mine = from === myUserId;
+  const tsMs = (msg.ts || 0) * 1000 || Date.now();
+  // Already shown via P2P data channel — hub store echo only
+  if (
+    !mine &&
+    wasRecentP2pChat(msg.id || msg.client_id, msg.body, tsMs)
+  ) {
+    return;
+  }
+  if (mine && wasRecentP2pChat(msg.id || msg.client_id, msg.body, tsMs)) {
+    // Our own hub mirror of a P2P send — skip second bubble
+    return;
+  }
+  const key = friendThreadKey(peerId);
+  const name =
+    mine
+      ? friendsCache.find((f) => f.user_id === peerId)?.name || activeChat.peerName || "friend"
+      : msg.from_name || friendsCache.find((f) => f.user_id === peerId)?.name || "friend";
+
+  // If we're viewing this thread, use recordChatMessage path via activeChat
+  const viewing = activeChat.threadKey === key;
+  if (!viewing) {
+    // Store without switching UI (unless no active live match chat)
+    const map = loadChatThreads();
+    const thr = map[key] || {
+      title: name,
+      peerUserId: peerId,
+      kind: "friend",
+      msgs: [],
+      updated: Date.now(),
+    };
+    const id = msg.id || `${msg.ts}-${from}`;
+    if (!thr.msgs.some((m) => m.id === id)) {
+      thr.msgs.push({
+        id,
+        author: mine ? "" : name,
+        body: msg.body,
+        mine,
+        cls: mine ? "mine" : "theirs",
+        ts: (msg.ts || 0) * 1000 || Date.now(),
+      });
+      while (thr.msgs.length > MAX_THREAD_MSGS) thr.msgs.shift();
+    }
+    thr.updated = Date.now();
+    thr.title = name;
+    map[key] = thr;
+    saveChatThreads(map);
+    updateFriendsUnreadBadge();
+    updateMessagesBadge();
+    if (messagesSheetOpen && !messagesInThread) renderMessagesList();
+    // Toast-ish status for offline→online delivery
+    if (!mine) {
+      setStatus(_t("chat.friendMsgFrom", { n: name }) || `Message from ${name}`);
+    }
+    return;
+  }
+  // Viewing — switch active context if needed and record
+  activeChat = {
+    mode: "friend",
+    peerUserId: peerId,
+    peerName: name,
+    threadKey: key,
+    live: true,
+  };
+  recordChatMessage({
+    id: msg.id,
+    author: mine ? "" : name,
+    body: msg.body,
+    mine,
+    ts: (msg.ts || 0) * 1000 || Date.now(),
+  });
+}
+
+function friendUnreadCount() {
+  const read = loadChatRead();
+  const threads = loadChatThreads();
+  let n = 0;
+  for (const f of friendsCache) {
+    const key = friendThreadKey(f.user_id);
+    const thr = threads[key];
+    if (!thr || !thr.msgs || !thr.msgs.length) continue;
+    const last = thr.msgs[thr.msgs.length - 1];
+    if (last.mine) continue;
+    const lastTs = last.ts || 0;
+    if (lastTs > (read[key] || 0)) n++;
+  }
+  // Also server last_msg_ts when no local thread yet
+  for (const f of friendsCache) {
+    if (!f.last_msg_ts) continue;
+    const key = friendThreadKey(f.user_id);
+    const thr = threads[key];
+    if (thr && thr.msgs && thr.msgs.length) continue;
+    const tsMs = f.last_msg_ts * 1000;
+    if (tsMs > (read[key] || 0)) n++;
+  }
+  return n;
+}
+
+function updateFriendsUnreadBadge() {
+  // Friends badge = friend requests only; unread chats live on Messages badge
+  const badge = $("friends-badge");
+  if (!badge) return;
+  const reqN = (incomingRequests || []).length;
+  if (reqN > 0) {
+    badge.hidden = false;
+    badge.textContent = String(reqN > 99 ? "99+" : reqN);
+  } else {
+    badge.hidden = true;
+    badge.textContent = "0";
+  }
+  updateMessagesBadge();
+}
+
+function appendChatBubble(text, cls) {
+  // Back-compat helper
   let who = "";
   let body = text;
   const m = /^\[([^\]]+)\]\s*(.*)$/s.exec(text);
@@ -976,17 +2650,30 @@ function appendChatBubble(text, cls) {
     who = m[1];
     body = m[2];
   }
-  const d = document.createElement("div");
-  d.className = "chat-bubble " + (cls === "mine" ? "mine" : cls === "theirs" ? "theirs" : "sys");
-  if (who) {
-    const w = document.createElement("span");
-    w.className = "who";
-    w.textContent = who;
-    d.appendChild(w);
+  recordChatMessage({
+    author: who,
+    body,
+    mine: cls === "mine",
+    cls,
+  });
+}
+
+/** Center-footer “Ищем собеседника…” pill while searching after Start. */
+function setFooterSearchStatus(show, label) {
+  const el = $("footer-search-status");
+  const lab = $("footer-search-label");
+  if (!el) return;
+  if (!show) {
+    el.hidden = true;
+    return;
   }
-  d.appendChild(document.createTextNode(body));
-  box.appendChild(d);
-  box.scrollTop = box.scrollHeight;
+  if (lab) {
+    lab.textContent =
+      label ||
+      _t("conn.searching") ||
+      "Searching for a partner…";
+  }
+  el.hidden = false;
 }
 
 function setConnStrip(kind, label, iceHint, opts) {
@@ -1002,21 +2689,94 @@ function setConnStrip(kind, label, iceHint, opts) {
     retry.hidden = !showRetry;
   }
   if (!strip) return;
-  strip.classList.remove("ok", "warn", "bad", "call", "idle");
+  strip.classList.remove("ok", "warn", "bad", "call", "idle", "is-reconnecting");
   if (kind) strip.classList.add(kind);
+  if (opts && opts.reconnecting) strip.classList.add("is-reconnecting");
   // Hide the strip when idle-connected (no status text to show)
-  const hide = kind === "idle" || (kind === "ok" && !label);
+  // Searching lives in footer center — never duplicate in header
+  const searching =
+    kind === "warn" &&
+    label &&
+    /search|ищем|поиск|looking/i.test(String(label));
+  const hide =
+    kind === "idle" || (kind === "ok" && !label) || searching;
   strip.hidden = !!hide;
   strip.setAttribute("aria-hidden", hide ? "true" : "false");
+  // Bottom reconnect banner for visibility on mobile
+  if (opts && opts.reconnecting) showReconnectBanner(label, !!opts.showRetry);
+  else if (kind === "ok" || kind === "call" || kind === "idle" || hide) {
+    hideReconnectBanner();
+  }
+}
+
+/** Full-width soft banner while the hub socket is down (not a forced modal). */
+function showReconnectBanner(label, showRetry) {
+  let el = $("reconnect-banner");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "reconnect-banner";
+    el.className = "reconnect-banner";
+    el.setAttribute("role", "status");
+    el.innerHTML = `
+      <span class="reconnect-banner-dot" aria-hidden="true"></span>
+      <span class="reconnect-banner-text" id="reconnect-banner-text"></span>
+      <button type="button" class="pill tight accent" id="btn-reconnect-banner" hidden></button>`;
+    document.body.appendChild(el);
+    $("btn-reconnect-banner")?.addEventListener("click", () => {
+      trackEvent("reconnect_banner_click");
+      manualReconnect();
+    });
+  }
+  const text = $("reconnect-banner-text");
+  if (text) {
+    text.textContent =
+      label ||
+      _t("conn.retrying") ||
+      _t("status.reconnecting") ||
+      "Reconnecting…";
+  }
+  const btn = $("btn-reconnect-banner");
+  if (btn) {
+    btn.hidden = !showRetry;
+    btn.textContent = _t("conn.retryNow") || "Retry now";
+  }
+  el.hidden = false;
+}
+
+function hideReconnectBanner() {
+  const el = $("reconnect-banner");
+  if (el) el.hidden = true;
+}
+
+/** Soft confirmation after hub drop recovers (not a nag). */
+function showBackOnlineToast() {
+  const id = "back-online-toast";
+  const existing = $(id);
+  if (existing) existing.remove();
+  const toast = document.createElement("div");
+  toast.id = id;
+  toast.className = "friend-soft-toast friend-soft-toast-ok back-online-toast";
+  toast.setAttribute("role", "status");
+  toast.innerHTML = `
+    <strong>${escapeHtml(_t("conn.backOnline") || "Back online")}</strong>
+    <span>${escapeHtml(
+      _t("conn.backOnlineBody") || "Hub reconnected — you can search or call again."
+    )}</span>`;
+  document.body.appendChild(toast);
+  setTimeout(() => {
+    if (toast.parentNode) toast.remove();
+  }, 4200);
 }
 
 function updateConnFromState() {
   // No STUN/TURN ice line on the page
   if (!ws || ws.readyState === WebSocket.CONNECTING) {
+    setFooterSearchStatus(false);
     setConnStrip("warn", _t("conn.connecting"), "");
     return;
   }
   if (ws.readyState !== WebSocket.OPEN) {
+    setFooterSearchStatus(false);
     const retrying = reconnectTimer || reconnectAttempt > 0;
     setConnStrip(
       "bad",
@@ -1024,28 +2784,48 @@ function updateConnFromState() {
         ? _t("conn.retrying") || _t("conn.disconnected")
         : _t("conn.disconnected"),
       "",
-      { showRetry: true }
+      { showRetry: true, reconnecting: true }
     );
     return;
   }
   if (matchMode === "friend" || (inFriendCall && matchMode !== "party_browse")) {
+    setFooterSearchStatus(false);
     setConnStrip("call", _t("conn.friend"), "");
     return;
   }
+  // Party of 2 hunting a 3rd — center footer shows searching
   if (matchMode === "party_browse" && yourRole === "party") {
-    setConnStrip("call", _t("conn.party"), "");
+    const hunting = !!(wantSearch || inQueue);
+    if (hunting) {
+      setFooterSearchStatus(
+        true,
+        _t("trio.searching") || _t("conn.searching")
+      );
+      setConnStrip("idle", "", "");
+    } else {
+      setFooterSearchStatus(false);
+      setConnStrip("call", _t("conn.party"), "");
+    }
     return;
   }
   if (matched) {
+    setFooterSearchStatus(false);
     setConnStrip("call", _t("conn.matched"), "");
     return;
   }
   const phase = $("phase")?.className || "";
-  if (phase.includes("waiting")) {
-    setConnStrip("warn", _t("conn.searching"), "");
+  const searching =
+    phase.includes("waiting") ||
+    phase.includes("claiming") ||
+    !!(wantSearch || inQueue);
+  if (searching) {
+    // Center of footer after Start — not header
+    setFooterSearchStatus(true, _t("conn.searching"));
+    setConnStrip("idle", "", "");
     return;
   }
   // Connected and idle — hide strip (no "Connected — ready" clutter)
+  setFooterSearchStatus(false);
   setConnStrip("idle", "", "");
 }
 
@@ -1064,6 +2844,85 @@ function clearWebrtcWatch() {
 function hideCallCoach() {
   const el = $("call-coach");
   if (el) el.hidden = true;
+  const allowBtn = $("btn-coach-allow-turn");
+  if (allowBtn) allowBtn.hidden = true;
+}
+
+/**
+ * Prefer Direct (no TURN) failed once this session → auto-allow TURN so
+ * harder NATs can connect. User can re-enable Prefer Direct anytime.
+ * @returns {boolean} true if we just flipped the pref off
+ */
+let preferDirectAutoOffDone = false;
+
+function setPreferDirectOnly(on, { silent = false } = {}) {
+  savePrefs({ preferDirectOnly: !!on });
+  const chk = $("chk-prefer-direct");
+  if (chk) chk.checked = !!on;
+  if (typeof applyIceDirectPreference === "function") {
+    applyIceDirectPreference();
+  }
+  try {
+    syncSettingsSummary?.();
+    refreshConnectionDetails?.();
+  } catch (_) {}
+  if (!silent) {
+    setStatus(
+      on
+        ? _t("settings.preferDirectOnStatus") ||
+            "Prefer Direct on — next match uses STUN only"
+        : _t("settings.preferDirectOffStatus") ||
+            "TURN allowed again on next match"
+    );
+  }
+}
+
+function autoDisablePreferDirectOnFail({ autoNext = true } = {}) {
+  const prefer =
+    typeof preferDirectOnlyEnabled === "function" && preferDirectOnlyEnabled();
+  if (!prefer || preferDirectAutoOffDone) return false;
+  preferDirectAutoOffDone = true;
+  setPreferDirectOnly(false, { silent: true });
+  setStatus(
+    _t("conn.preferDirectAutoOff") ||
+      "Prefer Direct failed — TURN allowed for the next match"
+  );
+  showPreferDirectAutoToast();
+  trackEvent("prefer_direct_auto_off");
+  log("prefer direct auto-off after ICE fail");
+  if (autoNext && matched && !inFriendCall) {
+    // Soft recovery: skip this partner and try with TURN available
+    setTimeout(() => {
+      if (matched && !webrtcConnectedOk) {
+        hideCallCoach();
+        $("btn-next")?.click();
+      }
+    }, 700);
+  }
+  return true;
+}
+
+function showPreferDirectAutoToast() {
+  const id = "prefer-direct-auto-toast";
+  const existing = $(id);
+  if (existing) existing.remove();
+  const toast = document.createElement("div");
+  toast.id = id;
+  toast.className = "weak-conn-tip prefer-direct-auto-toast";
+  toast.setAttribute("role", "status");
+  toast.innerHTML = `
+    <span>${escapeHtml(
+      _t("conn.preferDirectAutoOffBody") ||
+        "Direct-only mode couldn’t connect. TURN relay is on again for the next match (you can re-enable Prefer Direct in Settings)."
+    )}</span>
+    <button type="button" class="pill tight ghost" id="btn-prefer-auto-dismiss">${escapeHtml(
+      _t("coach.dismiss") || "Dismiss"
+    )}</button>`;
+  document.body.appendChild(toast);
+  $("btn-prefer-auto-dismiss")?.addEventListener("click", () => toast.remove());
+  setTimeout(() => {
+    if (toast.parentNode) toast.remove();
+  }, 10000);
 }
 
 function showCallCoach(reasonKey) {
@@ -1071,9 +2930,18 @@ function showCallCoach(reasonKey) {
   coachShownForMatch = true;
   const el = $("call-coach");
   if (!el) return;
+  const prefer =
+    typeof preferDirectOnlyEnabled === "function" && preferDirectOnlyEnabled();
   const lead = $("call-coach-lead");
   if (lead) {
-    lead.textContent = _t(reasonKey || "coach.lead");
+    if (prefer && (reasonKey === "coach.failed" || reasonKey === "coach.timeout")) {
+      lead.textContent =
+        _t("coach.preferDirectFail") ||
+        _t(reasonKey || "coach.lead") ||
+        "Could not connect with Prefer Direct (no TURN). Allow TURN or try Next.";
+    } else {
+      lead.textContent = _t(reasonKey || "coach.lead");
+    }
   }
   const meta = $("call-coach-meta");
   if (meta) {
@@ -1082,7 +2950,14 @@ function showCallCoach(reasonKey) {
         ? _t("coach.metaTurnOn")
         : _t("coach.metaTurnOff");
     const path = $("ice-path")?.textContent || "";
-    meta.textContent = [turn, path].filter(Boolean).join(" · ");
+    const pd = prefer
+      ? _t("settings.preferDirectOn") || "Prefer Direct on"
+      : "";
+    meta.textContent = [turn, path, pd].filter(Boolean).join(" · ");
+  }
+  const allowBtn = $("btn-coach-allow-turn");
+  if (allowBtn) {
+    allowBtn.hidden = !prefer;
   }
   el.hidden = false;
   setConnStrip("bad", _t("coach.strip"), "");
@@ -1094,14 +2969,17 @@ function startWebrtcWatch() {
   webrtcConnectedOk = false;
   coachShownForMatch = false;
   hideCallCoach();
-  // If no media path after 14s while still matched → coach
+  // If no media path after 14s while still matched → coach / Prefer Direct recovery
   webrtcWatchTimer = setTimeout(() => {
     if (!matched || webrtcConnectedOk) return;
     const hasRemote =
       !!$("remote")?.srcObject &&
       ($("remote").srcObject.getTracks?.() || []).some((t) => t.readyState === "live");
     if (!hasRemote) {
-      showCallCoach("coach.timeout");
+      // Prefer Direct stuck: auto-allow TURN + Next (toast). Else open coach.
+      if (!autoDisablePreferDirectOnFail({ autoNext: true })) {
+        showCallCoach("coach.timeout");
+      }
     }
   }, 14000);
 }
@@ -1114,10 +2992,34 @@ function handleWebrtcConnectionState(s) {
     hideCallCoach();
     startStats();
     setRemoteEmpty(false);
+    ensurePartnerVideoVisible();
     setArchPill("p2p");
-    setConnStrip("call", _t("conn.matched"), "");
+    setConnStrip(
+      "call",
+      matchMode === "friend" || inFriendCall
+        ? _t("conn.friend") || "Friend call"
+        : _t("conn.matched"),
+      ""
+    );
+    updateChatHeader();
+    updatePipButton();
+    // Soft PWA install after first real media path (not during age-gate)
+    try {
+      if (typeof RuletPwa !== "undefined" && RuletPwa.tryShow) {
+        RuletPwa.tryShow({ engaged: true, delay: 4000 });
+      }
+    } catch (_) {}
+    trackEvent("webrtc_connected", {
+      mode: matchMode || "solo",
+      friend: inFriendCall || matchMode === "friend" ? 1 : 0,
+    });
   } else if (s === "failed") {
-    showCallCoach("coach.failed");
+    // Prefer Direct ICE fail: auto-allow TURN + soft Next (once/session)
+    if (autoDisablePreferDirectOnFail({ autoNext: true })) {
+      /* toast + Next scheduled */
+    } else {
+      showCallCoach("coach.failed");
+    }
   } else if (s === "disconnected") {
     setConnStrip("warn", _t("coach.unstable"), "");
   }
@@ -1127,6 +3029,13 @@ function wireCallCoach() {
   on("btn-coach-dismiss", "click", () => hideCallCoach());
   on("btn-coach-next", "click", () => {
     hideCallCoach();
+    $("btn-next")?.click();
+  });
+  on("btn-coach-allow-turn", "click", () => {
+    preferDirectAutoOffDone = true;
+    setPreferDirectOnly(false, { silent: false });
+    hideCallCoach();
+    trackEvent("prefer_direct_coach_off");
     $("btn-next")?.click();
   });
   on("btn-coach-retry", "click", async () => {
@@ -1151,8 +3060,17 @@ function setPhase(p) {
     p === "friend_call"
       ? _t("friends.call") || "friend"
       : _phase(p);
-  el.textContent = label;
-  el.className = "phase " + p;
+  if (el) {
+    el.textContent = label;
+    el.className = "phase " + p;
+    // Hide idle + waiting/claiming — searching is footer center only (no WAITING + searching… by lang)
+    el.hidden =
+      !p ||
+      p === "idle" ||
+      p === "waiting" ||
+      p === "claiming";
+  }
+  lastPhaseName = p || "idle";
   const wasQueue = inQueue;
   inQueue = p === "waiting" || p === "claiming";
   if (inQueue) wantSearch = true;
@@ -1166,14 +3084,174 @@ function setPhase(p) {
   }
   updatePoolHint();
   updateFriendActionButtons();
+  syncScreenWakeLock();
 }
 
 function setSplitRemote(on) {
+  // Classic 1v2 solo view (two party members stacked). Not used in stage-trio.
+  if (trioBrowse) on = false;
   const stack = $("remote-stack");
   const v2 = $("remote2");
   stack?.classList.toggle("split", !!on);
   if (v2) v2.hidden = !on;
   if (!on && v2) v2.srcObject = null;
+}
+
+/** Sync local preview into mobile partner PiP (portrait trio). */
+function syncLocalPipMirror() {
+  const pip = $("local-pip-mirror");
+  const local = $("local");
+  if (!pip) return;
+  try {
+    const src = local?.srcObject || previewStream || null;
+    if (pip.srcObject !== src) pip.srcObject = src;
+    playVideoEl(pip);
+  } catch (_) {}
+}
+
+/**
+ * Three-pane layout for find-third / party member hunting a stranger.
+ * Desktop & landscape: Local | Partner | 3rd
+ * Mobile portrait: Partner (+ self PiP) | 3rd
+ */
+function enableTrioLayout(on, { searching = false } = {}) {
+  trioBrowse = !!on;
+  const stage = document.querySelector("main.stage");
+  stage?.classList.toggle("stage-trio", !!on);
+  stage?.classList.toggle("stage-trio-searching", !!(on && searching));
+  const third = $("tile-third");
+  if (third) third.hidden = !on;
+  const empty = $("third-empty");
+  const r3 = $("remote-third");
+  if (!on) {
+    if (empty) empty.hidden = true;
+    syncThirdEmptyBrand(false);
+    if (r3) {
+      r3.hidden = true;
+      try {
+        r3.srcObject = null;
+      } catch (_) {}
+    }
+    const pip = $("local-in-partner-pip");
+    if (pip) pip.hidden = true;
+    return;
+  }
+  if (empty) {
+    empty.hidden = !searching;
+    empty.removeAttribute("hidden");
+    if (!searching) empty.hidden = true;
+  }
+  if (r3 && searching) {
+    r3.hidden = true;
+    try {
+      r3.srcObject = null;
+    } catch (_) {}
+  }
+  // Brand loop in middle pane while hunting for 3rd (was stuck as static poster)
+  if (searching) {
+    forceThirdBrandLoop();
+    setTimeout(() => forceThirdBrandLoop(), 100);
+    setTimeout(() => forceThirdBrandLoop(), 400);
+    setTimeout(() => forceThirdBrandLoop(), 1000);
+  } else {
+    syncThirdEmptyBrand(false);
+  }
+  // Always keep first partner painted when entering trio
+  bindFirstPartnerToMain(null);
+  syncTrioLayout();
+}
+
+/**
+ * Middle pane while find-3rd: play loading-screen.mp4 loop (not static logo-hero).
+ * Must run after #tile-third is un-hidden — browsers block play on display:none parents.
+ */
+function forceThirdBrandLoop() {
+  const tile = $("tile-third");
+  const empty = $("third-empty");
+  const v = $("third-empty-video");
+  const poster = $("third-empty-poster");
+  if (!tile || !v) return;
+  tile.hidden = false;
+  tile.removeAttribute("hidden");
+  if (empty) {
+    empty.hidden = false;
+    empty.removeAttribute("hidden");
+  }
+  // Hide live stranger slot while hunting
+  const r3 = $("remote-third");
+  if (r3) {
+    r3.hidden = true;
+    try {
+      r3.srcObject = null;
+    } catch (_) {}
+  }
+  v.hidden = false;
+  v.removeAttribute("hidden");
+  v.style.cssText =
+    "position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1;display:block!important;opacity:1!important;visibility:visible!important;pointer-events:none;background:#0a0c12;";
+  if (!v.getAttribute("src") || v.networkState === 3) {
+    v.src = "/brand/loading-screen.mp4?v=5";
+  }
+  try {
+    v.load();
+  } catch (_) {}
+  playBrandLoopVideo(v, poster, true);
+  startBrandKeepalive();
+}
+
+function syncTrioLayout() {
+  if (!trioBrowse) return;
+  const stage = document.querySelector("main.stage");
+  if (!stage) return;
+  const portrait =
+    window.matchMedia &&
+    window.matchMedia("(max-width: 900px) and (orientation: portrait)").matches;
+  const pip = $("local-in-partner-pip");
+  if (pip) {
+    pip.hidden = !portrait;
+    if (portrait) syncLocalPipMirror();
+  }
+}
+
+function setThirdSlotStream(stream, label) {
+  const r3 = $("remote-third");
+  const empty = $("third-empty");
+  const tag = $("third-tag");
+  const wrap = $("third-tile-tag");
+  if (stream && r3) {
+    prepareVideoEl(r3, { muted: false });
+    r3.srcObject = stream;
+    r3.hidden = false;
+    playVideoEl(r3);
+    if (empty) empty.hidden = true;
+    syncThirdEmptyBrand(false);
+    document.querySelector("main.stage")?.classList.remove("stage-trio-searching");
+  } else {
+    if (r3) {
+      r3.hidden = true;
+      try {
+        r3.srcObject = null;
+      } catch (_) {}
+    }
+    if (empty) {
+      empty.hidden = !trioBrowse;
+      if (trioBrowse) empty.removeAttribute("hidden");
+    }
+    document
+      .querySelector("main.stage")
+      ?.classList.toggle("stage-trio-searching", !!trioBrowse);
+    // Middle pane: animated brand loop (not static poster)
+    if (trioBrowse) forceThirdBrandLoop();
+    else syncThirdEmptyBrand(false);
+  }
+  if (tag) tag.textContent = label || "";
+  if (wrap) wrap.hidden = !label;
+}
+
+/** Brand loop behind “Looking for a 3rd…” */
+function syncThirdEmptyBrand(showEmpty) {
+  if (showEmpty) forceThirdBrandLoop();
+  else playBrandLoopVideo($("third-empty-video"), $("third-empty-poster"), false);
 }
 
 function showFriendPip(show) {
@@ -1188,55 +3266,210 @@ function showFriendPip(show) {
 }
 
 /**
+ * iOS Safari: set playsinline *before* play(); local must stay muted for autoplay.
+ */
+function prepareVideoEl(el, { muted = false } = {}) {
+  if (!el) return;
+  try {
+    el.playsInline = true;
+    el.setAttribute("playsinline", "");
+    el.setAttribute("webkit-playsinline", "");
+    if (muted) {
+      el.muted = true;
+      el.defaultMuted = true;
+      el.setAttribute("muted", "");
+    }
+  } catch (_) {}
+}
+
+function playVideoEl(el) {
+  if (!el) return;
+  prepareVideoEl(el, { muted: el.id === "local" || el.muted });
+  try {
+    const p = el.play?.();
+    if (p && typeof p.catch === "function") p.catch(() => {});
+  } catch (_) {}
+}
+
+/** Unlock remote/local media after a user gesture (iOS audio/video policy). */
+function ensureMediaUnlocked() {
+  try {
+    resumeMeterCtx?.();
+  } catch (_) {}
+  for (const id of ["remote", "remote2", "remote-third", "local", "friend-pip", "local-pip-mirror"]) {
+    const v = $(id);
+    if (!v?.srcObject) continue;
+    playVideoEl(v);
+  }
+}
+
+/** True when this element is a main partner surface (not friend PiP / local). */
+function isMainRemoteVideoEl(el) {
+  if (!el || !el.id) return false;
+  return (
+    el.id === "remote" ||
+    el.id === "remote2" ||
+    el.id === "remote-third"
+  );
+}
+
+/**
  * Bind a peer connection’s remote stream to a video element (or detach).
  * Fixes party-browse: friend used to own #remote and blocked the stranger feed.
+ * Always clears the empty/brand overlay when a live stream is shown on main remotes
+ * (rematch / rebind used to leave empty covering the partner feed).
  */
 function bindPcVideo(pc, el) {
   if (!pc) return;
   pc._videoEl = el || null;
   const stream = pc.remoteStream;
   if (el && stream) {
+    prepareVideoEl(el, { muted: false });
     el.srcObject = stream;
-    try {
-      const p = el.play?.();
-      if (p && typeof p.catch === "function") p.catch(() => {});
-    } catch (_) {}
+    playVideoEl(el);
+    if (isMainRemoteVideoEl(el)) {
+      setRemoteEmpty(false);
+      applyRemoteVolume();
+      applySpeaker();
+    }
   }
 }
 
 function paintRemoteFromPc(pc, stream) {
   const el = pc?._videoEl;
   if (!el) return;
+  prepareVideoEl(el, { muted: false });
   el.srcObject = stream || pc.remoteStream || null;
-  try {
-    const p = el.play?.();
-    if (p && typeof p.catch === "function") p.catch(() => {});
-  } catch (_) {}
-  // Main partner tile only — not friend PiP
-  if (el.id === "remote" || el.id === "remote2") {
+  playVideoEl(el);
+  // Partner tiles only — not friend PiP / local
+  if (isMainRemoteVideoEl(el)) {
     setRemoteEmpty(false);
     applyRemoteVolume();
     applySpeaker();
   }
 }
 
-/** After stranger leaves, put friend back on the main remote tile. */
-function reattachFriendToMainRemote() {
-  showFriendPip(false);
-  setSplitRemote(false);
+/** If any main remote already has a live stream, hide empty overlay + ensure play. */
+function ensurePartnerVideoVisible() {
+  for (const id of ["remote", "remote2", "remote-third"]) {
+    const el = $(id);
+    if (!el?.srcObject) continue;
+    const live = (el.srcObject.getTracks?.() || []).some(
+      (t) => t.kind === "video" && t.readyState === "live"
+    );
+    if (!live) continue;
+    setRemoteEmpty(false);
+    playVideoEl(el);
+  }
+  // Also re-paint from peer map (srcObject may be set but overlay still up)
   for (const pc of peerPcs.values()) {
-    if (pc._role !== "friend") continue;
-    bindPcVideo(pc, $("remote"));
-    if (pc.remoteStream) {
+    if (!pc?.remoteStream || !isMainRemoteVideoEl(pc._videoEl)) continue;
+    const hasVid = (pc.remoteStream.getVideoTracks?.() || []).some(
+      (t) => t.readyState === "live"
+    );
+    if (hasVid) {
       paintRemoteFromPc(pc, pc.remoteStream);
     }
   }
+}
+
+/**
+ * Find an existing RTC peer for a match peer_id.
+ * After find-third, server may re-list the same person with a different key style —
+ * fall back to the only live stream PC so we never drop the first conversationalist.
+ */
+function findPcForPeer(peerId) {
+  if (peerId && peerPcs.has(peerId)) return peerPcs.get(peerId);
+  const entries = [...peerPcs.entries()];
+  if (!entries.length) return null;
+  const live = entries.filter(([, pc]) =>
+    (pc.remoteStream?.getVideoTracks?.() || []).some((t) => t.readyState === "live")
+  );
+  if (live.length === 1) return live[0][1];
+  if (entries.length === 1) return entries[0][1];
+  // Prefer anything already marked teammate/friend
+  const mate = entries.find(([, pc]) => isTeammateRole(pc._role));
+  if (mate) return mate[1];
+  return null;
+}
+
+/** Keep map keyed by server peer_id when we recover a PC under another key. */
+function rekeyPeerPc(peerId, pc) {
+  if (!pc) return;
+  if (peerId) {
+    for (const [k, v] of [...peerPcs.entries()]) {
+      if (v === pc && k !== peerId) peerPcs.delete(k);
+    }
+    peerPcs.set(peerId, pc);
+  }
+}
+
+/**
+ * Bind first conversationalist (teammate) onto #remote and force video visible.
+ * Call on find-third accept and whenever trio layout is active.
+ */
+function bindFirstPartnerToMain(meta) {
+  const remote = $("remote");
+  if (!remote) return null;
+  const peerId = meta?.peer_id || "";
+  let pc = findPcForPeer(peerId);
+  if (!pc) {
+    // Last resort: any PC with a remote stream
+    for (const p of peerPcs.values()) {
+      if (p.remoteStream) {
+        pc = p;
+        break;
+      }
+    }
+  }
+  if (!pc) return null;
+  if (peerId) rekeyPeerPc(peerId, pc);
+  pc._role = "teammate";
+  // Detach from friend-pip if still there
+  showFriendPip(false);
+  bindPcVideo(pc, remote);
+  const stream = pc.remoteStream;
+  if (stream) {
+    prepareVideoEl(remote, { muted: false });
+    remote.srcObject = stream;
+    playVideoEl(remote);
+    setRemoteEmpty(false);
+    applyRemoteVolume();
+    applySpeaker();
+  }
+  const tag = $("remote-tag");
+  const wrap = $("remote-tile-tag");
+  if (tag) {
+    tag.textContent =
+      meta?.name ||
+      lastMatchMeta?.name ||
+      _t("trio.partner") ||
+      "Partner";
+  }
+  if (wrap) wrap.hidden = !tag?.textContent;
+  return pc;
+}
+
+/** After stranger leaves, put friend/teammate back on the main remote tile. */
+function reattachFriendToMainRemote() {
+  showFriendPip(false);
+  setSplitRemote(false);
+  const mate = [...peerPcs.values()].find((pc) => isTeammateRole(pc._role));
+  if (mate) {
+    bindFirstPartnerToMain({ peer_id: [...peerPcs.entries()].find(([, p]) => p === mate)?.[0] });
+  } else {
+    // Trio: still try any live PC (role may lag)
+    bindFirstPartnerToMain(null);
+  }
+  if (trioBrowse) setThirdSlotStream(null);
 }
 
 function updateFriendActionButtons() {
   const browse = $("btn-browse-together");
   const hang = $("btn-hangup-friend");
   const block = $("btn-block");
+  const findThird = $("btn-find-third");
+  const findCancel = $("btn-find-third-cancel");
   if (browse) browse.hidden = !inFriendCall || matchMode === "party_browse";
   if (hang) hang.hidden = !inFriendCall && matchMode !== "friend";
   if (inFriendCall && matchMode === "friend") {
@@ -1245,7 +3478,27 @@ function updateFriendActionButtons() {
   }
   if (matchMode === "party_browse" && yourRole === "party") {
     if (browse) browse.hidden = true;
-    if (hang) hang.hidden = false;
+    // Hang only for real friend parties; stranger find-third uses Stop
+    if (hang) hang.hidden = !inFriendCall || trioBrowse;
+  }
+  // Find 3rd: stranger 1v1 only (including after a party member drops and we stay with the 3rd)
+  const canFindThird =
+    TRIO_FIND_ENABLED &&
+    !!matched &&
+    !inFriendCall &&
+    matchMode === "solo" &&
+    yourRole === "solo" &&
+    !trioBrowse &&
+    peerPcs.size >= 1 &&
+    findThirdPending !== "out" &&
+    findThirdPending !== "in";
+  if (findThird) {
+    findThird.hidden = !canFindThird;
+    findThird.disabled = false;
+    findThird.classList.toggle("accent", canFindThird);
+  }
+  if (findCancel) {
+    findCancel.hidden = findThirdPending !== "out";
   }
   // Block / Report when in a call with a known partner user_id
   const canMod =
@@ -1259,15 +3512,56 @@ function updateFriendActionButtons() {
   if (repDock) {
     repDock.hidden = !canMod || matchMode === "friend";
   }
+  syncTrioLayout();
   updatePartnerClickable();
 }
 
-function setStatus(s) {
-  $("status").textContent = s;
+/**
+ * Header #status noise we never show:
+ * - idle/stopped (Stop used to say "stopped — idle")
+ * - searching (lives in footer center: "Ищем собеседника…")
+ */
+function isHeaderStatusNoise(text) {
+  const t = String(text || "").trim();
+  if (!t) return true;
+  if (
+    /^(stopped|остановлено|зупинено|idle|ожидание|очікування)(\s*[—–\-]\s*(idle|ожидание|очікування|stopped|остановлено))?$/i.test(
+      t
+    )
+  ) {
+    return true;
+  }
+  // Searching copy — footer pill already shows this (between WAITING and language was clutter)
+  if (
+    /search|ищем|поиск|looking for|ещё\s+\d+\s+в\s+очереди|other waiting/i.test(t)
+  ) {
+    return true;
+  }
+  return false;
 }
 
+function setStatus(s) {
+  const el = $("status");
+  if (!el) return;
+  const text = s == null ? "" : String(s).trim();
+  // Header: errors / friend notes only — not searching or idle
+  if (!text || isHeaderStatusNoise(text)) {
+    el.textContent = "";
+    el.hidden = true;
+    return;
+  }
+  el.textContent = text;
+  el.hidden = false;
+}
+
+/** Last pool online count (for empty-share presence line). */
+let lastOnlineCount = 0;
+
 function setPool({ online, waiting, offers, room }) {
-  if (online != null && $("stat-online")) $("stat-online").textContent = String(online);
+  if (online != null) {
+    lastOnlineCount = online;
+    if ($("stat-online")) $("stat-online").textContent = String(online);
+  }
   if (waiting != null) {
     lastWaitingCount = waiting;
     if ($("stat-waiting")) $("stat-waiting").textContent = String(waiting);
@@ -1278,12 +3572,23 @@ function setPool({ online, waiting, offers, room }) {
   if (room !== undefined) updateRoomChip(room);
   else updateRoomChip(currentRoom());
   updatePoolHint();
+  updateEmptySharePresence();
+  // Mobile invite + alone-search copy depend on pool counts
+  updateEmptyShareVisibility();
+  if ((inQueue || wantSearch) && !matched) {
+    setSearchingEmptyCopy();
+  }
 }
 
 function updateRoomChip(room) {
   const chip = $("room-chip");
   const label = $("room-chip-label");
   if (!chip) return;
+  if (!ROOMS_ENABLED) {
+    chip.hidden = true;
+    if (label) label.textContent = "";
+    return;
+  }
   const r = (room != null ? room : currentRoom() || "").trim();
   if (!r) {
     chip.hidden = true;
@@ -1304,24 +3609,41 @@ function updatePoolHint() {
     return;
   }
   const n = lastWaitingCount || 0;
+  const online = lastOnlineCount || 0;
   const others = Math.max(0, n - 1);
   const room = (currentRoom() || "").trim();
   if (room) {
     if (others > 0) {
       hint.textContent = _t("pool.roomOthers", { n: others, r: room });
     } else if (inQueue || wantSearch) {
-      hint.textContent = _t("pool.roomAlone", { r: room });
+      hint.textContent =
+        _t("pool.roomAlone", { r: room }) ||
+        `You’re alone in room “${room}” — share the link so a friend can join.`;
     } else {
       hint.textContent = "";
     }
   } else if (others > 0) {
     hint.textContent = _t("pool.othersWaiting", { n: others });
   } else if (inQueue || wantSearch) {
-    hint.textContent = _t("pool.alone");
+    // Alone in public pool — point to friend invite (rooms may be off)
+    if (online > 1) {
+      hint.textContent =
+        _t("pool.aloneOnline", { n: online }) ||
+        `${online} online, but nobody else is waiting — invite a friend.`;
+    } else {
+      hint.textContent =
+        _t("pool.alone") ||
+        "You’re the only one waiting — invite a friend to join you.";
+    }
   } else {
     hint.textContent = "";
   }
   hint.hidden = !hint.textContent;
+}
+
+/** Online/Waiting live in the header pool-bar only (no duplicate under Start). */
+function updateEmptySharePresence() {
+  // Intentionally empty — stats are in #stat-online / #stat-waiting
 }
 
 /** Clipboard only (never opens share sheet). */
@@ -1350,18 +3672,27 @@ async function copyToClipboard(url, okCopyKey) {
  * Prefer native share sheet on mobile; fall back to clipboard.
  * @param {{ preferShare?: boolean }} [opts] preferShare=false forces clipboard only
  */
+function siteBrandName() {
+  try {
+    if (typeof RuletBrand !== "undefined" && RuletBrand.name) return RuletBrand.name();
+  } catch (_) {}
+  return "ruletka.vip";
+}
+
 async function shareOrCopy(url, title, okShareKey, okCopyKey, opts) {
   const preferShare = !opts || opts.preferShare !== false;
+  const brand = siteBrandName();
   if (preferShare) {
     try {
       if (navigator.share) {
         await navigator.share({
-          title: title || "ruletka.vip",
+          title: title || brand,
           url,
           text: title || url,
         });
         setStatus(_t(okShareKey || "room.shared"));
         log(_t(okShareKey || "room.shared") + ": " + url);
+        trackEvent("share", { via: "native", key: okShareKey || "room.shared" });
         return "share";
       }
     } catch (e) {
@@ -1369,7 +3700,9 @@ async function shareOrCopy(url, title, okShareKey, okCopyKey, opts) {
         return "cancel";
     }
   }
-  return copyToClipboard(url, okCopyKey);
+  const r = await copyToClipboard(url, okCopyKey);
+  trackEvent("share", { via: "copy", key: okCopyKey || "room.copied" });
+  return r;
 }
 
 function friendInviteUrl() {
@@ -1404,43 +3737,193 @@ function rulesAccepted() {
   }
 }
 
+function showAgeStep() {
+  const ov = $("rules-overlay");
+  const step = $("age-gate-step");
+  const sheet = $("agree-sheet");
+  const scrim = $("agree-sheet-scrim");
+  const under = $("age-gate-underage");
+  if (step) step.hidden = false;
+  if (sheet) sheet.hidden = true;
+  if (scrim) scrim.hidden = true;
+  ov?.classList.remove("has-agree-open");
+  if (under) under.hidden = true;
+}
+
+function showAgreeSheet() {
+  const ov = $("rules-overlay");
+  const sheet = $("agree-sheet");
+  const scrim = $("agree-sheet-scrim");
+  const under = $("age-gate-underage");
+  if (under) under.hidden = true;
+  if (sheet) sheet.hidden = false;
+  if (scrim) scrim.hidden = false;
+  ov?.classList.add("has-agree-open");
+}
+
+function hideRulesGate() {
+  const ov = $("rules-overlay");
+  if (ov) {
+    releaseSheetFocusTrap(ov);
+    ov.hidden = true;
+    ov.classList.remove("has-agree-open");
+  }
+  const sheet = $("agree-sheet");
+  const scrim = $("agree-sheet-scrim");
+  if (sheet) sheet.hidden = true;
+  if (scrim) scrim.hidden = true;
+}
+
 function showRulesGate() {
   const ov = $("rules-overlay");
   if (!ov || rulesAccepted()) return false;
   ov.hidden = false;
-  const chk = $("chk-rules-age");
-  const btn = $("btn-rules-accept");
-  if (chk) chk.checked = false;
-  if (btn) btn.disabled = true;
+  showAgeStep();
+  // Brand logo / name if available
+  try {
+    if (typeof RuletBrand !== "undefined" && RuletBrand.apply) {
+      RuletBrand.apply(ov);
+    }
+  } catch (_) {}
+  // Focus primary age action for keyboard / screen-reader entry
+  setTimeout(() => {
+    try {
+      $("btn-age-yes")?.focus?.();
+    } catch (_) {}
+  }, 80);
+  bindSheetFocusTrap(ov);
   return true;
 }
 
+function acceptRulesAndEnter() {
+  try {
+    localStorage.setItem(RULES_KEY, "1");
+  } catch (_) {}
+  hideRulesGate();
+  try {
+    trackEvent("rules_accept");
+  } catch (_) {}
+  startSession({ forceMedia: true });
+  // User gesture — start partner empty brand loop
+  showPartnerEmptyWithBrand({ searching: false });
+  // Room invite deep-link: join as soon as gate is done
+  setTimeout(() => maybeAutoJoinRoomInvite(), 350);
+}
+
 function wireRulesGate() {
-  const chk = $("chk-rules-age");
-  const btn = $("btn-rules-accept");
   const ov = $("rules-overlay");
   if (!ov) return;
-  chk?.addEventListener("change", () => {
-    if (btn) btn.disabled = !chk.checked;
-  });
-  btn?.addEventListener("click", () => {
-    if (!chk?.checked) return;
+
+  $("btn-age-yes")?.addEventListener("click", () => {
     try {
-      localStorage.setItem(RULES_KEY, "1");
+      trackEvent("age_yes");
     } catch (_) {}
-    ov.hidden = true;
-    startSession({ forceMedia: true });
+    showAgreeSheet();
+    // Move focus into agreement sheet primary action
+    setTimeout(() => {
+      try {
+        $("btn-rules-accept")?.focus?.();
+      } catch (_) {}
+    }, 80);
   });
+  $("btn-age-no")?.addEventListener("click", () => {
+    const under = $("age-gate-underage");
+    if (under) under.hidden = false;
+    const actions = document.querySelector(".age-gate-actions");
+    if (actions) actions.hidden = true;
+    // Offer a safe exit to the homepage (not the chat)
+    let exit = $("btn-age-exit");
+    if (!exit) {
+      exit = document.createElement("a");
+      exit.id = "btn-age-exit";
+      exit.className = "age-gate-btn ghost";
+      exit.href = "/";
+      exit.style.marginTop = "0.75rem";
+      exit.textContent = _t("rules.underageExit") || "Back to homepage";
+      $("age-gate-step")?.appendChild(exit);
+    }
+    exit.hidden = false;
+    setTimeout(() => {
+      try {
+        exit.focus?.();
+      } catch (_) {}
+    }, 40);
+    try {
+      trackEvent("age_no");
+    } catch (_) {}
+  });
+  $("btn-rules-accept")?.addEventListener("click", () => {
+    acceptRulesAndEnter();
+  });
+  $("btn-agree-cancel")?.addEventListener("click", () => {
+    showAgeStep();
+    setTimeout(() => {
+      try {
+        $("btn-age-yes")?.focus?.();
+      } catch (_) {}
+    }, 40);
+  });
+  $("btn-agree-close")?.addEventListener("click", () => {
+    showAgeStep();
+  });
+  $("agree-sheet-scrim")?.addEventListener("click", () => {
+    showAgeStep();
+  });
+
   if (!rulesAccepted()) {
     ov.hidden = false;
-    if (btn) btn.disabled = true;
+    showAgeStep();
+    setTimeout(() => {
+      try {
+        $("btn-age-yes")?.focus?.();
+      } catch (_) {}
+    }, 100);
+    bindSheetFocusTrap(ov);
   }
 }
 
 function setLocalEmpty(show) {
   $("local-empty")?.classList.toggle("hidden", !show);
 }
-function setRemoteEmpty(show) {
+
+/** Live video tracks on partner surfaces (main remotes). */
+function partnerHasLiveVideo() {
+  for (const id of ["remote", "remote2", "remote-third"]) {
+    const el = $(id);
+    if (!el?.srcObject) continue;
+    try {
+      if (
+        (el.srcObject.getVideoTracks?.() || []).some(
+          (t) => t.readyState === "live"
+        )
+      ) {
+        return true;
+      }
+    } catch (_) {}
+  }
+  for (const pc of peerPcs.values()) {
+    try {
+      if (
+        (pc.remoteStream?.getVideoTracks?.() || []).some(
+          (t) => t.readyState === "live"
+        )
+      ) {
+        return true;
+      }
+    } catch (_) {}
+  }
+  return false;
+}
+
+/**
+ * @param {boolean} show
+ * @param {{ force?: boolean }} [opts] force=true allows connecting overlay even if a stream is briefly present
+ */
+function setRemoteEmpty(show, opts) {
+  // Never cover a live partner feed with the brand empty layer (unless forced connect flash)
+  if (show && !opts?.force && matched && partnerHasLiveVideo()) {
+    show = false;
+  }
   $("remote-empty")?.classList.toggle("hidden", !show);
   // Hide partner name chip when no one is connected
   if (show) {
@@ -1450,21 +3933,605 @@ function setRemoteEmpty(show) {
     if (tag) tag.textContent = "";
     setTileAvatar("remote", "");
   }
-  // Loop brand loading video only while partner slot is empty
-  const v = $("remote-empty-video");
-  if (v) {
-    if (show) {
+  // Brand poster always; loop video only while empty (lazy src for mobile)
+  syncEmptyBrandMedia(show);
+  // Start button only when idle empty (not while searching)
+  if (show) {
+    updateStartButtonVisibility();
+  } else {
+    showStartButton(false);
+  }
+  updateEmptyShareVisibility();
+}
+
+/**
+ * Empty partner tile: looping /brand/loading-screen.mp4 (cylinder animation).
+ * Static logo-hero is only a fallback under the video.
+ */
+function syncEmptyBrandMedia(showEmpty) {
+  playBrandLoopVideo($("remote-empty-video"), $("remote-empty-poster"), showEmpty);
+}
+
+/**
+ * Force brand mp4 to loop. Video is z-index above poster; never leave only static image.
+ */
+function playBrandLoopVideo(v, poster, showEmpty) {
+  if (!v && !poster) return;
+
+  const reduce =
+    typeof matchMedia === "function" &&
+    matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  if (!showEmpty) {
+    try {
+      v?.pause?.();
+    } catch (_) {}
+    if (v) v.dataset.wantPlay = "0";
+    if (poster) poster.classList.remove("is-covered");
+    return;
+  }
+
+  if (reduce) {
+    try {
+      v?.pause?.();
+    } catch (_) {}
+    if (v) v.style.opacity = "0";
+    if (poster) poster.classList.remove("is-covered");
+    return;
+  }
+
+  if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+    try {
+      v?.pause?.();
+    } catch (_) {}
+    return;
+  }
+
+  if (!v) return;
+
+  v.dataset.wantPlay = "1";
+  // Critical: never leave [hidden] on the brand loop
+  v.hidden = false;
+  v.removeAttribute("hidden");
+  v.style.cssText =
+    "position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1;display:block!important;opacity:1!important;visibility:visible!important;pointer-events:none;";
+
+  if (!v.getAttribute("src")) {
+    v.src = "/brand/loading-screen.mp4?v=4";
+  }
+
+  try {
+    v.muted = true;
+    v.defaultMuted = true;
+    v.volume = 0;
+    v.setAttribute("muted", "");
+    v.playsInline = true;
+    v.setAttribute("playsinline", "");
+    v.setAttribute("webkit-playsinline", "");
+    v.loop = true;
+    v.autoplay = true;
+
+    const markPlaying = () => {
+      if (v.dataset.wantPlay !== "1") return;
+      if (poster) poster.classList.add("is-covered");
+      v.hidden = false;
+      v.removeAttribute("hidden");
+    };
+
+    if (!v._brandLoopWired) {
+      v._brandLoopWired = true;
+      v.addEventListener("playing", markPlaying);
+      v.addEventListener("timeupdate", () => {
+        if (v.currentTime > 0.05) markPlaying();
+      });
+      v.addEventListener("ended", () => {
+        if (v.dataset.wantPlay !== "1") return;
+        try {
+          v.currentTime = 0;
+          v.play()?.catch?.(() => {});
+        } catch (_) {}
+      });
+    }
+
+    const go = () => {
+      if (v.dataset.wantPlay !== "1") return;
       try {
-        v.muted = true;
-        const p = v.play();
-        if (p && typeof p.catch === "function") p.catch(() => {});
+        if (v.ended) v.currentTime = 0;
       } catch (_) {}
-    } else {
-      try {
-        v.pause();
-      } catch (_) {}
+      const p = v.play();
+      if (p && typeof p.then === "function") {
+        p.then(markPlaying).catch(() => {});
+      }
+    };
+    go();
+    requestAnimationFrame(go);
+    setTimeout(go, 50);
+    setTimeout(go, 250);
+    setTimeout(go, 800);
+  } catch (_) {}
+}
+
+let brandKeepaliveTimer = 0;
+
+function startBrandKeepalive() {
+  if (brandKeepaliveTimer) return;
+  brandKeepaliveTimer = setInterval(() => {
+    const emptyOn = isRemoteEmptyVisible();
+    const thirdOn =
+      !!trioBrowse && !!$("third-empty") && !$("third-empty").hidden;
+    if (!emptyOn && !thirdOn) return;
+    if (emptyOn) {
+      const v = $("remote-empty-video");
+      if (v && (v.paused || v.ended || v.currentTime < 0.01)) {
+        playBrandLoopVideo(v, $("remote-empty-poster"), true);
+      }
+    }
+    if (thirdOn) {
+      const v3 = $("third-empty-video");
+      if (v3 && (v3.paused || v3.ended || v3.currentTime < 0.01)) {
+        playBrandLoopVideo(v3, $("third-empty-poster"), true);
+      }
+    }
+  }, 1000);
+}
+
+function kickEmptyBrandMedia() {
+  startBrandKeepalive();
+  const empty = $("remote-empty");
+  if (empty && !empty.classList.contains("hidden") && !matched) {
+    playBrandLoopVideo($("remote-empty-video"), $("remote-empty-poster"), true);
+  } else if (isRemoteEmptyVisible()) {
+    playBrandLoopVideo($("remote-empty-video"), $("remote-empty-poster"), true);
+  }
+  if (trioBrowse) {
+    const empty3 = $("third-empty");
+    if (empty3 && !empty3.hidden) {
+      playBrandLoopVideo($("third-empty-video"), $("third-empty-poster"), true);
     }
   }
+}
+
+function isRemoteEmptyVisible() {
+  const empty = $("remote-empty");
+  if (!empty || empty.classList.contains("hidden")) return false;
+  if (trioBrowse && yourRole === "party") return false;
+  if (matched && !inQueue && matchMode !== "party_browse") return false;
+  if (inFriendCall && matchMode === "friend" && !trioBrowse) return false;
+  return true;
+}
+
+function showPartnerEmptyWithBrand({ searching = false } = {}) {
+  try {
+    const r = $("remote");
+    if (r && !matched) {
+      if (!peerPcs.size || ![...peerPcs.values()].some((pc) => pc.remoteStream)) {
+        r.srcObject = null;
+      }
+    }
+  } catch (_) {}
+  setRemoteEmpty(true, { force: true });
+  const empty = $("remote-empty");
+  if (empty) {
+    empty.classList.toggle("is-searching", !!searching);
+    empty.classList.remove("hidden");
+  }
+  // Always play brand loop directly (bypass isRemoteEmptyVisible edge cases)
+  playBrandLoopVideo($("remote-empty-video"), $("remote-empty-poster"), true);
+  startBrandKeepalive();
+}
+
+/** True when nobody else is waiting (self in queue counts as 1). */
+function isPoolAlone() {
+  const waiting = lastWaitingCount || 0;
+  if (inQueue || wantSearch) return Math.max(0, waiting - 1) === 0;
+  return waiting === 0;
+}
+
+/**
+ * Desktop: footer invite while idle/searching.
+ * Mobile: Invite friend under Start when alone (idle or searching).
+ * Online/Waiting stay in the header only.
+ */
+function updateEmptyShareVisibility() {
+  const invite = $("footer-invite");
+  const mobile = $("mobile-invite");
+  const empty = $("remote-empty");
+  const emptyOpen =
+    !!empty &&
+    !empty.classList.contains("hidden") &&
+    !matched &&
+    !inFriendCall &&
+    !trioBrowse;
+  const alone = isPoolAlone();
+  // Desktop: show invite tools whenever empty partner tile is up
+  if (invite) invite.hidden = !emptyOpen;
+  // Mobile: friend invite when alone (idle Start or still searching)
+  if (mobile) {
+    const showMobile = emptyOpen && alone;
+    mobile.hidden = !showMobile;
+    mobile.classList.toggle("is-searching-alone", !!(showMobile && (inQueue || wantSearch)));
+  }
+  if (!emptyOpen) {
+    hideEmptyShareQr();
+    clearLongWaitBoost();
+  } else if (alone && (inQueue || wantSearch)) {
+    maybeStartLongWaitBoost();
+  } else {
+    clearLongWaitBoost();
+  }
+  updateFriendsOnlineStrip();
+}
+
+/**
+ * While idle/searching: chip strip of online friends (call / open chat).
+ */
+function updateFriendsOnlineStrip() {
+  const strip = $("friends-online-strip");
+  const row = $("friends-online-row");
+  if (!strip || !row) return;
+  const empty = $("remote-empty");
+  const emptyOpen =
+    !!empty &&
+    !empty.classList.contains("hidden") &&
+    !matched &&
+    !inFriendCall &&
+    !trioBrowse;
+  const online = (friendsCache || []).filter(
+    (f) => f && f.online && f.user_id && f.user_id !== myUserId
+  );
+  if (!emptyOpen || !online.length) {
+    strip.hidden = true;
+    row.innerHTML = "";
+    return;
+  }
+  strip.hidden = false;
+  row.innerHTML = online
+    .slice(0, 8)
+    .map((f) => {
+      const name = escapeHtml(
+        friendDisplayName(f) || f.name || f.short_id || "friend"
+      );
+      const av =
+        isValidAvatarDataUrl(f.avatar) && f.avatar
+          ? `<img class="fos-av" src="${escapeAttr(f.avatar)}" alt="" />`
+          : `<span class="fos-av fos-av-fallback" aria-hidden="true">${escapeHtml(
+              (name || "?").slice(0, 1).toUpperCase()
+            )}</span>`;
+      return `<button type="button" class="friends-online-chip" data-friend-online="${escapeAttr(
+        f.user_id
+      )}" title="${escapeAttr(
+        _t("friends.call") || "Call"
+      )}">${av}<span class="fos-name">${name}</span></button>`;
+    })
+    .join("");
+  row.querySelectorAll("[data-friend-online]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const uid = btn.getAttribute("data-friend-online");
+      if (!uid) return;
+      trackEvent("friends_online_strip_call");
+      send({ type: "call_friend", user_id: uid });
+      setStatus(_t("status.calling") || "Calling…");
+    });
+  });
+}
+
+/** After ~20s alone in queue, emphasize invite (desktop footer / mobile under Start). */
+let longWaitTimer = 0;
+function clearLongWaitBoost() {
+  if (longWaitTimer) {
+    clearTimeout(longWaitTimer);
+    longWaitTimer = 0;
+  }
+  $("footer-invite")?.classList.remove("is-long-wait");
+  $("mobile-invite")?.classList.remove("is-long-wait");
+}
+function maybeStartLongWaitBoost() {
+  if (longWaitTimer) return;
+  if (matched || inFriendCall || trioBrowse) return;
+  if (!inQueue && !wantSearch) return;
+  if (!isPoolAlone()) return;
+  longWaitTimer = setTimeout(() => {
+    longWaitTimer = 0;
+    if (matched || inFriendCall || trioBrowse) return;
+    if (!inQueue && !wantSearch) return;
+    if (!isPoolAlone()) return;
+    const footer = $("footer-invite");
+    if (footer && !footer.hidden) footer.classList.add("is-long-wait");
+    const mobile = $("mobile-invite");
+    if (mobile && !mobile.hidden) mobile.classList.add("is-long-wait");
+  }, 20_000);
+}
+
+/** @type {"room"|"friend"|null} */
+let emptyShareQrMode = null;
+
+function hideEmptyShareQr() {
+  const qr = $("empty-share-qr");
+  if (qr) {
+    qr.hidden = true;
+    qr.innerHTML = "";
+  }
+  emptyShareQrMode = null;
+  const btn = $("btn-empty-qr");
+  if (btn) btn.textContent = _t("remote.showQr") || "QR";
+  const fbtn = $("btn-empty-friend-qr");
+  if (fbtn) fbtn.textContent = _t("remote.friendQr") || "Friend QR";
+}
+
+function showEmptyShareQr(mode) {
+  const qr = $("empty-share-qr");
+  if (!qr) return;
+  if (emptyShareQrMode === mode && !qr.hidden && qr.innerHTML) {
+    hideEmptyShareQr();
+    return;
+  }
+  let url = "";
+  let alt = "QR";
+  if (mode === "friend") {
+    if (!myFriendCode) {
+      setStatus(_t("friends.noCode") || "Friend code not ready yet");
+      return;
+    }
+    url = friendInviteUrl();
+    alt = "Friend invite QR";
+  } else {
+    url = roomShareUrl();
+    alt = "Room QR";
+  }
+  // Local QR — no third-party image host (works offline once shell is cached)
+  if (typeof RuletQr !== "undefined" && RuletQr.render) {
+    RuletQr.render(qr, url, { size: 140, margin: 2, alt });
+  } else {
+    // Fallback if qr.js failed to load
+    const src =
+      "https://api.qrserver.com/v1/create-qr-code/?size=140x140&margin=6&data=" +
+      encodeURIComponent(url);
+    qr.innerHTML = `<img src="${src}" width="140" height="140" alt="${escapeAttr(
+      alt
+    )}" loading="lazy" />`;
+  }
+  qr.hidden = false;
+  emptyShareQrMode = mode;
+  const btn = $("btn-empty-qr");
+  if (btn) {
+    btn.textContent =
+      mode === "room"
+        ? _t("remote.hideQr") || "Hide QR"
+        : _t("remote.showQr") || "QR";
+  }
+  const fbtn = $("btn-empty-friend-qr");
+  if (fbtn) {
+    fbtn.textContent =
+      mode === "friend"
+        ? _t("remote.hideQr") || "Hide QR"
+        : _t("remote.friendQr") || "Friend QR";
+  }
+}
+
+function toggleEmptyShareQr() {
+  showEmptyShareQr("room");
+}
+
+function toggleEmptyFriendQr() {
+  showEmptyShareQr("friend");
+}
+
+/**
+ * Big Start CTA in the center of the partner tile.
+ * Visible on first load / after Stop. Hidden once searching or matched.
+ */
+function showStartButton(show) {
+  const btn = $("btn-start-match");
+  const empty = $("remote-empty");
+  if (btn) btn.hidden = !show;
+  if (empty) {
+    empty.classList.toggle("is-searching", !show && !empty.classList.contains("hidden"));
+    if (show) empty.classList.remove("is-searching");
+  }
+  updateEmptyShareVisibility();
+}
+
+function updateStartButtonVisibility() {
+  const empty = $("remote-empty");
+  const idleEmpty =
+    !!empty &&
+    !empty.classList.contains("hidden") &&
+    !matched &&
+    !inQueue &&
+    !wantSearch &&
+    !inFriendCall;
+  showStartButton(idleEmpty);
+  if (idleEmpty) {
+    // Prefer idle copy (Stop may have overwritten title)
+    const titleEl = empty.querySelector(".empty-title");
+    const subEl = empty.querySelector(".empty-sub");
+    // Only reset if still "stopped" or empty — keep searching copy when searching
+    if (titleEl && !wantSearch && !inQueue) {
+      // leave custom stopped/idle text if already set by doStop / resetRemoteEmptyCopy
+    }
+  }
+}
+
+/** Set partner-tile title while searching (private room vs public / alone). */
+function setSearchingEmptyCopy() {
+  const empty = $("remote-empty");
+  const titleEl = empty?.querySelector(".empty-title");
+  const subEl = empty?.querySelector(".empty-sub");
+  const room = currentRoom();
+  if (titleEl) {
+    if (room) {
+      titleEl.textContent =
+        _t("remote.searchingRoom", { r: room }) ||
+        `Waiting in room “${room}”…`;
+    } else if (isPoolAlone() && (inQueue || wantSearch)) {
+      titleEl.textContent =
+        _t("remote.searchingAlone") || "Still looking… invite a friend?";
+    } else {
+      titleEl.textContent =
+        _t("remote.searchingTitle") || "Looking for a partner…";
+    }
+  }
+  if (subEl) {
+    // Alone: short tip under title (desktop/mobile); hide otherwise
+    if (isPoolAlone() && (inQueue || wantSearch) && !room) {
+      subEl.hidden = false;
+      subEl.textContent =
+        _t("remote.searchingAloneSub") ||
+        "Few people online — invite a friend while you wait.";
+    } else {
+      subEl.hidden = true;
+      subEl.textContent = "";
+    }
+  }
+  // Refresh after pool stats arrive (waiting alone may flip)
+  maybeScheduleAloneSearchCopy();
+}
+
+let aloneSearchCopyTimer = 0;
+function maybeScheduleAloneSearchCopy() {
+  if (aloneSearchCopyTimer) return;
+  if (matched || inFriendCall || trioBrowse) return;
+  if (!inQueue && !wantSearch) return;
+  aloneSearchCopyTimer = setTimeout(() => {
+    aloneSearchCopyTimer = 0;
+    if (matched || inFriendCall || trioBrowse) return;
+    if (!inQueue && !wantSearch) return;
+    setSearchingEmptyCopy();
+    updateEmptyShareVisibility();
+  }, 12_000);
+}
+
+/** Begin matchmaking from the big Start button (same path as Spin). */
+function startMatchFromIdle() {
+  // Ensure rules + media before searching
+  if (!rulesAccepted()) {
+    showRulesGate();
+    return;
+  }
+  trackEvent("start_match");
+  maybeShowCellularDataTip();
+  startSession({ forceMedia: true });
+  showStartButton(false);
+  // Brand loop behind “Looking for a partner…” (user gesture from Start click)
+  showPartnerEmptyWithBrand({ searching: true });
+  setSearchingEmptyCopy();
+  // Reuse Spin path
+  $("btn-spin")?.click();
+}
+
+/**
+ * Deep-link from Share room: live.html?room=code
+ * Show invite copy; auto-start once after rules + socket (not a nag — purpose of the link).
+ */
+let pendingRoomInvite = false;
+let roomInviteAutoStarted = false;
+
+function applyRoomInviteCopy() {
+  if (!pendingRoomInvite && !roomInviteAutoStarted) return;
+  const room = currentRoom();
+  if (!room) return;
+  if (matched || inFriendCall || inQueue || wantSearch) return;
+  const titleEl = $("remote-empty")?.querySelector(".empty-title");
+  if (titleEl) {
+    titleEl.textContent =
+      _t("remote.roomInviteTitle", { r: room }) ||
+      `Room “${room}” — tap Start to meet them`;
+  }
+}
+
+function maybeAutoJoinRoomInvite() {
+  if (!ROOMS_ENABLED) {
+    pendingRoomInvite = false;
+    return;
+  }
+  if (!pendingRoomInvite || roomInviteAutoStarted) return;
+  if (qHasNoconnect()) {
+    pendingRoomInvite = false;
+    return;
+  }
+  if (!rulesAccepted()) {
+    applyRoomInviteCopy();
+    return;
+  }
+  if (!isWsOpen()) return;
+  if (matched || inFriendCall || inQueue || wantSearch) {
+    pendingRoomInvite = false;
+    return;
+  }
+  const room = currentRoom();
+  if (!room) {
+    pendingRoomInvite = false;
+    return;
+  }
+  roomInviteAutoStarted = true;
+  pendingRoomInvite = false;
+  trackEvent("room_invite_auto_join", { rlen: room.length });
+  setStatus(
+    _t("remote.roomInviteJoining", { r: room }) ||
+      `Joining room “${room}”…`
+  );
+  startMatchFromIdle();
+}
+
+const CELLULAR_TIP_KEY = "ruletka-cellular-tip-v1";
+
+function isOnCellular() {
+  try {
+    const c =
+      navigator.connection ||
+      navigator.mozConnection ||
+      navigator.webkitConnection;
+    if (!c) return false;
+    if (c.type === "wifi" || c.type === "ethernet" || c.type === "bluetooth") {
+      return false;
+    }
+    // Chromium on Android: type === "cellular" when on mobile data
+    if (c.type === "cellular" || c.type === "wimax") return true;
+    // Fallback: save-data often implies metered / cellular
+    if (c.saveData && c.type !== "wifi") return true;
+    return false;
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * One soft tip when starting search on mobile data (not a forced block).
+ */
+function maybeShowCellularDataTip() {
+  try {
+    if (!isLikelyMobile()) return;
+    if (!isOnCellular()) return;
+    try {
+      if (localStorage.getItem(CELLULAR_TIP_KEY) === "1") return;
+    } catch {
+      return;
+    }
+    if ($("cellular-data-tip") || $("pwa-install-banner")) return;
+    try {
+      localStorage.setItem(CELLULAR_TIP_KEY, "1");
+    } catch (_) {}
+    const tip = document.createElement("div");
+    tip.id = "cellular-data-tip";
+    tip.className = "weak-conn-tip cellular-data-tip";
+    tip.setAttribute("role", "status");
+    tip.style.pointerEvents = "auto";
+    tip.innerHTML = `
+      <span>${escapeHtml(
+        _t("conn.cellularTip") ||
+          "You’re on mobile data — video uses your plan. Wi‑Fi is usually smoother and cheaper."
+      )}</span>
+      <button type="button" class="pill tight accent" id="btn-cellular-tip-ok">${escapeHtml(
+        _t("pwa.iosGotIt") || "Got it"
+      )}</button>`;
+    document.body.appendChild(tip);
+    const dismiss = () => {
+      if (tip.parentNode) tip.remove();
+    };
+    $("btn-cellular-tip-ok")?.addEventListener("click", dismiss);
+    setTimeout(dismiss, 10000);
+    trackEvent("cellular_tip_show");
+  } catch (_) {}
 }
 
 function send(obj) {
@@ -1472,10 +4539,18 @@ function send(obj) {
 }
 
 function currentRoom() {
+  if (!ROOMS_ENABLED) return "";
   return ($("room")?.value || $("room-settings")?.value || "").trim();
 }
 
 function syncRoomInputs(value) {
+  if (!ROOMS_ENABLED) {
+    if ($("room")) $("room").value = "";
+    if ($("room-settings")) $("room-settings").value = "";
+    updateRoomChip("");
+    updatePoolHint();
+    return;
+  }
   const v = value == null ? currentRoom() : String(value);
   if ($("room") && $("room").value !== v) $("room").value = v;
   if ($("room-settings") && $("room-settings").value !== v) $("room-settings").value = v;
@@ -1506,7 +4581,54 @@ function syncRoomUrl() {
   } catch (_) {}
 }
 
-function roomShareUrl() {
+/** Short private room code (no ambiguous 0/O/1/l). */
+function generateRoomCode(len = 6) {
+  const alphabet = "23456789abcdefghjkmnpqrstuvwxyz";
+  let s = "";
+  try {
+    const arr = new Uint8Array(len);
+    crypto.getRandomValues(arr);
+    for (let i = 0; i < len; i++) s += alphabet[arr[i] % alphabet.length];
+  } catch (_) {
+    for (let i = 0; i < len; i++)
+      s += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+  return s;
+}
+
+/**
+ * Share room must land a friend in the *same* lobby.
+ * If the field is empty (public), mint a code and apply it before building the URL.
+ */
+function ensureShareableRoom() {
+  if (!ROOMS_ENABLED) return "";
+  let room = currentRoom();
+  if (room) return room;
+  room = generateRoomCode(6);
+  syncRoomInputs(room);
+  savePrefs({ room });
+  syncRoomUrl();
+  if (isWsOpen()) {
+    send({ type: "set_room", room });
+    // Already matchmaking in public → re-enter queue under the new private room
+    if ((inQueue || wantSearch) && !matched && !inFriendCall) {
+      try {
+        send(spinPayload());
+      } catch (_) {}
+    }
+  }
+  setStatus(
+    _t("room.minted", { r: room }) ||
+      `Room “${room}” ready — share so a friend joins you`
+  );
+  trackEvent("room_mint", { len: room.length });
+  return room;
+}
+
+/** @param {{ mintIfEmpty?: boolean }} [opts] */
+function roomShareUrl(opts) {
+  // When rooms are off, this is just the public live URL (no ?room=)
+  if (ROOMS_ENABLED && opts && opts.mintIfEmpty) ensureShareableRoom();
   const u = new URL(location.origin + location.pathname);
   const room = currentRoom();
   if (room) u.searchParams.set("room", room);
@@ -1516,9 +4638,26 @@ function roomShareUrl() {
 }
 
 async function copyRoomLink() {
-  const url = roomShareUrl();
+  if (!ROOMS_ENABLED) {
+    // Fallback: share public site while rooms are hidden
+    const url = location.origin + "/live.html";
+    try {
+      await shareOrCopy(url, siteBrandName(), "room.shared", "room.copied", {
+        preferShare: true,
+      });
+    } catch (e) {
+      log(_t("room.copyFail") + ": " + url);
+    }
+    return;
+  }
+  const url = roomShareUrl({ mintIfEmpty: true });
   try {
-    await shareOrCopy(url, "ruletka.vip room", "room.shared", "room.copied");
+    await shareOrCopy(
+      url,
+      siteBrandName() + " room",
+      "room.shared",
+      "room.copied"
+    );
   } catch (e) {
     log(_t("room.copyFail") + ": " + url);
   }
@@ -1530,8 +4669,68 @@ function matchSoundEnabled() {
   return true;
 }
 
+/** Soft phone haptic when match/friend events fire (no-op if unsupported). */
+function softHaptic(pattern) {
+  try {
+    if (typeof navigator === "undefined" || !navigator.vibrate) return;
+    // Respect reduced-motion users
+    if (
+      window.matchMedia &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      return;
+    }
+    navigator.vibrate(pattern || 28);
+  } catch (_) {}
+}
+
+/** Keep phone screen on during live video (Screen Wake Lock API). */
+let screenWakeLock = null;
+let lastPhaseName = "idle";
+
+async function requestScreenWakeLock() {
+  try {
+    if (!navigator.wakeLock || typeof navigator.wakeLock.request !== "function") {
+      return;
+    }
+    if (screenWakeLock) return;
+    screenWakeLock = await navigator.wakeLock.request("screen");
+    screenWakeLock.addEventListener("release", () => {
+      screenWakeLock = null;
+    });
+  } catch (_) {
+    screenWakeLock = null;
+  }
+}
+
+function releaseScreenWakeLock() {
+  try {
+    if (screenWakeLock) {
+      const w = screenWakeLock;
+      screenWakeLock = null;
+      w.release().catch(() => {});
+    }
+  } catch (_) {
+    screenWakeLock = null;
+  }
+}
+
+function syncScreenWakeLock() {
+  const need =
+    !!matched ||
+    !!inFriendCall ||
+    lastPhaseName === "matched" ||
+    lastPhaseName === "friend_call";
+  if (need && document.visibilityState === "visible") {
+    requestScreenWakeLock();
+  } else if (!need) {
+    releaseScreenWakeLock();
+  }
+}
+
 /** Short dual-tone chime (no asset files). */
 function playMatchChime() {
+  softHaptic([18, 40, 28]);
   if (!matchSoundEnabled()) return;
   try {
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -1672,15 +4871,9 @@ function tryShowCallNotification(name) {
   }
 }
 
+/** Never auto-prompt for notifications — only if UI later offers an explicit opt-in. */
 function ensureNotifPermissionSoft() {
-  if (typeof Notification === "undefined") return;
-  if (Notification.permission !== "default") return;
-  // Only prompt once after user opens friends (user gesture path)
-  try {
-    if (sessionStorage.getItem("rulet-notif-asked")) return;
-    sessionStorage.setItem("rulet-notif-asked", "1");
-  } catch (_) {}
-  Notification.requestPermission().catch(() => {});
+  // Intentionally empty: pop-up permission nags feel like "stay on the site" pressure.
 }
 
 function flashPartnerTile() {
@@ -1724,34 +4917,227 @@ function setFedChip(on) {
   }
 }
 
+const PATH_STATS_KEY = "ruletka-ice-path-stats-v1";
+
+function loadPathStats() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PATH_STATS_KEY) || "{}");
+    return {
+      direct: Number(raw.direct) || 0,
+      relay: Number(raw.relay) || 0,
+      unknown: Number(raw.unknown) || 0,
+    };
+  } catch {
+    return { direct: 0, relay: 0, unknown: 0 };
+  }
+}
+
+function savePathStats(s) {
+  try {
+    localStorage.setItem(PATH_STATS_KEY, JSON.stringify(s));
+  } catch (_) {}
+}
+
+/** Record settled path once per match (avoid double-count on stats poll). */
+let pathStatRecordedForMatch = false;
+
+function recordIcePathStat(kind) {
+  if (!matched && !inFriendCall) return;
+  if (pathStatRecordedForMatch) return;
+  if (kind !== "direct" && kind !== "relay") return;
+  pathStatRecordedForMatch = true;
+  const s = loadPathStats();
+  s[kind] = (s[kind] || 0) + 1;
+  savePathStats(s);
+  refreshPathStatsUi();
+  trackEvent("ice_path", { kind });
+  // One soft status line when path settles (not a nag sheet)
+  if (kind === "direct") {
+    setStatus(_t("conn.pathDirectOk") || "Direct P2P — best path");
+  } else if (kind === "relay") {
+    const prefer =
+      typeof preferDirectOnlyEnabled === "function" && preferDirectOnlyEnabled();
+    setStatus(
+      prefer
+        ? _t("conn.pathRelayPreferDirect") ||
+            "Relay path — Prefer Direct is on but network needs TURN"
+        : _t("conn.pathRelayOk") || "Relay (TURN) — higher latency is normal"
+    );
+  }
+  maybeShowPathStatsTip();
+}
+
+const PATH_TIP_KEY = "ruletka-path-stats-tip-v1";
+
+function pathStatsTipDone() {
+  try {
+    return localStorage.getItem(PATH_TIP_KEY) === "1";
+  } catch {
+    return true;
+  }
+}
+
+function markPathStatsTipDone() {
+  try {
+    localStorage.setItem(PATH_TIP_KEY, "1");
+  } catch (_) {}
+}
+
+/**
+ * After several settled calls: if Prefer Direct is on but most paths are relay,
+ * soft one-shot tip to turn it off (TURN helps hard NATs).
+ */
+function maybeShowPathStatsTip() {
+  try {
+    if (pathStatsTipDone()) return;
+    if ($("path-stats-tip") || $("weak-conn-tip") || $("prefer-direct-auto-toast"))
+      return;
+    const prefer =
+      typeof preferDirectOnlyEnabled === "function" && preferDirectOnlyEnabled();
+    if (!prefer) return;
+    const s = loadPathStats();
+    const total = (s.direct || 0) + (s.relay || 0);
+    if (total < 4) return;
+    const relayShare = (s.relay || 0) / total;
+    if (relayShare < 0.5) return;
+    markPathStatsTipDone();
+    const tip = document.createElement("div");
+    tip.id = "path-stats-tip";
+    tip.className = "weak-conn-tip path-stats-tip";
+    tip.setAttribute("role", "status");
+    tip.style.pointerEvents = "auto";
+    tip.innerHTML = `
+      <span>${escapeHtml(
+        _t("conn.pathStatsTip") ||
+          "Many of your calls use TURN relay while Prefer Direct is on. Turning Prefer Direct off can connect more reliably on mobile networks."
+      )}</span>
+      <button type="button" class="pill tight ghost" id="btn-path-tip-later">${escapeHtml(
+        _t("friends.exportNudgeLater") || "Later"
+      )}</button>
+      <button type="button" class="pill tight accent" id="btn-path-tip-off">${escapeHtml(
+        _t("conn.pathStatsTipOff") || "Turn Prefer Direct off"
+      )}</button>`;
+    document.body.appendChild(tip);
+    const dismiss = () => {
+      if (tip.parentNode) tip.remove();
+    };
+    $("btn-path-tip-later")?.addEventListener("click", () => {
+      trackEvent("path_stats_tip_later");
+      dismiss();
+    });
+    $("btn-path-tip-off")?.addEventListener("click", () => {
+      trackEvent("path_stats_tip_off");
+      preferDirectAutoOffDone = false;
+      setPreferDirectOnly(false, { silent: false });
+      dismiss();
+    });
+    setTimeout(dismiss, 14000);
+    trackEvent("path_stats_tip_show", {
+      relay: s.relay || 0,
+      direct: s.direct || 0,
+    });
+  } catch (_) {}
+}
+
+function pathDirectPercent() {
+  const s = loadPathStats();
+  const total = (s.direct || 0) + (s.relay || 0);
+  if (!total) return null;
+  return Math.round((100 * s.direct) / total);
+}
+
+function refreshPathStatsUi() {
+  const el = $("conn-detail-direct-rate");
+  if (!el) return;
+  const s = loadPathStats();
+  const total = (s.direct || 0) + (s.relay || 0);
+  if (!total) {
+    el.textContent = _t("settings.connDirectNone") || "No settled calls yet";
+    return;
+  }
+  const pct = Math.round((100 * s.direct) / total);
+  const labeled =
+    _t("settings.connDirectRate", {
+      pct,
+      d: s.direct,
+      total,
+    }) || `${pct}% Direct (${s.direct} of ${total})`;
+  el.textContent =
+    labeled + (s.relay ? ` · ${s.relay} relay` : "");
+}
+
 function setIcePathBadge(kind) {
   const el = $("ice-path");
   if (!el) return;
   el.hidden = false;
-  el.classList.remove("path-direct", "path-relay", "path-unknown");
+  el.classList.remove("path-direct", "path-relay", "path-unknown", "path-weak");
   if (kind === "direct") {
-    el.textContent = _t("sec.pathDirect");
+    el.textContent = _t("sec.pathDirect") || "Direct P2P";
     el.classList.add("path-direct");
-    el.title = _t("sec.pathDirectTitle");
+    el.title = _t("sec.pathDirectTitle") || "Media path is peer-to-peer (best quality)";
     setArchPill("direct");
+    recordIcePathStat("direct");
   } else if (kind === "relay") {
-    el.textContent = _t("sec.pathRelay");
+    el.textContent = _t("sec.pathRelay") || "Relay (TURN)";
     el.classList.add("path-relay");
-    el.title = _t("sec.pathRelayTitle");
+    el.title =
+      _t("sec.pathRelayTitle") ||
+      "Media via TURN relay — often higher latency; try better network if video freezes";
     setArchPill("relay");
+    recordIcePathStat("relay");
   } else {
-    el.textContent = _t("sec.pathUnknown");
+    el.textContent = _t("sec.pathUnknown") || "Connecting…";
     el.classList.add("path-unknown");
-    el.title = _t("sec.pathUnknownTitle");
+    el.title = _t("sec.pathUnknownTitle") || "Media path not ready yet";
+  }
+  updateQualityStrip();
+}
+
+/** Optional quality hint from adaptive WebRTC tier (high/mid/low/min). */
+let lastQualityTier = "";
+function setQualityTierHint(tier) {
+  lastQualityTier = String(tier || "");
+  updateQualityStrip();
+}
+
+function updateQualityStrip() {
+  const el = $("ice-path");
+  if (!el || el.hidden) return;
+  el.classList.remove("path-weak");
+  // Strip any previous quality suffix
+  let base = el.textContent.replace(/\s*·\s*(weak link|слабая связь).*$/i, "").trim();
+  // Recover path label if empty
+  if (!base) {
+    if (el.classList.contains("path-direct")) base = _t("sec.pathDirect") || "Direct P2P";
+    else if (el.classList.contains("path-relay")) base = _t("sec.pathRelay") || "Relay (TURN)";
+    else base = _t("sec.pathUnknown") || "Connecting…";
+  }
+  if (lastQualityTier === "low" || lastQualityTier === "min") {
+    el.classList.add("path-weak");
+    el.textContent = base + " · " + (_t("sec.qualityWeak") || "weak link");
+    const tip =
+      _t("sec.qualityWeakTitle") ||
+      "High loss or latency; video may auto-lower quality";
+    // Keep path title + tip without stacking forever
+    const pathTip =
+      el.classList.contains("path-relay")
+        ? _t("sec.pathRelayTitle") || ""
+        : el.classList.contains("path-direct")
+          ? _t("sec.pathDirectTitle") || ""
+          : "";
+    el.title = [pathTip, tip].filter(Boolean).join(" — ");
+  } else {
+    el.textContent = base;
   }
 }
 
 function clearIcePathBadge() {
   const el = $("ice-path");
+  lastQualityTier = "";
   if (el) {
     el.hidden = true;
     el.textContent = "";
-    el.classList.remove("path-direct", "path-relay", "path-unknown");
+    el.classList.remove("path-direct", "path-relay", "path-unknown", "path-weak");
   }
 }
 
@@ -1771,6 +5157,153 @@ function tt(key, fallback) {
     : s || key;
 }
 
+function turnTrustLabel(meta) {
+  const trust = meta?.security?.turn_trust || "";
+  if (trust === "open_relay_demo") return tt("sec.turnOpenShort", "Demo TURN");
+  if (trust === "self_hosted_ephemeral")
+    return tt("sec.turnEphemeralShort", "Self-hosted TURN");
+  if (trust === "self_hosted_static")
+    return tt("sec.turnStaticShort", "Self-hosted TURN");
+  if (trust === "no_turn") return tt("sec.turnNoneShort", "No TURN");
+  if (meta?.has_turn) return tt("sec.turnOnShort", "TURN on");
+  return tt("sec.turnNoneShort", "No TURN");
+}
+
+function turnTrustHint(meta) {
+  const trust = meta?.security?.turn_trust || "";
+  if (trust === "open_relay_demo")
+    return (
+      _t("settings.connTurnDemoHint") ||
+      "Public demo relay — fine for testing, not for privacy-sensitive use."
+    );
+  if (trust === "self_hosted_ephemeral" || trust === "self_hosted_static")
+    return (
+      _t("settings.connTurnSelfHint") ||
+      "Relay is hosted by this hub with short-lived credentials when possible."
+    );
+  if (meta?.has_turn)
+    return _t("settings.connTurnOnHint") || "TURN is available if direct P2P fails.";
+  return (
+    _t("settings.connTurnNoneHint") ||
+    "No TURN configured — some networks may fail to connect."
+  );
+}
+
+/** Live refresh while Connection settings is open during a call. */
+let connDetailsTimer = 0;
+
+function stopConnDetailsLive() {
+  if (connDetailsTimer) {
+    clearInterval(connDetailsTimer);
+    connDetailsTimer = 0;
+  }
+}
+
+function maybeStartConnDetailsLive() {
+  stopConnDetailsLive();
+  const view = $("settings-view-connection");
+  const open =
+    settingsIsOpen() &&
+    view &&
+    !view.hidden &&
+    view.classList.contains("is-active");
+  if (!open) return;
+  // Always refresh once; poll only while in a live call so path/quality stay current
+  refreshConnectionDetails();
+  if (!matched) return;
+  connDetailsTimer = setInterval(() => {
+    if (!settingsIsOpen() || !matched) {
+      stopConnDetailsLive();
+      return;
+    }
+    const v = $("settings-view-connection");
+    if (!v || v.hidden) {
+      stopConnDetailsLive();
+      return;
+    }
+    refreshConnectionDetails();
+  }, 1500);
+}
+
+function refreshConnectionDetails() {
+  const meta =
+    (typeof getIceMeta === "function" && getIceMeta()) || window.__iceMeta || null;
+  const pathEl = $("conn-detail-path");
+  const pathHint = $("conn-detail-path-hint");
+  const turnEl = $("conn-detail-turn");
+  const turnHint = $("conn-detail-turn-hint");
+  const qualEl = $("conn-detail-quality");
+  const resEl = $("conn-detail-resolution");
+  const hubEl = $("conn-detail-hub");
+  const idEl = $("conn-detail-identity");
+  const safetyEl = $("conn-detail-safety");
+
+  if (pathEl) {
+    if (matched) {
+      const live = $("ice-path")?.textContent;
+      pathEl.textContent = live || tt("sec.pathUnknownShort", "Connecting…");
+    } else {
+      pathEl.textContent = tt("sec.mediaP2pShort", "P2P media · idle");
+    }
+  }
+  if (pathHint) {
+    const ice = $("ice-path");
+    if (ice?.classList.contains("path-relay")) {
+      pathHint.textContent =
+        _t("sec.pathRelayTitle") ||
+        "Media via TURN — often higher latency on hard networks.";
+    } else if (ice?.classList.contains("path-direct")) {
+      pathHint.textContent =
+        _t("sec.pathDirectTitle") || "Peer-to-peer path (usually best quality).";
+    } else if (matched) {
+      pathHint.textContent =
+        _t("sec.pathUnknownTitle") || "Negotiating media path…";
+    } else {
+      pathHint.textContent =
+        _t("settings.connPathIdleHint") ||
+        "Path appears when you are in a live call.";
+    }
+  }
+  if (turnEl) turnEl.textContent = turnTrustLabel(meta);
+  if (turnHint) turnHint.textContent = turnTrustHint(meta);
+  if (qualEl) {
+    if (!matched) qualEl.textContent = tt("settings.connQualityIdle", "—");
+    else if (lastQualityTier)
+      qualEl.textContent = String(lastQualityTier).toUpperCase();
+    else qualEl.textContent = tt("settings.connQualityAuto", "Auto");
+  }
+  if (resEl) resEl.textContent = videoResLabel(getVideoResolutionPref());
+  if (hubEl) {
+    try {
+      hubEl.textContent =
+        (typeof RuletHub !== "undefined" && RuletHub.base && RuletHub.base()) ||
+        location.origin;
+    } catch (_) {
+      hubEl.textContent = location.origin;
+    }
+  }
+  if (idEl) {
+    const idn = loadIdentity();
+    const cryptoOn = !!idn.cryptoBound || String(idn.user_id || "").startsWith("k");
+    idEl.textContent = cryptoOn
+      ? tt("sec.idCrypto", "Device key")
+      : tt("sec.idLegacy", "Browser id");
+  }
+  if (safetyEl) {
+    safetyEl.textContent = tt(
+      "sec.partnerRecordShort",
+      "Partner can record — use Block / Report"
+    );
+  }
+  refreshPathStatsUi();
+  const directPref = $("conn-detail-direct-pref");
+  if (directPref) {
+    directPref.textContent = loadPrefs().preferDirectOnly
+      ? _t("settings.preferDirectOn") || "On — STUN only (harder NATs may fail)"
+      : _t("settings.preferDirectOff") || "Off — TURN available when needed";
+  }
+}
+
 function refreshSecurityPanel() {
   const meta =
     (typeof getIceMeta === "function" && getIceMeta()) || window.__iceMeta || null;
@@ -1788,20 +5321,7 @@ function refreshSecurityPanel() {
       pathEl.textContent = tt("sec.mediaP2pShort", "P2P media");
     }
   }
-  if (turnEl) {
-    const trust = meta?.security?.turn_trust || "";
-    if (trust === "open_relay_demo")
-      turnEl.textContent = tt("sec.turnOpenShort", "Demo TURN");
-    else if (trust === "self_hosted_ephemeral")
-      turnEl.textContent = tt("sec.turnEphemeralShort", "Self-hosted TURN");
-    else if (trust === "self_hosted_static")
-      turnEl.textContent = tt("sec.turnStaticShort", "Self-hosted TURN");
-    else if (trust === "no_turn")
-      turnEl.textContent = tt("sec.turnNoneShort", "No TURN");
-    else if (meta?.has_turn)
-      turnEl.textContent = tt("sec.turnOnShort", "TURN on");
-    else turnEl.textContent = tt("sec.turnNoneShort", "No TURN");
-  }
+  if (turnEl) turnEl.textContent = turnTrustLabel(meta);
   if (idEl) {
     const idn = loadIdentity();
     const cryptoOn = !!idn.cryptoBound || String(idn.user_id || "").startsWith("k");
@@ -1814,6 +5334,7 @@ function refreshSecurityPanel() {
       "sec.partnerRecordShort",
       "Partner can record — use Block / Report"
     );
+  refreshConnectionDetails();
 }
 
 function selectedDevices() {
@@ -2050,7 +5571,7 @@ function updateSideIcons() {
   if (selfLbl) {
     selfLbl.textContent = selfBlurred
       ? _t("btn.selfReveal") || "Reveal"
-      : _t("btn.selfBlur") || "Hide me";
+      : _t("btn.selfBlur") || "Hide";
   }
   const badge = $("self-blur-badge");
   if (badge) badge.hidden = !(selfBlurred && !camOff);
@@ -2331,20 +5852,14 @@ async function attachLocalStream(stream) {
   });
   const local = $("local");
   if (local) {
+    prepareVideoEl(local, { muted: true });
     local.srcObject = previewStream;
-    local.muted = true;
-    local.defaultMuted = true;
-    local.playsInline = true;
-    local.setAttribute("playsinline", "");
-    local.setAttribute("webkit-playsinline", "");
-    local.setAttribute("muted", "");
+    prepareVideoEl(local, { muted: true });
     try {
       await local.play();
     } catch (_) {
-      // Android: retry play after a tick
-      setTimeout(() => {
-        local.play?.().catch(() => {});
-      }, 100);
+      // iOS/Android: retry play after a tick / next gesture
+      setTimeout(() => playVideoEl(local), 100);
     }
   }
   showEnableCamButton(false, _t("local.emptySub"));
@@ -2391,12 +5906,145 @@ function isLikelyMobile() {
   return /Android|iPhone|iPad|iPod|Mobile|webOS|IEMobile/i.test(ua);
 }
 
+/** Front (`user`) vs rear (`environment`) for mobile flip; desktop cycles device list. */
+let cameraFacing = "user";
+
+function applyLocalMirrorClass() {
+  const local = $("local");
+  if (!local) return;
+  const env = cameraFacing === "environment";
+  local.classList.toggle("facing-environment", env);
+  // Infer from track settings when available (desktop multi-cam)
+  try {
+    const face = previewStream
+      ?.getVideoTracks?.()?.[0]
+      ?.getSettings?.()?.facingMode;
+    if (face === "environment" || face === "user") {
+      local.classList.toggle("facing-environment", face === "environment");
+      cameraFacing = face;
+    }
+  } catch (_) {}
+}
+
+/** Camera resolution presets (height-based, 16:9-ish). */
+const VIDEO_RES_PRESETS = {
+  auto: null, // device-aware defaults below
+  "360": { width: 640, height: 360, frameRate: 24 },
+  "480": { width: 854, height: 480, frameRate: 28 },
+  "720": { width: 1280, height: 720, frameRate: 30 },
+  "1080": { width: 1920, height: 1080, frameRate: 30 },
+};
+
+function normalizeVideoResolution(raw) {
+  const s = String(raw || "auto").toLowerCase().trim();
+  if (s === "360" || s === "480" || s === "720" || s === "1080" || s === "auto") return s;
+  return "auto";
+}
+
+function getVideoResolutionPref() {
+  return normalizeVideoResolution(loadPrefs().videoResolution);
+}
+
+function videoResLabel(id) {
+  const k = normalizeVideoResolution(id);
+  if (k === "auto") {
+    // Hint effective auto target on mobile data (does not change explicit presets)
+    if (isLikelyMobile() && isOnCellular()) {
+      return (
+        (_t("settings.resAuto") || "Auto") +
+        " · " +
+        (_t("settings.resAutoCellular") || "~480p on data")
+      );
+    }
+    return _t("settings.resAuto") || "Auto";
+  }
+  if (k === "360") return _t("settings.res360") || "360p · low data";
+  if (k === "480") return _t("settings.res480") || "480p · balanced";
+  if (k === "720") return _t("settings.res720") || "720p · HD";
+  if (k === "1080") return _t("settings.res1080") || "1080p · max";
+  return k;
+}
+
+/**
+ * Ideal/max constraints for a named resolution, plus a softer fallback size.
+ * @returns {{ primary: object, fallback: object }}
+ */
+function videoSizeForPref(pref) {
+  const id = normalizeVideoResolution(pref);
+  if (id !== "auto" && VIDEO_RES_PRESETS[id]) {
+    const p = VIDEO_RES_PRESETS[id];
+    const primary = {
+      width: { ideal: p.width, max: p.width },
+      height: { ideal: p.height, max: p.height },
+      frameRate: { ideal: p.frameRate, max: 30 },
+    };
+    // Step down one rung if device rejects exact size
+    const order = ["360", "480", "720", "1080"];
+    const idx = order.indexOf(id);
+    const lower = idx > 0 ? VIDEO_RES_PRESETS[order[idx - 1]] : VIDEO_RES_PRESETS["360"];
+    const fallback = {
+      width: { ideal: lower.width, max: p.width },
+      height: { ideal: lower.height, max: p.height },
+      frameRate: { ideal: Math.min(24, lower.frameRate), max: 30 },
+    };
+    return { primary, fallback };
+  }
+  // Auto: desktop 720p; mobile Wi‑Fi ~540p; mobile cellular ~480p (saves data/CPU)
+  if (isLikelyMobile()) {
+    if (isOnCellular()) {
+      return {
+        primary: {
+          width: { ideal: 854, max: 960 },
+          height: { ideal: 480, max: 540 },
+          frameRate: { ideal: 24, max: 28 },
+        },
+        fallback: {
+          width: { ideal: 640, max: 854 },
+          height: { ideal: 360, max: 480 },
+          frameRate: { ideal: 20, max: 24 },
+        },
+      };
+    }
+    return {
+      primary: {
+        width: { ideal: 960, max: 1280 },
+        height: { ideal: 540, max: 720 },
+        frameRate: { ideal: 28, max: 30 },
+      },
+      fallback: {
+        width: { ideal: 640, max: 960 },
+        height: { ideal: 480, max: 540 },
+        frameRate: { ideal: 24, max: 30 },
+      },
+    };
+  }
+  return {
+    primary: {
+      width: { ideal: 1280, max: 1280 },
+      height: { ideal: 720, max: 720 },
+      frameRate: { ideal: 30, max: 30 },
+    },
+    fallback: {
+      width: { ideal: 640, max: 960 },
+      height: { ideal: 480, max: 540 },
+      frameRate: { ideal: 24, max: 30 },
+    },
+  };
+}
+
 /**
  * Build getUserMedia attempts. Mobile prefers facingMode (front cam).
  * Desktop prefers selected / saved device ids first.
+ * Uses Settings → Camera resolution when set.
  */
 function buildMediaAttempts(videoDeviceId, audioDeviceId) {
-  const audioBase = { echoCancellation: true, noiseSuppression: true };
+  const audioBase = {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+    channelCount: 1,
+  };
+  const { primary: videoHi, fallback: videoMid } = videoSizeForPref(getVideoResolutionPref());
   const attempts = [];
   const mobile = isLikelyMobile();
 
@@ -2404,20 +6052,33 @@ function buildMediaAttempts(videoDeviceId, audioDeviceId) {
   if (mobile) {
     videoDeviceId = null;
     audioDeviceId = null;
+    const face =
+      cameraFacing === "environment" ? "environment" : "user";
+    const faceAlt = face === "user" ? "environment" : "user";
+    // Prefer ideal (not exact) — iOS often rejects exact facingMode
     attempts.push({
-      video: {
-        facingMode: "user",
-        width: { ideal: 640 },
-        height: { ideal: 480 },
-      },
+      video: { facingMode: { ideal: face }, ...videoHi },
       audio: audioBase,
     });
     attempts.push({
-      video: { facingMode: { ideal: "user" } },
+      video: { facingMode: face, ...videoHi },
+      audio: audioBase,
+    });
+    attempts.push({
+      video: { facingMode: { ideal: face }, ...videoMid },
+      audio: audioBase,
+    });
+    attempts.push({
+      video: { facingMode: { ideal: face } },
       audio: true,
     });
+    // Soft fallbacks if requested facing is missing
+    attempts.push({
+      video: { facingMode: { ideal: faceAlt }, ...videoMid },
+      audio: audioBase,
+    });
     attempts.push({ video: true, audio: true });
-    attempts.push({ video: { facingMode: "user" }, audio: false });
+    attempts.push({ video: { facingMode: face }, audio: false });
     attempts.push({ video: true, audio: false });
     attempts.push({ video: false, audio: audioBase });
     return attempts;
@@ -2425,20 +6086,32 @@ function buildMediaAttempts(videoDeviceId, audioDeviceId) {
 
   if (videoDeviceId || audioDeviceId) {
     attempts.push({
-      video: videoDeviceId ? { deviceId: { exact: videoDeviceId } } : true,
+      video: videoDeviceId
+        ? { deviceId: { exact: videoDeviceId }, ...videoHi }
+        : { ...videoHi },
       audio: audioDeviceId
         ? { deviceId: { exact: audioDeviceId }, ...audioBase }
         : audioBase,
     });
     attempts.push({
-      video: videoDeviceId ? { deviceId: { ideal: videoDeviceId } } : true,
+      video: videoDeviceId
+        ? { deviceId: { ideal: videoDeviceId }, ...videoHi }
+        : { ...videoHi },
+      audio: audioDeviceId
+        ? { deviceId: { ideal: audioDeviceId }, ...audioBase }
+        : audioBase,
+    });
+    attempts.push({
+      video: videoDeviceId
+        ? { deviceId: { ideal: videoDeviceId }, ...videoMid }
+        : { ...videoMid },
       audio: audioDeviceId
         ? { deviceId: { ideal: audioDeviceId }, ...audioBase }
         : audioBase,
     });
     if (videoDeviceId) {
       attempts.push({
-        video: { deviceId: { ideal: videoDeviceId } },
+        video: { deviceId: { ideal: videoDeviceId }, ...videoMid },
         audio: false,
       });
     }
@@ -2449,12 +6122,68 @@ function buildMediaAttempts(videoDeviceId, audioDeviceId) {
       });
     }
   }
-  // Cold start / fallback
+  // Cold start / fallback ladder
+  attempts.push({ video: { ...videoHi }, audio: audioBase });
+  attempts.push({ video: { ...videoMid }, audio: audioBase });
   attempts.push({ video: true, audio: audioBase });
   attempts.push({ video: true, audio: true });
   attempts.push({ video: true, audio: false });
   attempts.push({ video: false, audio: audioBase });
   return attempts;
+}
+
+function renderResolutionChoiceList() {
+  const list = $("settings-resolution-list");
+  if (!list) return;
+  const cur = getVideoResolutionPref();
+  const opts = [
+    { id: "auto", sub: _t("settings.resAutoSub") || "Device default · recommended" },
+    { id: "360", sub: _t("settings.res360Sub") || "640×360 · weakest uplink" },
+    { id: "480", sub: _t("settings.res480Sub") || "854×480 · mobile-friendly" },
+    { id: "720", sub: _t("settings.res720Sub") || "1280×720 · sharp HD" },
+    { id: "1080", sub: _t("settings.res1080Sub") || "1920×1080 · heavy on CPU/upload" },
+  ];
+  list.innerHTML = opts
+    .map((o) => {
+      const selected = o.id === cur;
+      return `<button type="button" class="settings-row settings-choice ${
+        selected ? "is-selected" : ""
+      }" data-res-pick="${escapeAttr(o.id)}">
+        <span class="row-left" style="flex-direction:column;align-items:flex-start;gap:0.1rem">
+          <span>${escapeHtml(videoResLabel(o.id))}</span>
+          <span class="theme-pick-sub" style="font-size:0.72rem;color:#8b9bb0;font-weight:500">${escapeHtml(
+            o.sub
+          )}</span>
+        </span>
+        <span class="choice-check">✓</span>
+      </button>`;
+    })
+    .join("");
+  list.querySelectorAll("[data-res-pick]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = normalizeVideoResolution(btn.getAttribute("data-res-pick"));
+      savePrefs({ videoResolution: id });
+      syncSettingsSummary();
+      setStatus(
+        (_t("settings.resApplied") || "Camera resolution") + ": " + videoResLabel(id)
+      );
+      try {
+        stopPreview();
+        await startPreview();
+        // Push new tracks into active peer connections
+        for (const pc of peerPcs?.values?.() || []) {
+          try {
+            if (previewStream && pc.setLocalStream) pc.setLocalStream(previewStream);
+            if (pc.syncLocalTracksToPc) await pc.syncLocalTracksToPc();
+          } catch (_) {}
+        }
+      } catch (e) {
+        console.warn("[resolution]", e);
+        setStatus(_t("local.camConstraints") || "Could not apply that resolution");
+      }
+      showSettingsView("devices");
+    });
+  });
 }
 
 /** After permission denied, stop auto-retry spam (Android locks up). */
@@ -2544,8 +6273,10 @@ async function startPreview() {
     // If we only got one kind, try to add the other
     if (!stream.getVideoTracks().length) {
       try {
+        const face =
+          cameraFacing === "environment" ? "environment" : "user";
         const vConstraints = mobile
-          ? { video: { facingMode: "user" }, audio: false }
+          ? { video: { facingMode: { ideal: face } }, audio: false }
           : {
               video: videoDeviceId
                 ? { deviceId: { ideal: videoDeviceId } }
@@ -2581,6 +6312,7 @@ async function startPreview() {
     mediaPermissionDenied = false;
     showEnableCamButton(false, _t("local.emptySub"));
     await attachLocalStream(stream);
+    applyLocalMirrorClass();
     if (videoDeviceId || audioDeviceId) {
       const gotV = stream.getVideoTracks()[0]?.getSettings?.().deviceId;
       const gotA = stream.getAudioTracks()[0]?.getSettings?.().deviceId;
@@ -2675,7 +6407,7 @@ function applyRemoteVolume() {
   const vol = Number(el?.value ?? 100);
   syncVolumeSliders(vol);
   savePrefs({ volume: vol });
-  for (const id of ["remote", "remote2"]) {
+  for (const id of ["remote", "remote2", "remote-third"]) {
     const remote = $(id);
     if (!remote) continue;
     remote.volume = partnerMuted ? 0 : vol / 100;
@@ -2710,6 +6442,23 @@ function showSettingsView(name) {
   if (name === "camera" || name === "mic" || name === "speaker") {
     renderDeviceChoiceList(name);
   }
+  if (name === "resolution") {
+    renderResolutionChoiceList();
+  }
+  if (name === "connection") {
+    maybeStartConnDetailsLive();
+    refreshPathStatsUi();
+    syncPreferDirectToggle();
+  } else {
+    stopConnDetailsLive();
+  }
+}
+
+function syncPreferDirectToggle() {
+  const chk = $("chk-prefer-direct");
+  if (!chk) return;
+  const prefs = loadPrefs();
+  chk.checked = !!prefs.preferDirectOnly;
 }
 
 function syncLangChoices() {
@@ -2769,6 +6518,7 @@ function syncHubSettingsUi() {
     $("chk-hub-auto").checked =
       typeof RuletHub === "undefined" || RuletHub.autoFailoverEnabled();
   }
+  refreshHubChip();
 }
 
 async function refreshHubDirectoryList() {
@@ -2782,17 +6532,40 @@ async function refreshHubDirectoryList() {
       return;
     }
     const cur = RuletHub.base();
+    // Probe live health for badges (parallel)
+    const probes = await Promise.all(
+      hubs.slice(0, 12).map(async (h) => {
+        const p = await RuletHub.probeHealth(h.base);
+        return { meta: h, probe: p };
+      })
+    );
     listEl.innerHTML = "";
-    for (const h of hubs.slice(0, 12)) {
+    for (const { meta: h, probe: p } of probes) {
       const btn = document.createElement("button");
       btn.type = "button";
+      const alive = !!p?.ok;
       btn.className =
-        "settings-row settings-choice" + (h.base === cur ? " is-selected" : "");
-      btn.innerHTML = `<span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-globe"/></svg></span><span>${shortHubLabel(
-        h.base,
-        36
-      )}</span></span><span class="choice-check">${h.base === cur ? "✓" : ""}</span>`;
+        "settings-row settings-choice" +
+        (h.base === cur ? " is-selected" : "") +
+        (alive ? "" : " hub-dead");
+      const rtt =
+        p?.rttMs != null ? `${p.rttMs}ms` : alive ? "" : _t("hub.offline") || "offline";
+      const online =
+        p?.online != null
+          ? ` · ${p.online} ${_t("pool.online") || "online"}`
+          : "";
+      const turn = p?.has_turn ? " · TURN" : "";
+      const sub = [rtt, online, turn].filter(Boolean).join("") || (h.region || "");
+      btn.innerHTML = `<span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-globe"/></svg></span><span class="hub-row-text"><strong>${escapeHtml(
+        shortHubLabel(h.base, 36)
+      )}</strong><span class="hub-row-sub">${escapeHtml(
+        sub
+      )}</span></span></span><span class="choice-check">${
+        h.base === cur ? "✓" : alive ? "" : "—"
+      }</span>`;
+      btn.disabled = !alive && h.base !== cur;
       btn.addEventListener("click", async () => {
+        if (!alive && h.base !== cur) return;
         RuletHub.setBase(h.base, { persist: true });
         syncHubSettingsUi();
         log(_t("hub.switched", { h: h.base }));
@@ -2876,6 +6649,9 @@ function syncSettingsSummary() {
   if ($("settings-camera-value")) {
     $("settings-camera-value").textContent = camShort;
   }
+  if ($("settings-resolution-value")) {
+    $("settings-resolution-value").textContent = videoResLabel(getVideoResolutionPref());
+  }
   if ($("settings-mic-value")) {
     $("settings-mic-value").textContent = micShort;
   }
@@ -2883,7 +6659,10 @@ function syncSettingsSummary() {
     $("settings-speaker-value").textContent = spkShort;
   }
   if ($("settings-devices-summary")) {
-    $("settings-devices-summary").textContent = shortDeviceLabel(cam, 16) || camShort;
+    const res = getVideoResolutionPref();
+    const camPart = shortDeviceLabel(cam, 14) || camShort;
+    $("settings-devices-summary").textContent =
+      res === "auto" ? camPart : `${camPart} · ${res}p`;
   }
   // Safety summary — keep short so it never truncates mid-word
   if ($("settings-safety-summary")) {
@@ -2972,7 +6751,8 @@ function wireSettingsNav() {
       if (
         viewId === "settings-view-camera" ||
         viewId === "settings-view-mic" ||
-        viewId === "settings-view-speaker"
+        viewId === "settings-view-speaker" ||
+        viewId === "settings-view-resolution"
       ) {
         showSettingsView("devices");
       } else {
@@ -2987,6 +6767,11 @@ function wireSettingsNav() {
   applyTheme(getTheme(), { persist: false });
   refreshLocalNameChip();
   $("btn-settings-done")?.addEventListener("click", () => closeSettings());
+  $("btn-conn-refresh")?.addEventListener("click", () => {
+    refreshConnectionDetails();
+    refreshSecurityPanel();
+    setStatus(_t("settings.connRefreshed") || "Connection details updated");
+  });
   $("btn-export-profile")?.addEventListener("click", () => exportProfileFile());
   $("btn-import-profile")?.addEventListener("click", () => {
     $("import-profile-file")?.click();
@@ -2997,8 +6782,18 @@ function wireSettingsNav() {
     e.target.value = "";
   });
   $("btn-clear-local")?.addEventListener("click", async () => {
+    // Strong warning: friends live under this identity on the hub
+    if (
+      !confirm(
+        _t("settings.clearConfirmFriends") ||
+          "This creates a NEW identity. Your friends list will look empty until you import a profile backup. Export first?"
+      )
+    ) {
+      return;
+    }
     if (!confirm(_t("settings.clearConfirm"))) return;
     try {
+      // Keep friends backup + chat threads so user can still re-request by code
       localStorage.removeItem(ID_KEY);
       localStorage.removeItem(HISTORY_KEY);
       localStorage.removeItem(RULES_KEY);
@@ -3044,18 +6839,248 @@ function buildProfileExport() {
     exported_at: new Date().toISOString(),
     software: "ruletka.vip",
     note:
-      "Import this file on another browser/device to keep the same identity. Friends are stored on each hub under user_id — reconnect to the same hub to restore friends.",
+      "Import this file on another browser/device to keep the same identity. Friends are stored on the hub under user_id — same hub + same user_id restores them automatically. friend_codes help re-request if identity is lost.",
     identity: {
-      user_id: id.user_id || "",
+      user_id: id.user_id || myUserId || "",
       name: (id.name || getDisplayName() || "").slice(0, 32),
       friend_code: myFriendCode || "",
     },
+    friends: loadFriendsBackup(),
     prefs: loadPrefs(),
     history: loadHistorySafe(),
     lang,
     rules_accepted: rulesAccepted(),
     hub: { base: hubBase, auto: hubAuto },
   };
+}
+
+/** @returns {Array<{user_id:string,name:string,friend_code:string,short_id?:string}>} */
+function loadFriendsBackup() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(FRIENDS_BACKUP_KEY) || "[]");
+    return Array.isArray(raw) ? raw : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveFriendsBackup(list) {
+  try {
+    const rows = (list || [])
+      .filter((f) => f && f.user_id)
+      .map((f) => ({
+        user_id: String(f.user_id),
+        name: String(f.name || f.short_id || "").slice(0, 32),
+        friend_code: String(f.friend_code || "").toUpperCase(),
+        short_id: String(f.short_id || "").slice(0, 16),
+        saved_at: Date.now(),
+      }));
+    // Dedupe by user_id then by friend_code
+    const byId = new Map();
+    for (const r of rows) {
+      if (!byId.has(r.user_id)) byId.set(r.user_id, r);
+    }
+    const byCode = new Map();
+    for (const r of byId.values()) {
+      const k = r.friend_code || r.user_id;
+      if (!byCode.has(k)) byCode.set(k, r);
+    }
+    localStorage.setItem(
+      FRIENDS_BACKUP_KEY,
+      JSON.stringify(Array.from(byCode.values()).slice(0, 200))
+    );
+  } catch (_) {}
+}
+
+/** Dedupe friend-like objects by user_id (first wins). */
+function dedupeByUserId(list) {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const item of list) {
+    const id = item?.user_id;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(item);
+  }
+  return out;
+}
+
+function loadFriendNicks() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(FRIEND_NICKS_KEY) || "{}");
+    return raw && typeof raw === "object" ? raw : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveFriendNicks(map) {
+  try {
+    localStorage.setItem(FRIEND_NICKS_KEY, JSON.stringify(map || {}));
+  } catch (_) {}
+}
+
+/** Display name for a friend: your nickname overrides their public name. */
+function friendDisplayName(f) {
+  if (!f) return "friend";
+  const nicks = loadFriendNicks();
+  const nick = (nicks[f.user_id] || "").trim();
+  if (nick) return nick;
+  return (f.name || f.short_id || "friend").toString();
+}
+
+function setFriendNick(userId, nick) {
+  if (!userId) return;
+  const map = loadFriendNicks();
+  const n = String(nick || "").trim().slice(0, 32);
+  if (!n) delete map[userId];
+  else map[userId] = n;
+  saveFriendNicks(map);
+}
+
+function friendAvatarHtml(f) {
+  const url = (f?.avatar || "").trim();
+  if (url && /^data:image\//i.test(url)) {
+    return `<span class="friend-avatar has-img"><img src="${escapeAttr(
+      url
+    )}" alt="" loading="lazy" /></span>`;
+  }
+  const label = friendDisplayName(f);
+  const letter = (label.replace(/[^a-zA-Z0-9\u0400-\u04FF]/g, "")[0] || "?").toUpperCase();
+  return `<span class="friend-avatar letter" aria-hidden="true">${escapeHtml(letter)}</span>`;
+}
+
+function renameFriendPrompt(userId, currentName) {
+  if (!userId) return;
+  const cur = loadFriendNicks()[userId] || currentName || "";
+  const next = prompt(
+    _t("friends.renamePrompt") || "Name for this friend (only you see it). Leave empty to clear.",
+    cur
+  );
+  if (next === null) return; // cancelled
+  setFriendNick(userId, next);
+  renderFriendsList();
+  // Update open chat header if this friend is active
+  if (activeChat.peerUserId === userId) {
+    activeChat.peerName = friendDisplayName({
+      user_id: userId,
+      name: currentName,
+    });
+    updateChatHeader();
+    updateInboxThreadHeader?.();
+  }
+  setStatus(_t("friends.renameOk") || "Friend name saved");
+}
+
+const EXPORT_NUDGE_KEY = "ruletka-export-nudge-done-v1";
+const IMPORT_BACKUP_NUDGE_KEY = "ruletka-import-backup-nudge-v1";
+
+function exportNudgeDone() {
+  try {
+    return localStorage.getItem(EXPORT_NUDGE_KEY) === "1";
+  } catch {
+    return true;
+  }
+}
+
+function markExportNudgeDone() {
+  try {
+    localStorage.setItem(EXPORT_NUDGE_KEY, "1");
+  } catch (_) {}
+}
+
+function markImportBackupNudgePending() {
+  try {
+    localStorage.setItem(IMPORT_BACKUP_NUDGE_KEY, "1");
+  } catch (_) {}
+}
+
+function clearImportBackupNudge() {
+  try {
+    localStorage.removeItem(IMPORT_BACKUP_NUDGE_KEY);
+  } catch (_) {}
+}
+
+/** Soft one-shot after successful profile import (shown post-reload). */
+function maybeShowImportBackupNudge() {
+  try {
+    if (localStorage.getItem(IMPORT_BACKUP_NUDGE_KEY) !== "1") return;
+  } catch {
+    return;
+  }
+  if ($("export-nudge-toast") || $("import-backup-nudge")) return;
+  clearImportBackupNudge();
+  const toast = document.createElement("div");
+  toast.id = "import-backup-nudge";
+  toast.className = "export-nudge-toast";
+  toast.setAttribute("role", "status");
+  toast.innerHTML = `
+    <p>${escapeHtml(
+      _t("friends.importBackupNudge") ||
+        "Profile imported. Export a fresh backup when you can — keep a copy off this browser."
+    )}</p>
+    <div class="export-nudge-actions">
+      <button type="button" class="pill tight ghost" id="btn-import-nudge-later">${escapeHtml(
+        _t("friends.importBackupLater") || "Later"
+      )}</button>
+      <button type="button" class="pill tight accent" id="btn-import-nudge-now">${escapeHtml(
+        _t("friends.importBackupBtn") || "Export now"
+      )}</button>
+    </div>`;
+  document.body.appendChild(toast);
+  const dismiss = () => {
+    if (toast.parentNode) toast.remove();
+  };
+  $("btn-import-nudge-later")?.addEventListener("click", dismiss);
+  $("btn-import-nudge-now")?.addEventListener("click", () => {
+    exportProfileFile();
+    dismiss();
+  });
+  setTimeout(dismiss, 22000);
+}
+
+/** One soft toast after first friend — never repeats; not a forced onboarding flow. */
+function maybeShowFirstFriendExportNudge() {
+  if (exportNudgeDone()) return;
+  if ($("export-nudge-toast") || $("import-backup-nudge")) return;
+  markExportNudgeDone();
+  const toast = document.createElement("div");
+  toast.id = "export-nudge-toast";
+  toast.className = "export-nudge-toast";
+  toast.setAttribute("role", "status");
+  toast.innerHTML = `
+    <p>${escapeHtml(
+      _t("friends.exportNudge") ||
+        "Friend added! Export a profile backup so you don’t lose them if this browser is cleared."
+    )}</p>
+    <div class="export-nudge-actions">
+      <button type="button" class="pill tight ghost" id="btn-export-nudge-later">${escapeHtml(
+        _t("friends.exportNudgeLater") || "Later"
+      )}</button>
+      <button type="button" class="pill tight accent" id="btn-export-nudge-now">${escapeHtml(
+        _t("friends.exportNudgeBtn") || "Export now"
+      )}</button>
+    </div>`;
+  document.body.appendChild(toast);
+  const dismiss = () => {
+    if (toast.parentNode) toast.remove();
+  };
+  $("btn-export-nudge-later")?.addEventListener("click", dismiss);
+  $("btn-export-nudge-now")?.addEventListener("click", () => {
+    exportProfileFile();
+    dismiss();
+  });
+  setTimeout(dismiss, 20000);
+}
+
+function closeAllFriendMoreMenus() {
+  document.querySelectorAll(".friend-more-menu").forEach((m) => {
+    m.hidden = true;
+  });
+  document.querySelectorAll(".btn-friend-more").forEach((b) => {
+    b.setAttribute("aria-expanded", "false");
+  });
 }
 
 function exportProfileFile() {
@@ -3076,6 +7101,7 @@ function exportProfileFile() {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    markExportNudgeDone();
     setStatus(_t("settings.exportDone"));
     log(_t("settings.exportDone"));
   } catch (e) {
@@ -3164,12 +7190,73 @@ async function importProfileFile(file) {
     if (data.identity?.friend_code) {
       myFriendCode = String(data.identity.friend_code);
     }
+    // Restore local friend-code backup for re-request UI
+    if (Array.isArray(data.friends) && data.friends.length) {
+      saveFriendsBackup(data.friends);
+    }
+    markImportBackupNudgePending();
     setStatus(_t("settings.importDone"));
     log(_t("settings.importDone") + " → " + String(uid).slice(0, 16));
     setTimeout(() => location.reload(), 400);
   } catch (e) {
     console.warn("[import]", e);
     setStatus(_t("settings.importFail") || "Import failed");
+  }
+}
+
+/** Focus trap for modal sheets (Friends / Settings). */
+let sheetFocusRestoreEl = null;
+
+function bindSheetFocusTrap(sheet) {
+  if (!sheet) return;
+  releaseSheetFocusTrap(sheet);
+  sheetFocusRestoreEl = document.activeElement;
+  const sel =
+    'button:not([disabled]), [href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  const onKey = (e) => {
+    if (e.key !== "Tab" || sheet.hidden) return;
+    const list = [...sheet.querySelectorAll(sel)].filter(
+      (el) => el.offsetParent !== null || el === document.activeElement
+    );
+    if (!list.length) return;
+    const first = list[0];
+    const last = list[list.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+  sheet._focusTrap = onKey;
+  document.addEventListener("keydown", onKey);
+  setTimeout(() => {
+    try {
+      const list = sheet.querySelectorAll(sel);
+      const prefer =
+        sheet.querySelector(".sheet-close") ||
+        sheet.querySelector("input, button.pill, button");
+      (prefer || list[0])?.focus?.();
+    } catch (_) {}
+  }, 60);
+}
+
+function releaseSheetFocusTrap(sheet) {
+  if (sheet && sheet._focusTrap) {
+    document.removeEventListener("keydown", sheet._focusTrap);
+    sheet._focusTrap = null;
+  }
+  const prev = sheetFocusRestoreEl;
+  sheetFocusRestoreEl = null;
+  if (prev && typeof prev.focus === "function") {
+    try {
+      prev.focus({ preventScroll: true });
+    } catch (_) {
+      try {
+        prev.focus();
+      } catch (_) {}
+    }
   }
 }
 
@@ -3199,6 +7286,7 @@ function openSettings() {
   refreshSecurityPanel();
   refreshAvatarUi();
   syncSettingsSummary();
+  bindSheetFocusTrap(sheet);
   (async () => {
     if (!previewStream?.active) await ensurePreview();
     await refreshDevices().catch(() => {});
@@ -3207,8 +7295,10 @@ function openSettings() {
   })();
 }
 function closeSettings() {
+  stopConnDetailsLive();
   const sheet = $("settings-sheet");
   const bd = $("sheet-backdrop");
+  releaseSheetFocusTrap(sheet);
   sheet?.classList.remove("is-open");
   bd?.classList.remove("is-open");
   // Allow fade/slide to finish before hiding
@@ -3235,6 +7325,69 @@ function stopPing() {
 
 const MAX_RECONNECT = 8;
 
+/** Apply a hub switch (ICE config + UI) after RuletHub.ensureHealthyHub. */
+async function applyHubSwitchResult(r) {
+  if (!r?.switched || !r.base) return false;
+  const short = shortHubLabel(r.base, 32);
+  log(_t("hub.switched", { h: r.base }) || `hub → ${r.base}`);
+  setStatus(_t("hub.switched", { h: short }) || `hub → ${short}`);
+  showHubSwitchedToast(r.base);
+  refreshHubChip();
+  trackEvent("hub_switch", { host: short });
+  syncHubSettingsUi();
+  if (typeof loadRtcConfig === "function") {
+    try {
+      await loadRtcConfig(r.base);
+    } catch (_) {}
+  }
+  return true;
+}
+
+/** Soft toast when auto-failover picks another hub (not a forced modal). */
+function showHubSwitchedToast(base) {
+  try {
+    let host = shortHubLabel(base, 40);
+    try {
+      host = new URL(base).host;
+    } catch (_) {}
+    const id = "hub-switch-toast";
+    const existing = $(id);
+    if (existing) existing.remove();
+    const toast = document.createElement("div");
+    toast.id = id;
+    toast.className = "friend-soft-toast friend-soft-toast-ok hub-switch-toast";
+    toast.setAttribute("role", "status");
+    toast.innerHTML = `
+      <strong>${escapeHtml(_t("hub.switchedTitle") || "Switched hub")}</strong>
+      <span>${escapeHtml(
+        _t("hub.switchedBody", { h: host }) ||
+          `Now using ${host} for matchmaking.`
+      )}</span>`;
+    document.body.appendChild(toast);
+    setTimeout(() => {
+      if (toast.parentNode) toast.remove();
+    }, 6500);
+  } catch (_) {}
+}
+
+/**
+ * Try public directory for a live hub. forceSwitch prefers a different host.
+ * @returns {Promise<boolean>} true if base changed
+ */
+async function tryHubFailover({ force = true } = {}) {
+  if (typeof RuletHub === "undefined" || !RuletHub.ensureHealthyHub) return false;
+  if (!RuletHub.autoFailoverEnabled()) return false;
+  try {
+    const r = await RuletHub.ensureHealthyHub({
+      forceSwitch: !!force,
+      preferDifferent: !!force,
+    });
+    return await applyHubSwitchResult(r);
+  } catch (_) {
+    return false;
+  }
+}
+
 function manualReconnect() {
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
@@ -3243,41 +7396,44 @@ function manualReconnect() {
   reconnectAttempt = 0;
   intentionalClose = false;
   setStatus(_t("conn.connecting"));
-  setConnStrip("warn", _t("conn.connecting"), "");
-  connect(false);
+  setConnStrip("warn", _t("conn.connecting"), "", { reconnecting: true, showRetry: true });
+  (async () => {
+    // On manual retry, re-probe directory in case this hub is dead
+    if (
+      typeof RuletHub !== "undefined" &&
+      RuletHub.autoFailoverEnabled?.()
+    ) {
+      try {
+        await RuletHub.ensureHealthyHub({ forceSwitch: false });
+        syncHubSettingsUi();
+      } catch (_) {}
+    }
+    connect(false);
+  })();
 }
+
+/** True after a drop so hello_ok can show a soft “back online” toast. */
+let wasHubReconnecting = false;
 
 function scheduleReconnect() {
   if (intentionalClose) return;
+  wasHubReconnecting = true;
   if (reconnectAttempt >= MAX_RECONNECT) {
     setStatus(_t("status.disconnected"));
     setConnStrip("bad", _t("conn.gaveUp") || _t("conn.disconnected"), "", {
       showRetry: true,
+      reconnecting: true,
     });
     log(_t("hub.gaveUp") || "gave up reconnecting — trying other hubs / reload");
-    // Try another hub from the public directory, then reconnect
+    // Exhausted attempts → force directory failover, then reconnect
     reconnectTimer = setTimeout(async () => {
       reconnectAttempt = 0;
-      if (
-        typeof RuletHub !== "undefined" &&
-        RuletHub.ensureHealthyHub &&
-        RuletHub.autoFailoverEnabled()
-      ) {
-        try {
-          const r = await RuletHub.ensureHealthyHub({ forceSwitch: true });
-          if (r?.switched) {
-            log(_t("hub.switched", { h: r.base }));
-            syncHubSettingsUi();
-            if (typeof loadRtcConfig === "function") {
-              loadRtcConfig(r.base).catch(() => {});
-            }
-          }
-        } catch (_) {}
-      }
+      await tryHubFailover({ force: true });
       connect(false);
-    }, 4000);
+    }, 2500);
     return;
   }
+  const attempt = reconnectAttempt;
   const delay = Math.min(12000, 600 * Math.pow(1.7, reconnectAttempt++));
   const secs = Math.round(delay / 100) / 10;
   setStatus(_t("log.reconnectIn", { s: secs }));
@@ -3285,25 +7441,15 @@ function scheduleReconnect() {
     "warn",
     _t("conn.retryIn", { s: secs }) || _t("log.reconnectIn", { s: secs }),
     "",
-    { showRetry: true }
+    { showRetry: true, reconnecting: true }
   );
   reconnectTimer = setTimeout(async () => {
-    if (
-      reconnectAttempt >= 3 &&
-      typeof RuletHub !== "undefined" &&
-      RuletHub.ensureHealthyHub &&
-      RuletHub.autoFailoverEnabled()
-    ) {
-      try {
-        const r = await RuletHub.ensureHealthyHub({ forceSwitch: true });
-        if (r?.switched) {
-          log(_t("hub.switched", { h: r.base }));
-          syncHubSettingsUi();
-          if (typeof loadRtcConfig === "function") {
-            loadRtcConfig(r.base).catch(() => {});
-          }
-        }
-      } catch (_) {}
+    // After 2 failed attempts, walk the public hub directory
+    if (attempt >= 2) {
+      await tryHubFailover({ force: true });
+    } else if (attempt >= 1) {
+      // Soft check: keep current if healthy, else switch
+      await tryHubFailover({ force: false });
     }
     connect(true);
   }, delay);
@@ -3364,8 +7510,9 @@ function connect(isRetry = false) {
     if (invite) {
       setTimeout(() => {
         if (ws === socket && ws.readyState === WebSocket.OPEN) {
-          send({ type: "add_friend", code: invite.trim() });
-          setStatus(_t("friends.inviteAdded"));
+          if (requestAddFriend(invite)) {
+            setStatus(_t("friends.inviteAdded") || "Friend request sent from invite link");
+          }
           // strip friend param so refresh doesn't re-add noise
           try {
             const u = new URL(location.href);
@@ -3373,7 +7520,7 @@ function connect(isRetry = false) {
             history.replaceState(null, "", u.pathname + u.search + u.hash);
           } catch (_) {}
         }
-      }, 300);
+      }, 400);
     }
     startPing();
     // Re-enter match queue after blip (hello is already sent)
@@ -3386,6 +7533,9 @@ function connect(isRetry = false) {
           updateConnFromState();
         }
       }, 250);
+    } else {
+      // Shared ?room= link: auto-join private lobby once connected
+      setTimeout(() => maybeAutoJoinRoomInvite(), 300);
     }
   };
   socket.onclose = () => {
@@ -3464,6 +7614,12 @@ function handleServer(msg) {
         syncNameInputs(shown);
       }
       setStatus(_t("status.connected"));
+      hideReconnectBanner();
+      if (wasHubReconnecting) {
+        wasHubReconnecting = false;
+        showBackOnlineToast();
+        trackEvent("hub_back_online");
+      }
       updateConnFromState();
       log(
         _t("log.id", { id: msg.short_id }) +
@@ -3477,21 +7633,32 @@ function handleServer(msg) {
       break;
     case "friends":
       {
+        const prevCount = (friendsCache || []).length;
+        const prevFriendIds = new Set(
+          (friendsCache || []).map((f) => f.user_id).filter(Boolean)
+        );
+        const prevOutgoingIds = new Set(
+          (outgoingRequests || []).map((f) => f.user_id).filter(Boolean)
+        );
         const prevOnline = new Map(
           (friendsCache || []).map((f) => [f.user_id, !!f.online])
         );
-        friendsCache = msg.friends || [];
-        blockedCache = Array.isArray(msg.blocked) ? msg.blocked : [];
-        incomingRequests = Array.isArray(msg.incoming_requests)
-          ? msg.incoming_requests
+        friendsCache = dedupeByUserId(msg.friends || []);
+        blockedCache = Array.isArray(msg.blocked)
+          ? [...new Set(msg.blocked.map(String))]
           : [];
-        outgoingRequests = Array.isArray(msg.outgoing_requests)
-          ? msg.outgoing_requests
-          : [];
+        incomingRequests = dedupeByUserId(
+          Array.isArray(msg.incoming_requests) ? msg.incoming_requests : []
+        );
+        outgoingRequests = dedupeByUserId(
+          Array.isArray(msg.outgoing_requests) ? msg.outgoing_requests : []
+        );
         if (msg.friend_code) {
           myFriendCode = msg.friend_code;
           if ($("my-friend-code")) $("my-friend-code").textContent = myFriendCode;
         }
+        // Local mirror so codes survive for re-request / profile export
+        if (friendsCache.length) saveFriendsBackup(friendsCache);
         // Toast when a known friend comes online (not first empty→full load)
         if (prevOnline.size) {
           for (const f of friendsCache) {
@@ -3500,16 +7667,38 @@ function handleServer(msg) {
             }
           }
         }
+        // Mutual accept completed: someone we requested (or any new friend) landed
+        if (prevCount > 0 || prevOutgoingIds.size || prevFriendIds.size) {
+          for (const f of friendsCache) {
+            if (!f.user_id || prevFriendIds.has(f.user_id)) continue;
+            // New friend row — celebrate Accept (skip first full list hydrate when prev was empty)
+            if (prevFriendIds.size || prevOutgoingIds.has(f.user_id)) {
+              showFriendAcceptedToast(f);
+              break; // one toast is enough
+            }
+          }
+        }
+        // One-time export nudge after first friend lands (0 → >0)
+        if (prevCount === 0 && friendsCache.length > 0) {
+          maybeShowFirstFriendExportNudge();
+        }
         renderFriendsList();
         renderRequestLists();
         renderHistoryList();
+        updateFriendsOnlineStrip();
+        // Keep open sheet in sync (code + lists) after add / accept
+        if ($("friends-sheet") && !$("friends-sheet").hidden) {
+          if ($("my-friend-code")) {
+            $("my-friend-code").textContent = myFriendCode || "—";
+          }
+        }
       }
       break;
     case "friend_request":
       if (!msg.from_user_id) break;
-      // Ensure request appears in Friends list immediately
+      // Ensure request appears in Friends list immediately (deduped)
       if (!incomingRequests.some((r) => r.user_id === msg.from_user_id)) {
-        incomingRequests = [
+        incomingRequests = dedupeByUserId([
           {
             user_id: msg.from_user_id,
             name: msg.from_name || msg.from_code || "friend",
@@ -3518,7 +7707,7 @@ function handleServer(msg) {
             online: true,
           },
           ...incomingRequests,
-        ];
+        ]);
       }
       updateFriendsBadge();
       showFriendRequestToast(msg);
@@ -3540,6 +7729,7 @@ function handleServer(msg) {
       }
       inFriendCall = false;
       matchMode = "solo";
+      endActiveMatchChat();
       updateFriendActionButtons();
       if (!matched) {
         closeAllPeers({ keepFriend: false });
@@ -3580,17 +7770,30 @@ function handleServer(msg) {
         updateFriendActionButtons();
       }
       // Partner left / Next: tear down stranger WebRTC
+      // Note: "still chatting" = trio collapsed to 1v1 — do NOT tear down (Matched follows)
+      const stillChatting =
+        /still chatting|still with match|still connected/i.test(detailRaw);
       if (
         matched &&
+        !stillChatting &&
         (msg.phase === "waiting" ||
           msg.phase === "idle" ||
-          /partner hit Next|partner disconnected|party moved|searching again/i.test(
+          /partner hit Next|partner disconnected|party moved|searching again|looking for a 3rd again/i.test(
             detailRaw
           ))
       ) {
-        const keepFriend = inFriendCall || yourRole === "party";
+        // Path summary before tear-down (while duration/ICE still known)
+        const keepParty =
+          yourRole === "party" || matchMode === "party_browse" || trioBrowse;
+        const keepFriend = inFriendCall || keepParty || matchMode === "friend";
+        if (!keepFriend) {
+          maybeShowMatchPathSummary("partner_left");
+          maybeShowPostMatchFriendNudge("partner_left");
+        }
         matched = msg.phase === "friend_call" || keepFriend;
-        wantSearch = msg.phase === "waiting" || /searching again/i.test(detailRaw);
+        wantSearch =
+          msg.phase === "waiting" ||
+          /searching again|looking for a 3rd again/i.test(detailRaw);
         pendingSignals.length = 0;
         closeAllPeers({ keepFriend });
         if (!keepFriend) {
@@ -3599,34 +7802,74 @@ function handleServer(msg) {
           resetRemoteEmptyCopy();
           matchMode = "solo";
           yourRole = "solo";
+          trioBrowse = false;
+          findThirdPending = null;
           setFedChip(false);
           showFriendPip(false);
+          enableTrioLayout(false);
+          endActiveMatchChat();
+        } else if (keepParty) {
+          // Party still together — hunting for (next) stranger
+          matchMode = "party_browse";
+          yourRole = "party";
+          trioBrowse = true;
+          enableTrioLayout(true, { searching: true });
+          reattachFriendToMainRemote();
+          setRemoteEmpty(false);
+          forceThirdBrandLoop();
         } else {
           // Still with friend — back to 1:1 friend layout
           matchMode = "friend";
           yourRole = "friend";
+          enableTrioLayout(false);
           reattachFriendToMainRemote();
         }
         setArchPill("default");
         if (detailRaw) log(detailRu);
+        updateFriendActionButtons();
+      } else if (stillChatting && matched) {
+        // Trio collapsed server-side; Matched(solo) may arrive next — keep media
+        setStatus(detailRu || _t("trio.partnerLeftKeep") || "Partner left — still connected");
+        updateFriendActionButtons();
       }
+      // Friend / block / call details should always surface (even while searching)
+      const friendDetail =
+        !!detailRaw &&
+        /friend|block|request|already friends|unknown friend|cannot add|calling/i.test(
+          detailRaw
+        );
       if (msg.phase === "waiting" || msg.phase === "claiming") {
         inQueue = true;
         wantSearch = true;
-        const others = Math.max(0, (msg.waiting_peers || 1) - 1);
-        setStatus(
-          others
-            ? _t("status.searchingOthers", { n: others })
-            : _t("status.searching")
-        );
+        showStartButton(false);
+        // Keep brand loop while searching (unless party trio shows teammate live)
+        if (!(trioBrowse && yourRole === "party")) {
+          showPartnerEmptyWithBrand({ searching: true });
+        }
+        updateEmptyShareVisibility();
+        maybeStartLongWaitBoost();
+        // Searching copy lives in footer center — do not fill header status
+        if (friendDetail) {
+          setStatus(detailRu);
+        } else {
+          setStatus("");
+        }
         updatePoolHint();
       } else {
         if (msg.phase === "matched" || msg.phase === "friend_call") {
           inQueue = false;
+          showStartButton(false);
         } else if (msg.phase === "idle") {
           inQueue = false;
+          wantSearch = false;
+          updateStartButtonVisibility();
         }
-        setStatus(detailRu || _phase(msg.phase));
+        // Idle phase label alone is noise — only show real detail (errors, friend notes)
+        if (msg.phase === "idle" && !detailRaw) {
+          setStatus("");
+        } else {
+          setStatus(detailRu || (msg.phase === "idle" ? "" : _phase(msg.phase)));
+        }
         updatePoolHint();
       }
       updateConnFromState();
@@ -3643,14 +7886,36 @@ function handleServer(msg) {
     case "matched":
       handleMatched(msg);
       break;
+    case "find_third_incoming":
+      handleFindThirdIncoming(msg);
+      break;
+    case "find_third_result":
+      handleFindThirdResult(msg);
+      break;
     case "chat": {
       const myName = getDisplayName();
       const mine =
+        msg.from_user_id === myUserId ||
         msg.author === myShortId ||
         (myName && msg.author === myName);
-      log(`[${msg.author}] ${msg.body}`, mine ? "mine" : "theirs");
+      // Prefer P2P path when open — ignore hub echo of our own optimistic send,
+      // and skip remote hub chat if we already got the same body via datachannel
+      // (rare dual-path). Hub still used as fallback before DC is up.
+      recordChatMessage({
+        author: msg.author || "",
+        body: msg.body || "",
+        mine,
+        fromUserId: msg.from_user_id || "",
+        via: "hub",
+      });
       break;
     }
+    case "friend_chat":
+      handleIncomingFriendChat(msg);
+      break;
+    case "friend_chat_history":
+      mergeFriendHistory(msg.with_user_id, msg.messages || []);
+      break;
     case "signal":
       handleIncomingSignal(msg);
       break;
@@ -3669,15 +7934,26 @@ function handleMatched(msg) {
   clearCallTimeout();
   clearWaitTipsWatch();
   hideWaitTips();
+  clearLongWaitBoost();
+  clearWeakConnWatch();
+  pathStatRecordedForMatch = false;
   wantSearch = msg.mode !== "friend";
   isOfferer = !!msg.is_offerer;
   matchMode = msg.mode || "solo";
   yourRole = msg.your_role || "solo";
-  inFriendCall = matchMode === "friend" || yourRole === "party";
+  // Pure friend 1:1 only — party/find-third uses trioBrowse + party_browse
+  if (matchMode === "friend") inFriendCall = true;
+  else if (matchMode === "solo") inFriendCall = false;
+  // leave inFriendCall unchanged when entering party_browse from a friend call
   setPhase(matchMode === "friend" ? "friend_call" : "matched");
-  clearChat();
-  // Keep chat closed until the user sends or receives a real message
-  showChatPanel(false);
+  syncScreenWakeLock();
+  updatePipButton();
+  updateEmptyShareVisibility();
+  maybeStartConnDetailsLive();
+  // Switch / restore chat thread for this partner (history survives hangup)
+  openMatchChatForPartner(
+    Array.isArray(msg.peers) && msg.peers.length ? msg.peers : null
+  );
   updateConnFromState();
   startWebrtcWatch();
   startMatchTimer();
@@ -3685,10 +7961,11 @@ function handleMatched(msg) {
     const titleEl = $("remote-empty")?.querySelector(".empty-title");
     const subEl = $("remote-empty")?.querySelector(".empty-sub");
     if (titleEl) titleEl.textContent = _t("remote.connecting");
-    if (subEl) subEl.textContent = _t("remote.handshake");
+    if (subEl) {
+      subEl.hidden = true;
+      subEl.textContent = "";
+    }
   }
-  setRemoteEmpty(true);
-
   const peers = Array.isArray(msg.peers) && msg.peers.length
     ? msg.peers
     : [
@@ -3701,6 +7978,89 @@ function handleMatched(msg) {
         },
       ];
 
+  // Find-third / party member with only teammate listed → trio searching layout
+  const onlyTeammate =
+    matchMode === "party_browse" &&
+    yourRole === "party" &&
+    peers.length > 0 &&
+    peers.every((p) => isTeammateRole(p.role));
+  const hasStranger = peers.some(
+    (p) => p.role === "stranger" || p.role === "party"
+  );
+  const partyMember =
+    onlyTeammate || (matchMode === "party_browse" && yourRole === "party");
+
+  if (partyMember) {
+    // Do NOT force empty overlay — 1v1 stream must stay visible as first partner
+    trioBrowse = true;
+    for (const pc of peerPcs.values()) {
+      if (pc._role === "stranger" || !pc._role) pc._role = "teammate";
+    }
+    const mateMeta =
+      peers.find((p) => isTeammateRole(p.role)) || peers[0] || null;
+    enableTrioLayout(true, { searching: !hasStranger || onlyTeammate });
+    setRemoteEmpty(false);
+    bindFirstPartnerToMain(mateMeta);
+    wantSearch = !hasStranger || onlyTeammate;
+    if (wantSearch) inQueue = true;
+  } else {
+    // Collapse trio → solo 1v1 (first partner left, stay with 3rd): keep media, re-enable Find 3rd
+    const collapsingTrio =
+      matchMode === "solo" &&
+      (trioBrowse || document.querySelector("main.stage")?.classList.contains("stage-trio"));
+    if (matchMode === "party_browse" && yourRole === "solo" && hasStranger) {
+      // Solo matched a party — classic split, not trio
+      enableTrioLayout(false);
+      setRemoteEmpty(true, { force: true });
+    } else if (matchMode === "solo") {
+      // Promote 3rd (middle tile) → main before hiding trio layout (avoids black flash)
+      if (collapsingTrio) {
+        const keepPeer =
+          peers.find((p) => p.role === "stranger" || p.role === "party") ||
+          peers[0] ||
+          null;
+        const keepPc = keepPeer
+          ? peerPcs.get(keepPeer.peer_id) || findPcForPeer(keepPeer.peer_id)
+          : [...peerPcs.values()].find(
+              (pc) =>
+                !isTeammateRole(pc._role) &&
+                (pc.remoteStream?.getVideoTracks?.() || []).some(
+                  (t) => t.readyState === "live"
+                )
+            );
+        // Drop departed first-partner PC so peer map is clean solo 1v1
+        for (const [pid, pc] of [...peerPcs.entries()]) {
+          if (keepPc && pc === keepPc) continue;
+          if (keepPeer && pid === keepPeer.peer_id) continue;
+          try {
+            pc.closeCall({ keepLocal: true, sendBye: false });
+          } catch (_) {}
+          peerPcs.delete(pid);
+        }
+        if (keepPc) {
+          if (keepPeer) rekeyPeerPc(keepPeer.peer_id, keepPc);
+          keepPc._role = "stranger";
+          enableTrioLayout(false);
+          bindPcVideo(keepPc, $("remote"));
+          if (keepPc.remoteStream) {
+            paintRemoteFromPc(keepPc, keepPc.remoteStream);
+          }
+          setRemoteEmpty(false);
+        } else {
+          enableTrioLayout(false);
+          setRemoteEmpty(true, { force: true });
+        }
+      } else {
+        enableTrioLayout(false);
+        setRemoteEmpty(true, { force: true });
+      }
+      trioBrowse = false;
+      findThirdPending = null;
+    } else {
+      setRemoteEmpty(true, { force: true });
+    }
+  }
+
   // Federated match: remote peer_id is fed/{session}/{id} (nextface-fed/1)
   const isFedMatch = peers.some((p) =>
     String(p.peer_id || "").startsWith("fed/")
@@ -3712,7 +8072,7 @@ function handleMatched(msg) {
   const primary =
     peers.find((p) => p.role === "stranger" && p.user_id) ||
     peers.find((p) => p.role === "party" && p.user_id) ||
-    peers.find((p) => p.role === "friend" && p.user_id) ||
+    peers.find((p) => isTeammateRole(p.role) && p.user_id) ||
     peers.find((p) => p.user_id) ||
     null;
   primaryPartnerUserId = primary?.user_id || "";
@@ -3738,8 +8098,9 @@ function handleMatched(msg) {
     ...lastMatchMeta,
   });
   // Strangers: 2s intro blur (auto-clear) or permanent if blur-first is on.
-  // Friends start clear.
-  const isFriendMatch = matchMode === "friend" || inFriendCall;
+  // Friends / known teammates start clear.
+  const isFriendMatch =
+    matchMode === "friend" || inFriendCall || onlyTeammate;
   if (!isFriendMatch) {
     applyStrangerIntroBlur();
   } else {
@@ -3753,11 +8114,11 @@ function handleMatched(msg) {
   closePartnerMenu();
   clearIcePathBadge();
 
-  // Opponents only (exclude friend teammate). Cap 2 remotes → 1v1 / 1v2 / 2v2 only.
+  // Opponents only (exclude friend/teammate). Cap 2 remotes → 1v1 / 1v2 / 2v2 only.
   const opponents = peers
     .filter((p) => p.role === "stranger" || p.role === "party")
     .slice(0, 2);
-  const split = opponents.length >= 2;
+  const split = opponents.length >= 2 && !trioBrowse;
   setSplitRemote(split);
   {
     const tag = $("remote-tag");
@@ -3773,7 +8134,7 @@ function handleMatched(msg) {
         // Name + optional self-chosen flag / avatar (never real location)
         const peer =
           opponents[0] ||
-          peers.find((p) => p.role === "friend") ||
+          peers.find((p) => isTeammateRole(p.role)) ||
           peers[0];
         const named =
           peer?.name ||
@@ -3794,6 +8155,12 @@ function handleMatched(msg) {
     }
     if (wrap) wrap.hidden = !(tag && tag.textContent);
   }
+  if (trioBrowse && opponents[0]) {
+    const n = opponents[0].name || msg.partner_short || "";
+    setThirdSlotStream(null); // filled after stream in joinPeers
+    const ttag = $("third-tag");
+    if (ttag) ttag.textContent = n;
+  }
 
   setStatus(
     _t("log.matchedStatus", {
@@ -3805,10 +8172,22 @@ function handleMatched(msg) {
   playMatchChime();
   flashPartnerTile();
   updateFriendActionButtons();
+  trackEvent("match", {
+    mode: matchMode || "solo",
+    role: yourRole || "solo",
+  });
 
   setTimeout(() => {
-    joinPeers(peers).catch((e) => log(String(e)));
+    joinPeers(peers)
+      .then(() => {
+        // Rebind path may not re-fire ontrack — force empty off + play
+        ensurePartnerVideoVisible();
+      })
+      .catch((e) => log(String(e)));
   }, 300);
+  // Belt-and-suspenders: clear connecting overlay once streams attach
+  setTimeout(() => ensurePartnerVideoVisible(), 1200);
+  setTimeout(() => ensurePartnerVideoVisible(), 3000);
 }
 
 function handleIncomingSignal(msg) {
@@ -3834,9 +8213,11 @@ function closeAllPeers({ keepFriend = false } = {}) {
     const keep =
       keepFriend &&
       (matchMode === "friend" ||
+        matchMode === "party_browse" ||
         yourRole === "party" ||
-        inFriendCall) &&
-      pc._role === "friend";
+        inFriendCall ||
+        trioBrowse) &&
+      isTeammateRole(pc._role);
     if (keep) continue;
     try {
       pc.closeCall({ keepLocal: true, sendBye: true });
@@ -3847,10 +8228,21 @@ function closeAllPeers({ keepFriend = false } = {}) {
   if (!keepFriend) {
     if ($("remote")) $("remote").srcObject = null;
     if ($("remote2")) $("remote2").srcObject = null;
+    if ($("remote-third")) {
+      try {
+        $("remote-third").srcObject = null;
+      } catch (_) {}
+      $("remote-third").hidden = true;
+    }
     showFriendPip(false);
+    enableTrioLayout(false);
   } else {
-    // Stranger gone — friend back on main remote (not PiP)
+    // Stranger gone — teammate back on main remote (not PiP)
     reattachFriendToMainRemote();
+    if (trioBrowse || yourRole === "party") {
+      setThirdSlotStream(null);
+      enableTrioLayout(true, { searching: true });
+    }
   }
   stopStats();
   stopNsfwWatch();
@@ -3871,31 +8263,61 @@ async function joinPeers(peers) {
     .filter((p) => p.role === "stranger" || p.role === "party")
     .sort((a, b) => String(a.peer_id).localeCompare(String(b.peer_id)))
     .slice(0, 2);
-  const friendMeta = list.find((p) => p.role === "friend");
+  const friendMeta = list.find((p) => isTeammateRole(p.role));
   const partyBrowsing =
     matchMode === "party_browse" &&
     (yourRole === "party" || opponents.length > 0);
+  const useTrio =
+    trioBrowse ||
+    (partyBrowsing && yourRole === "party" && (friendMeta || opponents.length));
 
-  // Drop opponent PCs that are gone; keep friend link
+  // Drop PCs only when the peer is gone. Never close a peer still in `list`
+  // (find-third reclassifies the same stranger peer_id as "teammate" — old code
+  // treated that as "close stranger", killing the 1v1 video both ways).
   for (const [pid, pc] of [...peerPcs.entries()]) {
     const still = list.find((p) => p.peer_id === pid);
-    if (pc._role === "friend") {
-      // Keep friend PC always during party / friend call
+    if (still) {
+      // Keep connection; update role (stranger → teammate, etc.)
+      if (still.role) pc._role = still.role;
       continue;
     }
-    // Close stranger/party PCs not in this match (or role changed)
-    if (!still || still.role === "friend") {
-      try {
-        pc.closeCall({ keepLocal: true, sendBye: false });
-      } catch (_) {}
-      peerPcs.delete(pid);
+    if (isTeammateRole(pc._role) && matchMode !== "solo") {
+      // Durable co-search / friend link while party-browsing — not after trio→solo collapse
+      continue;
     }
+    try {
+      pc.closeCall({ keepLocal: true, sendBye: false });
+    } catch (_) {}
+    peerPcs.delete(pid);
   }
 
-  // Video layout: opponents on main remote tile(s); friend → PiP when party-browsing
-  setSplitRemote(opponents.length >= 2);
+  // Video layout
+  if (useTrio && yourRole === "party") {
+    enableTrioLayout(true, { searching: opponents.length === 0 });
+    setSplitRemote(false);
+    // Teammate → main remote (first conversationalist); stranger → third column
+    const mate =
+      friendMeta ||
+      list.find((p) => isTeammateRole(p.role)) ||
+      null;
+    bindFirstPartnerToMain(mate);
+    setRemoteEmpty(false);
+    if (opponents[0]) {
+      const opc =
+        peerPcs.get(opponents[0].peer_id) || findPcForPeer(opponents[0].peer_id);
+      videoSlotsTrioBind(opponents[0], opc);
+    } else {
+      setThirdSlotStream(null);
+    }
+  } else {
+    setSplitRemote(opponents.length >= 2);
+  }
+
   const videoSlots = new Map();
-  if (opponents.length >= 2) {
+  if (useTrio && yourRole === "party") {
+    if (friendMeta) videoSlots.set(friendMeta.peer_id, $("remote"));
+    if (opponents[0]) videoSlots.set(opponents[0].peer_id, $("remote-third") || $("remote2"));
+  } else if (opponents.length >= 2) {
     videoSlots.set(opponents[0].peer_id, $("remote"));
     videoSlots.set(opponents[1].peer_id, $("remote2"));
     if ($("remote2")) $("remote2").hidden = false;
@@ -3903,12 +8325,11 @@ async function joinPeers(peers) {
     videoSlots.set(opponents[0].peer_id, $("remote"));
   }
 
-  if (partyBrowsing && yourRole === "party" && friendMeta) {
-    // Free #remote for stranger — friend moves to corner PiP
+  if (!useTrio && partyBrowsing && yourRole === "party" && friendMeta) {
+    // Classic friend party: stranger on main, friend PiP
     const fpc = peerPcs.get(friendMeta.peer_id);
     const pip = $("friend-pip");
     if (fpc) {
-      // Clear friend from main remote if still attached
       if ($("remote")?.srcObject && fpc.remoteStream && $("remote").srcObject === fpc.remoteStream) {
         $("remote").srcObject = null;
       }
@@ -3917,35 +8338,59 @@ async function joinPeers(peers) {
     } else {
       showFriendPip(false);
     }
-  } else if (matchMode === "friend" || (inFriendCall && opponents.length === 0)) {
-    // Pure friend call — friend on main remote
+  } else if (matchMode === "friend" || (inFriendCall && opponents.length === 0 && !useTrio)) {
     showFriendPip(false);
     if (friendMeta) {
       const fpc = peerPcs.get(friendMeta.peer_id);
       if (fpc) bindPcVideo(fpc, $("remote"));
     }
-  } else {
+  } else if (!useTrio) {
     showFriendPip(false);
   }
 
   for (const p of list) {
-    // Friend already connected from friend call — never rebuild
-    if (p.role === "friend") {
-      if (peerPcs.has(p.peer_id)) continue;
-      // Friend listed but no PC yet (rare) — fall through and create
+    // Teammate / friend: always reuse existing media — never tear down & renegotiate
+    if (isTeammateRole(p.role)) {
+      const existing = findPcForPeer(p.peer_id);
+      if (existing) {
+        rekeyPeerPc(p.peer_id, existing);
+        existing._role = p.role || "teammate";
+        const el =
+          useTrio && yourRole === "party"
+            ? $("remote")
+            : partyBrowsing && yourRole === "party" && !useTrio
+              ? $("friend-pip")
+              : $("remote");
+        if (useTrio && yourRole === "party") {
+          bindFirstPartnerToMain(p);
+        } else {
+          bindPcVideo(existing, el);
+          if (existing.remoteStream) paintRemoteFromPc(existing, existing.remoteStream);
+        }
+        continue;
+      }
+      // No PC yet (shouldn't happen mid find-third) — fall through to create
     }
 
-    if (peerPcs.has(p.peer_id)) {
-      // Rebind video for existing opponent PC if needed
-      const existing = peerPcs.get(p.peer_id);
+    if (peerPcs.has(p.peer_id) || findPcForPeer(p.peer_id)) {
+      const existing = peerPcs.get(p.peer_id) || findPcForPeer(p.peer_id);
       if (existing && (p.role === "stranger" || p.role === "party")) {
+        rekeyPeerPc(p.peer_id, existing);
         const el = videoSlots.get(p.peer_id) || $("remote");
         bindPcVideo(existing, el);
+        if (useTrio && yourRole === "party" && (el === $("remote-third") || el?.id === "remote-third")) {
+          setThirdSlotStream(existing.remoteStream || null, p.name || "");
+        }
       }
       continue;
     }
 
-    // Cap stranger/party PCs at 2
+    // Never open a second PC for a teammate if we already have live media to anyone
+    if (isTeammateRole(p.role) && partnerHasLiveVideo()) {
+      bindFirstPartnerToMain(p);
+      continue;
+    }
+
     const strangerCount = [...peerPcs.values()].filter(
       (pc) => pc._role === "stranger" || pc._role === "party"
     ).length;
@@ -3958,11 +8403,13 @@ async function joinPeers(peers) {
     }
 
     let videoEl = null;
-    if (p.role === "friend") {
+    if (isTeammateRole(p.role)) {
       videoEl =
-        partyBrowsing && yourRole === "party"
-          ? $("friend-pip")
-          : $("remote");
+        useTrio && yourRole === "party"
+          ? $("remote")
+          : partyBrowsing && yourRole === "party"
+            ? $("friend-pip")
+            : $("remote");
     } else {
       videoEl = videoSlots.get(p.peer_id) || $("remote");
     }
@@ -3977,12 +8424,31 @@ async function joinPeers(peers) {
         },
         onRemoteStream: (stream) => {
           paintRemoteFromPc(pc, stream);
+          if (
+            useTrio &&
+            yourRole === "party" &&
+            (p.role === "stranger" || p.role === "party")
+          ) {
+            setThirdSlotStream(stream, p.name || "");
+          }
         },
         onConnectionState: (s) => {
           handleWebrtcConnectionState(s);
         },
         onIceConnectionState: (ice) => {
           if (ice === "failed") handleWebrtcConnectionState("failed");
+        },
+        onQualityTier: (tier) => {
+          if (pc === rtc || !isTeammateRole(p.role)) setQualityTierHint(tier);
+        },
+        onDataChannel: (open) => {
+          updateChatHeader();
+          if (open && (pc === rtc || !isTeammateRole(p.role))) {
+            setStatus(_t("chat.p2pReady") || "Chat is peer-to-peer");
+          }
+        },
+        onDataMessage: (msg) => {
+          handleP2pDataMessage(msg, pc);
         },
       },
       !!p.is_offerer,
@@ -3992,14 +8458,12 @@ async function joinPeers(peers) {
     pc._videoEl = videoEl;
     pc.setLocalStream(previewStream);
     peerPcs.set(p.peer_id, pc);
-    // Prefer stranger as active rtc for mute/stats when present
-    if (p.role !== "friend" || !rtc) rtc = pc;
-    if (p.role === "friend" && videoEl === $("friend-pip")) {
+    if (!isTeammateRole(p.role) || !rtc) rtc = pc;
+    if (isTeammateRole(p.role) && videoEl === $("friend-pip")) {
       showFriendPip(true);
     }
     try {
       await pc.connect();
-      // Drain pending for this peer
       const left = [];
       for (const s of pendingSignals.splice(0)) {
         if (!s.from_peer || s.from_peer === p.peer_id || p.peer_id === "legacy") {
@@ -4014,17 +8478,37 @@ async function joinPeers(peers) {
     }
   }
 
-  // Ensure friend PiP still painted after stranger connects
-  if (partyBrowsing && yourRole === "party" && friendMeta) {
+  if (useTrio && yourRole === "party" && friendMeta) {
+    const fpc = peerPcs.get(friendMeta.peer_id);
+    if (fpc) {
+      bindPcVideo(fpc, $("remote"));
+      showFriendPip(false);
+    }
+    syncLocalPipMirror();
+  } else if (partyBrowsing && yourRole === "party" && friendMeta && !useTrio) {
     const fpc = peerPcs.get(friendMeta.peer_id);
     if (fpc?.remoteStream && $("friend-pip")) {
       bindPcVideo(fpc, $("friend-pip"));
       showFriendPip(true);
     }
   }
-  // Apply hide-me / cam privacy to all new peer connections
   await pushOutboundVideoTracks();
+  ensurePartnerVideoVisible();
 }
+
+function videoSlotsTrioBind(peerMeta, pc) {
+  if (!peerMeta) return;
+  const el = $("remote-third") || $("remote2");
+  if (pc && el) {
+    bindPcVideo(pc, el);
+    if (pc.remoteStream) setThirdSlotStream(pc.remoteStream, peerMeta.name || "");
+  }
+}
+
+/** @type {"good"|"ok"|"weak"|""} */
+let lastConnGrade = "";
+/** @type {"direct"|"relay"|"unknown"|""} */
+let lastIceKind = "";
 
 function stopStats() {
   if (statsTimer) clearInterval(statsTimer);
@@ -4033,14 +8517,144 @@ function stopStats() {
   if (el) {
     el.textContent = "";
     el.className = "quality";
+    el.hidden = true;
   }
+  clearConnChip();
   clearIcePathBadge();
+  lastConnGrade = "";
+  lastIceKind = "";
+}
+
+function clearConnChip() {
+  const chip = $("conn-chip");
+  if (!chip) return;
+  chip.hidden = true;
+  chip.textContent = "";
+  chip.className = "conn-chip";
+  chip.removeAttribute("title");
+}
+
+/**
+ * Human-readable connection chip on partner tile (Good/OK/Weak · Direct/Relay).
+ * Detail numbers stay on #call-quality for power users.
+ */
+let weakConnSince = 0;
+let weakConnTipShownForMatch = false;
+
+function clearWeakConnWatch() {
+  weakConnSince = 0;
+  weakConnTipShownForMatch = false;
+  const t = $("weak-conn-tip");
+  if (t) t.remove();
+}
+
+function maybeShowWeakConnTip(grade, iceKind) {
+  if (!matched && !inFriendCall) {
+    weakConnSince = 0;
+    return;
+  }
+  if (grade !== "weak") {
+    weakConnSince = 0;
+    return;
+  }
+  if (!weakConnSince) weakConnSince = Date.now();
+  if (weakConnTipShownForMatch) return;
+  if (Date.now() - weakConnSince < 8000) return;
+  weakConnTipShownForMatch = true;
+  const existing = $("weak-conn-tip");
+  if (existing) existing.remove();
+  const preferOn =
+    typeof preferDirectOnlyEnabled === "function" && preferDirectOnlyEnabled();
+  const tip = document.createElement("div");
+  tip.id = "weak-conn-tip";
+  tip.className = "weak-conn-tip";
+  tip.setAttribute("role", "status");
+  const body =
+    preferOn || iceKind === "relay"
+      ? _t("conn.weakTipDirect") ||
+        "Connection is weak — try Wi‑Fi, or turn off Prefer Direct in Settings → Connection."
+      : _t("conn.weakTip") ||
+        "Connection is weak — try Wi‑Fi or move closer to your router.";
+  tip.innerHTML = `
+    <span>${escapeHtml(body)}</span>
+    <button type="button" class="pill tight ghost" id="btn-weak-conn-dismiss">${escapeHtml(
+      _t("coach.dismiss") || "Dismiss"
+    )}</button>`;
+  document.body.appendChild(tip);
+  $("btn-weak-conn-dismiss")?.addEventListener("click", () => tip.remove());
+  setTimeout(() => {
+    if (tip.parentNode) tip.remove();
+  }, 12000);
+  trackEvent("conn_weak_tip", { ice: iceKind || "", prefer: preferOn ? 1 : 0 });
+}
+
+function updateConnChip(rtt, loss, iceKind) {
+  const chip = $("conn-chip");
+  if (!chip) return;
+  if (!matched && !inFriendCall) {
+    clearConnChip();
+    clearWeakConnWatch();
+    return;
+  }
+  let grade = "ok";
+  if (
+    (rtt != null && rtt > 450) ||
+    (loss != null && loss > 4) ||
+    lastQualityTier === "low" ||
+    lastQualityTier === "min"
+  ) {
+    grade = "weak";
+  } else if (
+    (rtt == null || rtt < 180) &&
+    (loss == null || loss < 1.5) &&
+    iceKind !== "relay" &&
+    lastQualityTier !== "mid"
+  ) {
+    grade = "good";
+  } else if (rtt != null && rtt > 280) {
+    grade = "ok";
+  }
+
+  const path =
+    iceKind === "direct"
+      ? _t("conn.chipDirect") || "Direct"
+      : iceKind === "relay"
+        ? _t("conn.chipRelay") || "Relay"
+        : _t("conn.chipConnecting") || "Connecting…";
+  const label =
+    grade === "good"
+      ? _t("conn.chipGood") || "Good"
+      : grade === "weak"
+        ? _t("conn.chipWeak") || "Weak"
+        : _t("conn.chipOk") || "OK";
+
+  lastConnGrade = grade;
+  chip.hidden = false;
+  chip.className = "conn-chip grade-" + grade + (iceKind === "relay" ? " path-relay" : "");
+  chip.textContent = label + " · " + path;
+  const detail = [];
+  if (rtt != null) detail.push(Math.round(rtt) + " ms");
+  if (loss != null) detail.push(loss.toFixed(1) + "% loss");
+  chip.title =
+    (_t("conn.chipTitle", { label, path }) || `Connection: ${label} · ${path}`) +
+    (detail.length ? " (" + detail.join(", ") + ")" : "");
+  maybeShowWeakConnTip(grade, iceKind);
 }
 
 function startStats() {
   stopStats();
   statsTimer = setInterval(async () => {
     if (!rtc?.pc) return;
+    // Watchdog: never leave brand empty overlay over a live partner stream
+    try {
+      if (matched && partnerHasLiveVideo()) {
+        if (isRemoteEmptyVisible()) ensurePartnerVideoVisible();
+        for (const id of ["remote", "remote2", "remote-third"]) {
+          const el = $(id);
+          if (el?.srcObject && el.paused) playVideoEl(el);
+        }
+      }
+    } catch (_) {}
     try {
       const report = await rtc.pc.getStats();
       let rtt = null;
@@ -4072,17 +8686,26 @@ function startStats() {
       if (bitrate != null && bitrate > 0) parts.push(`${Math.round(bitrate)}k`);
       if (loss != null) parts.push(`${loss.toFixed(1)}%`);
       const el = $("call-quality");
-      if (!el) return;
-      el.textContent = parts.join(" · ") || "";
-      el.className = "quality";
-      if (rtt != null && rtt > 250) el.classList.add("warn");
-      if ((rtt != null && rtt > 500) || (loss != null && loss > 5)) el.classList.add("bad");
+      if (el) {
+        el.textContent = parts.join(" · ") || "";
+        el.className = "quality";
+        el.hidden = !parts.length;
+        if (rtt != null && rtt > 250) el.classList.add("warn");
+        if ((rtt != null && rtt > 500) || (loss != null && loss > 5))
+          el.classList.add("bad");
+      }
 
       // Media path: Direct P2P vs TURN relay
+      let iceKind = lastIceKind || "unknown";
       if (typeof getIcePathKind === "function") {
         const kind = await getIcePathKind(rtc.pc);
-        if (kind !== "unknown" || matched) setIcePathBadge(kind);
+        if (kind !== "unknown" || matched) {
+          setIcePathBadge(kind);
+          iceKind = kind || "unknown";
+          lastIceKind = iceKind;
+        }
       }
+      updateConnChip(rtt, loss, iceKind);
     } catch (_) {}
   }, 2000);
 }
@@ -4107,37 +8730,136 @@ function endCallKeepPreview() {
 function renderFriendsList() {
   const el = $("friends-list");
   if (!el) return;
+  friendsCache = dedupeByUserId(friendsCache);
+  const backup = loadFriendsBackup();
+  const knownIds = new Set(friendsCache.map((f) => f.user_id));
+  const knownCodes = new Set(
+    friendsCache.map((f) => String(f.friend_code || "").toUpperCase()).filter(Boolean)
+  );
+  // Codes we know about but are not currently friends on hub (lost identity / removed)
+  const recoverable = backup.filter((b) => {
+    if (!b.friend_code) return false;
+    const code = String(b.friend_code).toUpperCase();
+    if (knownCodes.has(code)) return false;
+    if (b.user_id && knownIds.has(b.user_id)) return false;
+    return true;
+  });
+
   if (!friendsCache.length) {
     el.innerHTML = `<div class="hint-inline">${escapeHtml(_t("friends.empty"))}</div>`;
   } else {
+    const read = loadChatRead();
+    const nicks = loadFriendNicks();
     el.innerHTML = friendsCache
       .map((f) => {
         const online = f.online ? "online" : "";
         const st = f.online ? _t("friends.online") : _t("friends.offline");
+        const display = friendDisplayName(f);
+        const hasNick = !!(nicks[f.user_id] || "").trim();
+        const realName = (f.name || f.short_id || "").toString();
         const callBtn = f.online
           ? `<button type="button" class="pill tight btn-call-friend" data-uid="${escapeAttr(
               f.user_id
             )}">${escapeHtml(_t("friends.call"))}</button>`
           : "";
-        return `<div class="friend-row ${online}">
-        <span class="dot"></span>
-        <div class="meta">
-          <strong>${escapeHtml(f.name || f.short_id)}</strong>
-          <span>${escapeHtml(st)} · ${escapeHtml(f.friend_code || "")}</span>
-        </div>
-        <div class="friend-actions">
-          ${callBtn}
+        const key = friendThreadKey(f.user_id);
+        const thr = loadChatThreads()[key];
+        const lastLocal = thr?.msgs?.length ? thr.msgs[thr.msgs.length - 1] : null;
+        const lastTs = lastLocal?.ts || (f.last_msg_ts ? f.last_msg_ts * 1000 : 0);
+        const unread =
+          lastTs > (read[key] || 0) && lastLocal && !lastLocal.mine
+            ? " unread"
+            : f.last_msg_ts * 1000 > (read[key] || 0) && !lastLocal
+              ? " unread"
+              : "";
+        const preview = lastLocal?.body || f.last_msg || "";
+        const previewLine = preview
+          ? `<span class="friend-preview${unread}">${escapeHtml(preview.slice(0, 60))}</span>`
+          : "";
+        const nickHint =
+          hasNick && realName && realName !== display
+            ? `<span class="friend-realname">${escapeHtml(realName)}</span>`
+            : "";
+        const renameLbl = escapeHtml(_t("friends.rename") || "Rename");
+        const removeLbl = escapeHtml(_t("friends.remove"));
+        const blockLbl = escapeHtml(_t("friends.block"));
+        const moreLbl = escapeHtml(_t("friends.more") || "More");
+        const secondary = `
+          <button type="button" class="pill tight ghost btn-rename-friend" data-uid="${escapeAttr(
+            f.user_id
+          )}" data-name="${escapeAttr(realName)}" title="${escapeAttr(
+          _t("friends.rename") || "Rename"
+        )}">${renameLbl}</button>
           <button type="button" class="pill tight ghost btn-remove-friend" data-uid="${escapeAttr(
             f.user_id
-          )}">${escapeHtml(_t("friends.remove"))}</button>
+          )}">${removeLbl}</button>
           <button type="button" class="pill tight danger btn-block-friend" data-uid="${escapeAttr(
             f.user_id
-          )}">${escapeHtml(_t("friends.block"))}</button>
+          )}">${blockLbl}</button>`;
+        return `<div class="friend-row ${online}${unread}">
+        ${friendAvatarHtml(f)}
+        <span class="dot"></span>
+        <div class="meta">
+          <strong>${escapeHtml(display)}</strong>
+          ${nickHint}
+          <span>${escapeHtml(st)} · ${escapeHtml(f.friend_code || "")}</span>
+          ${previewLine}
+        </div>
+        <div class="friend-actions">
+          <div class="friend-actions-primary">
+            <button type="button" class="pill tight accent btn-msg-friend" data-uid="${escapeAttr(
+              f.user_id
+            )}" data-name="${escapeAttr(display)}">${escapeHtml(
+          _t("friends.message") || "Message"
+        )}</button>
+            ${callBtn}
+          </div>
+          <div class="friend-actions-overflow-inline">${secondary}</div>
+          <div class="friend-more-wrap">
+            <button type="button" class="pill tight ghost btn-friend-more" data-uid="${escapeAttr(
+              f.user_id
+            )}" aria-haspopup="true" aria-expanded="false" title="${moreLbl}" aria-label="${moreLbl}">⋮</button>
+            <div class="friend-more-menu" hidden role="menu">${secondary}</div>
+          </div>
         </div>
       </div>`;
       })
       .join("");
   }
+  const wireFriendSecondary = (root) => {
+    root.querySelectorAll(".btn-rename-friend").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        closeAllFriendMoreMenus();
+        renameFriendPrompt(
+          btn.getAttribute("data-uid"),
+          btn.getAttribute("data-name") || ""
+        );
+      });
+    });
+    root.querySelectorAll(".btn-remove-friend").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        closeAllFriendMoreMenus();
+        send({ type: "remove_friend", user_id: btn.getAttribute("data-uid") });
+      });
+    });
+    root.querySelectorAll(".btn-block-friend").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        closeAllFriendMoreMenus();
+        blockUserId(btn.getAttribute("data-uid"));
+      });
+    });
+  };
+  wireFriendSecondary(el);
+  el.querySelectorAll(".btn-msg-friend").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      openFriendChat(btn.getAttribute("data-uid"), {
+        name: btn.getAttribute("data-name") || "",
+      });
+    });
+  });
   el.querySelectorAll(".btn-call-friend").forEach((btn) => {
     btn.addEventListener("click", () => {
       send({ type: "call_friend", user_id: btn.getAttribute("data-uid") });
@@ -4147,16 +8869,63 @@ function renderFriendsList() {
       closeFriends();
     });
   });
-  el.querySelectorAll(".btn-remove-friend").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      send({ type: "remove_friend", user_id: btn.getAttribute("data-uid") });
+  el.querySelectorAll(".btn-friend-more").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const wrap = btn.closest(".friend-more-wrap");
+      const menu = wrap?.querySelector(".friend-more-menu");
+      if (!menu) return;
+      const open = menu.hidden;
+      closeAllFriendMoreMenus();
+      if (open) {
+        menu.hidden = false;
+        btn.setAttribute("aria-expanded", "true");
+      }
     });
   });
-  el.querySelectorAll(".btn-block-friend").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      blockUserId(btn.getAttribute("data-uid"));
-    });
-  });
+
+  // Recover / re-request section (local backup codes not on current friends list)
+  const rec = $("friends-recover");
+  if (rec) {
+    if (!recoverable.length) {
+      rec.hidden = true;
+      rec.innerHTML = "";
+    } else {
+      rec.hidden = false;
+      rec.innerHTML =
+        `<div class="hint-inline req-title"><strong>${escapeHtml(
+          _t("friends.recoverTitle") || "Re-add from backup"
+        )}</strong><br/><span class="muted">${escapeHtml(
+          _t("friends.recoverHint") ||
+            "These friend codes were saved on this device. Tap Re-request if they are not in your list."
+        )}</span></div>` +
+        recoverable
+          .slice(0, 24)
+          .map(
+            (b) => `<div class="friend-row">
+          <span class="dot"></span>
+          <div class="meta">
+            <strong>${escapeHtml(b.name || b.friend_code)}</strong>
+            <span>${escapeHtml(b.friend_code || "")}</span>
+          </div>
+          <div class="friend-actions">
+            <button type="button" class="pill tight accent btn-recover-friend" data-code="${escapeAttr(
+              b.friend_code
+            )}">${escapeHtml(_t("friends.reRequest") || "Re-request")}</button>
+          </div>
+        </div>`
+          )
+          .join("");
+      rec.querySelectorAll(".btn-recover-friend").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const code = btn.getAttribute("data-code");
+          if (!code) return;
+          requestAddFriend(code);
+        });
+      });
+    }
+  }
+  updateFriendsUnreadBadge();
 
   const bl = $("blocked-list");
   if (bl) {
@@ -4188,14 +8957,51 @@ function renderFriendsList() {
   }
 }
 
+/** Strong certainty toast: block = permanent skip until unblock. */
+function showBlockCertaintyToast(opts = {}) {
+  const id = "block-certainty-toast";
+  const existing = $(id);
+  if (existing) existing.remove();
+  const toast = document.createElement("div");
+  toast.id = id;
+  toast.className = "report-toast block-certainty-toast";
+  toast.setAttribute("role", "status");
+  const title =
+    opts.title ||
+    _t("friends.blockOkTitle") ||
+    _t("friends.blockOk") ||
+    "Blocked";
+  const body =
+    opts.body ||
+    _t("friends.blockNeverAgain") ||
+    "You will not match them again. Unblock anytime in Friends.";
+  toast.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${escapeHtml(
+    body
+  )}</span>`;
+  document.body.appendChild(toast);
+  const ms = window.matchMedia("(max-width: 720px)").matches ? 6500 : 5000;
+  setTimeout(() => {
+    if (toast.parentNode) toast.remove();
+  }, ms);
+}
+
 /** @returns {boolean} true if block was applied */
 function blockUserId(uid, opts = {}) {
   if (!uid) return false;
   const silent = !!opts.silent;
   if (!silent && !confirm(_t("friends.blockConfirm"))) return false;
   send({ type: "block_user", user_id: uid });
-  setStatus(_t("friends.blockOk"));
+  setStatus(_t("friends.blockNeverAgain") || _t("friends.blockOk"));
   log(_t("friends.blockOk"));
+  if (!opts.skipToast) {
+    showBlockCertaintyToast({
+      title: _t("friends.blockOkTitle") || "Blocked",
+      body:
+        _t("friends.blockNeverAgain") ||
+        "You will not match them again. Unblock anytime in Friends.",
+    });
+  }
+  trackEvent("block", { silent: silent ? 1 : 0 });
   if (primaryPartnerUserId === uid) {
     primaryPartnerUserId = "";
     matched = false;
@@ -4319,10 +9125,26 @@ function renderHistoryList() {
           : null;
         const onlineFriend = !!(fr && fr.online);
         const dur = formatDurationShort(h.duration_secs);
+        const pathBit =
+          h.ice_path === "direct"
+            ? _t("conn.chipDirect") || "Direct"
+            : h.ice_path === "relay"
+              ? _t("conn.chipRelay") || "Relay"
+              : "";
+        const gradeBit =
+          h.conn_grade === "good"
+            ? _t("conn.chipGood") || "Good"
+            : h.conn_grade === "weak"
+              ? _t("conn.chipWeak") || "Weak"
+              : h.conn_grade === "ok"
+                ? _t("conn.chipOk") || "OK"
+                : "";
         const metaBits = [
           kindLabel(h.kind),
           formatHistoryTime(h.t),
           dur ? dur : "",
+          pathBit,
+          gradeBit,
           isFriend && !onlineFriend ? _t("friends.offline") : "",
         ]
           .filter(Boolean)
@@ -4367,27 +9189,22 @@ function renderHistoryList() {
     btn.addEventListener("click", () => {
       const code = btn.getAttribute("data-code");
       if (!code) return;
-      send({ type: "add_friend", code });
-      setStatus(_t("friends.requestSent"));
+      requestAddFriend(code);
     });
   });
 }
 
 function updateFriendsBadge() {
-  const badge = $("friends-badge");
-  if (!badge) return;
-  const n = incomingRequests.length;
-  if (n > 0) {
-    badge.hidden = false;
-    badge.textContent = n > 9 ? "9+" : String(n);
-  } else {
-    badge.hidden = true;
-    badge.textContent = "0";
-  }
+  // Requests + unread friend DMs share the same badge on the Friends button
+  updateFriendsUnreadBadge();
 }
 
 function renderRequestLists() {
   updateFriendsBadge();
+  const banner = $("friends-pending-banner");
+  if (banner) {
+    banner.hidden = !(outgoingRequests && outgoingRequests.length);
+  }
   const inc = $("incoming-requests");
   const out = $("outgoing-requests");
   if (inc) {
@@ -4399,7 +9216,7 @@ function renderRequestLists() {
       inc.innerHTML =
         `<div class="hint-inline req-title"><strong>${escapeHtml(
           _t("friends.incomingTitle")
-        )}</strong> — ${_t("friends.mutualHint")}</div>` +
+        )}</strong> — ${escapeHtml(_t("friends.mutualHint"))}</div>` +
         incomingRequests
           .map(
             (f) => `<div class="friend-row online req-row">
@@ -4438,16 +9255,25 @@ function renderRequestLists() {
       out.innerHTML = "";
     } else {
       out.hidden = false;
+      const waitLbl = escapeHtml(
+        _t("friends.waitingAccept") || "Waiting for Accept"
+      );
+      const waitSub = escapeHtml(
+        _t("friends.waitingAcceptSub") ||
+          "They must open Friends and Accept before you can Call"
+      );
       out.innerHTML =
-        `<div class="hint-inline"><strong>${escapeHtml(
+        `<div class="hint-inline req-title"><strong>${escapeHtml(
           _t("friends.outgoingTitle")
         )}</strong></div>` +
         outgoingRequests
           .map(
-            (f) => `<div class="friend-row">
-          <span class="dot"></span>
+            (f) => `<div class="friend-row friend-row-pending">
+          <span class="dot pending"></span>
           <div class="meta">
-            <strong>${escapeHtml(f.name || f.short_id)}</strong>
+            <strong>${escapeHtml(f.name || f.short_id || f.friend_code || "friend")}</strong>
+            <span class="friend-wait-badge">${waitLbl}</span>
+            <span class="friend-wait-sub">${waitSub}</span>
             <span>${escapeHtml(f.friend_code || "")}</span>
           </div>
           <div class="friend-actions">
@@ -4485,6 +9311,7 @@ function formatMatchDuration(ms) {
 
 function startMatchTimer() {
   stopMatchTimer();
+  lastMatchDurationSec = 0;
   matchTimerStartedAt = Date.now();
   const el = $("match-timer");
   if (el) {
@@ -4503,9 +9330,14 @@ function stopMatchTimer() {
     clearInterval(matchTimerInterval);
     matchTimerInterval = 0;
   }
-  if (matchTimerStartedAt && lastMatchMeta?.user_id) {
-    const secs = Math.max(0, Math.round((Date.now() - matchTimerStartedAt) / 1000));
-    patchHistoryDuration(lastMatchMeta.user_id, secs);
+  if (matchTimerStartedAt) {
+    lastMatchDurationSec = Math.max(
+      0,
+      Math.round((Date.now() - matchTimerStartedAt) / 1000)
+    );
+    if (lastMatchMeta?.user_id) {
+      patchHistoryDuration(lastMatchMeta.user_id, lastMatchDurationSec);
+    }
   }
   matchTimerStartedAt = 0;
   const el = $("match-timer");
@@ -4521,6 +9353,13 @@ function patchHistoryDuration(userId, secs) {
   const row = list.find((h) => h.user_id === userId);
   if (!row) return;
   row.duration_secs = Math.max(row.duration_secs || 0, secs);
+  // Best-effort path quality for this match (local only)
+  if (lastIceKind === "direct" || lastIceKind === "relay") {
+    row.ice_path = lastIceKind;
+  }
+  if (lastConnGrade === "good" || lastConnGrade === "ok" || lastConnGrade === "weak") {
+    row.conn_grade = lastConnGrade;
+  }
   saveHistory(list);
 }
 
@@ -4558,12 +9397,9 @@ function showWaitTips() {
 }
 
 function startWaitTipsWatch() {
+  // No auto “still looking / keep this tab open” popups — user stays or leaves freely.
   clearWaitTipsWatch();
   hideWaitTips();
-  // After 18s still searching → gentle tips (not a full-screen blocker)
-  waitTipsTimer = setTimeout(() => {
-    if (inQueue && !matched) showWaitTips();
-  }, 18000);
 }
 
 function wireWaitTips() {
@@ -4631,10 +9467,10 @@ function showFriendRequestToast(msg) {
     </div>
     <div class="call-toast-actions">
       <button type="button" class="pill primary" id="btn-fr-accept">${escapeHtml(
-        _t("friends.acceptReq")
+        _t("friends.acceptReq") || "Accept"
       )}</button>
       <button type="button" class="pill danger" id="btn-fr-decline">${escapeHtml(
-        _t("friends.declineReq")
+        _t("friends.declineReq") || "Reject"
       )}</button>
     </div>`;
   document.body.appendChild(toast);
@@ -4655,19 +9491,198 @@ function showFriendRequestToast(msg) {
   }, 60000);
 }
 
+/** Normalize pasted friend codes / invite URLs → 8-char hex when possible. */
+function normalizeFriendCodeInput(raw) {
+  let s = String(raw || "").trim();
+  if (!s) return "";
+  // Invite link: …?friend=ABC123 or &friend=
+  try {
+    if (/^https?:\/\//i.test(s) || s.includes("friend=")) {
+      const u = new URL(s, location.origin);
+      const f = u.searchParams.get("friend");
+      if (f) s = f;
+    }
+  } catch (_) {
+    const m = s.match(/[?&]friend=([^&#\s]+)/i);
+    if (m) s = decodeURIComponent(m[1]);
+  }
+  // Strip spaces, dashes, #, etc. Keep alnum only
+  s = s.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+  return s.slice(0, 16);
+}
+
+function requestAddFriend(rawCode) {
+  const code = normalizeFriendCodeInput(rawCode);
+  if (!code) {
+    setStatus(_t("friends.needCode") || "Enter a friend code first");
+    return false;
+  }
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    setStatus(_t("friends.needConn") || "Not connected — wait for green status, then try again");
+    log(_t("friends.needConn") || "add friend: not connected");
+    // Kick reconnect so the next attempt can succeed
+    try {
+      if (!qHasNoconnect()) connect(false);
+    } catch (_) {}
+    return false;
+  }
+  if (myFriendCode && code === String(myFriendCode).toUpperCase().replace(/[^A-Z0-9]/g, "")) {
+    setStatus(_t("friends.cannotSelf") || "That’s your own code");
+    return false;
+  }
+  send({ type: "add_friend", code });
+  // Optimistic UI — server confirms via status / friends push
+  setStatus(_t("friends.sentToast") || _t("friends.requestSent") || "Request sent — waiting for Accept");
+  log((_t("friends.requestSent") || "friend request sent") + " · " + code);
+  showFriendSentToast(code);
+  trackEvent("friend_request_sent");
+  return true;
+}
+
+/** Soft toast: request sent → waiting for Accept (not a forced nag). */
+function showFriendSentToast(code) {
+  const existing = $("friend-sent-toast");
+  if (existing) existing.remove();
+  const toast = document.createElement("div");
+  toast.id = "friend-sent-toast";
+  toast.className = "friend-soft-toast";
+  toast.setAttribute("role", "status");
+  toast.innerHTML = `
+    <strong>${escapeHtml(_t("friends.sentToast") || "Request sent — waiting for them to Accept")}</strong>
+    <span>${escapeHtml(code || "")}</span>`;
+  document.body.appendChild(toast);
+  setTimeout(() => {
+    if (toast.parentNode) toast.remove();
+  }, 5000);
+}
+
+/** Soft toast when mutual friendship completes. */
+function showFriendAcceptedToast(f) {
+  const existing = $("friend-accepted-toast");
+  if (existing) existing.remove();
+  const name = friendDisplayName(f) || f?.name || f?.friend_code || "Friend";
+  const toast = document.createElement("div");
+  toast.id = "friend-accepted-toast";
+  toast.className = "friend-soft-toast friend-soft-toast-ok";
+  toast.setAttribute("role", "status");
+  toast.innerHTML = `
+    <strong>${escapeHtml(name)}</strong>
+    <span>${escapeHtml(
+      _t("friends.acceptedToast") || "You’re friends now — Call when they’re online"
+    )}</span>`;
+  document.body.appendChild(toast);
+  try {
+    playMatchChime();
+  } catch (_) {}
+  trackEvent("friend_accepted");
+  setTimeout(() => {
+    if (toast.parentNode) toast.remove();
+  }, 6000);
+}
+
+const FRIENDS_FIRST_HINT_KEY = "ruletka-friends-first-hint-v1";
+
+function friendsFirstHintDone() {
+  try {
+    return localStorage.getItem(FRIENDS_FIRST_HINT_KEY) === "1";
+  } catch {
+    return true;
+  }
+}
+
+function markFriendsFirstHintDone() {
+  try {
+    localStorage.setItem(FRIENDS_FIRST_HINT_KEY, "1");
+  } catch (_) {}
+}
+
+/** First-run Friends sheet: highlight code + short how-to (not a site-wide nag). */
+function maybeShowFriendsFirstRun() {
+  const hero = $("friends-code-hero");
+  const first = $("friends-first-hint");
+  const codeEl = $("my-friend-code");
+  const copyBtn = $("btn-copy-code");
+  const noFriends = !(friendsCache && friendsCache.length);
+  const showFirst = noFriends && !friendsFirstHintDone();
+  if (hero) hero.classList.toggle("is-first-run", showFirst);
+  if (first) first.hidden = !showFirst;
+  if (showFirst) {
+    // Expand how-codes once so Request/Accept path is obvious
+    const how = document.querySelector(".friends-how-codes");
+    if (how) how.open = true;
+    if (codeEl && myFriendCode) {
+      try {
+        const range = document.createRange();
+        range.selectNodeContents(codeEl);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+      } catch (_) {}
+    }
+    copyBtn?.classList.add("pulse-once");
+    setTimeout(() => copyBtn?.classList.remove("pulse-once"), 2400);
+    // After focus trap settles, prefer Copy / code field for first-run
+    setTimeout(() => {
+      try {
+        if (myFriendCode) copyBtn?.focus?.();
+        else $("add-friend-code")?.focus?.();
+      } catch (_) {}
+    }, 140);
+  }
+}
+
 function openFriends() {
+  closeMessages();
   ensureNotifPermissionSoft();
-  if ($("friends-sheet")) $("friends-sheet").hidden = false;
-  if ($("friends-backdrop")) $("friends-backdrop").hidden = false;
+  const sheet = $("friends-sheet");
+  const bd = $("friends-backdrop");
+  if (sheet) {
+    sheet.hidden = false;
+    sheet.removeAttribute("hidden");
+    sheet.classList.add("is-open");
+  }
+  if (bd) {
+    bd.hidden = false;
+    bd.removeAttribute("hidden");
+    bd.classList.add("is-open");
+  }
   syncNameInputs(getDisplayName());
-  if ($("my-friend-code")) $("my-friend-code").textContent = myFriendCode || "—";
+  if ($("my-friend-code")) {
+    $("my-friend-code").textContent = myFriendCode || "—";
+  }
+  // No code yet → re-hello so the hub assigns / re-sends friend_code
+  if (!myFriendCode && ws && ws.readyState === WebSocket.OPEN) {
+    try {
+      sendHelloPayload(getDisplayName());
+    } catch (_) {}
+  } else if (!ws || ws.readyState !== WebSocket.OPEN) {
+    setStatus(_t("friends.needConn") || "Connecting… open Friends again in a moment");
+    try {
+      if (!qHasNoconnect()) connect(false);
+    } catch (_) {}
+  }
   renderFriendsList();
   renderRequestLists();
   renderHistoryList();
+  bindSheetFocusTrap(sheet);
+  // After trap attaches, first-run may re-focus Copy (slightly later)
+  maybeShowFriendsFirstRun();
+  // One-shot wire for export from friends sheet
+  const exp = $("btn-friends-export");
+  if (exp && !exp.dataset.wired) {
+    exp.dataset.wired = "1";
+    exp.addEventListener("click", () => exportProfileFile());
+  }
 }
 function closeFriends() {
-  if ($("friends-sheet")) $("friends-sheet").hidden = true;
-  if ($("friends-backdrop")) $("friends-backdrop").hidden = true;
+  const sheet = $("friends-sheet");
+  const bd = $("friends-backdrop");
+  releaseSheetFocusTrap(sheet);
+  sheet?.classList.remove("is-open");
+  bd?.classList.remove("is-open");
+  if (sheet) sheet.hidden = true;
+  if (bd) bd.hidden = true;
+  closeAllFriendMoreMenus();
 }
 
 function hideIncomingCall() {
@@ -4734,6 +9749,87 @@ function toggleFullscreenPartner() {
   else document.exitFullscreen?.();
 }
 
+function pipSupported() {
+  try {
+    const v = $("remote");
+    return !!(
+      document.pictureInPictureEnabled &&
+      v &&
+      typeof v.requestPictureInPicture === "function"
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+function updatePipButton() {
+  const btn = $("btn-pip-remote");
+  if (!btn) return;
+  const show = pipSupported() && matched && !!$("remote")?.srcObject;
+  btn.hidden = !show;
+  const active =
+    document.pictureInPictureElement &&
+    document.pictureInPictureElement === $("remote");
+  btn.classList.toggle("is-active", !!active);
+  btn.setAttribute(
+    "aria-pressed",
+    active ? "true" : "false"
+  );
+  const title = active
+    ? _t("btn.pipExit") || "Exit picture-in-picture"
+    : _t("btn.pipTitle") || "Picture-in-picture";
+  btn.title = title;
+  btn.setAttribute("aria-label", title);
+}
+
+async function togglePartnerPip({ silent = false } = {}) {
+  const v = $("remote");
+  if (!v || !pipSupported()) {
+    if (!silent) {
+      setStatus(_t("btn.pipUnsupported") || "Picture-in-picture not available here");
+    }
+    return;
+  }
+  try {
+    if (document.pictureInPictureElement === v) {
+      await document.exitPictureInPicture();
+      trackEvent("pip_exit");
+    } else {
+      if (!v.srcObject) {
+        if (!silent) setStatus(_t("btn.pipNeedVideo") || "Partner video not ready yet");
+        return;
+      }
+      // Ensure video is playing so PiP is allowed
+      try {
+        v.muted = false;
+        const p = v.play();
+        if (p && typeof p.catch === "function") p.catch(() => {});
+      } catch (_) {}
+      await v.requestPictureInPicture();
+      trackEvent("pip_enter");
+      if (!silent) {
+        setStatus(_t("btn.pipOn") || "Partner in picture-in-picture");
+      }
+    }
+  } catch (e) {
+    if (!silent) {
+      setStatus(_t("btn.pipFail") || "Could not open picture-in-picture");
+      log("pip: " + (e?.message || e));
+    }
+  }
+  updatePipButton();
+}
+
+/** Soft auto-PiP when the tab hides mid-call (Chromium); no-op if blocked. */
+function maybeAutoPipOnHide() {
+  if (document.visibilityState === "visible") return;
+  if (!matched && !inFriendCall) return;
+  if (!pipSupported()) return;
+  if (document.pictureInPictureElement) return;
+  // Prefer-reduced-motion users still get PiP (it's functional, not animation)
+  togglePartnerPip({ silent: true });
+}
+
 const REPORTS_KEY = "rulet.reports.v1";
 
 function partnerMenuOpen() {
@@ -4744,6 +9840,7 @@ function partnerMenuOpen() {
 function closePartnerMenu() {
   const menu = $("partner-menu");
   const bd = $("partner-menu-backdrop");
+  releaseSheetFocusTrap(menu);
   if (menu) menu.hidden = true;
   if (bd) bd.hidden = true;
   const main = $("partner-menu-main");
@@ -4795,6 +9892,21 @@ function openPartnerMenu() {
     }
   }
 
+  // Find 3rd: same rules as footer button (stranger 1v1)
+  const findBtn = $("btn-partner-find-third");
+  if (findBtn) {
+    const canFind =
+      TRIO_FIND_ENABLED &&
+      !!matched &&
+      !inFriendCall &&
+      matchMode === "solo" &&
+      yourRole === "solo" &&
+      !trioBrowse &&
+      !findThirdPending;
+    findBtn.hidden = !canFind;
+    findBtn.disabled = !canFind;
+  }
+
   const main = $("partner-menu-main");
   const rep = $("partner-menu-report");
   if (main) main.hidden = false;
@@ -4802,13 +9914,17 @@ function openPartnerMenu() {
 
   menu.hidden = false;
   if (bd) bd.hidden = false;
+  bindSheetFocusTrap(menu);
 }
 
 function invitePartnerFriend() {
   const code = lastMatchMeta?.friend_code || "";
   if (!code) {
-    setStatus(_t("partnerMenu.noCode"));
-    log(_t("partnerMenu.noCode"));
+    setStatus(
+      _t("partnerMenu.noCode") ||
+        "No friend code for this partner yet — try again in a second"
+    );
+    log(_t("partnerMenu.noCode") || "partner has no friend_code");
     closePartnerMenu();
     return;
   }
@@ -4817,9 +9933,12 @@ function invitePartnerFriend() {
     closePartnerMenu();
     return;
   }
-  send({ type: "add_friend", code });
-  setStatus(_t("friends.requestSent"));
-  log(_t("friends.requestSent") + (lastMatchMeta?.name ? ` · ${lastMatchMeta.name}` : ""));
+  if (requestAddFriend(code)) {
+    log(
+      (_t("friends.requestSent") || "request sent") +
+        (lastMatchMeta?.name ? ` · ${lastMatchMeta.name}` : "")
+    );
+  }
   closePartnerMenu();
 }
 
@@ -4830,9 +9949,21 @@ function blockPartnerFromMenu() {
     return;
   }
   closePartnerMenu();
+  // Block · Next — permanent skip until unblock
   if (!blockUserId(uid)) return;
   wantSearch = true;
+  matched = false;
+  showStartButton(false);
+  closeAllPeers({ keepFriend: false });
+  setSplitRemote(false);
+  setRemoteEmpty(true);
+  resetRemoteEmptyCopy();
+  updateFriendActionButtons();
   send({ type: "next", room: currentRoom() });
+  setPhase("waiting");
+  updateConnFromState();
+  updateFriendsOnlineStrip();
+  trackEvent("block_next");
 }
 
 function showPartnerReportReasons() {
@@ -4849,6 +9980,25 @@ function saveLocalReport(entry) {
     list.unshift(entry);
     localStorage.setItem(REPORTS_KEY, JSON.stringify(list.slice(0, 100)));
   } catch (_) {}
+}
+
+function showReportToast(message) {
+  const id = "report-toast";
+  const existing = $(id);
+  if (existing) existing.remove();
+  const toast = document.createElement("div");
+  toast.id = id;
+  toast.className = "report-toast";
+  toast.setAttribute("role", "status");
+  toast.innerHTML = `<strong>${escapeHtml(
+    _t("partnerMenu.report") || "Report"
+  )}</strong><span>${escapeHtml(message)}</span>`;
+  document.body.appendChild(toast);
+  // Longer on mobile so the success state is readable after skip animation
+  const ms = window.matchMedia("(max-width: 720px)").matches ? 6500 : 4800;
+  setTimeout(() => {
+    if (toast.parentNode) toast.remove();
+  }, ms);
 }
 
 function reportPartner(reason) {
@@ -4871,19 +10021,26 @@ function reportPartner(reason) {
     user_id: uid,
     reason: entry.reason,
   });
-  // Clearer community-moderation feedback
+  // Report · Next: block + requeue + never rematch certainty
   const msg =
     reason === "underage"
       ? _t("partnerMenu.reportOkUnderage") ||
         _t("partnerMenu.reportOk")
       : _t("partnerMenu.reportOkFull") || _t("partnerMenu.reportOk");
   setStatus(msg);
+  showReportToast(
+    _t("partnerMenu.reportToastFull") ||
+      _t("partnerMenu.reportToast") ||
+      "Reported · blocked · Next. You will not match them again."
+  );
   log((_t("partnerMenu.reportOk") || "reported") + ` · ${entry.reason}`);
+  trackEvent("report_next", { reason: entry.reason || "other" });
   closePartnerMenu();
-  // Block + skip so they don't reappear
-  blockUserId(uid, { silent: true });
+  // Block + skip so they don't reappear (toast already shown as report)
+  blockUserId(uid, { silent: true, skipToast: true });
   wantSearch = true;
   matched = false;
+  showStartButton(false);
   closeAllPeers({ keepFriend: false });
   setSplitRemote(false);
   setRemoteEmpty(true);
@@ -4892,6 +10049,8 @@ function reportPartner(reason) {
   updateFriendActionButtons();
   send({ type: "next", room: currentRoom() });
   setPhase("waiting");
+  updateConnFromState();
+  updateFriendsOnlineStrip();
 }
 
 function updatePartnerClickable() {
@@ -4923,7 +10082,19 @@ on("btn-mute-remote", "click", () => togglePartnerMute());
 on("btn-blur-remote", "click", () => togglePartnerBlur());
 on("btn-blur-self", "click", () => toggleSelfBlur());
 on("btn-fs-remote", "click", () => toggleFullscreenPartner());
+on("btn-pip-remote", "click", () => togglePartnerPip());
+document.addEventListener("enterpictureinpicture", () => updatePipButton());
+document.addEventListener("leavepictureinpicture", () => updatePipButton());
 on("btn-partner-friend", "click", () => invitePartnerFriend());
+on("btn-partner-find-third", "click", () => {
+  closePartnerMenu();
+  if (!TRIO_FIND_ENABLED || findThirdPending || !matched) return;
+  findThirdPending = "out";
+  send({ type: "find_third_invite" });
+  setStatus(_t("trio.inviteSent") || "Invite sent — waiting for them…");
+  trackEvent("find_third_invite", { via: "partner_menu" });
+  updateFriendActionButtons();
+});
 on("btn-partner-block", "click", () => blockPartnerFromMenu());
 on("btn-partner-report", "click", () => showPartnerReportReasons());
 on("btn-report-dock", "click", () => {
@@ -4951,42 +10122,286 @@ on("sheet-backdrop", "click", () => closeSettings());
 on("btn-refresh-devices", "click", () => refreshDevices());
 on("btn-friends", "click", () => openFriends());
 on("friends-close", "click", () => closeFriends());
+on("btn-messages", "click", () => openMessages());
+on("messages-close", "click", () => closeMessages());
+on("messages-backdrop", "click", () => closeMessages());
+on("msg-tab-friends", "click", () => {
+  showMsgListView();
+  setMessagesTab("friends");
+});
+on("msg-tab-matches", "click", () => {
+  showMsgListView();
+  setMessagesTab("matches");
+});
+on("msg-back", "click", () => showMsgListView());
+on("btn-chat-inbox", "click", () => {
+  const tab =
+    activeChat.mode === "friend"
+      ? "friends"
+      : activeChat.mode === "match" || activeChat.mode === "history"
+        ? "matches"
+        : messagesTab;
+  openMessages(tab);
+  if (activeChat.threadKey) {
+    openInboxThread(activeChat.threadKey, {
+      mode: activeChat.mode,
+      peerUserId: activeChat.peerUserId,
+      peerName: activeChat.peerName,
+      live: activeChat.live,
+    });
+  }
+});
+on("msg-thread-clear", "click", () => {
+  if (!activeChat.threadKey) return;
+  if (!confirm(_t("msg.clearConfirm") || "Clear this conversation?")) return;
+  clearChat();
+  renderInboxThreadBody();
+  showMsgListView();
+});
+{
+  const form = $("msg-compose");
+  if (form) {
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      const input = $("msg-compose-input");
+      const body = (input?.value || "").trim();
+      if (!body || input?.disabled) return;
+      // Reuse main compose routing
+      if (activeChat.mode === "friend" && activeChat.peerUserId) {
+        // Live friend call + open DC → E2E (+ hub store). Else hub only.
+        const liveFriend =
+          (inFriendCall || matchMode === "friend") && anyChatDcOpen();
+        if (liveFriend) {
+          if (
+            !sendLiveChat(body, {
+              asFriend: true,
+              peerUserId: activeChat.peerUserId,
+            })
+          ) {
+            setStatus(_t("chat.sendFail") || "Could not send");
+            return;
+          }
+        } else {
+          send({
+            type: "friend_chat",
+            to_user_id: activeChat.peerUserId,
+            body,
+          });
+        }
+      } else if ((matched || inFriendCall) && activeChat.live) {
+        if (!sendLiveChat(body)) {
+          setStatus(_t("chat.sendFail") || "Could not send — reconnecting…");
+          return;
+        }
+      } else if (
+        activeChat.peerUserId &&
+        friendsCache.some((f) => f.user_id === activeChat.peerUserId)
+      ) {
+        activeChat.mode = "friend";
+        activeChat.live = true;
+        activeChat.threadKey = friendThreadKey(activeChat.peerUserId);
+        updateChatHeader();
+        updateInboxThreadHeader();
+        send({
+          type: "friend_chat",
+          to_user_id: activeChat.peerUserId,
+          body,
+        });
+      } else {
+        setStatus(_t("chat.needMatch") || "Match or open a friend chat to send");
+        return;
+      }
+      if (input) input.value = "";
+    };
+  }
+}
 on("friends-backdrop", "click", () => closeFriends());
 on("btn-add-friend", "click", () => {
-  const code = ($("add-friend-code")?.value || "").trim();
-  if (!code) return;
-  send({ type: "add_friend", code });
-  if ($("add-friend-code")) $("add-friend-code").value = "";
-  setStatus(_t("friends.requestSent"));
+  const input = $("add-friend-code");
+  const raw = input?.value || "";
+  if (requestAddFriend(raw)) {
+    if (input) input.value = "";
+  }
+});
+$("add-friend-code")?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    $("btn-add-friend")?.click();
+  }
 });
 on("btn-copy-code", "click", async () => {
   if (!myFriendCode) {
-    setStatus(_t("friends.noCode") || "Friend code not ready yet");
+    setStatus(_t("friends.noCode") || "Friend code not ready yet — wait for connection");
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try {
+        sendHelloPayload(getDisplayName());
+      } catch (_) {}
+    }
     return;
   }
+  markFriendsFirstHintDone();
+  const first = $("friends-first-hint");
+  if (first) first.hidden = true;
+  $("friends-code-hero")?.classList.remove("is-first-run");
   await copyToClipboard(myFriendCode, "friends.codeCopied");
+  trackEvent("friend_code_copy");
 });
 on("btn-browse-together", "click", () => {
   send({ type: "browse_together", room: currentRoom() });
   wantSearch = true;
   log("browse together…");
 });
+on("btn-find-third", "click", () => {
+  if (!TRIO_FIND_ENABLED || findThirdPending || !matched) return;
+  findThirdPending = "out";
+  send({ type: "find_third_invite" });
+  setStatus(_t("trio.inviteSent") || "Invite sent — waiting for them…");
+  trackEvent("find_third_invite");
+  updateFriendActionButtons();
+});
+on("btn-find-third-cancel", "click", () => {
+  if (findThirdPending !== "out") return;
+  send({ type: "find_third_cancel" });
+  findThirdPending = null;
+  setStatus(_t("trio.cancelled") || "Invite cancelled");
+  updateFriendActionButtons();
+});
 on("btn-hangup-friend", "click", () => {
   send({ type: "hangup_friend" });
   inFriendCall = false;
   matchMode = "solo";
+  trioBrowse = false;
+  findThirdPending = null;
+  enableTrioLayout(false);
+  // Keep chat; if they were a friend, compose can continue as DM
+  endActiveMatchChat();
   primaryPartnerUserId = "";
   closeAllPeers({ keepFriend: false });
   setSplitRemote(false);
   setRemoteEmpty(true);
   updateFriendActionButtons();
 });
+
+function dismissFindThirdToast() {
+  const t = $("find-third-toast");
+  if (t?.parentNode) t.remove();
+}
+
+function handleFindThirdIncoming(msg) {
+  if (!TRIO_FIND_ENABLED) return;
+  findThirdPending = "in";
+  dismissFindThirdToast();
+  const toast = document.createElement("div");
+  toast.id = "find-third-toast";
+  toast.className = "friend-soft-toast find-third-toast";
+  toast.setAttribute("role", "dialog");
+  toast.style.pointerEvents = "auto";
+  const name = msg.from_name || _t("trio.partner") || "Partner";
+  toast.innerHTML = `
+    <strong>${escapeHtml(_t("trio.incomingTitle") || "Find a third together?")}</strong>
+    <span>${escapeHtml(
+      _t("trio.incomingBody", { n: name }) ||
+        `${name} wants to search for a 3rd person with you.`
+    )}</span>
+    <div class="export-nudge-actions" style="margin-top:0.45rem">
+      <button type="button" class="pill tight ghost" id="btn-find-third-no">${escapeHtml(
+        _t("trio.decline") || "No"
+      )}</button>
+      <button type="button" class="pill tight accent" id="btn-find-third-yes">${escapeHtml(
+        _t("trio.accept") || "Yes, let's find one"
+      )}</button>
+    </div>`;
+  document.body.appendChild(toast);
+  $("btn-find-third-no")?.addEventListener("click", () => {
+    send({ type: "find_third_respond", accept: false });
+    findThirdPending = null;
+    dismissFindThirdToast();
+    trackEvent("find_third_decline");
+    updateFriendActionButtons();
+  });
+  $("btn-find-third-yes")?.addEventListener("click", () => {
+    send({ type: "find_third_respond", accept: true });
+    findThirdPending = null;
+    dismissFindThirdToast();
+    trackEvent("find_third_accept");
+    setStatus(_t("trio.searching") || "Looking for a 3rd together…");
+    updateFriendActionButtons();
+  });
+  // Auto-dismiss UI after 30s (server also expires)
+  setTimeout(() => {
+    if (findThirdPending === "in") {
+      findThirdPending = null;
+      dismissFindThirdToast();
+      updateFriendActionButtons();
+    }
+  }, 30_000);
+  updateFriendActionButtons();
+}
+
+function handleFindThirdResult(msg) {
+  dismissFindThirdToast();
+  const reason = msg.reason || "";
+  if (msg.ok && reason === "accepted") {
+    findThirdPending = null;
+    trioBrowse = true;
+    matchMode = "party_browse";
+    yourRole = "party";
+    // Promote existing 1v1 stranger PC → teammate *before* layout (keep media)
+    for (const pc of peerPcs.values()) {
+      if (pc._role === "stranger" || !pc._role) pc._role = "teammate";
+    }
+    enableTrioLayout(true, { searching: true });
+    setRemoteEmpty(false);
+    bindFirstPartnerToMain(null);
+    setThirdSlotStream(null); // middle: brand loop while hunting
+    forceThirdBrandLoop();
+    ensurePartnerVideoVisible();
+    // Keep rebinding for a moment — Matched/status handlers can race
+    setTimeout(() => bindFirstPartnerToMain(null), 200);
+    setTimeout(() => forceThirdBrandLoop(), 200);
+    setTimeout(() => bindFirstPartnerToMain(null), 800);
+    setTimeout(() => forceThirdBrandLoop(), 800);
+    setStatus(_t("trio.searching") || "Looking for a 3rd together…");
+    trackEvent("find_third_accepted");
+  } else {
+    findThirdPending = null;
+    const key =
+      reason === "declined"
+        ? "trio.declined"
+        : reason === "expired"
+          ? "trio.expired"
+          : reason === "cancelled"
+            ? "trio.cancelled"
+            : "trio.failed";
+    setStatus(
+      _t(key) ||
+        (reason === "declined"
+          ? "They declined"
+          : reason === "expired"
+            ? "Invite expired"
+            : "Find-third cancelled")
+    );
+  }
+  updateFriendActionButtons();
+}
 on("btn-block", "click", () => {
   if (!primaryPartnerUserId) return;
-  blockUserId(primaryPartnerUserId);
-  // Re-queue after block (server also requeues; send next for good measure)
+  const uid = primaryPartnerUserId;
+  if (!blockUserId(uid)) return;
+  // Block · Next
   wantSearch = true;
+  matched = false;
+  showStartButton(false);
+  closeAllPeers({ keepFriend: false });
+  setSplitRemote(false);
+  setRemoteEmpty(true);
+  resetRemoteEmptyCopy();
+  updateFriendActionButtons();
   send({ type: "next", room: currentRoom() });
+  setPhase("waiting");
+  updateConnFromState();
+  updateFriendsOnlineStrip();
+  trackEvent("block_next", { via: "dock" });
 });
 
 function onVolInput(e) {
@@ -5002,7 +10417,62 @@ on("sel-camera", "change", async () => {
   savePrefs({ cameraId: id });
   setStatus(_t("device.switchingCam") || "switching camera…");
   await startPreview();
+  applyLocalMirrorClass();
 });
+
+/** Flip front/back on mobile, or cycle camera devices on desktop. */
+async function flipCamera() {
+  if (mediaPreviewBusy) return;
+  if (mediaPermissionDenied) {
+    showEnableCamButton(true, _t("local.permDenied"));
+    return;
+  }
+  setStatus(_t("device.switchingCam") || "switching camera…");
+  try {
+    if (isLikelyMobile()) {
+      cameraFacing =
+        cameraFacing === "environment" ? "user" : "environment";
+      // Don't pin a stale deviceId when flipping facing mode
+      try {
+        savePrefs({ cameraId: "" });
+      } catch (_) {}
+      if ($("sel-camera")) $("sel-camera").value = "";
+      await startPreview();
+      applyLocalMirrorClass();
+      trackEvent("flip_cam", { facing: cameraFacing, mobile: 1 });
+      setStatus(
+        cameraFacing === "environment"
+          ? _t("btn.flipCamBack") || "Rear camera"
+          : _t("btn.flipCamFront") || "Front camera"
+      );
+      return;
+    }
+    // Desktop: cycle camera select options
+    const sel = $("sel-camera");
+    if (!sel || sel.options.length < 2) {
+      // Still try facingMode toggle on multi-cam laptops
+      cameraFacing =
+        cameraFacing === "environment" ? "user" : "environment";
+      await startPreview();
+      applyLocalMirrorClass();
+      trackEvent("flip_cam", { facing: cameraFacing, mobile: 0 });
+      return;
+    }
+    const n = sel.options.length;
+    const cur = Math.max(0, sel.selectedIndex);
+    sel.selectedIndex = (cur + 1) % n;
+    const id = sel.value || "";
+    if (id) savePrefs({ cameraId: id });
+    await startPreview();
+    applyLocalMirrorClass();
+    trackEvent("flip_cam", { device: 1 });
+    setStatus(_t("device.switchingCam") || "Camera switched");
+  } catch (e) {
+    setStatus(_t("status.previewFailed") || "Could not switch camera");
+    log("flipCam: " + (e?.message || e));
+  }
+}
+on("btn-flip-cam", "click", () => flipCamera());
 on("sel-mic", "change", async () => {
   const id = $("sel-mic")?.value || "";
   if (!id) return;
@@ -5031,21 +10501,26 @@ $("tile-remote")?.addEventListener("click", (e) => {
 });
 
 on("btn-spin", "click", () => {
+  maybeShowCellularDataTip();
   pendingSignals.length = 0;
   matched = false;
   wantSearch = true;
+  showStartButton(false);
   closeAllPeers({ keepFriend: false });
   inFriendCall = false;
   matchMode = "solo";
   yourRole = "solo";
   primaryPartnerUserId = "";
+  trioBrowse = false;
   setSplitRemote(false);
-  setRemoteEmpty(true);
+  enableTrioLayout(false);
   resetRemoteEmptyCopy();
+  // Loop brand video behind searching empty (Start/Spin is a user gesture)
+  showPartnerEmptyWithBrand({ searching: true });
   setArchPill("default");
-  clearChat();
-  showChatPanel(false);
+  endActiveMatchChat(); // keep chat history after leaving
   updateFriendActionButtons();
+  trackEvent("spin");
   send(spinPayload());
   updateConnFromState();
   log(
@@ -5057,25 +10532,36 @@ on("btn-spin", "click", () => {
 });
 
 on("btn-next", "click", () => {
+  // Capture path/quality before tearing down the match
+  maybeShowMatchPathSummary("next");
   pendingSignals.length = 0;
   const keepFriend = inFriendCall || yourRole === "party" || matchMode === "friend";
   matched = keepFriend;
   wantSearch = true;
+  showStartButton(false);
   closeAllPeers({ keepFriend });
   if (!keepFriend) {
     setSplitRemote(false);
-    setRemoteEmpty(true);
     resetRemoteEmptyCopy();
     matchMode = "solo";
     yourRole = "solo";
-    clearChat();
-    showChatPanel(false);
+    trioBrowse = false;
+    enableTrioLayout(false);
+    showPartnerEmptyWithBrand({ searching: true });
+    endActiveMatchChat(); // keep previous partner chat until new match
   } else {
-    clearChat();
+    // Party next: stranger thread ends but friend chat can continue as DM if needed
+    endActiveMatchChat();
+    if (trioBrowse || yourRole === "party") {
+      setThirdSlotStream(null);
+      bindFirstPartnerToMain(null);
+    }
   }
   setArchPill("default");
   setFedChip(false);
   updateFriendActionButtons();
+  maybeShowPostMatchFriendNudge("next");
+  trackEvent("next");
   send(nextPayload());
   updateConnFromState();
   log(_t("log.next"));
@@ -5083,6 +10569,8 @@ on("btn-next", "click", () => {
 
 /** Stop: leave queue / end stranger match; do not auto-search again. */
 function doStopMatchmaking() {
+  maybeShowMatchPathSummary("stop");
+  maybeShowPostMatchFriendNudge("stop");
   pendingSignals.length = 0;
   wantSearch = false;
   matched = false;
@@ -5090,26 +10578,47 @@ function doStopMatchmaking() {
   inFriendCall = false;
   matchMode = "solo";
   yourRole = "solo";
+  trioBrowse = false;
+  findThirdPending = null;
+  dismissFindThirdToast();
+  enableTrioLayout(false);
   primaryPartnerUserId = "";
+  releaseScreenWakeLock();
+  clearWeakConnWatch();
   closeAllPeers({ keepFriend: false });
   setSplitRemote(false);
   setRemoteEmpty(true);
   const titleEl = $("remote-empty")?.querySelector(".empty-title");
   const subEl = $("remote-empty")?.querySelector(".empty-sub");
-  if (titleEl) titleEl.textContent = _t("remote.stoppedTitle") || _t("status.stopped");
-  if (subEl) subEl.textContent = _t("remote.stoppedSub") || _t("remote.emptySub");
+  // No "Stopped" banner — idle is just brand loop + Start
+  if (titleEl) titleEl.textContent = _t("remote.emptyTitle") || "";
+  if (subEl) {
+    subEl.hidden = true;
+    subEl.textContent = "";
+  }
+  // Big Start returns to center of partner tile
+  showStartButton(true);
   setArchPill("default");
   setFedChip(false);
-  clearChat();
-  showChatPanel(false);
+  endActiveMatchChat(); // chat stays so links / history remain
   updateFriendActionButtons();
   send({ type: "stop" });
   setPhase("idle");
-  setStatus(_t("status.stopped") || _t("phase.idle"));
+  setStatus(""); // no "stopped — idle" status pill
   updateConnFromState();
+  updatePipButton();
+  updateEmptyShareVisibility();
+  trackEvent("stop");
   log(_t("log.stopped") || "stopped");
+  // Soft one-shot invite when alone (after friend-nudge timeout window)
+  setTimeout(() => {
+    try {
+      maybeShowStopInviteNudge();
+    } catch (_) {}
+  }, 1600);
 }
 on("btn-stop", "click", () => doStopMatchmaking());
+on("btn-start-match", "click", () => startMatchFromIdle());
 
 function onRoomInput(e) {
   const raw = (e?.target?.value != null ? e.target.value : currentRoom()).trim();
@@ -5134,6 +10643,56 @@ $("room-settings")?.addEventListener("input", (e) => {
 });
 $("btn-share-room")?.addEventListener("click", () => copyRoomLink());
 $("btn-share-room-settings")?.addEventListener("click", () => copyRoomLink());
+// Empty-pool share (idle / searching invite) — room actions no-op when ROOMS_ENABLED is false
+$("btn-empty-share")?.addEventListener("click", () => {
+  if (!ROOMS_ENABLED) return;
+  shareOrCopy(
+    roomShareUrl({ mintIfEmpty: true }),
+    siteBrandName() + " room",
+    "room.shared",
+    "room.copied",
+    { preferShare: true }
+  );
+});
+$("btn-empty-copy")?.addEventListener("click", () => {
+  if (!ROOMS_ENABLED) return;
+  shareOrCopy(
+    roomShareUrl({ mintIfEmpty: true }),
+    siteBrandName() + " room",
+    "room.shared",
+    "room.copied",
+    { preferShare: false }
+  );
+});
+$("btn-empty-qr")?.addEventListener("click", () => {
+  if (!ROOMS_ENABLED) return;
+  ensureShareableRoom();
+  toggleEmptyShareQr();
+});
+$("btn-empty-friend-qr")?.addEventListener("click", () => toggleEmptyFriendQr());
+$("btn-empty-friend-invite")?.addEventListener("click", () => {
+  shareFriendInvite({ preferShare: true });
+});
+// Mobile alone-pool invite (under Start)
+$("btn-mobile-share")?.addEventListener("click", () => {
+  if (!ROOMS_ENABLED) return;
+  trackEvent("mobile_invite_share");
+  shareOrCopy(
+    roomShareUrl({ mintIfEmpty: true }),
+    siteBrandName() + " room",
+    "room.shared",
+    "room.copied",
+    { preferShare: true }
+  );
+});
+$("btn-mobile-friend")?.addEventListener("click", () => {
+  trackEvent("mobile_invite_friend");
+  shareFriendInvite({ preferShare: true });
+});
+document.addEventListener("click", (e) => {
+  if (e.target?.closest?.(".friend-more-wrap")) return;
+  closeAllFriendMoreMenus();
+});
 on("btn-clear-chat", "click", () => clearChat());
 async function shareFriendInvite({ preferShare = true } = {}) {
   if (!myFriendCode) {
@@ -5142,6 +10701,7 @@ async function shareFriendInvite({ preferShare = true } = {}) {
   }
   const url = friendInviteUrl();
   const title = _t("friends.title") + " · " + myFriendCode;
+  trackEvent("friend_invite_share", { preferShare: preferShare ? 1 : 0 });
   await shareOrCopy(url, title, "friends.inviteShared", "friends.inviteCopied", {
     preferShare,
   });
@@ -5164,12 +10724,47 @@ $("chk-blur-first")?.addEventListener("change", (e) => {
   savePrefs({ blurFirst: !!e.target.checked });
   syncSettingsSummary();
 });
+$("chk-prefer-direct")?.addEventListener("change", (e) => {
+  const on = !!e.target.checked;
+  // User explicitly re-enabled — allow future auto-off again after another fail
+  if (on) preferDirectAutoOffDone = false;
+  setPreferDirectOnly(on, { silent: false });
+  log(
+    on
+      ? "prefer direct P2P (no TURN)"
+      : "prefer direct off (TURN allowed)"
+  );
+});
+$("btn-reset-path-stats")?.addEventListener("click", () => {
+  savePathStats({ direct: 0, relay: 0, unknown: 0 });
+  pathStatRecordedForMatch = false;
+  refreshPathStatsUi();
+  setStatus(_t("settings.connDirectResetOk") || "Direct/Relay stats cleared");
+});
 
 function resetRemoteEmptyCopy() {
   const titleEl = $("remote-empty")?.querySelector(".empty-title");
   const subEl = $("remote-empty")?.querySelector(".empty-sub");
-  if (titleEl) titleEl.textContent = _t("remote.emptyTitle");
-  if (subEl) subEl.textContent = _t("remote.emptySub");
+  if (wantSearch || inQueue) {
+    setSearchingEmptyCopy();
+    showStartButton(false);
+    $("remote-empty")?.classList.add("is-searching");
+  } else {
+    if (pendingRoomInvite || (roomInviteAutoStarted && currentRoom() && !matched)) {
+      applyRoomInviteCopy();
+      if (titleEl && !titleEl.textContent) {
+        titleEl.textContent = _t("remote.emptyTitle");
+      }
+    } else if (titleEl) {
+      titleEl.textContent = _t("remote.emptyTitle");
+    }
+    if (subEl) {
+      subEl.hidden = true;
+      subEl.textContent = "";
+    }
+    updateStartButtonVisibility();
+    applyRoomInviteCopy();
+  }
 }
 
 function syncChatInputLang() {
@@ -5217,10 +10812,53 @@ function onLangChange() {
   if (__form) {
     __form.onsubmit = (e) => {
       e.preventDefault();
-      const body = $("msg").value.trim();
-      if (!body) return;
-      send({ type: "chat", body });
-      $("msg").value = "";
+      const input = $("msg");
+      const body = (input?.value || "").trim();
+      if (!body || input?.disabled) return;
+      if (activeChat.mode === "friend" && activeChat.peerUserId) {
+        const liveFriend =
+          (inFriendCall || matchMode === "friend") && anyChatDcOpen();
+        if (liveFriend) {
+          if (
+            !sendLiveChat(body, {
+              asFriend: true,
+              peerUserId: activeChat.peerUserId,
+            })
+          ) {
+            setStatus(_t("chat.sendFail") || "Could not send");
+            return;
+          }
+        } else {
+          send({
+            type: "friend_chat",
+            to_user_id: activeChat.peerUserId,
+            body,
+          });
+        }
+      } else if ((matched || inFriendCall) && activeChat.live) {
+        if (!sendLiveChat(body)) {
+          setStatus(_t("chat.sendFail") || "Could not send — reconnecting…");
+          return;
+        }
+      } else if (
+        activeChat.peerUserId &&
+        friendsCache.some((f) => f.user_id === activeChat.peerUserId)
+      ) {
+        // Was match with a friend — upgrade to DM
+        activeChat.mode = "friend";
+        activeChat.live = true;
+        activeChat.threadKey = friendThreadKey(activeChat.peerUserId);
+        updateChatHeader();
+        send({
+          type: "friend_chat",
+          to_user_id: activeChat.peerUserId,
+          body,
+        });
+      } else {
+        setStatus(_t("chat.needMatch") || "Match or open a friend chat to send");
+        return;
+      }
+      if (input) input.value = "";
     };
   }
 }
@@ -5240,6 +10878,9 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key === "v" || e.key === "V") {
     e.preventDefault();
     toggleCam();
+  } else if (e.key === "c" || e.key === "C") {
+    e.preventDefault();
+    flipCamera();
   } else if (e.key === "p" || e.key === "P") {
     e.preventDefault();
     togglePartnerMute();
@@ -5253,6 +10894,9 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key === "f" || e.key === "F") {
     e.preventDefault();
     toggleFullscreenPartner();
+  } else if (e.key === "i" || e.key === "I") {
+    e.preventDefault();
+    togglePartnerPip();
   } else if (e.key === "s" || e.key === "S") {
     e.preventDefault();
     doStopMatchmaking();
@@ -5375,15 +11019,60 @@ wireHubSettings();
 wireMatchPrefs();
 wireNameInputs();
 syncMatchPrefsUi();
+// iOS Safari: unlock video/audio after the first real gesture
+document.addEventListener(
+  "pointerdown",
+  () => {
+    ensureMediaUnlocked();
+    // User gesture: if partner stream is attached but overlay stuck, clear it
+    if (matched) ensurePartnerVideoVisible();
+    // Restart empty brand loop after autoplay block
+    else kickEmptyBrandMedia();
+  },
+  { passive: true }
+);
+document.addEventListener(
+  "touchend",
+  () => {
+    ensureMediaUnlocked();
+    if (!matched) kickEmptyBrandMedia();
+  },
+  { passive: true }
+);
 {
+  applyRoomsFeatureFlag();
   const prefs = loadPrefs();
   const idn = loadIdentity();
   const q = new URLSearchParams(location.search);
-  // Priority: ?room= → saved pref
-  const fromUrl = q.get("room");
-  if (fromUrl != null) syncRoomInputs(fromUrl);
-  else if (prefs.room) syncRoomInputs(prefs.room);
-  else syncRoomInputs("");
+  if (ROOMS_ENABLED) {
+    // Priority: ?room= → saved pref
+    const fromUrl = q.get("room");
+    if (fromUrl != null) {
+      const room = String(fromUrl).trim();
+      syncRoomInputs(room);
+      if (room) {
+        // Shared link: remember room + auto-join after rules/socket
+        pendingRoomInvite = true;
+        savePrefs({ room });
+        trackEvent("room_invite_open", { rlen: room.length });
+      }
+    } else if (prefs.room) syncRoomInputs(prefs.room);
+    else syncRoomInputs("");
+  } else {
+    // Rooms hidden: always public lobby; drop ?room= from address bar
+    syncRoomInputs("");
+    pendingRoomInvite = false;
+    try {
+      if (prefs.room) savePrefs({ room: "" });
+    } catch (_) {}
+    try {
+      const u = new URL(location.href);
+      if (u.searchParams.has("room")) {
+        u.searchParams.delete("room");
+        history.replaceState(null, "", u.pathname + u.search + u.hash);
+      }
+    } catch (_) {}
+  }
   if ($("chk-match-sound")) {
     $("chk-match-sound").checked =
       typeof prefs.matchSound === "boolean" ? prefs.matchSound : true;
@@ -5398,20 +11087,15 @@ syncMatchPrefsUi();
   const nameQ = q.get("name");
   if (nameQ) saveIdentity({ name: nameQ.trim().slice(0, 32) });
   syncNameInputs((loadIdentity().name || nameQ || "").trim() || "anon");
-  if (!(loadIdentity().name || "").trim()) {
-    // Soft hint — don't block boot
-    setTimeout(() => {
-      if (!(loadIdentity().name || "").trim()) {
-        setStatus(_t("name.needed"));
-        $("display-name-top")?.focus();
-      }
-    }, 1500);
-  }
+  // No auto-focus / "set a name" nags — user chooses when to edit their name
   syncRoomUrl();
+  if (ROOMS_ENABLED) applyRoomInviteCopy();
 }
 setLocalEmpty(true);
 setRemoteEmpty(true);
 resetRemoteEmptyCopy();
+// Try brand loop early (may need kick after rules / first click)
+kickEmptyBrandMedia();
 updateSideIcons();
 updateMicPill(0);
 updateFriendActionButtons();
@@ -5493,6 +11177,27 @@ const gateBlocks = showRulesGate();
 
 // Immediate boot — media waits for rules accept if first visit
 startSession({ forceMedia: !gateBlocks });
+updateEmptyShareVisibility();
+updateStartButtonVisibility();
+// Soft post-import backup reminder (one shot, not a nag loop)
+setTimeout(() => {
+  try {
+    maybeShowImportBackupNudge();
+  } catch (_) {}
+}, 900);
+// Background: warm hub directory so failover is ready if this seed dies
+if (typeof RuletHub !== "undefined" && RuletHub.loadDirectory) {
+  RuletHub.loadDirectory(false).catch(() => {});
+}
+try {
+  refreshHubChip();
+} catch (_) {}
+// Listen for programmatic hub changes (other tabs / future UI)
+window.addEventListener("ruletka:hub", () => {
+  try {
+    syncHubSettingsUi();
+  } catch (_) {}
+});
 
 // Keep trying for a few seconds (covers slow bridge / late permissions).
 // Do NOT spam getUserMedia after permission denied — Android gets stuck.
@@ -5506,6 +11211,8 @@ const bootTimer = setInterval(() => {
   if (!previewStream?.active && !mediaPermissionDenied && !mediaPreviewBusy) {
     startSession({ forceMedia: true });
   }
+  // Shared room link: join once hub + rules are ready
+  maybeAutoJoinRoomInvite();
   if (
     bootTries >= 8 ||
     (isWsOpen() && (previewStream?.active || mediaPermissionDenied))
@@ -5514,6 +11221,8 @@ const bootTimer = setInterval(() => {
     if (!previewStream?.active && rulesAccepted()) {
       showEnableCamButton(true, _t("local.enableHint"));
     }
+    // Last chance for room invite after media settle
+    setTimeout(() => maybeAutoJoinRoomInvite(), 400);
   }
 }, 700);
 
@@ -5530,7 +11239,27 @@ window.addEventListener("offline", () => {
   setStatus(_t("status.disconnected"));
 });
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState !== "visible") return;
+  if (document.visibilityState !== "visible") {
+    maybeAutoPipOnHide();
+    // Stop looping brand video while tab is backgrounded
+    syncEmptyBrandMedia(false);
+    // If still "empty" UI, show poster only until return
+    if (isRemoteEmptyVisible()) {
+      const poster = $("remote-empty-poster");
+      if (poster) poster.hidden = false;
+    }
+    return;
+  }
+  // OS releases wake lock while backgrounded — re-acquire in a live call
+  syncScreenWakeLock();
+  updatePipButton();
+  // Resume partner feed or empty brand after tab focus
+  if (matched) {
+    ensureMediaUnlocked();
+    ensurePartnerVideoVisible();
+  } else {
+    kickEmptyBrandMedia();
+  }
   if (!rulesAccepted() || qHasNoconnect()) return;
   if (!isWsOpen()) {
     reconnectAttempt = 0;
@@ -5538,6 +11267,12 @@ document.addEventListener("visibilitychange", () => {
   } else {
     send({ type: "ping" });
   }
+});
+window.addEventListener("pagehide", () => {
+  releaseScreenWakeLock();
+  try {
+    $("remote-empty-video")?.pause?.();
+  } catch (_) {}
 });
 
 // PWA service worker is registered by pwa-install.js (home + live)
@@ -5594,3 +11329,11 @@ document.addEventListener("visibilitychange", () => {
     log("ICE load: " + (e.message || e));
   }
 })();
+
+// Trio layout: reflow on rotate (mobile portrait PiP ↔ landscape 3-col)
+window.addEventListener("orientationchange", () => {
+  setTimeout(() => syncTrioLayout(), 120);
+});
+window.addEventListener("resize", () => {
+  if (trioBrowse) syncTrioLayout();
+});

@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
         xmlns:xhtml="http://www.w3.org/1999/xhtml">
+  <!-- Dual-domain product: ruletka.vip + ruletka.me (same app, host-aware brand) -->
   <url>
     <loc>https://ruletka.vip/</loc>
     <lastmod>2026-07-31</lastmod>
@@ -17,9 +18,26 @@
     <xhtml:link rel="alternate" hreflang="pl" href="https://ruletka.vip/?lang=pl" />
     <xhtml:link rel="alternate" hreflang="zh" href="https://ruletka.vip/?lang=zh" />
     <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.vip/" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/?lang=ru" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ruletka.me/?lang=en" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/" />
+  </url>
+  <url>
+    <loc>https://ruletka.me/</loc>
+    <lastmod>2026-07-31</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.95</priority>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.vip/" />
   </url>
   <url>
     <loc>https://ruletka.vip/live.html</loc>
+    <lastmod>2026-07-31</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://ruletka.me/live.html</loc>
     <lastmod>2026-07-31</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.9</priority>
@@ -31,13 +49,31 @@
     <priority>0.6</priority>
   </url>
   <url>
+    <loc>https://ruletka.me/contribute.html</loc>
+    <lastmod>2026-07-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
     <loc>https://ruletka.vip/safety.html</loc>
     <lastmod>2026-07-31</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
+    <loc>https://ruletka.me/safety.html</loc>
+    <lastmod>2026-07-31</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
     <loc>https://ruletka.vip/donate.html</loc>
+    <lastmod>2026-07-31</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.4</priority>
+  </url>
+  <url>
+    <loc>https://ruletka.me/donate.html</loc>
     <lastmod>2026-07-31</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.4</priority>

@@ -1,19 +1,35 @@
-/* ruletka.vip — light service worker (app shell + offline page). */
-const CACHE = "rulet-shell-v2";
+/* ruletka — light service worker (app shell + offline page). */
+const CACHE = "rulet-shell-v5";
 const SHELL = [
   "/",
   "/index.html",
   "/live.html",
   "/offline.html",
   "/contribute.html",
+  "/safety.html",
+  "/donate.html",
   "/style.css",
   "/home.css",
   "/live-stage.css",
   "/favicon.svg",
   "/manifest.webmanifest",
+  "/brand.js",
+  "/i18n.js",
+  "/analytics.js",
+  "/pwa-install.js",
+  "/qrcode-generator.js",
+  "/qr.js",
+  "/identity.js",
+  "/hubs.js",
+  "/webrtc.js",
+  "/live.js",
   "/brand/icon-192.png",
   "/brand/icon-512.png",
   "/brand/favicon-32.png",
+  "/brand/logo-mark.png",
+  "/brand/logo-hero.jpg",
+  "/i18n/en.json",
+  "/i18n/ru.json",
 ];
 
 self.addEventListener("install", (event) => {

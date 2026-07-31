@@ -14,21 +14,30 @@
   <meta property="og:url" content="https://ruletka.vip/live.html" />
   <meta property="og:title" content="ruletka.vip — live chat roulette" />
   <meta property="og:description" content="Random P2P video chat. No account required." />
-  <meta property="og:image" content="https://ruletka.vip/brand/og-1200.jpg" />
+  <meta property="og:image" content="https://ruletka.vip/brand/og-share.jpg" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:image" content="https://ruletka.vip/brand/og-1200.jpg" />
+  <meta name="twitter:image" content="https://ruletka.vip/brand/og-share.jpg" />
   <link rel="icon" href="/brand/favicon-32.png" type="image/png" sizes="32x32" />
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="/brand/apple-touch-icon-180.png" />
   <link rel="manifest" href="manifest.webmanifest" />
-  <!-- Cyrillic-capable UI fonts + saloon display face -->
+  <!-- Fonts: non-blocking; system UI paints first. Saloon uses Rye/Source Serif when loaded. -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&family=Rye&family=Source+Serif+4:opsz,wght@8..60,400;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=75" />
-  <link rel="stylesheet" href="live-stage.css?v=75" />
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&family=Rye&family=Source+Serif+4:opsz,wght@8..60,400;600;700&display=swap"
+    media="print"
+    onload="this.media='all'"
+  />
+  <noscript>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  </noscript>
+  <link rel="stylesheet" href="style.css?v=149" />
+  <link rel="stylesheet" href="live-stage.css?v=149" />
+  <script src="brand.js?v=2"></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
     (function () {
@@ -62,6 +71,15 @@
       </symbol>
       <symbol id="i-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
         <path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/>
+      </symbol>
+      <symbol id="i-pip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2.5" y="4" width="19" height="14" rx="2"/>
+        <rect x="12" y="11" width="7.5" height="5.5" rx="1"/>
+      </symbol>
+      <symbol id="i-flip-cam" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/>
+        <path d="M11 16.5a3.5 3.5 0 1 0 0-7"/>
+        <path d="M17 11.5h-3.5v-2"/><path d="M17 11.5l-2 2"/>
       </symbol>
       <symbol id="i-camera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
         <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3.5"/>
@@ -157,11 +175,11 @@
   <div class="stage-app">
     <!-- Top chrome -->
     <header class="stage-top">
-      <div class="brand">
+      <a class="brand" href="/" title="Home" data-i18n-title="brand.homeTitle">
         <img class="brand-logo" src="/brand/logo-mark.png" width="28" height="28" alt="" />
         <span data-i18n="brand.name">ruletka.vip</span>
         <span class="badge" data-i18n="brand.badge" data-i18n-title="brand.badgeTitle" title="Matchmaking + P2P video">live</span>
-      </div>
+      </a>
       <div class="pool-bar" id="pool-bar">
         <span><span data-i18n="pool.online">Online</span> <strong id="stat-online">0</strong></span>
         <span><span data-i18n="pool.waiting">Waiting</span> <strong id="stat-waiting">0</strong></span>
@@ -171,6 +189,10 @@
         </span>
         <span class="fed-chip" id="fed-chip" hidden title="Matched via cooperating hub (nextface-fed/1). Video still P2P.">
           <span data-i18n="arch.fed">Mesh match</span>
+        </span>
+        <span class="hub-chip" id="hub-chip" hidden title="Connected matchmaking hub">
+          <svg class="icon icon-sm" aria-hidden="true"><use href="#i-globe"/></svg>
+          <span id="hub-chip-label"></span>
         </span>
         <span class="pool-hint" id="pool-hint" hidden></span>
         <span class="arch-pill" id="arch-pill" title="Media is peer-to-peer WebRTC">P2P media · bridge match</span>
@@ -188,8 +210,8 @@
           <span class="name-chip-lbl" data-i18n="name.you">You</span>
           <input id="display-name-top" type="text" maxlength="32" placeholder="anon" autocomplete="nickname" spellcheck="false" />
         </label>
-        <span class="phase" id="phase" data-i18n="phase.idle">idle</span>
-        <span id="status" class="status-pill" data-i18n="status.disconnected">disconnected</span>
+        <span class="phase" id="phase" data-i18n="phase.idle" hidden>idle</span>
+        <span id="status" class="status-pill" data-i18n="status.disconnected" hidden>disconnected</span>
         <label class="lang-switch lang-top-right" title="Language / Язык">
           <svg class="icon icon-sm" aria-hidden="true"><use href="#i-globe"/></svg>
           <select id="sel-lang" aria-label="Language">
@@ -202,22 +224,39 @@
 
     <!-- Dual video stage -->
     <main class="stage">
-      <!-- PARTNER (left) — solo: one video; stranger vs party: vertical split -->
+      <!-- PARTNER (left) — solo: one video; stranger vs party: vertical split; trio: partner1 column -->
       <section class="tile tile-remote" id="tile-remote">
         <div class="remote-stack" id="remote-stack">
-          <video id="remote" class="vid remote" autoplay playsinline playsInline></video>
-          <video id="remote2" class="vid remote remote-b" autoplay playsinline playsInline hidden></video>
+          <video id="remote" class="vid remote" autoplay playsinline playsInline webkit-playsinline></video>
+          <video id="remote2" class="vid remote remote-b" autoplay playsinline playsInline webkit-playsinline hidden></video>
+        </div>
+        <!-- Mobile portrait trio: your cam inset on first partner -->
+        <div class="local-in-partner-pip" id="local-in-partner-pip" hidden>
+          <video id="local-pip-mirror" class="local-pip-vid" autoplay playsinline playsInline webkit-playsinline muted></video>
+          <span class="local-pip-lbl" data-i18n="name.you">You</span>
         </div>
         <div class="tile-empty" id="remote-empty">
+          <!-- Static fallback under video; looping brand clip on top -->
+          <img
+            class="empty-bg-poster"
+            id="remote-empty-poster"
+            src="/brand/logo-hero.jpg?v=3"
+            alt=""
+            decoding="async"
+            aria-hidden="true"
+          />
           <video
-            class="empty-bg-video"
+            class="empty-bg-video is-brand-loop"
             id="remote-empty-video"
-            src="/brand/loading-screen.mp4"
+            src="/brand/loading-screen.mp4?v=4"
+            poster="/brand/logo-hero.jpg?v=3"
             muted
+            defaultMuted
             loop
+            autoplay
             playsinline
             playsInline
-            autoplay
+            webkit-playsinline
             preload="auto"
             aria-hidden="true"
           ></video>
@@ -226,16 +265,39 @@
             <div class="empty-icon" aria-hidden="true">
               <svg class="icon icon-empty"><use href="#i-pointer"/></svg>
             </div>
-            <div class="empty-title" data-i18n="remote.emptyTitle">Tap Next to start chatting</div>
-            <div class="empty-sub" data-i18n="remote.emptySub">Partner appears here. Next = new match · Stop = idle.</div>
+            <div class="empty-title" data-i18n="remote.emptyTitle">Tap Start to begin</div>
+            <!-- empty-sub only for searching / connecting / stopped status (no idle "Partner appears here" copy) -->
+            <div class="empty-sub" id="remote-empty-sub" hidden></div>
+            <button type="button" class="start-match-btn" id="btn-start-match" data-i18n="btn.start">
+              Start
+            </button>
+            <!-- Online friends strip while idle/searching -->
+            <div class="friends-online-strip" id="friends-online-strip" hidden>
+              <div class="friends-online-label" data-i18n="friends.onlineStrip">Friends online</div>
+              <div class="friends-online-row" id="friends-online-row"></div>
+            </div>
+            <!-- Mobile only: invite when alone (friend path; room share hidden while ROOMS_ENABLED=false) -->
+            <div class="mobile-invite" id="mobile-invite" hidden>
+              <button type="button" class="mobile-invite-btn accent rooms-ui" id="btn-mobile-share" data-i18n="remote.shareRoom" hidden>Share room</button>
+              <button type="button" class="mobile-invite-btn accent" id="btn-mobile-friend" data-i18n="remote.inviteFriend">Invite friend</button>
+            </div>
           </div>
         </div>
         <div class="tile-tag" id="remote-tile-tag" hidden>
           <span class="tile-avatar" id="remote-avatar" hidden><img id="remote-avatar-img" alt="" /></span>
           <span class="name-on-tile" id="remote-tag"></span>
           <span class="match-timer" id="match-timer" hidden title="Time with partner">0:00</span>
-          <span class="quality" id="call-quality"></span>
+          <!-- Human path + quality (Good / OK / Weak) during live call -->
+          <span class="conn-chip" id="conn-chip" hidden title="Connection quality"></span>
+          <span class="quality" id="call-quality" hidden title="RTT · bitrate · loss"></span>
         </div>
+        <!-- PiP + Fullscreen — top-right of partner camera -->
+        <button type="button" class="tile-corner-btn tile-pip-btn" id="btn-pip-remote" data-i18n-title="btn.pipTitle" title="Picture-in-picture" aria-label="Picture-in-picture" hidden>
+          <svg class="icon" aria-hidden="true"><use href="#i-pip"/></svg>
+        </button>
+        <button type="button" class="tile-corner-btn tile-fs-btn" id="btn-fs-remote" data-i18n-title="btn.fullTitle" title="Fullscreen (F)" aria-label="Fullscreen">
+          <svg class="icon" aria-hidden="true"><use href="#i-expand"/></svg>
+        </button>
         <aside class="side-rail side-rail-left">
           <button type="button" class="side-btn" id="btn-mute-remote" data-i18n-title="btn.partnerTitle" title="Mute partner (P)">
             <span class="ico" id="ico-partner" aria-hidden="true">
@@ -256,46 +318,68 @@
             </span>
             <span class="lbl" data-i18n="btn.blur">Blur them</span>
           </button>
-          <button type="button" class="side-btn" id="btn-fs-remote" data-i18n-title="btn.fullTitle" title="Fullscreen (F)">
-            <span class="ico" aria-hidden="true"><svg class="icon"><use href="#i-expand"/></svg></span>
-            <span class="lbl" data-i18n="btn.full">Full</span>
-          </button>
         </aside>
-        <!-- In-camera match controls (was bottom footer) -->
-        <div class="tile-dock tile-dock-remote">
-          <div class="dock-row dock-row-context">
-            <button type="button" id="btn-browse-together" class="dock-pill accent" hidden data-i18n="friends.browseTogether">Browse together</button>
-            <button type="button" id="btn-hangup-friend" class="dock-pill danger" hidden data-i18n="friends.hangup">Hang up</button>
-            <button type="button" id="btn-block" class="dock-pill danger" hidden data-i18n="friends.block">Block</button>
-            <button type="button" id="btn-report-dock" class="dock-pill danger" hidden data-i18n="partnerMenu.report" title="Report partner">Report</button>
-          </div>
-          <div class="dock-row dock-row-main">
-            <button type="button" id="btn-spin" class="dock-pill ghost" data-i18n="btn.spin">Spin</button>
-            <button type="button" id="btn-stop" class="dock-pill danger stop-in-tile" data-i18n-title="btn.stopTitle" title="Stop searching / leave call" aria-label="Stop">
-              <span data-i18n="btn.stop">Stop</span>
-            </button>
-            <button type="button" id="btn-next" class="next-big next-in-tile">
-              <svg class="icon icon-next" aria-hidden="true"><use href="#i-skip"/></svg>
-              <span data-i18n="btn.next">Next</span>
-            </button>
-          </div>
-        </div>
-        <!-- Floating chat bubbles (when open) -->
+        <!-- Compact live chat on partner tile (also openable from Messages inbox) -->
         <aside class="chat-panel" id="chat-panel" hidden>
           <header class="chat-panel-head">
-            <span data-i18n="chat.title">Chat</span>
-            <button type="button" class="chat-clear" id="btn-clear-chat" title="Clear">✕</button>
+            <div class="chat-head-meta">
+              <span id="chat-panel-title" data-i18n="chat.title">Chat</span>
+              <span class="chat-head-sub" id="chat-panel-sub" hidden></span>
+            </div>
+            <div class="chat-head-actions">
+              <button type="button" class="chat-head-btn" id="btn-chat-inbox" data-i18n-title="msg.openAll" title="All messages">☰</button>
+              <button type="button" class="chat-clear" id="btn-clear-chat" data-i18n-title="chat.clear" title="Clear this chat">✕</button>
+            </div>
           </header>
           <div class="chat-messages" id="chat-messages" aria-live="polite"></div>
         </aside>
       </section>
 
-      <!-- YOU (right) -->
+      <!-- THIRD person (trio browse) — brand loop while searching, stranger when found -->
+      <section class="tile tile-third" id="tile-third" hidden>
+        <video id="remote-third" class="vid remote remote-third" autoplay playsinline playsInline webkit-playsinline hidden></video>
+        <div class="tile-empty third-empty" id="third-empty">
+          <img
+            class="empty-bg-poster"
+            id="third-empty-poster"
+            src="/brand/logo-hero.jpg?v=3"
+            alt=""
+            decoding="async"
+            aria-hidden="true"
+          />
+          <video
+            class="empty-bg-video is-brand-loop"
+            id="third-empty-video"
+            src="/brand/loading-screen.mp4?v=5"
+            muted
+            defaultMuted
+            loop
+            autoplay
+            playsinline
+            playsInline
+            webkit-playsinline
+            preload="auto"
+            aria-hidden="true"
+          ></video>
+          <div class="empty-bg-scrim" aria-hidden="true"></div>
+          <div class="empty-content">
+            <div class="empty-icon" aria-hidden="true">
+              <svg class="icon icon-empty"><use href="#i-users"/></svg>
+            </div>
+            <div class="empty-title" data-i18n="trio.slotEmpty">Looking for a 3rd…</div>
+          </div>
+        </div>
+        <div class="tile-tag" id="third-tile-tag" hidden>
+          <span class="name-on-tile" id="third-tag"></span>
+        </div>
+      </section>
+
+      <!-- YOU (right / middle in trio) -->
       <section class="tile tile-local" id="tile-local">
         <video id="local" class="vid local" autoplay playsinline playsInline webkit-playsinline muted></video>
         <!-- Friend PiP while browsing together (party) so main remote can show stranger(s) -->
         <div class="friend-pip" id="friend-pip-wrap" hidden>
-          <video id="friend-pip" class="friend-pip-vid" autoplay playsinline playsInline></video>
+          <video id="friend-pip" class="friend-pip-vid" autoplay playsinline playsInline webkit-playsinline></video>
           <span class="friend-pip-lbl" data-i18n="friends.pipLabel">Friend</span>
         </div>
         <div class="tile-empty" id="local-empty">
@@ -320,12 +404,11 @@
             </span>
             <span class="lbl" data-i18n="btn.cam">Cam</span>
           </button>
-          <button type="button" class="side-btn" id="btn-blur-self" data-i18n-title="btn.selfBlurTitle" title="Hide yourself from partner (H) — tap again to reveal">
-            <span class="ico" id="ico-blur-self" aria-hidden="true">
-              <svg class="icon icon-on"><use href="#i-blur"/></svg>
-              <svg class="icon icon-off"><use href="#i-blur-on"/></svg>
+          <button type="button" class="side-btn" id="btn-flip-cam" data-i18n-title="btn.flipCamTitle" title="Flip camera (C)" aria-label="Flip camera">
+            <span class="ico" aria-hidden="true">
+              <svg class="icon"><use href="#i-flip-cam"/></svg>
             </span>
-            <span class="lbl" data-i18n="btn.selfBlur">Hide me</span>
+            <span class="lbl" data-i18n="btn.flipCam">Flip</span>
           </button>
           <button type="button" class="side-btn" id="btn-mute-mic" data-i18n-title="btn.micTitle" title="Mute mic (M)">
             <span class="ico" id="ico-mic" aria-hidden="true">
@@ -338,33 +421,82 @@
             <div class="meter-v"><span id="mic-meter"></span></div>
             <span class="lbl" data-i18n="btn.level">Level</span>
           </div>
-          <button type="button" class="side-btn" id="btn-friends" data-i18n-title="friends.open" title="Friends">
-            <span class="ico" aria-hidden="true"><svg class="icon"><use href="#i-users"/></svg></span>
-            <span class="lbl" data-i18n="friends.open">Friends</span>
-            <span class="friends-badge" id="friends-badge" hidden>0</span>
+          <button type="button" class="side-btn" id="btn-blur-self" data-i18n-title="btn.selfBlurTitle" title="Hide yourself from partner (H) — tap again to reveal">
+            <span class="ico" id="ico-blur-self" aria-hidden="true">
+              <svg class="icon icon-on"><use href="#i-blur"/></svg>
+              <svg class="icon icon-off"><use href="#i-blur-on"/></svg>
+            </span>
+            <span class="lbl" data-i18n="btn.selfBlur">Hide</span>
           </button>
         </aside>
         <span class="self-blur-badge" id="self-blur-badge" hidden data-i18n="btn.selfBlurBadge">Hidden from them</span>
-        <!-- In-camera social / chat dock — settings pinned bottom-right -->
-        <div class="tile-dock tile-dock-local">
-          <!-- div not label: nested share button is invalid inside <label> -->
-          <div class="room-field room-in-tile" title="Optional private lobby">
-            <span data-i18n="room.label">Room</span>
-            <input id="room" type="text" maxlength="64" data-i18n-placeholder="room.placeholder" placeholder="public" autocomplete="off" spellcheck="false" aria-label="Room" />
-            <button type="button" class="dock-pill ghost tight" id="btn-share-room" data-i18n-title="room.shareTitle" title="Share room" aria-label="Share room">
-              <svg class="icon icon-sm" aria-hidden="true"><use href="#i-share"/></svg>
-            </button>
-          </div>
-          <form class="bottom-chat dock-chat" id="compose">
-            <input id="msg" type="text" data-i18n-placeholder="chat.placeholder" placeholder="Say something…" autocomplete="off" inputmode="text" enterkeyhint="send" spellcheck="true" />
-            <button type="submit" class="dock-pill" data-i18n="chat.send">Send</button>
-          </form>
-          <button type="button" class="dock-settings" id="btn-settings" data-i18n-title="btn.settingsTitle" title="Settings" aria-label="Settings">
-            <svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg>
-          </button>
-        </div>
       </section>
     </main>
+
+    <!-- Full-width bottom bar: Friends + room/chat left · Spin/Stop/Next right -->
+    <footer class="stage-footer" id="stage-footer">
+      <div class="stage-footer-left">
+        <button type="button" class="dock-icon footer-friends" id="btn-friends" data-i18n-title="friends.open" title="Friends" aria-label="Friends">
+          <svg class="icon" aria-hidden="true"><use href="#i-users"/></svg>
+          <span class="friends-badge" id="friends-badge" hidden>0</span>
+        </button>
+        <button type="button" class="dock-icon" id="btn-messages" data-i18n-title="msg.open" title="Messages" aria-label="Messages">
+          <svg class="icon" aria-hidden="true"><use href="#i-mail"/></svg>
+          <span class="friends-badge msg-badge" id="messages-badge" hidden>0</span>
+        </button>
+        <!-- Private rooms: hidden while ROOMS_ENABLED=false in live.js -->
+        <div class="room-field room-in-tile rooms-ui" title="Optional private lobby" hidden>
+          <span data-i18n="room.label">Room</span>
+          <input id="room" type="text" maxlength="64" data-i18n-placeholder="room.placeholder" placeholder="public" autocomplete="off" spellcheck="false" aria-label="Room" />
+          <button type="button" class="dock-pill ghost tight" id="btn-share-room" data-i18n-title="room.shareTitle" title="Share room" aria-label="Share room">
+            <svg class="icon icon-sm" aria-hidden="true"><use href="#i-share"/></svg>
+          </button>
+        </div>
+        <form class="bottom-chat dock-chat" id="compose">
+          <input id="msg" type="text" data-i18n-placeholder="chat.placeholder" placeholder="Say something…" autocomplete="off" inputmode="text" enterkeyhint="send" spellcheck="true" maxlength="500" />
+          <button type="submit" class="dock-pill" data-i18n="chat.send">Send</button>
+        </form>
+      </div>
+      <!-- Center: searching status after Start (was header conn-strip) -->
+      <div class="stage-footer-center" id="footer-search-status" hidden aria-live="polite">
+        <span class="footer-search-pill">
+          <span class="footer-search-dot" aria-hidden="true"></span>
+          <span id="footer-search-label" data-i18n="conn.searching">Searching for a partner…</span>
+        </span>
+      </div>
+      <div class="stage-footer-right">
+        <div class="dock-row dock-row-context footer-context">
+          <button type="button" id="btn-browse-together" class="dock-pill accent" hidden data-i18n="friends.browseTogether">Browse together</button>
+          <button type="button" id="btn-find-third" class="dock-pill accent" hidden data-i18n="trio.invite" title="Find a third person together">Find 3rd</button>
+          <button type="button" id="btn-find-third-cancel" class="dock-pill ghost" hidden data-i18n="trio.cancel" title="Cancel invite">Cancel</button>
+          <button type="button" id="btn-hangup-friend" class="dock-pill danger" hidden data-i18n="friends.hangup">Hang up</button>
+          <button type="button" id="btn-block" class="dock-pill danger" hidden data-i18n="friends.blockNext" title="Block — you will not match them again">Block</button>
+          <button type="button" id="btn-report-dock" class="dock-pill danger" hidden data-i18n="partnerMenu.reportNext" title="Report, block, and find someone else">Report · Next</button>
+        </div>
+        <!-- Desktop invite while idle/searching (before Spin). Room buttons hidden while ROOMS_ENABLED=false -->
+        <div class="dock-row footer-invite" id="footer-invite" hidden>
+          <button type="button" class="dock-pill tight accent rooms-ui" id="btn-empty-share" data-i18n="remote.shareRoom" title="Share room" hidden>Share room</button>
+          <button type="button" class="dock-pill tight ghost rooms-ui" id="btn-empty-copy" data-i18n="remote.copyLink" title="Copy link" hidden>Copy link</button>
+          <button type="button" class="dock-pill tight ghost rooms-ui" id="btn-empty-qr" data-i18n="remote.showQr" title="Room QR" hidden>QR</button>
+          <button type="button" class="dock-pill tight accent" id="btn-empty-friend-invite" data-i18n="remote.inviteFriend" title="Invite friend">Invite friend</button>
+          <button type="button" class="dock-pill tight ghost" id="btn-empty-friend-qr" data-i18n="remote.friendQr" title="Friend QR">Friend QR</button>
+          <div class="footer-invite-qr" id="empty-share-qr" hidden></div>
+        </div>
+        <div class="dock-row dock-row-main footer-match">
+          <button type="button" id="btn-spin" class="dock-pill ghost" data-i18n="btn.spin">Spin</button>
+          <button type="button" id="btn-stop" class="dock-pill danger stop-in-tile" data-i18n-title="btn.stopTitle" title="Stop searching / leave call" aria-label="Stop">
+            <span data-i18n="btn.stop">Stop</span>
+          </button>
+          <button type="button" id="btn-next" class="next-big next-in-tile">
+            <svg class="icon icon-next" aria-hidden="true"><use href="#i-skip"/></svg>
+            <span data-i18n="btn.next">Next</span>
+          </button>
+        </div>
+        <button type="button" class="dock-icon dock-settings" id="btn-settings" data-i18n-title="btn.settingsTitle" title="Settings" aria-label="Settings">
+          <svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg>
+        </button>
+      </div>
+    </footer>
 
   </div>
 
@@ -392,9 +524,11 @@
         <li><kbd>S</kbd> <span data-i18n="keys.stop">Stop (leave queue / idle)</span></li>
         <li><kbd>M</kbd> <span data-i18n="keys.mic">Mute mic</span></li>
         <li><kbd>V</kbd> <span data-i18n="keys.cam">Camera on/off</span></li>
+        <li><kbd>C</kbd> <span data-i18n="keys.flip">Flip camera</span></li>
         <li><kbd>P</kbd> <span data-i18n="keys.partner">Mute partner</span></li>
         <li><kbd>B</kbd> <span data-i18n="keys.blur">Blur partner</span></li>
         <li><kbd>F</kbd> <span data-i18n="keys.full">Fullscreen partner</span></li>
+        <li><kbd>I</kbd> <span data-i18n="keys.pip">Picture-in-picture</span></li>
         <li><kbd>?</kbd> <span data-i18n="keys.this">This help</span></li>
         <li><kbd>Esc</kbd> <span data-i18n="keys.esc">Close menus</span></li>
       </ul>
@@ -418,9 +552,56 @@
       <p class="call-coach-meta muted" id="call-coach-meta"></p>
       <div class="call-coach-actions">
         <button type="button" class="pill primary" id="btn-coach-next" data-i18n="coach.next">Next partner</button>
+        <button type="button" class="pill accent" id="btn-coach-allow-turn" hidden data-i18n="coach.allowTurn">
+          Allow TURN &amp; Next
+        </button>
         <button type="button" class="pill" id="btn-coach-retry" data-i18n="coach.retry">Retry camera</button>
         <button type="button" class="pill ghost" id="btn-coach-dismiss" data-i18n="coach.dismiss">Dismiss</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Messages inbox: Friends DMs + past match conversations -->
+  <div class="sheet-backdrop" id="messages-backdrop" hidden></div>
+  <div class="sheet messages-sheet" id="messages-sheet" hidden>
+    <!-- LIST view -->
+    <div class="msg-view" id="msg-view-list">
+      <header class="msg-sheet-head">
+        <h3 data-i18n="msg.title">Messages</h3>
+        <button type="button" class="sheet-close" id="messages-close" aria-label="Close">✕</button>
+      </header>
+      <div class="msg-tabs" role="tablist">
+        <button type="button" class="msg-tab active" id="msg-tab-friends" role="tab" aria-selected="true" data-tab="friends">
+          <span data-i18n="msg.tabFriends">Friends</span>
+          <span class="msg-tab-count" id="msg-count-friends" hidden>0</span>
+        </button>
+        <button type="button" class="msg-tab" id="msg-tab-matches" role="tab" aria-selected="false" data-tab="matches">
+          <span data-i18n="msg.tabMatches">Matches</span>
+          <span class="msg-tab-count" id="msg-count-matches" hidden>0</span>
+        </button>
+      </div>
+      <div class="sheet-body msg-list-body">
+        <p class="hint-inline msg-list-hint" id="msg-list-hint" data-i18n="msg.hintFriends">
+          Chat with friends anytime — online or offline. Open a conversation below.
+        </p>
+        <div id="msg-thread-list" class="msg-thread-list"></div>
+      </div>
+    </div>
+    <!-- THREAD view -->
+    <div class="msg-view" id="msg-view-thread" hidden>
+      <header class="msg-sheet-head msg-thread-head">
+        <button type="button" class="sheet-nav-btn msg-back" id="msg-back" aria-label="Back">←</button>
+        <div class="msg-thread-meta">
+          <h3 id="msg-thread-title">Chat</h3>
+          <span class="msg-thread-sub" id="msg-thread-sub"></span>
+        </div>
+        <button type="button" class="sheet-close ghost" id="msg-thread-clear" data-i18n-title="chat.clear" title="Clear this chat">🗑</button>
+      </header>
+      <div class="msg-thread-body" id="msg-thread-messages" aria-live="polite"></div>
+      <form class="msg-compose" id="msg-compose">
+        <input id="msg-compose-input" type="text" maxlength="500" autocomplete="off" inputmode="text" enterkeyhint="send" spellcheck="true" data-i18n-placeholder="chat.placeholder" placeholder="Say something…" />
+        <button type="submit" class="pill" data-i18n="chat.send">Send</button>
+      </form>
     </div>
   </div>
 
@@ -432,13 +613,22 @@
       <button type="button" class="sheet-close" id="friends-close">✕</button>
     </header>
     <div class="sheet-body">
-      <p class="hint-inline">
-        <span data-i18n="friends.yourCode">Your code</span>:
-        <code id="my-friend-code">—</code>
-        <button type="button" class="pill tight" id="btn-copy-code" data-i18n="friends.copyCode">Copy</button>
-        <button type="button" class="pill tight" id="btn-copy-invite" data-i18n="friends.copyInvite">Invite link</button>
-        <button type="button" class="pill tight accent" id="btn-share-invite" data-i18n="friends.shareInvite">Share</button>
-      </p>
+      <div class="friends-code-hero" id="friends-code-hero">
+        <p class="friends-code-label" data-i18n="friends.yourCodeLead">
+          Your friend code — share this so others can Request you
+        </p>
+        <div class="friends-code-row">
+          <code id="my-friend-code" class="friends-code-value" title="Your friend code">—</code>
+          <button type="button" class="pill tight accent" id="btn-copy-code" data-i18n="friends.copyCode">Copy</button>
+        </div>
+        <div class="friends-code-actions">
+          <button type="button" class="pill tight" id="btn-copy-invite" data-i18n="friends.copyInvite">Invite link</button>
+          <button type="button" class="pill tight accent" id="btn-share-invite" data-i18n="friends.shareInvite">Share</button>
+        </div>
+        <p class="hint-inline friends-first-hint" id="friends-first-hint" hidden data-i18n="friends.firstHint">
+          New here? Copy your code, send it to a friend, then they tap Request — you Accept.
+        </p>
+      </div>
       <label>
         <span data-i18n="friends.yourName">Display name</span>
         <input id="display-name" class="display-name-input" type="text" maxlength="32" placeholder="anon" autocomplete="nickname" />
@@ -449,6 +639,12 @@
       <p class="hint-inline" data-i18n="friends.mutualHint">
         Friend requests need Accept on both sides. You can only Call after they approve.
       </p>
+      <details class="friends-how-codes">
+        <summary data-i18n="friends.codesHelp">How friend codes work</summary>
+        <p class="hint-inline" data-i18n="friends.howCodes">
+          Both of you open the site once so codes appear. Share your code or invite link → they Request → you Accept → Call when online.
+        </p>
+      </details>
       <label>
         <span data-i18n="friends.addCode">Add friend by code</span>
         <div class="row-inline">
@@ -456,11 +652,21 @@
           <button type="button" class="pill" id="btn-add-friend" data-i18n="friends.add">Request</button>
         </div>
       </label>
+      <p class="hint-inline friends-pending-banner" id="friends-pending-banner" hidden data-i18n="friends.pendingBanner">
+        Waiting for them to Accept — you can Call only after both sides approve.
+      </p>
       <div id="incoming-requests" class="friends-list req-panel" hidden></div>
       <div id="outgoing-requests" class="friends-list" hidden></div>
       <div id="friends-list" class="friends-list"></div>
+      <div id="friends-recover" class="friends-list req-panel" hidden></div>
       <div id="history-list" class="friends-list" hidden></div>
       <div id="blocked-list" class="friends-list" hidden></div>
+      <p class="hint-inline friends-persist-hint" data-i18n="friends.persistHint">
+        Friends are saved on this hub under your identity. Export a profile backup (Settings) before clearing browser data or switching devices — no helper app required.
+      </p>
+      <div class="row-inline friends-backup-actions">
+        <button type="button" class="pill tight" id="btn-friends-export" data-i18n="friends.exportBackup">Export backup</button>
+      </div>
       <p class="hint-inline" data-i18n="friends.hint">
         Call a friend when they are online, then Browse together (max 2) to scroll strangers as a pair.
         A stranger sees both of you stacked vertically.
@@ -478,24 +684,28 @@
       <span class="partner-menu-name" id="partner-menu-name"></span>
     </div>
     <div class="partner-menu-actions" id="partner-menu-main">
+      <button type="button" class="partner-menu-btn accent" id="btn-partner-find-third" hidden>
+        <span class="pm-ico" aria-hidden="true"><svg class="icon"><use href="#i-users"/></svg></span>
+        <span data-i18n="trio.invite">Find 3rd</span>
+      </button>
       <button type="button" class="partner-menu-btn" id="btn-partner-friend">
         <span class="pm-ico" aria-hidden="true"><svg class="icon"><use href="#i-user-plus"/></svg></span>
         <span data-i18n="partnerMenu.addFriend">Add friend</span>
       </button>
-      <button type="button" class="partner-menu-btn warn" id="btn-partner-block">
-        <span class="pm-ico" aria-hidden="true"><svg class="icon"><use href="#i-ban"/></svg></span>
-        <span data-i18n="partnerMenu.block">Block</span>
-      </button>
       <button type="button" class="partner-menu-btn danger" id="btn-partner-report">
         <span class="pm-ico" aria-hidden="true"><svg class="icon"><use href="#i-flag"/></svg></span>
-        <span data-i18n="partnerMenu.report">Report</span>
+        <span data-i18n="partnerMenu.reportNext">Report · Next</span>
+      </button>
+      <button type="button" class="partner-menu-btn warn" id="btn-partner-block">
+        <span class="pm-ico" aria-hidden="true"><svg class="icon"><use href="#i-ban"/></svg></span>
+        <span data-i18n="partnerMenu.blockNext">Block · Next</span>
       </button>
       <button type="button" class="partner-menu-btn ghost" id="btn-partner-menu-cancel" data-i18n="partnerMenu.cancel">
         Cancel
       </button>
     </div>
     <div class="partner-menu-actions" id="partner-menu-report" hidden>
-      <p class="partner-menu-hint" data-i18n="partnerMenu.reportHint">Why are you reporting? We auto-block them and skip. Multiple independent reports restrict matchmaking.</p>
+      <p class="partner-menu-hint" data-i18n="partnerMenu.reportHint">Pick a reason → we block them for you, skip, and you will not match them again. Multiple independent reports can restrict their matchmaking.</p>
       <button type="button" class="partner-menu-btn" data-report-reason="underage" data-i18n="partnerMenu.rUnderage">Underage concern</button>
       <button type="button" class="partner-menu-btn" data-report-reason="explicit" data-i18n="partnerMenu.rExplicit">Explicit content</button>
       <button type="button" class="partner-menu-btn" data-report-reason="harassment" data-i18n="partnerMenu.rHarassment">Harassment</button>
@@ -506,24 +716,57 @@
     </div>
   </div>
 
-  <!-- First-run rules / age gate -->
+  <!-- First-run age gate + user agreement (Cambly-style two steps) -->
   <div class="rules-overlay" id="rules-overlay" hidden>
-    <div class="rules-card" role="dialog" aria-modal="true" aria-labelledby="rules-title">
-      <h2 id="rules-title" data-i18n="rules.title">Before you start</h2>
-      <ul class="rules-list">
-        <li data-i18n="rules.age">You must be 18+ to use ruletka.vip.</li>
-        <li data-i18n="rules.respect">Be respectful. No harassment, hate, or illegal content.</li>
-        <li data-i18n="rules.media">Video is peer-to-peer. Use Block if someone is inappropriate.</li>
-        <li data-i18n="rules.privacy">Do not share secrets; friends are stored on this server instance.</li>
-      </ul>
-      <label class="check-row rules-check">
-        <input type="checkbox" id="chk-rules-age" />
-        <span data-i18n="rules.ageConfirm">I am 18 or older</span>
-      </label>
-      <button type="button" class="pill primary rules-accept" id="btn-rules-accept" disabled data-i18n="rules.accept">
-        Enter ruletka.vip
-      </button>
+    <!-- Step 1: 18+ -->
+    <div class="age-gate" id="age-gate-step" role="dialog" aria-modal="true" aria-labelledby="age-gate-title">
+      <div class="age-gate-visual" aria-hidden="true">
+        <img class="age-gate-logo" src="/brand/logo-mark.png" width="96" height="96" alt="" />
+      </div>
+      <h1 id="age-gate-title" class="age-gate-title" data-i18n="rules.ageGateTitle">Are you 18 or older?</h1>
+      <p class="age-gate-sub" data-i18n="rules.ageGateSub">You must be at least 18 years old to use ruletka.</p>
+      <div class="age-gate-actions">
+        <button type="button" class="age-gate-btn primary" id="btn-age-yes" data-i18n="rules.ageYes">
+          Yes, I'm 18 or older
+        </button>
+        <button type="button" class="age-gate-btn ghost" id="btn-age-no" data-i18n="rules.ageNo">
+          No
+        </button>
+      </div>
+      <p class="age-gate-underage" id="age-gate-underage" hidden data-i18n="rules.underage">
+        Sorry — you must be 18+ to continue.
+      </p>
     </div>
+    <!-- Step 2: agreement sheet -->
+    <div class="agree-sheet" id="agree-sheet" hidden role="dialog" aria-modal="true" aria-labelledby="agree-title">
+      <header class="agree-sheet-head">
+        <h2 id="agree-title" data-i18n="rules.agreeTitle">User agreement</h2>
+        <button type="button" class="agree-sheet-close" id="btn-agree-close" aria-label="Close">✕</button>
+      </header>
+      <div class="agree-sheet-body">
+        <p class="agree-lead" data-i18n="rules.agreeLead">By continuing, you accept the license terms.</p>
+        <ul class="agree-list">
+          <li>
+            <span data-i18n="rules.agreeRead">I agree that I have read the</span>
+            <a href="/legal/eula.html" target="_blank" rel="noopener">EULA</a>,
+            <a href="/legal/terms.html" target="_blank" rel="noopener" data-i18n="rules.terms">Terms of Service</a>,
+            <a href="/legal/privacy.html" target="_blank" rel="noopener" data-i18n="rules.privacyLink">Privacy policy</a>.
+          </li>
+          <li data-i18n="rules.agreeCommunity">I will follow community rules: respect others, no illegal content, use Block/Report when needed.</li>
+          <li data-i18n="rules.agreeMedia">I understand video is peer-to-peer and partners may record — I will use Block/Report for abuse.</li>
+        </ul>
+      </div>
+      <div class="agree-sheet-actions">
+        <button type="button" class="age-gate-btn primary" id="btn-rules-accept" data-i18n="rules.accept">
+          Accept
+        </button>
+        <button type="button" class="age-gate-btn ghost" id="btn-agree-cancel" data-i18n="rules.cancel">
+          Cancel
+        </button>
+      </div>
+    </div>
+    <!-- Backdrop dim when sheet open -->
+    <div class="agree-sheet-scrim" id="agree-sheet-scrim" hidden aria-hidden="true"></div>
   </div>
 
   <!-- Settings sheet (competitor-style grouped list) -->
@@ -575,7 +818,7 @@
 
         <div class="settings-group">
           <!-- div not label: nested share button is invalid inside <label> and collapsed Language in some browsers -->
-          <div class="settings-row settings-row-input">
+          <div class="settings-row settings-row-input settings-row-room rooms-ui" hidden>
             <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-door"/></svg></span><span data-i18n="room.label">Room</span></span>
             <span class="row-right-input">
               <input id="room-settings" type="text" maxlength="64" data-i18n-placeholder="room.placeholder" placeholder="public" autocomplete="off" spellcheck="false" aria-label="Room" />
@@ -632,15 +875,16 @@
           </button>
         </div>
 
-        <div class="settings-status-card settings-status-compact" id="settings-security">
+        <button type="button" class="settings-status-card settings-status-compact is-clickable" id="settings-security" data-settings-open="connection" title="Connection details">
           <p class="settings-status-label" data-i18n="settings.secConnection">Connection</p>
           <div class="status-pills">
             <span class="status-pill-chip" id="sec-media-path">—</span>
             <span class="status-pill-chip muted" id="sec-turn-trust">—</span>
           </div>
           <p class="status-note" id="sec-partner-note" data-i18n="sec.partnerRecordShort">Partner can record — use Block / Report</p>
+          <span class="status-note muted" data-i18n="settings.connTapMore">Tap for details ›</span>
           <span id="sec-identity" hidden></span>
-        </div>
+        </button>
 
         <!-- Hidden selects still used by device code -->
         <select id="sel-lang-sheet" class="settings-hidden-select" hidden>
@@ -670,6 +914,10 @@
           <button type="button" class="settings-row" data-settings-open="camera">
             <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-camera"/></svg></span><span data-i18n="settings.camera">Camera</span></span>
             <span class="row-right"><span id="settings-camera-value" class="row-value" data-i18n="settings.systemDefault">System default</span> <span class="chev">›</span></span>
+          </button>
+          <button type="button" class="settings-row" data-settings-open="resolution">
+            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-expand"/></svg></span><span data-i18n="settings.resolution">Camera resolution</span></span>
+            <span class="row-right"><span id="settings-resolution-value" class="row-value">Auto</span> <span class="chev">›</span></span>
           </button>
           <button type="button" class="settings-row" data-settings-open="mic">
             <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-mic"/></svg></span><span data-i18n="settings.mic">Microphone</span></span>
@@ -738,6 +986,20 @@
             <span class="row-left" data-i18n="prefs.woman">Woman</span>
             <span class="choice-check" data-check-looking="woman">✓</span>
           </button>
+        </div>
+        <p class="settings-section-label" data-i18n="prefs.interests">Interests <span class="muted">(max 3 · soft)</span></p>
+        <p class="hint-inline" data-i18n="prefs.tagsHint">Optional. We prefer people with shared tags; if the pool is small you’ll still meet everyone else.</p>
+        <div class="prefs-tags" id="prefs-tags">
+          <button type="button" class="pref-tag" data-pref-tag="music" data-i18n="prefs.tag.music">Music</button>
+          <button type="button" class="pref-tag" data-pref-tag="games" data-i18n="prefs.tag.games">Games</button>
+          <button type="button" class="pref-tag" data-pref-tag="movies" data-i18n="prefs.tag.movies">Movies</button>
+          <button type="button" class="pref-tag" data-pref-tag="tech" data-i18n="prefs.tag.tech">Tech</button>
+          <button type="button" class="pref-tag" data-pref-tag="travel" data-i18n="prefs.tag.travel">Travel</button>
+          <button type="button" class="pref-tag" data-pref-tag="sports" data-i18n="prefs.tag.sports">Sports</button>
+          <button type="button" class="pref-tag" data-pref-tag="art" data-i18n="prefs.tag.art">Art</button>
+          <button type="button" class="pref-tag" data-pref-tag="chat" data-i18n="prefs.tag.chat">Chat</button>
+          <button type="button" class="pref-tag" data-pref-tag="langs" data-i18n="prefs.tag.langs">Languages</button>
+          <button type="button" class="pref-tag" data-pref-tag="anime" data-i18n="prefs.tag.anime">Anime</button>
         </div>
       </div>
     </div>
@@ -834,11 +1096,14 @@
           </a>
         </div>
         <p class="settings-section-label" data-i18n="settings.secProfileData">Profile transfer</p>
+        <p class="hint-inline profile-export-callout" data-i18n="settings.profileHintStrong">
+          <strong>Export a backup</strong> before clearing browser data, switching devices, or private mode — friends live under your identity on the hub and won’t appear on a fresh browser without import.
+        </p>
         <p class="hint-inline" data-i18n="settings.profileHint">
           Each browser is a separate identity until you export/import. Friends are stored on the hub under your user id — import restores the same id so friends come back on this hub.
         </p>
         <div class="settings-group">
-          <button type="button" class="settings-row" id="btn-export-profile">
+          <button type="button" class="settings-row settings-row-accent" id="btn-export-profile">
             <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-share"/></svg></span><span data-i18n="settings.exportProfile">Export profile file</span></span>
             <span class="chev">›</span>
           </button>
@@ -854,6 +1119,79 @@
             <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-trash"/></svg></span><span data-i18n="settings.clearData">Clear local data</span></span>
             <span class="chev">›</span>
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CONNECTION DETAILS -->
+    <div class="settings-view" id="settings-view-connection" hidden>
+      <header class="settings-header">
+        <button type="button" class="sheet-nav-btn" data-settings-back aria-label="Back">‹</button>
+        <h3 data-i18n="settings.connTitle">Connection</h3>
+        <span class="sheet-nav-spacer"></span>
+      </header>
+      <div class="sheet-body settings-body">
+        <p class="hint-inline" data-i18n="settings.connHint">
+          Media is peer-to-peer when possible. Relay (TURN) only helps hard networks — higher latency is normal then.
+        </p>
+        <div class="settings-group conn-detail-list">
+          <div class="conn-detail-row">
+            <span class="conn-detail-label" data-i18n="settings.connMediaPath">Media path</span>
+            <span class="conn-detail-value" id="conn-detail-path">—</span>
+            <span class="conn-detail-hint" id="conn-detail-path-hint"></span>
+          </div>
+          <div class="conn-detail-row">
+            <span class="conn-detail-label" data-i18n="settings.connTurn">TURN relay</span>
+            <span class="conn-detail-value" id="conn-detail-turn">—</span>
+            <span class="conn-detail-hint" id="conn-detail-turn-hint"></span>
+          </div>
+          <div class="conn-detail-row">
+            <span class="conn-detail-label" data-i18n="settings.connQuality">Adaptive quality</span>
+            <span class="conn-detail-value" id="conn-detail-quality">—</span>
+            <span class="conn-detail-hint" data-i18n="settings.connQualityHint">Bitrate may drop on weak links automatically.</span>
+          </div>
+          <div class="conn-detail-row">
+            <span class="conn-detail-label" data-i18n="settings.connDirectStat">Direct P2P rate</span>
+            <span class="conn-detail-value" id="conn-detail-direct-rate">—</span>
+            <span class="conn-detail-hint" data-i18n="settings.connDirectStatHint">Share of recent calls that connected peer-to-peer (not TURN).</span>
+          </div>
+          <div class="conn-detail-row">
+            <span class="conn-detail-label" data-i18n="settings.connResolution">Camera resolution</span>
+            <span class="conn-detail-value" id="conn-detail-resolution">—</span>
+          </div>
+          <div class="conn-detail-row">
+            <span class="conn-detail-label" data-i18n="settings.connHub">Hub</span>
+            <span class="conn-detail-value mono" id="conn-detail-hub">—</span>
+          </div>
+          <div class="conn-detail-row">
+            <span class="conn-detail-label" data-i18n="settings.connIdentity">Identity</span>
+            <span class="conn-detail-value" id="conn-detail-identity">—</span>
+            <span class="conn-detail-hint" data-i18n="settings.connIdentityHint">Export a profile backup before clearing browser data.</span>
+          </div>
+          <div class="conn-detail-row">
+            <span class="conn-detail-label" data-i18n="settings.connSafety">Safety note</span>
+            <span class="conn-detail-value" id="conn-detail-safety">—</span>
+          </div>
+          <div class="conn-detail-row">
+            <span class="conn-detail-label" data-i18n="settings.preferDirect">Prefer Direct only</span>
+            <span class="conn-detail-value" id="conn-detail-direct-pref">—</span>
+            <span class="conn-detail-hint" data-i18n="settings.preferDirectHint">Disables TURN for the next match. Some mobile networks won’t connect.</span>
+          </div>
+        </div>
+        <label class="settings-toggle-row conn-prefer-direct-row">
+          <span class="toggle-copy">
+            <span class="toggle-title" data-i18n="settings.preferDirect">Prefer Direct only</span>
+            <span class="toggle-hint" data-i18n="settings.preferDirectHint">Disables TURN for the next match. Some mobile networks won’t connect.</span>
+          </span>
+          <span class="toggle-switch">
+            <input type="checkbox" id="chk-prefer-direct" />
+            <span class="toggle-ui" aria-hidden="true"></span>
+          </span>
+        </label>
+        <div class="settings-row-actions settings-row-actions-loose">
+          <button type="button" class="settings-mini-btn" id="btn-conn-refresh" data-i18n="settings.connRefresh">Refresh</button>
+          <button type="button" class="settings-mini-btn" id="btn-reset-path-stats" data-i18n="settings.connDirectReset">Reset Direct stats</button>
+          <button type="button" class="settings-mini-btn" data-settings-open="devices" data-i18n="settings.secHardware">Devices</button>
         </div>
       </div>
     </div>
@@ -998,6 +1336,23 @@
       </div>
     </div>
 
+    <!-- CAMERA RESOLUTION -->
+    <div class="settings-view" id="settings-view-resolution" hidden>
+      <header class="settings-header">
+        <button type="button" class="sheet-nav-btn" data-settings-back aria-label="Back">‹</button>
+        <h3 data-i18n="settings.resolution">Camera resolution</h3>
+        <span class="sheet-nav-spacer"></span>
+      </header>
+      <div class="sheet-body settings-body">
+        <p class="hint-inline" data-i18n="settings.resolutionHint">
+          Higher looks sharper but needs more CPU and upload. Auto picks a good default for your device; if a size fails, we fall back.
+        </p>
+        <div class="settings-group" id="settings-resolution-list">
+          <!-- filled by live.js -->
+        </div>
+      </div>
+    </div>
+
     <!-- MIC -->
     <div class="settings-view" id="settings-view-mic" hidden>
       <header class="settings-header">
@@ -1024,20 +1379,83 @@
   </div>
 
   <!-- cache-bust so browsers always get auto-connect / auto-media fixes -->
-  <script src="analytics.js?v=1" defer></script>
-  <script src="pwa-install.js?v=1" defer></script>
-  <script src="i18n.js?v=75"></script>
-  <script src="identity.js?v=75"></script>
-  <script src="hubs.js?v=75"></script>
-  <script src="webrtc.js?v=75"></script>
-  <script src="live.js?v=75"></script>
+  <script src="analytics.js?v=2" defer></script>
+  <script src="pwa-install.js?v=5" defer></script>
+  <script src="qrcode-generator.js?v=1"></script>
+  <script src="qr.js?v=1"></script>
+  <script src="i18n.js?v=149"></script>
+  <script src="identity.js?v=149"></script>
+  <script src="hubs.js?v=149"></script>
+  <script src="webrtc.js?v=149"></script>
+  <script src="live.js?v=149"></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {
       var boot = window.__ruletBooted || window.__nextfaceBooted;
-      if (typeof boot !== "function") return;
-      boot();
+      if (typeof boot === "function") boot();
+      // Host brand after i18n paints
+      if (window.RuletBrand && RuletBrand.apply) RuletBrand.apply(document);
     });
+    // Early brand-loop play (does not wait for live.js) — cylinder animation
+    (function brandLoopBoot() {
+      function playV(id) {
+        var v = document.getElementById(id);
+        if (!v) return;
+        v.muted = true;
+        v.defaultMuted = true;
+        v.volume = 0;
+        v.loop = true;
+        v.playsInline = true;
+        v.hidden = false;
+        v.removeAttribute("hidden");
+        v.style.display = "block";
+        v.style.opacity = "1";
+        try {
+          var p = v.play();
+          if (p && p.catch) p.catch(function () {});
+        } catch (e) {}
+      }
+      function kick() {
+        var empty = document.getElementById("remote-empty");
+        if (empty && !empty.classList.contains("hidden")) {
+          playV("remote-empty-video");
+        }
+        // Middle find-3rd pane
+        var tile3 = document.getElementById("tile-third");
+        var empty3 = document.getElementById("third-empty");
+        if (tile3 && !tile3.hidden && empty3 && !empty3.hidden) {
+          playV("third-empty-video");
+        }
+      }
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", kick);
+      } else {
+        kick();
+      }
+      window.addEventListener("load", kick);
+      document.addEventListener("pointerdown", kick, { passive: true });
+      document.addEventListener("touchend", kick, { passive: true });
+      setInterval(function () {
+        var empty = document.getElementById("remote-empty");
+        var v = document.getElementById("remote-empty-video");
+        if (empty && !empty.classList.contains("hidden") && v && (v.paused || v.ended)) {
+          playV("remote-empty-video");
+        }
+        var tile3 = document.getElementById("tile-third");
+        var empty3 = document.getElementById("third-empty");
+        var v3 = document.getElementById("third-empty-video");
+        if (
+          tile3 &&
+          !tile3.hidden &&
+          empty3 &&
+          !empty3.hidden &&
+          v3 &&
+          (v3.paused || v3.ended)
+        ) {
+          playV("third-empty-video");
+        }
+      }, 1200);
+    })();
   </script>
 </body>
 </html>

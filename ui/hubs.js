@@ -8,8 +8,8 @@
 (function (global) {
   const PREF_KEY = "ruletka-hub-base-v1";
   const PREF_AUTO = "ruletka-hub-auto-v1";
-  /** Built-in seed only — communities should publish their own /hubs.json */
-  const BUILTIN_SEEDS = ["https://ruletka.vip"];
+  /** Built-in seeds — dual TLD so DNS/blocks on one path can fail over */
+  const BUILTIN_SEEDS = ["https://ruletka.vip", "https://ruletka.me"];
 
   let currentBase = "";
   let directoryCache = [];
@@ -143,11 +143,22 @@
     }
   }
 
+  /**
+   * @returns {Promise<{base:string, online:number, waiting:number, has_turn:boolean, ok:boolean, rttMs:number}|null>}
+   */
   async function probeHealth(hubBase) {
     const b = normalizeBase(hubBase);
     if (!b) return null;
+    const t0 =
+      typeof performance !== "undefined" && performance.now
+        ? performance.now()
+        : Date.now();
     try {
       const j = await fetchJson(b + "/health", 3500);
+      const t1 =
+        typeof performance !== "undefined" && performance.now
+          ? performance.now()
+          : Date.now();
       if (j && j.ok !== false && j.service) {
         return {
           base: b,
@@ -155,17 +166,30 @@
           waiting: j.waiting || 0,
           has_turn: !!j.has_turn,
           ok: true,
+          rttMs: Math.max(1, Math.round(t1 - t0)),
+          instance_id: j.federation?.instance_id || j.instance_id || "",
         };
       }
     } catch (_) {}
     return null;
   }
 
+  /** Rank healthy probes: lower is better. */
+  function scoreProbe(h, { preferBase = "", origin = "" } = {}) {
+    if (!h || !h.ok) return 1e9;
+    let s = h.rttMs || 500;
+    if (h.base === preferBase) s -= 80;
+    if (h.base === origin) s -= 40;
+    if (h.has_turn) s -= 25;
+    // Slight preference for quieter hubs (faster match feel)
+    s += Math.min(40, (h.waiting || 0) * 2);
+    return s;
+  }
+
   async function loadDirectory(force = false) {
-    if (!force && directoryCache.length && Date.now() - directoryLoadedAt < 60_000) {
+    if (!force && directoryCache.length && Date.now() - directoryLoadedAt < 45_000) {
       return directoryCache;
     }
-    const seeds = [];
     const origin = sameOriginBase();
     const active = base();
     const tryBases = [];
@@ -195,6 +219,7 @@
               name: h.name,
               region: h.region,
               source: "hubs.json",
+              alias_of: h.alias_of || "",
             });
           }
         }
@@ -232,54 +257,84 @@
   }
 
   /**
-   * Probe directory hubs; optionally switch away from a dead current hub.
-   * @returns {Promise<{base:string, switched:boolean, probed:object[]}>}
+   * Probe directory hubs; optionally switch away from a dead / sticky current hub.
+   * @param {{ forceSwitch?: boolean, preferDifferent?: boolean }} [opts]
+   * @returns {Promise<{base:string, switched:boolean, probed:object[], reason?:string}>}
    */
-  async function ensureHealthyHub({ forceSwitch = false } = {}) {
+  async function ensureHealthyHub({ forceSwitch = false, preferDifferent = false } = {}) {
     resolveBaseSync();
-    const list = await loadDirectory(forceSwitch);
-    const order = [];
+    const list = await loadDirectory(forceSwitch || preferDifferent);
+    const origin = sameOriginBase();
     const cur = base();
+    const order = [];
+    // When not forcing, try current first
     if (cur && !forceSwitch) order.push(cur);
+    // Same page origin next (unless forcing away)
+    if (origin && origin !== cur) order.push(origin);
     for (const h of list) {
-      if (h.base && h.base !== cur) order.push(h.base);
+      if (h.base) order.push(h.base);
     }
-    // unique
+    for (const s of BUILTIN_SEEDS) order.push(s);
+
     const seen = new Set();
     const candidates = order.filter((b) => {
-      if (seen.has(b)) return false;
+      if (!b || seen.has(b)) return false;
       seen.add(b);
       return true;
     });
 
+    // Parallel probe (cap concurrency lightly via chunks)
     const probed = [];
-    for (const b of candidates) {
-      const h = await probeHealth(b);
-      if (h) {
-        probed.push(h);
-        if (!forceSwitch && b === cur) {
-          return { base: cur, switched: false, probed };
-        }
-        if (b !== cur && (forceSwitch || !probed.find((p) => p.base === cur))) {
-          // fall through — keep looking for best if forceSwitch
-          if (!forceSwitch) {
-            setBase(b, { persist: autoFailoverEnabled() });
-            return { base: b, switched: true, probed };
-          }
+    const chunk = 4;
+    for (let i = 0; i < candidates.length; i += chunk) {
+      const slice = candidates.slice(i, i + chunk);
+      const results = await Promise.all(slice.map((b) => probeHealth(b)));
+      for (const h of results) {
+        if (h) probed.push(h);
+      }
+      // Fast path: current is healthy and we don't need to leave
+      if (!forceSwitch && !preferDifferent) {
+        const curOk = probed.find((p) => p.base === cur);
+        if (curOk) {
+          return { base: cur, switched: false, probed, reason: "current_ok" };
         }
       }
     }
 
-    if (probed.length) {
-      const best = probed[0];
-      const switched = best.base !== cur;
-      if (switched && autoFailoverEnabled()) setBase(best.base, { persist: true });
-      else if (switched) currentBase = best.base;
-      return { base: best.base, switched, probed };
+    if (!probed.length) {
+      return { base: cur, switched: false, probed, reason: "none_healthy" };
     }
 
-    // Nothing healthy — keep current
-    return { base: cur, switched: false, probed };
+    // Prefer a different host when forced or when current never answered
+    const curAlive = probed.some((p) => p.base === cur);
+    const wantOther = forceSwitch || preferDifferent || !curAlive;
+
+    let pool = probed.slice();
+    if (wantOther) {
+      const alts = pool.filter((p) => p.base !== cur);
+      if (alts.length) pool = alts;
+    }
+
+    pool.sort(
+      (a, b) =>
+        scoreProbe(a, { preferBase: wantOther ? "" : cur, origin }) -
+        scoreProbe(b, { preferBase: wantOther ? "" : cur, origin })
+    );
+    const best = pool[0];
+    const switched = best.base !== cur;
+    if (switched) {
+      if (autoFailoverEnabled() || forceSwitch) {
+        setBase(best.base, { persist: autoFailoverEnabled() });
+      } else {
+        currentBase = best.base;
+      }
+    }
+    return {
+      base: best.base,
+      switched,
+      probed,
+      reason: switched ? "switched" : "kept",
+    };
   }
 
   // init sync base immediately
@@ -300,5 +355,6 @@
     getSavedBase,
     normalizeBase,
     builtinSeeds: () => BUILTIN_SEEDS.slice(),
+    scoreProbe,
   };
 })(typeof window !== "undefined" ? window : globalThis);

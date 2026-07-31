@@ -222,6 +222,53 @@
       <div class="stat">Seeders <strong id="st-seeders">0</strong></div>
     </div>
 
+    <h2>Daily metrics (UTC)</h2>
+    <p class="hint">
+      Server-side counters · <code>data/metrics.jsonl</code> · also
+      <code>GET /v1/admin/metrics</code> and <code>metrics_today</code> on
+      <code>/health</code>.
+    </p>
+    <div class="stats" id="metrics-today" hidden>
+      <div class="stat">Day <strong id="mt-day">—</strong></div>
+      <div class="stat">Matches <strong id="mt-matches">0</strong></div>
+      <div class="stat">Reports <strong id="mt-reports">0</strong></div>
+      <div class="stat">Blocks <strong id="mt-blocks">0</strong></div>
+      <div class="stat">Queue joins <strong id="mt-joins">0</strong></div>
+      <div class="stat">Alone joins <strong id="mt-alone">0</strong></div>
+      <div class="stat">Peak online <strong id="mt-peak-on">0</strong></div>
+      <div class="stat">Peak waiting <strong id="mt-peak-w">0</strong></div>
+    </div>
+    <div class="card" id="metrics-card" style="margin-bottom:1rem">
+      <div class="empty" id="metrics-empty">Sign in to load metrics</div>
+      <table id="metrics-table" hidden>
+        <thead>
+          <tr>
+            <th>Day</th>
+            <th>Matches</th>
+            <th>Reports</th>
+            <th>Blocks</th>
+            <th>Joins</th>
+            <th>Alone</th>
+            <th>Peak on</th>
+            <th>Peak wait</th>
+          </tr>
+        </thead>
+        <tbody id="metrics-body"></tbody>
+      </table>
+    </div>
+
+    <h2>Ops checklist</h2>
+    <div class="card" style="padding:0.85rem 1rem;margin-bottom:1rem">
+      <p class="hint" id="ops-webhook-line" style="margin:0">
+        Auto-ban webhook: sign in to check status.
+      </p>
+      <p class="hint" style="margin:0.5rem 0 0">
+        Set <code>ROULETTE_MOD_WEBHOOK_URL</code> in <code>/opt/ruletka/data/mod.env</code>
+        (Telegram <code>…/botTOKEN/sendMessage?chat_id=…</code>, Slack, or Discord), then
+        <code>systemctl restart roulette-bridge</code>. See <code>docs/OPS.md</code>.
+      </p>
+    </div>
+
     <h2>Mesh / federation</h2>
     <p class="hint">
       <strong>Directory hubs</strong> = client failover discovery (no trust).
@@ -538,6 +585,16 @@
       const envN = (f.peers_env || []).length || 0;
       const fileN = (f.peers_file || []).length || 0;
       const effN = (f.peers_effective || []).length || 0;
+      const opsWh = $("ops-webhook-line");
+      if (opsWh) {
+        if (data.mod_webhook) {
+          opsWh.innerHTML =
+            'Auto-ban webhook: <strong style="color:var(--good)">configured</strong> (URL never shown here).';
+        } else {
+          opsWh.innerHTML =
+            'Auto-ban webhook: <strong style="color:var(--warn)">not set</strong> — add <code>ROULETTE_MOD_WEBHOOK_URL</code> to <code>data/mod.env</code> and restart the bridge.';
+        }
+      }
       $("mesh-fed-line").textContent =
         "instance " +
         (f.instance_id || "—") +
@@ -714,6 +771,52 @@
       return escapeHtml(s).replace(/'/g, "&#39;");
     }
 
+    function renderMetrics(metrics) {
+      const today = (metrics && metrics.today) || {};
+      const hist = (metrics && metrics.history) || [];
+      const box = $("metrics-today");
+      if (box) {
+        box.hidden = false;
+        $("mt-day").textContent = today.day || "—";
+        $("mt-matches").textContent = today.matches ?? 0;
+        $("mt-reports").textContent = today.reports ?? 0;
+        $("mt-blocks").textContent = today.blocks ?? 0;
+        $("mt-joins").textContent = today.queue_joins ?? 0;
+        $("mt-alone").textContent = today.alone_joins ?? 0;
+        $("mt-peak-on").textContent = today.peak_online ?? 0;
+        $("mt-peak-w").textContent = today.peak_waiting ?? 0;
+      }
+      const body = $("metrics-body");
+      const empty = $("metrics-empty");
+      const table = $("metrics-table");
+      if (!body) return;
+      if (!hist.length) {
+        empty.hidden = false;
+        empty.textContent = "No history yet — counters start after first spin/match";
+        table.hidden = true;
+        body.innerHTML = "";
+        return;
+      }
+      empty.hidden = true;
+      table.hidden = false;
+      body.innerHTML = hist
+        .slice()
+        .reverse()
+        .map(
+          (r) => `<tr>
+          <td>${escapeHtml(r.day || "—")}</td>
+          <td>${r.matches ?? 0}</td>
+          <td>${r.reports ?? 0}</td>
+          <td>${r.blocks ?? 0}</td>
+          <td>${r.queue_joins ?? 0}</td>
+          <td>${r.alone_joins ?? 0}</td>
+          <td>${r.peak_online ?? 0}</td>
+          <td>${r.peak_waiting ?? 0}</td>
+        </tr>`
+        )
+        .join("");
+    }
+
     async function refresh() {
       showErr("");
       const t = token();
@@ -734,6 +837,7 @@
         renderReports(data.reports || []);
         renderTargets(data.targets || []);
         renderSeeders(data.seeders || []);
+        renderMetrics(data.metrics || {});
         await loadMesh();
       } catch (e) {
         showErr(e.message || String(e));
@@ -805,12 +909,39 @@
       if (e.key === "Enter") refresh();
     });
 
+    /** Public /health — webhook status without secrets or admin token. */
+    async function refreshPublicOps() {
+      const opsWh = $("ops-webhook-line");
+      if (!opsWh) return;
+      try {
+        const r = await fetch("/health", { cache: "no-store", credentials: "omit" });
+        if (!r.ok) throw new Error("health " + r.status);
+        const data = await r.json();
+        if (data && data.mod_webhook) {
+          opsWh.innerHTML =
+            'Auto-ban webhook: <strong style="color:var(--good)">configured</strong> (URL never shown). From public <code>/health</code>.';
+        } else {
+          opsWh.innerHTML =
+            'Auto-ban webhook: <strong style="color:var(--warn)">not set</strong> — add <code>ROULETTE_MOD_WEBHOOK_URL</code> to <code>data/mod.env</code> and restart the bridge.';
+        }
+      } catch (_) {
+        if (!token()) {
+          opsWh.textContent =
+            "Auto-ban webhook: could not reach /health — try again or sign in.";
+        }
+      }
+    }
+
     loadSaved();
+    refreshPublicOps();
     if (token()) refresh();
     // Auto-refresh pool stats every 20s while token present
     setInterval(() => {
       if (token() && document.visibilityState === "visible") refresh().catch(() => {});
     }, 20000);
+    setInterval(() => {
+      if (document.visibilityState === "visible") refreshPublicOps().catch(() => {});
+    }, 60000);
   </script>
 </body>
 </html>

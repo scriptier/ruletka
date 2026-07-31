@@ -15,12 +15,13 @@ mod protocol;
 mod simple;
 
 use axum::{
+    body::Body,
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         State,
     },
-    http::{header, HeaderMap, StatusCode},
-    response::IntoResponse,
+    http::{header, HeaderMap, HeaderValue, Method, StatusCode, Uri},
+    response::{Html, IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -41,8 +42,137 @@ use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
+use tower::ServiceExt;
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
+
+/// Public brand for a request Host (Telegram/Facebook crawlers never run JS).
+fn brand_from_host(host: &str) -> &'static str {
+    let h = host.split(':').next().unwrap_or(host).to_ascii_lowercase();
+    let h = h.strip_prefix("www.").unwrap_or(&h);
+    if h == "ruletka.me" || h.ends_with(".ruletka.me") {
+        "ruletka.me"
+    } else {
+        "ruletka.vip"
+    }
+}
+
+fn is_html_path(path: &str) -> bool {
+    let p = path.split('?').next().unwrap_or(path);
+    p.ends_with(".html") || p.ends_with(".htm") || p == "/" || p.is_empty()
+}
+
+fn is_branded_text_path(path: &str) -> bool {
+    let p = path.split('?').next().unwrap_or(path);
+    is_html_path(p)
+        || p == "/manifest.webmanifest"
+        || p.ends_with("/manifest.webmanifest")
+        || p == "/robots.txt"
+        || p.ends_with("/robots.txt")
+        || p == "/sitemap.xml"
+        || p.ends_with("/sitemap.xml")
+}
+
+/// Rewrite absolute/site brand strings for the active host.
+fn brand_html(body: &str, brand: &str) -> String {
+    if brand == "ruletka.vip" {
+        return body.to_string();
+    }
+    // Prefer longer tokens first
+    body.replace("https://ruletka.vip", "https://ruletka.me")
+        .replace("http://ruletka.vip", "https://ruletka.me")
+        .replace("ruletka.vip", "ruletka.me")
+}
+
+/// Host-aware UI: HTML (+ PWA manifest) get brand rewrites so previews match the URL.
+async fn branded_ui(
+    State(state): State<AppState>,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
+    if method != Method::GET && method != Method::HEAD {
+        return StatusCode::METHOD_NOT_ALLOWED.into_response();
+    }
+    let host = headers
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let brand = brand_from_host(host);
+    let path = uri.path();
+
+    // Build request for ServeDir (path only)
+    let req = axum::http::Request::builder()
+        .method(Method::GET)
+        .uri(uri.clone())
+        .body(Body::empty())
+        .unwrap_or_else(|_| axum::http::Request::new(Body::empty()));
+
+    if is_branded_text_path(path) {
+        // Read file ourselves for safe rewrite
+        let rel = if path == "/" || path.is_empty() {
+            "index.html".to_string()
+        } else {
+            path.trim_start_matches('/').to_string()
+        };
+        // Block path traversal
+        if rel.contains("..") || rel.starts_with('/') {
+            return StatusCode::NOT_FOUND.into_response();
+        }
+        let full = state.ui_dir.join(&rel);
+        let Ok(canon_ui) = tokio::fs::canonicalize(&state.ui_dir).await else {
+            return StatusCode::NOT_FOUND.into_response();
+        };
+        let Ok(canon_file) = tokio::fs::canonicalize(&full).await else {
+            // try ServeDir for missing (fallback 404)
+            let svc = ServeDir::new(&state.ui_dir).append_index_html_on_directories(true);
+            return match svc.oneshot(req).await {
+                Ok(r) => r.into_response(),
+                Err(_) => StatusCode::NOT_FOUND.into_response(),
+            };
+        };
+        if !canon_file.starts_with(&canon_ui) {
+            return StatusCode::NOT_FOUND.into_response();
+        }
+        match tokio::fs::read(&canon_file).await {
+            Ok(bytes) => {
+                let raw = String::from_utf8_lossy(&bytes);
+                let out = brand_html(&raw, brand);
+                let ctype = if rel.ends_with("manifest.webmanifest") {
+                    Some("application/manifest+json; charset=utf-8")
+                } else if rel.ends_with("robots.txt") {
+                    Some("text/plain; charset=utf-8")
+                } else if rel.ends_with("sitemap.xml") {
+                    Some("application/xml; charset=utf-8")
+                } else {
+                    None
+                };
+                let mut res = if let Some(ct) = ctype {
+                    (
+                        [(header::CONTENT_TYPE, HeaderValue::from_static(ct))],
+                        out,
+                    )
+                        .into_response()
+                } else {
+                    Html(out).into_response()
+                };
+                // Short cache so brand/host switches pick up quickly
+                res.headers_mut().insert(
+                    header::CACHE_CONTROL,
+                    HeaderValue::from_static("public, max-age=60"),
+                );
+                res
+            }
+            Err(_) => StatusCode::NOT_FOUND.into_response(),
+        }
+    } else {
+        let svc = ServeDir::new(&state.ui_dir).append_index_html_on_directories(true);
+        match svc.oneshot(req).await {
+            Ok(r) => r.into_response(),
+            Err(_) => StatusCode::NOT_FOUND.into_response(),
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, ValueEnum, Default)]
 enum Mode {
@@ -168,6 +298,10 @@ struct AppState {
     /// Empty disables /v1/admin/*
     admin_token: String,
     analytics: AnalyticsPublic,
+    /// True when ROULETTE_MOD_WEBHOOK_URL is set (never expose the URL).
+    mod_webhook_set: bool,
+    /// Static UI root (`ui/`). Used for host-aware HTML branding.
+    ui_dir: PathBuf,
 }
 
 impl AppState {
@@ -346,7 +480,9 @@ async fn config_handler(State(state): State<AppState>) -> Json<PublicConfig> {
 
 async fn health_handler(State(state): State<AppState>) -> impl IntoResponse {
     let peer_count = effective_claim_peers(&state).await.len();
-    let hub = state.hub.lock().await;
+    let mut hub = state.hub.lock().await;
+    let metrics = hub.metrics_snapshot();
+    let today = metrics.get("today").cloned().unwrap_or(serde_json::json!({}));
     Json(serde_json::json!({
         "ok": true,
         "service": "roulette-bridge",
@@ -359,6 +495,8 @@ async fn health_handler(State(state): State<AppState>) -> impl IntoResponse {
         "has_turn": state.public_config.has_turn,
         "turn_is_open_relay": state.public_config.turn_is_open_relay,
         "mode": state.public_config.mode,
+        "mod_webhook": state.mod_webhook_set,
+        "metrics_today": today,
         "federation": {
             "protocol": PROTOCOL,
             "instance_id": state.fed.instance_id,
@@ -368,6 +506,31 @@ async fn health_handler(State(state): State<AppState>) -> impl IntoResponse {
             "public_base": state.fed.public_base,
         }
     }))
+}
+
+async fn admin_metrics_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if !admin_token_ok(&state, &headers) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"ok": false, "error": "unauthorized"})),
+        )
+            .into_response();
+    }
+    let mut hub = state.hub.lock().await;
+    let snap = hub.metrics_snapshot();
+    Json(serde_json::json!({
+        "ok": true,
+        "online": hub.online(),
+        "waiting": hub.waiting_count(),
+        "waiting_solo": hub.waiting_solo_count(),
+        "friendships": hub.friendship_count(),
+        "blocks": hub.block_edge_count(),
+        "metrics": snap,
+    }))
+    .into_response()
 }
 
 /// Public multi-hub directory (discovery only — not an auto-trust federation join).
@@ -525,12 +688,13 @@ async fn admin_reports_handler(
         )
             .into_response();
     }
-    let hub = state.hub.lock().await;
+    let mut hub = state.hub.lock().await;
     let path = hub.reports_file_path();
     let reports = read_reports_jsonl(&path, 200);
     let bans = hub.admin_bans();
     let targets = hub.admin_report_targets();
     let seeders = read_seeders_unique(&seeders_path_from_reports(&path), 40);
+    let metrics = hub.metrics_snapshot();
     Json(serde_json::json!({
         "ok": true,
         "reports_path": path.display().to_string(),
@@ -540,6 +704,7 @@ async fn admin_reports_handler(
         "seeders": seeders,
         "online": hub.online(),
         "waiting": hub.waiting_count(),
+        "metrics": metrics,
     }))
     .into_response()
 }
@@ -709,6 +874,7 @@ async fn admin_mesh_handler(
         "directory_hubs": dir,
         "directory_file": state.directory_file.display().to_string(),
         "federation_peers_file": state.federation_peers_file.display().to_string(),
+        "mod_webhook": state.mod_webhook_set,
         "online": hub.online(),
         "waiting": hub.waiting_count(),
     }))
@@ -1294,6 +1460,10 @@ async fn main() {
     }
 
     let mod_hook = args.mod_webhook_url.trim().to_string();
+    let mod_webhook_set = !mod_hook.is_empty();
+    if mod_webhook_set {
+        tracing::info!("mod auto-ban webhook configured (URL not logged)");
+    }
     let state = AppState {
         hub: Arc::new(Mutex::new(SimpleHub::with_limits_store_webhook(
             limits,
@@ -1314,6 +1484,16 @@ async fn main() {
         federation_peers_file: fed_peers_file,
         admin_token,
         analytics,
+        mod_webhook_set,
+        ui_dir: {
+            if args.ui_dir.is_absolute() {
+                args.ui_dir.clone()
+            } else {
+                std::env::current_dir()
+                    .unwrap_or_else(|_| PathBuf::from("."))
+                    .join(&args.ui_dir)
+            }
+        },
     };
 
     // Background federation claimer
@@ -1324,16 +1504,12 @@ async fn main() {
         });
     }
 
-    let ui = if args.ui_dir.is_absolute() {
-        args.ui_dir.clone()
-    } else {
-        std::env::current_dir()
-            .unwrap_or_else(|_| PathBuf::from("."))
-            .join(&args.ui_dir)
-    };
+    let ui = state.ui_dir.clone();
+    tracing::info!(ui = %ui.display(), "serving UI (host-aware HTML branding for .me / .vip)");
 
     // `/` serves ui/index.html (homepage). Chat lives at /live.html
     // Admin UI: /admin.html  API: /v1/admin/* (ROULETTE_ADMIN_TOKEN)
+    // HTML is brand-rewritten from Host so Telegram/Facebook previews match the URL.
     let app = Router::new()
         .route("/ws", get(ws_handler))
         .route("/config.json", get(config_handler))
@@ -1343,6 +1519,7 @@ async fn main() {
         .route("/v1/federation/claim", post(federation_claim_handler))
         .route("/v1/federation/relay", post(federation_relay_handler))
         .route("/v1/admin/reports", get(admin_reports_handler))
+        .route("/v1/admin/metrics", get(admin_metrics_handler))
         .route("/v1/admin/seeders", get(admin_seeders_handler))
         .route("/v1/admin/mesh", get(admin_mesh_handler))
         .route("/v1/admin/directory_hubs", post(admin_directory_hubs_handler))
@@ -1353,7 +1530,7 @@ async fn main() {
         .route("/v1/admin/ban", post(admin_ban_handler))
         .route("/v1/admin/unban", post(admin_unban_handler))
         .route("/v1/seeder/request", post(seeder_request_handler))
-        .fallback_service(ServeDir::new(ui).append_index_html_on_directories(true))
+        .fallback(branded_ui)
         .layer(CorsLayer::permissive())
         .with_state(state);
 

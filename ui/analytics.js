@@ -2,8 +2,15 @@
  * Optional analytics — only loads if /config.json publishes ids.
  * Set ROULETTE_YANDEX_METRICA_ID and/or ROULETTE_GA_ID on the bridge.
  * Never hard-code secrets; these IDs are public by design.
+ *
+ * Funnel helper: window.RuletTrack(event, params)
+ * Works even without YM/GA (no-op until providers load).
  */
 (function () {
+  var ready = false;
+  var yandexId = null;
+  var gaReady = false;
+
   function loadScript(src, attrs) {
     return new Promise(function (resolve, reject) {
       var s = document.createElement("script");
@@ -44,7 +51,8 @@
         a.parentNode.insertBefore(k, a);
     })(window, document, "script", "https://mc.yandex.ru/metrika/tag.js", "ym");
     /* eslint-enable */
-    window.ym(Number(id), "init", {
+    yandexId = Number(id);
+    window.ym(yandexId, "init", {
       clickmap: true,
       trackLinks: true,
       accurateTrackBounce: true,
@@ -69,8 +77,33 @@
         window.gtag = gtag;
         gtag("js", new Date());
         gtag("config", id, { anonymize_ip: true });
+        gaReady = true;
       }
     );
+  }
+
+  /**
+   * @param {string} event
+   * @param {Record<string, string|number|boolean>} [params]
+   */
+  function track(event, params) {
+    if (!event) return;
+    var p = params && typeof params === "object" ? params : {};
+    try {
+      if (yandexId && typeof window.ym === "function") {
+        window.ym(yandexId, "reachGoal", String(event), p);
+      }
+    } catch (_) {}
+    try {
+      if (gaReady && typeof window.gtag === "function") {
+        window.gtag("event", String(event), p);
+      }
+    } catch (_) {}
+    try {
+      if (window.__RULETKA_DEBUG_TRACK) {
+        console.info("[track]", event, p);
+      }
+    } catch (_) {}
   }
 
   function boot() {
@@ -80,12 +113,21 @@
       })
       .then(function (cfg) {
         var a = cfg && cfg.analytics;
-        if (!a) return;
+        if (!a) {
+          ready = true;
+          return;
+        }
         if (a.yandex_metrica_id) initYandex(a.yandex_metrica_id);
         if (a.ga_measurement_id) initGa(a.ga_measurement_id);
+        ready = true;
       })
-      .catch(function () {});
+      .catch(function () {
+        ready = true;
+      });
   }
+
+  window.RuletTrack = track;
+  window.RuletAnalytics = { track: track, ready: function () { return ready; } };
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", boot);

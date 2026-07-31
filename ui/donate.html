@@ -13,12 +13,15 @@
   <meta property="og:title" content="Donate — ruletka.vip" />
   <meta property="og:description" content="Voluntary Bitcoin & Ethereum support for the public seed hub." />
   <meta property="og:url" content="https://ruletka.vip/donate.html" />
-  <meta property="og:image" content="https://ruletka.vip/brand/og-1200.jpg" />
+  <meta property="og:image" content="https://ruletka.vip/brand/og-share.jpg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="home.css?v=67" />
+  <link rel="stylesheet" href="home.css?v=71" />
   <link rel="stylesheet" href="legal/legal.css?v=2" />
+  <script src="brand.js?v=2"></script>
+  <script src="qrcode-generator.js?v=1"></script>
+  <script src="qr.js?v=1"></script>
   <script src="analytics.js?v=1" defer></script>
   <style>
     .donate-lead {
@@ -355,16 +358,25 @@
           openBtn.classList.toggle("is-disabled", !uri);
         }
         if (qrWrap) {
-          // Lightweight QR via public API (no wallet keys; only the address string)
-          var q =
-            "https://api.qrserver.com/v1/create-qr-code/?size=160x160&margin=8&data=" +
-            encodeURIComponent(uri || v);
-          qrWrap.innerHTML =
-            '<img src="' +
-            q +
-            '" width="140" height="140" alt="' +
-            kind.toUpperCase() +
-            ' donation QR" loading="lazy" />';
+          // Local QR (no third-party host) — address/URI only, never keys
+          var payload = uri || v;
+          if (window.RuletQr && RuletQr.render) {
+            RuletQr.render(qrWrap, payload, {
+              size: 140,
+              margin: 2,
+              alt: kind.toUpperCase() + " donation QR",
+            });
+          } else {
+            var q =
+              "https://api.qrserver.com/v1/create-qr-code/?size=160x160&margin=8&data=" +
+              encodeURIComponent(payload);
+            qrWrap.innerHTML =
+              '<img src="' +
+              q +
+              '" width="140" height="140" alt="' +
+              kind.toUpperCase() +
+              ' donation QR" loading="lazy" />';
+          }
           qrWrap.hidden = false;
         }
       }
@@ -393,5 +405,19 @@
         });
     })();
   </script>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      if (window.RuletBrand && RuletBrand.apply) RuletBrand.apply(document);
+      var b = (window.RuletBrand && RuletBrand.name && RuletBrand.name()) || "ruletka.vip";
+      document.title = document.title.replace(/ruletka\.(vip|me)/g, b);
+      document.querySelectorAll("h1, .home-brand > span").forEach(function (el) {
+        if (el.textContent && /ruletka\.(vip|me)/.test(el.textContent)) {
+          el.textContent = el.textContent.replace(/ruletka\.(vip|me)/g, b);
+        }
+      });
+    });
+  </script>
+
 </body>
 </html>

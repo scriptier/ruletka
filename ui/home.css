@@ -292,13 +292,35 @@ html {
   width: min(300px, 70vw);
   height: auto;
   aspect-ratio: 1;
-  object-fit: contain;
+  object-fit: cover;
   border-radius: 1.2rem;
   display: block;
   background: #050608;
 }
+.home-hero-video {
+  object-fit: cover;
+  /* GPU-friendly; avoid layout jump when video ready */
+  max-height: min(300px, 70vw);
+}
 @media (min-width: 860px) {
   .home-logo { width: min(340px, 100%); }
+  .home-hero-video { max-height: min(340px, 100%); }
+}
+.home-hero-fallback[hidden],
+.home-hero-video[hidden] {
+  display: none !important;
+}
+/* Respect reduced motion: static logo only */
+@media (prefers-reduced-motion: reduce) {
+  .home-hero-video {
+    display: none !important;
+  }
+  .home-hero-fallback {
+    display: block !important;
+  }
+  .hero-logo-ring {
+    animation: none !important;
+  }
 }
 
 .hero-copy {
@@ -423,13 +445,13 @@ html {
   border-bottom-color: rgba(126, 182, 255, 0.5);
 }
 
-/* Live stats */
+/* Live stats — slightly more prominent so “people are here” is obvious */
 .home-live-stats {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   gap: 0.5rem;
-  margin: 0;
+  margin: 0.15rem 0 0;
 }
 @media (min-width: 860px) {
   .home-live-stats { justify-content: flex-start; }
@@ -437,16 +459,20 @@ html {
 .home-live-stats[hidden] {
   display: none !important;
 }
+.home-live-stats.has-people .stat-pill:first-child {
+  border-color: rgba(61, 214, 140, 0.4);
+  background: rgba(61, 214, 140, 0.1);
+}
 .stat-pill {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.5rem 0.85rem;
+  padding: 0.55rem 0.95rem;
   border-radius: 999px;
-  font-size: 0.86rem;
+  font-size: 0.88rem;
   font-weight: 500;
   color: var(--muted);
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.06);
   border: 1px solid var(--border);
   backdrop-filter: blur(10px);
 }
@@ -458,6 +484,7 @@ html {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   min-width: 0.75em;
+  font-size: 1.02em;
 }
 .live-dot {
   width: 0.5rem;
@@ -508,16 +535,64 @@ html {
 }
 
 .pt-ico {
-  width: 2.4rem;
-  height: 2.4rem;
-  border-radius: 12px;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 14px;
   display: grid;
   place-items: center;
-  font-size: 1.15rem;
-  line-height: 1;
+  line-height: 0;
   background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   flex-shrink: 0;
+  box-shadow:
+    0 4px 14px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: transform 0.18s ease, border-color 0.18s, box-shadow 0.18s, background 0.18s;
+}
+.pt-svg {
+  width: 1.35rem;
+  height: 1.35rem;
+  display: block;
+  color: currentColor;
+}
+/* Per-card accent so icons feel intentional, not emoji leftovers */
+.pt-ico-match {
+  color: #ffb04a;
+  background: linear-gradient(145deg, rgba(255, 176, 74, 0.18) 0%, rgba(255, 45, 85, 0.1) 100%);
+  border-color: rgba(255, 176, 74, 0.35);
+}
+.pt-ico-p2p {
+  color: #7eb6ff;
+  background: linear-gradient(145deg, rgba(126, 182, 255, 0.2) 0%, rgba(91, 157, 255, 0.08) 100%);
+  border-color: rgba(126, 182, 255, 0.35);
+}
+.pt-ico-friends {
+  color: #6ee7b7;
+  background: linear-gradient(145deg, rgba(61, 214, 140, 0.18) 0%, rgba(61, 214, 140, 0.06) 100%);
+  border-color: rgba(61, 214, 140, 0.35);
+}
+.pt-ico-safety {
+  color: #ff8fab;
+  background: linear-gradient(145deg, rgba(255, 45, 85, 0.16) 0%, rgba(255, 107, 53, 0.08) 100%);
+  border-color: rgba(255, 107, 53, 0.35);
+}
+.home-points li:hover .pt-ico {
+  transform: scale(1.06);
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+.home-points li:hover .pt-ico-match {
+  border-color: rgba(255, 176, 74, 0.55);
+}
+.home-points li:hover .pt-ico-p2p {
+  border-color: rgba(126, 182, 255, 0.55);
+}
+.home-points li:hover .pt-ico-friends {
+  border-color: rgba(110, 231, 183, 0.5);
+}
+.home-points li:hover .pt-ico-safety {
+  border-color: rgba(255, 143, 171, 0.5);
 }
 
 .home-points strong {
@@ -528,11 +603,23 @@ html {
   letter-spacing: -0.015em;
 }
 
-.home-points span {
+.home-points li > div > span {
   display: block;
   font-size: 0.86rem;
   color: var(--muted);
   line-height: 1.45;
+}
+
+.home-lang-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  opacity: 0.95;
+  line-height: 0;
+}
+.home-lang-ico svg {
+  display: block;
 }
 
 /* —— Story sections —— */

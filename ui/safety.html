@@ -13,12 +13,13 @@
   <meta property="og:title" content="Safety — ruletka.vip" />
   <meta property="og:description" content="Community reports + on-device AI. Multi-report auto-restricts matchmaking." />
   <meta property="og:url" content="https://ruletka.vip/safety.html" />
-  <meta property="og:image" content="https://ruletka.vip/brand/og-1200.jpg" />
+  <meta property="og:image" content="https://ruletka.vip/brand/og-share.jpg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="home.css?v=61" />
-  <link rel="stylesheet" href="legal/legal.css?v=1" />
+  <link rel="stylesheet" href="home.css?v=69" />
+  <link rel="stylesheet" href="legal/legal.css?v=3" />
+  <script src="brand.js?v=2"></script>
   <script src="analytics.js?v=1" defer></script>
 </head>
 <body class="home-body">
@@ -37,7 +38,7 @@
     </nav>
 
     <article class="legal-card">
-      <h1>Safety on ruletka.vip</h1>
+      <h1 id="safety-title">Safety on ruletka.vip</h1>
       <p class="updated">Last updated: 2026-07-31 · Built for a hub without full-time moderators</p>
 
       <div class="legal-pill-row">
@@ -55,10 +56,11 @@
 
       <h2>What you can do in a call</h2>
       <ul>
+        <li><strong>Start</strong> — begin searching from the center of the partner window (also after Stop).</li>
         <li><strong>Next</strong> — leave this partner and search again.</li>
-        <li><strong>Stop</strong> — leave the queue and stay idle (keyboard <kbd>S</kbd>).</li>
+        <li><strong>Stop</strong> — leave the queue and stay idle (keyboard <kbd>S</kbd>). No pressure to keep searching.</li>
         <li><strong>Block</strong> — never match this identity again on this hub.</li>
-        <li><strong>Report</strong> — dock button or partner menu. Choose a reason; we block them and skip for you immediately.</li>
+        <li><strong>Report</strong> — dock button or click the partner video → Report. Pick a reason; we <strong>block them and skip</strong> for you immediately. Multiple independent reports can auto-restrict their matchmaking.</li>
         <li><strong>Blur</strong> — new strangers start blurred for <strong>2 seconds</strong> so you can hit Next, then unblur automatically. Settings → Safety can keep them blurred until you unblur.</li>
       </ul>
 
@@ -140,5 +142,14 @@
       </div>
     </article>
   </div>
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      if (window.RuletBrand && RuletBrand.apply) RuletBrand.apply(document);
+      var b = (window.RuletBrand && RuletBrand.name && RuletBrand.name()) || "ruletka.vip";
+      var h = document.getElementById("safety-title");
+      if (h) h.textContent = "Safety on " + b;
+      document.title = "Safety on " + b + " — report, block, AI skip";
+    });
+  </script>
 </body>
 </html>

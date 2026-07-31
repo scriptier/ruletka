@@ -14,7 +14,7 @@
   <meta property="og:url" content="https://ruletka.vip/" />
   <meta property="og:title" content="ruletka.vip — peer-to-peer chat roulette" />
   <meta property="og:description" content="Random P2P video chat. No account. Friends, block, report. Чат-рулетка без аккаунта." />
-  <meta property="og:image" content="https://ruletka.vip/brand/og-1200.jpg" />
+  <meta property="og:image" content="https://ruletka.vip/brand/og-share.jpg" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
   <meta property="og:type" content="website" />
@@ -23,7 +23,7 @@
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="ruletka.vip — peer-to-peer chat roulette" />
   <meta name="twitter:description" content="Random P2P video chat. No account required." />
-  <meta name="twitter:image" content="https://ruletka.vip/brand/og-1200.jpg" />
+  <meta name="twitter:image" content="https://ruletka.vip/brand/og-share.jpg" />
   <link rel="alternate" hreflang="ru" href="https://ruletka.vip/?lang=ru" />
   <link rel="alternate" hreflang="en" href="https://ruletka.vip/?lang=en" />
   <link rel="alternate" hreflang="uk" href="https://ruletka.vip/?lang=uk" />
@@ -42,9 +42,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="home.css?v=62" />
+  <link rel="stylesheet" href="home.css?v=72" />
+  <script src="brand.js?v=2"></script>
   <script src="analytics.js?v=1" defer></script>
-  <script src="pwa-install.js?v=1" defer></script>
+  <script src="pwa-install.js?v=5" defer></script>
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -69,7 +70,7 @@
           "width": 512,
           "height": 512
         },
-        "image": "https://ruletka.vip/brand/og-1200.jpg"
+        "image": "https://ruletka.vip/brand/og-share.jpg"
       },
       {
         "@type": "SoftwareApplication",
@@ -105,7 +106,13 @@
       <button type="button" class="nav-share-btn" id="btn-share-site" data-i18n="home.share" title="Share ruletka.vip">Share site</button>
       <a class="nav-live-link" href="/live.html" data-i18n="home.cta">Start chatting</a>
       <label class="home-lang" title="Language">
-        <span aria-hidden="true">🌐</span>
+        <span class="home-lang-ico" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M2 12h20"/>
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+          </svg>
+        </span>
         <select id="home-lang" aria-label="Language">
           <option value="ru" selected>Русский</option>
           <option value="en">English</option>
@@ -127,15 +134,32 @@
       <div class="hero-visual">
         <div class="hero-logo-ring" aria-hidden="true"></div>
         <div class="home-logo-wrap">
+          <!-- Poster first (LCP); mp4 loads only when hero is visible / motion OK -->
           <img
-            class="home-logo"
-            src="/brand/logo-hero.jpg"
+            class="home-logo home-hero-fallback"
+            id="home-hero-fallback"
+            src="/brand/logo-hero.jpg?v=2"
             width="360"
             height="360"
             alt="ruletka.vip"
             decoding="async"
             fetchpriority="high"
           />
+          <video
+            class="home-logo home-hero-video"
+            id="home-hero-video"
+            data-src="/brand/homepage-hero.mp4?v=2"
+            poster="/brand/logo-hero.jpg?v=2"
+            width="360"
+            height="360"
+            muted
+            loop
+            playsinline
+            playsInline
+            preload="none"
+            aria-label="ruletka.vip"
+            hidden
+          ></video>
         </div>
       </div>
       <div class="hero-copy">
@@ -171,31 +195,52 @@
       </div>
     </section>
 
-    <!-- Feature cards -->
+    <!-- Feature cards — stroke icons (crisp on all displays; matches live UI) -->
     <ul class="home-points">
       <li>
-        <span class="pt-ico" aria-hidden="true">⚡</span>
+        <span class="pt-ico pt-ico-match" aria-hidden="true">
+          <svg class="pt-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/>
+          </svg>
+        </span>
         <div>
           <strong data-i18n="home.p1t">Instant match</strong>
           <span data-i18n="home.p1d">Spin, match, next — skip anytime</span>
         </div>
       </li>
       <li>
-        <span class="pt-ico" aria-hidden="true">🔒</span>
+        <span class="pt-ico pt-ico-p2p" aria-hidden="true">
+          <svg class="pt-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2"/>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          </svg>
+        </span>
         <div>
           <strong data-i18n="home.p2t">P2P media</strong>
           <span data-i18n="home.p2d">Video goes peer-to-peer, not uploaded to us</span>
         </div>
       </li>
       <li>
-        <span class="pt-ico" aria-hidden="true">👥</span>
+        <span class="pt-ico pt-ico-friends" aria-hidden="true">
+          <svg class="pt-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+            <circle cx="9" cy="7" r="4"/>
+            <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+        </span>
         <div>
           <strong data-i18n="home.p3t">Friends &amp; block</strong>
           <span data-i18n="home.p3d">Share a code, accept requests, call when online</span>
         </div>
       </li>
       <li>
-        <span class="pt-ico" aria-hidden="true">🛡️</span>
+        <span class="pt-ico pt-ico-safety" aria-hidden="true">
+          <svg class="pt-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <path d="m9 12 2 2 4-4"/>
+          </svg>
+        </span>
         <div>
           <strong data-i18n="home.p4t">Safety tools</strong>
           <span data-i18n="home.p4d">Report, block, blur-first, on-device AI skip — multi-report auto-restricts</span>
@@ -372,6 +417,8 @@
             a.href = nu.pathname + nu.search + (nu.hash || "");
           } catch (_) {}
         });
+        // Host brand (ruletka.me / .vip) after i18n overwrites
+        if (window.RuletBrand && RuletBrand.apply) RuletBrand.apply(document);
       }
 
       function setLang(lang) {
@@ -390,7 +437,7 @@
           return;
         }
         applyDict(lang, STR.en); // show EN until pack loads
-        fetch("/i18n/" + lang + ".json?v=62", { cache: "force-cache" })
+        fetch("/i18n/" + lang + ".json?v=20", { cache: "force-cache" })
           .then(function (r) {
             if (!r.ok) throw new Error("pack");
             return r.json();
@@ -441,6 +488,7 @@
             onlineEl.textContent = String(online);
             waitingEl.textContent = String(waiting);
             wrap.classList.remove("is-offline");
+            wrap.classList.toggle("has-people", online > 0 || waiting > 0);
             wrap.hidden = false;
           })
           .catch(function () {
@@ -448,6 +496,7 @@
             onlineEl.textContent = "—";
             waitingEl.textContent = "—";
             wrap.classList.add("is-offline");
+            wrap.classList.remove("has-people");
             wrap.hidden = false;
             var offline = wrap.querySelector(".stat-offline");
             if (!offline) {
@@ -462,12 +511,89 @@
       refreshHomeStats();
       setInterval(refreshHomeStats, 12000);
 
+      // Hero video: poster is LCP; load mp4 only when in view (saves mobile data)
+      (function setupHeroVideo() {
+        var vid = document.getElementById("home-hero-video");
+        var fb = document.getElementById("home-hero-fallback");
+        if (!vid) return;
+        var reduce =
+          window.matchMedia &&
+          window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        var saveData =
+          (navigator.connection && navigator.connection.saveData) ||
+          (navigator.connection &&
+            /2g/i.test(navigator.connection.effectiveType || ""));
+        function showFallback() {
+          if (fb) {
+            fb.hidden = false;
+            fb.removeAttribute("hidden");
+          }
+          vid.hidden = true;
+          try {
+            vid.pause();
+            vid.removeAttribute("src");
+            vid.load();
+          } catch (_) {}
+        }
+        function showVideo() {
+          if (fb) fb.hidden = true;
+          vid.hidden = false;
+          vid.removeAttribute("hidden");
+        }
+        if (reduce || saveData) {
+          showFallback();
+          return;
+        }
+        function startVideo() {
+          if (vid.dataset.loaded === "1") return;
+          var src = vid.getAttribute("data-src");
+          if (!src) return;
+          vid.dataset.loaded = "1";
+          vid.src = src;
+          vid.addEventListener("error", showFallback);
+          showVideo();
+          var p = vid.play();
+          if (p && typeof p.catch === "function") {
+            p.catch(function () {
+              var once = function () {
+                document.removeEventListener("pointerdown", once);
+                vid.play().catch(showFallback);
+              };
+              document.addEventListener("pointerdown", once, { passive: true });
+            });
+          }
+        }
+        // Defer until hero is near viewport (or idle)
+        if ("IntersectionObserver" in window) {
+          var io = new IntersectionObserver(
+            function (entries) {
+              for (var i = 0; i < entries.length; i++) {
+                if (entries[i].isIntersecting) {
+                  io.disconnect();
+                  startVideo();
+                  break;
+                }
+              }
+            },
+            { rootMargin: "120px", threshold: 0.05 }
+          );
+          io.observe(vid.parentElement || vid);
+        } else if (window.requestIdleCallback) {
+          requestIdleCallback(startVideo, { timeout: 2000 });
+        } else {
+          setTimeout(startVideo, 800);
+        }
+      })();
+
       // Share site (native share sheet or clipboard)
       var shareBtn = document.getElementById("btn-share-site");
       if (shareBtn) {
         shareBtn.addEventListener("click", function () {
           var url = location.origin + "/";
-          var title = "ruletka.vip — peer-to-peer chat roulette";
+          var brand =
+            (window.RuletBrand && RuletBrand.name && RuletBrand.name()) ||
+            "ruletka.vip";
+          var title = brand + " — peer-to-peer chat roulette";
           var dict = packCache[getLang()] || STR[getLang()] || STR.en;
           var okLabel = (dict && dict["home.shareOk"]) || "Link copied";
           var done = function () {

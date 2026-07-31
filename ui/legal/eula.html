@@ -3,18 +3,25 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>EULA — ruletka.vip</title>
-  <meta name="description" content="End-user license agreement for the ruletka.vip web client." />
+  <title>End-user license agreement (EULA) — ruletka.vip</title>
+  <meta name="description" content="EULA for the ruletka.vip web client, helpers, and related software: license grant, restrictions, open source, disclaimers." />
   <meta name="theme-color" content="#07080c" />
   <meta name="robots" content="index, follow" />
   <link rel="canonical" href="https://ruletka.vip/legal/eula.html" />
   <link rel="icon" href="/brand/favicon-32.png" type="image/png" />
-  <link rel="stylesheet" href="../home.css?v=61" />
-  <link rel="stylesheet" href="legal.css?v=1" />
+  <link rel="apple-touch-icon" href="/brand/apple-touch-icon-180.png" />
+  <meta property="og:title" content="EULA — ruletka.vip" />
+  <meta property="og:description" content="License to use the ruletka.vip client and helpers. 18+ adult use only." />
+  <meta property="og:url" content="https://ruletka.vip/legal/eula.html" />
+  <meta property="og:image" content="https://ruletka.vip/brand/og-share.jpg" />
+  <link rel="stylesheet" href="../home.css?v=70" />
+  <script src="../brand.js?v=2"></script>
+  <link rel="stylesheet" href="legal.css?v=3" />
 </head>
 <body class="home-body">
   <div class="home-bg" aria-hidden="true">
     <div class="home-bg-grid"></div>
+    <div class="home-bg-orb home-bg-orb-a"></div>
   </div>
   <div class="legal-wrap">
     <nav class="legal-nav">
@@ -22,23 +29,209 @@
       <a class="primary" href="/live.html">Live</a>
       <a href="/legal/terms.html">Terms</a>
       <a href="/legal/privacy.html">Privacy</a>
+      <a href="/safety.html">Safety</a>
     </nav>
+
     <article class="legal-card">
       <h1>End-user license agreement (EULA)</h1>
-      <p class="updated">Last updated: 2026-07-31</p>
-      <p>Permission is granted to use the <strong>ruletka.vip</strong> web client for personal, non-commercial adult video chat as provided by the operators of this hub.</p>
+      <p class="updated">Last updated: 2026-07-31 · Applies to software and client materials served from or linked by https://ruletka.vip</p>
+
+      <p>
+        This End-User License Agreement (“<strong>EULA</strong>”) is a legal agreement between you and the operators of
+        <strong>ruletka.vip</strong> (“<strong>Licensor</strong>”, “we”, “us”) governing your use of the
+        <strong>Software</strong> described below.
+      </p>
+      <p>
+        By downloading, installing, accessing, or using the Software, you accept this EULA.
+        If you do not agree, do not use the Software.
+      </p>
+      <p>
+        Use of the <em>operated chat service</em> (matchmaking, live calls, friends on our hub) is also governed by the
+        <a href="/legal/terms.html">Terms of service</a>,
+        <a href="/legal/privacy.html">Privacy policy</a>, and
+        <a href="/legal/community.html">Community guidelines</a>.
+        If this EULA and the Terms conflict on service operations, the Terms control for that topic; if they conflict on software licensing, this EULA controls.
+      </p>
+
+      <div class="legal-pill-row" aria-label="Key points">
+        <span class="legal-pill">Personal adult use</span>
+        <span class="legal-pill">No ownership transfer</span>
+        <span class="legal-pill">Open-source portions</span>
+        <span class="legal-pill">As-is software</span>
+      </div>
+
+      <nav class="legal-toc" aria-label="On this page">
+        <strong>On this page</strong>
+        <ol>
+          <li><a href="#software">What is licensed</a></li>
+          <li><a href="#eligibility">Eligibility</a></li>
+          <li><a href="#grant">License grant</a></li>
+          <li><a href="#restrictions">Restrictions</a></li>
+          <li><a href="#opensource">Open-source components</a></li>
+          <li><a href="#updates">Updates &amp; availability</a></li>
+          <li><a href="#third-party">Third-party services</a></li>
+          <li><a href="#ownership">Ownership</a></li>
+          <li><a href="#privacy">Privacy &amp; data on device</a></li>
+          <li><a href="#disclaimers">Disclaimers</a></li>
+          <li><a href="#liability">Limitation of liability</a></li>
+          <li><a href="#termination">Termination</a></li>
+          <li><a href="#export">Export &amp; compliance</a></li>
+          <li><a href="#general">General</a></li>
+          <li><a href="#contact">Contact</a></li>
+        </ol>
+      </nav>
+
+      <h2 id="software">1. What is licensed</h2>
+      <p>For this EULA, “<strong>Software</strong>” means, as made available by us:</p>
       <ul>
-        <li>You may not reverse engineer the service to attack or abuse other users.</li>
-        <li>You may not use automated bots to flood matchmaking without permission.</li>
-        <li>Operators may suspend access for violations of the community guidelines or terms.</li>
+        <li>The <strong>web client</strong> served at ruletka.vip (HTML, CSS, JavaScript, assets, service workers, and related UI);</li>
+        <li>Optional <strong>helpers / downloads</strong> (for example bridge binaries, install scripts, or packages linked from the site);</li>
+        <li>Client-side configuration and static assets we publish for that client;</li>
+        <li>Documentation and notices we provide with the above.</li>
       </ul>
-      <p>See also <a href="/legal/terms.html">Terms of service</a> and <a href="/legal/community.html">Community guidelines</a>.</p>
+      <p>
+        “Software” does <strong>not</strong> by itself grant you rights to our trademarks, production secrets, or to operate
+        <code>ruletka.vip</code> as if you were the official brand operator. Running your <em>own</em> hub under another domain is addressed in open-source project licenses and our public docs — not by brand impersonation.
+      </p>
+
+      <h2 id="eligibility">2. Eligibility</h2>
+      <ul>
+        <li>You must be <strong>18+</strong> (or older if your jurisdiction’s age of majority is higher).</li>
+        <li>You may only use the Software for lawful, adult purposes consistent with the Terms and Community guidelines.</li>
+        <li>If you use the Software on behalf of an organization, you represent that you have authority to bind that organization.</li>
+      </ul>
+
+      <h2 id="grant">3. License grant</h2>
+      <p>
+        Subject to this EULA, we grant you a limited, revocable, non-exclusive, non-transferable, non-sublicensable license to:
+      </p>
+      <ul>
+        <li>Access and run the web client in a compatible browser for personal, non-commercial adult video chat and related features we enable;</li>
+        <li>Download and run official helpers/binaries we publish, solely as documented, to connect to a hub or improve connectivity;</li>
+        <li>Make reasonable copies for personal backup of downloads you obtained from us, if needed for that purpose.</li>
+      </ul>
+      <p>
+        This is a <strong>license to use</strong>, not a sale. Except for rights you already have under applicable open-source licenses for specific components, no other rights are granted by implication or otherwise.
+      </p>
+
+      <h2 id="restrictions">4. Restrictions</h2>
+      <p>Except as allowed by mandatory law or an applicable open-source license for a specific component, you may <strong>not</strong>:</p>
+      <ul>
+        <li>Use the Software if you are under 18, or to facilitate harm, exploitation, or illegal activity;</li>
+        <li>Rent, lease, sell, sublicense, or commercially exploit the Software as a competing hosted “ruletka.vip” clone that misuses our brand;</li>
+        <li>Remove or obscure copyright, trademark, or proprietary notices on materials we publish under this brand;</li>
+        <li>Reverse engineer, decompile, or disassemble the Software <em>for the purpose of attacking users, bypassing safety systems, or disrupting the Service</em> (lawful interoperability analysis where permitted by law remains subject to those laws);</li>
+        <li>Use bots, scrapers, or automation to flood matchmaking, mass-message users, or extract user data without our prior written permission;</li>
+        <li>Modify the client solely to evade bans, rate limits, age gates, or abuse controls on our hub;</li>
+        <li>Introduce malware, perform unauthorized scanning of other users’ devices, or attempt to compromise the Software or infrastructure;</li>
+        <li>Misrepresent that your hub, fork, or app is the official ruletka.vip service without permission.</li>
+      </ul>
+
+      <h2 id="opensource">5. Open-source components</h2>
+      <p>
+        Parts of the broader ruletka / freenet-roulette project may be released under open-source licenses
+        (for example <strong>LGPL-2.1-only</strong> and other licenses stated in source repositories and <code>LICENSE</code> files).
+      </p>
+      <ul>
+        <li>Those licenses govern the corresponding source and binaries as distributed under them.</li>
+        <li>This EULA does <strong>not</strong> limit rights you already have under those licenses for those components.</li>
+        <li>Where the open-source license and this EULA both apply, the open-source license controls for that component’s code rights; this EULA and the Terms still govern use of our operated service and brand.</li>
+        <li>Brand name “ruletka.vip”, production configuration, and operator secrets are <strong>not</strong> open-sourced by default.</li>
+      </ul>
+      <p>
+        If you redistribute open-source code, you must comply with the applicable license (notices, source offers where required, etc.).
+      </p>
+
+      <h2 id="updates">6. Updates &amp; availability</h2>
+      <ul>
+        <li>We may update, replace, or discontinue the Software or any feature at any time (including cache-busted client files, helpers, or APIs).</li>
+        <li>Updates may install automatically when you reload the site or fetch new assets.</li>
+        <li>We do not guarantee that older clients or helpers will keep working with current hubs.</li>
+        <li>The Software may be unavailable due to maintenance, network issues, capacity limits, or force majeure.</li>
+      </ul>
+
+      <h2 id="third-party">7. Third-party services &amp; dependencies</h2>
+      <p>
+        The Software may depend on third-party browsers, operating systems, fonts, CDNs, analytics (if configured), STUN/TURN providers, app stores, or tunnels.
+        Those parties have their own terms. We are not responsible for third-party products or outages.
+      </p>
+      <p>
+        If you point the client at a <strong>third-party hub</strong>, that operator’s policies apply to signaling and data on their servers.
+      </p>
+
+      <h2 id="ownership">8. Ownership</h2>
+      <ul>
+        <li>We and our licensors retain all right, title, and interest in the Software we provide under this brand, including UI design and trademarks, subject to open-source grants on specific components.</li>
+        <li>You retain rights to your own content (camera, mic, messages) as described in the Terms; the Software may process it only as needed to provide features you use.</li>
+        <li>Feedback you send about the Software may be used by us without obligation to you.</li>
+      </ul>
+
+      <h2 id="privacy">9. Privacy &amp; data on device</h2>
+      <p>
+        The Software may store preferences, identity material, chat history, and keys on your device
+        (for example <code>localStorage</code> / <code>IndexedDB</code>). You can clear local data where the UI provides that option.
+        See the <a href="/legal/privacy.html">Privacy policy</a> for what hubs process for matchmaking, friends, and reports.
+      </p>
+
+      <h2 id="disclaimers">10. Disclaimers</h2>
+      <p>
+        THE SOFTWARE IS PROVIDED <strong>“AS IS”</strong> AND <strong>“AS AVAILABLE”</strong>, WITHOUT WARRANTIES OF ANY KIND,
+        express or implied, including merchantability, fitness for a particular purpose, non-infringement, and uninterrupted or error-free operation.
+      </p>
+      <p>
+        Video chat quality depends on devices, browsers, firewalls, and peers. We do not warrant that peer connections will succeed,
+        that TURN will be free or available, or that safety features will detect every problem.
+      </p>
+
+      <h2 id="liability">11. Limitation of liability</h2>
+      <p>
+        TO THE MAXIMUM EXTENT PERMITTED BY LAW, WE AND OUR CONTRIBUTORS AND HOSTING PROVIDERS WILL NOT BE LIABLE FOR
+        any indirect, incidental, special, consequential, or punitive damages, or loss of data, profits, or goodwill,
+        arising from the Software or inability to use it.
+      </p>
+      <p>
+        TO THE MAXIMUM EXTENT PERMITTED BY LAW, OUR TOTAL LIABILITY UNDER THIS EULA IS LIMITED TO THE GREATER OF
+        (a) amounts you paid us for the Software (if any) in the 12 months before the claim, or (b) <strong>USD $50</strong>.
+        Mandatory consumer rights in your jurisdiction remain unaffected where they cannot be waived.
+      </p>
+
+      <h2 id="termination">12. Termination</h2>
+      <ul>
+        <li>This EULA is effective until terminated.</li>
+        <li>You may stop using the Software at any time (close the site, uninstall helpers, clear local data).</li>
+        <li>We may suspend or terminate your license and access if you violate this EULA, the Terms, or applicable law, or if we discontinue the Software.</li>
+        <li>On termination, you must stop using the Software and destroy copies of proprietary downloads you are no longer licensed to keep, except copies you must retain under an open-source license or law.</li>
+        <li>Sections that should survive (ownership, open-source acknowledgments, disclaimers, liability limits, general terms) survive termination.</li>
+      </ul>
+
+      <h2 id="export">13. Export &amp; compliance</h2>
+      <p>
+        You agree to comply with export control, sanctions, and technology-use laws that apply to you.
+        You may not use the Software where doing so would violate those laws.
+      </p>
+
+      <h2 id="general">14. General</h2>
+      <ul>
+        <li><strong>Entire agreement (software).</strong> This EULA is the complete agreement regarding the license of the Software, together with open-source licenses for specific components and the Terms for service use.</li>
+        <li><strong>Severability.</strong> If a provision is unenforceable, the remainder stays in effect.</li>
+        <li><strong>No waiver.</strong> Failure to enforce a right is not a waiver of later enforcement.</li>
+        <li><strong>Assignment.</strong> You may not assign this EULA without our consent. We may assign it when transferring operation of the Service or Software.</li>
+        <li><strong>Language.</strong> English controls if translations differ.</li>
+        <li><strong>Governing law.</strong> Same approach as the Terms: laws applicable to the operator of the hub/software distribution you use, subject to mandatory consumer protections where you live.</li>
+      </ul>
+
+      <h2 id="contact">15. Contact</h2>
+      <p>
+        EULA / software questions: <a href="mailto:support@ruletka.vip">support@ruletka.vip</a><br />
+        Privacy: <a href="mailto:privacy@ruletka.vip">privacy@ruletka.vip</a>
+      </p>
 
       <div class="legal-foot-links">
         <a href="/legal/terms.html">Terms</a>
         <a href="/legal/privacy.html">Privacy</a>
         <a href="/legal/community.html">Community</a>
         <a href="/safety.html">Safety</a>
+        <a href="/donate.html">Donate</a>
       </div>
     </article>
   </div>

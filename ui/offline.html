@@ -7,6 +7,7 @@
   <meta name="theme-color" content="#0a0b0e" />
   <title>ruletka.vip — offline</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <script src="brand.js?v=2"></script>
   <style>
     :root {
       color-scheme: dark;
@@ -107,6 +108,7 @@
     window.addEventListener("online", function () {
       location.href = "/live.html";
     });
+    if (window.RuletBrand && RuletBrand.apply) RuletBrand.apply(document);
   </script>
 </body>
 </html>

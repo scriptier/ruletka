@@ -23,6 +23,9 @@ pub enum ClientMsg {
         /// Small self-chosen avatar as data URL (jpeg/png/webp). Empty = none.
         #[serde(default)]
         avatar: String,
+        /// Soft interest tags (max 3). Prefer shared tags; never hard-filter.
+        #[serde(default)]
+        tags: Vec<String>,
     },
     /// Update soft match preferences without re-hello.
     SetPrefs {
@@ -36,6 +39,9 @@ pub enum ClientMsg {
         /// Small self-chosen avatar data URL, or "" to clear.
         #[serde(default)]
         avatar: String,
+        /// Soft interest tags (max 3). Prefer shared tags; never hard-filter.
+        #[serde(default)]
+        tags: Vec<String>,
     },
     Spin {
         #[serde(default)]
@@ -90,6 +96,14 @@ pub enum ClientMsg {
         #[serde(default)]
         room: String,
     },
+    /// While in a stranger 1v1: invite partner to search for a 3rd together (needs accept).
+    FindThirdInvite,
+    /// Respond to a find-third invite.
+    FindThirdRespond {
+        accept: bool,
+    },
+    /// Inviter cancels a pending find-third invite.
+    FindThirdCancel,
     /// Block a user (stranger or friend). Removes friendship both ways; skips future matches.
     BlockUser {
         user_id: String,
@@ -103,6 +117,15 @@ pub enum ClientMsg {
         #[serde(default)]
         reason: String,
     },
+    /// Direct message a mutual friend (works online or offline — stored until they open chat).
+    FriendChat {
+        to_user_id: String,
+        body: String,
+    },
+    /// Request stored DM history with a friend (last N messages).
+    FriendChatHistory {
+        with_user_id: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,6 +135,25 @@ pub struct FriendInfo {
     pub friend_code: String,
     pub short_id: String,
     pub online: bool,
+    /// Preview of last DM body (empty if none).
+    #[serde(default)]
+    pub last_msg: String,
+    /// Unix seconds of last DM (0 if none).
+    #[serde(default)]
+    pub last_msg_ts: u64,
+    /// Small self-chosen avatar data URL (when known). Empty = none.
+    #[serde(default)]
+    pub avatar: String,
+}
+
+/// One line in a friend DM thread (history or live).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FriendChatLine {
+    pub id: String,
+    pub from_user_id: String,
+    pub from_name: String,
+    pub body: String,
+    pub ts: u64,
 }
 
 /// One remote peer you should open WebRTC toward.
@@ -178,6 +220,23 @@ pub enum ServerMsg {
     Chat {
         author: String,
         body: String,
+        /// Persistent user_id of author when known (helps client thread history).
+        #[serde(default)]
+        from_user_id: String,
+    },
+    /// Live friend direct message (also used as echo to sender).
+    FriendChat {
+        id: String,
+        from_user_id: String,
+        from_name: String,
+        to_user_id: String,
+        body: String,
+        ts: u64,
+    },
+    /// Stored friend DM history for one conversation.
+    FriendChatHistory {
+        with_user_id: String,
+        messages: Vec<FriendChatLine>,
     },
     Signal {
         author: String,
@@ -229,6 +288,17 @@ pub enum ServerMsg {
         from_code: String,
     },
     CallEnded {
+        reason: String,
+    },
+    /// Partner invited you to search for a third person together.
+    FindThirdIncoming {
+        from_user_id: String,
+        from_name: String,
+    },
+    /// Outcome of a find-third invite (accepted → both enter party browse).
+    FindThirdResult {
+        ok: bool,
+        /// accepted | declined | expired | cancelled | busy | left | error
         reason: String,
     },
 }

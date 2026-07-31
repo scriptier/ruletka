@@ -9,8 +9,9 @@
   --warn: #f5a524;
   --danger: #f31260;
   --mono: "JetBrains Mono", "Fira Code", "Noto Sans Mono", ui-monospace, monospace;
-  /* Inter + Noto Sans cover Latin + Cyrillic well */
-  --sans: "Inter", "Noto Sans", "Segoe UI", system-ui, "Helvetica Neue", Arial, sans-serif;
+  /* System UI first (fast paint); Inter/Noto load async when available */
+  --sans: system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans",
+    "Inter", sans-serif;
 }
 
 * { box-sizing: border-box; }
