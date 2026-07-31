@@ -1157,5 +1157,10 @@
   "stars.flowersBtn": "Flowers · 5★ · 30s",
   "stars.flowersExtend": "More flowers +{s}s · {n}★",
   "stars.flowersOnYou": "{name} sent you flowers",
-  "stars.flowersTimer": "🌸 {s}s"
+  "stars.flowersTimer": "🌸 {s}s",
+  "stars.tipClickSpend": "Click to spend stars on this chat.",
+  "stars.spendTitle": "Spend stars",
+  "stars.spendHint": "Gift the person you’re chatting with. No money — reputation only.",
+  "stars.barsSub": "Chain fence overlay",
+  "stars.flowersSub": "Petals around their window"
 }

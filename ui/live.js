@@ -1881,6 +1881,7 @@ function starsTipCopy(which, n) {
 
 /**
  * Show/hide gold star badge on a tile; hover shows star info tip.
+ * Click during a live chat opens spend-gift menu.
  * @param {"local"|"remote"} which
  * @param {number} count
  */
@@ -1890,27 +1891,163 @@ function setStarsBadge(which, count) {
   const el = $(which === "local" ? "local-stars-count" : "remote-stars-count");
   const tip = $(which === "local" ? "local-stars-tip" : "remote-stars-tip");
   if (el) el.textContent = String(n);
+  if (which === "local") myStars = n;
+  if (which === "remote") partnerStars = n;
   if (badge) {
-    // Always show when > 0; hide at 0 so empty tiles stay clean
-    badge.hidden = n <= 0;
+    const live = !!(matched || inFriendCall);
+    // Partner: show when they have stars. You: show when you have stars OR in a live chat (so you can click to spend).
+    const show =
+      which === "local" ? n > 0 || live : n > 0 || (live && !!primaryPartnerUserId);
+    badge.hidden = !show;
+    if (show) badge.removeAttribute("hidden");
+    else badge.setAttribute("hidden", "");
+    badge.classList.toggle("is-clickable", live && !!primaryPartnerUserId);
+    badge.classList.toggle("is-live-chat", live);
     const tipCopy = starsTipCopy(which, n);
-    badge.setAttribute("aria-label", `${tipCopy.title}. ${tipCopy.body}`);
-    // Native title as fallback; rich CSS tip is primary on hover
-    badge.title = "";
+    const spendHint = live
+      ? " " +
+        (_t("stars.tipClickSpend") || "Click to spend stars on this chat.")
+      : "";
+    badge.setAttribute("aria-label", `${tipCopy.title}. ${tipCopy.body}${spendHint}`);
+    badge.title = ""; // rich CSS tip on hover
     if (tip) {
       const titleEl = tip.querySelector(".stars-tip-title");
       const bodyEl = tip.querySelector(".stars-tip-body");
       if (titleEl) titleEl.textContent = tipCopy.title;
-      if (bodyEl) bodyEl.textContent = tipCopy.body;
+      if (bodyEl) bodyEl.textContent = tipCopy.body + spendHint;
     }
   }
-  if (which === "local") myStars = n;
-  if (which === "remote") partnerStars = n;
+}
+
+function starGiftPopOpen() {
+  const pop = $("star-gift-pop");
+  return pop && !pop.hidden;
+}
+
+function closeStarGiftPop() {
+  const pop = $("star-gift-pop");
+  if (!pop) return;
+  pop.hidden = true;
+  pop.setAttribute("hidden", "");
+  pop.classList.remove("is-open");
+}
+
+/**
+ * Open spend menu near a star badge (only during live match/friend call).
+ * @param {HTMLElement | null} anchor
+ */
+function openStarGiftPop(anchor) {
+  const pop = $("star-gift-pop");
+  if (!pop) return;
+  if (!matched && !inFriendCall) {
+    setStatus(_t("stars.needLive") || "Only during a live chat");
+    return;
+  }
+  if (!primaryPartnerUserId && !lastMatchMeta?.user_id) {
+    setStatus(_t("stars.noPartner") || "No partner to gift");
+    return;
+  }
+  try {
+    closePartnerMenu();
+  } catch (_) {}
+  const bal = $("star-gift-bal");
+  if (bal) bal.textContent = `★ ${Math.max(0, myStars || 0)}`;
+  const hint = $("star-gift-hint");
+  if (hint) {
+    hint.textContent =
+      myStars < STAR_EFFECT_COST
+        ? _t("stars.needStars", { n: STAR_EFFECT_COST, have: myStars }) ||
+          `Need ${STAR_EFFECT_COST} stars (you have ${myStars})`
+        : _t("stars.spendHint") ||
+          "Gift the person you’re chatting with. No money — reputation only.";
+  }
+  ["btn-star-gift-bars", "btn-star-gift-flowers"].forEach((id) => {
+    const b = $(id);
+    if (b) b.disabled = myStars < STAR_EFFECT_COST;
+  });
+  pop.hidden = false;
+  pop.removeAttribute("hidden");
+  pop.classList.add("is-open");
+  // Position near badge (or center of partner tile)
+  const rect = (anchor || $("local-stars-badge") || $("remote-stars-badge"))?.getBoundingClientRect?.();
+  const vw = window.innerWidth || 800;
+  const vh = window.innerHeight || 600;
+  const pw = Math.min(280, vw - 16);
+  let left = rect ? rect.left + rect.width / 2 - pw / 2 : vw / 2 - pw / 2;
+  let top = rect ? rect.bottom + 8 : vh / 2 - 80;
+  left = Math.max(8, Math.min(left, vw - pw - 8));
+  if (top + 220 > vh) {
+    top = rect ? Math.max(8, rect.top - 200) : 8;
+  }
+  pop.style.width = pw + "px";
+  pop.style.left = left + "px";
+  pop.style.top = top + "px";
+  trackEvent("star_gift_pop_open", { stars: myStars || 0 });
+}
+
+function wireStarBadgeInteractions() {
+  const onBadgeActivate = (which, e) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    const badge = $(which === "local" ? "local-stars-badge" : "remote-stars-badge");
+    if (!badge || badge.hidden) return;
+    if (matched || inFriendCall) {
+      openStarGiftPop(badge);
+    }
+    // else hover tip alone is enough when idle
+  };
+  ["local", "remote"].forEach((which) => {
+    const badge = $(which === "local" ? "local-stars-badge" : "remote-stars-badge");
+    if (!badge || badge.dataset.starWired) return;
+    badge.dataset.starWired = "1";
+    badge.addEventListener("click", (e) => onBadgeActivate(which, e));
+    badge.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") onBadgeActivate(which, e);
+    });
+  });
+  $("btn-star-gift-close")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeStarGiftPop();
+  });
+  $("btn-star-gift-bars")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeStarGiftPop();
+    spendBarsOnPartner();
+  });
+  $("btn-star-gift-flowers")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeStarGiftPop();
+    spendFlowersOnPartner();
+  });
+  document.addEventListener(
+    "click",
+    (e) => {
+      if (!starGiftPopOpen()) return;
+      const pop = $("star-gift-pop");
+      if (pop?.contains(e.target)) return;
+      if (e.target?.closest?.(".stars-badge")) return;
+      closeStarGiftPop();
+    },
+    true
+  );
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && starGiftPopOpen()) closeStarGiftPop();
+  });
 }
 
 function clearPartnerStarsBadge() {
   partnerStars = 0;
   setStarsBadge("remote", 0);
+  try {
+    closeStarGiftPop();
+  } catch (_) {}
+}
+/** Keep your ★ visible/clickable during a live chat. */
+function refreshLocalStarsVisibility() {
+  setStarsBadge("local", myStars);
+  if (matched || inFriendCall) {
+    setStarsBadge("remote", partnerStars);
+  }
 }
 
 function unixNowSec() {
@@ -8161,6 +8298,7 @@ function wireSettingsNav() {
       } catch (_) {}
     }
   });
+  wireStarBadgeInteractions();
   $("btn-settings-done")?.addEventListener("click", () => closeSettings());
   $("btn-conn-refresh")?.addEventListener("click", () => {
     refreshConnectionDetails();
@@ -9800,6 +9938,7 @@ function handleMatched(msg) {
       };
   partnerStars = lastMatchMeta.stars || 0;
   setStarsBadge("remote", partnerStars);
+  setStarsBadge("local", myStars); // show yours so click-to-spend works
   // Partner may already be behind bars from a prior gift
   {
     const p =
@@ -12839,6 +12978,10 @@ on("btn-spin", "click", () => {
   primaryPartnerUserId = "";
   clearPartnerStarsBadge();
   clearPartnerFx();
+  try {
+    closeStarGiftPop();
+  } catch (_) {}
+  setStarsBadge("local", myStars); // hide if 0 when not in call
   trioBrowse = false;
   setSplitRemote(false);
   enableTrioLayout(false);

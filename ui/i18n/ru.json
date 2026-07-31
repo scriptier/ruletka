@@ -1157,5 +1157,10 @@
   "stars.flowersBtn": "Цветы · 5★ · 30с",
   "stars.flowersExtend": "Ещё цветы +{s}с · {n}★",
   "stars.flowersOnYou": "{name} прислал(а) цветы",
-  "stars.flowersTimer": "🌸 {s}с"
+  "stars.flowersTimer": "🌸 {s}с",
+  "stars.tipClickSpend": "Нажмите, чтобы потратить звёзды в этом чате.",
+  "stars.spendTitle": "Потратить звёзды",
+  "stars.spendHint": "Подарок собеседнику. Без денег — только репутация.",
+  "stars.barsSub": "Решётка поверх видео",
+  "stars.flowersSub": "Цветы вокруг окна"
 }

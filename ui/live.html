@@ -54,7 +54,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </noscript>
   <link rel="stylesheet" href="style.css?v=157" />
-  <link rel="stylesheet" href="live-stage.css?v=194" />
+  <link rel="stylesheet" href="live-stage.css?v=195" />
   <script src="brand.js?v=2"></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -813,6 +813,32 @@
   <!-- Incoming call toast is created only when someone rings (see live.js) -->
 
   <!-- Partner actions: click partner video (not fullscreen) -->
+  <!-- Quick star spend when clicking ★ during a live chat -->
+  <div class="star-gift-pop" id="star-gift-pop" hidden role="dialog" aria-label="Spend stars">
+    <div class="star-gift-pop-head">
+      <strong data-i18n="stars.spendTitle">Spend stars</strong>
+      <span class="star-gift-bal" id="star-gift-bal">★ 0</span>
+      <button type="button" class="star-gift-close" id="btn-star-gift-close" aria-label="Close">×</button>
+    </div>
+    <p class="star-gift-hint" id="star-gift-hint" data-i18n="stars.spendHint">
+      Gift the person you’re chatting with. No money — reputation only.
+    </p>
+    <button type="button" class="star-gift-item" id="btn-star-gift-bars" data-effect="bars">
+      <span class="sgi-ico" aria-hidden="true">🔒</span>
+      <span class="sgi-copy">
+        <span class="sgi-title" data-i18n="stars.barsBtn">Behind bars · 5★ · 30s</span>
+        <span class="sgi-sub" data-i18n="stars.barsSub">Chain fence overlay</span>
+      </span>
+    </button>
+    <button type="button" class="star-gift-item" id="btn-star-gift-flowers" data-effect="flowers">
+      <span class="sgi-ico" aria-hidden="true">🌸</span>
+      <span class="sgi-copy">
+        <span class="sgi-title" data-i18n="stars.flowersBtn">Flowers · 5★ · 30s</span>
+        <span class="sgi-sub" data-i18n="stars.flowersSub">Petals around their window</span>
+      </span>
+    </button>
+  </div>
+
   <div class="partner-menu-backdrop" id="partner-menu-backdrop" hidden></div>
   <div class="partner-menu" id="partner-menu" hidden role="dialog" aria-modal="true" aria-labelledby="partner-menu-title">
     <div class="partner-menu-head">
@@ -1743,7 +1769,7 @@
   <script src="identity.js?v=156"></script>
   <script src="hubs.js?v=156"></script>
   <script src="webrtc.js?v=156"></script>
-  <script src="live.js?v=191"></script>
+  <script src="live.js?v=192"></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {
