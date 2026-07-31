@@ -91,7 +91,7 @@
   "status.rejoinQueue": "back online — rejoining queue…",
   "status.friendCallLost": "connection lost — call friend again",
   "remote.emptyTitle": "Tap Next to start chatting",
-  "remote.emptySub": "Partner appears here",
+  "remote.emptySub": "Partner appears here. Next = new match · Stop = idle.",
   "remote.connecting": "Connecting…",
   "remote.handshake": "WebRTC handshake",
   "remote.tag": "Partner",
@@ -452,5 +452,10 @@
   "partnerMenu.reportOkFull": "Reported · blocked · next",
   "partnerMenu.reportOkUnderage": "Underage report filed · blocked · next",
   "partnerMenu.rHate": "Hate / threats",
-  "safety.autoNote": "On-device AI can skip explicit video. Reports from many users auto-restrict matchmaking."
+  "safety.autoNote": "On-device AI can skip explicit video. Reports from many users auto-restrict matchmaking.",
+  "home.p4t": "Safety tools",
+  "home.p4d": "Report, block, blur-first, on-device AI skip — multi-report auto-restricts",
+  "remote.stoppedTitle": "Stopped",
+  "remote.stoppedSub": "Tap Next or Spin when you want to search again.",
+  "keys.stop": "Stop (leave queue / idle)"
 }

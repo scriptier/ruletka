@@ -91,7 +91,7 @@
   "status.rejoinQueue": "знову в мережі — повернення в чергу…",
   "status.friendCallLost": "зв’язок втрачено — зателефонуйте знову",
   "remote.emptyTitle": "Натисніть «Далі», щоб почати",
-  "remote.emptySub": "Співрозмовник з’явиться тут",
+  "remote.emptySub": "Співрозмовник тут. Далі = новий матч · Стоп = пауза.",
   "remote.connecting": "З’єднання…",
   "remote.handshake": "Встановлення WebRTC",
   "remote.tag": "Співрозмовник",
@@ -443,5 +443,10 @@
   "srv.partnerStopped": "співрозмовник зупинився",
   "partnerMenu.reportOkFull": "Скарга · блок · далі",
   "partnerMenu.reportOkUnderage": "Скарга про неповнолітніх · блок · далі",
-  "partnerMenu.rHate": "Ненависть / погрози"
+  "partnerMenu.rHate": "Ненависть / погрози",
+  "home.p4t": "Безпека",
+  "home.p4d": "Скарга, блок, блюр, ІІ на пристрої — кілька скарг обмежують матчинг",
+  "remote.stoppedTitle": "Зупинено",
+  "remote.stoppedSub": "Натисніть Далі або Спін, щоб шукати знову.",
+  "keys.stop": "Стоп (вийти з черги)"
 }

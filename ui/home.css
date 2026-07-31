@@ -478,8 +478,13 @@ html {
 }
 @media (min-width: 720px) {
   .home-points {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
     gap: 1rem;
+  }
+}
+@media (min-width: 960px) {
+  .home-points {
+    grid-template-columns: repeat(4, 1fr);
   }
 }
 

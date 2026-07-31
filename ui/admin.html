@@ -201,6 +201,14 @@
     <p class="hint">
       Token is stored only in this browser’s <code>localStorage</code>. API: <code>GET /v1/admin/reports</code>
     </p>
+    <p class="hint">
+      <strong>Auto-moderation (no admin required):</strong>
+      underage → 1 report / 30d ban;
+      explicit·harassment·hate → 2 / 7d;
+      spam·other → 3 / 3d;
+      AI NSFW reports (<code>explicit_ai</code>) need one extra unique reporter.
+      Clients also block + skip immediately. Review logs below for edge cases.
+    </p>
     <p class="err" id="err" hidden></p>
 
     <div class="stats" id="stats" hidden>

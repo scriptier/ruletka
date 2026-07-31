@@ -4139,10 +4139,11 @@ on("btn-next", "click", () => {
 });
 
 /** Stop: leave queue / end stranger match; do not auto-search again. */
-on("btn-stop", "click", () => {
+function doStopMatchmaking() {
   pendingSignals.length = 0;
   wantSearch = false;
   matched = false;
+  inQueue = false;
   inFriendCall = false;
   matchMode = "solo";
   yourRole = "solo";
@@ -4150,7 +4151,10 @@ on("btn-stop", "click", () => {
   closeAllPeers({ keepFriend: false });
   setSplitRemote(false);
   setRemoteEmpty(true);
-  resetRemoteEmptyCopy();
+  const titleEl = $("remote-empty")?.querySelector(".empty-title");
+  const subEl = $("remote-empty")?.querySelector(".empty-sub");
+  if (titleEl) titleEl.textContent = _t("remote.stoppedTitle") || _t("status.stopped");
+  if (subEl) subEl.textContent = _t("remote.stoppedSub") || _t("remote.emptySub");
   setArchPill("default");
   setFedChip(false);
   clearChat();
@@ -4161,7 +4165,8 @@ on("btn-stop", "click", () => {
   setStatus(_t("status.stopped") || _t("phase.idle"));
   updateConnFromState();
   log(_t("log.stopped") || "stopped");
-});
+}
+on("btn-stop", "click", () => doStopMatchmaking());
 
 function onRoomInput(e) {
   const raw = (e?.target?.value != null ? e.target.value : currentRoom()).trim();
@@ -4301,6 +4306,9 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key === "f" || e.key === "F") {
     e.preventDefault();
     toggleFullscreenPartner();
+  } else if (e.key === "s" || e.key === "S") {
+    e.preventDefault();
+    doStopMatchmaking();
   } else if (e.key === "Escape") {
     if (keysHelpOpen()) {
       e.preventDefault();

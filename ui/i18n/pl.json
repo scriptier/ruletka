@@ -91,7 +91,7 @@
   "status.rejoinQueue": "znowu online — powrót do kolejki…",
   "status.friendCallLost": "utracono połączenie — zadzwoń ponownie",
   "remote.emptyTitle": "Dotknij Dalej, by zacząć czat",
-  "remote.emptySub": "Partner pojawi się tutaj",
+  "remote.emptySub": "Partner pojawia się tutaj. Next = nowy match · Stop = idle.",
   "remote.connecting": "Łączenie…",
   "remote.handshake": "Handshake WebRTC",
   "remote.tag": "Partner",
@@ -443,5 +443,10 @@
   "srv.partnerStopped": "partner zatrzymał",
   "partnerMenu.reportOkFull": "Zgłoszono · zablokowano · dalej",
   "partnerMenu.reportOkUnderage": "Zgłoszenie nieletniego · blok · dalej",
-  "partnerMenu.rHate": "Nienawiść / groźby"
+  "partnerMenu.rHate": "Nienawiść / groźby",
+  "home.p4t": "Bezpieczeństwo",
+  "home.p4d": "Zgłoś, blokuj, blur, AI na urządzeniu — wiele zgłoszeń ogranicza match",
+  "remote.stoppedTitle": "Zatrzymano",
+  "remote.stoppedSub": "Naciśnij Next lub Spin, by szukać znowu.",
+  "keys.stop": "Stop (opuść kolejkę)"
 }

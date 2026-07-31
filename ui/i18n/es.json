@@ -91,7 +91,7 @@
   "status.rejoinQueue": "de nuevo en línea — volviendo a la cola…",
   "status.friendCallLost": "conexión perdida — vuelve a llamar",
   "remote.emptyTitle": "Toca Siguiente para chatear",
-  "remote.emptySub": "El partner aparece aquí",
+  "remote.emptySub": "La pareja aparece aquí. Next = nuevo match · Stop = idle.",
   "remote.connecting": "Conectando…",
   "remote.handshake": "Handshake WebRTC",
   "remote.tag": "Partner",
@@ -443,5 +443,10 @@
   "srv.partnerStopped": "la pareja se detuvo",
   "partnerMenu.reportOkFull": "Reportado · bloqueado · siguiente",
   "partnerMenu.reportOkUnderage": "Reporte de menor · bloqueado · siguiente",
-  "partnerMenu.rHate": "Odio / amenazas"
+  "partnerMenu.rHate": "Odio / amenazas",
+  "home.p4t": "Seguridad",
+  "home.p4d": "Reportar, bloquear, desenfoque, IA en el dispositivo — varios reportes restringen el match",
+  "remote.stoppedTitle": "Parado",
+  "remote.stoppedSub": "Pulsa Next o Spin para buscar de nuevo.",
+  "keys.stop": "Parar (salir de la cola)"
 }

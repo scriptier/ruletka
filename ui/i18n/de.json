@@ -91,7 +91,7 @@
   "status.rejoinQueue": "wieder online — zurück in die Warteschlange…",
   "status.friendCallLost": "Verbindung verloren — Freund erneut anrufen",
   "remote.emptyTitle": "Tippe Weiter zum Chatten",
-  "remote.emptySub": "Partner erscheint hier",
+  "remote.emptySub": "Partner erscheint hier. Next = neuer Match · Stop = Pause.",
   "remote.connecting": "Verbinden…",
   "remote.handshake": "WebRTC-Handshake",
   "remote.tag": "Partner",
@@ -443,5 +443,10 @@
   "srv.partnerStopped": "Partner hat gestoppt",
   "partnerMenu.reportOkFull": "Gemeldet · blockiert · weiter",
   "partnerMenu.reportOkUnderage": "Minderjährigen-Meldung · blockiert · weiter",
-  "partnerMenu.rHate": "Hass / Drohungen"
+  "partnerMenu.rHate": "Hass / Drohungen",
+  "home.p4t": "Sicherheit",
+  "home.p4d": "Melden, blockieren, Blur, KI auf dem Gerät — mehrere Meldungen sperren Matchmaking",
+  "remote.stoppedTitle": "Gestoppt",
+  "remote.stoppedSub": "Next oder Spin drücken, um wieder zu suchen.",
+  "keys.stop": "Stopp (Queue verlassen)"
 }

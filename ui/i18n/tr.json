@@ -91,7 +91,7 @@
   "status.rejoinQueue": "yeniden çevrimiçi — sıraya dönülüyor…",
   "status.friendCallLost": "bağlantı koptu — arkadaşı yeniden arayın",
   "remote.emptyTitle": "Sohbete başlamak için Sonraki’ye dokunun",
-  "remote.emptySub": "Partner burada görünür",
+  "remote.emptySub": "Eş burada. Next = yeni eş · Stop = bekle.",
   "remote.connecting": "Bağlanıyor…",
   "remote.handshake": "WebRTC el sıkışması",
   "remote.tag": "Partner",
@@ -443,5 +443,10 @@
   "srv.partnerStopped": "eşleşme durduruldu",
   "partnerMenu.reportOkFull": "Bildirildi · engellendi · sonraki",
   "partnerMenu.reportOkUnderage": "Reşit olmayan bildirimi · engel · sonraki",
-  "partnerMenu.rHate": "Nefret / tehdit"
+  "partnerMenu.rHate": "Nefret / tehdit",
+  "home.p4t": "Güvenlik",
+  "home.p4d": "Bildir, engelle, bulanıklaştır, cihaz AI — çoklu bildirim eşleşmeyi kısıtlar",
+  "remote.stoppedTitle": "Durdu",
+  "remote.stoppedSub": "Tekrar aramak için Next veya Spin.",
+  "keys.stop": "Dur (kuyruktan çık)"
 }

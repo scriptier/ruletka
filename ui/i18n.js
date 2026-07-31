@@ -114,7 +114,10 @@
 
       // tiles
       "remote.emptyTitle": "Tap Next to start chatting",
-      "remote.emptySub": "Partner appears here",
+      "remote.emptySub": "Partner appears here. Next = new match · Stop = idle.",
+      "remote.stoppedTitle": "Stopped",
+      "remote.stoppedSub": "Tap Next or Spin when you want to search again.",
+      "keys.stop": "Stop (leave queue / idle)",
       "remote.connecting": "Connecting…",
       "remote.handshake": "WebRTC handshake",
       "remote.tag": "Partner",

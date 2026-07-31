@@ -91,7 +91,7 @@
   "status.rejoinQueue": "已重新上线 — 重新加入队列…",
   "status.friendCallLost": "连接丢失 — 请重新呼叫好友",
   "remote.emptyTitle": "点「下一个」开始聊天",
-  "remote.emptySub": "对方将显示在这里",
+  "remote.emptySub": "对方出现在这里。Next=新匹配 · Stop=暂停。",
   "remote.connecting": "连接中…",
   "remote.handshake": "WebRTC 握手",
   "remote.tag": "对方",
@@ -443,5 +443,10 @@
   "srv.partnerStopped": "对方已停止",
   "partnerMenu.reportOkFull": "已举报 · 已拉黑 · 下一位",
   "partnerMenu.reportOkUnderage": "未成年人举报 · 已拉黑 · 下一位",
-  "partnerMenu.rHate": "仇恨 / 威胁"
+  "partnerMenu.rHate": "仇恨 / 威胁",
+  "home.p4t": "安全工具",
+  "home.p4d": "举报、拉黑、先模糊、设备端 AI 跳过 — 多人举报会限制匹配",
+  "remote.stoppedTitle": "已停止",
+  "remote.stoppedSub": "想再搜索时点 Next 或 Spin。",
+  "keys.stop": "停止（离开队列）"
 }

@@ -91,7 +91,7 @@
   "status.rejoinQueue": "de nouveau en ligne — retour en file…",
   "status.friendCallLost": "connexion perdue — rappelez l’ami",
   "remote.emptyTitle": "Touchez Suivant pour chatter",
-  "remote.emptySub": "Le partenaire apparaît ici",
+  "remote.emptySub": "Le partenaire apparaît ici. Next = nouveau match · Stop = pause.",
   "remote.connecting": "Connexion…",
   "remote.handshake": "Handshake WebRTC",
   "remote.tag": "Partenaire",
@@ -443,5 +443,10 @@
   "srv.partnerStopped": "partenaire arrêté",
   "partnerMenu.reportOkFull": "Signalé · bloqué · suivant",
   "partnerMenu.reportOkUnderage": "Signalement mineur · bloqué · suivant",
-  "partnerMenu.rHate": "Haine / menaces"
+  "partnerMenu.rHate": "Haine / menaces",
+  "home.p4t": "Sécurité",
+  "home.p4d": "Signaler, bloquer, flou, IA sur l’appareil — plusieurs signalements restreignent le match",
+  "remote.stoppedTitle": "Arrêté",
+  "remote.stoppedSub": "Appuyez sur Next ou Spin pour chercher à nouveau.",
+  "keys.stop": "Stop (quitter la file)"
 }
