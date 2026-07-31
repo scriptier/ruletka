@@ -2893,6 +2893,7 @@ impl SimpleHub {
             c.partner = None;
             c.session_peers.clear();
             c.session_id = None;
+            c.match_started = None;
             if c.phase == Phase::Matched || c.phase == Phase::Waiting {
                 c.phase = Phase::Idle;
             }
