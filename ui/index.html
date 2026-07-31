@@ -42,7 +42,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="home.css?v=72" />
+  <link rel="stylesheet" href="home.css?v=73" />
   <script src="brand.js?v=2"></script>
   <script src="analytics.js?v=1" defer></script>
   <script src="pwa-install.js?v=5" defer></script>
@@ -123,6 +123,7 @@
           <option value="pt">Português</option>
           <option value="tr">Türkçe</option>
           <option value="pl">Polski</option>
+          <option value="zh">中文</option>
         </select>
       </label>
     </div>
@@ -384,7 +385,7 @@
         },
       };
 
-      var HOME_LANGS = ["ru", "en", "uk", "es", "de", "fr", "pt", "tr", "pl"];
+      var HOME_LANGS = ["ru", "en", "uk", "es", "de", "fr", "pt", "tr", "pl", "zh"];
 
       function getLang() {
         try {
@@ -392,6 +393,13 @@
           if (q && HOME_LANGS.indexOf(q) >= 0) return q;
           var s = localStorage.getItem("nextface-lang-v1");
           if (s && HOME_LANGS.indexOf(s) >= 0) return s;
+          // Browser preference (same set as live)
+          var nav = navigator.languages || [navigator.language || ""];
+          for (var i = 0; i < nav.length; i++) {
+            var primary = String(nav[i] || "").toLowerCase().split("-")[0];
+            if (primary === "zh") primary = "zh";
+            if (HOME_LANGS.indexOf(primary) >= 0) return primary;
+          }
         } catch (_) {}
         return "ru";
       }
@@ -426,39 +434,27 @@
         try {
           localStorage.setItem("nextface-lang-v1", lang);
         } catch (_) {}
-        // Bundled RU/EN first
-        if (STR[lang]) {
-          applyDict(lang, STR[lang]);
-          return;
-        }
-        // Other langs: load full pack from /i18n/{lang}.json (includes home.* keys)
+        // Prefer full pack cache (all languages, including en/ru overlays)
         if (packCache[lang]) {
           applyDict(lang, packCache[lang]);
           return;
         }
-        applyDict(lang, STR.en); // show EN until pack loads
-        fetch("/i18n/" + lang + ".json?v=20", { cache: "force-cache" })
+        // Flash bundled RU/EN or English while pack loads
+        applyDict(lang, STR[lang] || STR.en || {});
+        fetch("/i18n/" + lang + ".json?v=21", { cache: "force-cache" })
           .then(function (r) {
             if (!r.ok) throw new Error("pack");
             return r.json();
           })
           .then(function (j) {
-            packCache[lang] = j;
-            if (getLang() === lang) applyDict(lang, j);
+            packCache[lang] = Object.assign({}, STR[lang] || STR.en || {}, j);
+            if (getLang() === lang) applyDict(lang, packCache[lang]);
           })
           .catch(function () {});
       }
 
       var sel = document.getElementById("home-lang");
       if (sel) {
-        // include Chinese if pack available
-        if (![].some.call(sel.options, function (o) { return o.value === "zh"; })) {
-          var oz = document.createElement("option");
-          oz.value = "zh";
-          oz.textContent = "中文";
-          sel.appendChild(oz);
-        }
-        HOME_LANGS.push("zh");
         sel.addEventListener("change", function () {
           setLang(sel.value);
         });
