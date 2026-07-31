@@ -381,7 +381,7 @@
   "home.p3t": "Friends & block",
   "home.p3d": "Share a code, accept requests, call when online",
   "home.diffTitle": "How we’re different",
-  "home.diffBody": "Most chat roulettes send your video through big company servers and push ads or accounts. <strong>ruletka.vip</strong> is built so video stays between two browsers (peer-to-peer), with no signup required. You get friends, block, report, and on-device safety tools — and you can even help the network grow without giving anyone else control of this site.",
+  "home.diffBody": "Most chat roulettes route your video through their servers and push accounts or ads. On <strong>ruletka.vip</strong>, video goes browser to browser (peer-to-peer) — no signup. Friends, block, report, and on-device safety tools are built in.",
   "home.openTitle": "Open source & multi-hub",
   "home.openBody": "This software is <strong>open source</strong> (LGPL-2.1). Anyone can run their own hub. This site is a public seed — not the only network. If a hub goes down, the live app can try other hubs from a public directory. Helpers run a full chat node you can share.",
   "home.openSrc": "GitHub",

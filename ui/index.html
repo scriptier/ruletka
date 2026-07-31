@@ -199,10 +199,9 @@
     <section class="home-diff" id="why">
       <h2 data-i18n="home.diffTitle">How we’re different</h2>
       <p class="home-diff-body" data-i18n="home.diffBody">
-        Most chat roulettes send your video through big company servers and push ads or accounts.
-        <strong>ruletka.vip</strong> is built so video stays between two browsers (peer-to-peer),
-        with no signup required. You get friends, block, report, and on-device safety tools —
-        and you can even help the network grow without giving anyone else control of this site.
+        Most chat roulettes route your video through their servers and push accounts or ads.
+        On <strong>ruletka.vip</strong>, video goes browser to browser (peer-to-peer) — no signup.
+        Friends, block, report, and on-device safety tools are built in.
       </p>
     </section>
 
@@ -273,7 +272,7 @@
           "home.p3d": "Share a code, accept requests, call when online",
           "home.diffTitle": "How we’re different",
           "home.diffBody":
-            "Most chat roulettes send your video through big company servers and push ads or accounts. <strong>ruletka.vip</strong> is built so video stays between two browsers (peer-to-peer), with no signup required. You get friends, block, report, and on-device safety tools — and you can even help the network grow without giving anyone else control of this site.",
+            "Most chat roulettes route your video through their servers and push accounts or ads. On <strong>ruletka.vip</strong>, video goes browser to browser (peer-to-peer) — no signup. Friends, block, report, and on-device safety tools are built in.",
           "home.openTitle": "Open source & multi-hub",
           "home.openBody":
             "This software is <strong>open source</strong> (LGPL-2.1). Anyone can run their own hub. This site is a public seed — not the only network. If a hub goes down, the live app can try other hubs from a public directory. Helpers run a full chat node you can share.",
@@ -318,7 +317,7 @@
           "home.statsOffline": "Хаб офлайн",
           "home.diffTitle": "Чем мы отличаемся",
           "home.diffBody":
-            "Обычные чат-рулетки гонят видео через серверы компаний и навязывают аккаунты или рекламу. <strong>ruletka.vip</strong> устроен так, что видео идёт между двумя браузерами (peer-to-peer), без регистрации. Есть друзья, блок, жалобы и фильтры безопасности на устройстве — и можно помогать сети расти, не отдавая никому контроль над этим сайтом.",
+            "Обычные чат-рулетки гонят видео через свои серверы и навязывают аккаунты или рекламу. На <strong>ruletka.vip</strong> видео идёт из браузера в браузер (peer-to-peer) — без регистрации. Есть друзья, блок, жалобы и защита на устройстве.",
           "home.foot": "18+ · Уважайте других · Есть «В блок»",
         },
       };
@@ -374,7 +373,7 @@
           return;
         }
         applyDict(lang, STR.en); // show EN until pack loads
-        fetch("/i18n/" + lang + ".json?v=2", { cache: "force-cache" })
+        fetch("/i18n/" + lang + ".json?v=57", { cache: "force-cache" })
           .then(function (r) {
             if (!r.ok) throw new Error("pack");
             return r.json();

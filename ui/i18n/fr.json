@@ -381,7 +381,7 @@
   "home.p3t": "Amis et blocage",
   "home.p3d": "Partagez un code, acceptez, appelez en ligne",
   "home.diffTitle": "En quoi nous sommes différents",
-  "home.diffBody": "La plupart des chat roulettes envoient votre vidéo via des serveurs d’entreprises et poussent pubs ou comptes. <strong>ruletka.vip</strong> est conçu pour que la vidéo reste entre deux navigateurs (peer-to-peer), sans inscription. Amis, blocage, signalement et outils de sécurité sur l’appareil — et vous pouvez aider le réseau à grandir sans céder le contrôle de ce site.",
+  "home.diffBody": "La plupart des chat roulettes font passer votre vidéo par leurs serveurs et poussent comptes ou pubs. Sur <strong>ruletka.vip</strong>, la vidéo va de navigateur à navigateur (peer-to-peer) — sans inscription. Amis, blocage, signalement et outils de sécurité sur l’appareil inclus.",
   "home.openTitle": "Open source et multi-hub",
   "home.openBody": "Ce logiciel est <strong>open source</strong> (LGPL-2.1). N’importe qui peut faire tourner son hub. Ce site est une graine publique, pas le seul réseau. Si un hub tombe, l’app live peut essayer d’autres du répertoire. Les helpers sont un nœud de chat complet à partager.",
   "home.openSrc": "GitHub",

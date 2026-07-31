@@ -381,7 +381,7 @@
   "home.p3t": "好友与屏蔽",
   "home.p3d": "分享代码、接受请求、在线呼叫",
   "home.diffTitle": "我们有何不同",
-  "home.diffBody": "多数聊天轮盘把视频经大公司服务器传输，并推销广告或账号。<strong>ruletka.vip</strong> 让视频留在两个浏览器之间（点对点），无需注册。你有好友、屏蔽、举报和设备端安全工具 — 还能在不交出本站控制权的情况下帮助网络成长。",
+  "home.diffBody": "多数聊天轮盘把视频经自家服务器转发，并推销账号或广告。在 <strong>ruletka.vip</strong>，视频点对点在浏览器之间传输 — 无需注册。好友、屏蔽、举报与设备端安全工具开箱即用。",
   "home.openTitle": "开源与多 hub",
   "home.openBody": "本软件为<strong>开源</strong>（LGPL-2.1）。任何人可运行自己的 hub。本站是公共种子，不是唯一网络。若某个 hub 宕机，live 应用可尝试目录中的其他 hub。Helper 是可分享的完整聊天节点。",
   "home.openSrc": "GitHub",

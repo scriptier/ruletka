@@ -381,7 +381,7 @@
   "home.p3t": "Znajomi i blokada",
   "home.p3d": "Udostępnij kod, akceptuj prośby, dzwoń online",
   "home.diffTitle": "Czym się różnimy",
-  "home.diffBody": "Większość chat roulette’ów puszcza wideo przez serwery wielkich firm i pcha reklamy lub konta. <strong>ruletka.vip</strong> jest tak zbudowany, by wideo zostawało między dwiema przeglądarkami (peer-to-peer), bez rejestracji. Znajomi, blokada, zgłoszenia i narzędzia bezpieczeństwa na urządzeniu — i możesz pomagać sieci rosnąć, nie oddając nikomu kontroli nad tą stroną.",
+  "home.diffBody": "Większość chat roulette’ów puszcza wideo przez własne serwery i pcha konta albo reklamy. Na <strong>ruletka.vip</strong> wideo idzie z przeglądarki do przeglądarki (peer-to-peer) — bez rejestracji. Znajomi, blokada, zgłoszenia i bezpieczeństwo na urządzeniu są wbudowane.",
   "home.openTitle": "Open source i multi-hub",
   "home.openBody": "To oprogramowanie jest <strong>open source</strong> (LGPL-2.1). Każdy może uruchomić własny hub. Ta strona to publiczne ziarno, nie jedyna sieć. Gdy hub padnie, aplikacja live może spróbować innych z katalogu. Helpery to pełny węzeł czatu do udostępnienia.",
   "home.openSrc": "GitHub",

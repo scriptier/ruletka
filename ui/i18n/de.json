@@ -381,7 +381,7 @@
   "home.p3t": "Freunde & Block",
   "home.p3d": "Code teilen, Anfragen annehmen, online anrufen",
   "home.diffTitle": "Was uns unterscheidet",
-  "home.diffBody": "Die meisten Chat-Roulettes schicken dein Video über Firmen-Server und drängen Werbung oder Konten. <strong>ruletka.vip</strong> ist so gebaut, dass Video zwischen zwei Browsern bleibt (peer-to-peer), ohne Anmeldung. Du bekommst Freunde, Block, Melden und Sicherheits-Tools auf dem Gerät — und kannst dem Netz helfen zu wachsen, ohne jemandem Kontrolle über diese Site zu geben.",
+  "home.diffBody": "Die meisten Chat-Roulettes leiten dein Video über ihre Server und drängen Konten oder Werbung. Bei <strong>ruletka.vip</strong> geht Video Browser zu Browser (peer-to-peer) — ohne Anmeldung. Freunde, Blockieren, Melden und Sicherheitstools auf dem Gerät sind eingebaut.",
   "home.openTitle": "Open Source & Multi-Hub",
   "home.openBody": "Diese Software ist <strong>Open Source</strong> (LGPL-2.1). Jeder kann einen eigenen Hub betreiben. Diese Site ist ein öffentlicher Seed — nicht das einzige Netz. Fällt ein Hub aus, kann die Live-App andere aus dem Verzeichnis versuchen. Helper sind ein voller Chat-Knoten zum Teilen.",
   "home.openSrc": "GitHub",

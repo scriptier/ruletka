@@ -381,7 +381,7 @@
   "home.p3t": "Arkadaşlar ve engel",
   "home.p3d": "Kod paylaş, istekleri kabul et, çevrimiçi ara",
   "home.diffTitle": "Farkımız ne",
-  "home.diffBody": "Çoğu sohbet ruleti videonuzu büyük şirket sunucularından geçirir ve reklam veya hesap dayatır. <strong>ruletka.vip</strong>, videonun iki tarayıcı arasında (peer-to-peer) kalması için tasarlandı; kayıt yok. Arkadaşlar, engel, şikayet ve cihaz üstü güvenlik — ve bu sitenin kontrolünü vermeden ağa katkıda bulunabilirsiniz.",
+  "home.diffBody": "Çoğu sohbet ruleti videonuzu kendi sunucularından geçirir; hesap veya reklam dayatır. <strong>ruletka.vip</strong>’te video tarayıcıdan tarayıcıya gider (peer-to-peer) — kayıt yok. Arkadaşlar, engel, şikayet ve cihaz üstü güvenlik yerleşik.",
   "home.openTitle": "Açık kaynak ve çoklu hub",
   "home.openBody": "Bu yazılım <strong>açık kaynak</strong> (LGPL-2.1). Herkes kendi hub’ını çalıştırabilir. Bu site genel bir tohum — tek ağ değil. Bir hub düşerse live uygulama dizinden başkalarını deneyebilir. Helper’lar paylaşabileceğiniz tam sohbet düğümleridir.",
   "home.openSrc": "GitHub",
