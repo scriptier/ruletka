@@ -8944,6 +8944,7 @@ function closeAllDockFlyouts(except) {
   if (except !== "settings" && settingsIsOpen()) closeSettings();
   if (except !== "friends" && friendsIsOpen()) closeFriends();
   if (except !== "messages" && messagesIsOpen()) closeMessages();
+  if (except !== "stars" && starsSheetIsOpen()) closeStarsSheet();
 }
 
 function openSettings() {
