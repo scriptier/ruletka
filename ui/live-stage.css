@@ -12024,3 +12024,53 @@ html[data-theme="pink"] .friends-tab.is-active {
   font-size: 0.82rem;
   opacity: 0.9;
 }
+
+/* Identity recovery + alone invite */
+.friends-identity-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 0.5rem 0 0.75rem;
+  padding: 0.7rem 0.75rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 180, 80, 0.35);
+  background: rgba(48, 36, 12, 0.45);
+}
+.friends-identity-banner[hidden] {
+  display: none !important;
+}
+.friends-identity-banner .hint-inline {
+  margin: 0;
+  color: #ffe8c0;
+}
+.friends-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: center;
+  margin-top: 0.55rem;
+}
+.empty-alone-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: center;
+  margin-top: 0.75rem;
+}
+html.alone-searching .empty-alone-actions:not([hidden]) {
+  animation: alone-actions-in 0.35s ease-out;
+}
+@keyframes alone-actions-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.empty-alone-btn.accent {
+  box-shadow: 0 4px 16px rgba(255, 45, 85, 0.28);
+}
+html[data-theme="light"] .friends-identity-banner {
+  background: rgba(255, 244, 220, 0.95);
+  border-color: rgba(180, 120, 20, 0.3);
+}
+html[data-theme="light"] .friends-identity-banner .hint-inline {
+  color: #7a4e00;
+}

@@ -1112,5 +1112,15 @@
   "friends.onlineNotifTitle": "Друг онлайн",
   "friends.onlineNotifBody": "{n} онлайн — откройте, чтобы позвонить",
   "friends.missedNotifTitle": "Пропущенный звонок",
-  "friends.missedNotifBody": "{n} — откройте историю звонков"
+  "friends.missedNotifBody": "{n} — откройте историю звонков",
+  "friends.inviteNow": "Пригласить друга",
+  "friends.aloneInviteTitle": "Пригласите в live",
+  "friends.aloneInviteBody": "Мало людей онлайн. Пригласите друга — код, Accept, затем Звонок.",
+  "friends.inviteLiveNow": "Я сейчас на {brand} live — добавь код {code}, Accept, потом Звонок",
+  "friends.inviteLiveTitle": "{brand} · мой код {code}",
+  "friends.emptyLostTitle": "Друзья не на этой личности",
+  "friends.emptyLost": "В этом браузере новый id. Импортируйте резерв профиля, чтобы вернуть друзей.",
+  "friends.identityBanner": "Друзья пропали после нового телефона или очистки? Импортируйте файл профиля.",
+  "friends.identityToastTitle": "Восстановить друзей?",
+  "friends.identityToastBody": "Возможно, новая личность. Импортируйте резерв, чтобы звонить тем же друзьям."
 }

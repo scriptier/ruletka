@@ -1112,5 +1112,15 @@
   "friends.onlineNotifTitle": "Friend online",
   "friends.onlineNotifBody": "{n} is online — open to Call",
   "friends.missedNotifTitle": "Missed friend call",
-  "friends.missedNotifBody": "{n} — open Call history"
+  "friends.missedNotifBody": "{n} — open Call history",
+  "friends.inviteNow": "Invite friend",
+  "friends.aloneInviteTitle": "Invite someone to live",
+  "friends.aloneInviteBody": "Few people online. Invite a friend — they open live, add your code, you Accept, then Call.",
+  "friends.inviteLiveNow": "I'm on {brand} live now — add me with code {code}, Accept, then Call when Online",
+  "friends.inviteLiveTitle": "{brand} · my code {code}",
+  "friends.emptyLostTitle": "Friends not on this identity",
+  "friends.emptyLost": "This browser has a new user id. Import your profile backup to restore the same identity and friends on this hub.",
+  "friends.identityBanner": "Friends missing after a new phone or cleared data? Import the profile file you exported earlier.",
+  "friends.identityToastTitle": "Restore your friends?",
+  "friends.identityToastBody": "This device may be a new identity. Import a profile backup to Call the same friends."
 }

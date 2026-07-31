@@ -321,13 +321,16 @@
             <button type="button" class="start-match-btn" id="btn-start-match" data-i18n="btn.start">
               Start
             </button>
-            <!-- Alone-queue growth: open Friends / copy code while waiting -->
+            <!-- Alone-queue growth: invite a friend while waiting -->
             <div class="empty-alone-actions" id="empty-alone-actions" hidden>
-              <button type="button" class="empty-alone-btn accent" id="btn-empty-open-friends" data-i18n="friends.open">
-                Friends
+              <button type="button" class="empty-alone-btn accent" id="btn-empty-invite-share" data-i18n="friends.inviteNow">
+                Invite friend
               </button>
               <button type="button" class="empty-alone-btn ghost" id="btn-empty-copy-code" data-i18n="friends.copyCode">
                 Copy code
+              </button>
+              <button type="button" class="empty-alone-btn ghost" id="btn-empty-open-friends" data-i18n="friends.open">
+                Friends
               </button>
             </div>
             <!-- Online friends strip while idle/searching -->
@@ -752,8 +755,15 @@
           Friends are saved on this hub under your identity. Export a profile backup (Settings) before clearing browser data or switching devices — no helper app required.
         </p>
         <div class="row-inline friends-backup-actions">
+          <button type="button" class="pill tight accent btn-import-profile" id="btn-friends-import" data-i18n="settings.importUser">Import user</button>
           <button type="button" class="pill tight" id="btn-friends-export" data-i18n="friends.exportBackup">Export backup</button>
-          <button type="button" class="pill tight accent" id="btn-friends-open-history" data-i18n="friends.openHistory">Call history</button>
+          <button type="button" class="pill tight" id="btn-friends-open-history" data-i18n="friends.openHistory">Call history</button>
+        </div>
+        <div class="friends-identity-banner" id="friends-identity-banner" hidden>
+          <p class="hint-inline" data-i18n="friends.identityBanner">
+            Friends missing after a new phone or cleared data? Import the profile file you exported earlier.
+          </p>
+          <button type="button" class="pill tight accent btn-import-profile" id="btn-friends-import-banner" data-i18n="settings.importUser">Import user</button>
         </div>
         <p class="hint-inline" data-i18n="friends.hint">
           Call when they show Online. If both of you are on the site but they show Offline, re-add with their current friend code (or import the same profile backup on both devices).

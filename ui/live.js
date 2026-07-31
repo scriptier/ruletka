@@ -4586,7 +4586,7 @@ function maybeStartLongWaitBoost() {
     const mobile = $("mobile-invite");
     if (mobile && !mobile.hidden) mobile.classList.add("is-long-wait");
     maybeShowAloneInviteToast();
-  }, 12_000);
+  }, 8_000); // sooner invite when alone
 }
 
 /**
@@ -4607,29 +4607,28 @@ function maybeShowAloneInviteToast() {
     toast.className = "friend-soft-toast alone-invite-toast";
     toast.setAttribute("role", "status");
     toast.style.pointerEvents = "auto";
+    const codeBit = myFriendCode
+      ? ` · ${myFriendCode}`
+      : "";
     const title = ROOMS_ENABLED
       ? _t("remote.shareHintEmpty") ||
         "Pool is empty — share so someone can join you."
-      : _t("remote.searchingAloneSub") ||
-        "Few people online — open Friends and share your code while you wait.";
-    const primaryLbl = ROOMS_ENABLED
-      ? _t("remote.shareRoom") || "Share room"
-      : _t("friends.open") || "Friends";
-    const secondaryLbl = ROOMS_ENABLED
-      ? ""
-      : `<button type="button" class="pill tight" id="btn-alone-copy-code">${escapeHtml(
-          _t("friends.copyCode") || "Copy code"
-        )}</button>`;
+      : _t("friends.aloneInviteBody") ||
+        "Few people online. Invite a friend to live — they add your code, you Accept, then Call.";
     toast.innerHTML = `
-      <strong>${escapeHtml(_t("remote.stopInviteTitle") || "Bring a friend")}</strong>
+      <strong>${escapeHtml(
+        _t("friends.aloneInviteTitle") || "Invite someone to live"
+      )}${escapeHtml(codeBit)}</strong>
       <span>${escapeHtml(title)}</span>
       <div class="export-nudge-actions" style="margin-top:0.45rem">
         <button type="button" class="pill tight ghost" id="btn-alone-invite-later">${escapeHtml(
           _t("friends.exportNudgeLater") || "Later"
         )}</button>
-        ${secondaryLbl}
+        <button type="button" class="pill tight" id="btn-alone-copy-code">${escapeHtml(
+          _t("friends.copyCode") || "Copy code"
+        )}</button>
         <button type="button" class="pill tight accent" id="btn-alone-invite-share">${escapeHtml(
-          primaryLbl
+          _t("friends.inviteNow") || "Invite friend"
         )}</button>
       </div>`;
     document.body.appendChild(toast);
@@ -4645,7 +4644,7 @@ function maybeShowAloneInviteToast() {
       trackEvent("alone_invite_copy_code");
       dismiss();
       try {
-        await shareFriendInvite({ preferShare: false });
+        await shareFriendInvite({ preferShare: false, liveNow: true });
       } catch (_) {}
     });
     $("btn-alone-invite-share")?.addEventListener("click", async () => {
@@ -4661,11 +4660,15 @@ function maybeShowAloneInviteToast() {
         );
       } else {
         try {
-          openFriends();
-        } catch (_) {}
+          await shareFriendInvite({ preferShare: true, liveNow: true });
+        } catch (_) {
+          try {
+            openFriends();
+          } catch (_) {}
+        }
       }
     });
-    setTimeout(dismiss, 16000);
+    setTimeout(dismiss, 18000);
   } catch (_) {}
 }
 
@@ -7615,7 +7618,13 @@ function wireSettingsNav() {
   $("btn-empty-copy-code")?.addEventListener("click", async () => {
     trackEvent("empty_alone_copy_code");
     try {
-      await shareFriendInvite({ preferShare: false });
+      await shareFriendInvite({ preferShare: false, liveNow: true });
+    } catch (_) {}
+  });
+  $("btn-empty-invite-share")?.addEventListener("click", async () => {
+    trackEvent("empty_alone_invite_share");
+    try {
+      await shareFriendInvite({ preferShare: true, liveNow: true });
     } catch (_) {}
   });
   $("btn-settings-done")?.addEventListener("click", () => closeSettings());
@@ -7627,10 +7636,12 @@ function wireSettingsNav() {
   document.querySelectorAll(".btn-export-profile").forEach((btn) => {
     btn.addEventListener("click", () => exportProfileFile());
   });
-  document.querySelectorAll(".btn-import-profile").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      $("import-profile-file")?.click();
-    });
+  // Delegation: Import works from Settings, Friends banner, and dynamic empty CTAs
+  document.addEventListener("click", (e) => {
+    const imp = e.target?.closest?.(".btn-import-profile");
+    if (!imp) return;
+    e.preventDefault();
+    $("import-profile-file")?.click();
   });
   $("import-profile-file")?.addEventListener("change", (e) => {
     const f = e.target?.files?.[0];
@@ -9804,23 +9815,44 @@ function renderFriendsList() {
     return true;
   });
 
+  // Identity recovery banner when list empty (or only recoverable codes)
+  syncFriendsIdentityBanner(!!friendsCache.length, recoverable.length);
+
   if (!friendsCache.length) {
+    const hasBackup = recoverable.length > 0 || (backup && backup.length > 0);
     el.innerHTML = `<div class="sheet-empty friends-empty">
       <div class="sheet-empty-icon" aria-hidden="true">◎</div>
       <div class="sheet-empty-title">${escapeHtml(
-        _t("friends.emptyTitle") || "No friends yet"
+        hasBackup
+          ? _t("friends.emptyLostTitle") || "Friends not on this identity"
+          : _t("friends.emptyTitle") || "No friends yet"
       )}</div>
       <p class="sheet-empty-body">${escapeHtml(
-        _t("friends.empty") || "Share your code so others can Request you"
+        hasBackup
+          ? _t("friends.emptyLost") ||
+              "This browser has a new user id. Import your profile backup to restore the same identity and friends on this hub."
+          : _t("friends.empty") || "Share your code so others can Request you"
       )}</p>
-      <button type="button" class="pill accent tight sheet-empty-cta" id="friends-empty-cta">${escapeHtml(
-        _t("friends.emptyCta") || "Copy my code"
-      )}</button>
+      <div class="friends-empty-actions">
+        ${
+          hasBackup
+            ? `<button type="button" class="pill accent tight sheet-empty-cta btn-import-profile" id="friends-empty-import">${escapeHtml(
+                _t("settings.importUser") || "Import user"
+              )}</button>`
+            : ""
+        }
+        <button type="button" class="pill ${
+          hasBackup ? "tight ghost" : "accent tight"
+        } sheet-empty-cta" id="friends-empty-cta">${escapeHtml(
+          _t("friends.emptyCta") || "Copy my code"
+        )}</button>
+      </div>
     </div>`;
     $("friends-empty-cta")?.addEventListener("click", () => {
       $("btn-copy-code")?.click();
       $("add-friend-code")?.focus();
     });
+    // Import buttons use .btn-import-profile (wired globally)
   } else {
     const read = loadChatRead();
     const nicks = loadFriendNicks();
@@ -10981,6 +11013,8 @@ function openFriends() {
   bindSheetFocusTrap(sheet);
   // After trap attaches, first-run may re-focus Copy (slightly later)
   maybeShowFriendsFirstRun();
+  // Soft: empty list + local backup → import reminder
+  setTimeout(() => maybeShowIdentityRecoveryToast(), 600);
   // One-shot wire for export from friends sheet
   const exp = $("btn-friends-export");
   if (exp && !exp.dataset.wired) {
@@ -12170,17 +12204,82 @@ document.addEventListener("click", (e) => {
   closeAllFriendMoreMenus();
 });
 on("btn-clear-chat", "click", () => clearChat());
-async function shareFriendInvite({ preferShare = true } = {}) {
+async function shareFriendInvite({ preferShare = true, liveNow = false } = {}) {
   if (!myFriendCode) {
     setStatus(_t("friends.noCode") || "Friend code not ready yet");
     return;
   }
   const url = friendInviteUrl();
-  const title = _t("friends.title") + " · " + myFriendCode;
-  trackEvent("friend_invite_share", { preferShare: preferShare ? 1 : 0 });
+  const brand = siteBrandName();
+  const code = myFriendCode;
+  let title =
+    _t("friends.inviteLiveTitle", { code, brand }) ||
+    `${brand} · my code ${code}`;
+  if (liveNow || inQueue || wantSearch || matched) {
+    title =
+      _t("friends.inviteLiveNow", { code, brand }) ||
+      `I'm on ${brand} live now — add me with code ${code} then Call when Online`;
+  }
+  trackEvent("friend_invite_share", {
+    preferShare: preferShare ? 1 : 0,
+    liveNow: liveNow || inQueue || wantSearch ? 1 : 0,
+  });
   await shareOrCopy(url, title, "friends.inviteShared", "friends.inviteCopied", {
     preferShare,
   });
+}
+
+function syncFriendsIdentityBanner(hasFriends, recoverableN) {
+  const ban = $("friends-identity-banner");
+  if (!ban) return;
+  // Show when no friends OR we have recoverable codes (likely identity split)
+  const show = !hasFriends || recoverableN > 0;
+  ban.hidden = !show;
+}
+
+/** One-shot soft toast: empty friends + local backup codes → suggest Import */
+function maybeShowIdentityRecoveryToast() {
+  try {
+    const key = "ruletka-identity-recover-toast-v1";
+    if (sessionStorage.getItem(key) === "1") return;
+    if (friendsCache && friendsCache.length) return;
+    const backup = loadFriendsBackup();
+    if (!backup || !backup.length) return;
+    if ($("identity-recover-toast") || $("alone-invite-toast")) return;
+    sessionStorage.setItem(key, "1");
+    const toast = document.createElement("div");
+    toast.id = "identity-recover-toast";
+    toast.className = "export-nudge-toast";
+    toast.setAttribute("role", "status");
+    toast.innerHTML = `
+      <p><strong>${escapeHtml(
+        _t("friends.identityToastTitle") || "Restore your friends?"
+      )}</strong></p>
+      <p>${escapeHtml(
+        _t("friends.identityToastBody") ||
+          "This device may be a new identity. Import a profile backup to Call the same friends."
+      )}</p>
+      <div class="export-nudge-actions">
+        <button type="button" class="pill tight ghost" id="btn-id-recover-later">${escapeHtml(
+          _t("friends.exportNudgeLater") || "Later"
+        )}</button>
+        <button type="button" class="pill tight accent" id="btn-id-recover-import">${escapeHtml(
+          _t("settings.importUser") || "Import user"
+        )}</button>
+      </div>`;
+    document.body.appendChild(toast);
+    const dismiss = () => {
+      if (toast.parentNode) toast.remove();
+    };
+    $("btn-id-recover-later")?.addEventListener("click", dismiss);
+    $("btn-id-recover-import")?.addEventListener("click", () => {
+      dismiss();
+      trackEvent("identity_recover_import");
+      $("import-profile-file")?.click();
+    });
+    setTimeout(dismiss, 18000);
+    trackEvent("identity_recover_toast_show", { backup: backup.length });
+  } catch (_) {}
 }
 on("btn-copy-invite", "click", () => shareFriendInvite({ preferShare: false }));
 on("btn-share-invite", "click", () => shareFriendInvite({ preferShare: true }));
