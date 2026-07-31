@@ -214,6 +214,8 @@ pub struct SimpleHub {
     star_counts: HashMap<String, u64>,
     /// Directed from|to edges (one review per pair)
     star_edges: HashSet<String>,
+    /// user_id → active star-bought effect until unix
+    star_effects: HashMap<String, friends_store::StarEffectRecord>,
     queue: VecDeque<QueueEntry>,
     limits: LimitConfig,
     friends_path: PathBuf,
@@ -480,6 +482,7 @@ impl SimpleHub {
             dms: stored.dms,
             star_counts: stored.star_counts,
             star_edges: stored.star_edges,
+            star_effects: stored.star_effects,
             queue: VecDeque::new(),
             limits,
             friends_path,
@@ -547,6 +550,7 @@ impl SimpleHub {
             dms: self.dms.clone(),
             star_counts: self.star_counts.clone(),
             star_edges: self.star_edges.clone(),
+            star_effects: self.star_effects.clone(),
         };
         if let Err(e) = friends_store::save(&self.friends_path, &data) {
             tracing::warn!(error = %e, "failed to save friends store");
@@ -602,6 +606,291 @@ impl SimpleHub {
             return 0;
         }
         self.star_counts.get(user_id).copied().unwrap_or(0)
+    }
+
+    fn unix_now() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    }
+
+    /// Cost / duration for star-bought effects (reputation only — no money).
+    const EFFECT_COST_STARS: u64 = 5;
+    const EFFECT_DURATION_SECS: u64 = 30;
+
+    fn normalize_effect_kind(raw: &str) -> Option<&'static str> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "bars" | "jail" | "fence" => Some("bars"),
+            // Reserved for next gift: animated flowers
+            "flowers" | "flower" => Some("flowers"),
+            _ => None,
+        }
+    }
+
+    /// Active effect for user if still running (clears expired from memory lazily).
+    fn active_effect_for(&mut self, user_id: &str) -> (String, u64) {
+        if user_id.is_empty() {
+            return (String::new(), 0);
+        }
+        let now = Self::unix_now();
+        let expired = self
+            .star_effects
+            .get(user_id)
+            .map(|e| e.until <= now)
+            .unwrap_or(true);
+        if expired {
+            if self.star_effects.remove(user_id).is_some() {
+                // Soft persist occasionally — only when something expired
+                self.persist_friends();
+            }
+            return (String::new(), 0);
+        }
+        self.star_effects
+            .get(user_id)
+            .map(|e| (e.kind.clone(), e.until))
+            .unwrap_or_default()
+    }
+
+    fn active_effect_ro(&self, user_id: &str) -> (String, u64) {
+        if user_id.is_empty() {
+            return (String::new(), 0);
+        }
+        let now = Self::unix_now();
+        match self.star_effects.get(user_id) {
+            Some(e) if e.until > now => (e.kind.clone(), e.until),
+            _ => (String::new(), 0),
+        }
+    }
+
+    /// Notify target + anyone currently matched with them about an effect.
+    fn broadcast_star_effect(
+        &self,
+        target_uid: &str,
+        effect: &str,
+        until: u64,
+        cost: u64,
+        spender_uid: &str,
+        spender_name: &str,
+        spender_stars: u64,
+        ok: bool,
+        message: &str,
+    ) {
+        let target_stars = self.stars_for(target_uid);
+        let msg = ServerMsg::StarEffect {
+            ok,
+            user_id: target_uid.to_string(),
+            effect: effect.to_string(),
+            until,
+            cost,
+            spender_stars,
+            target_stars,
+            message: message.to_string(),
+            from_user_id: spender_uid.to_string(),
+            from_name: spender_name.to_string(),
+        };
+        // Target (if online)
+        if let Some(&tid) = self.by_user.get(target_uid) {
+            self.send(tid, msg.clone());
+        }
+        // Spender
+        if let Some(&sid) = self.by_user.get(spender_uid) {
+            self.send(sid, msg.clone());
+        }
+        // Anyone in a session with the target
+        if let Some(&tid) = self.by_user.get(target_uid) {
+            if let Some(tc) = self.clients.get(&tid) {
+                let peers: Vec<Uuid> = tc.session_peers.iter().copied().collect();
+                for pid in peers {
+                    if let Some(pc) = self.clients.get(&pid) {
+                        if pc.user_id != *spender_uid && pc.user_id != *target_uid {
+                            self.send(pid, msg.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn handle_spend_stars(&mut self, id: Uuid, to_user_id: String, effect_raw: String) {
+        let Some(kind) = Self::normalize_effect_kind(&effect_raw) else {
+            self.send(
+                id,
+                ServerMsg::StarEffect {
+                    ok: false,
+                    user_id: to_user_id,
+                    effect: effect_raw,
+                    until: 0,
+                    cost: 0,
+                    spender_stars: 0,
+                    target_stars: 0,
+                    message: "unknown effect".into(),
+                    from_user_id: String::new(),
+                    from_name: String::new(),
+                },
+            );
+            return;
+        };
+        // Flowers reserved — wire UI later
+        if kind == "flowers" {
+            self.send(
+                id,
+                ServerMsg::StarEffect {
+                    ok: false,
+                    user_id: to_user_id,
+                    effect: "flowers".into(),
+                    until: 0,
+                    cost: 0,
+                    spender_stars: self
+                        .clients
+                        .get(&id)
+                        .map(|c| self.stars_for(&c.user_id))
+                        .unwrap_or(0),
+                    target_stars: 0,
+                    message: "flowers coming soon".into(),
+                    from_user_id: String::new(),
+                    from_name: String::new(),
+                },
+            );
+            return;
+        }
+
+        let to_user_id = to_user_id.trim().to_string();
+        let Some(c) = self.clients.get(&id) else {
+            return;
+        };
+        let me_uid = c.user_id.clone();
+        let me_name = c.name.clone();
+        let my_stars = self.stars_for(&me_uid);
+
+        if me_uid.is_empty() || to_user_id.is_empty() || to_user_id == me_uid {
+            self.send(
+                id,
+                ServerMsg::StarEffect {
+                    ok: false,
+                    user_id: to_user_id.clone(),
+                    effect: kind.into(),
+                    until: 0,
+                    cost: 0,
+                    spender_stars: my_stars,
+                    target_stars: 0,
+                    message: "invalid target".into(),
+                    from_user_id: me_uid,
+                    from_name: me_name,
+                },
+            );
+            return;
+        }
+
+        // Must be currently matched / in call with them (anti-harass spam from queue)
+        let them_online = self.by_user.get(&to_user_id).copied();
+        let in_session = them_online
+            .and_then(|tid| {
+                let ca = self.clients.get(&id)?;
+                Some(
+                    ca.partner == Some(tid)
+                        || ca.friend_call == Some(tid)
+                        || ca.session_peers.contains(&tid),
+                )
+            })
+            .unwrap_or(false);
+        if !in_session {
+            self.send(
+                id,
+                ServerMsg::StarEffect {
+                    ok: false,
+                    user_id: to_user_id.clone(),
+                    effect: kind.into(),
+                    until: 0,
+                    cost: 0,
+                    spender_stars: my_stars,
+                    target_stars: self.stars_for(&to_user_id),
+                    message: "only during a live chat".into(),
+                    from_user_id: me_uid,
+                    from_name: me_name,
+                },
+            );
+            return;
+        }
+
+        if my_stars < Self::EFFECT_COST_STARS {
+            self.send(
+                id,
+                ServerMsg::StarEffect {
+                    ok: false,
+                    user_id: to_user_id.clone(),
+                    effect: kind.into(),
+                    until: 0,
+                    cost: 0,
+                    spender_stars: my_stars,
+                    target_stars: self.stars_for(&to_user_id),
+                    message: format!(
+                        "need {} stars (you have {})",
+                        Self::EFFECT_COST_STARS,
+                        my_stars
+                    ),
+                    from_user_id: me_uid,
+                    from_name: me_name,
+                },
+            );
+            return;
+        }
+
+        // Deduct from spender's received-star balance
+        let new_bal = my_stars.saturating_sub(Self::EFFECT_COST_STARS);
+        if new_bal == 0 {
+            self.star_counts.remove(&me_uid);
+        } else {
+            self.star_counts.insert(me_uid.clone(), new_bal);
+        }
+
+        let now = Self::unix_now();
+        let prev = self.star_effects.get(&to_user_id).cloned();
+        let base = match &prev {
+            Some(e) if e.kind == kind && e.until > now => e.until,
+            _ => now,
+        };
+        let until = base.saturating_add(Self::EFFECT_DURATION_SECS);
+        self.star_effects.insert(
+            to_user_id.clone(),
+            friends_store::StarEffectRecord {
+                kind: kind.to_string(),
+                until,
+            },
+        );
+        self.persist_friends();
+
+        let extended = prev
+            .as_ref()
+            .map(|e| e.kind == kind && e.until > now)
+            .unwrap_or(false);
+        let message = if extended {
+            format!("+{}s bars extended", Self::EFFECT_DURATION_SECS)
+        } else {
+            format!("behind bars for {}s", Self::EFFECT_DURATION_SECS)
+        };
+
+        tracing::info!(
+            %me_uid,
+            %to_user_id,
+            kind,
+            until,
+            cost = Self::EFFECT_COST_STARS,
+            remaining = new_bal,
+            "star effect applied"
+        );
+
+        self.broadcast_star_effect(
+            &to_user_id,
+            kind,
+            until,
+            Self::EFFECT_COST_STARS,
+            &me_uid,
+            &me_name,
+            new_bal,
+            true,
+            &message,
+        );
     }
 
     /// After a match/call ends, offer one-time star review if chat lasted ≥16 min.
@@ -1449,6 +1738,7 @@ impl SimpleHub {
         self.fed_by_client
             .insert(local_id, session_id.to_string());
 
+        let (eff, eff_until) = self.active_effect_ro(&remote.user_id);
         let peer = MatchPeer {
             peer_id: remote_fed,
             short_id: remote.short_id.clone(),
@@ -1460,6 +1750,8 @@ impl SimpleHub {
             flag: String::new(),
             avatar: String::new(),
             stars: self.stars_for(&remote.user_id),
+            effect: eff,
+            effect_until: eff_until,
         };
         self.send(
             local_id,
@@ -1662,6 +1954,8 @@ impl SimpleHub {
             media: "webrtc-p2p".into(),
             signaling: "bridge".into(),
             stars: 0,
+            effect: String::new(),
+            effect_until: 0,
         })
     }
 
@@ -2055,7 +2349,7 @@ impl SimpleHub {
                 } else {
                     "friend"
                 };
-                (Self::match_peer(ca, cb, role, self.star_counts.get(&cb.user_id).copied().unwrap_or(0)), display_label(cb))
+                (Self::match_peer(ca, cb, role, self.star_counts.get(&cb.user_id).copied().unwrap_or(0), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)), display_label(cb))
             };
             let offerer = peer.is_offerer;
             self.send(
@@ -2137,7 +2431,14 @@ impl SimpleHub {
         (session_id.clone(), format!("simple:{session_id}"))
     }
 
-    fn match_peer(from: &Client, to: &Client, role: &str, stars: u64) -> MatchPeer {
+    fn match_peer(
+        from: &Client,
+        to: &Client,
+        role: &str,
+        stars: u64,
+        effect: String,
+        effect_until: u64,
+    ) -> MatchPeer {
         MatchPeer {
             peer_id: to.peer_id.clone(),
             short_id: to.short_id.clone(),
@@ -2149,6 +2450,8 @@ impl SimpleHub {
             flag: to.flag.clone(),
             avatar: to.avatar.clone(),
             stars,
+            effect,
+            effect_until,
         }
     }
 
@@ -2163,7 +2466,7 @@ impl SimpleHub {
             let (peer, label) = {
                 let ca = self.clients.get(&me).unwrap();
                 let cb = self.clients.get(&them).unwrap();
-                (Self::match_peer(ca, cb, "friend", self.star_counts.get(&cb.user_id).copied().unwrap_or(0)), display_label(cb))
+                (Self::match_peer(ca, cb, "friend", self.star_counts.get(&cb.user_id).copied().unwrap_or(0), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)), display_label(cb))
             };
             if let Some(c) = self.clients.get_mut(&me) {
                 c.phase = Phase::FriendCall;
@@ -2208,8 +2511,8 @@ impl SimpleHub {
             let ca = self.clients.get(&a).unwrap();
             let cb = self.clients.get(&b).unwrap();
             vec![
-                Self::match_peer(cs, ca, "party", self.star_counts.get(&ca.user_id).copied().unwrap_or(0)),
-                Self::match_peer(cs, cb, "party", self.star_counts.get(&cb.user_id).copied().unwrap_or(0)),
+                Self::match_peer(cs, ca, "party", self.star_counts.get(&ca.user_id).copied().unwrap_or(0), self.star_effects.get(&ca.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&ca.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
+                Self::match_peer(cs, cb, "party", self.star_counts.get(&cb.user_id).copied().unwrap_or(0), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
             ]
         };
         // Party member A: stranger + teammate B (friend or find-third partner)
@@ -2225,8 +2528,8 @@ impl SimpleHub {
             let cs = self.clients.get(&solo).unwrap();
             let cb = self.clients.get(&b).unwrap();
             vec![
-                Self::match_peer(ca, cs, "stranger", self.star_counts.get(&cs.user_id).copied().unwrap_or(0)),
-                Self::match_peer(ca, cb, mate_role, self.star_counts.get(&cb.user_id).copied().unwrap_or(0)),
+                Self::match_peer(ca, cs, "stranger", self.star_counts.get(&cs.user_id).copied().unwrap_or(0), self.star_effects.get(&cs.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cs.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
+                Self::match_peer(ca, cb, mate_role, self.star_counts.get(&cb.user_id).copied().unwrap_or(0), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
             ]
         };
         let b_peers = {
@@ -2234,8 +2537,8 @@ impl SimpleHub {
             let cs = self.clients.get(&solo).unwrap();
             let ca = self.clients.get(&a).unwrap();
             vec![
-                Self::match_peer(cb, cs, "stranger", self.star_counts.get(&cs.user_id).copied().unwrap_or(0)),
-                Self::match_peer(cb, ca, mate_role, self.star_counts.get(&ca.user_id).copied().unwrap_or(0)),
+                Self::match_peer(cb, cs, "stranger", self.star_counts.get(&cs.user_id).copied().unwrap_or(0), self.star_effects.get(&cs.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cs.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
+                Self::match_peer(cb, ca, mate_role, self.star_counts.get(&ca.user_id).copied().unwrap_or(0), self.star_effects.get(&ca.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&ca.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
             ]
         };
 
@@ -2328,9 +2631,9 @@ impl SimpleHub {
             let c_o1 = self.clients.get(&o1).unwrap();
             let c_o2 = self.clients.get(&o2).unwrap();
             vec![
-                Self::match_peer(c_me, c_o1, "stranger", self.star_counts.get(&c_o1.user_id).copied().unwrap_or(0)),
-                Self::match_peer(c_me, c_o2, "stranger", self.star_counts.get(&c_o2.user_id).copied().unwrap_or(0)),
-                Self::match_peer(c_me, c_f, "friend", self.star_counts.get(&c_f.user_id).copied().unwrap_or(0)),
+                Self::match_peer(c_me, c_o1, "stranger", self.star_counts.get(&c_o1.user_id).copied().unwrap_or(0), self.star_effects.get(&c_o1.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&c_o1.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
+                Self::match_peer(c_me, c_o2, "stranger", self.star_counts.get(&c_o2.user_id).copied().unwrap_or(0), self.star_effects.get(&c_o2.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&c_o2.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
+                Self::match_peer(c_me, c_f, "friend", self.star_counts.get(&c_f.user_id).copied().unwrap_or(0), self.star_effects.get(&c_f.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&c_f.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
             ]
         };
 
@@ -2408,7 +2711,7 @@ impl SimpleHub {
             let (peer, label) = {
                 let ca = self.clients.get(&me).unwrap();
                 let cb = self.clients.get(&them).unwrap();
-                (Self::match_peer(ca, cb, "stranger", self.star_counts.get(&cb.user_id).copied().unwrap_or(0)), display_label(cb))
+                (Self::match_peer(ca, cb, "stranger", self.star_counts.get(&cb.user_id).copied().unwrap_or(0), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)), display_label(cb))
             };
             if let Some(c) = self.clients.get_mut(&me) {
                 c.phase = Phase::Matched;
@@ -2655,7 +2958,7 @@ impl SimpleHub {
             let peer = {
                 let ca = self.clients.get(&me).unwrap();
                 let cb = self.clients.get(&them).unwrap();
-                Self::match_peer(ca, cb, "teammate", self.star_counts.get(&cb.user_id).copied().unwrap_or(0))
+                Self::match_peer(ca, cb, "teammate", self.star_counts.get(&cb.user_id).copied().unwrap_or(0), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0))
             };
             let label = display_label(self.clients.get(&them).unwrap());
             let offerer = peer.is_offerer;
@@ -3058,6 +3361,12 @@ impl SimpleHub {
             ClientMsg::RatePartner { user_id, star } => {
                 self.handle_rate_partner(id, user_id, star);
             }
+            ClientMsg::SpendStars {
+                to_user_id,
+                effect,
+            } => {
+                self.handle_spend_stars(id, to_user_id, effect);
+            }
             ClientMsg::BrowseTogether { room } => {
                 let room = if room.trim().is_empty() {
                     self.room_of(id)
@@ -3291,6 +3600,7 @@ impl SimpleHub {
         let peer_id = self.clients[&id].peer_id.clone();
         let short_id = self.clients[&id].short_id.clone();
         let my_stars = self.stars_for(&user_id);
+        let (my_eff, my_eff_until) = self.active_effect_for(&user_id);
         self.send(
             id,
             ServerMsg::HelloOk {
@@ -3303,6 +3613,8 @@ impl SimpleHub {
                 media: "webrtc-p2p".into(),
                 signaling: "bridge".into(),
                 stars: my_stars,
+                effect: my_eff,
+                effect_until: my_eff_until,
             },
         );
         self.push_friends_list(id);

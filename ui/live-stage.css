@@ -12427,6 +12427,84 @@ html.chrome-always .tile-local .tile-floor-local {
     padding: 0.16rem 0.36rem 0.16rem 0.28rem;
   }
 }
+/* ─── Star gifts: behind bars (chain-link fence) ─── */
+.fx-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  overflow: hidden;
+  border-radius: inherit;
+}
+.fx-overlay[hidden] {
+  display: none !important;
+}
+.fx-bars-mesh {
+  position: absolute;
+  inset: -8%;
+  /* Diamond chain-link (screenshot style) */
+  background-image:
+    linear-gradient(
+      45deg,
+      transparent 42%,
+      rgba(170, 175, 180, 0.22) 43%,
+      rgba(210, 215, 220, 0.95) 48%,
+      rgba(140, 145, 150, 0.95) 52%,
+      transparent 53%
+    ),
+    linear-gradient(
+      -45deg,
+      transparent 42%,
+      rgba(150, 155, 160, 0.22) 43%,
+      rgba(200, 205, 210, 0.95) 48%,
+      rgba(120, 125, 130, 0.95) 52%,
+      transparent 53%
+    );
+  background-size: 36px 36px;
+  background-position: 0 0, 0 0;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
+  opacity: 0.92;
+  animation: fx-bars-in 0.35s ease-out;
+}
+@keyframes fx-bars-in {
+  from {
+    opacity: 0;
+    transform: scale(1.04);
+  }
+  to {
+    opacity: 0.92;
+    transform: scale(1);
+  }
+}
+.fx-bars-timer {
+  position: absolute;
+  left: 50%;
+  bottom: 0.75rem;
+  transform: translateX(-50%);
+  z-index: 1;
+  padding: 0.28rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #f0f4f8;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.partner-menu-btn.star-gift {
+  border-color: rgba(255, 200, 60, 0.35);
+  background: rgba(255, 200, 60, 0.08);
+}
+.partner-menu-btn.star-gift:hover {
+  background: rgba(255, 200, 60, 0.16);
+}
+.partner-menu-btn.star-gift:disabled {
+  opacity: 0.45;
+}
+
 /* Post-call star review toast */
 .star-review-toast {
   max-width: min(22rem, calc(100vw - 1.5rem));

@@ -133,6 +133,13 @@ pub enum ClientMsg {
         /// true = give a star, false = no star (still consumes the one-time review)
         star: bool,
     },
+    /// Spend reputation stars on a live effect for another user (no money).
+    /// effect: "bars" (jail fence 30s) — "flowers" reserved later.
+    SpendStars {
+        to_user_id: String,
+        #[serde(default)]
+        effect: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -189,6 +196,12 @@ pub struct MatchPeer {
     /// Public reputation: stars received from unique long chats.
     #[serde(default)]
     pub stars: u64,
+    /// Active star-bought effect on this peer ("bars", …). Empty = none.
+    #[serde(default)]
+    pub effect: String,
+    /// Unix seconds when that effect ends (0 = none).
+    #[serde(default)]
+    pub effect_until: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -206,6 +219,12 @@ pub enum ServerMsg {
         /// Your public star badge count.
         #[serde(default)]
         stars: u64,
+        /// Effect currently on *you* ("bars", …). Empty = none.
+        #[serde(default)]
+        effect: String,
+        /// Unix seconds when your effect ends.
+        #[serde(default)]
+        effect_until: u64,
     },
     Status {
         phase: String,
@@ -333,6 +352,31 @@ pub enum ServerMsg {
         stars: u64,
         #[serde(default)]
         message: String,
+    },
+    /// Result of SpendStars + broadcast when an effect is applied/extended.
+    StarEffect {
+        ok: bool,
+        /// Who has the visual effect
+        user_id: String,
+        /// "bars" | "flowers" | …
+        effect: String,
+        /// Unix seconds when it ends
+        until: u64,
+        /// Stars charged this action (0 if failed)
+        cost: u64,
+        /// Spender's remaining stars (when they spent); 0 if N/A
+        #[serde(default)]
+        spender_stars: u64,
+        /// Target's public star badge (unchanged by spend; for UI convenience)
+        #[serde(default)]
+        target_stars: u64,
+        #[serde(default)]
+        message: String,
+        /// Who paid (empty if system clear)
+        #[serde(default)]
+        from_user_id: String,
+        #[serde(default)]
+        from_name: String,
     },
 }
 

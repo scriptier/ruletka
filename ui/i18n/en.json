@@ -1134,5 +1134,13 @@
   "stars.received": "You received a star ★",
   "stars.badgeTitle": "Stars from long chats (16+ min)",
   "stars.yours": "Your stars",
-  "stars.hint": "After 16+ minutes, you can give one star per person. Stars show as a badge on camera."
+  "stars.hint": "After 16+ minutes, you can give one star per person. Stars show as a badge on camera.",
+  "stars.barsBtn": "Behind bars · 5★ · 30s",
+  "stars.barsExtend": "Extend bars +{s}s · {n}★",
+  "stars.barsTimer": "🔒 {s}s",
+  "stars.barsOnYou": "{name} put you behind bars",
+  "stars.needStars": "Need {n} stars (you have {have})",
+  "stars.needLive": "Only during a live chat",
+  "stars.noPartner": "No partner to gift",
+  "stars.giftHint": "Spend stars for fun overlays (no money). Earn stars from long chats."
 }

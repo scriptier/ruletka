@@ -302,6 +302,14 @@ let myStars = 0;
 let partnerStars = 0;
 /** Min chat length for star review (must match bridge STAR_MIN_SECS). */
 const STAR_MIN_SECS = 16 * 60;
+/** Star-gift costs (must match bridge EFFECT_COST / DURATION). */
+const STAR_EFFECT_COST = 5;
+const STAR_EFFECT_SECS = 30;
+/** @type {{ kind: string, until: number } | null} effect on partner */
+let partnerFx = null;
+/** @type {{ kind: string, until: number } | null} effect on self (e.g. bars after logout) */
+let selfFx = null;
+let fxTickTimer = 0;
 /** Last lobby waiting count for pool hint */
 let lastWaitingCount = 0;
 const RULES_KEY = "nextface-rules-v1";
@@ -1865,6 +1873,101 @@ function setStarsBadge(which, count) {
 function clearPartnerStarsBadge() {
   partnerStars = 0;
   setStarsBadge("remote", 0);
+}
+
+function unixNowSec() {
+  return Math.floor(Date.now() / 1000);
+}
+
+/**
+ * Apply or clear a star gift overlay on a tile.
+ * @param {"local"|"remote"} which
+ * @param {string} kind "bars" | "" 
+ * @param {number} until unix seconds
+ */
+function setFxOverlay(which, kind, until) {
+  const k = String(kind || "").toLowerCase();
+  const u = Math.max(0, Number(until) || 0);
+  const now = unixNowSec();
+  const active = k === "bars" && u > now;
+  const overlay = $(which === "local" ? "local-fx-bars" : "remote-fx-bars");
+  const timerEl = $(
+    which === "local" ? "local-fx-bars-timer" : "remote-fx-bars-timer"
+  );
+  if (which === "local") {
+    selfFx = active ? { kind: "bars", until: u } : null;
+  } else {
+    partnerFx = active ? { kind: "bars", until: u } : null;
+  }
+  if (!overlay) return;
+  if (!active) {
+    overlay.hidden = true;
+    overlay.setAttribute("hidden", "");
+    if (timerEl) timerEl.textContent = "";
+    return;
+  }
+  overlay.hidden = false;
+  overlay.removeAttribute("hidden");
+  const left = Math.max(0, u - now);
+  if (timerEl) {
+    timerEl.textContent =
+      (_t("stars.barsTimer", { s: left }) || `🔒 ${left}s`) +
+      (which === "remote" && myStars >= STAR_EFFECT_COST
+        ? ` · +${STAR_EFFECT_SECS}s = ${STAR_EFFECT_COST}★`
+        : "");
+  }
+  ensureFxTicker();
+}
+
+function clearPartnerFx() {
+  setFxOverlay("remote", "", 0);
+}
+
+function ensureFxTicker() {
+  if (fxTickTimer) return;
+  fxTickTimer = setInterval(() => {
+    const now = unixNowSec();
+    let any = false;
+    if (partnerFx && partnerFx.until > now) {
+      setFxOverlay("remote", partnerFx.kind, partnerFx.until);
+      any = true;
+    } else if (partnerFx) {
+      setFxOverlay("remote", "", 0);
+    }
+    if (selfFx && selfFx.until > now) {
+      setFxOverlay("local", selfFx.kind, selfFx.until);
+      any = true;
+    } else if (selfFx) {
+      setFxOverlay("local", "", 0);
+    }
+    if (!any && fxTickTimer) {
+      clearInterval(fxTickTimer);
+      fxTickTimer = 0;
+    }
+  }, 1000);
+}
+
+/** Spend stars to put partner behind bars (or extend). */
+function spendBarsOnPartner() {
+  const uid = primaryPartnerUserId || lastMatchMeta?.user_id || "";
+  if (!uid) {
+    setStatus(_t("stars.noPartner") || "No partner to gift");
+    return;
+  }
+  if (!matched && !inFriendCall) {
+    setStatus(_t("stars.needLive") || "Only during a live chat");
+    return;
+  }
+  if (myStars < STAR_EFFECT_COST) {
+    setStatus(
+      _t("stars.needStars", { n: STAR_EFFECT_COST, have: myStars }) ||
+        `Need ${STAR_EFFECT_COST} stars (you have ${myStars})`
+    );
+    return;
+  }
+  trackEvent("star_spend", { effect: "bars", cost: STAR_EFFECT_COST });
+  send({ type: "spend_stars", to_user_id: uid, effect: "bars" });
+  closePartnerMenu();
 }
 
 /**
@@ -8961,6 +9064,8 @@ function handleServer(msg) {
       if ($("my-friend-code")) $("my-friend-code").textContent = myFriendCode;
       myStars = Math.max(0, Number(msg.stars) || 0);
       setStarsBadge("local", myStars);
+      // Bars (etc.) persist across logout — re-apply on hello
+      setFxOverlay("local", msg.effect || "", Number(msg.effect_until) || 0);
       syncAccountSettingsSummary();
       // Prefer local saved name; otherwise accept server echo
       {
@@ -9119,6 +9224,7 @@ function handleServer(msg) {
           // Someone starred us
           myStars = n;
           setStarsBadge("local", myStars);
+          syncAccountSettingsSummary();
           setStatus(_t("stars.received") || "You received a star ★");
         } else if (msg.ok && msg.star && uid) {
           // We starred them (or updated their count)
@@ -9128,6 +9234,54 @@ function handleServer(msg) {
         }
         if (msg.message && !msg.ok) {
           setStatus(_srv(msg.message) || msg.message);
+        }
+      }
+      break;
+    case "star_effect":
+      {
+        const uid = String(msg.user_id || "");
+        const kind = String(msg.effect || "");
+        const until = Math.max(0, Number(msg.until) || 0);
+        const fromMe =
+          String(msg.from_user_id || "") === String(myUserId || "");
+        if (msg.ok) {
+          if (fromMe) {
+            myStars = Math.max(0, Number(msg.spender_stars) || 0);
+            setStarsBadge("local", myStars);
+            syncAccountSettingsSummary();
+            setStatus(_srv(msg.message) || msg.message || "Gift sent");
+          }
+          if (uid === myUserId) {
+            setFxOverlay("local", kind, until);
+            if (!fromMe && msg.from_user_id) {
+              setStatus(
+                _t("stars.barsOnYou", {
+                  name: msg.from_name || "Someone",
+                }) || `${msg.from_name || "Someone"} put you behind bars`
+              );
+            }
+          }
+          if (
+            uid &&
+            (uid === primaryPartnerUserId || uid === lastMatchMeta?.user_id)
+          ) {
+            setFxOverlay("remote", kind, until);
+            if (msg.target_stars != null) {
+              setStarsBadge(
+                "remote",
+                Math.max(0, Number(msg.target_stars) || 0)
+              );
+            }
+          }
+        } else {
+          setStatus(
+            _srv(msg.message) || msg.message || "Could not spend stars"
+          );
+          if (fromMe && msg.spender_stars != null) {
+            myStars = Math.max(0, Number(msg.spender_stars) || myStars);
+            setStarsBadge("local", myStars);
+            syncAccountSettingsSummary();
+          }
         }
       }
       break;
@@ -9487,6 +9641,18 @@ function handleMatched(msg) {
       };
   partnerStars = lastMatchMeta.stars || 0;
   setStarsBadge("remote", partnerStars);
+  // Partner may already be behind bars from a prior gift
+  {
+    const p =
+      peers.find((x) => x.role === "stranger" && x.user_id) ||
+      peers.find((x) => x.user_id) ||
+      primary;
+    setFxOverlay(
+      "remote",
+      p?.effect || "",
+      Number(p?.effect_until) || 0
+    );
+  }
   pushHistory({
     kind: matchMode === "friend" ? "friend" : "stranger",
     ...lastMatchMeta,
@@ -11831,6 +11997,34 @@ function openPartnerMenu() {
     findBtn.disabled = !canFind;
   }
 
+  // Behind bars gift (5★ / 30s, extendable)
+  const barsBtn = $("btn-partner-bars");
+  if (barsBtn) {
+    const live = !!(matched || inFriendCall);
+    const can = live && !!primaryPartnerUserId && myStars >= STAR_EFFECT_COST;
+    barsBtn.disabled = !can;
+    barsBtn.hidden = !live;
+    const lbl = $("btn-partner-bars-label");
+    const extending =
+      partnerFx &&
+      partnerFx.kind === "bars" &&
+      partnerFx.until > unixNowSec();
+    if (lbl) {
+      lbl.textContent = extending
+        ? _t("stars.barsExtend", {
+            n: STAR_EFFECT_COST,
+            s: STAR_EFFECT_SECS,
+          }) || `Extend bars +${STAR_EFFECT_SECS}s · ${STAR_EFFECT_COST}★`
+        : _t("stars.barsBtn") ||
+          `Behind bars · ${STAR_EFFECT_COST}★ · ${STAR_EFFECT_SECS}s`;
+    }
+    barsBtn.title =
+      myStars < STAR_EFFECT_COST
+        ? _t("stars.needStars", { n: STAR_EFFECT_COST, have: myStars }) ||
+          `Need ${STAR_EFFECT_COST} stars (you have ${myStars})`
+        : lbl?.textContent || "";
+  }
+
   showPartnerMenuMain();
 
   menu.hidden = false;
@@ -12011,6 +12205,7 @@ on("btn-pip-remote", "click", () => togglePartnerPip());
 document.addEventListener("enterpictureinpicture", () => updatePipButton());
 document.addEventListener("leavepictureinpicture", () => updatePipButton());
 on("btn-partner-friend", "click", () => invitePartnerFriend());
+on("btn-partner-bars", "click", () => spendBarsOnPartner());
 on("btn-partner-find-third", "click", () => {
   closePartnerMenu();
   if (!TRIO_FIND_ENABLED || findThirdPending || !matched) return;
@@ -12457,6 +12652,7 @@ on("btn-spin", "click", () => {
   yourRole = "solo";
   primaryPartnerUserId = "";
   clearPartnerStarsBadge();
+  clearPartnerFx();
   trioBrowse = false;
   setSplitRemote(false);
   enableTrioLayout(false);
@@ -12535,6 +12731,7 @@ function doStopMatchmaking() {
   enableTrioLayout(false);
   primaryPartnerUserId = "";
   clearPartnerStarsBadge();
+  clearPartnerFx();
   releaseScreenWakeLock();
   clearWeakConnWatch();
   closeAllPeers({ keepFriend: false });

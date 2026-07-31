@@ -49,6 +49,18 @@ pub struct FriendsFile {
     /// Directed "from_user|to_user" — each pair may rate once (star or skip)
     #[serde(default)]
     pub star_edges: HashSet<String>,
+    /// user_id → active paid star effect (bars, flowers, …) until unix secs
+    #[serde(default)]
+    pub star_effects: HashMap<String, StarEffectRecord>,
+}
+
+/// Cosmetic effect bought with stars (no money). Survives logout until `until`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StarEffectRecord {
+    /// "bars" | "flowers" (flowers reserved for later)
+    pub kind: String,
+    /// Unix seconds when the effect ends
+    pub until: u64,
 }
 
 /// Directed star edge key (order matters: A→B ≠ B→A).
