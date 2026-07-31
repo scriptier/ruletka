@@ -746,17 +746,21 @@ impl SimpleHub {
                 if self.is_blocked_pair_conn(*a, *b) {
                     return false;
                 }
-                // Avoid immediate rematch with last partner (solo↔solo)
-                if matches!(left, QueueEntry::Solo(_)) && matches!(right, QueueEntry::Solo(_)) {
-                    let last_a = self.clients.get(a).and_then(|c| c.last_partner);
-                    let last_b = self.clients.get(b).and_then(|c| c.last_partner);
-                    if last_a == Some(*b) || last_b == Some(*a) {
-                        return false;
-                    }
-                }
+                // last_partner is soft-only (see is_last_partner_rematch) so two
+                // people can rematch after Stop when no one else is waiting.
             }
         }
         true
+    }
+
+    /// Solo↔solo just ended this pair — deprioritize, but still allow when alone.
+    fn is_last_partner_rematch(&self, left: &QueueEntry, right: &QueueEntry) -> bool {
+        let (QueueEntry::Solo(a), QueueEntry::Solo(b)) = (left, right) else {
+            return false;
+        };
+        let last_a = self.clients.get(a).and_then(|c| c.last_partner);
+        let last_b = self.clients.get(b).and_then(|c| c.last_partner);
+        last_a == Some(*b) || last_b == Some(*a)
     }
 
     /// Soft gender + interest tags for solo↔solo. Empty tags = no preference.
@@ -2541,9 +2545,14 @@ impl SimpleHub {
                 QueueEntry::Party { a, .. } => self.room_of(*a),
             };
 
-            // Find compatible second entry — prefer soft gender prefs, then any
+            // Find compatible second entry:
+            // 1) soft gender/tags prefs (not last partner)
+            // 2) any non-last-partner
+            // 3) last partner (rematch) — only when no one else is waiting
+            //    (hard-blocking rematch left 2-person pools stuck until refresh)
             let mut found_idx = None;
             let mut found_fallback = None;
+            let mut rematch_fallback = None;
             for (i, e) in self.queue.iter().enumerate() {
                 let eroom = match e {
                     QueueEntry::Solo(id) => self.room_of(*id),
@@ -2581,6 +2590,13 @@ impl SimpleHub {
                 if self.stranger_party_blocks_2v2(&first, e) {
                     continue;
                 }
+                let rematch = self.is_last_partner_rematch(&first, e);
+                if rematch {
+                    if rematch_fallback.is_none() {
+                        rematch_fallback = Some(i);
+                    }
+                    continue;
+                }
                 if self.entries_prefs_soft_ok(&first, e) {
                     found_idx = Some(i);
                     break;
@@ -2590,7 +2606,7 @@ impl SimpleHub {
                 }
             }
             if found_idx.is_none() {
-                found_idx = found_fallback;
+                found_idx = found_fallback.or(rematch_fallback);
             }
 
             let Some(i) = found_idx else {
