@@ -181,7 +181,7 @@
   "friends.hint": "Після прийняття можна дзвонити. Потім «Дивимось разом» (макс. 2).",
   "friends.historyClear": "Очистити історію",
   "friends.historyEmpty": "Поки немає нещодавніх матчів",
-  "friends.historyTitle": "Нещодавні",
+  "friends.historyTitle": "Історія дзвінків",
   "friends.howCodes": "Обидва зайдіть на сайт один раз — з’являться коди. Поділіться кодом або посиланням → Request → Accept → Call, коли онлайн.",
   "friends.importBackupBtn": "Експорт",
   "friends.importBackupLater": "Пізніше",
@@ -1097,5 +1097,14 @@
   "settings.importUserSub": "Відновити файл профілю на цьому пристрої",
   "settings.secAccount": "Ваш акаунт",
   "settings.accountHint": "Без пароля — користувач у браузері. Експортуйте файл, щоб зберегти друзів при зміні телефону.",
-  "settings.userId": "ID користувача"
+  "settings.userId": "ID користувача",
+  "friends.historyEmptyFriends": "Поки немає дзвінків з друзями",
+  "friends.historyHint": "Нещодавні матчі та дзвінки. Онлайн-друзям — «Дзвінок».",
+  "friends.historyAll": "Усі",
+  "friends.historyFriendsOnly": "Лише друзі",
+  "friends.tabList": "Друзі",
+  "friends.tabHistory": "Історія",
+  "friends.tabBlocked": "Блок",
+  "friends.openHistory": "Історія дзвінків",
+  "friends.blockedEmpty": "Немає заблокованих"
 }

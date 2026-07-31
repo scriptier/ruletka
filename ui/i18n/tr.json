@@ -181,7 +181,7 @@
   "friends.hint": "İkiniz de Kabul ettikten sonra çevrimiçiyken Ara. Sonra Birlikte gezin (en fazla 2).",
   "friends.historyClear": "Geçmişi temizle",
   "friends.historyEmpty": "Henüz son eşleşme yok",
-  "friends.historyTitle": "Son",
+  "friends.historyTitle": "Arama geçmişi",
   "friends.howCodes": "İkiniz de siteyi bir kez açın. Kod/link paylaş → Request → Accept → çevrimiçiyken Call.",
   "friends.importBackupBtn": "Dışa aktar",
   "friends.importBackupLater": "Sonra",
@@ -1097,5 +1097,14 @@
   "settings.importUserSub": "Bu cihazda profil dosyasını geri yükle",
   "settings.secAccount": "Hesabın",
   "settings.accountHint": "Şifre yok — kullanıcı tarayıcıda. Arkadaşları korumak için dosya dışa aktar.",
-  "settings.userId": "Kullanıcı ID"
+  "settings.userId": "Kullanıcı ID",
+  "friends.historyEmptyFriends": "Henüz arkadaş araması yok",
+  "friends.historyHint": "Son eşleşmeler ve aramalar. Çevrimiçi arkadaşlarda Ara.",
+  "friends.historyAll": "Tümü",
+  "friends.historyFriendsOnly": "Yalnızca arkadaşlar",
+  "friends.tabList": "Arkadaşlar",
+  "friends.tabHistory": "Geçmiş",
+  "friends.tabBlocked": "Engelli",
+  "friends.openHistory": "Arama geçmişi",
+  "friends.blockedEmpty": "Engelli yok"
 }

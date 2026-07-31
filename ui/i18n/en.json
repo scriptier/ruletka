@@ -183,7 +183,7 @@
   "friends.hint": "Call when they show Online. If you're both on the site but they show Offline, re-add with their current code (or import the same profile backup). Then Browse together (max 2).",
   "friends.historyClear": "Clear history",
   "friends.historyEmpty": "No recent matches yet",
-  "friends.historyTitle": "Recent",
+  "friends.historyTitle": "Call history",
   "friends.howCodes": "Both of you open the site once so codes appear. Share your code or invite link → they Request → you Accept → Call when online.",
   "friends.importBackupBtn": "Export now",
   "friends.importBackupLater": "Later",
@@ -1097,5 +1097,14 @@
   "settings.importUserSub": "Restore a profile file on this device",
   "settings.secAccount": "Your account",
   "settings.accountHint": "No password — your user lives in this browser. Export a file to keep friends when you switch phones or clear data.",
-  "settings.userId": "User ID"
+  "settings.userId": "User ID",
+  "friends.historyEmptyFriends": "No friend calls yet",
+  "friends.historyHint": "Recent matches and friend calls on this device. Online friends show Call.",
+  "friends.historyAll": "All",
+  "friends.historyFriendsOnly": "Friends only",
+  "friends.tabList": "Friends",
+  "friends.tabHistory": "Call history",
+  "friends.tabBlocked": "Blocked",
+  "friends.openHistory": "Call history",
+  "friends.blockedEmpty": "No blocked users"
 }

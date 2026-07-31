@@ -11873,3 +11873,89 @@ html[data-theme="pink"] .settings-group {
 .settings-account-group .btn-import-profile .settings-row-title {
   font-weight: 700;
 }
+
+/* Friends sheet: Friends | Call history | Blocked tabs */
+.friends-tabs {
+  display: flex;
+  gap: 0.35rem;
+  padding: 0.45rem 0.75rem 0.4rem;
+  flex: 0 0 auto;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.friends-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.48rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #8b9bb0;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  white-space: nowrap;
+}
+.friends-tab:hover {
+  color: #d0dae8;
+  background: rgba(255, 255, 255, 0.04);
+}
+.friends-tab.is-active {
+  color: #eef4ff;
+  background: rgba(255, 45, 85, 0.16);
+  border-color: rgba(255, 45, 85, 0.4);
+}
+.friends-tab[hidden] {
+  display: none !important;
+}
+.friends-tab-count {
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: #ff2d55;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1.15rem;
+  text-align: center;
+}
+.friends-tab-count[hidden] {
+  display: none !important;
+}
+.friends-panel[hidden] {
+  display: none !important;
+}
+.history-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0 0 0.55rem;
+}
+.history-filter-row .pill.is-active {
+  box-shadow: 0 0 0 1px rgba(255, 45, 85, 0.35);
+}
+#history-list .friend-row.is-friend.online {
+  border-color: rgba(61, 214, 140, 0.28);
+}
+html[data-theme="light"] .friends-tab {
+  color: #64748b;
+}
+html[data-theme="light"] .friends-tab:hover {
+  color: #0f172a;
+  background: rgba(15, 23, 42, 0.04);
+}
+html[data-theme="light"] .friends-tab.is-active {
+  color: #be123c;
+  background: rgba(255, 45, 85, 0.1);
+  border-color: rgba(255, 45, 85, 0.28);
+}
+html[data-theme="pink"] .friends-tab.is-active {
+  color: #9d174d;
+  background: rgba(236, 72, 153, 0.12);
+  border-color: rgba(236, 72, 153, 0.35);
+}

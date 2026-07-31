@@ -685,65 +685,98 @@
       <h3 data-i18n="friends.title">Friends</h3>
       <button type="button" class="sheet-close" id="friends-close">✕</button>
     </header>
+    <div class="friends-tabs" role="tablist" aria-label="Friends sections">
+      <button type="button" class="friends-tab is-active" role="tab" id="friends-tab-list" data-friends-tab="list" aria-selected="true" aria-controls="friends-panel-list">
+        <span data-i18n="friends.tabList">Friends</span>
+        <span class="friends-tab-count" id="friends-tab-count-list" hidden>0</span>
+      </button>
+      <button type="button" class="friends-tab" role="tab" id="friends-tab-history" data-friends-tab="history" aria-selected="false" aria-controls="friends-panel-history">
+        <span data-i18n="friends.tabHistory">Call history</span>
+        <span class="friends-tab-count" id="friends-tab-count-history" hidden>0</span>
+      </button>
+      <button type="button" class="friends-tab" role="tab" id="friends-tab-blocked" data-friends-tab="blocked" aria-selected="false" aria-controls="friends-panel-blocked" hidden>
+        <span data-i18n="friends.tabBlocked">Blocked</span>
+        <span class="friends-tab-count" id="friends-tab-count-blocked" hidden>0</span>
+      </button>
+    </div>
     <div class="sheet-body">
-      <div class="friends-code-hero" id="friends-code-hero">
-        <p class="friends-code-label" data-i18n="friends.yourCodeLead">
-          Your friend code — share this so others can Request you
+      <!-- Friends list tab -->
+      <div class="friends-panel" id="friends-panel-list" role="tabpanel" aria-labelledby="friends-tab-list">
+        <div class="friends-code-hero" id="friends-code-hero">
+          <p class="friends-code-label" data-i18n="friends.yourCodeLead">
+            Your friend code — share this so others can Request you
+          </p>
+          <div class="friends-code-row">
+            <code id="my-friend-code" class="friends-code-value" title="Your friend code">—</code>
+            <button type="button" class="pill tight accent" id="btn-copy-code" data-i18n="friends.copyCode">Copy</button>
+          </div>
+          <div class="friends-code-actions">
+            <button type="button" class="pill tight" id="btn-copy-invite" data-i18n="friends.copyInvite">Invite link</button>
+            <button type="button" class="pill tight accent" id="btn-share-invite" data-i18n="friends.shareInvite">Share</button>
+          </div>
+          <p class="hint-inline friends-first-hint" id="friends-first-hint" hidden data-i18n="friends.firstHint">
+            New here? Copy your code, send it to a friend, then they tap Request — you Accept.
+          </p>
+        </div>
+        <label>
+          <span data-i18n="friends.yourName">Display name</span>
+          <input id="display-name" class="display-name-input" type="text" maxlength="32" placeholder="anon" autocomplete="nickname" />
+        </label>
+        <p class="hint-inline" data-i18n="friends.nameHint">
+          This name is what strangers and friends see in chat and when you match.
         </p>
-        <div class="friends-code-row">
-          <code id="my-friend-code" class="friends-code-value" title="Your friend code">—</code>
-          <button type="button" class="pill tight accent" id="btn-copy-code" data-i18n="friends.copyCode">Copy</button>
+        <p class="hint-inline" data-i18n="friends.mutualHint">
+          Friend requests need Accept on both sides. You can only Call after they approve.
+        </p>
+        <details class="friends-how-codes">
+          <summary data-i18n="friends.codesHelp">How friend codes work</summary>
+          <p class="hint-inline" data-i18n="friends.howCodes">
+            Both of you open the site once so codes appear. Share your code or invite link → they Request → you Accept → Call when online.
+          </p>
+        </details>
+        <label>
+          <span data-i18n="friends.addCode">Add friend by code</span>
+          <div class="row-inline">
+            <input id="add-friend-code" type="text" maxlength="16" autocomplete="off" spellcheck="false" />
+            <button type="button" class="pill" id="btn-add-friend" data-i18n="friends.add">Request</button>
+          </div>
+        </label>
+        <p class="hint-inline friends-pending-banner" id="friends-pending-banner" hidden data-i18n="friends.pendingBanner">
+          Waiting for them to Accept — you can Call only after both sides approve.
+        </p>
+        <div id="incoming-requests" class="friends-list req-panel" hidden></div>
+        <div id="outgoing-requests" class="friends-list" hidden></div>
+        <div id="friends-list" class="friends-list"></div>
+        <div id="friends-recover" class="friends-list req-panel" hidden></div>
+        <p class="hint-inline friends-persist-hint" data-i18n="friends.persistHint">
+          Friends are saved on this hub under your identity. Export a profile backup (Settings) before clearing browser data or switching devices — no helper app required.
+        </p>
+        <div class="row-inline friends-backup-actions">
+          <button type="button" class="pill tight" id="btn-friends-export" data-i18n="friends.exportBackup">Export backup</button>
+          <button type="button" class="pill tight accent" id="btn-friends-open-history" data-i18n="friends.openHistory">Call history</button>
         </div>
-        <div class="friends-code-actions">
-          <button type="button" class="pill tight" id="btn-copy-invite" data-i18n="friends.copyInvite">Invite link</button>
-          <button type="button" class="pill tight accent" id="btn-share-invite" data-i18n="friends.shareInvite">Share</button>
-        </div>
-        <p class="hint-inline friends-first-hint" id="friends-first-hint" hidden data-i18n="friends.firstHint">
-          New here? Copy your code, send it to a friend, then they tap Request — you Accept.
+        <p class="hint-inline" data-i18n="friends.hint">
+          Call when they show Online. If both of you are on the site but they show Offline, re-add with their current friend code (or import the same profile backup on both devices).
+          Then Browse together (max 2) to scroll strangers as a pair.
         </p>
       </div>
-      <label>
-        <span data-i18n="friends.yourName">Display name</span>
-        <input id="display-name" class="display-name-input" type="text" maxlength="32" placeholder="anon" autocomplete="nickname" />
-      </label>
-      <p class="hint-inline" data-i18n="friends.nameHint">
-        This name is what strangers and friends see in chat and when you match.
-      </p>
-      <p class="hint-inline" data-i18n="friends.mutualHint">
-        Friend requests need Accept on both sides. You can only Call after they approve.
-      </p>
-      <details class="friends-how-codes">
-        <summary data-i18n="friends.codesHelp">How friend codes work</summary>
-        <p class="hint-inline" data-i18n="friends.howCodes">
-          Both of you open the site once so codes appear. Share your code or invite link → they Request → you Accept → Call when online.
+
+      <!-- Call history tab -->
+      <div class="friends-panel" id="friends-panel-history" role="tabpanel" aria-labelledby="friends-tab-history" hidden>
+        <p class="hint-inline" data-i18n="friends.historyHint">
+          Recent matches and friend calls on this device. Online friends show Call.
         </p>
-      </details>
-      <label>
-        <span data-i18n="friends.addCode">Add friend by code</span>
-        <div class="row-inline">
-          <input id="add-friend-code" type="text" maxlength="16" autocomplete="off" spellcheck="false" />
-          <button type="button" class="pill" id="btn-add-friend" data-i18n="friends.add">Request</button>
+        <div class="history-filter-row" role="group" aria-label="History filter">
+          <button type="button" class="pill tight accent is-active" id="history-filter-all" data-history-filter="all" data-i18n="friends.historyAll">All</button>
+          <button type="button" class="pill tight ghost" id="history-filter-friends" data-history-filter="friends" data-i18n="friends.historyFriendsOnly">Friends only</button>
         </div>
-      </label>
-      <p class="hint-inline friends-pending-banner" id="friends-pending-banner" hidden data-i18n="friends.pendingBanner">
-        Waiting for them to Accept — you can Call only after both sides approve.
-      </p>
-      <div id="incoming-requests" class="friends-list req-panel" hidden></div>
-      <div id="outgoing-requests" class="friends-list" hidden></div>
-      <div id="friends-list" class="friends-list"></div>
-      <div id="friends-recover" class="friends-list req-panel" hidden></div>
-      <div id="history-list" class="friends-list" hidden></div>
-      <div id="blocked-list" class="friends-list" hidden></div>
-      <p class="hint-inline friends-persist-hint" data-i18n="friends.persistHint">
-        Friends are saved on this hub under your identity. Export a profile backup (Settings) before clearing browser data or switching devices — no helper app required.
-      </p>
-      <div class="row-inline friends-backup-actions">
-        <button type="button" class="pill tight" id="btn-friends-export" data-i18n="friends.exportBackup">Export backup</button>
+        <div id="history-list" class="friends-list"></div>
       </div>
-      <p class="hint-inline" data-i18n="friends.hint">
-        Call when they show Online. If both of you are on the site but they show Offline, re-add with their current friend code (or import the same profile backup on both devices).
-        Then Browse together (max 2) to scroll strangers as a pair.
-      </p>
+
+      <!-- Blocked tab -->
+      <div class="friends-panel" id="friends-panel-blocked" role="tabpanel" aria-labelledby="friends-tab-blocked" hidden>
+        <div id="blocked-list" class="friends-list"></div>
+      </div>
     </div>
   </div>
 

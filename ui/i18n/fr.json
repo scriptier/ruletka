@@ -181,7 +181,7 @@
   "friends.hint": "Après double Acceptation, Appelez si en ligne. Puis Naviguer ensemble (max 2).",
   "friends.historyClear": "Effacer l’historique",
   "friends.historyEmpty": "Pas encore de matchs récents",
-  "friends.historyTitle": "Récents",
+  "friends.historyTitle": "Historique d’appels",
   "friends.howCodes": "Ouvrez tous deux le site une fois pour les codes. Partagez code/lien → Request → Accept → Call en ligne.",
   "friends.importBackupBtn": "Exporter",
   "friends.importBackupLater": "Plus tard",
@@ -1097,5 +1097,14 @@
   "settings.importUserSub": "Restaurer un fichier profil sur cet appareil",
   "settings.secAccount": "Votre compte",
   "settings.accountHint": "Pas de mot de passe — l’utilisateur est dans le navigateur. Exportez un fichier pour garder vos amis.",
-  "settings.userId": "ID utilisateur"
+  "settings.userId": "ID utilisateur",
+  "friends.historyEmptyFriends": "Pas encore d’appels entre amis",
+  "friends.historyHint": "Matchs et appels récents. Les amis en ligne ont Appeler.",
+  "friends.historyAll": "Tous",
+  "friends.historyFriendsOnly": "Amis seulement",
+  "friends.tabList": "Amis",
+  "friends.tabHistory": "Historique",
+  "friends.tabBlocked": "Bloqués",
+  "friends.openHistory": "Historique d’appels",
+  "friends.blockedEmpty": "Personne bloqué"
 }

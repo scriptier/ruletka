@@ -181,7 +181,7 @@
   "friends.hint": "Po wzajemnej akceptacji dzwoń, gdy online. Potem Przeglądaj razem (maks. 2).",
   "friends.historyClear": "Wyczyść historię",
   "friends.historyEmpty": "Brak ostatnich matchy",
-  "friends.historyTitle": "Ostatnie",
+  "friends.historyTitle": "Historia połączeń",
   "friends.howCodes": "Oboje wejdźcie raz na stronę. Udostępnij kod/link → Request → Accept → Call online.",
   "friends.importBackupBtn": "Eksport",
   "friends.importBackupLater": "Później",
@@ -1097,5 +1097,14 @@
   "settings.importUserSub": "Przywróć plik profilu na tym urządzeniu",
   "settings.secAccount": "Twoje konto",
   "settings.accountHint": "Bez hasła — użytkownik jest w przeglądarce. Eksportuj plik, by zachować znajomych.",
-  "settings.userId": "ID użytkownika"
+  "settings.userId": "ID użytkownika",
+  "friends.historyEmptyFriends": "Brak połączeń ze znajomymi",
+  "friends.historyHint": "Ostatnie matche i połączenia. Online znajomi mają Zadzwoń.",
+  "friends.historyAll": "Wszystkie",
+  "friends.historyFriendsOnly": "Tylko znajomi",
+  "friends.tabList": "Znajomi",
+  "friends.tabHistory": "Historia",
+  "friends.tabBlocked": "Zablokowani",
+  "friends.openHistory": "Historia połączeń",
+  "friends.blockedEmpty": "Brak zablokowanych"
 }

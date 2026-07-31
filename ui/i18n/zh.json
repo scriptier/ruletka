@@ -181,7 +181,7 @@
   "friends.hint": "双方接受后，在线时可呼叫。然后一起浏览（最多 2 人）。",
   "friends.historyClear": "清除历史",
   "friends.historyEmpty": "暂无最近匹配",
-  "friends.historyTitle": "最近",
+  "friends.historyTitle": "通话记录",
   "friends.howCodes": "双方各打开一次网站以获得代码。分享代码/链接 → Request → Accept → 在线呼叫。",
   "friends.importBackupBtn": "导出",
   "friends.importBackupLater": "稍后",
@@ -1097,5 +1097,14 @@
   "settings.importUserSub": "在此设备恢复资料文件",
   "settings.secAccount": "你的账户",
   "settings.accountHint": "无密码 — 用户保存在浏览器。导出文件以免换机后丢失好友。",
-  "settings.userId": "用户 ID"
+  "settings.userId": "用户 ID",
+  "friends.historyEmptyFriends": "还没有好友通话",
+  "friends.historyHint": "本机最近的匹配与好友通话。在线好友显示「呼叫」。",
+  "friends.historyAll": "全部",
+  "friends.historyFriendsOnly": "仅好友",
+  "friends.tabList": "好友",
+  "friends.tabHistory": "通话记录",
+  "friends.tabBlocked": "已屏蔽",
+  "friends.openHistory": "通话记录",
+  "friends.blockedEmpty": "暂无屏蔽用户"
 }

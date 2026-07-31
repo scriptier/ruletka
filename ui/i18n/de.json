@@ -181,7 +181,7 @@
   "friends.hint": "Nach beiderseitigem Annehmen anrufen, wenn online. Dann Gemeinsam browsen (max. 2).",
   "friends.historyClear": "Verlauf löschen",
   "friends.historyEmpty": "Noch keine kürzlichen Matches",
-  "friends.historyTitle": "Zuletzt",
+  "friends.historyTitle": "Anrufverlauf",
   "friends.howCodes": "Beide einmal die Seite öffnen — Codes erscheinen. Code/Link teilen → Request → Accept → Call online.",
   "friends.importBackupBtn": "Exportieren",
   "friends.importBackupLater": "Später",
@@ -1097,5 +1097,14 @@
   "settings.importUserSub": "Profildatei auf diesem Gerät wiederherstellen",
   "settings.secAccount": "Dein Konto",
   "settings.accountHint": "Kein Passwort — dein Benutzer liegt im Browser. Exportiere eine Datei, um Freunde zu behalten.",
-  "settings.userId": "Benutzer-ID"
+  "settings.userId": "Benutzer-ID",
+  "friends.historyEmptyFriends": "Noch keine Freund-Anrufe",
+  "friends.historyHint": "Letzte Matches und Freund-Anrufe. Online-Freunde zeigen Anrufen.",
+  "friends.historyAll": "Alle",
+  "friends.historyFriendsOnly": "Nur Freunde",
+  "friends.tabList": "Freunde",
+  "friends.tabHistory": "Verlauf",
+  "friends.tabBlocked": "Blockiert",
+  "friends.openHistory": "Anrufverlauf",
+  "friends.blockedEmpty": "Keine blockierten Nutzer"
 }

@@ -9763,10 +9763,10 @@ function renderFriendsList() {
   const bl = $("blocked-list");
   if (bl) {
     if (!blockedCache.length) {
-      bl.hidden = true;
-      bl.innerHTML = "";
+      bl.innerHTML = `<p class="hint-inline muted">${escapeHtml(
+        _t("friends.blockedEmpty") || "No blocked users"
+      )}</p>`;
     } else {
-      bl.hidden = false;
       bl.innerHTML =
         `<div class="hint-inline"><strong>${escapeHtml(_t("friends.blockedTitle"))}</strong></div>` +
         blockedCache
@@ -9788,6 +9788,7 @@ function renderFriendsList() {
       });
     }
   }
+  syncFriendsTabCounts();
 }
 
 /** Strong certainty toast: block = permanent skip until unblock. */
@@ -9894,6 +9895,10 @@ function pushHistory(entry) {
     list.unshift(row);
   }
   saveHistory(list);
+  try {
+    syncFriendsTabCounts();
+    if (friendsSheetTab === "history") renderHistoryList();
+  } catch (_) {}
 }
 
 function formatHistoryTime(ts) {
@@ -9924,14 +9929,135 @@ function formatDurationShort(secs) {
   return s ? `${m}m ${s}s` : `${m}m`;
 }
 
+/** @type {"all" | "friends"} */
+let historyFilterMode = "all";
+/** @type {"list" | "history" | "blocked"} */
+let friendsSheetTab = "list";
+
+function setFriendsSheetTab(tab) {
+  const next =
+    tab === "history" || tab === "blocked" || tab === "list" ? tab : "list";
+  // Blocked tab only when there are blocks
+  if (next === "blocked" && !(blockedCache && blockedCache.length)) {
+    friendsSheetTab = "list";
+  } else {
+    friendsSheetTab = next;
+  }
+  const tabs = document.querySelectorAll("[data-friends-tab]");
+  tabs.forEach((btn) => {
+    const on = btn.getAttribute("data-friends-tab") === friendsSheetTab;
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  const panels = {
+    list: $("friends-panel-list"),
+    history: $("friends-panel-history"),
+    blocked: $("friends-panel-blocked"),
+  };
+  for (const [key, el] of Object.entries(panels)) {
+    if (!el) continue;
+    el.hidden = key !== friendsSheetTab;
+  }
+  if (friendsSheetTab === "history") {
+    syncHistoryFilterUi();
+    renderHistoryList();
+  }
+  syncFriendsTabCounts();
+}
+
+function syncFriendsTabCounts() {
+  const nFriends = (friendsCache || []).length;
+  const nHist = loadHistory().length;
+  const nBlock = (blockedCache || []).length;
+  const setCount = (id, n) => {
+    const el = $(id);
+    if (!el) return;
+    if (n > 0) {
+      el.hidden = false;
+      el.textContent = n > 99 ? "99+" : String(n);
+    } else {
+      el.hidden = true;
+      el.textContent = "0";
+    }
+  };
+  setCount("friends-tab-count-list", nFriends);
+  setCount("friends-tab-count-history", nHist);
+  setCount("friends-tab-count-blocked", nBlock);
+  const blockedTab = $("friends-tab-blocked");
+  if (blockedTab) blockedTab.hidden = nBlock === 0;
+}
+
+function wireFriendsTabsOnce() {
+  const root = $("friends-sheet");
+  if (!root || root.dataset.tabsWired === "1") return;
+  root.dataset.tabsWired = "1";
+  root.querySelectorAll("[data-friends-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      setFriendsSheetTab(btn.getAttribute("data-friends-tab") || "list");
+    });
+  });
+  $("btn-friends-open-history")?.addEventListener("click", () => {
+    setFriendsSheetTab("history");
+  });
+  $("history-filter-all")?.addEventListener("click", () => {
+    historyFilterMode = "all";
+    syncHistoryFilterUi();
+    renderHistoryList();
+  });
+  $("history-filter-friends")?.addEventListener("click", () => {
+    historyFilterMode = "friends";
+    syncHistoryFilterUi();
+    renderHistoryList();
+  });
+}
+
+function syncHistoryFilterUi() {
+  const all = $("history-filter-all");
+  const fr = $("history-filter-friends");
+  if (all) {
+    all.classList.toggle("is-active", historyFilterMode === "all");
+    all.classList.toggle("accent", historyFilterMode === "all");
+    all.classList.toggle("ghost", historyFilterMode !== "all");
+  }
+  if (fr) {
+    fr.classList.toggle("is-active", historyFilterMode === "friends");
+    fr.classList.toggle("accent", historyFilterMode === "friends");
+    fr.classList.toggle("ghost", historyFilterMode !== "friends");
+  }
+}
+
 function renderHistoryList() {
   const el = $("history-list");
   if (!el) return;
-  const list = loadHistory();
+  const friendIds = new Set(
+    (friendsCache || []).map((f) => f.user_id).filter(Boolean)
+  );
+  let list = loadHistory();
+  if (historyFilterMode === "friends") {
+    list = list.filter(
+      (h) =>
+        (h.user_id && friendIds.has(h.user_id)) ||
+        h.kind === "friend" ||
+        h.kind === "missed"
+    );
+  }
+  // Friends (esp. online) float to the top for quick redial
+  list = [...list].sort((a, b) => {
+    const aFr = a.user_id && friendIds.has(a.user_id);
+    const bFr = b.user_id && friendIds.has(b.user_id);
+    const aOn = aFr
+      ? !!(friendsCache.find((f) => f.user_id === a.user_id)?.online)
+      : false;
+    const bOn = bFr
+      ? !!(friendsCache.find((f) => f.user_id === b.user_id)?.online)
+      : false;
+    if (aOn !== bOn) return aOn ? -1 : 1;
+    if (aFr !== bFr) return aFr ? -1 : 1;
+    return (b.t || 0) - (a.t || 0);
+  });
   el.hidden = false;
-  const friendIds = new Set(friendsCache.map((f) => f.user_id));
   const head = `<div class="hint-inline history-head"><strong>${escapeHtml(
-    _t("friends.historyTitle")
+    _t("friends.historyTitle") || "Call history"
   )}</strong>
       <button type="button" class="pill tight ghost" id="btn-clear-history">${escapeHtml(
         _t("friends.historyClear")
@@ -9940,23 +10066,31 @@ function renderHistoryList() {
   if (!list.length) {
     el.innerHTML =
       head +
-      `<p class="hint-inline muted">${escapeHtml(_t("friends.historyEmpty"))}</p>`;
+      `<p class="hint-inline muted">${escapeHtml(
+        historyFilterMode === "friends"
+          ? _t("friends.historyEmptyFriends") || "No friend calls yet"
+          : _t("friends.historyEmpty")
+      )}</p>`;
     $("btn-clear-history")?.addEventListener("click", () => {
       saveHistory([]);
       renderHistoryList();
+      syncFriendsTabCounts();
     });
+    syncFriendsTabCounts();
     return;
   }
   el.innerHTML =
     head +
     list
-      .slice(0, 24)
+      .slice(0, 32)
       .map((h) => {
-        const isFriend = h.user_id && friendIds.has(h.user_id);
+        const isFriend = !!(h.user_id && friendIds.has(h.user_id));
         const fr = isFriend
           ? friendsCache.find((f) => f.user_id === h.user_id)
           : null;
         const onlineFriend = !!(fr && fr.online);
+        const display =
+          (fr && friendDisplayName(fr)) || h.name || h.short_id || "anon";
         const dur = formatDurationShort(h.duration_secs);
         const pathBit =
           h.ice_path === "direct"
@@ -9973,33 +10107,38 @@ function renderHistoryList() {
                 ? _t("conn.chipOk") || "OK"
                 : "";
         const metaBits = [
-          kindLabel(h.kind),
+          isFriend ? _t("friends.kindFriend") || "Friend" : kindLabel(h.kind),
           formatHistoryTime(h.t),
           dur ? dur : "",
           pathBit,
           gradeBit,
           isFriend && !onlineFriend ? _t("friends.offline") : "",
+          onlineFriend ? _t("friends.online") || "Online" : "",
         ]
           .filter(Boolean)
           .join(" · ");
         let actions = "";
         if (onlineFriend) {
-          actions = `<button type="button" class="pill tight btn-hist-call" data-uid="${escapeAttr(
+          actions = `<button type="button" class="pill tight accent btn-hist-call" data-uid="${escapeAttr(
             h.user_id
-          )}">${escapeHtml(_t("friends.redial"))}</button>`;
+          )}">${escapeHtml(_t("friends.redial") || "Call")}</button>`;
         } else if (isFriend && h.user_id) {
-          actions = `<button type="button" class="pill tight ghost" disabled title="${escapeAttr(
-            _t("friends.offline")
-          )}">${escapeHtml(_t("friends.offline"))}</button>`;
+          actions = `<button type="button" class="pill tight ghost btn-hist-msg" data-uid="${escapeAttr(
+            h.user_id
+          )}" data-name="${escapeAttr(display)}">${escapeHtml(
+            _t("friends.message") || "Message"
+          )}</button>`;
         } else if (h.friend_code && !isFriend) {
           actions = `<button type="button" class="pill tight btn-hist-add" data-code="${escapeAttr(
             h.friend_code
-          )}">${escapeHtml(_t("friends.addFromHistory"))}</button>`;
+          )}">${escapeHtml(_t("friends.addFromHistory") || "Add")}</button>`;
         }
-        return `<div class="friend-row">
+        return `<div class="friend-row${onlineFriend ? " online" : ""}${
+          isFriend ? " is-friend" : ""
+        }">
           <span class="dot ${onlineFriend ? "online" : ""}"></span>
           <div class="meta">
-            <strong>${escapeHtml(h.name || h.short_id || "anon")}</strong>
+            <strong>${escapeHtml(display)}</strong>
             <span>${escapeHtml(metaBits)}</span>
           </div>
           <div class="friend-actions">${actions}</div>
@@ -10009,10 +10148,18 @@ function renderHistoryList() {
   $("btn-clear-history")?.addEventListener("click", () => {
     saveHistory([]);
     renderHistoryList();
+    syncFriendsTabCounts();
   });
   el.querySelectorAll(".btn-hist-call").forEach((btn) => {
     btn.addEventListener("click", () => {
       placeFriendCall(btn.getAttribute("data-uid"));
+    });
+  });
+  el.querySelectorAll(".btn-hist-msg").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      openFriendChat(btn.getAttribute("data-uid"), {
+        name: btn.getAttribute("data-name") || "",
+      });
     });
   });
   el.querySelectorAll(".btn-hist-add").forEach((btn) => {
@@ -10022,6 +10169,7 @@ function renderHistoryList() {
       requestAddFriend(code);
     });
   });
+  syncFriendsTabCounts();
 }
 
 function updateFriendsBadge() {
@@ -10495,9 +10643,12 @@ function openFriends() {
       if (!qHasNoconnect()) connect(false);
     } catch (_) {}
   }
+  wireFriendsTabsOnce();
   renderFriendsList();
   renderRequestLists();
   renderHistoryList();
+  syncFriendsTabCounts();
+  setFriendsSheetTab(friendsSheetTab || "list");
   bindSheetFocusTrap(sheet);
   // After trap attaches, first-run may re-focus Copy (slightly later)
   maybeShowFriendsFirstRun();
