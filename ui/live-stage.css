@@ -12235,7 +12235,7 @@ html.chrome-always .tile-local .tile-floor-local {
   display: none !important;
 }
 
-/* Local tile identity layout: flag+name top-left (name under flag), avatar top-right */
+/* Local tile identity: flag above name (centered together), name a bit lower; avatar top-right */
 .tile-local .tile-tag-local-name {
   position: absolute;
   top: 0.55rem;
@@ -12252,10 +12252,10 @@ html.chrome-always .tile-local .tile-floor-local {
 .tile-local #local-name.name-on-tile {
   display: inline-flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center; /* flag centered over name */
   justify-content: flex-start;
-  gap: 0.12rem;
-  padding: 0.35rem 0.55rem 0.4rem;
+  gap: 0.28rem; /* name sits slightly lower under the flag */
+  padding: 0.4rem 0.65rem 0.45rem;
   border-radius: 12px;
   white-space: normal;
   max-width: 100%;
@@ -12263,13 +12263,17 @@ html.chrome-always .tile-local .tile-floor-local {
   background: rgba(0, 0, 0, 0.5);
   border: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  text-align: center;
 }
 .tile-local #local-name.name-on-tile .name-flag {
+  display: block;
   font-size: 1.85rem;
   line-height: 1;
   margin: 0;
+  text-align: center;
 }
 .tile-local #local-name.name-on-tile .name-text {
+  display: block;
   font-size: 0.78rem;
   font-weight: 650;
   line-height: 1.15;
@@ -12277,14 +12281,22 @@ html.chrome-always .tile-local .tile-floor-local {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: center;
+  margin-top: 0.06rem; /* extra tuck lower than the flag */
 }
 /* When no flag, plain text name still fits the pill */
 .tile-local #local-name.name-on-tile:not(:has(.name-flag)) {
   flex-direction: row;
   align-items: center;
+  gap: 0;
   padding: 0.28rem 0.6rem;
   border-radius: 999px;
   white-space: nowrap;
+  text-align: left;
+}
+.tile-local #local-name.name-on-tile:not(:has(.name-flag)) .name-text {
+  margin-top: 0;
+  text-align: left;
 }
 .tile-local .tile-avatar-local {
   position: absolute;
