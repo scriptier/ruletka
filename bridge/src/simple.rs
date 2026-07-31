@@ -230,7 +230,7 @@ fn normalize_flag(raw: &str) -> String {
 }
 
 /// Tiny profile picture as data URL only. Cap size to keep WS payloads light.
-const MAX_AVATAR_CHARS: usize = 24_000;
+const MAX_AVATAR_CHARS: usize = 48_000;
 
 fn normalize_avatar(raw: &str) -> String {
     let s = raw.trim();

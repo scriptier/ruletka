@@ -454,8 +454,8 @@ function setFlag(code, { persist = true, notify = true } = {}) {
 }
 
 /** Max data-URL length for avatar (must match bridge normalize_avatar). */
-const MAX_AVATAR_CHARS = 24000;
-const AVATAR_PX = 96;
+const MAX_AVATAR_CHARS = 48000;
+const AVATAR_PX = 192;
 
 function getAvatar() {
   const a = loadPrefs().avatar;
