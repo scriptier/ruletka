@@ -558,9 +558,17 @@ function updateFriendActionButtons() {
     if (browse) browse.hidden = true;
     if (hang) hang.hidden = false;
   }
-  // Block when in a call with a known partner user_id
+  // Block / Report when in a call with a known partner user_id
+  const canMod =
+    !!matched &&
+    !!primaryPartnerUserId &&
+    primaryPartnerUserId !== myUserId;
   if (block) {
-    block.hidden = !(matched && primaryPartnerUserId && primaryPartnerUserId !== myUserId);
+    block.hidden = !canMod;
+  }
+  const repDock = $("btn-report-dock");
+  if (repDock) {
+    repDock.hidden = !canMod || matchMode === "friend";
   }
   updatePartnerClickable();
 }
@@ -1456,6 +1464,17 @@ async function handleNsfwDetected(scores) {
   log(_t("nsfw.hit"));
   const uid = primaryPartnerUserId;
   if (uid) {
+    // AI-assisted hub report (needs more unique signals than pure human "explicit")
+    send({ type: "report_user", user_id: uid, reason: "explicit_ai" });
+    saveLocalReport({
+      t: Date.now(),
+      user_id: uid,
+      name: lastMatchMeta?.name || "",
+      short_id: lastMatchMeta?.short_id || "",
+      friend_code: lastMatchMeta?.friend_code || "",
+      reason: "explicit_ai",
+      scores,
+    });
     // Silent block — no confirm dialog
     send({ type: "block_user", user_id: uid });
     log(_t("nsfw.blocked"));
@@ -3910,13 +3929,27 @@ function reportPartner(reason) {
     user_id: uid,
     reason: entry.reason,
   });
-  setStatus(_t("partnerMenu.reportOk"));
-  log(_t("partnerMenu.reportOk") + ` · ${entry.reason}`);
+  // Clearer community-moderation feedback
+  const msg =
+    reason === "underage"
+      ? _t("partnerMenu.reportOkUnderage") ||
+        _t("partnerMenu.reportOk")
+      : _t("partnerMenu.reportOkFull") || _t("partnerMenu.reportOk");
+  setStatus(msg);
+  log((_t("partnerMenu.reportOk") || "reported") + ` · ${entry.reason}`);
   closePartnerMenu();
   // Block + skip so they don't reappear
   blockUserId(uid, { silent: true });
   wantSearch = true;
+  matched = false;
+  closeAllPeers({ keepFriend: false });
+  setSplitRemote(false);
+  setRemoteEmpty(true);
+  resetRemoteEmptyCopy();
+  setFedChip(false);
+  updateFriendActionButtons();
   send({ type: "next", room: currentRoom() });
+  setPhase("waiting");
 }
 
 function updatePartnerClickable() {
@@ -3950,6 +3983,11 @@ on("btn-fs-remote", "click", () => toggleFullscreenPartner());
 on("btn-partner-friend", "click", () => invitePartnerFriend());
 on("btn-partner-block", "click", () => blockPartnerFromMenu());
 on("btn-partner-report", "click", () => showPartnerReportReasons());
+on("btn-report-dock", "click", () => {
+  if (!primaryPartnerUserId || !matched) return;
+  openPartnerMenu();
+  showPartnerReportReasons();
+});
 on("btn-partner-menu-cancel", "click", () => closePartnerMenu());
 on("btn-partner-report-back", "click", () => {
   const main = $("partner-menu-main");

@@ -440,5 +440,8 @@
   "btn.stopTitle": "Зупинити пошук / вийти",
   "log.stopped": "стоп",
   "status.stopped": "Зупинено",
-  "srv.partnerStopped": "співрозмовник зупинився"
+  "srv.partnerStopped": "співрозмовник зупинився",
+  "partnerMenu.reportOkFull": "Скарга · блок · далі",
+  "partnerMenu.reportOkUnderage": "Скарга про неповнолітніх · блок · далі",
+  "partnerMenu.rHate": "Ненависть / погрози"
 }

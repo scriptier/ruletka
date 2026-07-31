@@ -440,5 +440,8 @@
   "btn.stopTitle": "Arrêter la recherche / quitter",
   "log.stopped": "arrêté",
   "status.stopped": "Arrêté",
-  "srv.partnerStopped": "partenaire arrêté"
+  "srv.partnerStopped": "partenaire arrêté",
+  "partnerMenu.reportOkFull": "Signalé · bloqué · suivant",
+  "partnerMenu.reportOkUnderage": "Signalement mineur · bloqué · suivant",
+  "partnerMenu.rHate": "Haine / menaces"
 }

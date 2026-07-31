@@ -440,5 +440,8 @@
   "btn.stopTitle": "Zatrzymaj szukanie / wyjdź",
   "log.stopped": "zatrzymano",
   "status.stopped": "Zatrzymano",
-  "srv.partnerStopped": "partner zatrzymał"
+  "srv.partnerStopped": "partner zatrzymał",
+  "partnerMenu.reportOkFull": "Zgłoszono · zablokowano · dalej",
+  "partnerMenu.reportOkUnderage": "Zgłoszenie nieletniego · blok · dalej",
+  "partnerMenu.rHate": "Nienawiść / groźby"
 }

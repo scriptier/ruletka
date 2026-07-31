@@ -105,7 +105,7 @@
   "btn.full": "Full",
   "btn.fullTitle": "Fullscreen (F)",
   "nsfw.loading": "loading safety filter…",
-  "nsfw.hit": "explicit content detected — skipped",
+  "nsfw.hit": "Possible explicit video — blurred, blocked, next",
   "nsfw.blocked": "auto-blocked for explicit video",
   "log.blurOn": "partner video blurred",
   "log.blurOff": "partner video unblurred",
@@ -189,7 +189,7 @@
   "partnerMenu.report": "Report",
   "partnerMenu.cancel": "Cancel",
   "partnerMenu.back": "Back",
-  "partnerMenu.reportHint": "Why are you reporting?",
+  "partnerMenu.reportHint": "Why report? We block them and skip. Multiple independent reports restrict matchmaking.",
   "partnerMenu.rExplicit": "Explicit content",
   "partnerMenu.rHarassment": "Harassment",
   "partnerMenu.rUnderage": "Underage concern",
@@ -448,5 +448,9 @@
   "btn.stopTitle": "Stop searching / leave call",
   "log.stopped": "stopped",
   "status.stopped": "Stopped",
-  "srv.partnerStopped": "partner stopped"
+  "srv.partnerStopped": "partner stopped",
+  "partnerMenu.reportOkFull": "Reported · blocked · next",
+  "partnerMenu.reportOkUnderage": "Underage report filed · blocked · next",
+  "partnerMenu.rHate": "Hate / threats",
+  "safety.autoNote": "On-device AI can skip explicit video. Reports from many users auto-restrict matchmaking."
 }

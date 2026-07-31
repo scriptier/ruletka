@@ -440,5 +440,8 @@
   "btn.stopTitle": "停止搜索 / 离开",
   "log.stopped": "已停止",
   "status.stopped": "已停止",
-  "srv.partnerStopped": "对方已停止"
+  "srv.partnerStopped": "对方已停止",
+  "partnerMenu.reportOkFull": "已举报 · 已拉黑 · 下一位",
+  "partnerMenu.reportOkUnderage": "未成年人举报 · 已拉黑 · 下一位",
+  "partnerMenu.rHate": "仇恨 / 威胁"
 }

@@ -440,5 +440,8 @@
   "btn.stopTitle": "Aramayı durdur / çık",
   "log.stopped": "durdu",
   "status.stopped": "Durdu",
-  "srv.partnerStopped": "eşleşme durduruldu"
+  "srv.partnerStopped": "eşleşme durduruldu",
+  "partnerMenu.reportOkFull": "Bildirildi · engellendi · sonraki",
+  "partnerMenu.reportOkUnderage": "Reşit olmayan bildirimi · engel · sonraki",
+  "partnerMenu.rHate": "Nefret / tehdit"
 }

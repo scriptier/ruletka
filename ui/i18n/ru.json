@@ -105,7 +105,7 @@
   "btn.full": "Экран",
   "btn.fullTitle": "На весь экран (F)",
   "nsfw.loading": "загрузка фильтра…",
-  "nsfw.hit": "явный контент — пропуск",
+  "nsfw.hit": "Возможно explicit — блюр, блок, далее",
   "nsfw.blocked": "автоблок за явный контент",
   "log.blurOn": "видео собеседника размыто",
   "log.blurOff": "размытие снято",
@@ -189,7 +189,7 @@
   "partnerMenu.report": "Пожаловаться",
   "partnerMenu.cancel": "Отмена",
   "partnerMenu.back": "Назад",
-  "partnerMenu.reportHint": "Причина жалобы?",
+  "partnerMenu.reportHint": "Почему жалоба? Мы блокируем и пропускаем. Несколько независимых жалоб ограничивают матчинг.",
   "partnerMenu.rExplicit": "Явный контент",
   "partnerMenu.rHarassment": "Оскорбления",
   "partnerMenu.rUnderage": "Подозрение на несовершеннолетнего",
@@ -448,5 +448,9 @@
   "btn.stopTitle": "Остановить поиск / выйти",
   "log.stopped": "стоп",
   "status.stopped": "Остановлено",
-  "srv.partnerStopped": "собеседник остановился"
+  "srv.partnerStopped": "собеседник остановился",
+  "partnerMenu.reportOkFull": "Жалоба · блок · далее",
+  "partnerMenu.reportOkUnderage": "Жалоба о несовершеннолетних · блок · далее",
+  "partnerMenu.rHate": "Ненависть / угрозы",
+  "safety.autoNote": "ИИ на устройстве может пропускать explicit. Жалобы от разных людей ограничивают матчинг."
 }

@@ -440,5 +440,8 @@
   "btn.stopTitle": "Dejar de buscar / salir",
   "log.stopped": "parado",
   "status.stopped": "Parado",
-  "srv.partnerStopped": "la pareja se detuvo"
+  "srv.partnerStopped": "la pareja se detuvo",
+  "partnerMenu.reportOkFull": "Reportado · bloqueado · siguiente",
+  "partnerMenu.reportOkUnderage": "Reporte de menor · bloqueado · siguiente",
+  "partnerMenu.rHate": "Odio / amenazas"
 }

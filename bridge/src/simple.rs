@@ -11,6 +11,7 @@ use crate::protocol::{ClientMsg, FriendInfo, MatchPeer, ServerMsg};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
@@ -73,6 +74,8 @@ pub struct Client {
     /// Soft match preference: any | man | woman | ""
     looking: String,
     limiter: ClientLimiter,
+    /// Sliding window of report submissions (anti ban-bomb).
+    report_times: Vec<Instant>,
 }
 
 pub struct SimpleHub {
@@ -349,10 +352,25 @@ impl SimpleHub {
             .unwrap_or(false)
     }
 
-    /// Unique independent reports needed before auto match-ban.
+    /// Fallback unique reporters before auto match-ban (generic/other).
     const REPORT_BAN_THRESHOLD: usize = 3;
-    /// Auto-ban duration after threshold (7 days).
-    const REPORT_BAN_SECS: u64 = 7 * 24 * 3600;
+    /// Default ban length when generic threshold is hit (3 days).
+    const REPORT_BAN_SECS: u64 = 3 * 24 * 3600;
+    /// Max reports one user may file per rolling hour (anti abuse).
+    const REPORT_RATE_PER_HOUR: usize = 12;
+
+    /// Severity → (unique reporters needed, ban duration secs).
+    /// Underage: single independent report → long restriction (ops review via log).
+    fn report_severity(reason: &str) -> (usize, u64) {
+        let r = reason.trim().to_ascii_lowercase();
+        match r.as_str() {
+            "underage" => (1, 30 * 24 * 3600),
+            "explicit" | "explicit_ai" => (2, 7 * 24 * 3600),
+            "harassment" | "hate" => (2, 7 * 24 * 3600),
+            "spam" | "scam" => (3, 3 * 24 * 3600),
+            _ => (Self::REPORT_BAN_THRESHOLD, Self::REPORT_BAN_SECS),
+        }
+    }
 
     fn is_blocked_pair_conn(&self, a: Uuid, b: Uuid) -> bool {
         let (Some(ca), Some(cb)) = (self.clients.get(&a), self.clients.get(&b)) else {
@@ -877,6 +895,7 @@ impl SimpleHub {
                 gender: String::new(),
                 looking: "any".into(),
                 limiter: ClientLimiter::new(),
+                report_times: Vec::new(),
             },
         );
         // by_user/code_index set on Hello with persistent user_id (not ephemeral uuid)
@@ -2014,6 +2033,24 @@ impl SimpleHub {
             );
             return;
         }
+
+        // Rate-limit reporters so ban-bombing is harder
+        if let Some(c) = self.clients.get_mut(&id) {
+            let now = Instant::now();
+            c.report_times
+                .retain(|t| now.duration_since(*t) < Duration::from_secs(3600));
+            if c.report_times.len() >= Self::REPORT_RATE_PER_HOUR {
+                self.send(
+                    id,
+                    ServerMsg::Error {
+                        message: "too many reports — try again later".into(),
+                    },
+                );
+                return;
+            }
+            c.report_times.push(now);
+        }
+
         let target_name = self
             .by_user
             .get(&user_id)
@@ -2029,14 +2066,22 @@ impl SimpleHub {
         } else {
             reason
         };
+        let (threshold, ban_secs) = Self::report_severity(&reason_s);
+        let is_ai = reason_s.eq_ignore_ascii_case("explicit_ai");
 
-        // Unique reporters → auto match-ban after threshold
+        // Unique reporters → auto match-ban after severity threshold
         let reporters = self.report_reporters.entry(user_id.clone()).or_default();
         reporters.insert(reporter.0.clone());
         let report_count = reporters.len();
+        // AI-only signals need one extra unique reporter (reduces false-positive bans)
+        let effective_threshold = if is_ai {
+            threshold.saturating_add(1)
+        } else {
+            threshold
+        };
         let mut banned = false;
-        if report_count >= Self::REPORT_BAN_THRESHOLD {
-            let until = Self::now_unix().saturating_add(Self::REPORT_BAN_SECS);
+        if report_count >= effective_threshold {
+            let until = Self::now_unix().saturating_add(ban_secs);
             let prev = self.match_bans.get(&user_id).copied().unwrap_or(0);
             if until > prev {
                 self.match_bans.insert(user_id.clone(), until);
@@ -2044,6 +2089,8 @@ impl SimpleHub {
                 tracing::warn!(
                     target = %user_id,
                     reporters = report_count,
+                    threshold = effective_threshold,
+                    reason = %reason_s,
                     until,
                     "auto match-ban after reports"
                 );
@@ -2060,7 +2107,10 @@ impl SimpleHub {
             "target_name": target_name,
             "reason": reason_s,
             "unique_reporters": report_count,
+            "threshold": effective_threshold,
+            "ai_assisted": is_ai,
             "auto_banned": banned,
+            "ban_secs": if banned { ban_secs } else { 0 },
         });
         tracing::warn!(%line, "user report");
         if let Some(path) = self.reports_path() {
@@ -2083,7 +2133,14 @@ impl SimpleHub {
                 self.status(tid, "temporarily restricted due to reports");
             }
         }
-        self.status(id, "report received — thank you");
+        self.status(
+            id,
+            if banned {
+                "report received — user restricted"
+            } else {
+                "report received — thank you"
+            },
+        );
     }
 
     fn reports_path(&self) -> Option<std::path::PathBuf> {
