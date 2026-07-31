@@ -12076,93 +12076,83 @@ html[data-theme="light"] .friends-identity-banner .hint-inline {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   Hover-to-reveal chrome (clean video by default)
+   Chrome autohide (JS: .is-chrome-open + 3s idle timer)
    Partner tile → partner mute / volume / blur (+ floor tray)
    Local tile   → reverse / mic / hide / settings
-   Touch devices: always show (no hover)
+   Touch: always show (.chrome-always / coarse media)
    ═══════════════════════════════════════════════════════════ */
-@media (hover: hover) and (pointer: fine) {
-  .tile-remote .side-rail-left,
-  .tile-remote .tile-floor-partner,
-  .tile-remote .tile-corner-btn,
-  .tile-remote .tile-tag:not(#remote-tile-tag[hidden]),
-  .tile-local .side-rail-right,
-  .tile-local .tile-floor-local {
-    opacity: 0;
-    visibility: hidden;
-    transition:
-      opacity 0.2s ease,
-      visibility 0.2s ease,
-      transform 0.2s ease;
-    pointer-events: none !important;
-  }
-  .tile-remote .side-rail-left,
-  .tile-local .side-rail-right {
-    transform: translateY(6px);
-  }
-  .tile-remote .tile-floor-partner,
-  .tile-local .tile-floor-local {
-    transform: translateY(8px);
-  }
-
-  /* Partner window hover → partner controls */
-  .tile-remote:hover .side-rail-left,
-  .tile-remote:hover .tile-floor-partner,
-  .tile-remote:hover .tile-corner-btn,
-  .tile-remote.is-chrome-open .side-rail-left,
-  .tile-remote.is-chrome-open .tile-floor-partner,
-  .tile-remote.is-chrome-open .tile-corner-btn {
-    opacity: 1;
-    visibility: visible;
-    transform: none;
-    pointer-events: auto !important;
-  }
-  .tile-remote:hover .side-rail-left > *,
-  .tile-remote:hover .tile-floor-partner > *,
-  .tile-remote.is-chrome-open .side-rail-left > *,
-  .tile-remote.is-chrome-open .tile-floor-partner > * {
-    pointer-events: auto !important;
-  }
-
-  /* User window hover → self controls + settings */
-  .tile-local:hover .side-rail-right,
-  .tile-local:hover .tile-floor-local,
-  .tile-local.is-chrome-open .side-rail-right,
-  .tile-local.is-chrome-open .tile-floor-local {
-    opacity: 1;
-    visibility: visible;
-    transform: none;
-    pointer-events: auto !important;
-  }
-  .tile-local:hover .side-rail-right > *,
-  .tile-local:hover .tile-floor-local > *,
-  .tile-local.is-chrome-open .side-rail-right > *,
-  .tile-local.is-chrome-open .tile-floor-local > * {
-    pointer-events: auto !important;
-  }
-
-  /* Keep rails usable when a flyout is open from that side */
-  .tile-local:has(.side-btn-settings.is-flyout-open) .side-rail-right,
-  .tile-remote:has(.tile-dock-messages.is-flyout-open) .tile-floor-partner,
-  .tile-remote:has(.tile-dock-friends.is-flyout-open) .tile-floor-partner,
-  .tile-remote:has(#match-more-menu:not([hidden])) .tile-floor-partner {
-    opacity: 1 !important;
-    visibility: visible !important;
-    transform: none !important;
-    pointer-events: auto !important;
-  }
+html.chrome-autohide .tile-remote .side-rail-left,
+html.chrome-autohide .tile-remote .tile-floor-partner,
+html.chrome-autohide .tile-remote .tile-corner-btn,
+html.chrome-autohide .tile-local .side-rail-right,
+html.chrome-autohide .tile-local .tile-floor-local {
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.22s ease,
+    visibility 0.22s ease,
+    transform 0.22s ease;
+  pointer-events: none !important;
+}
+html.chrome-autohide .tile-remote .side-rail-left,
+html.chrome-autohide .tile-local .side-rail-right {
+  transform: translateY(6px);
+}
+html.chrome-autohide .tile-remote .tile-floor-partner,
+html.chrome-autohide .tile-local .tile-floor-local {
+  transform: translateY(8px);
 }
 
-/* Touch / coarse pointer: always show controls */
+/* Shown only while JS marks the tile open (mouse enter/move; hides after 3s) */
+html.chrome-autohide .tile-remote.is-chrome-open .side-rail-left,
+html.chrome-autohide .tile-remote.is-chrome-open .tile-floor-partner,
+html.chrome-autohide .tile-remote.is-chrome-open .tile-corner-btn,
+html.chrome-autohide .tile-local.is-chrome-open .side-rail-right,
+html.chrome-autohide .tile-local.is-chrome-open .tile-floor-local {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  pointer-events: auto !important;
+}
+html.chrome-autohide .tile-remote.is-chrome-open .side-rail-left > *,
+html.chrome-autohide .tile-remote.is-chrome-open .tile-floor-partner > *,
+html.chrome-autohide .tile-local.is-chrome-open .side-rail-right > *,
+html.chrome-autohide .tile-local.is-chrome-open .tile-floor-local > * {
+  pointer-events: auto !important;
+}
+
+/* Flyouts force chrome visible */
+html.chrome-autohide .tile-local:has(.side-btn-settings.is-flyout-open) .side-rail-right,
+html.chrome-autohide .tile-remote:has(.tile-dock-messages.is-flyout-open) .tile-floor-partner,
+html.chrome-autohide .tile-remote:has(.tile-dock-friends.is-flyout-open) .tile-floor-partner,
+html.chrome-autohide .tile-remote:has(#match-more-menu:not([hidden])) .tile-floor-partner {
+  opacity: 1 !important;
+  visibility: visible !important;
+  transform: none !important;
+  pointer-events: auto !important;
+}
+
+/* Touch / always-on */
+html.chrome-always .tile-remote .side-rail-left,
+html.chrome-always .tile-remote .tile-floor-partner,
+html.chrome-always .tile-remote .tile-corner-btn,
+html.chrome-always .tile-local .side-rail-right,
+html.chrome-always .tile-local .tile-floor-local {
+  opacity: 1 !important;
+  visibility: visible !important;
+  transform: none !important;
+  pointer-events: auto !important;
+}
 @media (hover: none), (pointer: coarse) {
   .tile-remote .side-rail-left,
   .tile-remote .tile-floor-partner,
   .tile-remote .tile-corner-btn,
   .tile-local .side-rail-right,
   .tile-local .tile-floor-local {
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: none !important;
+    pointer-events: auto !important;
   }
 }
 

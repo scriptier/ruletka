@@ -10756,62 +10756,158 @@ function wireKeysHelp() {
 }
 
 /**
- * Touch: tap a tile to briefly show its chrome (rails / floor).
- * Desktop uses CSS :hover. Coarse pointers get always-on via CSS media query.
+ * Tile chrome: show on move/enter, always autohide after 3s idle.
+ * JS-driven (not pure CSS :hover) so chrome doesn't stick while the mouse sits still.
+ * Touch / coarse pointers: CSS keeps controls always visible.
  */
+const CHROME_AUTOHIDE_MS = 3000;
+
 function wireTileChromeAutohide() {
   const remote = $("tile-remote");
   const local = $("tile-local");
   if (!remote && !local) return;
-  let hideTimer = 0;
-  const clearHide = () => {
-    if (hideTimer) {
-      clearTimeout(hideTimer);
-      hideTimer = 0;
+
+  const coarse =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(hover: none), (pointer: coarse)").matches;
+  if (coarse) {
+    // Always-on via CSS media query
+    document.documentElement.classList.add("chrome-always");
+    return;
+  }
+  document.documentElement.classList.add("chrome-autohide");
+
+  /** @type {WeakMap<Element, number>} */
+  const hideTimers = new WeakMap();
+
+  const flyoutOpenOn = (tile) => {
+    if (!tile) return false;
+    if (tile.querySelector?.(".is-flyout-open")) return true;
+    if (tile.querySelector?.("#match-more-menu:not([hidden])")) return true;
+    // Settings flyout is portaled in body but triggered from local rail
+    if (
+      tile.id === "tile-local" &&
+      $("settings-sheet") &&
+      !$("settings-sheet").hidden &&
+      $("settings-sheet").classList.contains("is-open")
+    ) {
+      return true;
+    }
+    if (
+      tile.id === "tile-remote" &&
+      (($("friends-sheet") &&
+        !$("friends-sheet").hidden &&
+        $("friends-sheet").classList.contains("is-open")) ||
+        ($("messages-sheet") &&
+          !$("messages-sheet").hidden &&
+          $("messages-sheet").classList.contains("is-open")))
+    ) {
+      return true;
+    }
+    return false;
+  };
+
+  const clearHide = (tile) => {
+    const t = hideTimers.get(tile);
+    if (t) {
+      clearTimeout(t);
+      hideTimers.delete(tile);
     }
   };
+
   const scheduleHide = (tile) => {
-    clearHide();
-    hideTimer = setTimeout(() => {
-      tile?.classList.remove("is-chrome-open");
-      hideTimer = 0;
-    }, 3200);
+    if (!tile) return;
+    clearHide(tile);
+    const id = setTimeout(() => {
+      hideTimers.delete(tile);
+      if (flyoutOpenOn(tile)) {
+        // Keep open while flyout is up; re-check soon
+        scheduleHide(tile);
+        return;
+      }
+      tile.classList.remove("is-chrome-open");
+    }, CHROME_AUTOHIDE_MS);
+    hideTimers.set(tile, id);
   };
-  const openChrome = (tile, e) => {
-    // Don't steal clicks from buttons already visible
-    if (e?.target?.closest?.("button, input, a, select, textarea, label, .pill, .side-btn")) {
-      tile?.classList.add("is-chrome-open");
-      scheduleHide(tile);
-      return;
+
+  const showChrome = (tile) => {
+    if (!tile) return;
+    // Only one tile chrome at a time
+    if (remote && remote !== tile) {
+      remote.classList.remove("is-chrome-open");
+      clearHide(remote);
     }
-    const coarse =
-      window.matchMedia && window.matchMedia("(hover: none), (pointer: coarse)").matches;
-    if (!coarse && e?.type === "pointerdown") return; // desktop: CSS hover only
-    if (remote) remote.classList.toggle("is-chrome-open", tile === remote);
-    if (local) local.classList.toggle("is-chrome-open", tile === local);
+    if (local && local !== tile) {
+      local.classList.remove("is-chrome-open");
+      clearHide(local);
+    }
+    tile.classList.add("is-chrome-open");
     scheduleHide(tile);
   };
-  remote?.addEventListener(
-    "pointerdown",
-    (e) => openChrome(remote, e),
-    { passive: true }
-  );
-  local?.addEventListener(
-    "pointerdown",
-    (e) => openChrome(local, e),
-    { passive: true }
-  );
-  // Keep open while pointer is over chrome
+
+  const hideChromeSoon = (tile) => {
+    if (!tile) return;
+    // Short delay so moving between rail buttons doesn't flicker
+    clearHide(tile);
+    const id = setTimeout(() => {
+      hideTimers.delete(tile);
+      if (flyoutOpenOn(tile)) {
+        scheduleHide(tile);
+        return;
+      }
+      // Still inside tile? keep until full autohide timer from last move
+      if (tile.matches?.(":hover")) {
+        scheduleHide(tile);
+        return;
+      }
+      tile.classList.remove("is-chrome-open");
+    }, 200);
+    hideTimers.set(tile, id);
+  };
+
   [remote, local].forEach((tile) => {
     if (!tile) return;
-    tile.addEventListener("pointerenter", () => {
-      clearHide();
-      tile.classList.add("is-chrome-open");
-    });
-    tile.addEventListener("pointerleave", () => {
-      scheduleHide(tile);
-    });
+    tile.addEventListener(
+      "pointerenter",
+      () => {
+        showChrome(tile);
+      },
+      { passive: true }
+    );
+    tile.addEventListener(
+      "pointermove",
+      () => {
+        // Any movement restarts the 3s clock
+        if (!tile.classList.contains("is-chrome-open")) showChrome(tile);
+        else scheduleHide(tile);
+      },
+      { passive: true }
+    );
+    tile.addEventListener(
+      "pointerdown",
+      () => {
+        showChrome(tile);
+      },
+      { passive: true }
+    );
+    tile.addEventListener(
+      "pointerleave",
+      () => {
+        hideChromeSoon(tile);
+      },
+      { passive: true }
+    );
   });
+
+  // Activity on controls also resets timer
+  document.addEventListener(
+    "pointerdown",
+    (e) => {
+      const tile = e.target?.closest?.(".tile-remote, .tile-local");
+      if (tile) showChrome(tile);
+    },
+    { passive: true }
+  );
 }
 
 function showFriendRequestToast(msg) {
