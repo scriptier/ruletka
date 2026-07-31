@@ -1548,7 +1548,7 @@
     if (!BUNDLED.has(c) && STR[c]) return Promise.resolve(STR[c]);
     if (loading[c]) return loading[c];
     // Always fetch /i18n/{code}.json and merge over built-ins (en/ru too)
-    loading[c] = fetch(`/i18n/${c}.json?v=35`, { cache: "force-cache" })
+    loading[c] = fetch(`/i18n/${c}.json?v=36`, { cache: "force-cache" })
       .then((r) => {
         if (!r.ok) throw new Error("lang pack " + c);
         return r.json();

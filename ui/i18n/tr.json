@@ -287,7 +287,7 @@
   "hub.reset": "Bu sayfanın hub’ı kullanılıyor",
   "hub.runOwn": "Kendi hub’ınız: github.com/scriptier/ruletka",
   "hub.switched": "Hub değiştirildi → {h}",
-  "hub.switchedBody": "Eşleştirme artık {h} üzerinden.",
+  "hub.switchedBody": "Eşleştirme {h} üzerinden. Video mümkün olduğunda eşler arası kalır.",
   "hub.switchedTitle": "Hub değiştirildi",
   "hub.usePage": "Bu sayfanın hub’ını kullan",
   "keys.blur": "Partneri bulanıklaştır",

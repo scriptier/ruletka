@@ -287,7 +287,7 @@
   "hub.reset": "Usando el hub de esta página",
   "hub.runOwn": "Tu propio hub: github.com/scriptier/ruletka",
   "hub.switched": "Hub cambiado → {h}",
-  "hub.switchedBody": "Ahora usas {h} para el emparejamiento.",
+  "hub.switchedBody": "Matchmaking vía {h}. El vídeo sigue peer-to-peer cuando es posible.",
   "hub.switchedTitle": "Hub cambiado",
   "hub.usePage": "Usar el hub de esta página",
   "keys.blur": "Desenfocar partner",

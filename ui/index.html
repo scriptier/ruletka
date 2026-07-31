@@ -6,7 +6,7 @@
   <title>ruletka.vip — чат рулетка peer-to-peer | random video chat</title>
   <meta name="description" content="ruletka.vip — чат-рулетка с peer-to-peer видео. Случайный видеочат без аккаунта: друзья, блок, жалобы. Random P2P video chat roulette." />
   <meta name="keywords" content="чат рулетка, video chat, chat roulette, peer-to-peer, p2p, видеочат, ruletka, случайный чат" />
-  <meta name="theme-color" content="#0a0b0e" />
+  <meta name="theme-color" content="#07080c" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="robots" content="index, follow, max-image-preview:large" />
   <link rel="canonical" href="https://ruletka.vip/" />
@@ -42,7 +42,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="home.css?v=79" />
+  <link rel="stylesheet" href="home.css?v=80" />
   <script src="brand.js?v=2"></script>
   <script src="analytics.js?v=1" defer></script>
   <script src="pwa-install.js?v=6" defer></script>
@@ -587,17 +587,28 @@
         }
       })();
 
-      // Share site (native share sheet or clipboard)
+      // Share site (native share sheet or clipboard) — richer text when people online
       var shareBtn = document.getElementById("btn-share-site");
       if (shareBtn) {
         shareBtn.addEventListener("click", function () {
-          var url = location.origin + "/";
+          var url = location.origin + "/live.html?ref=share";
           var brand =
             (window.RuletBrand && RuletBrand.name && RuletBrand.name()) ||
             "ruletka.vip";
           var title = brand + " — peer-to-peer chat roulette";
           var dict = packCache[getLang()] || STR[getLang()] || STR.en;
           var okLabel = (dict && dict["home.shareOk"]) || "Link copied";
+          var onlineEl = document.getElementById("home-stat-online");
+          var n = onlineEl
+            ? parseInt(String(onlineEl.textContent || "0").replace(/\D/g, ""), 10) || 0
+            : 0;
+          var text =
+            n > 1
+              ? title +
+                " · " +
+                n +
+                " online. Random P2P video chat — no account."
+              : title + " · Random P2P video chat — no account required.";
           var done = function () {
             var prev = shareBtn.textContent;
             shareBtn.textContent = okLabel;
@@ -608,16 +619,17 @@
           };
           if (navigator.share) {
             navigator
-              .share({ title: title, url: url, text: title })
+              .share({ title: title, url: url, text: text })
               .then(done)
               .catch(function () {});
             return;
           }
+          var clip = text + " " + url;
           if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(url).then(done).catch(function () {});
+            navigator.clipboard.writeText(clip).then(done).catch(function () {});
           } else {
             var ta = document.createElement("textarea");
-            ta.value = url;
+            ta.value = clip;
             document.body.appendChild(ta);
             ta.select();
             try {

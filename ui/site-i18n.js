@@ -16,7 +16,7 @@
     { code: "pl", native: "Polski" },
     { code: "zh", native: "中文" },
   ];
-  var PACK_V = "35";
+  var PACK_V = "36";
   var packCache = {};
   var current = "ru";
 

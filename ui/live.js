@@ -7496,11 +7496,19 @@ function renameFriendPrompt(userId, currentName) {
 }
 
 const EXPORT_NUDGE_KEY = "ruletka-export-nudge-done-v1";
+/** Last time we showed the export nudge (ms) — allows a soft re-ask if never exported. */
+const EXPORT_NUDGE_SHOWN_AT_KEY = "ruletka-export-nudge-shown-at-v1";
+const EXPORT_NUDGE_RETRY_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
 const IMPORT_BACKUP_NUDGE_KEY = "ruletka-import-backup-nudge-v1";
 
 function exportNudgeDone() {
   try {
-    return localStorage.getItem(EXPORT_NUDGE_KEY) === "1";
+    // Explicit dismiss or successful export
+    if (localStorage.getItem(EXPORT_NUDGE_KEY) === "1") return true;
+    // Soft: re-show after a few days if they never acted
+    const shown = Number(localStorage.getItem(EXPORT_NUDGE_SHOWN_AT_KEY) || 0);
+    if (shown && Date.now() - shown < EXPORT_NUDGE_RETRY_MS) return true;
+    return false;
   } catch {
     return true;
   }
@@ -7509,6 +7517,12 @@ function exportNudgeDone() {
 function markExportNudgeDone() {
   try {
     localStorage.setItem(EXPORT_NUDGE_KEY, "1");
+  } catch (_) {}
+}
+
+function markExportNudgeShown() {
+  try {
+    localStorage.setItem(EXPORT_NUDGE_SHOWN_AT_KEY, String(Date.now()));
   } catch (_) {}
 }
 
@@ -7562,15 +7576,20 @@ function maybeShowImportBackupNudge() {
   setTimeout(dismiss, 22000);
 }
 
-/** One soft toast after first friend — never repeats; not a forced onboarding flow. */
-function maybeShowFirstFriendExportNudge() {
+/**
+ * Soft toast after first friend / mutual accept.
+ * Marks permanent done only on Export or Later — auto-hide can re-show after 3 days.
+ */
+function maybeShowFirstFriendExportNudge(reason) {
   if (exportNudgeDone()) return;
-  if ($("export-nudge-toast") || $("import-backup-nudge")) return;
-  markExportNudgeDone();
+  if ($("export-nudge-toast") || $("import-backup-nudge") || $("alone-invite-toast"))
+    return;
+  markExportNudgeShown();
   const toast = document.createElement("div");
   toast.id = "export-nudge-toast";
   toast.className = "export-nudge-toast";
   toast.setAttribute("role", "status");
+  toast.style.pointerEvents = "auto";
   toast.innerHTML = `
     <p>${escapeHtml(
       _t("friends.exportNudge") ||
@@ -7585,15 +7604,22 @@ function maybeShowFirstFriendExportNudge() {
       )}</button>
     </div>`;
   document.body.appendChild(toast);
-  const dismiss = () => {
+  trackEvent("export_nudge_show", { reason: reason || "first_friend" });
+  const dismiss = (permanent) => {
+    if (permanent) markExportNudgeDone();
     if (toast.parentNode) toast.remove();
   };
-  $("btn-export-nudge-later")?.addEventListener("click", dismiss);
-  $("btn-export-nudge-now")?.addEventListener("click", () => {
-    exportProfileFile();
-    dismiss();
+  $("btn-export-nudge-later")?.addEventListener("click", () => {
+    trackEvent("export_nudge_later");
+    dismiss(true);
   });
-  setTimeout(dismiss, 20000);
+  $("btn-export-nudge-now")?.addEventListener("click", () => {
+    trackEvent("export_nudge_export");
+    exportProfileFile();
+    dismiss(true);
+  });
+  // Auto-hide without permanent dismiss — may re-ask after retry window
+  setTimeout(() => dismiss(false), 22000);
 }
 
 function closeAllFriendMoreMenus() {
@@ -7978,16 +8004,34 @@ function showHubSwitchedToast(base) {
     toast.id = id;
     toast.className = "friend-soft-toast friend-soft-toast-ok hub-switch-toast";
     toast.setAttribute("role", "status");
+    toast.style.pointerEvents = "auto";
     toast.innerHTML = `
       <strong>${escapeHtml(_t("hub.switchedTitle") || "Switched hub")}</strong>
       <span>${escapeHtml(
         _t("hub.switchedBody", { h: host }) ||
-          `Now using ${host} for matchmaking.`
-      )}</span>`;
+          `Matchmaking via ${host}. Video stays peer-to-peer when possible.`
+      )}</span>
+      <div class="export-nudge-actions" style="margin-top:0.4rem">
+        <button type="button" class="pill tight ghost" id="btn-hub-toast-ok">${escapeHtml(
+          _t("friends.exportNudgeLater") || "OK"
+        )}</button>
+        <button type="button" class="pill tight" id="btn-hub-toast-settings">${escapeHtml(
+          _t("settings.secHub") || "Network hub"
+        )}</button>
+      </div>`;
     document.body.appendChild(toast);
-    setTimeout(() => {
+    const dismiss = () => {
       if (toast.parentNode) toast.remove();
-    }, 6500);
+    };
+    $("btn-hub-toast-ok")?.addEventListener("click", dismiss);
+    $("btn-hub-toast-settings")?.addEventListener("click", () => {
+      dismiss();
+      try {
+        openSettings();
+        showSettingsView("hub");
+      } catch (_) {}
+    });
+    setTimeout(dismiss, 8000);
   } catch (_) {}
 }
 
@@ -8289,19 +8333,23 @@ function handleServer(msg) {
           }
         }
         // Mutual accept completed: someone we requested (or any new friend) landed
+        let acceptedNew = false;
         if (prevCount > 0 || prevOutgoingIds.size || prevFriendIds.size) {
           for (const f of friendsCache) {
             if (!f.user_id || prevFriendIds.has(f.user_id)) continue;
             // New friend row — celebrate Accept (skip first full list hydrate when prev was empty)
             if (prevFriendIds.size || prevOutgoingIds.has(f.user_id)) {
               showFriendAcceptedToast(f);
+              acceptedNew = true;
               break; // one toast is enough
             }
           }
         }
-        // One-time export nudge after first friend lands (0 → >0)
+        // Export nudge: first friend (0→1) or after a mutual accept
         if (prevCount === 0 && friendsCache.length > 0) {
-          maybeShowFirstFriendExportNudge();
+          maybeShowFirstFriendExportNudge("first_friend");
+        } else if (acceptedNew) {
+          setTimeout(() => maybeShowFirstFriendExportNudge("friend_accept"), 2800);
         }
         renderFriendsList();
         renderRequestLists();

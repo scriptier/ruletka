@@ -287,7 +287,7 @@
   "hub.reset": "正在使用此页面的 hub",
   "hub.runOwn": "运行自己的 hub：github.com/scriptier/ruletka",
   "hub.switched": "已切换 hub → {h}",
-  "hub.switchedBody": "匹配现已使用 {h}。",
+  "hub.switchedBody": "匹配经 {h}。视频在可能时仍为点对点。",
   "hub.switchedTitle": "已切换枢纽",
   "hub.usePage": "使用此页面的 hub",
   "keys.blur": "模糊对方",
