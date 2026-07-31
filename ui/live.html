@@ -512,10 +512,13 @@
             Enable camera
           </button>
         </div>
-        <div class="tile-tag">
-          <span class="tile-avatar" id="local-avatar" hidden><img id="local-avatar-img" alt="" /></span>
-          <span class="name-on-tile" id="local-name">anon</span>
+        <!-- Local identity: flag + name top-left (stacked); avatar top-right -->
+        <div class="tile-tag tile-tag-local-name" id="local-name-tag">
+          <span class="name-on-tile name-on-tile-stack" id="local-name">anon</span>
         </div>
+        <span class="tile-avatar tile-avatar-local" id="local-avatar" hidden>
+          <img id="local-avatar-img" alt="" />
+        </span>
         <aside class="side-rail side-rail-right">
           <!-- Cam on/off fully removed — use Hide (self-blur) for privacy; camera stays on for preview -->
           <button type="button" class="side-btn" id="btn-flip-cam" data-i18n-title="btn.flipCamTitle" title="Reverse camera — front / back (C)" aria-label="Reverse camera">

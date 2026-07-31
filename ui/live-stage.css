@@ -12190,3 +12190,105 @@ html.chrome-always .tile-local .tile-floor-local {
 #empty-alone-actions {
   display: none !important;
 }
+
+/* Local tile identity layout: flag+name top-left (name under flag), avatar top-right */
+.tile-local .tile-tag-local-name {
+  position: absolute;
+  top: 0.55rem;
+  left: 0.55rem;
+  right: auto;
+  bottom: auto;
+  z-index: 4;
+  display: flex;
+  align-items: flex-start;
+  max-width: min(42%, 11rem);
+  pointer-events: none;
+}
+.tile-local .name-on-tile-stack,
+.tile-local #local-name.name-on-tile {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 0.12rem;
+  padding: 0.35rem 0.55rem 0.4rem;
+  border-radius: 12px;
+  white-space: normal;
+  max-width: 100%;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.tile-local #local-name.name-on-tile .name-flag {
+  font-size: 1.85rem;
+  line-height: 1;
+  margin: 0;
+}
+.tile-local #local-name.name-on-tile .name-text {
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.15;
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* When no flag, plain text name still fits the pill */
+.tile-local #local-name.name-on-tile:not(:has(.name-flag)) {
+  flex-direction: row;
+  align-items: center;
+  padding: 0.28rem 0.6rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.tile-local .tile-avatar-local {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.55rem;
+  left: auto;
+  bottom: auto;
+  z-index: 4;
+  width: 3.35rem;
+  height: 3.35rem;
+  border-radius: 999px;
+  overflow: hidden;
+  flex-shrink: 0;
+  border: 2px solid rgba(255, 255, 255, 0.32);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  background: #141a22;
+  pointer-events: none;
+}
+.tile-local .tile-avatar-local img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.tile-local .tile-avatar-local[hidden] {
+  display: none !important;
+}
+@media (max-width: 720px) {
+  .tile-local .tile-avatar-local {
+    width: 2.85rem;
+    height: 2.85rem;
+    top: 0.4rem;
+    right: 0.4rem;
+  }
+  .tile-local .tile-tag-local-name {
+    top: 0.4rem;
+    left: 0.4rem;
+    max-width: min(48%, 9.5rem);
+  }
+  .tile-local #local-name.name-on-tile .name-flag {
+    font-size: 1.55rem;
+  }
+  .tile-local #local-name.name-on-tile .name-text {
+    font-size: 0.72rem;
+    max-width: 7.5rem;
+  }
+}
+/* Leave room for avatar when chrome shows top-right */
+html.chrome-autohide .tile-local.is-chrome-open .tile-avatar-local {
+  /* stays top-right; side rail is bottom */
+}
