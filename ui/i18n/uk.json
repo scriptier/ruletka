@@ -435,5 +435,9 @@
   "settings.exportDone": "Файл профілю завантажено",
   "settings.importDone": "Профіль імпортовано — перезавантаження",
   "settings.importBad": "Невірний файл профілю",
-  "settings.importConfirm": "Замінити особу цього браузера ({cur}) на з файлу ({id})?"
+  "settings.importConfirm": "Замінити особу цього браузера ({cur}) на з файлу ({id})?",
+  "btn.stop": "Стоп",
+  "btn.stopTitle": "Зупинити пошук / вийти",
+  "log.stopped": "стоп",
+  "status.stopped": "Зупинено"
 }

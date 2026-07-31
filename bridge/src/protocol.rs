@@ -33,6 +33,8 @@ pub enum ClientMsg {
         #[serde(default)]
         room: String,
     },
+    /// Leave queue / end stranger match and return to idle (do not auto-search).
+    Stop,
     SetRoom {
         #[serde(default)]
         room: String,

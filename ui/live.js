@@ -4093,10 +4093,36 @@ on("btn-next", "click", () => {
     clearChat();
   }
   setArchPill("default");
+  setFedChip(false);
   updateFriendActionButtons();
   send(nextPayload());
   updateConnFromState();
   log(_t("log.next"));
+});
+
+/** Stop: leave queue / end stranger match; do not auto-search again. */
+on("btn-stop", "click", () => {
+  pendingSignals.length = 0;
+  wantSearch = false;
+  matched = false;
+  inFriendCall = false;
+  matchMode = "solo";
+  yourRole = "solo";
+  primaryPartnerUserId = "";
+  closeAllPeers({ keepFriend: false });
+  setSplitRemote(false);
+  setRemoteEmpty(true);
+  resetRemoteEmptyCopy();
+  setArchPill("default");
+  setFedChip(false);
+  clearChat();
+  showChatPanel(false);
+  updateFriendActionButtons();
+  send({ type: "stop" });
+  setPhase("idle");
+  setStatus(_t("status.stopped") || _t("phase.idle"));
+  updateConnFromState();
+  log(_t("log.stopped") || "stopped");
 });
 
 function onRoomInput(e) {

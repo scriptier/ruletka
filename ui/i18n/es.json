@@ -435,5 +435,9 @@
   "settings.exportDone": "Archivo de perfil descargado",
   "settings.importDone": "Perfil importado — recargando",
   "settings.importBad": "Archivo de perfil inválido",
-  "settings.importConfirm": "¿Reemplazar la identidad de este navegador ({cur}) por la del archivo ({id})?"
+  "settings.importConfirm": "¿Reemplazar la identidad de este navegador ({cur}) por la del archivo ({id})?",
+  "btn.stop": "Parar",
+  "btn.stopTitle": "Dejar de buscar / salir",
+  "log.stopped": "parado",
+  "status.stopped": "Parado"
 }

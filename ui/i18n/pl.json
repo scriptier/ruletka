@@ -435,5 +435,9 @@
   "settings.exportDone": "Pobrano plik profilu",
   "settings.importDone": "Zaimportowano profil — przeładowanie",
   "settings.importBad": "Nieprawidłowy plik profilu",
-  "settings.importConfirm": "Zastąpić tożsamość tej przeglądarki ({cur}) plikiem ({id})?"
+  "settings.importConfirm": "Zastąpić tożsamość tej przeglądarki ({cur}) plikiem ({id})?",
+  "btn.stop": "Stop",
+  "btn.stopTitle": "Zatrzymaj szukanie / wyjdź",
+  "log.stopped": "zatrzymano",
+  "status.stopped": "Zatrzymano"
 }

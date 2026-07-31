@@ -1463,6 +1463,10 @@ impl SimpleHub {
     }
 
     fn clear_match_state(&mut self, id: Uuid) {
+        self.clear_match_state_with_partner_msg(id, "partner hit Next — searching again");
+    }
+
+    fn clear_match_state_with_partner_msg(&mut self, id: Uuid, partner_msg: &str) {
         let peers: Vec<Uuid> = self
             .clients
             .get(&id)
@@ -1474,7 +1478,7 @@ impl SimpleHub {
             c.partner = None;
             c.session_peers.clear();
             c.session_id = None;
-            if c.phase == Phase::Matched {
+            if c.phase == Phase::Matched || c.phase == Phase::Waiting {
                 c.phase = Phase::Idle;
             }
         }
@@ -1485,8 +1489,29 @@ impl SimpleHub {
             if is_friend {
                 continue;
             }
-            self.unmatch_one(p, "partner hit Next — searching again");
+            self.unmatch_one(p, partner_msg);
         }
+    }
+
+    /// Leave waiting queue and/or stranger match; do not re-queue.
+    fn stop_matchmaking(&mut self, id: Uuid) {
+        if self.clients.get(&id).and_then(|c| c.friend_call).is_some() {
+            self.end_friend_call(id, "stopped");
+        }
+        if self.clients.get(&id).and_then(|c| c.party_with).is_some() {
+            // Drop party link and leave stranger queue/match
+            if let Some(c) = self.clients.get_mut(&id) {
+                c.party_with = None;
+            }
+        }
+        self.clear_match_state_with_partner_msg(id, "partner stopped");
+        if let Some(c) = self.clients.get_mut(&id) {
+            c.phase = Phase::Idle;
+            c.party_with = None;
+            c.friend_call = None;
+        }
+        self.status(id, "stopped — idle");
+        self.broadcast_lobby_info();
     }
 
     pub fn handle(&mut self, id: Uuid, msg: ClientMsg) {
@@ -1571,6 +1596,9 @@ impl SimpleHub {
                 } else {
                     self.enter_waiting_solo(id, room, "next — searching again");
                 }
+            }
+            ClientMsg::Stop => {
+                self.stop_matchmaking(id);
             }
             ClientMsg::BrowseTogether { room } => {
                 let room = if room.trim().is_empty() {

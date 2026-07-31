@@ -1484,6 +1484,22 @@ html.stage-html {
 .dock-row-context:empty { display: none; }
 .dock-row-main {
   gap: 0.5rem;
+  align-items: center;
+}
+.stop-in-tile {
+  flex: 0 0 auto;
+  min-width: 4.25rem;
+  font-weight: 650;
+}
+#btn-stop.dock-pill.danger {
+  border-color: rgba(243, 18, 96, 0.4);
+  background: rgba(48, 16, 28, 0.88);
+  color: #ffb3c9;
+}
+#btn-stop.dock-pill.danger:hover {
+  border-color: rgba(255, 80, 120, 0.65);
+  background: rgba(70, 20, 36, 0.95);
+  color: #fff;
 }
 
 .dock-pill {

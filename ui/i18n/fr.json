@@ -435,5 +435,9 @@
   "settings.exportDone": "Fichier de profil téléchargé",
   "settings.importDone": "Profil importé — rechargement",
   "settings.importBad": "Fichier de profil invalide",
-  "settings.importConfirm": "Remplacer l’identité de ce navigateur ({cur}) par celle du fichier ({id}) ?"
+  "settings.importConfirm": "Remplacer l’identité de ce navigateur ({cur}) par celle du fichier ({id}) ?",
+  "btn.stop": "Stop",
+  "btn.stopTitle": "Arrêter la recherche / quitter",
+  "log.stopped": "arrêté",
+  "status.stopped": "Arrêté"
 }

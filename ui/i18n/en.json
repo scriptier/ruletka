@@ -443,5 +443,9 @@
   "settings.importDone": "Profile imported — reloading",
   "settings.importFail": "Import failed",
   "settings.importBad": "Invalid profile file",
-  "settings.importConfirm": "Replace this browser’s identity ({cur}) with the file’s identity ({id})? Friends on this hub will follow the imported id."
+  "settings.importConfirm": "Replace this browser’s identity ({cur}) with the file’s identity ({id})? Friends on this hub will follow the imported id.",
+  "btn.stop": "Stop",
+  "btn.stopTitle": "Stop searching / leave call",
+  "log.stopped": "stopped",
+  "status.stopped": "Stopped"
 }

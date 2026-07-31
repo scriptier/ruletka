@@ -435,5 +435,9 @@
   "settings.exportDone": "Profil dosyası indirildi",
   "settings.importDone": "Profil içe aktarıldı — yenileniyor",
   "settings.importBad": "Geçersiz profil dosyası",
-  "settings.importConfirm": "Bu tarayıcının kimliği ({cur}) dosyadakiyle ({id}) değiştirilsin mi?"
+  "settings.importConfirm": "Bu tarayıcının kimliği ({cur}) dosyadakiyle ({id}) değiştirilsin mi?",
+  "btn.stop": "Dur",
+  "btn.stopTitle": "Aramayı durdur / çık",
+  "log.stopped": "durdu",
+  "status.stopped": "Durdu"
 }
