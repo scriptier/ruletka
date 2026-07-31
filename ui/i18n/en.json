@@ -38,8 +38,8 @@
   "settings.sumNsfw": "Skip",
   "settings.sumSound": "Sound",
   "settings.sumOff": "All off",
-  "settings.blurFirst": "Blur strangers until I unblur",
-  "settings.blurFirstHint": "Partner video starts blurred",
+  "settings.blurFirst": "Keep strangers blurred until I unblur",
+  "settings.blurFirstHint": "Off = auto-unblur after 2 seconds (default)",
   "settings.nsfwHintShort": "On-device AI · not perfect",
   "log.blurFirst": "partner blurred (safety) — tap Blur to show",
   "log.turnEphemeral": "TURN: short-lived credentials",
@@ -491,5 +491,7 @@
   "avatar.none": "No photo",
   "avatar.set": "Set",
   "avatar.notImage": "Please choose an image file",
-  "home.donate": "Donate"
+  "home.donate": "Donate",
+  "log.blurIntro": "partner blurred 2s — Next if needed",
+  "log.blurIntroDone": "partner unblurred"
 }

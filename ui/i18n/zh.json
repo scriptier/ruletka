@@ -38,8 +38,8 @@
   "settings.sumNsfw": "跳过",
   "settings.sumSound": "声音",
   "settings.sumOff": "全部关闭",
-  "settings.blurFirst": "陌生人先模糊，直到我取消",
-  "settings.blurFirstHint": "对方视频初始为模糊",
+  "settings.blurFirst": "保持模糊直到我取消",
+  "settings.blurFirstHint": "关闭 = 2 秒后自动清晰（默认）",
   "settings.nsfwHintShort": "设备端 AI · 并非完美",
   "log.blurFirst": "对方已模糊（安全）— 点「模糊」显示",
   "log.turnEphemeral": "TURN：短期凭证",
@@ -482,5 +482,7 @@
   "avatar.none": "无照片",
   "avatar.set": "已设置",
   "avatar.notImage": "请选择图片文件",
-  "home.donate": "捐赠"
+  "home.donate": "捐赠",
+  "log.blurIntro": "对方已模糊 2 秒 — 需要可点「下一个」",
+  "log.blurIntroDone": "已取消模糊"
 }

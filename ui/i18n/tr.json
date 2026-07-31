@@ -38,8 +38,8 @@
   "settings.sumNsfw": "Atla",
   "settings.sumSound": "Ses",
   "settings.sumOff": "Hepsi kapalı",
-  "settings.blurFirst": "Yabancılar bulanık kalsın, ben açana kadar",
-  "settings.blurFirstHint": "Partner videosu bulanık başlar",
+  "settings.blurFirst": "Ben kaldırana kadar bulanık tut",
+  "settings.blurFirstHint": "Kapalı = 2 sn sonra net (varsayılan)",
   "settings.nsfwHintShort": "Cihazda yapay zekâ · kusursuz değil",
   "log.blurFirst": "partner bulanık (güvenlik) — göstermek için Bulanık’a dokunun",
   "log.turnEphemeral": "TURN: kısa ömürlü kimlik bilgileri",
@@ -482,5 +482,7 @@
   "avatar.none": "Foto yok",
   "avatar.set": "Var",
   "avatar.notImage": "Lütfen bir görsel dosyası seçin",
-  "home.donate": "Bağış"
+  "home.donate": "Bağış",
+  "log.blurIntro": "eşleşme 2 sn bulanık — gerekirse Sonraki",
+  "log.blurIntroDone": "bulanıklık kalktı"
 }

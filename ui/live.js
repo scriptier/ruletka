@@ -268,9 +268,47 @@ function saveIdentity(partial) {
   return next;
 }
 
+/** Keep strangers blurred until the user taps Blur (opt-in). Default off. */
 function blurFirstEnabled() {
   const prefs = loadPrefs();
-  return prefs.blurFirst !== false; // default ON
+  return prefs.blurFirst === true;
+}
+
+/** Timed safety blur on new stranger matches (then auto-clear unless blur-first). */
+const INTRO_BLUR_MS = 2000;
+let introBlurTimer = 0;
+let introBlurGen = 0;
+
+function clearIntroBlurTimer() {
+  if (introBlurTimer) {
+    clearTimeout(introBlurTimer);
+    introBlurTimer = 0;
+  }
+}
+
+/**
+ * Blur a new stranger for INTRO_BLUR_MS so the user can Next/Stop if needed,
+ * then unblur automatically — unless Settings → "keep blurred" is on.
+ */
+function applyStrangerIntroBlur() {
+  clearIntroBlurTimer();
+  setPartnerBlur(true);
+  if (blurFirstEnabled()) {
+    log(_t("log.blurFirst"));
+    return;
+  }
+  log(_t("log.blurIntro") || "partner blurred 2s — Next if needed");
+  const gen = ++introBlurGen;
+  introBlurTimer = setTimeout(() => {
+    introBlurTimer = 0;
+    if (gen !== introBlurGen) return;
+    if (!matched) return;
+    // Friends / hangup may have cleared match
+    if (blurFirstEnabled()) return;
+    if (!partnerBlurred) return; // user already unblurred
+    setPartnerBlur(false);
+    log(_t("log.blurIntroDone") || "partner unblurred");
+  }, INTRO_BLUR_MS);
 }
 
 /** Current display name for UI + server (falls back to short id / anon). */
@@ -1933,6 +1971,9 @@ function setPartnerBlur(on) {
 }
 
 function togglePartnerBlur() {
+  // User took control — cancel pending auto-unblur
+  clearIntroBlurTimer();
+  introBlurGen++;
   setPartnerBlur(!partnerBlurred);
   log(partnerBlurred ? _t("log.blurOn") : _t("log.blurOff"));
 }
@@ -2656,7 +2697,7 @@ function syncSettingsSummary() {
   if ($("settings-safety-summary")) {
     const prefs = loadPrefs();
     const parts = [];
-    if (prefs.blurFirst !== false) parts.push(_t("settings.sumBlur"));
+    if (prefs.blurFirst === true) parts.push(_t("settings.sumBlur"));
     if (prefs.nsfwAuto !== false) parts.push(_t("settings.sumNsfw"));
     if (typeof prefs.matchSound === "boolean" ? prefs.matchSound : true) {
       parts.push(_t("settings.sumSound"));
@@ -3484,12 +3525,14 @@ function handleMatched(msg) {
     kind: matchMode === "friend" ? "friend" : "stranger",
     ...lastMatchMeta,
   });
-  // Blur-first for strangers (safety); friends start clear. NSFW watch for strangers.
+  // Strangers: 2s intro blur (auto-clear) or permanent if blur-first is on.
+  // Friends start clear.
   const isFriendMatch = matchMode === "friend" || inFriendCall;
-  if (!isFriendMatch && blurFirstEnabled()) {
-    setPartnerBlur(true);
-    log(_t("log.blurFirst"));
+  if (!isFriendMatch) {
+    applyStrangerIntroBlur();
   } else {
+    clearIntroBlurTimer();
+    introBlurGen++;
     setPartnerBlur(false);
   }
   startNsfwWatch();
@@ -3570,6 +3613,8 @@ function handleIncomingSignal(msg) {
 
 function closeAllPeers({ keepFriend = false } = {}) {
   stopMatchTimer();
+  clearIntroBlurTimer();
+  introBlurGen++;
   for (const [pid, pc] of [...peerPcs.entries()]) {
     const keep =
       keepFriend &&
@@ -5053,7 +5098,7 @@ syncMatchPrefsUi();
     $("chk-nsfw-auto").checked = prefs.nsfwAuto !== false;
   }
   if ($("chk-blur-first")) {
-    $("chk-blur-first").checked = prefs.blurFirst !== false;
+    $("chk-blur-first").checked = prefs.blurFirst === true;
   }
   // Name from URL ?name= or saved identity
   const nameQ = q.get("name");

@@ -38,8 +38,8 @@
   "settings.sumNsfw": "Skip",
   "settings.sumSound": "Sonido",
   "settings.sumOff": "Todo off",
-  "settings.blurFirst": "Desenfocar desconocidos hasta que quite el blur",
-  "settings.blurFirstHint": "El vídeo del partner empieza desenfocado",
+  "settings.blurFirst": "Mantener desenfoque hasta que lo quite",
+  "settings.blurFirstHint": "Off = quitar desenfoque a los 2 s (predeterminado)",
   "settings.nsfwHintShort": "IA en el dispositivo · no es perfecta",
   "log.blurFirst": "partner desenfocado (seguridad) — toca Desenfoque para mostrar",
   "log.turnEphemeral": "TURN: credenciales de corta duración",
@@ -482,5 +482,7 @@
   "avatar.none": "Sin foto",
   "avatar.set": "Lista",
   "avatar.notImage": "Elige un archivo de imagen",
-  "home.donate": "Donar"
+  "home.donate": "Donar",
+  "log.blurIntro": "partner desenfocado 2 s — Siguiente si hace falta",
+  "log.blurIntroDone": "partner nítido"
 }

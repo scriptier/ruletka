@@ -38,8 +38,8 @@
   "settings.sumNsfw": "Skip",
   "settings.sumSound": "Ton",
   "settings.sumOff": "Alles aus",
-  "settings.blurFirst": "Fremde unscharf, bis ich aufhebe",
-  "settings.blurFirstHint": "Partnervideo startet unscharf",
+  "settings.blurFirst": "Unschärfe behalten, bis ich aufhebe",
+  "settings.blurFirstHint": "Aus = nach 2 Sek. scharf (Standard)",
   "settings.nsfwHintShort": "KI auf dem Gerät · nicht perfekt",
   "log.blurFirst": "Partner unscharf (Sicherheit) — Unschärfe tippen zum Zeigen",
   "log.turnEphemeral": "TURN: kurzlebige Zugangsdaten",
@@ -482,5 +482,7 @@
   "avatar.none": "Kein Foto",
   "avatar.set": "Gesetzt",
   "avatar.notImage": "Bitte eine Bilddatei wählen",
-  "home.donate": "Spenden"
+  "home.donate": "Spenden",
+  "log.blurIntro": "Partner 2 s unscharf — Weiter bei Bedarf",
+  "log.blurIntroDone": "Partner scharf"
 }

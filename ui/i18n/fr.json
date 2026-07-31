@@ -38,8 +38,8 @@
   "settings.sumNsfw": "Skip",
   "settings.sumSound": "Son",
   "settings.sumOff": "Tout off",
-  "settings.blurFirst": "Flouter les inconnus jusqu’à ce que je lève le flou",
-  "settings.blurFirstHint": "La vidéo partenaire commence floutée",
+  "settings.blurFirst": "Garder le flou jusqu’à ce que je lève",
+  "settings.blurFirstHint": "Off = net après 2 s (par défaut)",
   "settings.nsfwHintShort": "IA sur l’appareil · imparfaite",
   "log.blurFirst": "partenaire flouté (sécurité) — touchez Flou pour afficher",
   "log.turnEphemeral": "TURN : identifiants de courte durée",
@@ -482,5 +482,7 @@
   "avatar.none": "Pas de photo",
   "avatar.set": "Définie",
   "avatar.notImage": "Choisissez un fichier image",
-  "home.donate": "Faire un don"
+  "home.donate": "Faire un don",
+  "log.blurIntro": "partenaire flouté 2 s — Suivant si besoin",
+  "log.blurIntroDone": "partenaire net"
 }

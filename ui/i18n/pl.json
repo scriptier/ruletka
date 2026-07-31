@@ -38,8 +38,8 @@
   "settings.sumNsfw": "Skip",
   "settings.sumSound": "Dźwięk",
   "settings.sumOff": "Wszystko wył.",
-  "settings.blurFirst": "Rozmywaj obcych, aż odsłonię",
-  "settings.blurFirstHint": "Wideo partnera startuje rozmyte",
+  "settings.blurFirst": "Trzymaj rozmycie, aż sam usunę",
+  "settings.blurFirstHint": "Wył. = ostre po 2 s (domyślnie)",
   "settings.nsfwHintShort": "SI na urządzeniu · nieidealne",
   "log.blurFirst": "partner rozmyty (bezpieczeństwo) — dotknij Rozmycie, by pokazać",
   "log.turnEphemeral": "TURN: krótkie dane logowania",
@@ -482,5 +482,7 @@
   "avatar.none": "Brak zdjęcia",
   "avatar.set": "Ustawione",
   "avatar.notImage": "Wybierz plik obrazu",
-  "home.donate": "Wesprzyj"
+  "home.donate": "Wesprzyj",
+  "log.blurIntro": "partner rozmyty 2 s — Dalej w razie potrzeby",
+  "log.blurIntroDone": "partner ostry"
 }

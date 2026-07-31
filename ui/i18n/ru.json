@@ -38,8 +38,8 @@
   "settings.sumNsfw": "Скип",
   "settings.sumSound": "Звук",
   "settings.sumOff": "Всё выкл.",
-  "settings.blurFirst": "Блюр незнакомцев, пока не сниму",
-  "settings.blurFirstHint": "Видео собеседника сначала размыто",
+  "settings.blurFirst": "Держать блюр, пока не сниму",
+  "settings.blurFirstHint": "Выкл = снять блюр через 2 сек (по умолчанию)",
   "settings.nsfwHintShort": "ИИ на устройстве · не 100%",
   "log.blurFirst": "собеседник размыт (безопасность) — Blur чтобы показать",
   "log.turnEphemeral": "TURN: краткосрочные ключи",
@@ -491,5 +491,7 @@
   "avatar.none": "Нет фото",
   "avatar.set": "Есть",
   "avatar.notImage": "Выберите файл изображения",
-  "home.donate": "Донат"
+  "home.donate": "Донат",
+  "log.blurIntro": "собеседник размыт 2 сек — «Далее», если нужно",
+  "log.blurIntroDone": "блюр снят"
 }

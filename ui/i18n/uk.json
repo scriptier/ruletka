@@ -38,8 +38,8 @@
   "settings.sumNsfw": "Скіп",
   "settings.sumSound": "Звук",
   "settings.sumOff": "Усе вимк.",
-  "settings.blurFirst": "Блюр незнайомців, доки не зніму",
-  "settings.blurFirstHint": "Відео співрозмовника спочатку розмито",
+  "settings.blurFirst": "Тримати розмиття, доки не зніму",
+  "settings.blurFirstHint": "Вимк = зняти розмиття через 2 с (типово)",
   "settings.nsfwHintShort": "ШІ на пристрої · не 100%",
   "log.blurFirst": "співрозмовник розмитий (безпека) — Блюр щоб показати",
   "log.turnEphemeral": "TURN: короткострокові ключі",
@@ -482,5 +482,7 @@
   "avatar.none": "Немає фото",
   "avatar.set": "Є",
   "avatar.notImage": "Оберіть файл зображення",
-  "home.donate": "Донат"
+  "home.donate": "Донат",
+  "log.blurIntro": "співрозмовник розмитий 2 с — «Далі», якщо треба",
+  "log.blurIntroDone": "розмиття знято"
 }
