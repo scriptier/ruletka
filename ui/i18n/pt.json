@@ -439,5 +439,6 @@
   "btn.stop": "Parar",
   "btn.stopTitle": "Parar busca / sair",
   "log.stopped": "parado",
-  "status.stopped": "Parado"
+  "status.stopped": "Parado",
+  "srv.partnerStopped": "parceiro parou"
 }

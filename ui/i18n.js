@@ -402,6 +402,7 @@
 
       // server detail translations
       "srv.partnerNext": "partner hit Next — searching again",
+      "srv.partnerStopped": "partner stopped",
       "srv.partnerDisc": "partner disconnected — searching again",
       "srv.spun": "spun into lobby",
       "srv.nextSearch": "next — searching again",
@@ -791,6 +792,7 @@
       "rules.accept": "Войти в ruletka.vip",
 
       "srv.partnerNext": "собеседник нажал «Далее» — снова ищем",
+      "srv.partnerStopped": "собеседник остановился",
       "srv.partnerDisc": "собеседник отключился — снова ищем",
       "srv.spun": "в очереди",
       "srv.nextSearch": "далее — снова поиск",
@@ -808,6 +810,7 @@
   /** English server fragments → i18n keys */
   const SERVER_MAP = [
     [/partner hit Next/i, "srv.partnerNext"],
+    [/partner stopped/i, "srv.partnerStopped"],
     [/partner disconnected/i, "srv.partnerDisc"],
     [/spun into lobby/i, "srv.spun"],
     [/next — searching again/i, "srv.nextSearch"],

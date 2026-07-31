@@ -439,5 +439,6 @@
   "btn.stop": "Dur",
   "btn.stopTitle": "Aramayı durdur / çık",
   "log.stopped": "durdu",
-  "status.stopped": "Durdu"
+  "status.stopped": "Durdu",
+  "srv.partnerStopped": "eşleşme durduruldu"
 }

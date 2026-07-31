@@ -439,5 +439,6 @@
   "btn.stop": "Стоп",
   "btn.stopTitle": "Зупинити пошук / вийти",
   "log.stopped": "стоп",
-  "status.stopped": "Зупинено"
+  "status.stopped": "Зупинено",
+  "srv.partnerStopped": "співрозмовник зупинився"
 }

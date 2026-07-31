@@ -439,5 +439,6 @@
   "btn.stop": "Stop",
   "btn.stopTitle": "Arrêter la recherche / quitter",
   "log.stopped": "arrêté",
-  "status.stopped": "Arrêté"
+  "status.stopped": "Arrêté",
+  "srv.partnerStopped": "partenaire arrêté"
 }

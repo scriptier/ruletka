@@ -447,5 +447,6 @@
   "btn.stop": "Stop",
   "btn.stopTitle": "Stop searching / leave call",
   "log.stopped": "stopped",
-  "status.stopped": "Stopped"
+  "status.stopped": "Stopped",
+  "srv.partnerStopped": "partner stopped"
 }

@@ -439,5 +439,6 @@
   "btn.stop": "停止",
   "btn.stopTitle": "停止搜索 / 离开",
   "log.stopped": "已停止",
-  "status.stopped": "已停止"
+  "status.stopped": "已停止",
+  "srv.partnerStopped": "对方已停止"
 }
