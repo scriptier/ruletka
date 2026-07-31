@@ -54,7 +54,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </noscript>
   <link rel="stylesheet" href="style.css?v=157" />
-  <link rel="stylesheet" href="live-stage.css?v=198" />
+  <link rel="stylesheet" href="live-stage.css?v=199" />
   <script src="brand.js?v=2"></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -828,6 +828,18 @@
           <div class="stars-sheet-balance" id="stars-sheet-balance">0</div>
           <div class="stars-sheet-balance-sub" data-i18n="stars.yours">Your stars</div>
         </div>
+      </div>
+      <div class="stars-progress-wrap" id="stars-progress-wrap">
+        <div class="stars-progress-head">
+          <span class="stars-progress-label" id="stars-progress-label" data-i18n="stars.progressLabel">Trusted reporter</span>
+          <span class="stars-progress-count" id="stars-progress-count">0 / 100</span>
+        </div>
+        <div class="stars-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="stars-progress-bar">
+          <div class="stars-progress-fill" id="stars-progress-fill"></div>
+        </div>
+        <p class="stars-progress-hint" id="stars-progress-hint" data-i18n="stars.progressHint">
+          Reach 100 stars so your reports count double.
+        </p>
       </div>
       <p class="hint-inline" data-i18n="stars.sheetIntro">
         Stars are free reputation — not money. Earn them from long chats, spend them on fun gifts, and unlock stronger reports at 100+.
@@ -1849,7 +1861,7 @@
   <script src="identity.js?v=156"></script>
   <script src="hubs.js?v=156"></script>
   <script src="webrtc.js?v=156"></script>
-  <script src="live.js?v=198"></script>
+  <script src="live.js?v=199"></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

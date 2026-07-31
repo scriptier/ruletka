@@ -2000,12 +2000,48 @@ function closeStarGiftPop() {
   closeStarsSheet();
 }
 
+/** Stars needed for trusted reporter weight (must match bridge TRUSTED_REPORTER_STARS). */
+const STARS_TRUSTED_GOAL = 100;
+
 function syncStarsSheetUi() {
+  const n = Math.max(0, Number(myStars) || 0);
   const bal = $("stars-sheet-balance");
-  if (bal) bal.textContent = String(Math.max(0, myStars || 0));
+  if (bal) bal.textContent = String(n);
+  // Progress toward trusted reporter
+  const goal = STARS_TRUSTED_GOAL;
+  const pct = Math.min(100, Math.round((n / goal) * 1000) / 10);
+  const fill = $("stars-progress-fill");
+  const countEl = $("stars-progress-count");
+  const bar = $("stars-progress-bar");
+  const hintProg = $("stars-progress-hint");
+  const wrap = $("stars-progress-wrap");
+  if (fill) fill.style.width = pct + "%";
+  if (countEl) {
+    countEl.textContent =
+      n >= goal
+        ? _t("stars.progressDone", { n }) || `★ ${n} · trusted`
+        : `${n} / ${goal}`;
+  }
+  if (bar) {
+    bar.setAttribute("aria-valuenow", String(Math.min(n, goal)));
+    bar.setAttribute("aria-valuemax", String(goal));
+  }
+  if (wrap) wrap.classList.toggle("is-trusted", n >= goal);
+  if (hintProg) {
+    if (n >= goal) {
+      hintProg.textContent =
+        _t("stars.progressTrusted") ||
+        "You’re a trusted reporter — your reports count double.";
+    } else {
+      const left = goal - n;
+      hintProg.textContent =
+        _t("stars.progressHintLeft", { n: left }) ||
+        `${left} more star${left === 1 ? "" : "s"} to trusted reporter (reports count double).`;
+    }
+  }
   const live = !!(matched || inFriendCall);
   const canGift =
-    live && !!(primaryPartnerUserId || lastMatchMeta?.user_id) && myStars >= STAR_EFFECT_COST;
+    live && !!(primaryPartnerUserId || lastMatchMeta?.user_id) && n >= STAR_EFFECT_COST;
   const hint = $("stars-sheet-gift-hint");
   if (hint) {
     if (!live) {
@@ -2013,10 +2049,10 @@ function syncStarsSheetUi() {
         _t("stars.spendIdleHint") ||
         "Join a live chat, then use gifts below on your conversationalist.";
       hint.hidden = false;
-    } else if (myStars < STAR_EFFECT_COST) {
+    } else if (n < STAR_EFFECT_COST) {
       hint.textContent =
-        _t("stars.needStars", { n: STAR_EFFECT_COST, have: myStars }) ||
-        `Need ${STAR_EFFECT_COST} stars (you have ${myStars})`;
+        _t("stars.needStars", { n: STAR_EFFECT_COST, have: n }) ||
+        `Need ${STAR_EFFECT_COST} stars (you have ${n})`;
       hint.hidden = false;
     } else {
       hint.textContent =
@@ -2032,10 +2068,13 @@ function syncStarsSheetUi() {
     b.classList.toggle("is-disabled", !canGift);
   });
   const trust = $("stars-sheet-trust-body");
-  if (trust && myStars >= 100) {
+  if (trust) {
     trust.textContent =
-      _t("stars.trustYouAre") ||
-      "You have 100+ stars — your reports already count double.";
+      n >= goal
+        ? _t("stars.trustYouAre") ||
+          "You have 100+ stars — your reports already count double."
+        : _t("stars.trustStepBody") ||
+          "Your reports count as weight 2 toward auto match-bans (normal = 1). Still one unique report per person.";
   }
 }
 

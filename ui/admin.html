@@ -266,9 +266,16 @@
       <div class="stat">Ring→call % <strong id="mt-ring-pct">0</strong></div>
       <div class="stat">Peak online <strong id="mt-peak-on">0</strong></div>
       <div class="stat">Peak waiting <strong id="mt-peak-w">0</strong></div>
+      <div class="stat">★ 1h awards <strong id="mt-star-hour">0</strong></div>
+      <div class="stat">★ gifts <strong id="mt-star-gifts">0</strong></div>
+      <div class="stat">★ spend ok <strong id="mt-star-spend">0</strong></div>
+      <div class="stat">★ spend fail <strong id="mt-star-fail">0</strong></div>
+      <div class="stat">🔒 bars <strong id="mt-star-bars">0</strong></div>
+      <div class="stat">🌸 flowers <strong id="mt-star-flowers">0</strong></div>
+      <div class="stat">★ burned <strong id="mt-star-burned">0</strong></div>
     </div>
     <p class="hint" id="metrics-funnel-note" hidden style="margin-top:-0.35rem">
-      Funnel: queue joins → matches · alone % = joined empty pool · friend calls after ring accept.
+      Funnel: queue joins → matches · alone % = joined empty pool · friend calls after ring accept · stars = 1h awards, gifts, spends.
     </p>
     <div class="card" id="metrics-card" style="margin-bottom:1rem">
       <div class="empty" id="metrics-empty">Sign in to load metrics</div>
@@ -282,6 +289,9 @@
             <th>Joins</th>
             <th>Alone</th>
             <th>Friend calls</th>
+            <th>★ 1h</th>
+            <th>★ gifts</th>
+            <th>★ spend</th>
             <th>Peak on</th>
             <th>Peak wait</th>
           </tr>
@@ -880,6 +890,20 @@
         }
         $("mt-peak-on").textContent = today.peak_online ?? 0;
         $("mt-peak-w").textContent = today.peak_waiting ?? 0;
+        if ($("mt-star-hour"))
+          $("mt-star-hour").textContent = today.star_hour_awards ?? 0;
+        if ($("mt-star-gifts"))
+          $("mt-star-gifts").textContent = today.star_gifts ?? 0;
+        if ($("mt-star-spend"))
+          $("mt-star-spend").textContent = today.star_spend_ok ?? 0;
+        if ($("mt-star-fail"))
+          $("mt-star-fail").textContent = today.star_spend_fail ?? 0;
+        if ($("mt-star-bars"))
+          $("mt-star-bars").textContent = today.star_spend_bars ?? 0;
+        if ($("mt-star-flowers"))
+          $("mt-star-flowers").textContent = today.star_spend_flowers ?? 0;
+        if ($("mt-star-burned"))
+          $("mt-star-burned").textContent = today.star_spent_total ?? 0;
         const note = $("metrics-funnel-note");
         if (note) note.hidden = false;
       }
@@ -912,6 +936,9 @@
           <td>${r.queue_joins ?? 0}</td>
           <td>${r.alone_joins ?? 0} <span style="opacity:.65">(${alonePct}%)</span></td>
           <td>${r.friend_calls ?? 0}</td>
+          <td>${r.star_hour_awards ?? 0}</td>
+          <td>${r.star_gifts ?? 0}</td>
+          <td>${r.star_spend_ok ?? 0}<span style="opacity:.65">/${r.star_spend_fail ?? 0}</span></td>
           <td>${r.peak_online ?? 0}</td>
           <td>${r.peak_waiting ?? 0}</td>
         </tr>`;

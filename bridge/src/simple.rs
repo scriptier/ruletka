@@ -186,6 +186,27 @@ pub struct DayMetrics {
     /// Count of wait durations recorded.
     #[serde(default)]
     pub wait_n: u64,
+    /// Mutual 1h star bonuses granted (one event per pair/session).
+    #[serde(default)]
+    pub star_hour_awards: u64,
+    /// Optional gift stars successfully given (RatePartner star=true).
+    #[serde(default)]
+    pub star_gifts: u64,
+    /// Successful star spends (bars/flowers).
+    #[serde(default)]
+    pub star_spend_ok: u64,
+    /// Failed star spends (not enough stars, not in chat, etc.).
+    #[serde(default)]
+    pub star_spend_fail: u64,
+    /// Behind-bars gifts applied.
+    #[serde(default)]
+    pub star_spend_bars: u64,
+    /// Flowers gifts applied.
+    #[serde(default)]
+    pub star_spend_flowers: u64,
+    /// Total stars burned on gifts (cost sum).
+    #[serde(default)]
+    pub star_spent_total: u64,
 }
 
 pub struct SimpleHub {
@@ -730,6 +751,7 @@ impl SimpleHub {
 
     fn handle_spend_stars(&mut self, id: Uuid, to_user_id: String, effect_raw: String) {
         let Some(kind) = Self::normalize_effect_kind(&effect_raw) else {
+            self.metrics_inc_star_spend(&effect_raw, false, 0);
             self.send(
                 id,
                 ServerMsg::StarEffect {
@@ -756,6 +778,7 @@ impl SimpleHub {
         let my_stars = self.stars_for(&me_uid);
 
         if me_uid.is_empty() || to_user_id.is_empty() || to_user_id == me_uid {
+            self.metrics_inc_star_spend(kind, false, 0);
             self.send(
                 id,
                 ServerMsg::StarEffect {
@@ -787,6 +810,7 @@ impl SimpleHub {
             })
             .unwrap_or(false);
         if !in_session {
+            self.metrics_inc_star_spend(kind, false, 0);
             self.send(
                 id,
                 ServerMsg::StarEffect {
@@ -806,6 +830,7 @@ impl SimpleHub {
         }
 
         if my_stars < Self::EFFECT_COST_STARS {
+            self.metrics_inc_star_spend(kind, false, 0);
             self.send(
                 id,
                 ServerMsg::StarEffect {
@@ -867,6 +892,8 @@ impl SimpleHub {
         } else {
             format!("behind bars for {}s", Self::EFFECT_DURATION_SECS)
         };
+
+        self.metrics_inc_star_spend(kind, true, Self::EFFECT_COST_STARS);
 
         tracing::info!(
             %me_uid,
@@ -956,6 +983,7 @@ impl SimpleHub {
         }
         let me_stars = self.add_stars(&me_uid, 1);
         let them_stars = self.add_stars(&them_uid, 1);
+        self.metrics_inc_star_hour();
         self.persist_friends();
         tracing::info!(
             %me_uid,
@@ -1111,6 +1139,9 @@ impl SimpleHub {
         } else {
             self.stars_for(&target_uid)
         };
+        if star {
+            self.metrics_inc_star_gift();
+        }
         if let Some(c) = self.clients.get_mut(&id) {
             c.pending_rate_uid = None;
             c.pending_rate_name.clear();
@@ -1529,6 +1560,43 @@ impl SimpleHub {
             self.metrics.alone_joins = self.metrics.alone_joins.saturating_add(1);
         }
         self.metrics_touch_peaks();
+    }
+
+    fn metrics_inc_star_hour(&mut self) {
+        self.metrics_roll_day();
+        self.metrics.star_hour_awards = self.metrics.star_hour_awards.saturating_add(1);
+        if self.metrics.star_hour_awards % 3 == 0 {
+            self.metrics_flush();
+        }
+    }
+
+    fn metrics_inc_star_gift(&mut self) {
+        self.metrics_roll_day();
+        self.metrics.star_gifts = self.metrics.star_gifts.saturating_add(1);
+        if self.metrics.star_gifts % 5 == 0 {
+            self.metrics_flush();
+        }
+    }
+
+    fn metrics_inc_star_spend(&mut self, kind: &str, ok: bool, cost: u64) {
+        self.metrics_roll_day();
+        if ok {
+            self.metrics.star_spend_ok = self.metrics.star_spend_ok.saturating_add(1);
+            self.metrics.star_spent_total =
+                self.metrics.star_spent_total.saturating_add(cost);
+            if kind == "bars" {
+                self.metrics.star_spend_bars =
+                    self.metrics.star_spend_bars.saturating_add(1);
+            } else if kind == "flowers" {
+                self.metrics.star_spend_flowers =
+                    self.metrics.star_spend_flowers.saturating_add(1);
+            }
+        } else {
+            self.metrics.star_spend_fail = self.metrics.star_spend_fail.saturating_add(1);
+        }
+        if (self.metrics.star_spend_ok + self.metrics.star_spend_fail) % 5 == 0 {
+            self.metrics_flush();
+        }
     }
 
     /// Snapshot for admin / health (today + recent history).

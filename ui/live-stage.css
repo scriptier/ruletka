@@ -12459,6 +12459,61 @@ html.alone-searching #remote-empty .empty-sub:not([hidden]) {
   color: #c5d0e0;
   margin-top: 0.15rem;
 }
+/* Progress toward trusted reporter (100★) */
+.stars-progress-wrap {
+  margin: 0.15rem 0 0.65rem;
+  padding: 0.65rem 0.75rem 0.7rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 215, 80, 0.18);
+}
+.stars-progress-wrap.is-trusted {
+  border-color: rgba(255, 210, 70, 0.45);
+  background: rgba(255, 200, 60, 0.1);
+}
+.stars-progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+.stars-progress-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #ffe9a0;
+}
+.stars-progress-count {
+  font-size: 0.78rem;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  color: #e8eef7;
+}
+.stars-progress-track {
+  height: 0.55rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.stars-progress-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #e8a812, #ffd54a 55%, #fff0b0);
+  box-shadow: 0 0 10px rgba(255, 200, 60, 0.45);
+  transition: width 0.35s ease;
+}
+.stars-progress-wrap.is-trusted .stars-progress-fill {
+  background: linear-gradient(90deg, #ffb020, #ffe08a, #fff8d0);
+}
+.stars-progress-hint {
+  margin: 0.4rem 0 0;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: #9aa8bc;
+  font-weight: 500;
+}
 #stars-sheet .star-gift-row:disabled,
 #stars-sheet .star-gift-row.is-disabled {
   opacity: 0.45;
