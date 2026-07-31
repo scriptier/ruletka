@@ -1700,21 +1700,36 @@ html.stage-html {
   border-color: rgba(91, 157, 255, 0.55);
 }
 
-/* Conn strip: thin overlay on stage when not idle */
-.stage-app > .conn-strip {
-  position: absolute;
-  left: 50%;
-  bottom: 0.45rem;
-  transform: translateX(-50%);
-  z-index: 9;
+/* Conn strip: in header (not bottom — avoids overlap with Room field) */
+.stage-top .conn-strip {
+  position: static;
+  left: auto;
+  bottom: auto;
+  transform: none;
+  z-index: 1;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(36vw, 14rem);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 999px;
-  padding: 0.28rem 0.75rem;
+  padding: 0.22rem 0.65rem;
   background: rgba(14, 18, 26, 0.88);
   backdrop-filter: blur(10px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-  max-width: min(90vw, 28rem);
-  pointer-events: none;
+  box-shadow: none;
+  pointer-events: auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stage-top .conn-strip #conn-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.stage-top .conn-retry {
+  pointer-events: auto;
+  flex-shrink: 0;
 }
 
 /* Log drawer */
@@ -2558,11 +2573,10 @@ html.stage-html {
     bottom: 4.25rem;
     max-height: min(20vh, 140px);
   }
-  .stage-app > .conn-strip {
-    bottom: auto;
-    top: calc(env(safe-area-inset-top, 0px) + 2.75rem);
-    font-size: 0.7rem;
-    padding: 0.22rem 0.6rem;
+  .stage-top .conn-strip {
+    max-width: min(42vw, 11rem);
+    font-size: 0.68rem;
+    padding: 0.18rem 0.5rem;
   }
   .call-toast {
     bottom: max(4rem, 12vh);

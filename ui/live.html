@@ -27,8 +27,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&family=Rye&family=Source+Serif+4:opsz,wght@8..60,400;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=66" />
-  <link rel="stylesheet" href="live-stage.css?v=66" />
+  <link rel="stylesheet" href="style.css?v=67" />
+  <link rel="stylesheet" href="live-stage.css?v=67" />
   <script>
     /* Apply saved theme before paint to avoid flash */
     (function () {
@@ -175,6 +175,13 @@
         <span class="pool-hint" id="pool-hint" hidden></span>
         <span class="arch-pill" id="arch-pill" title="Media is peer-to-peer WebRTC">P2P media · bridge match</span>
         <span class="ice-path" id="ice-path" hidden title="WebRTC media path"></span>
+      </div>
+      <!-- Connection status lives in header (not bottom dock — was overlapping Room) -->
+      <div class="conn-strip" id="conn-strip" aria-live="polite" hidden>
+        <span class="conn-dot" id="conn-dot"></span>
+        <span id="conn-label" data-i18n="conn.connecting">Connecting…</span>
+        <span class="conn-ice" id="conn-ice"></span>
+        <button type="button" class="conn-retry" id="btn-conn-retry" hidden data-i18n="conn.retry">Retry</button>
       </div>
       <div class="stage-top-actions">
         <label class="name-chip" title="Your display name">
@@ -345,14 +352,6 @@
         </div>
       </section>
     </main>
-
-    <!-- Connection strip (compact, only when not idle) -->
-    <div class="conn-strip" id="conn-strip" aria-live="polite">
-      <span class="conn-dot" id="conn-dot"></span>
-      <span id="conn-label" data-i18n="conn.connecting">Connecting…</span>
-      <span class="conn-ice" id="conn-ice"></span>
-      <button type="button" class="conn-retry" id="btn-conn-retry" hidden data-i18n="conn.retry">Retry</button>
-    </div>
 
   </div>
 
