@@ -12241,11 +12241,19 @@ html.chrome-always .tile-local .tile-floor-local {
 #empty-online-chip {
   display: none !important;
 }
-#remote-empty .empty-sub {
+/* Alone search: allow friend-invite sub copy under title */
+#remote-empty .empty-sub[hidden] {
   display: none !important;
 }
-#empty-alone-actions {
-  display: none !important;
+#remote-empty.alone-invite-sub .empty-sub:not([hidden]),
+html.alone-searching #remote-empty .empty-sub:not([hidden]) {
+  display: block !important;
+  max-width: 18rem;
+  margin: 0.35rem auto 0;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  color: #c5d0e0;
+  text-align: center;
 }
 
 /* Local tile identity: flag above name (centered together), name a bit lower; avatar top-right */
@@ -12630,6 +12638,95 @@ html.chrome-always .tile-local .tile-floor-local {
 }
 .partner-menu-btn.star-gift:disabled {
   opacity: 0.45;
+}
+
+/* Flowers gift — orbiting petals around the cam frame */
+.fx-flowers {
+  z-index: 6;
+  pointer-events: none;
+}
+.fx-flowers-ring {
+  position: absolute;
+  inset: -2%;
+  border-radius: inherit;
+  overflow: visible;
+}
+.fx-petal {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1.35rem;
+  height: 1.35rem;
+  margin: -0.65rem;
+  font-size: 1.2rem;
+  line-height: 1;
+  /* Place around ellipse edge */
+  --ang: calc(var(--i) * 25.7deg);
+  transform:
+    rotate(var(--ang))
+    translateY(calc(-1 * min(46%, 11rem)))
+    rotate(calc(-1 * var(--ang)));
+  animation: fx-petal-bob 2.4s ease-in-out infinite;
+  animation-delay: calc(var(--i) * -0.12s);
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.35));
+  opacity: 0.95;
+}
+@keyframes fx-petal-bob {
+  0%,
+  100% {
+    transform:
+      rotate(var(--ang))
+      translateY(calc(-1 * min(46%, 11rem)))
+      rotate(calc(-1 * var(--ang)))
+      scale(1);
+  }
+  50% {
+    transform:
+      rotate(calc(var(--ang) + 8deg))
+      translateY(calc(-1 * min(48%, 11.5rem)))
+      rotate(calc(-1 * var(--ang) - 8deg))
+      scale(1.12);
+  }
+}
+.fx-flowers-timer {
+  position: absolute;
+  left: 50%;
+  bottom: 0.75rem;
+  transform: translateX(-50%);
+  z-index: 1;
+  padding: 0.28rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(40, 12, 28, 0.72);
+  border: 1px solid rgba(255, 140, 180, 0.4);
+  color: #ffe6f0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+/* Soft pink vignette while flowers active */
+.fx-flowers::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 3px rgba(255, 120, 170, 0.35);
+  background: radial-gradient(
+    ellipse at center,
+    transparent 55%,
+    rgba(255, 80, 140, 0.12) 100%
+  );
+  animation: fx-flowers-in 0.4s ease-out;
+}
+@keyframes fx-flowers-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* Post-call star review toast */

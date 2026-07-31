@@ -54,7 +54,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </noscript>
   <link rel="stylesheet" href="style.css?v=157" />
-  <link rel="stylesheet" href="live-stage.css?v=193" />
+  <link rel="stylesheet" href="live-stage.css?v=194" />
   <script src="brand.js?v=2"></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -273,10 +273,14 @@
           <video id="remote" class="vid remote" autoplay playsinline playsInline webkit-playsinline></video>
           <video id="remote2" class="vid remote remote-b" autoplay playsinline playsInline webkit-playsinline hidden></video>
         </div>
-        <!-- Star gift: chain-link bars over partner (server-timed) -->
+        <!-- Star gifts: bars / flowers (server-timed) -->
         <div class="fx-overlay fx-bars" id="remote-fx-bars" hidden aria-hidden="true">
           <div class="fx-bars-mesh"></div>
           <span class="fx-bars-timer" id="remote-fx-bars-timer"></span>
+        </div>
+        <div class="fx-overlay fx-flowers" id="remote-fx-flowers" hidden aria-hidden="true">
+          <div class="fx-flowers-ring" aria-hidden="true"></div>
+          <span class="fx-flowers-timer" id="remote-fx-flowers-timer"></span>
         </div>
         <!-- Mobile portrait trio: your cam inset on first partner -->
         <div class="local-in-partner-pip" id="local-in-partner-pip" hidden>
@@ -335,9 +339,10 @@
               <div class="friends-online-label" data-i18n="friends.onlineStrip">Friends online</div>
               <div class="friends-online-row" id="friends-online-row"></div>
             </div>
-            <!-- Mobile alone-pool room share (rooms off for now; friend invite removed) -->
+            <!-- Mobile alone-pool: friend invite (rooms share only if rooms enabled) -->
             <div class="mobile-invite" id="mobile-invite" hidden>
               <button type="button" class="mobile-invite-btn accent rooms-ui" id="btn-mobile-share" data-i18n="remote.shareRoom" hidden>Share room</button>
+              <button type="button" class="mobile-invite-btn accent" id="btn-mobile-invite-friend" data-i18n="friends.inviteNow" hidden>Invite friend</button>
             </div>
           </div>
         </div>
@@ -494,10 +499,14 @@
       <!-- YOU (right / middle in trio) -->
       <section class="tile tile-local" id="tile-local">
         <video id="local" class="vid local" autoplay playsinline playsInline webkit-playsinline muted></video>
-        <!-- If someone puts you behind bars — overlay on your own preview too -->
+        <!-- Star gifts on you (bars / flowers) -->
         <div class="fx-overlay fx-bars" id="local-fx-bars" hidden aria-hidden="true">
           <div class="fx-bars-mesh"></div>
           <span class="fx-bars-timer" id="local-fx-bars-timer"></span>
+        </div>
+        <div class="fx-overlay fx-flowers" id="local-fx-flowers" hidden aria-hidden="true">
+          <div class="fx-flowers-ring" aria-hidden="true"></div>
+          <span class="fx-flowers-timer" id="local-fx-flowers-timer"></span>
         </div>
         <!-- Friend PiP while browsing together (party) so main remote can show stranger(s) -->
         <div class="friend-pip" id="friend-pip-wrap" hidden>
@@ -825,6 +834,10 @@
       <button type="button" class="partner-menu-btn star-gift" id="btn-partner-bars">
         <span class="pm-ico" aria-hidden="true">🔒</span>
         <span id="btn-partner-bars-label" data-i18n="stars.barsBtn">Behind bars · 5★ · 30s</span>
+      </button>
+      <button type="button" class="partner-menu-btn star-gift" id="btn-partner-flowers">
+        <span class="pm-ico" aria-hidden="true">🌸</span>
+        <span id="btn-partner-flowers-label" data-i18n="stars.flowersBtn">Flowers · 5★ · 30s</span>
       </button>
       <button type="button" class="partner-menu-btn danger" id="btn-partner-report">
         <span class="pm-ico" aria-hidden="true"><svg class="icon"><use href="#i-flag"/></svg></span>
@@ -1730,7 +1743,7 @@
   <script src="identity.js?v=156"></script>
   <script src="hubs.js?v=156"></script>
   <script src="webrtc.js?v=156"></script>
-  <script src="live.js?v=190"></script>
+  <script src="live.js?v=191"></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

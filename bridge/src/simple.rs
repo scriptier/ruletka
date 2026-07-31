@@ -731,30 +731,6 @@ impl SimpleHub {
             );
             return;
         };
-        // Flowers reserved — wire UI later
-        if kind == "flowers" {
-            self.send(
-                id,
-                ServerMsg::StarEffect {
-                    ok: false,
-                    user_id: to_user_id,
-                    effect: "flowers".into(),
-                    until: 0,
-                    cost: 0,
-                    spender_stars: self
-                        .clients
-                        .get(&id)
-                        .map(|c| self.stars_for(&c.user_id))
-                        .unwrap_or(0),
-                    target_stars: 0,
-                    message: "flowers coming soon".into(),
-                    from_user_id: String::new(),
-                    from_name: String::new(),
-                },
-            );
-            return;
-        }
-
         let to_user_id = to_user_id.trim().to_string();
         let Some(c) = self.clients.get(&id) else {
             return;
@@ -864,7 +840,13 @@ impl SimpleHub {
             .as_ref()
             .map(|e| e.kind == kind && e.until > now)
             .unwrap_or(false);
-        let message = if extended {
+        let message = if kind == "flowers" {
+            if extended {
+                format!("+{}s flowers extended", Self::EFFECT_DURATION_SECS)
+            } else {
+                format!("flowers for {}s", Self::EFFECT_DURATION_SECS)
+            }
+        } else if extended {
             format!("+{}s bars extended", Self::EFFECT_DURATION_SECS)
         } else {
             format!("behind bars for {}s", Self::EFFECT_DURATION_SECS)

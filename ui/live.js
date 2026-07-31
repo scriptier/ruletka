@@ -1920,41 +1920,94 @@ function unixNowSec() {
 /**
  * Apply or clear a star gift overlay on a tile.
  * @param {"local"|"remote"} which
- * @param {string} kind "bars" | "" 
+ * @param {string} kind "bars" | "flowers" | ""
  * @param {number} until unix seconds
  */
 function setFxOverlay(which, kind, until) {
   const k = String(kind || "").toLowerCase();
   const u = Math.max(0, Number(until) || 0);
   const now = unixNowSec();
-  const active = k === "bars" && u > now;
-  const overlay = $(which === "local" ? "local-fx-bars" : "remote-fx-bars");
-  const timerEl = $(
+  const activeBars = k === "bars" && u > now;
+  const activeFlowers = k === "flowers" && u > now;
+  const active = activeBars || activeFlowers;
+
+  const bars = $(which === "local" ? "local-fx-bars" : "remote-fx-bars");
+  const flowers = $(
+    which === "local" ? "local-fx-flowers" : "remote-fx-flowers"
+  );
+  const barsTimer = $(
     which === "local" ? "local-fx-bars-timer" : "remote-fx-bars-timer"
   );
+  const flowersTimer = $(
+    which === "local" ? "local-fx-flowers-timer" : "remote-fx-flowers-timer"
+  );
+
   if (which === "local") {
-    selfFx = active ? { kind: "bars", until: u } : null;
+    selfFx = active ? { kind: k, until: u } : null;
   } else {
-    partnerFx = active ? { kind: "bars", until: u } : null;
+    partnerFx = active ? { kind: k, until: u } : null;
   }
-  if (!overlay) return;
-  if (!active) {
-    overlay.hidden = true;
-    overlay.setAttribute("hidden", "");
+
+  const hide = (el, timerEl) => {
+    if (el) {
+      el.hidden = true;
+      el.setAttribute("hidden", "");
+    }
     if (timerEl) timerEl.textContent = "";
-    return;
+  };
+  const show = (el, timerEl, label) => {
+    if (!el) return;
+    el.hidden = false;
+    el.removeAttribute("hidden");
+    // Petals for flowers
+    if (el.classList.contains("fx-flowers")) {
+      ensureFlowerPetals(el);
+    }
+    if (timerEl) {
+      const left = Math.max(0, u - now);
+      timerEl.textContent =
+        label +
+        (which === "remote" && myStars >= STAR_EFFECT_COST
+          ? ` · +${STAR_EFFECT_SECS}s = ${STAR_EFFECT_COST}★`
+          : "");
+    }
+  };
+
+  if (activeBars) {
+    hide(flowers, flowersTimer);
+    show(
+      bars,
+      barsTimer,
+      _t("stars.barsTimer", { s: Math.max(0, u - now) }) ||
+        `🔒 ${Math.max(0, u - now)}s`
+    );
+  } else if (activeFlowers) {
+    hide(bars, barsTimer);
+    show(
+      flowers,
+      flowersTimer,
+      _t("stars.flowersTimer", { s: Math.max(0, u - now) }) ||
+        `🌸 ${Math.max(0, u - now)}s`
+    );
+  } else {
+    hide(bars, barsTimer);
+    hide(flowers, flowersTimer);
   }
-  overlay.hidden = false;
-  overlay.removeAttribute("hidden");
-  const left = Math.max(0, u - now);
-  if (timerEl) {
-    timerEl.textContent =
-      (_t("stars.barsTimer", { s: left }) || `🔒 ${left}s`) +
-      (which === "remote" && myStars >= STAR_EFFECT_COST
-        ? ` · +${STAR_EFFECT_SECS}s = ${STAR_EFFECT_COST}★`
-        : "");
+  if (active) ensureFxTicker();
+}
+
+/** Populate petal nodes once for flower ring animation. */
+function ensureFlowerPetals(overlay) {
+  const ring = overlay?.querySelector?.(".fx-flowers-ring");
+  if (!ring || ring.dataset.ready === "1") return;
+  const glyphs = ["🌸", "🌺", "🌼", "💮", "🌹", "🌷", "🌻", "💐"];
+  let html = "";
+  for (let i = 0; i < 14; i++) {
+    const g = glyphs[i % glyphs.length];
+    html += `<span class="fx-petal" style="--i:${i}">${g}</span>`;
   }
-  ensureFxTicker();
+  ring.innerHTML = html;
+  ring.dataset.ready = "1";
 }
 
 function clearPartnerFx() {
@@ -1985,8 +2038,9 @@ function ensureFxTicker() {
   }, 1000);
 }
 
-/** Spend stars to put partner behind bars (or extend). */
-function spendBarsOnPartner() {
+/** Spend stars on a partner gift effect (bars / flowers). */
+function spendEffectOnPartner(effect) {
+  const kind = String(effect || "bars").toLowerCase();
   const uid = primaryPartnerUserId || lastMatchMeta?.user_id || "";
   if (!uid) {
     setStatus(_t("stars.noPartner") || "No partner to gift");
@@ -2003,9 +2057,16 @@ function spendBarsOnPartner() {
     );
     return;
   }
-  trackEvent("star_spend", { effect: "bars", cost: STAR_EFFECT_COST });
-  send({ type: "spend_stars", to_user_id: uid, effect: "bars" });
+  trackEvent("star_spend", { effect: kind, cost: STAR_EFFECT_COST });
+  send({ type: "spend_stars", to_user_id: uid, effect: kind });
   closePartnerMenu();
+}
+
+function spendBarsOnPartner() {
+  spendEffectOnPartner("bars");
+}
+function spendFlowersOnPartner() {
+  spendEffectOnPartner("flowers");
 }
 
 /**
@@ -4888,8 +4949,9 @@ function isPoolAlone() {
 }
 
 /**
- * Local tray: room-share tools only when ROOMS_ENABLED.
- * Friend invite / Friend QR UI removed — use Friends sheet (code / invite link).
+ * Empty partner tile + mobile strip:
+ * - Rooms on: room share tools
+ * - Rooms off + alone searching: friend invite strip (growth path)
  */
 function updateEmptyShareVisibility() {
   const invite = $("footer-invite");
@@ -4902,25 +4964,38 @@ function updateEmptyShareVisibility() {
     !inFriendCall &&
     !trioBrowse;
   const alone = isPoolAlone();
-  // Room share tray only when rooms are enabled; never show friend-invite chips
+  const searchingAlone =
+    emptyOpen && alone && (inQueue || wantSearch) && !trioBrowse;
   const showRoomTools = !!(ROOMS_ENABLED && emptyOpen);
   if (invite) invite.hidden = !showRoomTools;
-  // Mobile strip had friend invite — keep hidden (rooms share stays rooms-ui hidden)
+
+  // Mobile: friend invite when alone in queue (not room share)
   if (mobile) {
-    mobile.hidden = true;
-    mobile.classList.remove("is-searching-alone");
+    const showMobileFriend = searchingAlone && !ROOMS_ENABLED;
+    mobile.hidden = !showMobileFriend;
+    mobile.classList.toggle("is-searching-alone", showMobileFriend);
+    const roomBtn = $("btn-mobile-share");
+    const friendBtn = $("btn-mobile-invite-friend");
+    if (roomBtn) roomBtn.hidden = !ROOMS_ENABLED;
+    if (friendBtn) friendBtn.hidden = !showMobileFriend;
   }
-  if (!emptyOpen || !ROOMS_ENABLED) {
-    hideEmptyShareQr();
-    clearLongWaitBoost();
-  } else if (alone && (inQueue || wantSearch)) {
+
+  if (showRoomTools && alone && (inQueue || wantSearch)) {
     maybeStartLongWaitBoost();
+  } else if (searchingAlone) {
+    // Friend-invite path still gets the 8s alone toast boost
+    maybeStartLongWaitBoost();
+    hideEmptyShareQr();
   } else {
+    if (!showRoomTools) hideEmptyShareQr();
     clearLongWaitBoost();
   }
   const localFloor = $("tile-floor-local");
   if (localFloor) {
-    localFloor.classList.toggle("has-invite", !!(invite && !invite.hidden));
+    localFloor.classList.toggle(
+      "has-invite",
+      !!(invite && !invite.hidden) || searchingAlone
+    );
   }
   updateFriendsOnlineStrip();
   updateEmptyAloneActions();
@@ -5009,11 +5084,9 @@ function maybeStartLongWaitBoost() {
 
 /**
  * Soft toast while alone searching (once per search session).
- * Rooms: share room. Otherwise: open Friends / copy friend code.
+ * Rooms off: friend invite / copy code. Rooms on: share room.
  */
 function maybeShowAloneInviteToast() {
-  // Disabled: keeps the empty/search UI clean (no "few people / share code" toast)
-  return;
   try {
     if (aloneInviteToastShown) return;
     if (matched || inFriendCall || trioBrowse) return;
@@ -5308,36 +5381,68 @@ function updateStartButtonVisibility() {
   syncMatchChrome();
 }
 
-/** Set partner-tile title while searching — keep clean (no alone-tips / online chip). */
+/** Set partner-tile title while searching; alone pool → friend-invite sub copy. */
 function setSearchingEmptyCopy() {
   const empty = $("remote-empty");
   const titleEl = empty?.querySelector(".empty-title");
   const subEl = empty?.querySelector(".empty-sub") || $("remote-empty-sub");
   const room = currentRoom();
+  const alone = isPoolAlone();
   if (titleEl) {
-    if (room) {
+    if (room && ROOMS_ENABLED) {
       titleEl.textContent =
         _t("remote.searchingRoom", { r: room }) ||
         `Waiting in room “${room}”…`;
+    } else if (alone) {
+      titleEl.textContent =
+        _t("remote.aloneInviteTitle") ||
+        _t("remote.searchingTitle") ||
+        "Looking for a partner…";
     } else {
       titleEl.textContent =
         _t("remote.searchingTitle") || "Looking for a partner…";
     }
   }
-  // Cleaner UI: never show the "few people online / share code" sub copy
   if (subEl) {
-    subEl.hidden = true;
-    subEl.textContent = "";
+    if (alone && (inQueue || wantSearch) && !trioBrowse) {
+      subEl.hidden = false;
+      subEl.removeAttribute("hidden");
+      subEl.textContent =
+        _t("friends.aloneInviteBody") ||
+        "Few people online. Invite a friend — they add your code, you Accept, then Call.";
+    } else {
+      subEl.hidden = true;
+      subEl.textContent = "";
+    }
   }
   updateEmptyAloneActions();
   maybeScheduleAloneSearchCopy();
 }
 
-/** Alone-queue action buttons hidden for cleaner empty card (invite via Friends). */
+/**
+ * Alone in queue: show Invite / Copy code / Friends under Start.
+ * Growth path while ROOMS_ENABLED is false.
+ */
 function updateEmptyAloneActions() {
   const row = $("empty-alone-actions");
-  if (row) row.hidden = true;
-  document.documentElement.classList.remove("alone-searching");
+  const empty = $("remote-empty");
+  const emptyOpen =
+    !!empty &&
+    !empty.classList.contains("hidden") &&
+    !matched &&
+    !inFriendCall &&
+    !trioBrowse;
+  const show =
+    emptyOpen &&
+    isPoolAlone() &&
+    (inQueue || wantSearch) &&
+    !trioBrowse;
+  if (row) {
+    row.hidden = !show;
+    if (show) row.removeAttribute("hidden");
+    else row.setAttribute("hidden", "");
+  }
+  document.documentElement.classList.toggle("alone-searching", !!show);
 }
 
 let aloneSearchCopyTimer = 0;
@@ -8046,6 +8151,16 @@ function wireSettingsNav() {
       await shareFriendInvite({ preferShare: true, liveNow: true });
     } catch (_) {}
   });
+  $("btn-mobile-invite-friend")?.addEventListener("click", async () => {
+    trackEvent("mobile_alone_invite_friend");
+    try {
+      await shareFriendInvite({ preferShare: true, liveNow: true });
+    } catch (_) {
+      try {
+        openFriends();
+      } catch (_) {}
+    }
+  });
   $("btn-settings-done")?.addEventListener("click", () => closeSettings());
   $("btn-conn-refresh")?.addEventListener("click", () => {
     refreshConnectionDetails();
@@ -9291,11 +9406,18 @@ function handleServer(msg) {
           if (uid === myUserId) {
             setFxOverlay("local", kind, until);
             if (!fromMe && msg.from_user_id) {
-              setStatus(
-                _t("stars.barsOnYou", {
-                  name: msg.from_name || "Someone",
-                }) || `${msg.from_name || "Someone"} put you behind bars`
-              );
+              const name = msg.from_name || "Someone";
+              if (kind === "flowers") {
+                setStatus(
+                  _t("stars.flowersOnYou", { name }) ||
+                    `${name} sent you flowers`
+                );
+              } else {
+                setStatus(
+                  _t("stars.barsOnYou", { name }) ||
+                    `${name} put you behind bars`
+                );
+              }
             }
           }
           if (
@@ -12042,33 +12164,51 @@ function openPartnerMenu() {
     findBtn.disabled = !canFind;
   }
 
-  // Behind bars gift (5★ / 30s, extendable)
-  const barsBtn = $("btn-partner-bars");
-  if (barsBtn) {
-    const live = !!(matched || inFriendCall);
-    const can = live && !!primaryPartnerUserId && myStars >= STAR_EFFECT_COST;
-    barsBtn.disabled = !can;
-    barsBtn.hidden = !live;
-    const lbl = $("btn-partner-bars-label");
+  // Star gifts (5★ / 30s, extendable)
+  const liveGift = !!(matched || inFriendCall);
+  const canGift =
+    liveGift && !!primaryPartnerUserId && myStars >= STAR_EFFECT_COST;
+  const needTitle =
+    myStars < STAR_EFFECT_COST
+      ? _t("stars.needStars", { n: STAR_EFFECT_COST, have: myStars }) ||
+        `Need ${STAR_EFFECT_COST} stars (you have ${myStars})`
+      : "";
+  const wireGiftBtn = (id, labelId, kind, baseKey, extendKey, baseFb, extFb) => {
+    const btn = $(id);
+    if (!btn) return;
+    btn.disabled = !canGift;
+    btn.hidden = !liveGift;
+    const lbl = $(labelId);
     const extending =
       partnerFx &&
-      partnerFx.kind === "bars" &&
+      partnerFx.kind === kind &&
       partnerFx.until > unixNowSec();
     if (lbl) {
       lbl.textContent = extending
-        ? _t("stars.barsExtend", {
-            n: STAR_EFFECT_COST,
-            s: STAR_EFFECT_SECS,
-          }) || `Extend bars +${STAR_EFFECT_SECS}s · ${STAR_EFFECT_COST}★`
-        : _t("stars.barsBtn") ||
-          `Behind bars · ${STAR_EFFECT_COST}★ · ${STAR_EFFECT_SECS}s`;
+        ? _t(extendKey, { n: STAR_EFFECT_COST, s: STAR_EFFECT_SECS }) ||
+          extFb
+        : _t(baseKey) || baseFb;
     }
-    barsBtn.title =
-      myStars < STAR_EFFECT_COST
-        ? _t("stars.needStars", { n: STAR_EFFECT_COST, have: myStars }) ||
-          `Need ${STAR_EFFECT_COST} stars (you have ${myStars})`
-        : lbl?.textContent || "";
-  }
+    btn.title = needTitle || lbl?.textContent || "";
+  };
+  wireGiftBtn(
+    "btn-partner-bars",
+    "btn-partner-bars-label",
+    "bars",
+    "stars.barsBtn",
+    "stars.barsExtend",
+    `Behind bars · ${STAR_EFFECT_COST}★ · ${STAR_EFFECT_SECS}s`,
+    `Extend bars +${STAR_EFFECT_SECS}s · ${STAR_EFFECT_COST}★`
+  );
+  wireGiftBtn(
+    "btn-partner-flowers",
+    "btn-partner-flowers-label",
+    "flowers",
+    "stars.flowersBtn",
+    "stars.flowersExtend",
+    `Flowers · ${STAR_EFFECT_COST}★ · ${STAR_EFFECT_SECS}s`,
+    `More flowers +${STAR_EFFECT_SECS}s · ${STAR_EFFECT_COST}★`
+  );
 
   showPartnerMenuMain();
 
@@ -12251,6 +12391,7 @@ document.addEventListener("enterpictureinpicture", () => updatePipButton());
 document.addEventListener("leavepictureinpicture", () => updatePipButton());
 on("btn-partner-friend", "click", () => invitePartnerFriend());
 on("btn-partner-bars", "click", () => spendBarsOnPartner());
+on("btn-partner-flowers", "click", () => spendFlowersOnPartner());
 on("btn-partner-find-third", "click", () => {
   closePartnerMenu();
   if (!TRIO_FIND_ENABLED || findThirdPending || !matched) return;
