@@ -214,7 +214,7 @@
   "friends.pendingBanner": "Czekamy na Accept — dzwonienie tylko po wzajemnej akceptacji.",
   "friends.persistHint": "Znajomi są na hubie pod twoją tożsamością. Eksportuj profil (Ustawienia) przed czyszczeniem przeglądarki.",
   "friends.pipLabel": "Znajomy",
-  "friends.postMatchBody": "Opcjonalnie — tylko jeśli chcecie się znów spotkać.",
+  "friends.postMatchBody": "Request them to Call later when online.",
   "friends.postMatchNo": "Nie, dziękuję",
   "friends.postMatchTitle": "Dodać do znajomych?",
   "friends.postMatchYes": "Dodaj",
@@ -228,7 +228,7 @@
   "friends.renamePrompt": "Nazwa znajomego (tylko ty widzisz). Puste = wyczyść.",
   "friends.reqToast": "chce być znajomym",
   "friends.requestAccepted": "prośba zaakceptowana",
-  "friends.requestSent": "prośba wysłana",
+  "friends.requestSent": "Friend request sent",
   "friends.sentToast": "Prośba wysłana — czekamy na Accept",
   "friends.shareInvite": "Udostępnij",
   "friends.title": "Znajomi",
@@ -1107,5 +1107,10 @@
   "friends.tabBlocked": "Zablokowani",
   "friends.openHistory": "Historia połączeń",
   "friends.blockedEmpty": "Brak zablokowanych",
-  "friends.callOnlyFriends": "Tylko znajomi mogą dzwonić — najpierw dodaj po kodzie"
+  "friends.callOnlyFriends": "Tylko znajomi mogą dzwonić — najpierw dodaj po kodzie",
+  "friends.theirCode": "Code",
+  "friends.onlineNotifTitle": "Friend online",
+  "friends.onlineNotifBody": "{n} is online — open to Call",
+  "friends.missedNotifTitle": "Missed friend call",
+  "friends.missedNotifBody": "{n} — open Call history"
 }

@@ -214,7 +214,7 @@
   "friends.pendingBanner": "En attente d’Accept — appel seulement après accord mutuel.",
   "friends.persistHint": "Les amis sont sur le hub sous votre identité. Exportez un profil (Réglages) avant d’effacer le navigateur.",
   "friends.pipLabel": "Ami",
-  "friends.postMatchBody": "Optionnel — seulement si vous voulez vous revoir.",
+  "friends.postMatchBody": "Request them to Call later when online.",
   "friends.postMatchNo": "Non merci",
   "friends.postMatchTitle": "Ajouter en ami ?",
   "friends.postMatchYes": "Ajouter",
@@ -228,7 +228,7 @@
   "friends.renamePrompt": "Nom pour cet ami (vous seul le voyez). Vide pour effacer.",
   "friends.reqToast": "veut être ami",
   "friends.requestAccepted": "demande acceptée",
-  "friends.requestSent": "demande envoyée",
+  "friends.requestSent": "Friend request sent",
   "friends.sentToast": "Demande envoyée — en attente d’Accept",
   "friends.shareInvite": "Partager",
   "friends.title": "Amis",
@@ -1107,5 +1107,10 @@
   "friends.tabBlocked": "Bloqués",
   "friends.openHistory": "Historique d’appels",
   "friends.blockedEmpty": "Personne bloqué",
-  "friends.callOnlyFriends": "Seuls les amis peuvent appeler — ajoutez-les par code d’abord"
+  "friends.callOnlyFriends": "Seuls les amis peuvent appeler — ajoutez-les par code d’abord",
+  "friends.theirCode": "Code",
+  "friends.onlineNotifTitle": "Friend online",
+  "friends.onlineNotifBody": "{n} is online — open to Call",
+  "friends.missedNotifTitle": "Missed friend call",
+  "friends.missedNotifBody": "{n} — open Call history"
 }

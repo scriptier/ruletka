@@ -214,7 +214,7 @@
   "friends.pendingBanner": "Чекаємо Accept — дзвінок лише після схвалення з обох боків.",
   "friends.persistHint": "Друзі зберігаються на хабі під вашою особистістю. Експортуйте профіль (Налаштування) перед очищенням браузера.",
   "friends.pipLabel": "Друг",
-  "friends.postMatchBody": "За бажанням — лише якщо хочете зустрітися знову.",
+  "friends.postMatchBody": "Request them to Call later when online.",
   "friends.postMatchNo": "Ні",
   "friends.postMatchTitle": "Додати в друзі?",
   "friends.postMatchYes": "Додати",
@@ -228,7 +228,7 @@
   "friends.renamePrompt": "Ім’я друга (бачите лише ви). Порожньо — скинути.",
   "friends.reqToast": "хоче додати в друзі",
   "friends.requestAccepted": "запит прийнято",
-  "friends.requestSent": "запит надіслано",
+  "friends.requestSent": "Запит у друзі надіслано",
   "friends.sentToast": "Запит надіслано — чекаємо Accept",
   "friends.shareInvite": "Поділитися",
   "friends.title": "Друзі",
@@ -1107,5 +1107,10 @@
   "friends.tabBlocked": "Блок",
   "friends.openHistory": "Історія дзвінків",
   "friends.blockedEmpty": "Немає заблокованих",
-  "friends.callOnlyFriends": "Дзвонити можна лише друзям — спочатку додайте за кодом"
+  "friends.callOnlyFriends": "Дзвонити можна лише друзям — спочатку додайте за кодом",
+  "friends.theirCode": "Код",
+  "friends.onlineNotifTitle": "Друг онлайн",
+  "friends.onlineNotifBody": "{n} онлайн — відкрийте, щоб подзвонити",
+  "friends.missedNotifTitle": "Пропущений дзвінок",
+  "friends.missedNotifBody": "{n} — відкрийте історію дзвінків"
 }

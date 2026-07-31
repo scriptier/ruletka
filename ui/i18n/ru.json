@@ -214,7 +214,7 @@
   "friends.pendingBanner": "Ждём, пока они нажмут «Принять» — звонок только после взаимного согласия.",
   "friends.persistHint": "Друзья хранятся на хабе под вашей личностью — helper не нужен. Экспортируйте профиль перед очисткой данных браузера.",
   "friends.pipLabel": "Друг",
-  "friends.postMatchBody": "По желанию — только если хотите встретиться снова.",
+  "friends.postMatchBody": "Отправьте запрос, чтобы звонить позже, когда они онлайн.",
   "friends.postMatchNo": "Нет",
   "friends.postMatchTitle": "Добавить в друзья?",
   "friends.postMatchYes": "Добавить",
@@ -228,7 +228,7 @@
   "friends.renamePrompt": "Имя для этого друга (видите только вы). Пусто = их имя.",
   "friends.reqToast": "хочет добавить в друзья",
   "friends.requestAccepted": "запрос принят",
-  "friends.requestSent": "запрос отправлен",
+  "friends.requestSent": "Запрос в друзья отправлен",
   "friends.sentToast": "Запрос отправлен — ждём «Принять»",
   "friends.shareInvite": "Поделиться",
   "friends.title": "Друзья",
@@ -1107,5 +1107,10 @@
   "friends.tabBlocked": "Блок",
   "friends.openHistory": "История звонков",
   "friends.blockedEmpty": "Нет заблокированных",
-  "friends.callOnlyFriends": "Звонить можно только друзьям — сначала добавьте по коду"
+  "friends.callOnlyFriends": "Звонить можно только друзьям — сначала добавьте по коду",
+  "friends.theirCode": "Код",
+  "friends.onlineNotifTitle": "Друг онлайн",
+  "friends.onlineNotifBody": "{n} онлайн — откройте, чтобы позвонить",
+  "friends.missedNotifTitle": "Пропущенный звонок",
+  "friends.missedNotifBody": "{n} — откройте историю звонков"
 }

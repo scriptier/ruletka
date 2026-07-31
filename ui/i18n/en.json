@@ -216,7 +216,7 @@
   "friends.pendingBanner": "Waiting for them to Accept — you can Call only after both sides approve.",
   "friends.persistHint": "Friends are saved on this hub under your identity — no helper app needed. Export a profile backup before clearing browser data or switching devices.",
   "friends.pipLabel": "Friend",
-  "friends.postMatchBody": "Optional — request only if you want to meet again.",
+  "friends.postMatchBody": "Request them to Call later when online.",
   "friends.postMatchNo": "No thanks",
   "friends.postMatchTitle": "Add as friend?",
   "friends.postMatchYes": "Add friend",
@@ -230,7 +230,7 @@
   "friends.renamePrompt": "Name for this friend (only you see it). Leave empty to use their name.",
   "friends.reqToast": "wants to be friends",
   "friends.requestAccepted": "friend request accepted",
-  "friends.requestSent": "friend request sent",
+  "friends.requestSent": "Friend request sent",
   "friends.sentToast": "Request sent — waiting for them to Accept",
   "friends.shareInvite": "Share",
   "friends.title": "Friends",
@@ -1107,5 +1107,10 @@
   "friends.tabBlocked": "Blocked",
   "friends.openHistory": "Call history",
   "friends.blockedEmpty": "No blocked users",
-  "friends.callOnlyFriends": "Only friends can call — add them by code first"
+  "friends.callOnlyFriends": "Only friends can call — add them by code first",
+  "friends.theirCode": "Code",
+  "friends.onlineNotifTitle": "Friend online",
+  "friends.onlineNotifBody": "{n} is online — open to Call",
+  "friends.missedNotifTitle": "Missed friend call",
+  "friends.missedNotifBody": "{n} — open Call history"
 }

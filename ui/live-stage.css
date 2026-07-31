@@ -11997,3 +11997,30 @@ html[data-theme="pink"] .friends-tab.is-active {
   background: rgba(236, 72, 153, 0.12);
   border-color: rgba(236, 72, 153, 0.35);
 }
+
+/* Post-match friend nudge: show their code */
+.post-match-friend-nudge .post-match-code {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.8rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #9ec0ff;
+  letter-spacing: 0.04em;
+}
+.presence-toast-call {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  cursor: pointer;
+}
+.presence-toast-call .presence-toast-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.presence-toast-call .presence-toast-text span {
+  font-size: 0.82rem;
+  opacity: 0.9;
+}

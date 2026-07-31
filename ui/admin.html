@@ -259,10 +259,17 @@
       <div class="stat">Queue joins <strong id="mt-joins">0</strong></div>
       <div class="stat">Alone joins <strong id="mt-alone">0</strong></div>
       <div class="stat">Alone % <strong id="mt-alone-pct">0</strong></div>
+      <div class="stat">Avg wait <strong id="mt-avg-wait">—</strong></div>
       <div class="stat">Avg match <strong id="mt-avg-match">—</strong></div>
+      <div class="stat">Friend calls <strong id="mt-friend-calls">0</strong></div>
+      <div class="stat">Call rings <strong id="mt-call-rings">0</strong></div>
+      <div class="stat">Ring→call % <strong id="mt-ring-pct">0</strong></div>
       <div class="stat">Peak online <strong id="mt-peak-on">0</strong></div>
       <div class="stat">Peak waiting <strong id="mt-peak-w">0</strong></div>
     </div>
+    <p class="hint" id="metrics-funnel-note" hidden style="margin-top:-0.35rem">
+      Funnel: queue joins → matches · alone % = joined empty pool · friend calls after ring accept.
+    </p>
     <div class="card" id="metrics-card" style="margin-bottom:1rem">
       <div class="empty" id="metrics-empty">Sign in to load metrics</div>
       <table id="metrics-table" hidden>
@@ -274,6 +281,7 @@
             <th>Blocks</th>
             <th>Joins</th>
             <th>Alone</th>
+            <th>Friend calls</th>
             <th>Peak on</th>
             <th>Peak wait</th>
           </tr>
@@ -833,8 +841,47 @@
                 : avgSec + "s"
               : "—";
         }
+        const avgWait =
+          extras.avg_wait_sec != null
+            ? Number(extras.avg_wait_sec)
+            : today.wait_n > 0
+              ? Math.round(
+                  (Number(today.wait_seconds) || 0) / (Number(today.wait_n) || 1)
+                )
+              : 0;
+        if ($("mt-avg-wait")) {
+          $("mt-avg-wait").textContent =
+            avgWait > 0
+              ? avgWait >= 60
+                ? Math.floor(avgWait / 60) + "m " + (avgWait % 60) + "s"
+                : avgWait + "s"
+              : "—";
+        }
+        if ($("mt-friend-calls"))
+          $("mt-friend-calls").textContent =
+            extras.friend_calls != null
+              ? extras.friend_calls
+              : today.friend_calls ?? 0;
+        if ($("mt-call-rings"))
+          $("mt-call-rings").textContent =
+            extras.call_rings != null ? extras.call_rings : today.call_rings ?? 0;
+        if ($("mt-ring-pct")) {
+          const rp =
+            extras.ring_to_call_pct != null
+              ? Number(extras.ring_to_call_pct)
+              : today.call_rings > 0
+                ? Math.round(
+                    ((Number(today.friend_calls) || 0) /
+                      (Number(today.call_rings) || 1)) *
+                      1000
+                  ) / 10
+                : 0;
+          $("mt-ring-pct").textContent = rp + "%";
+        }
         $("mt-peak-on").textContent = today.peak_online ?? 0;
         $("mt-peak-w").textContent = today.peak_waiting ?? 0;
+        const note = $("metrics-funnel-note");
+        if (note) note.hidden = false;
       }
       const body = $("metrics-body");
       const empty = $("metrics-empty");
@@ -852,18 +899,23 @@
       body.innerHTML = hist
         .slice()
         .reverse()
-        .map(
-          (r) => `<tr>
+        .map((r) => {
+          const alonePct =
+            r.queue_joins > 0
+              ? Math.round((r.alone_joins / r.queue_joins) * 1000) / 10
+              : 0;
+          return `<tr>
           <td>${escapeHtml(r.day || "—")}</td>
           <td>${r.matches ?? 0}</td>
           <td>${r.reports ?? 0}</td>
           <td>${r.blocks ?? 0}</td>
           <td>${r.queue_joins ?? 0}</td>
-          <td>${r.alone_joins ?? 0}</td>
+          <td>${r.alone_joins ?? 0} <span style="opacity:.65">(${alonePct}%)</span></td>
+          <td>${r.friend_calls ?? 0}</td>
           <td>${r.peak_online ?? 0}</td>
           <td>${r.peak_waiting ?? 0}</td>
-        </tr>`
-        )
+        </tr>`;
+        })
         .join("");
     }
 

@@ -42,7 +42,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="home.css?v=80" />
+  <link rel="stylesheet" href="home.css?v=81" />
   <script src="brand.js?v=2"></script>
   <script src="analytics.js?v=1" defer></script>
   <script src="pwa-install.js?v=6" defer></script>
@@ -179,7 +179,9 @@
             <span data-i18n="home.cta">Start chatting</span>
             <span class="cta-arrow" aria-hidden="true">→</span>
           </a>
-          <a class="home-secondary" href="#why" data-i18n="home.diffTitle">How we’re different</a>
+          <button type="button" class="home-secondary home-invite-btn" id="btn-home-invite" data-i18n="home.invite">
+            Invite friends
+          </button>
         </div>
 
         <div class="home-live-stats" id="home-live-stats" aria-live="polite">
@@ -192,7 +194,13 @@
             <span data-i18n="home.nowWaiting">Waiting</span>
             <strong id="home-stat-waiting">…</strong>
           </span>
+          <span class="stat-pill home-join-pill" id="home-join-pill" hidden>
+            <a href="/live.html" id="home-join-now" data-i18n="home.joinNow">Join now →</a>
+          </span>
         </div>
+        <p class="home-invite-hint" id="home-invite-hint" data-i18n="home.inviteHint">
+          Quiet right now? Invite a friend — Call works when both of you are online.
+        </p>
       </div>
     </section>
 
@@ -316,6 +324,13 @@
           "home.cta": "Start chatting",
           "home.share": "Share site",
           "home.shareOk": "Link copied",
+          "home.invite": "Invite friends",
+          "home.inviteHint": "Quiet right now? Invite a friend — Call works when both of you are online.",
+          "home.inviteText": "Join me on {brand} — random P2P video chat, or call friends when online.",
+          "home.inviteTextLive": "{n} online now on {brand}. Open live and match or call friends.",
+          "home.joinNow": "Join now →",
+          "home.nowOnline": "Online now",
+          "home.nowWaiting": "Waiting",
           "home.finalTitle": "Ready when you are",
           "home.finalLead": "No account. Camera stays peer-to-peer. Tap in and spin.",
           "home.nowOnline": "Online now",
@@ -355,6 +370,13 @@
           "home.cta": "Начать чат",
           "home.share": "Поделиться",
           "home.shareOk": "Ссылка скопирована",
+          "home.invite": "Пригласить друзей",
+          "home.inviteHint": "Тихо? Пригласите друга — звонок работает, когда вы оба онлайн.",
+          "home.inviteText": "Заходи на {brand} — случайный P2P-видеочат или звонки друзьям.",
+          "home.inviteTextLive": "Сейчас {n} онлайн на {brand}. Открой live — матч или звонок другу.",
+          "home.joinNow": "Зайти →",
+          "home.nowOnline": "Сейчас онлайн",
+          "home.nowWaiting": "В очереди",
           "home.finalTitle": "Можно начинать",
           "home.finalLead": "Без аккаунта. Видео peer-to-peer. Заходите и крутите.",
           "home.nowOnline": "Сейчас онлайн",
@@ -491,6 +513,17 @@
             wrap.classList.toggle("has-people", hasPeople);
             document.body.classList.toggle("has-live-people", hasPeople);
             wrap.hidden = false;
+            var joinPill = document.getElementById("home-join-pill");
+            if (joinPill) joinPill.hidden = !hasPeople;
+            var cta = document.getElementById("btn-enter");
+            if (cta && hasPeople && online > 0) {
+              var dict = packCache[getLang()] || STR[getLang()] || STR.en;
+              var base = (dict && dict["home.cta"]) || "Start chatting";
+              var label = cta.querySelector("[data-i18n='home.cta']") || cta;
+              // Keep i18n span text as base; append live count via data attr for CSS/title
+              cta.title = base + " · " + online + " online";
+              cta.setAttribute("data-online", String(online));
+            }
           })
           .catch(function () {
             var dict = packCache[getLang()] || STR[getLang()] || STR.en;
@@ -500,6 +533,8 @@
             wrap.classList.remove("has-people");
             document.body.classList.remove("has-live-people");
             wrap.hidden = false;
+            var joinPill = document.getElementById("home-join-pill");
+            if (joinPill) joinPill.hidden = true;
             var offline = wrap.querySelector(".stat-offline");
             if (!offline) {
               offline = document.createElement("span");
@@ -511,7 +546,7 @@
           });
       }
       refreshHomeStats();
-      setInterval(refreshHomeStats, 12000);
+      setInterval(refreshHomeStats, 10000);
 
       // Hero video: poster is LCP; load mp4 only when in view (saves mobile data)
       (function setupHeroVideo() {
@@ -587,57 +622,83 @@
         }
       })();
 
-      // Share site (native share sheet or clipboard) — richer text when people online
+      // Share / invite (native share sheet or clipboard) — richer text when people online
+      function homeOnlineCount() {
+        var onlineEl = document.getElementById("home-stat-online");
+        return onlineEl
+          ? parseInt(String(onlineEl.textContent || "0").replace(/\D/g, ""), 10) || 0
+          : 0;
+      }
+      function doHomeShare(btn, mode) {
+        if (!btn) return;
+        var url =
+          location.origin +
+          "/live.html?ref=" +
+          (mode === "invite" ? "invite" : "share");
+        var brand =
+          (window.RuletBrand && RuletBrand.name && RuletBrand.name()) ||
+          "ruletka.vip";
+        var title = brand + " — peer-to-peer chat roulette";
+        var dict = packCache[getLang()] || STR[getLang()] || STR.en;
+        var okLabel = (dict && dict["home.shareOk"]) || "Link copied";
+        var n = homeOnlineCount();
+        var text;
+        if (n > 0) {
+          text = (
+            (dict && dict["home.inviteTextLive"]) ||
+            "{n} online now on {brand}. Open live and match or call friends."
+          )
+            .replace(/\{n\}/g, String(n))
+            .replace(/\{brand\}/g, brand);
+        } else {
+          text = (
+            (dict && dict["home.inviteText"]) ||
+            "Join me on {brand} — random P2P video chat, or call friends when online."
+          ).replace(/\{brand\}/g, brand);
+        }
+        var done = function () {
+          var prev = btn.textContent;
+          var key =
+            mode === "invite"
+              ? "home.invite"
+              : "home.share";
+          btn.textContent = okLabel;
+          setTimeout(function () {
+            btn.textContent = (dict && dict[key]) || prev || "Share";
+          }, 1600);
+        };
+        if (navigator.share) {
+          navigator
+            .share({ title: title, url: url, text: text })
+            .then(done)
+            .catch(function () {});
+          return;
+        }
+        var clip = text + "\n" + url;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(clip).then(done).catch(function () {});
+        } else {
+          var ta = document.createElement("textarea");
+          ta.value = clip;
+          document.body.appendChild(ta);
+          ta.select();
+          try {
+            document.execCommand("copy");
+          } catch (_) {}
+          ta.remove();
+          done();
+        }
+      }
       var shareBtn = document.getElementById("btn-share-site");
       if (shareBtn) {
         shareBtn.addEventListener("click", function () {
-          var url = location.origin + "/live.html?ref=share";
-          var brand =
-            (window.RuletBrand && RuletBrand.name && RuletBrand.name()) ||
-            "ruletka.vip";
-          var title = brand + " — peer-to-peer chat roulette";
-          var dict = packCache[getLang()] || STR[getLang()] || STR.en;
-          var okLabel = (dict && dict["home.shareOk"]) || "Link copied";
-          var onlineEl = document.getElementById("home-stat-online");
-          var n = onlineEl
-            ? parseInt(String(onlineEl.textContent || "0").replace(/\D/g, ""), 10) || 0
-            : 0;
-          var text =
-            n > 1
-              ? title +
-                " · " +
-                n +
-                " online. Random P2P video chat — no account."
-              : title + " · Random P2P video chat — no account required.";
-          var done = function () {
-            var prev = shareBtn.textContent;
-            shareBtn.textContent = okLabel;
-            setTimeout(function () {
-              shareBtn.textContent =
-                (dict && dict["home.share"]) || prev || "Share site";
-            }, 1600);
-          };
-          if (navigator.share) {
-            navigator
-              .share({ title: title, url: url, text: text })
-              .then(done)
-              .catch(function () {});
-            return;
-          }
-          var clip = text + " " + url;
-          if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(clip).then(done).catch(function () {});
-          } else {
-            var ta = document.createElement("textarea");
-            ta.value = clip;
-            document.body.appendChild(ta);
-            ta.select();
-            try {
-              document.execCommand("copy");
-            } catch (_) {}
-            ta.remove();
-            done();
-          }
+          doHomeShare(shareBtn, "share");
+        });
+      }
+      var inviteBtn = document.getElementById("btn-home-invite");
+      if (inviteBtn) {
+        inviteBtn.addEventListener("click", function () {
+          doHomeShare(inviteBtn, "invite");
         });
       }
     })();

@@ -214,7 +214,7 @@
   "friends.pendingBanner": "等待对方 Accept — 双方同意后才能呼叫。",
   "friends.persistHint": "好友保存在枢纽的身份下。清除浏览器数据前请导出个人资料（设置）。",
   "friends.pipLabel": "好友",
-  "friends.postMatchBody": "可选 — 仅在想再次见面时请求。",
+  "friends.postMatchBody": "Request them to Call later when online.",
   "friends.postMatchNo": "不用了",
   "friends.postMatchTitle": "加为好友？",
   "friends.postMatchYes": "添加好友",
@@ -228,7 +228,7 @@
   "friends.renamePrompt": "此好友的名称（仅你可见）。留空清除。",
   "friends.reqToast": "想加你为好友",
   "friends.requestAccepted": "好友请求已接受",
-  "friends.requestSent": "好友请求已发送",
+  "friends.requestSent": "Friend request sent",
   "friends.sentToast": "请求已发送 — 等待 Accept",
   "friends.shareInvite": "分享",
   "friends.title": "好友",
@@ -1107,5 +1107,10 @@
   "friends.tabBlocked": "已屏蔽",
   "friends.openHistory": "通话记录",
   "friends.blockedEmpty": "暂无屏蔽用户",
-  "friends.callOnlyFriends": "仅好友可呼叫 — 请先用代码添加"
+  "friends.callOnlyFriends": "仅好友可呼叫 — 请先用代码添加",
+  "friends.theirCode": "Code",
+  "friends.onlineNotifTitle": "Friend online",
+  "friends.onlineNotifBody": "{n} is online — open to Call",
+  "friends.missedNotifTitle": "Missed friend call",
+  "friends.missedNotifBody": "{n} — open Call history"
 }

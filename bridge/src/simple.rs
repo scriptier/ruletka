@@ -148,6 +148,8 @@ pub struct Client {
     report_times: Vec<Instant>,
     /// When current stranger match began (for avg match length metrics).
     match_started: Option<Instant>,
+    /// When this client entered the queue (for avg wait metrics).
+    wait_started: Option<Instant>,
 }
 
 /// Daily hub counters (persisted as JSONL under data/metrics.jsonl).
@@ -168,6 +170,18 @@ pub struct DayMetrics {
     /// Count of match durations recorded (for average).
     #[serde(default)]
     pub match_duration_n: u64,
+    /// Friend 1:1 sessions started (accept).
+    #[serde(default)]
+    pub friend_calls: u64,
+    /// Outbound call_friend rings that passed friendship checks.
+    #[serde(default)]
+    pub call_rings: u64,
+    /// Sum of queue wait seconds until match (stranger).
+    #[serde(default)]
+    pub wait_seconds: u64,
+    /// Count of wait durations recorded.
+    #[serde(default)]
+    pub wait_n: u64,
 }
 
 pub struct SimpleHub {
@@ -872,6 +886,33 @@ impl SimpleHub {
         self.metrics.match_duration_n = self.metrics.match_duration_n.saturating_add(1);
     }
 
+    fn metrics_record_wait(&mut self, started: Option<Instant>) {
+        let Some(t0) = started else {
+            return;
+        };
+        let secs = t0.elapsed().as_secs().min(86_400);
+        self.metrics_roll_day();
+        self.metrics.wait_seconds = self.metrics.wait_seconds.saturating_add(secs);
+        self.metrics.wait_n = self.metrics.wait_n.saturating_add(1);
+    }
+
+    fn metrics_inc_friend_call(&mut self) {
+        self.metrics_roll_day();
+        self.metrics.friend_calls = self.metrics.friend_calls.saturating_add(1);
+        if self.metrics.friend_calls % 3 == 0 {
+            self.metrics_flush();
+        }
+    }
+
+    fn metrics_inc_call_ring(&mut self) {
+        self.metrics_roll_day();
+        self.metrics.call_rings = self.metrics.call_rings.saturating_add(1);
+    }
+
+    fn take_wait_started(&mut self, id: Uuid) -> Option<Instant> {
+        self.clients.get_mut(&id).and_then(|c| c.wait_started.take())
+    }
+
     fn metrics_inc_report(&mut self) {
         self.metrics_roll_day();
         self.metrics.reports = self.metrics.reports.saturating_add(1);
@@ -924,11 +965,26 @@ impl SimpleHub {
         } else {
             0
         };
+        let avg_wait_sec = if self.metrics.wait_n > 0 {
+            (self.metrics.wait_seconds / self.metrics.wait_n) as u64
+        } else {
+            0
+        };
+        let ring_to_call_pct = if self.metrics.call_rings > 0 {
+            ((self.metrics.friend_calls as f64 / self.metrics.call_rings as f64) * 1000.0).round()
+                / 10.0
+        } else {
+            0.0
+        };
         serde_json::json!({
             "today": self.metrics,
             "today_extras": {
                 "alone_pct": alone_pct,
                 "avg_match_sec": avg_match_sec,
+                "avg_wait_sec": avg_wait_sec,
+                "friend_calls": self.metrics.friend_calls,
+                "call_rings": self.metrics.call_rings,
+                "ring_to_call_pct": ring_to_call_pct,
             },
             "history": history,
             "path": path.display().to_string(),
@@ -1395,6 +1451,7 @@ impl SimpleHub {
                 limiter: ClientLimiter::new(),
                 report_times: Vec::new(),
                 match_started: None,
+                wait_started: None,
             },
         );
         // by_user/code_index set on Hello with persistent user_id (not ephemeral uuid)
@@ -1873,6 +1930,7 @@ impl SimpleHub {
                 },
             );
         }
+        self.metrics_inc_friend_call();
         tracing::info!(%a, %b, "friend call started");
     }
 
@@ -2128,6 +2186,17 @@ impl SimpleHub {
     }
 
     fn enqueue_party(&mut self, a: Uuid, b: Uuid) {
+        let now = Instant::now();
+        if let Some(c) = self.clients.get_mut(&a) {
+            if c.wait_started.is_none() {
+                c.wait_started = Some(now);
+            }
+        }
+        if let Some(c) = self.clients.get_mut(&b) {
+            if c.wait_started.is_none() {
+                c.wait_started = Some(now);
+            }
+        }
         self.dequeue_client(a);
         self.dequeue_client(b);
         // canonical order for queue entry
@@ -2484,15 +2553,29 @@ impl SimpleHub {
 
             match (first, second) {
                 (QueueEntry::Solo(a), QueueEntry::Solo(b)) => {
+                    let wa = self.take_wait_started(a);
+                    let wb = self.take_wait_started(b);
+                    self.metrics_record_wait(wa);
+                    self.metrics_record_wait(wb);
                     self.start_solo_match(a, b);
                     self.metrics_inc_match();
                 }
                 (QueueEntry::Solo(s), QueueEntry::Party { a, b })
                 | (QueueEntry::Party { a, b }, QueueEntry::Solo(s)) => {
+                    let ws = self.take_wait_started(s);
+                    let wa = self.take_wait_started(a);
+                    let wb = self.take_wait_started(b);
+                    self.metrics_record_wait(ws);
+                    self.metrics_record_wait(wa);
+                    self.metrics_record_wait(wb);
                     self.start_party_vs_solo(s, a, b);
                     self.metrics_inc_match();
                 }
                 (QueueEntry::Party { a: a1, b: a2 }, QueueEntry::Party { a: b1, b: b2 }) => {
+                    for id in [a1, a2, b1, b2] {
+                        let w = self.take_wait_started(id);
+                        self.metrics_record_wait(w);
+                    }
                     self.start_party_vs_party(a1, a2, b1, b2);
                     self.metrics_inc_match();
                 }
@@ -2510,6 +2593,7 @@ impl SimpleHub {
             c.room = room;
             c.phase = Phase::Waiting;
             c.party_with = None;
+            c.wait_started = Some(Instant::now());
         }
         // Alone = no other solo waiters before we join (self not waiting yet)
         let alone = self.waiting_solo_count() == 0;
@@ -3590,6 +3674,7 @@ impl SimpleHub {
                 from_code: my_code,
             },
         );
+        self.metrics_inc_call_ring();
         self.status(id, "calling friend…");
     }
 

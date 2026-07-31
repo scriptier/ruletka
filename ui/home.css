@@ -1444,3 +1444,49 @@ html::-webkit-scrollbar-track { background: transparent; }
 .pwa-ios-tip .pwa-install-bar {
   background: linear-gradient(180deg, #5b9dff, #7eb6ff);
 }
+
+/* Growth: invite + live join pill */
+.home-invite-btn {
+  cursor: pointer;
+  font: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: #e8eef7;
+  border-radius: 999px;
+  padding: 0.72rem 1.15rem;
+  font-weight: 650;
+  transition: background 0.12s, border-color 0.12s, transform 0.1s;
+}
+.home-invite-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 45, 85, 0.35);
+}
+.home-invite-hint {
+  margin: 0.65rem 0 0;
+  font-size: 0.86rem;
+  line-height: 1.4;
+  color: #8b9bb0;
+  max-width: 28rem;
+}
+body.has-live-people .home-invite-hint {
+  color: #9ec0ff;
+}
+.home-join-pill {
+  background: rgba(255, 45, 85, 0.14) !important;
+  border-color: rgba(255, 45, 85, 0.4) !important;
+}
+.home-join-pill a {
+  color: #ffb3c1;
+  font-weight: 750;
+  text-decoration: none;
+}
+.home-join-pill a:hover {
+  color: #fff;
+}
+.home-live-stats.has-people {
+  animation: home-stats-glow 2.8s ease-in-out infinite;
+}
+@keyframes home-stats-glow {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.06); }
+}

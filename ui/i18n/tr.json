@@ -214,7 +214,7 @@
   "friends.pendingBanner": "Accept bekleniyor — yalnızca karşılıklı onaydan sonra arayın.",
   "friends.persistHint": "Arkadaşlar kimliğiniz altında hub’da. Tarayıcı verisini silmeden önce profili dışa aktarın (Ayarlar).",
   "friends.pipLabel": "Arkadaş",
-  "friends.postMatchBody": "İsteğe bağlı — yalnızca tekrar görüşmek isterseniz.",
+  "friends.postMatchBody": "Request them to Call later when online.",
   "friends.postMatchNo": "Hayır",
   "friends.postMatchTitle": "Arkadaş eklensin mi?",
   "friends.postMatchYes": "Ekle",
@@ -228,7 +228,7 @@
   "friends.renamePrompt": "Bu arkadaş için isim (yalnızca siz görürsünüz). Boş = sil.",
   "friends.reqToast": "arkadaş olmak istiyor",
   "friends.requestAccepted": "arkadaşlık isteği kabul edildi",
-  "friends.requestSent": "arkadaşlık isteği gönderildi",
+  "friends.requestSent": "Friend request sent",
   "friends.sentToast": "İstek gönderildi — Accept bekleniyor",
   "friends.shareInvite": "Paylaş",
   "friends.title": "Arkadaşlar",
@@ -1107,5 +1107,10 @@
   "friends.tabBlocked": "Engelli",
   "friends.openHistory": "Arama geçmişi",
   "friends.blockedEmpty": "Engelli yok",
-  "friends.callOnlyFriends": "Yalnızca arkadaşlar arayabilir — önce kodla ekleyin"
+  "friends.callOnlyFriends": "Yalnızca arkadaşlar arayabilir — önce kodla ekleyin",
+  "friends.theirCode": "Code",
+  "friends.onlineNotifTitle": "Friend online",
+  "friends.onlineNotifBody": "{n} is online — open to Call",
+  "friends.missedNotifTitle": "Missed friend call",
+  "friends.missedNotifBody": "{n} — open Call history"
 }

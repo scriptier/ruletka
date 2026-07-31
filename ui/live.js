@@ -1633,7 +1633,7 @@ function maybeShowPostMatchFriendNudge(reason) {
   try {
     if (matchMode === "friend" || inFriendCall) return;
     // Snapshot before any tear-down clears partner fields
-    const code = lastMatchMeta?.friend_code || "";
+    const code = String(lastMatchMeta?.friend_code || "").toUpperCase();
     const uid = primaryPartnerUserId || lastMatchMeta?.user_id || "";
     // Need a way to send the request
     if (!code && !uid) return;
@@ -1642,7 +1642,8 @@ function maybeShowPostMatchFriendNudge(reason) {
       return;
     }
     if (!code) return; // can't add without code
-    if (matchDurationSec() < 25) return;
+    // Shorter chats still get a soft ask (was 25s — too rare)
+    if (matchDurationSec() < 12) return;
     const key = uid || code;
     if (friendNudgeShown.has(key)) return;
     if ($("post-match-friend-nudge")) return;
@@ -1660,11 +1661,17 @@ function maybeShowPostMatchFriendNudge(reason) {
       )}</strong>
       <span>${escapeHtml(name)} · ${escapeHtml(
       _t("friends.postMatchBody") ||
-        "Optional — request only if you want to meet again."
-    )}</span>
+        "Request them to Call later when online."
+      )}</span>
+      <span class="post-match-code mono">${escapeHtml(
+        (_t("friends.theirCode") || "Code") + ": " + code
+      )}</span>
       <div class="export-nudge-actions" style="margin-top:0.45rem">
         <button type="button" class="pill tight ghost" id="btn-post-friend-no">${escapeHtml(
           _t("friends.postMatchNo") || "No thanks"
+        )}</button>
+        <button type="button" class="pill tight" id="btn-post-friend-copy">${escapeHtml(
+          _t("friends.copyCode") || "Copy code"
         )}</button>
         <button type="button" class="pill tight accent" id="btn-post-friend-yes">${escapeHtml(
           _t("friends.postMatchYes") || "Add friend"
@@ -1678,12 +1685,21 @@ function maybeShowPostMatchFriendNudge(reason) {
       trackEvent("friend_nudge_dismiss", { reason: reason || "" });
       dismiss();
     });
+    $("btn-post-friend-copy")?.addEventListener("click", async () => {
+      trackEvent("friend_nudge_copy_code", { reason: reason || "" });
+      try {
+        await copyToClipboard(code, "friends.codeCopied");
+      } catch (_) {
+        setStatus(code);
+      }
+    });
     $("btn-post-friend-yes")?.addEventListener("click", () => {
       trackEvent("friend_nudge_accept", { reason: reason || "" });
       dismiss();
       requestAddFriend(code);
+      setStatus(_t("friends.requestSent") || "Friend request sent");
     });
-    setTimeout(dismiss, 14000);
+    setTimeout(dismiss, 16000);
   } catch (_) {}
 }
 
@@ -2763,14 +2779,44 @@ function friendUnreadCount() {
   return n;
 }
 
+const MISSED_CALLS_READ_KEY = "ruletka-missed-calls-read-v1";
+
+function loadMissedCallsReadTs() {
+  try {
+    return Number(localStorage.getItem(MISSED_CALLS_READ_KEY) || 0) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function markMissedCallsRead() {
+  try {
+    localStorage.setItem(MISSED_CALLS_READ_KEY, String(Date.now()));
+  } catch (_) {}
+  updateFriendsUnreadBadge();
+}
+
+function countUnreadMissedCalls() {
+  const since = loadMissedCallsReadTs();
+  try {
+    return loadHistory().filter(
+      (h) => h && h.kind === "missed" && (h.t || 0) > since
+    ).length;
+  } catch {
+    return 0;
+  }
+}
+
 function updateFriendsUnreadBadge() {
-  // Friends badge = friend requests only; unread chats live on Messages badge
+  // Friends badge = requests + unread missed calls; chats use Messages badge
   const badge = $("friends-badge");
   if (!badge) return;
   const reqN = (incomingRequests || []).length;
-  if (reqN > 0) {
+  const missedN = countUnreadMissedCalls();
+  const n = reqN + missedN;
+  if (n > 0) {
     badge.hidden = false;
-    badge.textContent = String(reqN > 99 ? "99+" : reqN);
+    badge.textContent = String(n > 99 ? "99+" : n);
   } else {
     badge.hidden = true;
     badge.textContent = "0";
@@ -3922,12 +3968,22 @@ function clearCallTimeout() {
   }
 }
 
+/** Peer we last tried to ring (for missed-call history on timeout). */
+let lastOutgoingCallPeer = null;
+
 function startCallTimeout() {
   clearCallTimeout();
   callTimeoutTimer = setTimeout(() => {
     callTimeoutTimer = 0;
     setStatus(_t("status.callTimeout"));
     log(_t("friends.noAnswer"));
+    if (lastOutgoingCallPeer?.user_id) {
+      recordMissedCall({
+        ...lastOutgoingCallPeer,
+        name: lastOutgoingCallPeer.name || "Friend",
+      });
+    }
+    lastOutgoingCallPeer = null;
   }, 30000);
 }
 
@@ -4978,8 +5034,16 @@ function placeFriendCall(userId, { closePanel = true } = {}) {
     log(_t("friends.callOnlyFriends") || "only friends can call");
     return false;
   }
+  const fr = (friendsCache || []).find((f) => f && f.user_id === uid);
+  lastOutgoingCallPeer = {
+    user_id: uid,
+    name: friendDisplayName(fr) || fr?.name || "",
+    friend_code: fr?.friend_code || "",
+    short_id: fr?.short_id || "",
+  };
   if (!send({ type: "call_friend", user_id: uid })) {
     clearCallTimeout();
+    lastOutgoingCallPeer = null;
     setStatus(_t("status.disconnected") || "disconnected — reconnecting…");
     log(_t("status.disconnected") || "not connected");
     return false;
@@ -8621,8 +8685,11 @@ function handleServer(msg) {
       hideIncomingCall();
       clearCallTimeout();
       if (msg.reason && /declin|no answer|timeout|missed/i.test(msg.reason)) {
-        /* recorded on decline path when we know the peer */
+        if (lastOutgoingCallPeer?.user_id) {
+          recordMissedCall(lastOutgoingCallPeer);
+        }
       }
+      lastOutgoingCallPeer = null;
       inFriendCall = false;
       matchMode = "solo";
       endActiveMatchChat();
@@ -10497,27 +10564,113 @@ function wireWaitTips() {
   });
 }
 
-/** Friend came online */
+/** Friend came online — toast + optional OS notification + one-tap Call */
 function showFriendOnlineToast(f) {
-  const name = f?.name || f?.friend_code || "Friend";
+  const name = friendDisplayName(f) || f?.name || f?.friend_code || "Friend";
+  const uid = f?.user_id || "";
   const id = "presence-toast";
   const existing = $(id);
   if (existing) existing.remove();
   const toast = document.createElement("div");
   toast.id = id;
-  toast.className = "presence-toast";
+  toast.className = "presence-toast presence-toast-call";
   toast.setAttribute("role", "status");
-  toast.innerHTML = `<strong>${escapeHtml(name)}</strong> · ${escapeHtml(
-    _t("friends.onlineNow")
-  )}`;
-  toast.addEventListener("click", () => {
+  toast.style.pointerEvents = "auto";
+  const canCall = !!(uid && f?.online);
+  toast.innerHTML = `
+    <div class="presence-toast-text">
+      <strong>${escapeHtml(name)}</strong>
+      <span>${escapeHtml(_t("friends.onlineNow") || "is online")}</span>
+    </div>
+    ${
+      canCall
+        ? `<button type="button" class="pill tight accent" id="btn-presence-call">${escapeHtml(
+            _t("friends.call") || "Call"
+          )}</button>`
+        : ""
+    }`;
+  document.body.appendChild(toast);
+  $("btn-presence-call")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toast.remove();
+    trackEvent("friend_online_toast_call");
+    placeFriendCall(uid, { closePanel: false });
+  });
+  toast.addEventListener("click", (e) => {
+    if (e.target.closest("button")) return;
     toast.remove();
     openFriends();
   });
-  document.body.appendChild(toast);
   setTimeout(() => {
     if (toast.parentNode) toast.remove();
-  }, 5500);
+  }, 8000);
+  tryShowFriendOnlineNotification(name, uid);
+}
+
+function tryShowFriendOnlineNotification(name, uid) {
+  if (typeof Notification === "undefined") return;
+  if (document.visibilityState === "visible") return;
+  const show = () => {
+    try {
+      const n = new Notification(
+        _t("friends.onlineNotifTitle") || "Friend online",
+        {
+          body: _t("friends.onlineNotifBody", { n: name || "Friend" }) ||
+            `${name || "Friend"} is online — open to Call`,
+          tag: "ruletka-friend-online-" + (uid || "x"),
+          renotify: true,
+        }
+      );
+      n.onclick = () => {
+        window.focus();
+        n.close();
+        if (uid) placeFriendCall(uid, { closePanel: false });
+        else openFriends();
+      };
+    } catch (_) {}
+  };
+  if (Notification.permission === "granted") show();
+  else if (Notification.permission === "default") {
+    // Soft: only if user already interacted with Friends (no auto-nag)
+  }
+}
+
+function recordMissedCall(entry) {
+  pushHistory({
+    kind: "missed",
+    name: entry?.name || entry?.short_id || "Friend",
+    user_id: entry?.user_id || "",
+    short_id: entry?.short_id || "",
+    friend_code: entry?.friend_code || "",
+  });
+  updateFriendsUnreadBadge();
+  tryShowMissedCallNotification(entry?.name || "Friend");
+}
+
+function tryShowMissedCallNotification(name) {
+  if (typeof Notification === "undefined") return;
+  if (document.visibilityState === "visible") return;
+  if (Notification.permission !== "granted") return;
+  try {
+    const n = new Notification(
+      _t("friends.missedNotifTitle") || "Missed friend call",
+      {
+        body:
+          _t("friends.missedNotifBody", { n: name || "Friend" }) ||
+          `${name || "Friend"} — open Call history`,
+        tag: "ruletka-missed-call",
+        renotify: true,
+      }
+    );
+    n.onclick = () => {
+      window.focus();
+      n.close();
+      openFriends();
+      try {
+        setFriendsSheetTab("history");
+      } catch (_) {}
+    };
+  } catch (_) {}
 }
 
 /** Keyboard shortcuts help */
@@ -10758,6 +10911,7 @@ function openFriends() {
     } catch (_) {}
   }
   wireFriendsTabsOnce();
+  markMissedCallsRead();
   renderFriendsList();
   renderRequestLists();
   renderHistoryList();
@@ -10828,8 +10982,7 @@ function showIncomingCall(msg) {
       hideIncomingCall();
       return;
     }
-    pushHistory({
-      kind: "missed",
+    recordMissedCall({
       name,
       user_id: incomingCallFrom,
       short_id: msg.from_short || "",
