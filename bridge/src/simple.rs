@@ -3527,6 +3527,7 @@ impl SimpleHub {
             } else {
                 "not friends — send a request and wait for accept"
             };
+            tracing::info!(%my_uid, target = %user_id, %msg, "call_friend rejected");
             self.send(
                 id,
                 ServerMsg::Error {
@@ -3545,18 +3546,27 @@ impl SimpleHub {
             return;
         }
         let Some(&oid) = self.by_user.get(&user_id) else {
+            tracing::info!(%my_uid, target = %user_id, "call_friend: friend offline");
             self.send(
                 id,
                 ServerMsg::Error {
                     message: "friend offline".into(),
                 },
             );
+            // Refresh caller's friends list so UI drops stale "online"
+            self.push_friends_list(id);
             return;
         };
-        if self.clients.get(&id).map(|c| c.phase) != Some(Phase::Idle)
-            && self.clients.get(&id).map(|c| c.phase) != Some(Phase::Waiting)
-        {
-            // allow call from idle primarily
+        // Caller already in a friend call — hang up first
+        if self.clients.get(&id).and_then(|c| c.friend_call).is_some() {
+            self.end_friend_call(id, "left to call another friend");
+        }
+        // Caller in a stranger match or party search — leave cleanly so ring works
+        if matches!(
+            self.clients.get(&id).map(|c| c.phase),
+            Some(Phase::Matched) | Some(Phase::Waiting)
+        ) {
+            self.stop_matchmaking(id);
         }
         if matches!(
             self.clients.get(&oid).map(|c| c.phase),
@@ -3603,9 +3613,26 @@ impl SimpleHub {
             self.status(caller, "call declined");
             return;
         }
-        // Leave queues
-        self.dequeue_client(id);
-        self.dequeue_client(caller);
+        // Drop any stranger/queue/party state so friend 1:1 can start cleanly
+        if self.clients.get(&id).and_then(|c| c.friend_call).is_some() {
+            self.end_friend_call(id, "left previous friend call");
+        }
+        if self.clients.get(&caller).and_then(|c| c.friend_call).is_some() {
+            // Shouldn't happen mid-ring, but be safe
+            if self.clients.get(&caller).and_then(|c| c.friend_call) != Some(id) {
+                self.end_friend_call(caller, "left previous friend call");
+            }
+        }
+        for cid in [id, caller] {
+            if matches!(
+                self.clients.get(&cid).map(|c| c.phase),
+                Some(Phase::Matched) | Some(Phase::Waiting)
+            ) {
+                self.stop_matchmaking(cid);
+            } else {
+                self.dequeue_client(cid);
+            }
+        }
         self.start_friend_session(caller, id);
     }
 

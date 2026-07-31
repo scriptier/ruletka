@@ -322,7 +322,7 @@
       "friends.addCode": "Add friend by code",
       "friends.add": "Request",
       "friends.mutualHint": "When someone adds your code, you must Accept before you become friends and can Call.",
-      "friends.hint": "After both Accept, Call when online. Then Browse together (max 2).",
+      "friends.hint": "Call when they show Online. If you're both on the site but they show Offline, re-add with their current code (or import the same profile backup). Then Browse together (max 2).",
       "friends.browseTogether": "Browse together",
       "friends.hangup": "Hang up",
       "friends.incoming": "is calling…",

@@ -4362,8 +4362,7 @@ function updateFriendsOnlineStrip() {
       const uid = btn.getAttribute("data-friend-online");
       if (!uid) return;
       trackEvent("friends_online_strip_call");
-      send({ type: "call_friend", user_id: uid });
-      setStatus(_t("status.calling") || "Calling…");
+      placeFriendCall(uid, { closePanel: false });
     });
   });
 }
@@ -4899,7 +4898,28 @@ function maybeShowCellularDataTip() {
 }
 
 function send(obj) {
-  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(obj));
+    return true;
+  }
+  return false;
+}
+
+/** Place a friend call (ring). Returns false if not connected / missing uid. */
+function placeFriendCall(userId, { closePanel = true } = {}) {
+  const uid = (userId || "").trim();
+  if (!uid) return false;
+  if (!send({ type: "call_friend", user_id: uid })) {
+    clearCallTimeout();
+    setStatus(_t("status.disconnected") || "disconnected — reconnecting…");
+    log(_t("status.disconnected") || "not connected");
+    return false;
+  }
+  setStatus(_t("status.calling") || "Calling…");
+  startCallTimeout();
+  log(_t("status.calling") || "Calling…");
+  if (closePanel) closeFriends();
+  return true;
 }
 
 function currentRoom() {
@@ -8208,9 +8228,21 @@ function connect(isRetry = false) {
     stopPing();
     stopStats();
     clearCallTimeout();
+    hideIncomingCall();
     ws = null;
     setStatus(_t("status.disconnected"));
     updateConnFromState();
+    // Presence is hub-scoped — until re-hello, don't show stale Call buttons
+    if (Array.isArray(friendsCache) && friendsCache.length) {
+      for (const f of friendsCache) {
+        if (f) f.online = false;
+      }
+      try {
+        renderFriendsList();
+        renderHistoryList();
+        updateFriendsOnlineStrip();
+      } catch (_) {}
+    }
     if (!intentionalClose) {
       const wasInQueue = inQueue || wantSearch;
       const wasFriend = inFriendCall || matchMode === "friend";
@@ -8388,6 +8420,10 @@ function handleServer(msg) {
     case "call_incoming":
       if (!msg.from_user_id) break;
       clearCallTimeout();
+      // Flyouts sit above older toast z-index — close them so Accept is visible
+      try {
+        closeAllDockFlyouts();
+      } catch (_) {}
       showIncomingCall(msg);
       break;
     case "call_ended":
@@ -8589,8 +8625,27 @@ function handleServer(msg) {
       handleIncomingSignal(msg);
       break;
     case "error":
-      log(_t("log.error", { e: _srv(msg.message) || msg.message }));
-      setStatus(_srv(msg.message) || msg.message);
+      {
+        const em = String(msg.message || "");
+        // Friend-call failures should cancel the "calling…" timeout UI
+        if (
+          /friend offline|not friends|friend request|friend is busy|cannot call|caller offline|accept their friend/i.test(
+            em
+          )
+        ) {
+          clearCallTimeout();
+          hideIncomingCall();
+        }
+        // Server re-pushes friends list on "friend offline"; re-render if already cached
+        if (/friend offline/i.test(em)) {
+          try {
+            renderFriendsList();
+            updateFriendsOnlineStrip();
+          } catch (_) {}
+        }
+        log(_t("log.error", { e: _srv(em) || em }));
+        setStatus(_srv(em) || em);
+      }
       break;
     default:
       break;
@@ -9562,11 +9617,7 @@ function renderFriendsList() {
   });
   el.querySelectorAll(".btn-call-friend").forEach((btn) => {
     btn.addEventListener("click", () => {
-      send({ type: "call_friend", user_id: btn.getAttribute("data-uid") });
-      setStatus(_t("status.calling"));
-      startCallTimeout();
-      log(_t("status.calling"));
-      closeFriends();
+      placeFriendCall(btn.getAttribute("data-uid"));
     });
   });
   el.querySelectorAll(".btn-friend-more").forEach((btn) => {
@@ -9879,10 +9930,7 @@ function renderHistoryList() {
   });
   el.querySelectorAll(".btn-hist-call").forEach((btn) => {
     btn.addEventListener("click", () => {
-      send({ type: "call_friend", user_id: btn.getAttribute("data-uid") });
-      setStatus(_t("status.calling"));
-      startCallTimeout();
-      closeFriends();
+      placeFriendCall(btn.getAttribute("data-uid"));
     });
   });
   el.querySelectorAll(".btn-hist-add").forEach((btn) => {

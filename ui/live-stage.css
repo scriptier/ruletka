@@ -587,9 +587,14 @@ html.stage-html {
   flex-wrap: wrap;
   gap: 0.3rem;
   justify-content: flex-end;
-  max-width: 55%;
+  /* Keep Message + Call visible; was 55% and clipped Call on narrow rows */
+  max-width: min(62%, 14rem);
+  flex-shrink: 0;
 }
 .friend-row .friend-actions .pill { font-size: 0.72rem; }
+.friend-actions-primary .btn-call-friend {
+  flex-shrink: 0;
+}
 .history-head {
   display: flex;
   align-items: center;
@@ -603,13 +608,14 @@ html.stage-html {
   box-shadow: 0 6px 18px rgba(255, 45, 85, 0.28);
 }
 
-/* Only present in DOM while a real call is ringing (created in JS) */
+/* Only present in DOM while a real call is ringing (created in JS).
+   Must sit above dock flyouts (.sheet z-index 60) and footer (56) so Accept is tappable. */
 .call-toast {
   position: fixed;
   bottom: max(5.5rem, 18vh);
   left: 50%;
   transform: translateX(-50%);
-  z-index: 40;
+  z-index: 95;
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
