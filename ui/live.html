@@ -54,7 +54,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </noscript>
   <link rel="stylesheet" href="style.css?v=157" />
-  <link rel="stylesheet" href="live-stage.css?v=182" />
+  <link rel="stylesheet" href="live-stage.css?v=183" />
   <script src="brand.js?v=2"></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -1561,7 +1561,7 @@
         <p class="hint-inline" data-i18n="flag.hint">
           Optional label on your name. You choose it — we never use GPS or your IP to set a flag.
         </p>
-        <div class="settings-group">
+        <div class="settings-group flag-search-sticky">
           <div class="settings-row settings-row-input">
             <span class="row-left"><span data-i18n="flag.search">Search</span></span>
             <span class="row-right-input">
@@ -1569,9 +1569,10 @@
                 data-i18n-placeholder="flag.searchPh" placeholder="Country or code…" aria-label="Search flags" />
             </span>
           </div>
+          <p class="flag-list-count" id="flag-list-count" aria-live="polite"></p>
         </div>
         <div class="settings-group flag-choice-list" id="settings-flag-list">
-          <!-- filled by live.js -->
+          <!-- filled by live.js — full ISO list + AQ / EU / UN -->
         </div>
       </div>
     </div>
@@ -1705,7 +1706,7 @@
   <script src="identity.js?v=156"></script>
   <script src="hubs.js?v=156"></script>
   <script src="webrtc.js?v=156"></script>
-  <script src="live.js?v=183"></script>
+  <script src="live.js?v=184"></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

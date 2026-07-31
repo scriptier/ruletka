@@ -7227,9 +7227,49 @@ html[data-theme="light"] .conn-detail-row {
 }
 
 /* ─── Flag picker (cosmetic, not location) ─── */
+/* One scroll: whole settings body scrolls the full list (no tiny nested box) */
+.flag-search-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #0e121a;
+  padding-bottom: 0.15rem;
+  margin-bottom: 0.1rem;
+  box-shadow: 0 8px 12px -8px rgba(0, 0, 0, 0.55);
+}
+html[data-theme="light"] .flag-search-sticky {
+  background: #f4f6fa;
+  box-shadow: 0 8px 12px -8px rgba(15, 23, 42, 0.12);
+}
+html[data-theme="matrix"] .flag-search-sticky {
+  background: #050a06;
+}
+html[data-theme="pink"] .flag-search-sticky {
+  background: #1a0f16;
+}
+html[data-theme="saloon"] .flag-search-sticky {
+  background: #1a120c;
+}
+.flag-list-count {
+  margin: 0.2rem 0.15rem 0.35rem;
+  padding: 0 0.2rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #8b9bb0;
+  line-height: 1.3;
+}
+html[data-theme="light"] .flag-list-count {
+  color: #5a6a7e;
+}
 .flag-choice-list {
-  max-height: min(52vh, 28rem);
-  overflow: auto;
+  max-height: none;
+  overflow: visible;
+  /* ~250 rows — body scroll shows all of them */
+  padding-bottom: 1.25rem;
+}
+#settings-view-flag .settings-body {
+  max-height: none;
 }
 .flag-emoji-lg {
   font-size: 1.35rem;
