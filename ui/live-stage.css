@@ -12300,18 +12300,18 @@ html.chrome-always .tile-local .tile-floor-local {
 }
 .tile-local .tile-avatar-local {
   position: absolute;
-  top: 0.5rem;
-  right: 0.55rem;
+  top: 0.45rem;
+  right: 0.5rem;
   left: auto;
   bottom: auto;
   z-index: 4;
-  width: 3.35rem;
-  height: 3.35rem;
+  width: 4.6rem;
+  height: 4.6rem;
   border-radius: 999px;
   overflow: hidden;
   flex-shrink: 0;
-  border: 2px solid rgba(255, 255, 255, 0.32);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  border: 2.5px solid rgba(255, 255, 255, 0.36);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55);
   background: #141a22;
   pointer-events: none;
 }
@@ -12326,10 +12326,10 @@ html.chrome-always .tile-local .tile-floor-local {
 }
 @media (max-width: 720px) {
   .tile-local .tile-avatar-local {
-    width: 2.85rem;
-    height: 2.85rem;
-    top: 0.4rem;
-    right: 0.4rem;
+    width: 3.75rem;
+    height: 3.75rem;
+    top: 0.35rem;
+    right: 0.35rem;
   }
   .tile-local .tile-tag-local-name {
     top: 0.4rem;
