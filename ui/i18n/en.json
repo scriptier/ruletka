@@ -1162,5 +1162,21 @@
   "stars.spendTitle": "Spend stars",
   "stars.spendHint": "Gift the person you’re chatting with. No money — reputation only.",
   "stars.barsSub": "Chain fence overlay",
-  "stars.flowersSub": "Petals around their window"
+  "stars.flowersSub": "Petals around their window",
+  "stars.sheetTitle": "Stars",
+  "stars.sheetIntro": "Stars are free reputation — not money. Earn them from long chats, spend them on fun gifts, and unlock stronger reports at 100+.",
+  "stars.earnTitle": "How to earn",
+  "stars.earnStep1Title": "Chat 16+ minutes",
+  "stars.earnStep1Body": "After a long enough call ends, you may gift one star (or skip).",
+  "stars.earnStep2Title": "Once per person",
+  "stars.earnStep2Body": "You can’t farm the same conversationalist — only one star from each unique pair.",
+  "stars.earnStep3Title": "Badge on camera",
+  "stars.earnStep3Body": "Your total shows as ★ on cam so others see your reputation.",
+  "stars.spendIdleHint": "Join a live chat, then use gifts below on your conversationalist.",
+  "stars.spendLiveHint": "Tap a gift to spend stars on the person you’re chatting with.",
+  "stars.trustTitle": "Trusted reporter",
+  "stars.trustStepTitle": "100+ stars",
+  "stars.trustStepBody": "Your reports count as weight 2 toward auto match-bans (normal = 1). Still one unique report per person.",
+  "stars.trustYouAre": "You have 100+ stars — your reports already count double.",
+  "stars.badgeClick": "Click for Stars guide and gifts"
 }

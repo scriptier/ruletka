@@ -1847,41 +1847,7 @@ function maybeShowMatchPathSummary(reason) {
 }
 
 /**
- * Hover / focus tip copy for star badges.
- * @param {"local"|"remote"} which
- * @param {number} n
- */
-function starsTipCopy(which, n) {
-  const countLine =
-    n <= 0
-      ? _t("stars.tipNone") || "No stars yet."
-      : n === 1
-        ? _t("stars.tipCountOne") || "1 star"
-        : _t("stars.tipCount", { n }) || `${n} stars`;
-  if (which === "local") {
-    const title = _t("stars.tipYoursTitle") || "★ Your stars";
-    let body =
-      _t("stars.tipYoursBody") ||
-      "Others can gift you a star after a 16+ min chat (once per person). Spend stars on gifts like Behind bars. At 100+ stars your reports count double.";
-    if (n >= 100) {
-      body +=
-        " " +
-        (_t("stars.tipTrusted") || "You are a trusted reporter.");
-    }
-    return { title, body: `${countLine}. ${body}` };
-  }
-  return {
-    title: _t("stars.tipTheirsTitle") || "★ Reputation",
-    body: `${countLine}. ${
-      _t("stars.tipTheirsBody") ||
-      "Earned when someone gifts a star after a 16+ min chat. Spend on gifts. 100+ stars = stronger reports."
-    }`,
-  };
-}
-
-/**
- * Show/hide gold star badge on a tile; hover shows star info tip.
- * Click during a live chat opens spend-gift menu.
+ * Show/hide gold star badge. Click always opens the Stars sheet (like Settings).
  * @param {"local"|"remote"} which
  * @param {number} count
  */
@@ -1889,100 +1855,155 @@ function setStarsBadge(which, count) {
   const n = Math.max(0, Math.floor(Number(count) || 0));
   const badge = $(which === "local" ? "local-stars-badge" : "remote-stars-badge");
   const el = $(which === "local" ? "local-stars-count" : "remote-stars-count");
-  const tip = $(which === "local" ? "local-stars-tip" : "remote-stars-tip");
   if (el) el.textContent = String(n);
   if (which === "local") myStars = n;
   if (which === "remote") partnerStars = n;
   if (badge) {
     const live = !!(matched || inFriendCall);
-    // Partner: show when they have stars. You: show when you have stars OR in a live chat (so you can click to spend).
-    const show =
-      which === "local" ? n > 0 || live : n > 0 || (live && !!primaryPartnerUserId);
+    // Your ★ always visible (even 0) so you can open the guide anytime.
+    // Partner ★ when they have stars, or during live chat (shows 0).
+    const show = which === "local" ? true : n > 0 || live;
     badge.hidden = !show;
     if (show) badge.removeAttribute("hidden");
     else badge.setAttribute("hidden", "");
-    badge.classList.toggle("is-clickable", live && !!primaryPartnerUserId);
+    badge.classList.add("is-clickable");
     badge.classList.toggle("is-live-chat", live);
-    const tipCopy = starsTipCopy(which, n);
-    const spendHint = live
-      ? " " +
-        (_t("stars.tipClickSpend") || "Click to spend stars on this chat.")
-      : "";
-    badge.setAttribute("aria-label", `${tipCopy.title}. ${tipCopy.body}${spendHint}`);
-    badge.title = ""; // rich CSS tip on hover
-    if (tip) {
-      const titleEl = tip.querySelector(".stars-tip-title");
-      const bodyEl = tip.querySelector(".stars-tip-body");
-      if (titleEl) titleEl.textContent = tipCopy.title;
-      if (bodyEl) bodyEl.textContent = tipCopy.body + spendHint;
-    }
+    const label =
+      which === "local"
+        ? (_t("stars.yours") || "Your stars") + ` · ★ ${n}`
+        : (_t("stars.tipTheirsTitle") || "Reputation") + ` · ★ ${n}`;
+    badge.setAttribute(
+      "aria-label",
+      label +
+        ". " +
+        (_t("stars.badgeClick") || "Click for Stars guide and gifts")
+    );
+    badge.title = _t("stars.badgeClick") || "Click for Stars guide and gifts";
   }
+  if (starsSheetIsOpen()) syncStarsSheetUi();
 }
 
-function starGiftPopOpen() {
-  const pop = $("star-gift-pop");
-  return pop && !pop.hidden;
+function starsSheetIsOpen() {
+  const sheet = $("stars-sheet");
+  return !!(sheet && !sheet.hidden && sheet.classList.contains("is-open"));
 }
 
 function closeStarGiftPop() {
-  const pop = $("star-gift-pop");
-  if (!pop) return;
-  pop.hidden = true;
-  pop.setAttribute("hidden", "");
-  pop.classList.remove("is-open");
+  // legacy alias
+  closeStarsSheet();
+}
+
+function syncStarsSheetUi() {
+  const bal = $("stars-sheet-balance");
+  if (bal) bal.textContent = String(Math.max(0, myStars || 0));
+  const live = !!(matched || inFriendCall);
+  const canGift =
+    live && !!(primaryPartnerUserId || lastMatchMeta?.user_id) && myStars >= STAR_EFFECT_COST;
+  const hint = $("stars-sheet-gift-hint");
+  if (hint) {
+    if (!live) {
+      hint.textContent =
+        _t("stars.spendIdleHint") ||
+        "Join a live chat, then use gifts below on your conversationalist.";
+      hint.hidden = false;
+    } else if (myStars < STAR_EFFECT_COST) {
+      hint.textContent =
+        _t("stars.needStars", { n: STAR_EFFECT_COST, have: myStars }) ||
+        `Need ${STAR_EFFECT_COST} stars (you have ${myStars})`;
+      hint.hidden = false;
+    } else {
+      hint.textContent =
+        _t("stars.spendLiveHint") ||
+        "Tap a gift to spend stars on the person you’re chatting with.";
+      hint.hidden = false;
+    }
+  }
+  ["btn-stars-sheet-bars", "btn-stars-sheet-flowers"].forEach((id) => {
+    const b = $(id);
+    if (!b) return;
+    b.disabled = !canGift;
+    b.classList.toggle("is-disabled", !canGift);
+  });
+  const trust = $("stars-sheet-trust-body");
+  if (trust && myStars >= 100) {
+    trust.textContent =
+      _t("stars.trustYouAre") ||
+      "You have 100+ stars — your reports already count double.";
+  }
 }
 
 /**
- * Open spend menu near a star badge (only during live match/friend call).
- * @param {HTMLElement | null} anchor
+ * Open Stars guide sheet (settings-style). Always available on ★ click.
+ * @param {HTMLElement | null} [_anchor]
  */
-function openStarGiftPop(anchor) {
-  const pop = $("star-gift-pop");
-  if (!pop) return;
-  if (!matched && !inFriendCall) {
-    setStatus(_t("stars.needLive") || "Only during a live chat");
-    return;
-  }
-  if (!primaryPartnerUserId && !lastMatchMeta?.user_id) {
-    setStatus(_t("stars.noPartner") || "No partner to gift");
-    return;
-  }
+function openStarsSheet(_anchor) {
   try {
     closePartnerMenu();
+    closeStarGiftPop();
   } catch (_) {}
-  const bal = $("star-gift-bal");
-  if (bal) bal.textContent = `★ ${Math.max(0, myStars || 0)}`;
-  const hint = $("star-gift-hint");
-  if (hint) {
-    hint.textContent =
-      myStars < STAR_EFFECT_COST
-        ? _t("stars.needStars", { n: STAR_EFFECT_COST, have: myStars }) ||
-          `Need ${STAR_EFFECT_COST} stars (you have ${myStars})`
-        : _t("stars.spendHint") ||
-          "Gift the person you’re chatting with. No money — reputation only.";
+  closeAllDockFlyouts?.("stars");
+  const sheet = $("stars-sheet");
+  const bd = $("sheet-backdrop");
+  if (!sheet) return;
+  try {
+    NextfaceI18n?.applyI18n?.(sheet);
+  } catch (_) {}
+  syncStarsSheetUi();
+  sheet.hidden = false;
+  sheet.removeAttribute("hidden");
+  // Pin like Settings near the gear, or near local star badge
+  const anchor = $("local-stars-badge") || $("btn-settings");
+  try {
+    positionDockFlyout(sheet, anchor, {
+      align: "end",
+      maxWidth: 400,
+      maxHeight: typeof settingsFlyoutMaxHeight === "function"
+        ? settingsFlyoutMaxHeight()
+        : Math.min(window.innerHeight * 0.88, 720),
+      fixedHeight: true,
+    });
+  } catch (_) {
+    sheet.style.right = "0.75rem";
+    sheet.style.bottom = "4.5rem";
+    sheet.style.width = "min(400px, calc(100vw - 1rem))";
   }
-  ["btn-star-gift-bars", "btn-star-gift-flowers"].forEach((id) => {
-    const b = $(id);
-    if (b) b.disabled = myStars < STAR_EFFECT_COST;
-  });
-  pop.hidden = false;
-  pop.removeAttribute("hidden");
-  pop.classList.add("is-open");
-  // Position near badge (or center of partner tile)
-  const rect = (anchor || $("local-stars-badge") || $("remote-stars-badge"))?.getBoundingClientRect?.();
-  const vw = window.innerWidth || 800;
-  const vh = window.innerHeight || 600;
-  const pw = Math.min(280, vw - 16);
-  let left = rect ? rect.left + rect.width / 2 - pw / 2 : vw / 2 - pw / 2;
-  let top = rect ? rect.bottom + 8 : vh / 2 - 80;
-  left = Math.max(8, Math.min(left, vw - pw - 8));
-  if (top + 220 > vh) {
-    top = rect ? Math.max(8, rect.top - 200) : 8;
+  void sheet.offsetWidth;
+  sheet.classList.add("is-open");
+  if (bd) {
+    bd.hidden = false;
+    bd.removeAttribute("hidden");
+    bd.classList.add("is-open");
   }
-  pop.style.width = pw + "px";
-  pop.style.left = left + "px";
-  pop.style.top = top + "px";
-  trackEvent("star_gift_pop_open", { stars: myStars || 0 });
+  bindSheetFocusTrap?.(sheet);
+  trackEvent("stars_sheet_open", { stars: myStars || 0, live: matched || inFriendCall ? 1 : 0 });
+}
+
+function closeStarsSheet() {
+  const sheet = $("stars-sheet");
+  const bd = $("sheet-backdrop");
+  releaseSheetFocusTrap?.(sheet);
+  sheet?.classList.remove("is-open");
+  // Only hide backdrop if no other sheets open
+  const otherOpen =
+    settingsIsOpen() ||
+    friendsIsOpen() ||
+    (typeof messagesIsOpen === "function" && messagesIsOpen());
+  if (!otherOpen) {
+    bd?.classList.remove("is-open");
+  }
+  setTimeout(() => {
+    if (sheet && !sheet.classList.contains("is-open")) {
+      sheet.hidden = true;
+      sheet.setAttribute("hidden", "");
+    }
+    if (bd && !otherOpen && !settingsIsOpen() && !friendsIsOpen()) {
+      bd.hidden = true;
+    }
+  }, 160);
+}
+
+function openStarGiftPop(_anchor) {
+  openStarsSheet(_anchor);
 }
 
 function wireStarBadgeInteractions() {
@@ -1991,47 +2012,36 @@ function wireStarBadgeInteractions() {
     e?.stopPropagation?.();
     const badge = $(which === "local" ? "local-stars-badge" : "remote-stars-badge");
     if (!badge || badge.hidden) return;
-    if (matched || inFriendCall) {
-      openStarGiftPop(badge);
-    }
-    // else hover tip alone is enough when idle
+    openStarsSheet(badge);
   };
   ["local", "remote"].forEach((which) => {
     const badge = $(which === "local" ? "local-stars-badge" : "remote-stars-badge");
     if (!badge || badge.dataset.starWired) return;
     badge.dataset.starWired = "1";
     badge.addEventListener("click", (e) => onBadgeActivate(which, e));
-    badge.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") onBadgeActivate(which, e);
-    });
   });
-  $("btn-star-gift-close")?.addEventListener("click", (e) => {
+  $("btn-stars-sheet-back")?.addEventListener("click", () => closeStarsSheet());
+  $("btn-stars-sheet-done")?.addEventListener("click", () => closeStarsSheet());
+  $("btn-stars-sheet-bars")?.addEventListener("click", (e) => {
     e.stopPropagation();
-    closeStarGiftPop();
-  });
-  $("btn-star-gift-bars")?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    closeStarGiftPop();
+    if (!matched && !inFriendCall) {
+      setStatus(_t("stars.needLive") || "Only during a live chat");
+      return;
+    }
+    closeStarsSheet();
     spendBarsOnPartner();
   });
-  $("btn-star-gift-flowers")?.addEventListener("click", (e) => {
+  $("btn-stars-sheet-flowers")?.addEventListener("click", (e) => {
     e.stopPropagation();
-    closeStarGiftPop();
+    if (!matched && !inFriendCall) {
+      setStatus(_t("stars.needLive") || "Only during a live chat");
+      return;
+    }
+    closeStarsSheet();
     spendFlowersOnPartner();
   });
-  document.addEventListener(
-    "click",
-    (e) => {
-      if (!starGiftPopOpen()) return;
-      const pop = $("star-gift-pop");
-      if (pop?.contains(e.target)) return;
-      if (e.target?.closest?.(".stars-badge")) return;
-      closeStarGiftPop();
-    },
-    true
-  );
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && starGiftPopOpen()) closeStarGiftPop();
+    if (e.key === "Escape" && starsSheetIsOpen()) closeStarsSheet();
   });
 }
 
@@ -8299,6 +8309,7 @@ function wireSettingsNav() {
     }
   });
   wireStarBadgeInteractions();
+  setStarsBadge("local", myStars);
   $("btn-settings-done")?.addEventListener("click", () => closeSettings());
   $("btn-conn-refresh")?.addEventListener("click", () => {
     refreshConnectionDetails();
@@ -12599,7 +12610,10 @@ on("btn-settings", "click", (e) => {
 on("btn-conn-retry", "click", () => manualReconnect());
 on("sheet-close", "click", () => closeSettings());
 // Backdrop is transparent — click outside flyout closes it (no dim)
-on("sheet-backdrop", "click", () => closeSettings());
+on("sheet-backdrop", "click", () => {
+  if (starsSheetIsOpen()) closeStarsSheet();
+  else closeSettings();
+});
 on("btn-refresh-devices", "click", () => refreshDevices());
 on("btn-friends", "click", (e) => {
   e.stopPropagation();

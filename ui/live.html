@@ -54,7 +54,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </noscript>
   <link rel="stylesheet" href="style.css?v=157" />
-  <link rel="stylesheet" href="live-stage.css?v=195" />
+  <link rel="stylesheet" href="live-stage.css?v=196" />
   <script src="brand.js?v=2"></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -348,15 +348,11 @@
         </div>
         <div class="tile-tag" id="remote-tile-tag" hidden>
           <!-- Stars sit left of avatar (browser layout) -->
-          <span class="stars-badge stars-badge-inline" id="remote-stars-badge" hidden tabindex="0"
-            role="img" aria-label="Stars from long chats">
+          <button type="button" class="stars-badge stars-badge-inline is-clickable" id="remote-stars-badge" hidden
+            aria-label="Partner stars — open Stars guide">
             <span class="stars-icon" aria-hidden="true">★</span>
             <span class="stars-count" id="remote-stars-count">0</span>
-            <span class="stars-tip" id="remote-stars-tip" role="tooltip">
-              <strong class="stars-tip-title">★ Reputation</strong>
-              <span class="stars-tip-body">Earned when someone gifts a star after a 16+ min chat. Spend on gifts like Behind bars. 100+ stars = stronger reports.</span>
-            </span>
-          </span>
+          </button>
           <span class="tile-avatar" id="remote-avatar" hidden><img id="remote-avatar-img" alt="" /></span>
           <span class="name-on-tile" id="remote-tag"></span>
           <span class="match-timer" id="match-timer" hidden title="Time with partner">0:00</span>
@@ -528,10 +524,11 @@
         <div class="tile-tag tile-tag-local-name" id="local-name-tag">
           <span class="name-on-tile name-on-tile-stack" id="local-name">anon</span>
         </div>
-        <span class="stars-badge stars-badge-local" id="local-stars-badge" hidden title="Your stars">
+        <button type="button" class="stars-badge stars-badge-local is-clickable" id="local-stars-badge"
+          aria-label="Your stars — open Stars guide">
           <span class="stars-icon" aria-hidden="true">★</span>
           <span class="stars-count" id="local-stars-count">0</span>
-        </span>
+        </button>
         <span class="tile-avatar tile-avatar-local" id="local-avatar" hidden>
           <img id="local-avatar-img" alt="" />
         </span>
@@ -813,31 +810,100 @@
   <!-- Incoming call toast is created only when someone rings (see live.js) -->
 
   <!-- Partner actions: click partner video (not fullscreen) -->
-  <!-- Quick star spend when clicking ★ during a live chat -->
-  <div class="star-gift-pop" id="star-gift-pop" hidden role="dialog" aria-label="Spend stars">
-    <div class="star-gift-pop-head">
-      <strong data-i18n="stars.spendTitle">Spend stars</strong>
-      <span class="star-gift-bal" id="star-gift-bal">★ 0</span>
-      <button type="button" class="star-gift-close" id="btn-star-gift-close" aria-label="Close">×</button>
+  <!-- Stars guide + spend (opens like Settings when you click ★) -->
+  <aside class="sheet settings-app stars-sheet" id="stars-sheet" hidden role="dialog" aria-modal="true" aria-labelledby="stars-sheet-title">
+    <header class="settings-header">
+      <button type="button" class="sheet-nav-btn" id="btn-stars-sheet-back" aria-label="Close">‹</button>
+      <h3 id="stars-sheet-title" data-i18n="stars.sheetTitle">Stars</h3>
+      <span class="sheet-nav-spacer"></span>
+    </header>
+    <div class="sheet-body settings-body">
+      <div class="stars-sheet-hero">
+        <span class="stars-sheet-hero-ico" aria-hidden="true">★</span>
+        <div class="stars-sheet-hero-text">
+          <div class="stars-sheet-balance" id="stars-sheet-balance">0</div>
+          <div class="stars-sheet-balance-sub" data-i18n="stars.yours">Your stars</div>
+        </div>
+      </div>
+      <p class="hint-inline" data-i18n="stars.sheetIntro">
+        Stars are free reputation — not money. Earn them from long chats, spend them on fun gifts, and unlock stronger reports at 100+.
+      </p>
+
+      <p class="settings-section-label" data-i18n="stars.earnTitle">How to earn</p>
+      <div class="settings-group">
+        <div class="settings-row settings-row-multi static">
+          <span class="row-left">
+            <span class="row-ico" aria-hidden="true">①</span>
+            <span class="settings-row-copy">
+              <span class="settings-row-title" data-i18n="stars.earnStep1Title">Chat 16+ minutes</span>
+              <span class="settings-row-sub" data-i18n="stars.earnStep1Body">After a long enough call ends, you may gift one star (or skip).</span>
+            </span>
+          </span>
+        </div>
+        <div class="settings-row settings-row-multi static">
+          <span class="row-left">
+            <span class="row-ico" aria-hidden="true">②</span>
+            <span class="settings-row-copy">
+              <span class="settings-row-title" data-i18n="stars.earnStep2Title">Once per person</span>
+              <span class="settings-row-sub" data-i18n="stars.earnStep2Body">You can’t farm the same conversationalist — only one star from each unique pair.</span>
+            </span>
+          </span>
+        </div>
+        <div class="settings-row settings-row-multi static">
+          <span class="row-left">
+            <span class="row-ico" aria-hidden="true">③</span>
+            <span class="settings-row-copy">
+              <span class="settings-row-title" data-i18n="stars.earnStep3Title">Badge on camera</span>
+              <span class="settings-row-sub" data-i18n="stars.earnStep3Body">Your total shows as ★ on cam so others see your reputation.</span>
+            </span>
+          </span>
+        </div>
+      </div>
+
+      <p class="settings-section-label" data-i18n="stars.spendTitle">How to spend</p>
+      <div class="settings-group" id="stars-sheet-gifts">
+        <p class="hint-inline" id="stars-sheet-gift-hint" data-i18n="stars.spendIdleHint">
+          Join a live chat, then use gifts below on your conversationalist.
+        </p>
+        <button type="button" class="settings-row star-gift-row" id="btn-stars-sheet-bars" data-effect="bars">
+          <span class="row-left">
+            <span class="row-ico" aria-hidden="true">🔒</span>
+            <span class="settings-row-copy">
+              <span class="settings-row-title" data-i18n="stars.barsBtn">Behind bars · 5★ · 30s</span>
+              <span class="settings-row-sub" data-i18n="stars.barsSub">Chain fence over their video (extendable)</span>
+            </span>
+          </span>
+          <span class="chev">›</span>
+        </button>
+        <button type="button" class="settings-row star-gift-row" id="btn-stars-sheet-flowers" data-effect="flowers">
+          <span class="row-left">
+            <span class="row-ico" aria-hidden="true">🌸</span>
+            <span class="settings-row-copy">
+              <span class="settings-row-title" data-i18n="stars.flowersBtn">Flowers · 5★ · 30s</span>
+              <span class="settings-row-sub" data-i18n="stars.flowersSub">Petals around their window (extendable)</span>
+            </span>
+          </span>
+          <span class="chev">›</span>
+        </button>
+      </div>
+
+      <p class="settings-section-label" data-i18n="stars.trustTitle">Trusted reporter</p>
+      <div class="settings-group">
+        <div class="settings-row settings-row-multi static">
+          <span class="row-left">
+            <span class="row-ico" aria-hidden="true">🛡</span>
+            <span class="settings-row-copy">
+              <span class="settings-row-title" data-i18n="stars.trustStepTitle">100+ stars</span>
+              <span class="settings-row-sub" id="stars-sheet-trust-body" data-i18n="stars.trustStepBody">Your reports count as weight 2 toward auto match-bans (normal = 1). Still one unique report per person.</span>
+            </span>
+          </span>
+        </div>
+      </div>
     </div>
-    <p class="star-gift-hint" id="star-gift-hint" data-i18n="stars.spendHint">
-      Gift the person you’re chatting with. No money — reputation only.
-    </p>
-    <button type="button" class="star-gift-item" id="btn-star-gift-bars" data-effect="bars">
-      <span class="sgi-ico" aria-hidden="true">🔒</span>
-      <span class="sgi-copy">
-        <span class="sgi-title" data-i18n="stars.barsBtn">Behind bars · 5★ · 30s</span>
-        <span class="sgi-sub" data-i18n="stars.barsSub">Chain fence overlay</span>
-      </span>
-    </button>
-    <button type="button" class="star-gift-item" id="btn-star-gift-flowers" data-effect="flowers">
-      <span class="sgi-ico" aria-hidden="true">🌸</span>
-      <span class="sgi-copy">
-        <span class="sgi-title" data-i18n="stars.flowersBtn">Flowers · 5★ · 30s</span>
-        <span class="sgi-sub" data-i18n="stars.flowersSub">Petals around their window</span>
-      </span>
-    </button>
-  </div>
+    <footer class="settings-footer">
+      <button type="button" class="settings-done-btn" id="btn-stars-sheet-done" data-i18n="settings.done">Done</button>
+    </footer>
+  </aside>
 
   <div class="partner-menu-backdrop" id="partner-menu-backdrop" hidden></div>
   <div class="partner-menu" id="partner-menu" hidden role="dialog" aria-modal="true" aria-labelledby="partner-menu-title">
@@ -1769,7 +1835,7 @@
   <script src="identity.js?v=156"></script>
   <script src="hubs.js?v=156"></script>
   <script src="webrtc.js?v=156"></script>
-  <script src="live.js?v=192"></script>
+  <script src="live.js?v=193"></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

@@ -12418,105 +12418,64 @@ html.alone-searching #remote-empty .empty-sub:not([hidden]) {
   opacity: 1;
 }
 
-/* Click-to-spend popover */
-.star-gift-pop {
-  position: fixed;
-  z-index: 80;
+/* Stars guide sheet (settings-style flyout) */
+#stars-sheet.stars-sheet {
+  z-index: 62;
+  max-height: min(90dvh, 780px);
+}
+#stars-sheet .settings-body {
+  padding-bottom: 0.85rem;
+}
+.stars-sheet-hero {
   display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  padding: 0.65rem 0.7rem 0.7rem;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.85rem 0.95rem;
+  margin-bottom: 0.35rem;
   border-radius: 14px;
-  background: rgba(12, 14, 20, 0.97);
-  border: 1px solid rgba(255, 215, 80, 0.35);
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
-  color: #e8eef7;
-  max-width: calc(100vw - 1rem);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 200, 60, 0.16),
+    rgba(255, 120, 40, 0.08)
+  );
+  border: 1px solid rgba(255, 215, 80, 0.28);
 }
-.star-gift-pop[hidden] {
-  display: none !important;
-}
-.star-gift-pop-head {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  margin-bottom: 0.15rem;
-}
-.star-gift-pop-head strong {
-  flex: 1;
-  font-size: 0.92rem;
-  color: #ffe9a0;
-}
-.star-gift-bal {
-  font-size: 0.85rem;
-  font-weight: 750;
+.stars-sheet-hero-ico {
+  font-size: 2.4rem;
+  line-height: 1;
   color: #ffd54a;
+  filter: drop-shadow(0 0 10px rgba(255, 200, 60, 0.45));
+}
+.stars-sheet-balance {
+  font-size: 1.85rem;
+  font-weight: 800;
+  color: #ffe9a0;
   font-variant-numeric: tabular-nums;
+  line-height: 1.1;
 }
-.star-gift-close {
-  appearance: none;
-  border: none;
-  background: rgba(255, 255, 255, 0.08);
+.stars-sheet-balance-sub {
+  font-size: 0.78rem;
+  font-weight: 600;
   color: #c5d0e0;
-  width: 1.75rem;
-  height: 1.75rem;
-  border-radius: 999px;
-  font-size: 1.1rem;
-  line-height: 1;
-  cursor: pointer;
+  margin-top: 0.15rem;
 }
-.star-gift-close:hover {
-  background: rgba(255, 255, 255, 0.14);
-  color: #fff;
-}
-.star-gift-hint {
-  margin: 0 0 0.25rem;
-  font-size: 0.72rem;
-  line-height: 1.35;
-  color: #9aa8bc;
-}
-.star-gift-item {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  width: 100%;
-  text-align: left;
-  padding: 0.6rem 0.7rem;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 200, 60, 0.28);
-  background: rgba(255, 200, 60, 0.08);
-  color: #eef2f7;
-  font: inherit;
-  cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
-}
-.star-gift-item:hover:not(:disabled) {
-  background: rgba(255, 200, 60, 0.16);
-  border-color: rgba(255, 215, 80, 0.5);
-}
-.star-gift-item:disabled {
+#stars-sheet .star-gift-row:disabled,
+#stars-sheet .star-gift-row.is-disabled {
   opacity: 0.45;
-  cursor: not-allowed;
+  pointer-events: none;
 }
-.star-gift-item .sgi-ico {
-  font-size: 1.25rem;
-  line-height: 1;
-  flex-shrink: 0;
+#stars-sheet .star-gift-row .row-ico {
+  font-size: 1.15rem;
 }
-.star-gift-item .sgi-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 0.12rem;
-  min-width: 0;
+/* Always show your ★ chip so click works even at 0 */
+.stars-badge-local:not([hidden]) {
+  opacity: 1;
 }
-.star-gift-item .sgi-title {
-  font-size: 0.88rem;
-  font-weight: 700;
-}
-.star-gift-item .sgi-sub {
-  font-size: 0.72rem;
-  color: #9aa8bc;
-  font-weight: 500;
+button.stars-badge {
+  appearance: none;
+  font: inherit;
+  margin: 0;
+  color: inherit;
 }
 .stars-badge .stars-icon {
   color: #ffd54a;
