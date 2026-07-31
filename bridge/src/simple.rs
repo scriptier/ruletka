@@ -150,6 +150,10 @@ pub struct Client {
     match_started: Option<Instant>,
     /// When this client entered the queue (for avg wait metrics).
     wait_started: Option<Instant>,
+    /// After a long match ends: partner user_id eligible for one-time star review.
+    pending_rate_uid: Option<String>,
+    pending_rate_name: String,
+    pending_rate_secs: u64,
 }
 
 /// Daily hub counters (persisted as JSONL under data/metrics.jsonl).
@@ -206,6 +210,10 @@ pub struct SimpleHub {
     match_bans: HashMap<String, u64>,
     /// Friend DMs: conversation_key → messages (newest last)
     dms: HashMap<String, Vec<friends_store::StoredDm>>,
+    /// user_id → public star count
+    star_counts: HashMap<String, u64>,
+    /// Directed from|to edges (one review per pair)
+    star_edges: HashSet<String>,
     queue: VecDeque<QueueEntry>,
     limits: LimitConfig,
     friends_path: PathBuf,
@@ -470,6 +478,8 @@ impl SimpleHub {
             report_reporters: stored.report_reporters,
             match_bans: stored.match_bans,
             dms: stored.dms,
+            star_counts: stored.star_counts,
+            star_edges: stored.star_edges,
             queue: VecDeque::new(),
             limits,
             friends_path,
@@ -535,6 +545,8 @@ impl SimpleHub {
             report_reporters: self.report_reporters.clone(),
             match_bans: self.match_bans.clone(),
             dms: self.dms.clone(),
+            star_counts: self.star_counts.clone(),
+            star_edges: self.star_edges.clone(),
         };
         if let Err(e) = friends_store::save(&self.friends_path, &data) {
             tracing::warn!(error = %e, "failed to save friends store");
@@ -568,6 +580,7 @@ impl SimpleHub {
             (name, code, fuid.chars().take(8).collect(), avatar)
         };
         let (last_msg, last_msg_ts) = self.last_dm_preview_for(fuid);
+        let stars = self.star_counts.get(fuid).copied().unwrap_or(0);
         FriendInfo {
             user_id: fuid.to_string(),
             name,
@@ -577,7 +590,182 @@ impl SimpleHub {
             last_msg,
             last_msg_ts,
             avatar,
+            stars,
         }
+    }
+
+    /// Minimum chat length before a star review is offered (16 minutes).
+    const STAR_MIN_SECS: u64 = 16 * 60;
+
+    fn stars_for(&self, user_id: &str) -> u64 {
+        if user_id.is_empty() {
+            return 0;
+        }
+        self.star_counts.get(user_id).copied().unwrap_or(0)
+    }
+
+    /// After a match/call ends, offer one-time star review if chat lasted ≥16 min.
+    fn arm_star_rating(&mut self, id: Uuid) {
+        let Some(c) = self.clients.get(&id) else {
+            return;
+        };
+        let started = c.match_started;
+        let secs = started
+            .map(|t| t.elapsed().as_secs())
+            .unwrap_or(0);
+        if secs < Self::STAR_MIN_SECS {
+            return;
+        }
+        let me_uid = c.user_id.clone();
+        if me_uid.is_empty() {
+            return;
+        }
+        // Prefer 1:1 partner / friend call; else first session peer
+        let them_id = c
+            .partner
+            .or(c.friend_call)
+            .or_else(|| c.session_peers.iter().next().copied());
+        let Some(them_id) = them_id else {
+            return;
+        };
+        if them_id == id {
+            return;
+        }
+        let Some(them) = self.clients.get(&them_id) else {
+            return;
+        };
+        let them_uid = them.user_id.clone();
+        let them_name = display_label(them);
+        if them_uid.is_empty() || them_uid == me_uid {
+            return;
+        }
+        let edge = friends_store::star_edge_key(&me_uid, &them_uid);
+        if self.star_edges.contains(&edge) {
+            return; // already reviewed this person
+        }
+        if let Some(c) = self.clients.get_mut(&id) {
+            c.pending_rate_uid = Some(them_uid.clone());
+            c.pending_rate_name = them_name.clone();
+            c.pending_rate_secs = secs;
+        }
+        self.send(
+            id,
+            ServerMsg::RatePrompt {
+                user_id: them_uid,
+                name: them_name,
+                duration_secs: secs,
+            },
+        );
+    }
+
+    fn handle_rate_partner(&mut self, id: Uuid, target_uid: String, star: bool) {
+        let target_uid = target_uid.trim().to_string();
+        let Some(c) = self.clients.get(&id) else {
+            return;
+        };
+        let me_uid = c.user_id.clone();
+        if me_uid.is_empty() || target_uid.is_empty() || target_uid == me_uid {
+            self.send(
+                id,
+                ServerMsg::RateResult {
+                    ok: false,
+                    user_id: target_uid,
+                    star: false,
+                    stars: 0,
+                    message: "invalid rating".into(),
+                },
+            );
+            return;
+        }
+        let pending_uid = c.pending_rate_uid.clone();
+        let pending_secs = c.pending_rate_secs;
+        if pending_uid.as_deref() != Some(target_uid.as_str()) {
+            self.send(
+                id,
+                ServerMsg::RateResult {
+                    ok: false,
+                    user_id: target_uid,
+                    star: false,
+                    stars: 0,
+                    message: "no review available for this person".into(),
+                },
+            );
+            return;
+        }
+        if pending_secs < Self::STAR_MIN_SECS {
+            self.send(
+                id,
+                ServerMsg::RateResult {
+                    ok: false,
+                    user_id: target_uid,
+                    star: false,
+                    stars: 0,
+                    message: "chat too short for a star (need 16 minutes)".into(),
+                },
+            );
+            return;
+        }
+        let edge = friends_store::star_edge_key(&me_uid, &target_uid);
+        if self.star_edges.contains(&edge) {
+            self.send(
+                id,
+                ServerMsg::RateResult {
+                    ok: false,
+                    user_id: target_uid.clone(),
+                    star: false,
+                    stars: self.stars_for(&target_uid),
+                    message: "already reviewed".into(),
+                },
+            );
+            // clear pending so UI stops
+            if let Some(c) = self.clients.get_mut(&id) {
+                c.pending_rate_uid = None;
+                c.pending_rate_secs = 0;
+            }
+            return;
+        }
+        self.star_edges.insert(edge);
+        let mut new_stars = self.stars_for(&target_uid);
+        if star {
+            new_stars = new_stars.saturating_add(1);
+            self.star_counts.insert(target_uid.clone(), new_stars);
+        }
+        if let Some(c) = self.clients.get_mut(&id) {
+            c.pending_rate_uid = None;
+            c.pending_rate_name.clear();
+            c.pending_rate_secs = 0;
+        }
+        self.persist_friends();
+        self.send(
+            id,
+            ServerMsg::RateResult {
+                ok: true,
+                user_id: target_uid.clone(),
+                star,
+                stars: new_stars,
+                message: if star {
+                    "star given".into()
+                } else {
+                    "skipped".into()
+                },
+            },
+        );
+        // Live-update target if online (their local badge / friends list)
+        if star {
+            if let Some(&tid) = self.by_user.get(&target_uid) {
+                self.send(
+                    tid,
+                    ServerMsg::RateResult {
+                        ok: true,
+                        user_id: target_uid.clone(),
+                        star: true,
+                        stars: new_stars,
+                        message: "you received a star".into(),
+                    },
+                );
+            }
+        }
+        tracing::info!(%me_uid, %target_uid, star, stars = new_stars, "partner rated");
     }
 
     /// Last DM involving `fuid` across any conversation they share with someone.
@@ -1271,6 +1459,7 @@ impl SimpleHub {
             friend_code: String::new(),
             flag: String::new(),
             avatar: String::new(),
+            stars: self.stars_for(&remote.user_id),
         };
         self.send(
             local_id,
@@ -1456,6 +1645,9 @@ impl SimpleHub {
                 report_times: Vec::new(),
                 match_started: None,
                 wait_started: None,
+                pending_rate_uid: None,
+                pending_rate_name: String::new(),
+                pending_rate_secs: 0,
             },
         );
         // by_user/code_index set on Hello with persistent user_id (not ephemeral uuid)
@@ -1469,6 +1661,7 @@ impl SimpleHub {
             name: "anon".into(),
             media: "webrtc-p2p".into(),
             signaling: "bridge".into(),
+            stars: 0,
         })
     }
 
@@ -1681,6 +1874,8 @@ impl SimpleHub {
     }
 
     fn unmatch_one(&mut self, id: Uuid, detail: &str) {
+        // Star review before clearing partner / match_started
+        self.arm_star_rating(id);
         self.dequeue_client(id);
         self.clear_fed_for_client(id);
         let party = self.clients.get(&id).and_then(|c| c.party_with);
@@ -1860,7 +2055,7 @@ impl SimpleHub {
                 } else {
                     "friend"
                 };
-                (Self::match_peer(ca, cb, role), display_label(cb))
+                (Self::match_peer(ca, cb, role, self.star_counts.get(&cb.user_id).copied().unwrap_or(0)), display_label(cb))
             };
             let offerer = peer.is_offerer;
             self.send(
@@ -1881,11 +2076,17 @@ impl SimpleHub {
 
     fn end_friend_call(&mut self, id: Uuid, reason: &str) {
         let other = self.clients.get(&id).and_then(|c| c.friend_call);
+        // Star review while partner + match_started still set
+        self.arm_star_rating(id);
+        if let Some(oid) = other {
+            self.arm_star_rating(oid);
+        }
         if let Some(c) = self.clients.get_mut(&id) {
             c.friend_call = None;
             c.party_with = None;
             c.partner = None;
             c.session_peers.clear();
+            c.match_started = None;
             c.phase = Phase::Idle;
         }
         self.dequeue_client(id);
@@ -1902,6 +2103,7 @@ impl SimpleHub {
                 c.party_with = None;
                 c.partner = None;
                 c.session_peers.clear();
+                c.match_started = None;
                 c.phase = Phase::Idle;
             }
             self.dequeue_client(oid);
@@ -1935,7 +2137,7 @@ impl SimpleHub {
         (session_id.clone(), format!("simple:{session_id}"))
     }
 
-    fn match_peer(from: &Client, to: &Client, role: &str) -> MatchPeer {
+    fn match_peer(from: &Client, to: &Client, role: &str, stars: u64) -> MatchPeer {
         MatchPeer {
             peer_id: to.peer_id.clone(),
             short_id: to.short_id.clone(),
@@ -1946,6 +2148,7 @@ impl SimpleHub {
             friend_code: to.friend_code.clone(),
             flag: to.flag.clone(),
             avatar: to.avatar.clone(),
+            stars,
         }
     }
 
@@ -1960,7 +2163,7 @@ impl SimpleHub {
             let (peer, label) = {
                 let ca = self.clients.get(&me).unwrap();
                 let cb = self.clients.get(&them).unwrap();
-                (Self::match_peer(ca, cb, "friend"), display_label(cb))
+                (Self::match_peer(ca, cb, "friend", self.star_counts.get(&cb.user_id).copied().unwrap_or(0)), display_label(cb))
             };
             if let Some(c) = self.clients.get_mut(&me) {
                 c.phase = Phase::FriendCall;
@@ -1969,6 +2172,7 @@ impl SimpleHub {
                 c.session_peers = HashSet::from([them]);
                 c.session_id = Some(session_id.clone());
                 c.party_with = None;
+                c.match_started = Some(Instant::now());
             }
             let offerer = peer.is_offerer;
             self.send(
@@ -2004,8 +2208,8 @@ impl SimpleHub {
             let ca = self.clients.get(&a).unwrap();
             let cb = self.clients.get(&b).unwrap();
             vec![
-                Self::match_peer(cs, ca, "party"),
-                Self::match_peer(cs, cb, "party"),
+                Self::match_peer(cs, ca, "party", self.star_counts.get(&ca.user_id).copied().unwrap_or(0)),
+                Self::match_peer(cs, cb, "party", self.star_counts.get(&cb.user_id).copied().unwrap_or(0)),
             ]
         };
         // Party member A: stranger + teammate B (friend or find-third partner)
@@ -2021,8 +2225,8 @@ impl SimpleHub {
             let cs = self.clients.get(&solo).unwrap();
             let cb = self.clients.get(&b).unwrap();
             vec![
-                Self::match_peer(ca, cs, "stranger"),
-                Self::match_peer(ca, cb, mate_role),
+                Self::match_peer(ca, cs, "stranger", self.star_counts.get(&cs.user_id).copied().unwrap_or(0)),
+                Self::match_peer(ca, cb, mate_role, self.star_counts.get(&cb.user_id).copied().unwrap_or(0)),
             ]
         };
         let b_peers = {
@@ -2030,8 +2234,8 @@ impl SimpleHub {
             let cs = self.clients.get(&solo).unwrap();
             let ca = self.clients.get(&a).unwrap();
             vec![
-                Self::match_peer(cb, cs, "stranger"),
-                Self::match_peer(cb, ca, mate_role),
+                Self::match_peer(cb, cs, "stranger", self.star_counts.get(&cs.user_id).copied().unwrap_or(0)),
+                Self::match_peer(cb, ca, mate_role, self.star_counts.get(&ca.user_id).copied().unwrap_or(0)),
             ]
         };
 
@@ -2124,9 +2328,9 @@ impl SimpleHub {
             let c_o1 = self.clients.get(&o1).unwrap();
             let c_o2 = self.clients.get(&o2).unwrap();
             vec![
-                Self::match_peer(c_me, c_o1, "stranger"),
-                Self::match_peer(c_me, c_o2, "stranger"),
-                Self::match_peer(c_me, c_f, "friend"),
+                Self::match_peer(c_me, c_o1, "stranger", self.star_counts.get(&c_o1.user_id).copied().unwrap_or(0)),
+                Self::match_peer(c_me, c_o2, "stranger", self.star_counts.get(&c_o2.user_id).copied().unwrap_or(0)),
+                Self::match_peer(c_me, c_f, "friend", self.star_counts.get(&c_f.user_id).copied().unwrap_or(0)),
             ]
         };
 
@@ -2204,7 +2408,7 @@ impl SimpleHub {
             let (peer, label) = {
                 let ca = self.clients.get(&me).unwrap();
                 let cb = self.clients.get(&them).unwrap();
-                (Self::match_peer(ca, cb, "stranger"), display_label(cb))
+                (Self::match_peer(ca, cb, "stranger", self.star_counts.get(&cb.user_id).copied().unwrap_or(0)), display_label(cb))
             };
             if let Some(c) = self.clients.get_mut(&me) {
                 c.phase = Phase::Matched;
@@ -2451,7 +2655,7 @@ impl SimpleHub {
             let peer = {
                 let ca = self.clients.get(&me).unwrap();
                 let cb = self.clients.get(&them).unwrap();
-                Self::match_peer(ca, cb, "teammate")
+                Self::match_peer(ca, cb, "teammate", self.star_counts.get(&cb.user_id).copied().unwrap_or(0))
             };
             let label = display_label(self.clients.get(&them).unwrap());
             let offerer = peer.is_offerer;
@@ -2676,6 +2880,8 @@ impl SimpleHub {
     }
 
     fn clear_match_state_with_partner_msg(&mut self, id: Uuid, partner_msg: &str) {
+        // Rate opportunity for leaver before peers cleared
+        self.arm_star_rating(id);
         let peers: Vec<Uuid> = self
             .clients
             .get(&id)
@@ -2848,6 +3054,9 @@ impl SimpleHub {
             ClientMsg::FindThirdInvite => self.handle_find_third_invite(id),
             ClientMsg::FindThirdRespond { accept } => self.handle_find_third_respond(id, accept),
             ClientMsg::FindThirdCancel => self.handle_find_third_cancel(id),
+            ClientMsg::RatePartner { user_id, star } => {
+                self.handle_rate_partner(id, user_id, star);
+            }
             ClientMsg::BrowseTogether { room } => {
                 let room = if room.trim().is_empty() {
                     self.room_of(id)
@@ -3080,6 +3289,7 @@ impl SimpleHub {
 
         let peer_id = self.clients[&id].peer_id.clone();
         let short_id = self.clients[&id].short_id.clone();
+        let my_stars = self.stars_for(&user_id);
         self.send(
             id,
             ServerMsg::HelloOk {
@@ -3091,6 +3301,7 @@ impl SimpleHub {
                 name,
                 media: "webrtc-p2p".into(),
                 signaling: "bridge".into(),
+                stars: my_stars,
             },
         );
         self.push_friends_list(id);

@@ -43,6 +43,17 @@ pub struct FriendsFile {
     /// conversation_key (sorted uid_a|uid_b) → messages (newest last)
     #[serde(default)]
     pub dms: HashMap<String, Vec<StoredDm>>,
+    /// user_id → total stars received (public reputation badge)
+    #[serde(default)]
+    pub star_counts: HashMap<String, u64>,
+    /// Directed "from_user|to_user" — each pair may rate once (star or skip)
+    #[serde(default)]
+    pub star_edges: HashSet<String>,
+}
+
+/// Directed star edge key (order matters: A→B ≠ B→A).
+pub fn star_edge_key(from: &str, to: &str) -> String {
+    format!("{from}|{to}")
 }
 
 /// Stable conversation key for two user ids (order-independent).

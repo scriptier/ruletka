@@ -1124,5 +1124,15 @@
   "friends.identityToastTitle": "Восстановить друзей?",
   "friends.identityToastBody": "Возможно, новая личность. Импортируйте резерв, чтобы звонить тем же друзьям.",
   "btn.flipCamMirrored": "Зеркальный вид",
-  "btn.flipCamNatural": "Обычный вид"
+  "btn.flipCamNatural": "Обычный вид",
+  "stars.reviewTitle": "Оценить разговор?",
+  "stars.reviewBody": "{name} · вы общались {m}+ мин. Поставить звезду?",
+  "stars.give": "★ Звезда",
+  "stars.skip": "Без звезды",
+  "stars.given": "Звезда поставлена",
+  "stars.skipped": "Без звезды",
+  "stars.received": "Вам поставили звезду ★",
+  "stars.badgeTitle": "Звёзды за длинные чаты (16+ мин)",
+  "stars.yours": "Ваши звёзды",
+  "stars.hint": "После 16+ минут можно дать одну звезду человеку. Звёзды видны на камере как значок."
 }

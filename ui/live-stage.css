@@ -12324,6 +12324,101 @@ html.chrome-always .tile-local .tile-floor-local {
 .tile-local .tile-avatar-local[hidden] {
   display: none !important;
 }
+
+/* Friend list: compact star chip next to name */
+.friend-stars-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.12rem;
+  margin-left: 0.35rem;
+  padding: 0.08rem 0.35rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #ffe9a0;
+  background: rgba(255, 200, 60, 0.12);
+  border: 1px solid rgba(255, 215, 80, 0.28);
+  vertical-align: middle;
+}
+
+/* Public star reputation badge (gold star + count) — top-right of cams */
+.stars-badge {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+  padding: 0.22rem 0.48rem 0.22rem 0.38rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 215, 80, 0.45);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  color: #ffe9a0;
+  font-weight: 750;
+  font-size: 0.92rem;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  pointer-events: none;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+}
+.stars-badge[hidden] {
+  display: none !important;
+}
+.stars-badge .stars-icon {
+  color: #ffd54a;
+  font-size: 1.05rem;
+  line-height: 1;
+  filter: drop-shadow(0 0 4px rgba(255, 200, 60, 0.55));
+}
+.stars-badge .stars-count {
+  font-variant-numeric: tabular-nums;
+  min-width: 0.75rem;
+}
+/* Local: sit left of avatar when both visible */
+.stars-badge-local {
+  top: 0.55rem;
+  right: 5.35rem;
+}
+.tile-local:not(:has(.tile-avatar-local:not([hidden]))) .stars-badge-local {
+  right: 0.5rem;
+}
+@media (max-width: 720px) {
+  .stars-badge {
+    top: 0.35rem;
+    right: 0.35rem;
+    font-size: 0.82rem;
+    padding: 0.18rem 0.4rem 0.18rem 0.32rem;
+  }
+  .stars-badge .stars-icon {
+    font-size: 0.95rem;
+  }
+  .stars-badge-local {
+    top: 0.4rem;
+    right: 4.35rem;
+  }
+  .tile-local:not(:has(.tile-avatar-local:not([hidden]))) .stars-badge-local {
+    right: 0.35rem;
+  }
+}
+/* Post-call star review toast */
+.star-review-toast {
+  max-width: min(22rem, calc(100vw - 1.5rem));
+}
+.star-review-toast .export-nudge-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: flex-end;
+}
+.star-review-toast .btn-star-yes {
+  background: linear-gradient(180deg, #ffd86b, #e8a812);
+  color: #1a1200;
+  border: none;
+  font-weight: 750;
+}
+
 @media (max-width: 720px) {
   .tile-local .tile-avatar-local {
     width: 3.75rem;

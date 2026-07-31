@@ -126,6 +126,13 @@ pub enum ClientMsg {
     FriendChatHistory {
         with_user_id: String,
     },
+    /// After a long enough chat (≥16 min), rate partner: star or skip.
+    /// Same pair can only rate once (star or not).
+    RatePartner {
+        user_id: String,
+        /// true = give a star, false = no star (still consumes the one-time review)
+        star: bool,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -144,6 +151,9 @@ pub struct FriendInfo {
     /// Small self-chosen avatar data URL (when known). Empty = none.
     #[serde(default)]
     pub avatar: String,
+    /// Public reputation: stars received from unique long chats.
+    #[serde(default)]
+    pub stars: u64,
 }
 
 /// One line in a friend DM thread (history or live).
@@ -176,6 +186,9 @@ pub struct MatchPeer {
     /// Small self-chosen avatar data URL. Empty = none.
     #[serde(default)]
     pub avatar: String,
+    /// Public reputation: stars received from unique long chats.
+    #[serde(default)]
+    pub stars: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -190,6 +203,9 @@ pub enum ServerMsg {
         name: String,
         media: String,
         signaling: String,
+        /// Your public star badge count.
+        #[serde(default)]
+        stars: u64,
     },
     Status {
         phase: String,
@@ -300,6 +316,23 @@ pub enum ServerMsg {
         ok: bool,
         /// accepted | declined | expired | cancelled | busy | left | error
         reason: String,
+    },
+    /// Offer a one-time star review after a long enough chat ended.
+    RatePrompt {
+        user_id: String,
+        name: String,
+        duration_secs: u64,
+    },
+    /// Result of RatePartner.
+    RateResult {
+        ok: bool,
+        user_id: String,
+        /// Whether a star was awarded (false if skipped or rejected).
+        star: bool,
+        /// Target's new total stars (0 if not awarded).
+        stars: u64,
+        #[serde(default)]
+        message: String,
     },
 }
 

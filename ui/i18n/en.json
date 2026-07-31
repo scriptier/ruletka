@@ -1124,5 +1124,15 @@
   "friends.identityToastTitle": "Restore your friends?",
   "friends.identityToastBody": "This device may be a new identity. Import a profile backup to Call the same friends.",
   "btn.flipCamMirrored": "Mirrored preview",
-  "btn.flipCamNatural": "Natural preview"
+  "btn.flipCamNatural": "Natural preview",
+  "stars.reviewTitle": "Rate this chat?",
+  "stars.reviewBody": "{name} · you talked {m}+ min. Give a star?",
+  "stars.give": "★ Star",
+  "stars.skip": "No star",
+  "stars.given": "Star given",
+  "stars.skipped": "No star",
+  "stars.received": "You received a star ★",
+  "stars.badgeTitle": "Stars from long chats (16+ min)",
+  "stars.yours": "Your stars",
+  "stars.hint": "After 16+ minutes, you can give one star per person. Stars show as a badge on camera."
 }

@@ -296,6 +296,12 @@ let outgoingRequests = [];
 let primaryPartnerUserId = "";
 /** Last matched peer meta for history */
 let lastMatchMeta = null;
+/** Your public star count (from hub). */
+let myStars = 0;
+/** Partner star count during current match. */
+let partnerStars = 0;
+/** Min chat length for star review (must match bridge STAR_MIN_SECS). */
+const STAR_MIN_SECS = 16 * 60;
 /** Last lobby waiting count for pool hint */
 let lastWaitingCount = 0;
 const RULES_KEY = "nextface-rules-v1";
@@ -1829,6 +1835,86 @@ function maybeShowMatchPathSummary(reason) {
     setTimeout(() => {
       if (toast.parentNode) toast.remove();
     }, 5500);
+  } catch (_) {}
+}
+
+/**
+ * Show/hide gold star badge on a tile (screenshot-style: ★ count top-right).
+ * @param {"local"|"remote"} which
+ * @param {number} count
+ */
+function setStarsBadge(which, count) {
+  const n = Math.max(0, Math.floor(Number(count) || 0));
+  const badge = $(which === "local" ? "local-stars-badge" : "remote-stars-badge");
+  const el = $(which === "local" ? "local-stars-count" : "remote-stars-count");
+  if (el) el.textContent = String(n);
+  if (badge) {
+    // Always show when > 0; hide at 0 so empty tiles stay clean
+    badge.hidden = n <= 0;
+    badge.title =
+      n > 0
+        ? n === 1
+          ? "1 star from long chats"
+          : `${n} stars from long chats`
+        : "No stars yet";
+  }
+  if (which === "local") myStars = n;
+  if (which === "remote") partnerStars = n;
+}
+
+function clearPartnerStarsBadge() {
+  partnerStars = 0;
+  setStarsBadge("remote", 0);
+}
+
+/**
+ * After RatePrompt from hub (chat ≥16 min): give a star or skip.
+ * Same pair can only review once (server-enforced).
+ */
+function showStarReviewPrompt(msg) {
+  try {
+    const uid = String(msg?.user_id || "").trim();
+    if (!uid) return;
+    if ($("star-review-toast")) return;
+    const name = String(msg?.name || lastMatchMeta?.name || "Partner").trim() || "Partner";
+    const mins = Math.max(16, Math.floor((Number(msg?.duration_secs) || STAR_MIN_SECS) / 60));
+    const toast = document.createElement("div");
+    toast.id = "star-review-toast";
+    toast.className = "friend-soft-toast star-review-toast";
+    toast.setAttribute("role", "dialog");
+    toast.style.pointerEvents = "auto";
+    toast.innerHTML = `
+      <strong>${escapeHtml(_t("stars.reviewTitle") || "Rate this chat?")}</strong>
+      <span>${escapeHtml(
+        _t("stars.reviewBody", { name, m: mins }) ||
+          `${name} · you talked ${mins}+ min. Give a star?`
+      )}</span>
+      <div class="export-nudge-actions" style="margin-top:0.45rem">
+        <button type="button" class="pill tight ghost" id="btn-star-no">${escapeHtml(
+          _t("stars.skip") || "No star"
+        )}</button>
+        <button type="button" class="pill tight btn-star-yes" id="btn-star-yes">${escapeHtml(
+          _t("stars.give") || "★ Star"
+        )}</button>
+      </div>`;
+    document.body.appendChild(toast);
+    const dismiss = () => {
+      if (toast.parentNode) toast.remove();
+    };
+    const sendRate = (star) => {
+      trackEvent("star_rate", { star: star ? 1 : 0 });
+      send({ type: "rate_partner", user_id: uid, star: !!star });
+      dismiss();
+      setStatus(
+        star
+          ? _t("stars.given") || "Star given"
+          : _t("stars.skipped") || "No star"
+      );
+    };
+    $("btn-star-no")?.addEventListener("click", () => sendRate(false));
+    $("btn-star-yes")?.addEventListener("click", () => sendRate(true));
+    // Auto-dismiss without rating after 45s (user can only rate while pending on server)
+    setTimeout(dismiss, 45000);
   } catch (_) {}
 }
 
@@ -7621,6 +7707,7 @@ function wireHubSettings() {
 function syncAccountSettingsSummary() {
   const idEl = $("settings-user-id");
   const codeEl = $("settings-friend-code");
+  const starsEl = $("settings-stars-value");
   let uid = "";
   try {
     uid = loadIdentity()?.user_id || myUserId || "";
@@ -7638,6 +7725,9 @@ function syncAccountSettingsSummary() {
   if (codeEl) {
     codeEl.textContent = myFriendCode || "—";
     codeEl.title = myFriendCode || "";
+  }
+  if (starsEl) {
+    starsEl.textContent = `★ ${Math.max(0, Number(myStars) || 0)}`;
   }
 }
 
@@ -8869,6 +8959,8 @@ function handleServer(msg) {
       myUserId = msg.user_id || myUserId;
       myFriendCode = msg.friend_code || "";
       if ($("my-friend-code")) $("my-friend-code").textContent = myFriendCode;
+      myStars = Math.max(0, Number(msg.stars) || 0);
+      setStarsBadge("local", myStars);
       syncAccountSettingsSummary();
       // Prefer local saved name; otherwise accept server echo
       {
@@ -9011,9 +9103,33 @@ function handleServer(msg) {
         closeAllPeers({ keepFriend: false });
         setSplitRemote(false);
         setRemoteEmpty(true);
+        clearPartnerStarsBadge();
       }
       log(msg.reason || "call ended");
       setStatus(msg.reason || "call ended");
+      break;
+    case "rate_prompt":
+      showStarReviewPrompt(msg);
+      break;
+    case "rate_result":
+      {
+        const n = Math.max(0, Number(msg.stars) || 0);
+        const uid = String(msg.user_id || "");
+        if (msg.ok && msg.star && uid && uid === myUserId) {
+          // Someone starred us
+          myStars = n;
+          setStarsBadge("local", myStars);
+          setStatus(_t("stars.received") || "You received a star ★");
+        } else if (msg.ok && msg.star && uid) {
+          // We starred them (or updated their count)
+          if (uid === primaryPartnerUserId || uid === lastMatchMeta?.user_id) {
+            setStarsBadge("remote", n);
+          }
+        }
+        if (msg.message && !msg.ok) {
+          setStatus(_srv(msg.message) || msg.message);
+        }
+      }
       break;
     case "lobby_info":
       setPool({
@@ -9358,6 +9474,7 @@ function handleMatched(msg) {
         friend_code: primary.friend_code || "",
         flag: normalizeFlagCode(primary.flag || ""),
         avatar: isValidAvatarDataUrl(primary.avatar) ? primary.avatar : "",
+        stars: Math.max(0, Number(primary.stars) || 0),
       }
     : {
         user_id: "",
@@ -9366,7 +9483,10 @@ function handleMatched(msg) {
         friend_code: "",
         flag: "",
         avatar: "",
+        stars: 0,
       };
+  partnerStars = lastMatchMeta.stars || 0;
+  setStarsBadge("remote", partnerStars);
   pushHistory({
     kind: matchMode === "friend" ? "friend" : "stranger",
     ...lastMatchMeta,
@@ -10120,11 +10240,18 @@ function renderFriendsList() {
           <button type="button" class="pill tight danger btn-block-friend" data-uid="${escapeAttr(
             f.user_id
           )}">${blockLbl}</button>`;
+        const starsN = Math.max(0, Number(f.stars) || 0);
+        const starsChip =
+          starsN > 0
+            ? `<span class="friend-stars-chip" title="${escapeAttr(
+                _t("stars.badgeTitle") || "Stars from long chats"
+              )}">★ ${starsN}</span>`
+            : "";
         return `<div class="friend-row ${online}${unread}">
         ${friendAvatarHtml(f)}
         <span class="dot"></span>
         <div class="meta">
-          <strong>${escapeHtml(display)}</strong>
+          <strong>${escapeHtml(display)}</strong>${starsChip}
           ${nickHint}
           <span>${escapeHtml(st)} · ${escapeHtml(f.friend_code || "")}</span>
           ${previewLine}
@@ -12329,6 +12456,7 @@ on("btn-spin", "click", () => {
   matchMode = "solo";
   yourRole = "solo";
   primaryPartnerUserId = "";
+  clearPartnerStarsBadge();
   trioBrowse = false;
   setSplitRemote(false);
   enableTrioLayout(false);
@@ -12406,6 +12534,7 @@ function doStopMatchmaking() {
   dismissFindThirdToast();
   enableTrioLayout(false);
   primaryPartnerUserId = "";
+  clearPartnerStarsBadge();
   releaseScreenWakeLock();
   clearWeakConnWatch();
   closeAllPeers({ keepFriend: false });
