@@ -516,8 +516,9 @@ html.stage-html {
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
-  max-height: min(42vh, 320px);
-  overflow: auto;
+  /* Prefer scrolling the whole Friends sheet body; avoid tiny nested boxes */
+  max-height: none;
+  overflow: visible;
 }
 .friend-row {
   display: flex;
@@ -4246,18 +4247,54 @@ html[data-theme="saloon"] .weak-conn-tip {
 #settings-sheet.is-open {
   display: flex !important;
 }
+/* Friends flyout: tall + always scrollable body */
+#friends-sheet {
+  max-height: min(88dvh, 720px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+#friends-sheet.is-open {
+  display: flex !important;
+}
+#friends-sheet .sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding-bottom: max(0.85rem, env(safe-area-inset-bottom));
+}
+#friends-sheet .friends-tabs {
+  flex-shrink: 0;
+}
+#friends-sheet .friends-list,
+#friends-sheet #history-list,
+#friends-sheet #blocked-list,
+#friends-sheet #friends-recover,
+#friends-sheet #incoming-requests,
+#friends-sheet #outgoing-requests {
+  max-height: none !important;
+  overflow: visible !important;
+}
+
 /* Narrow screens: still a dock flyout (not a full-screen dim sheet) */
 @media (max-width: 720px) {
   #friends-sheet,
   #messages-sheet,
   #settings-sheet {
     width: min(100vw - 0.75rem, 400px);
-    max-height: min(70dvh, 520px);
     border-radius: 14px;
+  }
+  #friends-sheet {
+    max-height: min(88dvh, 680px);
   }
   #friends-sheet .sheet-body {
     max-height: none;
     flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
@@ -5123,8 +5160,9 @@ html[data-theme="saloon"] .weak-conn-tip {
     width: 4rem;
     font-size: 0.8rem;
   }
+  /* Friends list scrolls with the sheet body (no nested max-height) */
   .friends-list {
-    max-height: min(52vh, 360px);
+    max-height: none;
   }
   .friend-avatar {
     width: 2.85rem;

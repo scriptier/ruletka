@@ -7913,17 +7913,32 @@ function releaseSheetFocusTrap(sheet) {
 const DOCK_FLYOUT_GAP = 8;
 const DOCK_FLYOUT_MARGIN = 8;
 
+function friendsFlyoutMaxHeight() {
+  const vh = window.innerHeight || 640;
+  // Use most of the viewport so Friends / Call history can scroll fully
+  return Math.min(vh * 0.88, 720);
+}
+
 function positionDockFlyout(sheet, anchor, opts = {}) {
   if (!sheet || !anchor) return;
   const rect = anchor.getBoundingClientRect();
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   const maxW = Math.min(opts.maxWidth || 380, vw - DOCK_FLYOUT_MARGIN * 2);
-  const preferH = opts.maxHeight || Math.min(vh * 0.72, 560);
+  const isFriends = sheet.id === "friends-sheet";
+  const preferH =
+    opts.maxHeight ||
+    (isFriends ? friendsFlyoutMaxHeight() : Math.min(vh * 0.72, 560));
   const spaceAbove = rect.top - DOCK_FLYOUT_MARGIN;
   const spaceBelow = vh - rect.bottom - DOCK_FLYOUT_MARGIN;
-  const placeAbove = spaceAbove >= Math.min(preferH, 240) || spaceAbove >= spaceBelow;
-  const maxH = Math.max(160, Math.min(preferH, placeAbove ? spaceAbove - DOCK_FLYOUT_GAP : spaceBelow - DOCK_FLYOUT_GAP));
+  // Prefer opening upward for Friends so we get more vertical room above the dock
+  const placeAbove = isFriends
+    ? spaceAbove >= Math.min(preferH * 0.55, 280) || spaceAbove >= spaceBelow
+    : spaceAbove >= Math.min(preferH, 240) || spaceAbove >= spaceBelow;
+  const maxH = Math.max(
+    isFriends ? 280 : 160,
+    Math.min(preferH, placeAbove ? spaceAbove - DOCK_FLYOUT_GAP : spaceBelow - DOCK_FLYOUT_GAP)
+  );
 
   // Horizontal: start = left-align to icon, end = right-align, center = mid
   let left;
@@ -7935,8 +7950,12 @@ function positionDockFlyout(sheet, anchor, opts = {}) {
   sheet.style.width = `${maxW}px`;
   sheet.style.maxHeight = `${maxH}px`;
   // Settings views are position:absolute inset:0 — parent needs a real height.
-  // Friends/Messages use in-flow body scroll; auto height is fine with max-height.
-  if (opts.fixedHeight || sheet.classList.contains("settings-app")) {
+  // Friends needs a real height too so .sheet-body can scroll inside.
+  if (
+    opts.fixedHeight ||
+    sheet.classList.contains("settings-app") ||
+    isFriends
+  ) {
     sheet.style.height = `${Math.round(maxH)}px`;
   } else {
     sheet.style.height = "auto";
@@ -7965,7 +7984,12 @@ function repositionOpenDockFlyouts() {
     positionDockFlyout($("settings-sheet"), $("btn-settings"), { align: "end", maxWidth: 380 });
   }
   if (friendsIsOpen()) {
-    positionDockFlyout($("friends-sheet"), $("btn-friends"), { align: "start", maxWidth: 380 });
+    positionDockFlyout($("friends-sheet"), $("btn-friends"), {
+      align: "start",
+      maxWidth: 400,
+      maxHeight: friendsFlyoutMaxHeight(),
+      fixedHeight: true,
+    });
   }
   if (messagesIsOpen()) {
     positionDockFlyout($("messages-sheet"), $("btn-messages"), { align: "start", maxWidth: 400 });
@@ -10618,7 +10642,12 @@ function openFriends() {
   if (sheet) {
     sheet.hidden = false;
     sheet.removeAttribute("hidden");
-    positionDockFlyout(sheet, btn, { align: "start", maxWidth: 380 });
+    positionDockFlyout(sheet, btn, {
+      align: "start",
+      maxWidth: 400,
+      maxHeight: friendsFlyoutMaxHeight(),
+      fixedHeight: true,
+    });
     void sheet.offsetWidth;
     sheet.classList.add("is-open");
   }
