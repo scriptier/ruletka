@@ -27,10 +27,10 @@
   "btn.cam": "Cam",
   "btn.camTitle": "Camera on/off (V)",
   "btn.connect": "Connect",
-  "btn.flipCam": "Reverse",
-  "btn.flipCamBack": "Rear camera",
-  "btn.flipCamFront": "Front camera",
-  "btn.flipCamTitle": "Reverse camera — front / back (C)",
+  "btn.flipCam": "Flip",
+  "btn.flipCamBack": "Natural preview",
+  "btn.flipCamFront": "Mirrored preview",
+  "btn.flipCamTitle": "Flip video left / right (C)",
   "btn.full": "Full",
   "btn.fullTitle": "Fullscreen (F)",
   "btn.level": "Level",
@@ -295,7 +295,7 @@
   "keys.blur": "Blur partner",
   "keys.cam": "Camera on/off",
   "keys.esc": "Close menus",
-  "keys.flip": "Reverse camera (front / back)",
+  "keys.flip": "Flip local video left / right",
   "keys.full": "Fullscreen partner",
   "keys.hint": "Click partner video for friend / block / report",
   "keys.mic": "Mute mic",
@@ -1122,5 +1122,7 @@
   "friends.emptyLost": "This browser has a new user id. Import your profile backup to restore the same identity and friends on this hub.",
   "friends.identityBanner": "Friends missing after a new phone or cleared data? Import the profile file you exported earlier.",
   "friends.identityToastTitle": "Restore your friends?",
-  "friends.identityToastBody": "This device may be a new identity. Import a profile backup to Call the same friends."
+  "friends.identityToastBody": "This device may be a new identity. Import a profile backup to Call the same friends.",
+  "btn.flipCamMirrored": "Mirrored preview",
+  "btn.flipCamNatural": "Natural preview"
 }

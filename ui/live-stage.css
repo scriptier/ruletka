@@ -1873,6 +1873,9 @@ html[data-theme="saloon"] .reconnect-banner {
   object-fit: cover;
   transform: scaleX(-1);
 }
+.local-pip-vid.is-unmirrored {
+  transform: none;
+}
 .local-pip-lbl {
   position: absolute;
   left: 0.3rem;
@@ -2237,16 +2240,14 @@ html[data-theme="light"] .pref-tag.is-selected {
   background: #0a0d12;
 }
 
+/* Selfie mirror by default; Reverse button toggles .is-unmirrored (same cam, left↔right) */
 .vid.local {
   transform: scaleX(-1);
 }
-/* Rear camera: natural orientation (no selfie mirror) */
-.vid.local.facing-environment {
+.vid.local.is-unmirrored {
   transform: none;
 }
-.tile-local.self-blurred .vid.local.facing-environment {
-  transform: scale(1.06);
-}
+/* Rear-cam class no longer forces orientation; Reverse controls .is-unmirrored */
 
 /* Friend PiP — party browse: keep friend visible while stranger(s) use main remote */
 .friend-pip {
@@ -2309,6 +2310,9 @@ html[data-theme="light"] .pref-tag.is-selected {
 .tile-local.self-blurred .vid.local {
   filter: blur(26px) saturate(0.8);
   transform: scaleX(-1) scale(1.06);
+}
+.tile-local.self-blurred .vid.local.is-unmirrored {
+  transform: scale(1.06);
 }
 .tile-local.self-blurred {
   overflow: hidden;

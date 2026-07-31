@@ -27,10 +27,10 @@
   "btn.cam": "摄像",
   "btn.camTitle": "摄像头开/关 (V)",
   "btn.connect": "连接",
-  "btn.flipCam": "翻转",
-  "btn.flipCamBack": "后置摄像头",
-  "btn.flipCamFront": "前置摄像头",
-  "btn.flipCamTitle": "切换摄像头 — 前 / 后 (C)",
+  "btn.flipCam": "镜像",
+  "btn.flipCamBack": "正常",
+  "btn.flipCamFront": "镜像",
+  "btn.flipCamTitle": "左右翻转画面 (C)",
   "btn.full": "全屏",
   "btn.fullTitle": "全屏 (F)",
   "btn.level": "电平",
@@ -293,7 +293,7 @@
   "keys.blur": "模糊对方",
   "keys.cam": "摄像头开/关",
   "keys.esc": "关闭菜单",
-  "keys.flip": "切换摄像头（前 / 后）",
+  "keys.flip": "左右翻转本地画面",
   "keys.full": "对方全屏",
   "keys.hint": "点击对方视频可 加好友 / 屏蔽 / 举报",
   "keys.mic": "麦克风静音",
@@ -1122,5 +1122,7 @@
   "friends.emptyLost": "This browser has a new user id. Import your profile backup to restore the same identity and friends on this hub.",
   "friends.identityBanner": "Friends missing after a new phone or cleared data? Import the profile file you exported earlier.",
   "friends.identityToastTitle": "Restore your friends?",
-  "friends.identityToastBody": "This device may be a new identity. Import a profile backup to Call the same friends."
+  "friends.identityToastBody": "This device may be a new identity. Import a profile backup to Call the same friends.",
+  "btn.flipCamMirrored": "镜像预览",
+  "btn.flipCamNatural": "正常预览"
 }

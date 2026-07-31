@@ -54,7 +54,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </noscript>
   <link rel="stylesheet" href="style.css?v=157" />
-  <link rel="stylesheet" href="live-stage.css?v=183" />
+  <link rel="stylesheet" href="live-stage.css?v=184" />
   <script src="brand.js?v=2"></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -521,11 +521,11 @@
         </span>
         <aside class="side-rail side-rail-right">
           <!-- Cam on/off fully removed — use Hide (self-blur) for privacy; camera stays on for preview -->
-          <button type="button" class="side-btn" id="btn-flip-cam" data-i18n-title="btn.flipCamTitle" title="Reverse camera — front / back (C)" aria-label="Reverse camera">
+          <button type="button" class="side-btn" id="btn-flip-cam" data-i18n-title="btn.flipCamTitle" title="Flip video left / right (C)" aria-label="Flip video" aria-pressed="false">
             <span class="ico" aria-hidden="true">
               <svg class="icon"><use href="#i-flip-cam"/></svg>
             </span>
-            <span class="lbl" data-i18n="btn.flipCam">Reverse</span>
+            <span class="lbl" data-i18n="btn.flipCam">Flip</span>
           </button>
           <button type="button" class="side-btn" id="btn-mute-mic" data-i18n-title="btn.micTitle" title="Mute mic (M)">
             <span class="ico" id="ico-mic" aria-hidden="true">
@@ -604,7 +604,7 @@
         <li><kbd>Space</kbd> <span data-i18n="keys.next">Next partner</span></li>
         <li><kbd>S</kbd> <span data-i18n="keys.stop">Stop (leave queue / idle)</span></li>
         <li><kbd>M</kbd> <span data-i18n="keys.mic">Mute mic</span></li>
-        <li><kbd>C</kbd> <span data-i18n="keys.flip">Reverse camera (front / back)</span></li>
+        <li><kbd>C</kbd> <span data-i18n="keys.flip">Flip local video left / right</span></li>
         <li><kbd>P</kbd> <span data-i18n="keys.partner">Mute partner</span></li>
         <li><kbd>B</kbd> <span data-i18n="keys.blur">Blur partner</span></li>
         <li><kbd>F</kbd> <span data-i18n="keys.full">Fullscreen partner</span></li>
@@ -1706,7 +1706,7 @@
   <script src="identity.js?v=156"></script>
   <script src="hubs.js?v=156"></script>
   <script src="webrtc.js?v=156"></script>
-  <script src="live.js?v=184"></script>
+  <script src="live.js?v=185"></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {
