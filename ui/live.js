@@ -6405,15 +6405,17 @@ function isLikelyMobile() {
   return /Android|iPhone|iPad|iPod|Mobile|webOS|IEMobile/i.test(ua);
 }
 
-/** Front (`user`) vs rear (`environment`) for mobile flip; desktop cycles device list. */
+/** Front (`user`) vs rear (`environment`) — Reverse cam button toggles this. */
 let cameraFacing = "user";
+/** When true, do not soft-fallback to the opposite facingMode (used during Reverse). */
+let facingModeStrict = false;
 
 function applyLocalMirrorClass() {
   const local = $("local");
   if (!local) return;
   const env = cameraFacing === "environment";
   local.classList.toggle("facing-environment", env);
-  // Infer from track settings when available (desktop multi-cam)
+  // Infer from track settings when available
   try {
     const face = previewStream
       ?.getVideoTracks?.()?.[0]
@@ -6423,6 +6425,48 @@ function applyLocalMirrorClass() {
       cameraFacing = face;
     }
   } catch (_) {}
+}
+
+function currentTrackFacingMode() {
+  try {
+    const face = previewStream
+      ?.getVideoTracks?.()?.[0]
+      ?.getSettings?.()?.facingMode;
+    if (face === "environment" || face === "user") return face;
+  } catch (_) {}
+  return "";
+}
+
+/**
+ * Pick a camera deviceId for the requested facing when facingMode alone is weak (desktop).
+ * Heuristic: labels with "back/rear/environment" → environment; front/user/facetime → user.
+ */
+function findDeviceIdForFacing(wantFace) {
+  const sel = $("sel-camera");
+  if (!sel || !sel.options?.length) return "";
+  const wantEnv = wantFace === "environment";
+  const score = (label) => {
+    const s = String(label || "").toLowerCase();
+    if (!s) return 0;
+    if (wantEnv) {
+      if (/back|rear|environment|world|outer|главн|задн/i.test(s)) return 3;
+      if (/front|user|face|facetime|передн|селф/i.test(s)) return -2;
+    } else {
+      if (/front|user|face|facetime|передн|селф|integrated/i.test(s)) return 3;
+      if (/back|rear|environment|world|outer|задн/i.test(s)) return -2;
+    }
+    return 0;
+  };
+  let best = "";
+  let bestScore = 0;
+  for (const opt of sel.options) {
+    const sc = score(opt.textContent || opt.label || opt.value);
+    if (sc > bestScore) {
+      bestScore = sc;
+      best = opt.value || "";
+    }
+  }
+  return bestScore > 0 ? best : "";
 }
 
 /** Camera resolution presets (height-based, 16:9-ish). */
@@ -6547,14 +6591,31 @@ function buildMediaAttempts(videoDeviceId, audioDeviceId) {
   const attempts = [];
   const mobile = isLikelyMobile();
 
-  // Mobile: never use exact desktop deviceIds — OverconstrainedError is common
-  if (mobile) {
-    videoDeviceId = null;
-    audioDeviceId = null;
+  // Mobile (and reverse-cam): never use exact desktop deviceIds — OverconstrainedError is common
+  if (mobile || facingModeStrict) {
+    if (mobile) {
+      videoDeviceId = null;
+      audioDeviceId = null;
+    }
     const face =
       cameraFacing === "environment" ? "environment" : "user";
     const faceAlt = face === "user" ? "environment" : "user";
-    // Prefer ideal (not exact) — iOS often rejects exact facingMode
+    // Strict reverse: try exact facing first so front↔back actually switches
+    if (facingModeStrict) {
+      attempts.push({
+        video: { facingMode: { exact: face }, ...videoHi },
+        audio: audioBase,
+      });
+      attempts.push({
+        video: { facingMode: { exact: face }, ...videoMid },
+        audio: audioBase,
+      });
+      attempts.push({
+        video: { facingMode: { exact: face } },
+        audio: true,
+      });
+    }
+    // Prefer ideal (not exact) — iOS often rejects exact facingMode on cold start
     attempts.push({
       video: { facingMode: { ideal: face }, ...videoHi },
       audio: audioBase,
@@ -6571,16 +6632,24 @@ function buildMediaAttempts(videoDeviceId, audioDeviceId) {
       video: { facingMode: { ideal: face } },
       audio: true,
     });
-    // Soft fallbacks if requested facing is missing
-    attempts.push({
-      video: { facingMode: { ideal: faceAlt }, ...videoMid },
-      audio: audioBase,
-    });
-    attempts.push({ video: true, audio: true });
-    attempts.push({ video: { facingMode: face }, audio: false });
-    attempts.push({ video: true, audio: false });
+    // Soft fallbacks only when not reversing (would undo the switch)
+    if (!facingModeStrict) {
+      attempts.push({
+        video: { facingMode: { ideal: faceAlt }, ...videoMid },
+        audio: audioBase,
+      });
+      attempts.push({ video: true, audio: true });
+      attempts.push({ video: { facingMode: face }, audio: false });
+      attempts.push({ video: true, audio: false });
+    } else {
+      attempts.push({
+        video: { facingMode: { ideal: face } },
+        audio: false,
+      });
+    }
     attempts.push({ video: false, audio: audioBase });
-    return attempts;
+    if (mobile) return attempts;
+    // Desktop reverse: continue into deviceId attempts below if facingMode fails
   }
 
   if (videoDeviceId || audioDeviceId) {
@@ -11583,56 +11652,89 @@ on("sel-camera", "change", async () => {
   applyLocalMirrorClass();
 });
 
-/** Flip front/back on mobile, or cycle camera devices on desktop. */
+/**
+ * Reverse camera: front (user) ↔ rear (environment).
+ * Uses facingMode first; falls back to labeled devices, then cycles the list.
+ */
 async function flipCamera() {
   if (mediaPreviewBusy) return;
   if (mediaPermissionDenied) {
     showEnableCamButton(true, _t("local.permDenied"));
     return;
   }
+  const prevFace = currentTrackFacingMode() || cameraFacing || "user";
+  const nextFace = prevFace === "environment" ? "user" : "environment";
+  cameraFacing = nextFace;
   setStatus(_t("device.switchingCam") || "switching camera…");
+  const mobile = isLikelyMobile();
+
+  // Clear pinned device so facingMode can take effect
   try {
-    if (isLikelyMobile()) {
-      cameraFacing =
-        cameraFacing === "environment" ? "user" : "environment";
-      // Don't pin a stale deviceId when flipping facing mode
-      try {
-        savePrefs({ cameraId: "" });
-      } catch (_) {}
-      if ($("sel-camera")) $("sel-camera").value = "";
-      await startPreview();
-      applyLocalMirrorClass();
-      trackEvent("flip_cam", { facing: cameraFacing, mobile: 1 });
-      setStatus(
-        cameraFacing === "environment"
-          ? _t("btn.flipCamBack") || "Rear camera"
-          : _t("btn.flipCamFront") || "Front camera"
-      );
-      return;
+    savePrefs({ cameraId: "" });
+  } catch (_) {}
+  if ($("sel-camera") && mobile) $("sel-camera").value = "";
+
+  facingModeStrict = true;
+  try {
+    // Desktop: also try a device labeled front/back if we know one
+    if (!mobile) {
+      const labeled = findDeviceIdForFacing(nextFace);
+      if (labeled && $("sel-camera")) {
+        $("sel-camera").value = labeled;
+        try {
+          savePrefs({ cameraId: labeled });
+        } catch (_) {}
+      }
     }
-    // Desktop: cycle camera select options
-    const sel = $("sel-camera");
-    if (!sel || sel.options.length < 2) {
-      // Still try facingMode toggle on multi-cam laptops
-      cameraFacing =
-        cameraFacing === "environment" ? "user" : "environment";
-      await startPreview();
-      applyLocalMirrorClass();
-      trackEvent("flip_cam", { facing: cameraFacing, mobile: 0 });
-      return;
-    }
-    const n = sel.options.length;
-    const cur = Math.max(0, sel.selectedIndex);
-    sel.selectedIndex = (cur + 1) % n;
-    const id = sel.value || "";
-    if (id) savePrefs({ cameraId: id });
     await startPreview();
     applyLocalMirrorClass();
-    trackEvent("flip_cam", { device: 1 });
-    setStatus(_t("device.switchingCam") || "Camera switched");
+
+    let got = currentTrackFacingMode();
+    // If facingMode didn't stick, cycle devices once as last resort
+    if (!got || (got !== nextFace && !mobile)) {
+      const sel = $("sel-camera");
+      if (sel && sel.options.length >= 2) {
+        const n = sel.options.length;
+        const cur = Math.max(0, sel.selectedIndex);
+        sel.selectedIndex = (cur + 1) % n;
+        const id = sel.value || "";
+        if (id) {
+          try {
+            savePrefs({ cameraId: id });
+          } catch (_) {}
+        }
+        facingModeStrict = false;
+        await startPreview();
+        applyLocalMirrorClass();
+        got = currentTrackFacingMode() || cameraFacing;
+        trackEvent("flip_cam", { facing: got || nextFace, via: "device_cycle" });
+      } else {
+        trackEvent("flip_cam", { facing: got || nextFace, via: "facing", mobile: mobile ? 1 : 0 });
+      }
+    } else {
+      trackEvent("flip_cam", { facing: got || nextFace, via: "facing", mobile: mobile ? 1 : 0 });
+    }
+
+    const active = currentTrackFacingMode() || cameraFacing;
+    cameraFacing = active === "environment" ? "environment" : "user";
+    applyLocalMirrorClass();
+    setStatus(
+      cameraFacing === "environment"
+        ? _t("btn.flipCamBack") || "Rear camera"
+        : _t("btn.flipCamFront") || "Front camera"
+    );
   } catch (e) {
-    setStatus(_t("status.previewFailed") || "Could not switch camera");
+    // Revert facing pref on hard failure
+    cameraFacing = prevFace === "environment" ? "environment" : "user";
+    setStatus(_t("status.previewFailed") || "Could not reverse camera");
     log("flipCam: " + (e?.message || e));
+    try {
+      facingModeStrict = false;
+      await startPreview();
+      applyLocalMirrorClass();
+    } catch (_) {}
+  } finally {
+    facingModeStrict = false;
   }
 }
 on("btn-flip-cam", "click", () => flipCamera());
