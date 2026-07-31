@@ -515,6 +515,7 @@ const FLAG_OPTIONS = [
   ["VE", "Venezuela"],
   ["CU", "Cuba"],
   ["PR", "Puerto Rico"],
+  ["AQ", "Antarctica"],
   ["EU", "European Union"],
 ];
 
@@ -525,7 +526,8 @@ function normalizeFlagCode(raw) {
     .replace(/[^A-Z]/g, "")
     .slice(0, 2);
   if (s.length !== 2) return "";
-  if (s === "EU") return "EU"; // regional / pseudo — still cosmetic
+  // Cosmetic-only codes (not geolocation)
+  if (s === "EU" || s === "AQ") return s;
   return s;
 }
 
