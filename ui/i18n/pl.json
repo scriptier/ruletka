@@ -427,5 +427,13 @@
   "home.openOps": "Dla operatorów",
   "home.privacy": "Prywatność",
   "home.terms": "Regulamin",
-  "home.statsOffline": "Hub offline"
+  "home.statsOffline": "Hub offline",
+  "settings.secProfileData": "Przenoszenie profilu",
+  "settings.profileHint": "Każda przeglądarka to osobna tożsamość, dopóki nie wyeksportujesz/zaimportujesz. Znajomi są na hubie pod user id.",
+  "settings.exportProfile": "Eksportuj plik profilu",
+  "settings.importProfile": "Importuj plik profilu",
+  "settings.exportDone": "Pobrano plik profilu",
+  "settings.importDone": "Zaimportowano profil — przeładowanie",
+  "settings.importBad": "Nieprawidłowy plik profilu",
+  "settings.importConfirm": "Zastąpić tożsamość tej przeglądarki ({cur}) plikiem ({id})?"
 }

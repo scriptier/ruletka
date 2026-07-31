@@ -432,5 +432,16 @@
   "home.openOps": "For operators",
   "home.privacy": "Privacy",
   "home.terms": "Terms",
-  "home.statsOffline": "Hub offline"
+  "home.statsOffline": "Hub offline",
+  "settings.secProfileData": "Profile transfer",
+  "settings.profileHint": "Each browser is a separate identity until you export/import. Friends live on the hub under your user id — import restores that id so friends return on this hub.",
+  "settings.exportProfile": "Export profile file",
+  "settings.importProfile": "Import profile file",
+  "settings.exportDone": "Profile file downloaded",
+  "settings.exportFail": "Export failed",
+  "settings.exportNoId": "No identity yet — connect once first",
+  "settings.importDone": "Profile imported — reloading",
+  "settings.importFail": "Import failed",
+  "settings.importBad": "Invalid profile file",
+  "settings.importConfirm": "Replace this browser’s identity ({cur}) with the file’s identity ({id})? Friends on this hub will follow the imported id."
 }

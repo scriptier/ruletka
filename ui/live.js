@@ -2144,6 +2144,15 @@ function wireSettingsNav() {
   });
   rebuildSettingsLangList();
   $("btn-settings-done")?.addEventListener("click", () => closeSettings());
+  $("btn-export-profile")?.addEventListener("click", () => exportProfileFile());
+  $("btn-import-profile")?.addEventListener("click", () => {
+    $("import-profile-file")?.click();
+  });
+  $("import-profile-file")?.addEventListener("change", (e) => {
+    const f = e.target?.files?.[0];
+    if (f) importProfileFile(f);
+    e.target.value = "";
+  });
   $("btn-clear-local")?.addEventListener("click", async () => {
     if (!confirm(_t("settings.clearConfirm"))) return;
     try {
@@ -2160,6 +2169,165 @@ function wireSettingsNav() {
     setStatus(_t("settings.clearDone"));
     location.reload();
   });
+}
+
+const PROFILE_FORMAT = "ruletka-profile/1";
+
+function loadHistorySafe() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+    return Array.isArray(raw) ? raw.slice(0, MAX_HISTORY) : [];
+  } catch {
+    return [];
+  }
+}
+
+function buildProfileExport() {
+  const id = loadIdentity();
+  let hubBase = "";
+  let hubAuto = true;
+  try {
+    if (typeof RuletHub !== "undefined") {
+      hubBase = RuletHub.base?.() || "";
+      hubAuto = RuletHub.autoFailoverEnabled?.() !== false;
+    }
+  } catch (_) {}
+  let lang = "ru";
+  try {
+    lang = NextfaceI18n?.getLang?.() || localStorage.getItem("nextface-lang-v1") || "ru";
+  } catch (_) {}
+  return {
+    format: PROFILE_FORMAT,
+    exported_at: new Date().toISOString(),
+    software: "ruletka.vip",
+    note:
+      "Import this file on another browser/device to keep the same identity. Friends are stored on each hub under user_id — reconnect to the same hub to restore friends.",
+    identity: {
+      user_id: id.user_id || "",
+      name: (id.name || getDisplayName() || "").slice(0, 32),
+      friend_code: myFriendCode || "",
+    },
+    prefs: loadPrefs(),
+    history: loadHistorySafe(),
+    lang,
+    rules_accepted: rulesAccepted(),
+    hub: { base: hubBase, auto: hubAuto },
+  };
+}
+
+function exportProfileFile() {
+  try {
+    const data = buildProfileExport();
+    if (!data.identity.user_id) {
+      setStatus(_t("settings.exportNoId") || "No identity yet — open live once first");
+      return;
+    }
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
+      type: "application/json",
+    });
+    const a = document.createElement("a");
+    const stamp = new Date().toISOString().slice(0, 10);
+    a.href = URL.createObjectURL(blob);
+    a.download = `ruletka-profile-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    setStatus(_t("settings.exportDone"));
+    log(_t("settings.exportDone"));
+  } catch (e) {
+    setStatus(_t("settings.exportFail") || "Export failed");
+    console.warn("[export]", e);
+  }
+}
+
+async function importProfileFile(file) {
+  if (!file) return;
+  let data;
+  try {
+    const text = await file.text();
+    data = JSON.parse(text);
+  } catch {
+    setStatus(_t("settings.importBad") || "Invalid profile file");
+    return;
+  }
+  const uid =
+    data?.identity?.user_id ||
+    data?.user_id ||
+    (typeof data?.identity === "string" ? data.identity : "");
+  if (!uid || String(uid).length < 8) {
+    setStatus(_t("settings.importBad") || "Invalid profile file");
+    return;
+  }
+  if (data.format && data.format !== PROFILE_FORMAT) {
+    // allow older/simple files if user_id present
+    if (!data.identity?.user_id && !data.user_id) {
+      setStatus(_t("settings.importBad") || "Invalid profile file");
+      return;
+    }
+  }
+  const cur = loadIdentity().user_id;
+  const msg = _t("settings.importConfirm", {
+    id: String(uid).slice(0, 12) + "…",
+    cur: cur ? String(cur).slice(0, 12) + "…" : "—",
+  });
+  if (!confirm(msg || `Replace this browser’s identity with ${uid}?`)) return;
+
+  try {
+    // Clear crypto keys so IndexedDB does not override imported user_id
+    if (typeof RuletIdentity !== "undefined" && RuletIdentity.clearDeviceKeys) {
+      await RuletIdentity.clearDeviceKeys();
+    }
+    const name = (data.identity?.name || data.name || "").toString().slice(0, 32);
+    saveIdentity({
+      user_id: String(uid),
+      name,
+      cryptoBound: false,
+      imported: true,
+      importedAt: Date.now(),
+    });
+    if (data.prefs && typeof data.prefs === "object") {
+      try {
+        localStorage.setItem(PREFS_KEY, JSON.stringify(data.prefs));
+      } catch (_) {}
+    }
+    if (Array.isArray(data.history)) {
+      try {
+        localStorage.setItem(
+          HISTORY_KEY,
+          JSON.stringify(data.history.slice(0, MAX_HISTORY))
+        );
+      } catch (_) {}
+    }
+    if (data.lang) {
+      try {
+        localStorage.setItem("nextface-lang-v1", String(data.lang));
+        await NextfaceI18n?.setLang?.(String(data.lang));
+      } catch (_) {}
+    }
+    if (data.rules_accepted) {
+      try {
+        localStorage.setItem(RULES_KEY, "1");
+      } catch (_) {}
+    }
+    if (data.hub && typeof RuletHub !== "undefined") {
+      try {
+        if (data.hub.base) RuletHub.setBase?.(data.hub.base, { persist: true });
+        if (typeof data.hub.auto === "boolean") {
+          RuletHub.setAutoFailover?.(data.hub.auto);
+        }
+      } catch (_) {}
+    }
+    if (data.identity?.friend_code) {
+      myFriendCode = String(data.identity.friend_code);
+    }
+    setStatus(_t("settings.importDone"));
+    log(_t("settings.importDone") + " → " + String(uid).slice(0, 16));
+    setTimeout(() => location.reload(), 400);
+  } catch (e) {
+    console.warn("[import]", e);
+    setStatus(_t("settings.importFail") || "Import failed");
+  }
 }
 
 function openSettings() {

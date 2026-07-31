@@ -427,5 +427,13 @@
   "home.openOps": "Для операторів",
   "home.privacy": "Приватність",
   "home.terms": "Умови",
-  "home.statsOffline": "Хаб офлайн"
+  "home.statsOffline": "Хаб офлайн",
+  "settings.secProfileData": "Перенесення профілю",
+  "settings.profileHint": "Кожен браузер — окрема особа, доки ви не експортуєте/імпортуєте. Друзі на хабі за user id — імпорт повертає той самий id.",
+  "settings.exportProfile": "Експорт файлу профілю",
+  "settings.importProfile": "Імпорт файлу профілю",
+  "settings.exportDone": "Файл профілю завантажено",
+  "settings.importDone": "Профіль імпортовано — перезавантаження",
+  "settings.importBad": "Невірний файл профілю",
+  "settings.importConfirm": "Замінити особу цього браузера ({cur}) на з файлу ({id})?"
 }

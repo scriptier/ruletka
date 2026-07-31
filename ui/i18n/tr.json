@@ -427,5 +427,13 @@
   "home.openOps": "Operatörler için",
   "home.privacy": "Gizlilik",
   "home.terms": "Şartlar",
-  "home.statsOffline": "Hub çevrimdışı"
+  "home.statsOffline": "Hub çevrimdışı",
+  "settings.secProfileData": "Profil aktarımı",
+  "settings.profileHint": "Dışa/içe aktarana kadar her tarayıcı ayrı kimliktir. Arkadaşlar hub’da user id altında durur.",
+  "settings.exportProfile": "Profil dosyasını dışa aktar",
+  "settings.importProfile": "Profil dosyasını içe aktar",
+  "settings.exportDone": "Profil dosyası indirildi",
+  "settings.importDone": "Profil içe aktarıldı — yenileniyor",
+  "settings.importBad": "Geçersiz profil dosyası",
+  "settings.importConfirm": "Bu tarayıcının kimliği ({cur}) dosyadakiyle ({id}) değiştirilsin mi?"
 }

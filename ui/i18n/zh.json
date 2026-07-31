@@ -427,5 +427,13 @@
   "home.openOps": "运维",
   "home.privacy": "隐私",
   "home.terms": "条款",
-  "home.statsOffline": "节点离线"
+  "home.statsOffline": "节点离线",
+  "settings.secProfileData": "资料迁移",
+  "settings.profileHint": "在导出/导入之前，每个浏览器都是独立身份。好友按 user id 存在节点上。",
+  "settings.exportProfile": "导出资料文件",
+  "settings.importProfile": "导入资料文件",
+  "settings.exportDone": "已下载资料文件",
+  "settings.importDone": "已导入资料 — 正在刷新",
+  "settings.importBad": "无效的资料文件",
+  "settings.importConfirm": "用文件中的身份（{id}）替换本浏览器身份（{cur}）？"
 }

@@ -728,6 +728,21 @@
             <span class="chev">›</span>
           </a>
         </div>
+        <p class="settings-section-label" data-i18n="settings.secProfileData">Profile transfer</p>
+        <p class="hint-inline" data-i18n="settings.profileHint">
+          Each browser is a separate identity until you export/import. Friends are stored on the hub under your user id — import restores the same id so friends come back on this hub.
+        </p>
+        <div class="settings-group">
+          <button type="button" class="settings-row" id="btn-export-profile">
+            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-share"/></svg></span><span data-i18n="settings.exportProfile">Export profile file</span></span>
+            <span class="chev">›</span>
+          </button>
+          <button type="button" class="settings-row" id="btn-import-profile">
+            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-file"/></svg></span><span data-i18n="settings.importProfile">Import profile file</span></span>
+            <span class="chev">›</span>
+          </button>
+          <input type="file" id="import-profile-file" accept="application/json,.json" hidden />
+        </div>
         <p class="settings-section-label" data-i18n="settings.secOther">Data</p>
         <div class="settings-group">
           <button type="button" class="settings-row settings-row-danger" id="btn-clear-local">
@@ -831,11 +846,11 @@
   <!-- cache-bust so browsers always get auto-connect / auto-media fixes -->
   <script src="analytics.js?v=1" defer></script>
   <script src="pwa-install.js?v=1" defer></script>
-  <script src="i18n.js?v=56"></script>
-  <script src="identity.js?v=56"></script>
-  <script src="hubs.js?v=56"></script>
-  <script src="webrtc.js?v=56"></script>
-  <script src="live.js?v=56"></script>
+  <script src="i18n.js?v=58"></script>
+  <script src="identity.js?v=58"></script>
+  <script src="hubs.js?v=58"></script>
+  <script src="webrtc.js?v=58"></script>
+  <script src="live.js?v=58"></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

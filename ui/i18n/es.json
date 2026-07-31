@@ -427,5 +427,13 @@
   "home.openOps": "Para operadores",
   "home.privacy": "Privacidad",
   "home.terms": "Términos",
-  "home.statsOffline": "Hub offline"
+  "home.statsOffline": "Hub offline",
+  "settings.secProfileData": "Transferir perfil",
+  "settings.profileHint": "Cada navegador es una identidad aparte hasta exportar/importar. Los amigos están en el hub bajo tu user id.",
+  "settings.exportProfile": "Exportar archivo de perfil",
+  "settings.importProfile": "Importar archivo de perfil",
+  "settings.exportDone": "Archivo de perfil descargado",
+  "settings.importDone": "Perfil importado — recargando",
+  "settings.importBad": "Archivo de perfil inválido",
+  "settings.importConfirm": "¿Reemplazar la identidad de este navegador ({cur}) por la del archivo ({id})?"
 }

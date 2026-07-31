@@ -432,5 +432,16 @@
   "home.openOps": "Для операторов",
   "home.privacy": "Конфиденциальность",
   "home.terms": "Условия",
-  "home.statsOffline": "Хаб офлайн"
+  "home.statsOffline": "Хаб офлайн",
+  "settings.secProfileData": "Перенос профиля",
+  "settings.profileHint": "Каждый браузер — отдельная личность, пока вы не экспортируете/импортируете. Друзья хранятся на хабе по user id — импорт возвращает тот же id, и друзья снова видны на этом хабе.",
+  "settings.exportProfile": "Экспорт файла профиля",
+  "settings.importProfile": "Импорт файла профиля",
+  "settings.exportDone": "Файл профиля скачан",
+  "settings.exportFail": "Ошибка экспорта",
+  "settings.exportNoId": "Сначала подключитесь к live",
+  "settings.importDone": "Профиль импортирован — перезагрузка",
+  "settings.importFail": "Ошибка импорта",
+  "settings.importBad": "Неверный файл профиля",
+  "settings.importConfirm": "Заменить личность этого браузера ({cur}) на из файла ({id})? Друзья на этом хабе привязаны к импортированному id."
 }
