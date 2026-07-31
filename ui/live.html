@@ -389,20 +389,38 @@
               <button type="submit" class="tile-compose-send" data-i18n="chat.send">Send</button>
             </form>
             <div class="tile-match-actions" id="tile-match-actions">
-              <button type="button" id="btn-browse-together" class="dock-pill accent tight" hidden data-i18n="friends.browseTogether">Browse together</button>
-              <button type="button" id="btn-hangup-friend" class="dock-pill danger tight" hidden data-i18n="friends.hangup">Hang up</button>
-              <button type="button" id="btn-block" class="dock-pill danger tight" hidden data-i18n="friends.blockNext" title="Block — you will not match them again">Block</button>
-              <button type="button" id="btn-report-dock" class="dock-pill danger tight" hidden data-i18n="partnerMenu.reportNext" title="Report, block, and find someone else">Report · Next</button>
-              <button type="button" id="btn-find-third" class="dock-pill accent tight" hidden data-i18n="trio.invite" title="Find a third person together">Find 3rd</button>
-              <button type="button" id="btn-find-third-cancel" class="dock-pill ghost tight" hidden data-i18n="trio.cancel" title="Cancel invite">Cancel</button>
-              <button type="button" id="btn-spin" class="dock-pill ghost tight" hidden data-i18n="btn.spin">Spin</button>
-              <button type="button" id="btn-stop" class="dock-pill danger tight stop-in-tile" hidden data-i18n-title="btn.stopTitle" title="Stop searching / leave call" aria-label="Stop">
-                <span data-i18n="btn.stop">Stop</span>
-              </button>
+              <!-- Primary: Next + Stop only. Everything else lives in ⋯ more menu. -->
               <button type="button" id="btn-next" class="next-big next-in-tile next-in-tile-floor" hidden>
                 <svg class="icon icon-next" aria-hidden="true"><use href="#i-skip"/></svg>
                 <span data-i18n="btn.next">Next</span>
               </button>
+              <button type="button" id="btn-stop" class="dock-pill danger tight stop-in-tile" hidden data-i18n-title="btn.stopTitle" title="Stop searching / leave call" aria-label="Stop">
+                <span data-i18n="btn.stop">Stop</span>
+              </button>
+              <div class="match-more-wrap" id="match-more-wrap" hidden>
+                <button
+                  type="button"
+                  class="tile-dock-btn match-more-btn"
+                  id="btn-match-more"
+                  data-i18n-title="dock.more"
+                  title="More"
+                  aria-label="More"
+                  aria-haspopup="menu"
+                  aria-expanded="false"
+                >
+                  <span class="match-more-ico" aria-hidden="true">⋯</span>
+                </button>
+                <div class="match-more-menu" id="match-more-menu" hidden role="menu">
+                  <button type="button" role="menuitem" id="btn-browse-together" class="match-more-item accent" hidden data-i18n="friends.browseTogether">Browse together</button>
+                  <button type="button" role="menuitem" id="btn-hangup-friend" class="match-more-item danger" hidden data-i18n="friends.hangup">Hang up</button>
+                  <button type="button" role="menuitem" id="btn-block" class="match-more-item danger" hidden data-i18n="friends.blockNext" title="Block — you will not match them again">Block · Next</button>
+                  <button type="button" role="menuitem" id="btn-report-dock" class="match-more-item danger" hidden data-i18n="partnerMenu.reportNext" title="Report, block, and find someone else">Report · Next</button>
+                  <button type="button" role="menuitem" id="btn-find-third" class="match-more-item accent" hidden data-i18n="trio.invite" title="Find a third person together">Find 3rd</button>
+                  <button type="button" role="menuitem" id="btn-find-third-cancel" class="match-more-item ghost" hidden data-i18n="trio.cancel" title="Cancel invite">Cancel</button>
+                  <button type="button" role="menuitem" id="btn-spin" class="match-more-item ghost" hidden data-i18n="btn.spin">Spin</button>
+                  <p class="match-more-hint" data-i18n="dock.moreHint">Or tap the partner video for the full menu</p>
+                </div>
+              </div>
             </div>
             <button type="button" class="tile-dock-btn tile-dock-friends" id="btn-friends" data-i18n-title="friends.open" title="Friends" aria-label="Friends">
               <svg class="icon" aria-hidden="true"><use href="#i-users"/></svg>

@@ -1088,5 +1088,7 @@
   "wait.alone": "Vous êtes seul ici. Partagez ruletka.vip ou un code de salle avec un ami.",
   "wait.body": "Peu de monde en ligne. Gardez cet onglet ouvert, partagez une salle avec un ami, ou réessayez plus tard.",
   "wait.few": "Presque personne n’attend. Restez — ou invitez un ami avec un code de salle.",
-  "wait.title": "Toujours en recherche…"
+  "wait.title": "Toujours en recherche…",
+  "dock.more": "Plus",
+  "dock.moreHint": "Ou touchez la vidéo du partenaire pour le menu complet"
 }

@@ -1088,5 +1088,7 @@
   "wait.alone": "Estás solo aquí. Comparte ruletka.vip o un código de sala con un amigo.",
   "wait.body": "Hay poca gente online. Deja esta pestaña abierta, comparte una sala con un amigo o vuelve más tarde.",
   "wait.few": "Casi nadie espera. Quédate — o invita a un amigo con un código de sala.",
-  "wait.title": "Seguimos buscando…"
+  "wait.title": "Seguimos buscando…",
+  "dock.more": "Más",
+  "dock.moreHint": "O toca el video del partner para el menú completo"
 }

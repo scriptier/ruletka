@@ -3609,6 +3609,58 @@ function reattachFriendToMainRemote() {
   if (trioBrowse) setThirdSlotStream(null);
 }
 
+function closeMatchMoreMenu() {
+  const menu = $("match-more-menu");
+  const btn = $("btn-match-more");
+  if (menu) menu.hidden = true;
+  if (btn) btn.setAttribute("aria-expanded", "false");
+}
+
+function openMatchMoreMenu() {
+  const menu = $("match-more-menu");
+  const btn = $("btn-match-more");
+  if (!menu || !btn) return;
+  menu.hidden = false;
+  btn.setAttribute("aria-expanded", "true");
+}
+
+function toggleMatchMoreMenu() {
+  const menu = $("match-more-menu");
+  if (!menu) return;
+  if (menu.hidden) openMatchMoreMenu();
+  else closeMatchMoreMenu();
+}
+
+function syncMatchMoreVisibility() {
+  const wrap = $("match-more-wrap");
+  const menu = $("match-more-menu");
+  if (!wrap) return;
+  const ids = [
+    "btn-browse-together",
+    "btn-hangup-friend",
+    "btn-block",
+    "btn-report-dock",
+    "btn-find-third",
+    "btn-find-third-cancel",
+    "btn-spin",
+  ];
+  let any = false;
+  for (const id of ids) {
+    const el = $(id);
+    if (el && !el.hidden) {
+      any = true;
+      break;
+    }
+  }
+  wrap.hidden = !any;
+  if (!any) closeMatchMoreMenu();
+  // Hide empty hint only if menu has no items
+  if (menu) {
+    const hint = menu.querySelector(".match-more-hint");
+    if (hint) hint.hidden = !any;
+  }
+}
+
 function updateFriendActionButtons() {
   const browse = $("btn-browse-together");
   const hang = $("btn-hangup-friend");
@@ -3626,7 +3678,7 @@ function updateFriendActionButtons() {
     // Hang only for real friend parties; stranger find-third uses Stop
     if (hang) hang.hidden = !inFriendCall || trioBrowse;
   }
-  // Find 3rd: stranger 1v1 only (same rules as partner menu — always in footer when available)
+  // Find 3rd: stranger 1v1 only (same rules as partner menu)
   const hasLivePeer =
     peerPcs.size >= 1 ||
     (typeof partnerHasLiveVideo === "function" && partnerHasLiveVideo());
@@ -3660,6 +3712,7 @@ function updateFriendActionButtons() {
   if (repDock) {
     repDock.hidden = !canMod || matchMode === "friend";
   }
+  syncMatchMoreVisibility();
   syncMatchChrome();
   syncTrioLayout();
   updatePartnerClickable();
@@ -10929,8 +10982,37 @@ on("btn-partner-block", "click", () => blockPartnerFromMenu());
 on("btn-partner-report", "click", () => showPartnerReportReasons());
 on("btn-report-dock", "click", () => {
   // One-tap Report · Next (default reason); open menu for other reasons via partner video
+  closeMatchMoreMenu();
   if (!primaryPartnerUserId || !matched) return;
   reportPartner("other");
+});
+on("btn-match-more", "click", (e) => {
+  e.stopPropagation();
+  toggleMatchMoreMenu();
+});
+// Close ⋯ when picking an action or tapping outside
+[
+  "btn-browse-together",
+  "btn-hangup-friend",
+  "btn-block",
+  "btn-find-third",
+  "btn-find-third-cancel",
+  "btn-spin",
+].forEach((id) => {
+  $(id)?.addEventListener("click", () => closeMatchMoreMenu());
+});
+document.addEventListener(
+  "click",
+  (e) => {
+    const wrap = $("match-more-wrap");
+    if (!wrap || wrap.hidden) return;
+    if (wrap.contains(e.target)) return;
+    closeMatchMoreMenu();
+  },
+  true
+);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeMatchMoreMenu();
 });
 on("btn-partner-menu-cancel", "click", () => closePartnerMenu());
 on("btn-partner-menu-close", "click", () => closePartnerMenu());

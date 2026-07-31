@@ -55,6 +55,8 @@
   "btn.spin": "Spin",
   "btn.start": "Start",
   "btn.stop": "Stop",
+  "dock.more": "More actions",
+  "dock.moreHint": "Or tap the partner video for the full menu",
   "btn.stopTitle": "Stop searching / leave call",
   "chat.cleanupAction": "Clear old matches",
   "chat.cleanupDone": "Cleared {n} old match chats",

@@ -1088,5 +1088,7 @@
   "wait.alone": "Du bist hier allein. Teile ruletka.vip oder einen Raumcode mit einem Freund.",
   "wait.body": "Gerade wenige online. Tab offen lassen, Raum mit Freund teilen oder später erneut versuchen.",
   "wait.few": "Fast niemand wartet. Bleib — oder lade einen Freund mit Raumcode ein.",
-  "wait.title": "Suche noch…"
+  "wait.title": "Suche noch…",
+  "dock.more": "Mehr",
+  "dock.moreHint": "Oder Partner-Video antippen für das volle Menü"
 }

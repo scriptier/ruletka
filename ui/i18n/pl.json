@@ -1088,5 +1088,7 @@
   "wait.alone": "Jesteś tu sam. Udostępnij ruletka.vip lub kod pokoju znajomemu.",
   "wait.body": "Mało osób online. Zostaw kartę otwartą, udostępnij pokój znajomemu lub wróć później.",
   "wait.few": "Prawie nikt nie czeka. Zostań — lub zaproś znajomego kodem pokoju.",
-  "wait.title": "Nadal szukam…"
+  "wait.title": "Nadal szukam…",
+  "dock.more": "Więcej",
+  "dock.moreHint": "Albo stuknij wideo partnera — pełne menu"
 }

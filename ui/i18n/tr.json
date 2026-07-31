@@ -1088,5 +1088,7 @@
   "wait.alone": "Burada yalnızsınız. Bir arkadaşla ruletka.vip veya oda kodu paylaşın.",
   "wait.body": "Şu an az kişi çevrimiçi. Sekmeyi açık tutun, bir oda paylaşın veya sonra tekrar deneyin.",
   "wait.few": "Neredeyse kimse beklemiyor. Açık tutun — veya oda koduyla bir arkadaş davet edin.",
-  "wait.title": "Hâlâ aranıyor…"
+  "wait.title": "Hâlâ aranıyor…",
+  "dock.more": "Diğer",
+  "dock.moreHint": "Tam menü için partner videosuna dokunun"
 }
