@@ -481,5 +481,6 @@
   "avatar.attachHint": "Aus Galerie oder Dateien auf diesem Gerät",
   "avatar.none": "Kein Foto",
   "avatar.set": "Gesetzt",
-  "avatar.notImage": "Bitte eine Bilddatei wählen"
+  "avatar.notImage": "Bitte eine Bilddatei wählen",
+  "home.donate": "Spenden"
 }

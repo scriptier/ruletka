@@ -481,5 +481,6 @@
   "avatar.attachHint": "З галереї або файлів на пристрої",
   "avatar.none": "Немає фото",
   "avatar.set": "Є",
-  "avatar.notImage": "Оберіть файл зображення"
+  "avatar.notImage": "Оберіть файл зображення",
+  "home.donate": "Донат"
 }

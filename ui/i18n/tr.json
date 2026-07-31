@@ -481,5 +481,6 @@
   "avatar.attachHint": "Galeriden veya bu cihazdaki dosyalardan",
   "avatar.none": "Foto yok",
   "avatar.set": "Var",
-  "avatar.notImage": "Lütfen bir görsel dosyası seçin"
+  "avatar.notImage": "Lütfen bir görsel dosyası seçin",
+  "home.donate": "Bağış"
 }

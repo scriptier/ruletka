@@ -481,5 +481,6 @@
   "avatar.attachHint": "来自相册或本机文件",
   "avatar.none": "无照片",
   "avatar.set": "已设置",
-  "avatar.notImage": "请选择图片文件"
+  "avatar.notImage": "请选择图片文件",
+  "home.donate": "捐赠"
 }
