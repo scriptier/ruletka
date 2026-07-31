@@ -4,248 +4,112 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Terms of service — ruletka.vip</title>
-  <meta name="description" content="Terms of service for ruletka.vip: 18+ eligibility, acceptable use, peer-to-peer video chat, liability, and contact." />
   <meta name="theme-color" content="#07080c" />
   <meta name="robots" content="index, follow" />
   <link rel="canonical" href="https://ruletka.vip/legal/terms.html" />
   <link rel="icon" href="/brand/favicon-32.png" type="image/png" />
-  <link rel="apple-touch-icon" href="/brand/apple-touch-icon-180.png" />
-  <meta property="og:title" content="Terms of service — ruletka.vip" />
-  <meta property="og:description" content="18+ adult P2P video chat terms: acceptable use, safety, disclaimers." />
-  <meta property="og:url" content="https://ruletka.vip/legal/terms.html" />
-  <meta property="og:image" content="https://ruletka.vip/brand/og-share.jpg" />
-  <link rel="stylesheet" href="../home.css?v=70" />
+  <link rel="stylesheet" href="../home.css?v=74" />
+  <link rel="stylesheet" href="legal.css?v=4" />
   <script src="../brand.js?v=2"></script>
-  <link rel="stylesheet" href="legal.css?v=3" />
+  <script src="../site-i18n.js?v=1" defer></script>
 </head>
-<body class="home-body">
-  <div class="home-bg" aria-hidden="true">
-    <div class="home-bg-grid"></div>
-    <div class="home-bg-orb home-bg-orb-b"></div>
-  </div>
+<body class="home-body" data-i18n-title-key="page.terms.title">
+  <div class="home-bg" aria-hidden="true"><div class="home-bg-grid"></div><div class="home-bg-orb home-bg-orb-b"></div></div>
   <div class="legal-wrap">
     <nav class="legal-nav">
-      <a href="/">Home</a>
-      <a class="primary" href="/live.html">Live</a>
-      <a href="/safety.html">Safety</a>
-      <a href="/legal/privacy.html">Privacy</a>
-      <a href="/donate.html">Donate</a>
+      <a href="/" data-keep-lang data-i18n="nav.home">Home</a>
+      <a class="primary" href="/live.html" data-i18n="nav.liveShort">Live</a>
+      <a href="/safety.html" data-keep-lang data-i18n="nav.safety">Safety</a>
+      <a href="/legal/privacy.html" data-keep-lang data-i18n="nav.privacy">Privacy</a>
+      <a href="/donate.html" data-keep-lang data-i18n="nav.donate">Donate</a>
+      <label class="home-lang legal-lang" data-i18n-title="nav.lang" title="Language">
+        <span class="home-lang-ico" aria-hidden="true">🌐</span>
+        <select id="site-lang" class="site-lang" aria-label="Language">
+          <option value="ru">Русский</option>
+          <option value="en">English</option>
+          <option value="uk">Українська</option>
+          <option value="es">Español</option>
+          <option value="de">Deutsch</option>
+          <option value="fr">Français</option>
+          <option value="pt">Português</option>
+          <option value="tr">Türkçe</option>
+          <option value="pl">Polski</option>
+          <option value="zh">中文</option>
+        </select>
+      </label>
     </nav>
-
     <article class="legal-card">
-      <h1>Terms of service</h1>
-      <p class="updated">Last updated: 2026-07-31 · Effective for https://ruletka.vip and related public seed hubs operated under this brand</p>
-
-      <p>
-        These Terms of Service (“<strong>Terms</strong>”) are a binding agreement between you and the operators of
-        <strong>ruletka.vip</strong> (the “<strong>Service</strong>”, “we”, “us”). By accessing or using the Service
-        — including the website, live chat client, helpers, or related APIs — you agree to these Terms, our
-        <a href="/legal/privacy.html">Privacy policy</a>,
-        <a href="/legal/community.html">Community guidelines</a>, and
-        <a href="/legal/eula.html">EULA</a>.
-      </p>
-      <p>
-        If you do not agree, do not use the Service.
-      </p>
-
-      <div class="legal-pill-row" aria-label="Key points">
-        <span class="legal-pill">18+ only</span>
-        <span class="legal-pill">P2P video</span>
-        <span class="legal-pill">No traditional account</span>
-        <span class="legal-pill">As-is service</span>
+      <h1 data-i18n="page.terms.h1">Terms of service</h1>
+      <p class="updated" data-i18n="page.terms.updated"></p>
+      <p data-i18n-html-brand="page.terms.intro1"></p>
+      <p data-i18n="page.terms.intro2"></p>
+      <div class="legal-pill-row">
+        <span class="legal-pill" data-i18n="page.terms.pill18">18+ only</span>
+        <span class="legal-pill" data-i18n="page.terms.pillP2p">P2P video</span>
+        <span class="legal-pill" data-i18n="page.terms.pillNoAcct">No traditional account</span>
+        <span class="legal-pill" data-i18n="page.terms.pillAsIs">As-is service</span>
       </div>
-
-      <nav class="legal-toc" aria-label="On this page">
-        <strong>On this page</strong>
+      <nav class="legal-toc">
+        <strong data-i18n="page.terms.toc">On this page</strong>
         <ol>
-          <li><a href="#eligibility">Eligibility</a></li>
-          <li><a href="#service">What the Service is</a></li>
-          <li><a href="#acceptable-use">Acceptable use</a></li>
-          <li><a href="#safety">Safety tools &amp; reporting</a></li>
-          <li><a href="#identity">Identity, friends &amp; chat</a></li>
-          <li><a href="#content">Your content &amp; conduct</a></li>
-          <li><a href="#third-parties">Third parties &amp; other hubs</a></li>
-          <li><a href="#donations">Donations</a></li>
-          <li><a href="#ip">Intellectual property</a></li>
-          <li><a href="#disclaimers">Disclaimers</a></li>
-          <li><a href="#liability">Limitation of liability</a></li>
-          <li><a href="#indemnity">Indemnity</a></li>
-          <li><a href="#enforcement">Suspension &amp; termination</a></li>
-          <li><a href="#changes">Changes</a></li>
-          <li><a href="#general">General</a></li>
-          <li><a href="#contact">Contact</a></li>
+          <li><a href="#eligibility" data-i18n="page.terms.toc1">Eligibility</a></li>
+          <li><a href="#service" data-i18n="page.terms.toc2">What the Service is</a></li>
+          <li><a href="#acceptable-use" data-i18n="page.terms.toc3">Acceptable use</a></li>
+          <li><a href="#safety" data-i18n="page.terms.toc4">Safety tools</a></li>
+          <li><a href="#identity" data-i18n="page.terms.toc5">Identity</a></li>
+          <li><a href="#content" data-i18n="page.terms.toc6">Your content</a></li>
+          <li><a href="#third-parties" data-i18n="page.terms.toc7">Third parties</a></li>
+          <li><a href="#donations" data-i18n="page.terms.toc8">Donations</a></li>
+          <li><a href="#ip" data-i18n="page.terms.toc9">IP</a></li>
+          <li><a href="#disclaimers" data-i18n="page.terms.toc10">Disclaimers</a></li>
+          <li><a href="#liability" data-i18n="page.terms.toc11">Liability</a></li>
+          <li><a href="#indemnity" data-i18n="page.terms.toc12">Indemnity</a></li>
+          <li><a href="#enforcement" data-i18n="page.terms.toc13">Suspension</a></li>
+          <li><a href="#changes" data-i18n="page.terms.toc14">Changes</a></li>
+          <li><a href="#general" data-i18n="page.terms.toc15">General</a></li>
+          <li><a href="#contact" data-i18n="page.terms.toc16">Contact</a></li>
         </ol>
       </nav>
-
-      <h2 id="eligibility">1. Eligibility</h2>
-      <ul>
-        <li>You must be <strong>at least 18 years old</strong> (or the age of majority where you live, if higher).</li>
-        <li>The Service is <strong>adults only</strong>. Anyone under 18 is prohibited from using it.</li>
-        <li>You confirm you have legal capacity to enter this agreement and that your use complies with laws that apply to you.</li>
-        <li>We may ask you to confirm age before chat (for example a first-run checkbox). That confirmation is not a government ID check.</li>
-      </ul>
-
-      <h2 id="service">2. What the Service is</h2>
-      <p>
-        ruletka.vip provides <strong>random and friends-based video chat</strong> in the browser. Typical pieces:
-      </p>
-      <ul>
-        <li><strong>Matchmaking &amp; signaling</strong> — a hub (bridge) helps pair users and exchange WebRTC offers/answers/ICE and text chat for the session.</li>
-        <li><strong>Video &amp; audio</strong> — when the network allows, media is <strong>peer-to-peer WebRTC</strong> (encrypted on the media path). We do not run a permanent video recording store for calls.</li>
-        <li><strong>TURN / relay</strong> — if a direct path fails, encrypted media may pass through a relay. Quality and availability depend on your network and capacity.</li>
-        <li><strong>Optional features</strong> — rooms, friends, party browse, messages, device settings, themes, and similar tools as shown in the client.</li>
-      </ul>
-      <p>
-        The Service is offered for personal, non-commercial use unless we agree otherwise in writing. Features may change, break, or be limited without notice. There is <strong>no guarantee of continuous uptime</strong>, match availability, or a successful call.
-      </p>
-
-      <h2 id="acceptable-use">3. Acceptable use</h2>
-      <p>You agree <strong>not</strong> to:</p>
-      <ul>
-        <li>Use the Service if you are under 18, or involve minors in any way (including sexual content, grooming, or solicitation).</li>
-        <li>Harass, threaten, stalk, dox, blackmail, or abuse others.</li>
-        <li>Share hate speech, violent threats, or content that promotes illegal activity.</li>
-        <li>Transmit illegal content (including CSAM, non-consensual intimate imagery, fraud materials, or content that infringes others’ rights).</li>
-        <li>Spam, scam, phish, or run deceptive schemes (crypto “giveaways”, fake support, etc.).</li>
-        <li>Disrupt the Service: flood matchmaking, abuse APIs, attack infrastructure, probe other users’ devices, or distribute malware.</li>
-        <li>Use bots, scripts, or automation to mass-match, mass-message, or scrape users without our prior written permission.</li>
-        <li>Circumvent bans, blocks, rate limits, or safety systems (including creating identities solely to evade enforcement).</li>
-        <li>Impersonate others in a misleading way for harm or fraud.</li>
-        <li>Record, stream, or publish another person’s video/audio without their consent where that is illegal or prohibited by these Terms.</li>
-      </ul>
-      <p>
-        More practical rules for everyday chat are in the
-        <a href="/legal/community.html">Community guidelines</a> and
-        <a href="/safety.html">Safety</a> pages. If those conflict with these Terms, these Terms control for legal purposes.
-      </p>
-
-      <h2 id="safety">4. Safety tools &amp; reporting</h2>
-      <ul>
-        <li>You can use <strong>Next</strong>, <strong>Stop</strong>, <strong>Block</strong>, <strong>Report</strong>, partner mute/blur, and self-hide where available.</li>
-        <li>Reports may be stored and reviewed by automated systems and/or operators. Multiple independent reports may temporarily or permanently restrict matchmaking for an identity on a hub.</li>
-        <li>Optional on-device filters may skip or flag explicit material; they are imperfect and do not replace your judgment.</li>
-        <li><strong>You are responsible for who you talk to.</strong> A stranger can still screenshot, record, or misuse what they see. Do not share secrets, passwords, financial data, or anything you would not show a stranger in public.</li>
-        <li>In an emergency, contact local emergency services. We are not a crisis line.</li>
-      </ul>
-
-      <h2 id="identity">5. Identity, friends &amp; chat</h2>
-      <ul>
-        <li><strong>No classic account required.</strong> The client may create a local identity (for example a user id and friend code) stored in your browser.</li>
-        <li>You may set a <strong>display name</strong>, optional avatar, and cosmetic flag. These are shown to partners and friends. Do not use names that violate §3.</li>
-        <li><strong>Friends</strong> are mutual and stored on the hub instance you use so online status and DMs can work. Friend requests require accept.</li>
-        <li><strong>Match chat</strong> may be kept on your device after a call ends. <strong>Friend messages</strong> may be stored on the hub for delivery when the other person is offline.</li>
-        <li>Exporting a profile may move your identity key between devices; clearing local data removes local copies on that device. Friends and some server-side records may remain on the hub until removed or purged under our practices.</li>
-        <li>See the <a href="/legal/privacy.html">Privacy policy</a> for what is processed where.</li>
-      </ul>
-
-      <h2 id="content">6. Your content &amp; conduct</h2>
-      <p>
-        You are solely responsible for what you say, show, and send (video, audio, text, links, images, friend messages).
-        You represent that you have the rights needed to share that content and that it does not violate law or these Terms.
-      </p>
-      <p>
-        By using the Service you grant us a limited, non-exclusive license to process content solely as needed to operate features you use
-        (for example relaying chat text, signaling, friend DMs, reports, and abuse prevention). We do not claim ownership of your personal media streams.
-      </p>
-      <p>
-        We may remove or refuse to transmit content, or restrict accounts, when we reasonably believe there is a violation of these Terms or legal risk.
-      </p>
-
-      <h2 id="third-parties">7. Third parties &amp; other hubs</h2>
-      <ul>
-        <li>The product is designed so <strong>other people can run their own hubs</strong>. A third-party hub is a separate operator. Their policies, logging, and reliability may differ.</li>
-        <li>If you connect to a non–ruletka.vip hub, that operator’s terms and privacy practices apply in addition to any local client EULA.</li>
-        <li>Federation / mesh matching may connect you with users on cooperating hubs. Video remains WebRTC between peers when possible; signaling may cross hubs.</li>
-        <li>Third-party links, wallets, app stores, or tunnels are not controlled by us. Use them at your own risk.</li>
-      </ul>
-
-      <h2 id="donations">8. Donations</h2>
-      <p>
-        Voluntary crypto or other donations (see <a href="/donate.html">Donate</a>) are <strong>optional gifts</strong>.
-        They do not buy features, priority matching, immunity from enforcement, or a commercial support contract.
-        Donations are generally non-refundable. Always verify addresses only on official pages (for example this site’s donate page / <code>donate-addresses.json</code>).
-      </p>
-
-      <h2 id="ip">9. Intellectual property</h2>
-      <ul>
-        <li>Brand names, logos, and the design of the ruletka.vip site as published by us are protected as applicable.</li>
-        <li>Portions of the software may be released under open-source licenses (see project repositories and LICENSE files). Open-source licenses govern that code; these Terms govern use of the operated Service.</li>
-        <li>You may not use our marks in a way that implies endorsement or confuses users about who runs a hub.</li>
-      </ul>
-
-      <h2 id="disclaimers">10. Disclaimers</h2>
-      <p>
-        THE SERVICE IS PROVIDED <strong>“AS IS”</strong> AND <strong>“AS AVAILABLE”</strong>, WITHOUT WARRANTIES OF ANY KIND,
-        whether express, implied, or statutory — including merchantability, fitness for a particular purpose, title, non-infringement,
-        quiet enjoyment, or that the Service will be uninterrupted, secure, or error-free.
-      </p>
-      <p>
-        We do not warrant that matches will be appropriate, that partners will behave lawfully, that TURN will always be available,
-        or that on-device safety filters will catch every problem. You use random video chat at your own risk.
-      </p>
-
-      <h2 id="liability">11. Limitation of liability</h2>
-      <p>
-        TO THE MAXIMUM EXTENT PERMITTED BY LAW, WE AND OUR OPERATORS, CONTRIBUTORS, AND HOSTING PROVIDERS WILL NOT BE LIABLE FOR
-        any indirect, incidental, special, consequential, exemplary, or punitive damages; loss of profits, data, goodwill, or opportunities;
-        or damages arising from partners’ conduct, network failure, unauthorized access, or inability to use the Service —
-        even if advised that such damages were possible.
-      </p>
-      <p>
-        TO THE MAXIMUM EXTENT PERMITTED BY LAW, OUR TOTAL LIABILITY FOR ANY CLAIM ARISING OUT OF THE SERVICE IS LIMITED TO
-        the greater of (a) the amount you paid us (if any) for the Service in the 12 months before the claim, or (b) <strong>USD $50</strong>.
-        Some jurisdictions do not allow certain limitations; in those places, our liability is limited to the fullest extent allowed.
-      </p>
-
-      <h2 id="indemnity">12. Indemnity</h2>
-      <p>
-        You agree to defend, indemnify, and hold harmless the Service operators and their agents from claims, damages, losses, and expenses
-        (including reasonable legal fees) arising from your use of the Service, your content, or your violation of these Terms or applicable law.
-      </p>
-
-      <h2 id="enforcement">13. Suspension &amp; termination</h2>
-      <p>
-        We may suspend, rate-limit, or terminate access (including matchmaking bans, blocks, or refusing WebSocket connections)
-        if we believe you violated these Terms, harm other users, or create legal or operational risk — with or without prior notice.
-        You may stop using the Service at any time and clear local data from Settings where available.
-      </p>
-      <p>
-        Sections that by nature should survive (including disclaimers, liability limits, indemnity, and IP) survive termination.
-      </p>
-
-      <h2 id="changes">14. Changes to these Terms</h2>
-      <p>
-        We may update these Terms from time to time. The “Last updated” date at the top will change when we do.
-        Continued use after changes become effective means you accept the revised Terms.
-        If a change is material, we may also note it on the homepage or in the client when practical.
-      </p>
-
-      <h2 id="general">15. General</h2>
-      <ul>
-        <li><strong>Entire agreement.</strong> These Terms plus the linked Privacy policy, Community guidelines, and EULA are the entire agreement for the Service, unless a separate written agreement applies (for example a commercial hosting deal).</li>
-        <li><strong>Severability.</strong> If one provision is unenforceable, the rest remain in effect.</li>
-        <li><strong>No waiver.</strong> Failure to enforce a provision is not a waiver of future enforcement.</li>
-        <li><strong>Assignment.</strong> You may not assign these Terms without our consent. We may assign them in connection with operating or transferring the Service.</li>
-        <li><strong>Language.</strong> The English version controls if translations differ.</li>
-        <li><strong>Governing law.</strong> These Terms are governed by the laws applicable to the operator of the hub you use, without regard to conflict-of-law rules, except where mandatory consumer protections in your country apply. Courts of competent jurisdiction for that operator may hear disputes, subject to those protections.</li>
-      </ul>
-
-      <h2 id="contact">16. Contact</h2>
-      <p>
-        Questions about these Terms:<br />
-        <a href="mailto:support@ruletka.vip">support@ruletka.vip</a>
-      </p>
-      <p>
-        Privacy questions: <a href="mailto:privacy@ruletka.vip">privacy@ruletka.vip</a><br />
-        Safety / abuse: use in-app <strong>Report</strong> when possible, or email support with relevant details (no illegal content attachments).
-      </p>
-
+      <h2 id="eligibility" data-i18n="page.terms.h1elig">1. Eligibility</h2>
+      <div data-i18n-html="page.terms.eligBody"></div>
+      <h2 id="service" data-i18n="page.terms.h2svc">2. What the Service is</h2>
+      <p data-i18n-html-brand="page.terms.svcIntro"></p>
+      <div data-i18n-html="page.terms.svcBody"></div>
+      <h2 id="acceptable-use" data-i18n="page.terms.h3use">3. Acceptable use</h2>
+      <p data-i18n-html="page.terms.useIntro"></p>
+      <div data-i18n-html="page.terms.useBody"></div>
+      <h2 id="safety" data-i18n="page.terms.h4safe">4. Safety tools</h2>
+      <div data-i18n-html="page.terms.safeBody"></div>
+      <h2 id="identity" data-i18n="page.terms.h5id">5. Identity</h2>
+      <div data-i18n-html="page.terms.idBody"></div>
+      <h2 id="content" data-i18n="page.terms.h6content">6. Your content</h2>
+      <div data-i18n-html="page.terms.contentBody"></div>
+      <h2 id="third-parties" data-i18n="page.terms.h7third">7. Third parties</h2>
+      <div data-i18n-html="page.terms.thirdBody"></div>
+      <h2 id="donations" data-i18n="page.terms.h8don">8. Donations</h2>
+      <div data-i18n-html="page.terms.donBody"></div>
+      <h2 id="ip" data-i18n="page.terms.h9ip">9. Intellectual property</h2>
+      <div data-i18n-html="page.terms.ipBody"></div>
+      <h2 id="disclaimers" data-i18n="page.terms.h10dis">10. Disclaimers</h2>
+      <div data-i18n-html="page.terms.disBody"></div>
+      <h2 id="liability" data-i18n="page.terms.h11liab">11. Limitation of liability</h2>
+      <div data-i18n-html="page.terms.liabBody"></div>
+      <h2 id="indemnity" data-i18n="page.terms.h12ind">12. Indemnity</h2>
+      <div data-i18n-html="page.terms.indBody"></div>
+      <h2 id="enforcement" data-i18n="page.terms.h13term">13. Suspension</h2>
+      <div data-i18n-html="page.terms.termBody"></div>
+      <h2 id="changes" data-i18n="page.terms.h14chg">14. Changes</h2>
+      <div data-i18n-html="page.terms.chgBody"></div>
+      <h2 id="general" data-i18n="page.terms.h15gen">15. General</h2>
+      <div data-i18n-html="page.terms.genBody"></div>
+      <h2 id="contact" data-i18n="page.terms.h16contact">16. Contact</h2>
+      <div data-i18n-html="page.terms.contactBody"></div>
       <div class="legal-foot-links">
-        <a href="/legal/privacy.html">Privacy</a>
-        <a href="/legal/community.html">Community</a>
-        <a href="/legal/eula.html">EULA</a>
-        <a href="/safety.html">Safety</a>
-        <a href="/donate.html">Donate</a>
+        <a href="/legal/privacy.html" data-keep-lang data-i18n="nav.privacy">Privacy</a>
+        <a href="/legal/community.html" data-keep-lang data-i18n="nav.community">Community</a>
+        <a href="/legal/eula.html" data-keep-lang data-i18n="nav.eula">EULA</a>
+        <a href="/safety.html" data-keep-lang data-i18n="nav.safety">Safety</a>
+        <a href="/donate.html" data-keep-lang data-i18n="nav.donate">Donate</a>
       </div>
     </article>
   </div>

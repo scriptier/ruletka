@@ -4,420 +4,171 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Donate — ruletka.vip</title>
-  <meta name="description" content="Support ruletka.vip with voluntary Bitcoin or Ethereum donations. Optional — chat stays free." />
   <meta name="theme-color" content="#07080c" />
   <meta name="robots" content="index, follow" />
-  <link rel="canonical" href="https://ruletka.vip/donate.html" />
   <link rel="icon" href="/brand/favicon-32.png" type="image/png" />
   <link rel="apple-touch-icon" href="/brand/apple-touch-icon-180.png" />
-  <meta property="og:title" content="Donate — ruletka.vip" />
-  <meta property="og:description" content="Voluntary Bitcoin & Ethereum support for the public seed hub." />
-  <meta property="og:url" content="https://ruletka.vip/donate.html" />
-  <meta property="og:image" content="https://ruletka.vip/brand/og-share.jpg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="home.css?v=71" />
-  <link rel="stylesheet" href="legal/legal.css?v=2" />
-  <script src="brand.js?v=2"></script>
-  <script src="qrcode-generator.js?v=1"></script>
+  <link rel="stylesheet" href="/home.css?v=74" />
+  <link rel="stylesheet" href="/legal/legal.css?v=4" />
+  <script src="/brand.js?v=2"></script>
+  <script src="/site-i18n.js?v=1" defer></script>
+    <script src="qrcode-generator.js?v=1"></script>
   <script src="qr.js?v=1"></script>
   <script src="analytics.js?v=1" defer></script>
   <style>
-    .donate-lead {
-      margin: 0 0 1.25rem;
-      color: var(--muted);
-      line-height: 1.55;
-      font-size: 0.98rem;
-    }
-    .donate-grid {
-      display: grid;
-      gap: 0.85rem;
-      margin: 1rem 0 1.25rem;
-    }
-    @media (min-width: 560px) {
-      .donate-grid { grid-template-columns: 1fr 1fr; }
-    }
-    .donate-card {
-      border-radius: 16px;
-      border: 1px solid var(--border);
-      background: rgba(0, 0, 0, 0.22);
-      padding: 1rem 1rem 1.05rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.55rem;
-      min-width: 0;
-    }
-    .donate-card-head {
-      display: flex;
-      align-items: center;
-      gap: 0.55rem;
-    }
-    .donate-icon {
-      width: 2.25rem;
-      height: 2.25rem;
-      border-radius: 12px;
-      display: grid;
-      place-items: center;
-      font-weight: 800;
-      font-size: 0.72rem;
-      letter-spacing: 0.04em;
-      flex-shrink: 0;
-    }
-    .donate-icon.btc {
-      background: rgba(247, 147, 26, 0.16);
-      color: #f7931a;
-      border: 1px solid rgba(247, 147, 26, 0.35);
-    }
-    .donate-icon.eth {
-      background: rgba(98, 126, 234, 0.16);
-      color: #8aa0ff;
-      border: 1px solid rgba(98, 126, 234, 0.35);
-    }
-    .donate-card h2 {
-      margin: 0;
-      font-size: 1.05rem;
-      font-weight: 750;
-      letter-spacing: -0.02em;
-      color: var(--text);
-    }
-    .donate-card .sub {
-      margin: 0;
-      font-size: 0.75rem;
-      color: var(--muted);
-    }
-    .donate-addr {
-      font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
-      font-size: 0.72rem;
-      line-height: 1.45;
-      word-break: break-all;
-      color: var(--text);
-      background: rgba(255, 255, 255, 0.04);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 0.65rem 0.7rem;
-      min-height: 2.75rem;
-    }
-    .donate-addr.empty {
-      color: var(--muted);
-      font-style: italic;
-      font-family: inherit;
-      font-size: 0.85rem;
-    }
-    .donate-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.4rem;
-      margin-top: 0.15rem;
-    }
-    .donate-actions button,
-    .donate-actions a.donate-btn {
-      appearance: none;
-      border: 1px solid var(--border);
-      background: rgba(255, 255, 255, 0.04);
-      color: var(--text);
-      font: inherit;
-      font-size: 0.78rem;
-      font-weight: 650;
-      padding: 0.4rem 0.75rem;
-      border-radius: 999px;
-      cursor: pointer;
-      text-decoration: none;
-      display: inline-flex;
-      align-items: center;
-      gap: 0.3rem;
-    }
-    .donate-actions button:hover,
-    .donate-actions a.donate-btn:hover {
-      border-color: rgba(255, 107, 53, 0.45);
-      background: rgba(255, 45, 85, 0.1);
-    }
-    .donate-actions button.primary {
-      border-color: transparent;
-      background: linear-gradient(135deg, #ff2d55, #ff6b35);
-      color: #fff;
-      box-shadow: 0 6px 16px rgba(255, 45, 85, 0.28);
-    }
-    .donate-actions button.primary:hover {
-      filter: brightness(1.06);
-    }
-    .donate-actions button:disabled,
-    .donate-actions a.donate-btn.is-disabled {
-      opacity: 0.45;
-      pointer-events: none;
-      cursor: not-allowed;
-    }
-    .donate-qr-wrap {
-      display: flex;
-      justify-content: center;
-      padding: 0.35rem 0 0.15rem;
-    }
-    .donate-qr-wrap img {
-      width: 140px;
-      height: 140px;
-      border-radius: 12px;
-      background: #fff;
-      padding: 0.35rem;
-      border: 1px solid var(--border);
-    }
+    .donate-lead { margin: 0 0 1.25rem; color: var(--muted); line-height: 1.55; font-size: 0.98rem; }
+    .donate-grid { display: grid; gap: 0.85rem; margin: 1rem 0 1.25rem; }
+    @media (min-width: 560px) { .donate-grid { grid-template-columns: 1fr 1fr; } }
+    .donate-card { border-radius: 16px; border: 1px solid var(--border); background: rgba(0,0,0,0.22); padding: 1rem; display: flex; flex-direction: column; gap: 0.55rem; min-width: 0; }
+    .donate-card-head { display: flex; align-items: center; gap: 0.55rem; }
+    .donate-icon { width: 2.25rem; height: 2.25rem; border-radius: 12px; display: grid; place-items: center; font-weight: 800; font-size: 0.72rem; flex-shrink: 0; }
+    .donate-icon.btc { background: rgba(247,147,26,0.16); color: #f7931a; border: 1px solid rgba(247,147,26,0.35); }
+    .donate-icon.eth { background: rgba(98,126,234,0.16); color: #8aa0ff; border: 1px solid rgba(98,126,234,0.35); }
+    .donate-card h2 { margin: 0; font-size: 1.05rem; font-weight: 750; color: var(--text); }
+    .donate-card .sub { margin: 0; font-size: 0.75rem; color: var(--muted); }
+    .donate-addr { font-family: ui-monospace, monospace; font-size: 0.72rem; line-height: 1.45; word-break: break-all; color: var(--text); background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 10px; padding: 0.65rem 0.7rem; min-height: 2.75rem; }
+    .donate-addr.empty { color: var(--muted); font-style: italic; font-family: inherit; font-size: 0.85rem; }
+    .donate-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+    .donate-actions button, .donate-actions a.donate-btn { appearance: none; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--text); font: inherit; font-size: 0.78rem; font-weight: 650; padding: 0.4rem 0.75rem; border-radius: 999px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; }
+    .donate-actions button.primary { border-color: transparent; background: linear-gradient(135deg,#ff2d55,#ff6b35); color: #fff; }
+    .donate-actions button:disabled, .donate-actions a.is-disabled { opacity: 0.45; pointer-events: none; }
+    .donate-qr-wrap { display: flex; justify-content: center; }
+    .donate-qr-wrap img { width: 140px; height: 140px; border-radius: 12px; background: #fff; padding: 0.35rem; }
     .donate-qr-wrap[hidden] { display: none !important; }
-    .donate-toast {
-      position: fixed;
-      left: 50%;
-      bottom: 1.5rem;
-      transform: translateX(-50%);
-      z-index: 50;
-      padding: 0.55rem 1rem;
-      border-radius: 999px;
-      background: rgba(20, 28, 40, 0.95);
-      border: 1px solid rgba(61, 214, 140, 0.4);
-      color: #b8f0d0;
-      font-size: 0.85rem;
-      font-weight: 600;
-      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
-      pointer-events: none;
-    }
+    .donate-toast { position: fixed; left: 50%; bottom: 1.5rem; transform: translateX(-50%); z-index: 50; padding: 0.55rem 1rem; border-radius: 999px; background: rgba(20,28,40,0.95); border: 1px solid rgba(61,214,140,0.4); color: #b8f0d0; font-size: 0.85rem; font-weight: 600; }
     .donate-toast[hidden] { display: none !important; }
-    .donate-note {
-      margin: 0.25rem 0 0;
-      padding: 0.85rem 0.95rem;
-      border-radius: 12px;
-      border: 1px solid rgba(245, 165, 36, 0.25);
-      background: rgba(245, 165, 36, 0.08);
-      color: var(--muted);
-      font-size: 0.88rem;
-      line-height: 1.5;
-    }
+    .donate-note { margin: 0.25rem 0 0; padding: 0.85rem 0.95rem; border-radius: 12px; border: 1px solid rgba(245,165,36,0.25); background: rgba(245,165,36,0.08); color: var(--muted); font-size: 0.88rem; line-height: 1.5; }
     .donate-note strong { color: var(--text); }
   </style>
 </head>
-<body class="home-body">
-  <div class="home-bg" aria-hidden="true">
-    <div class="home-bg-grid"></div>
-    <div class="home-bg-orb home-bg-orb-a"></div>
-    <div class="home-bg-orb home-bg-orb-b"></div>
-  </div>
-
+<body class="home-body" data-i18n-title-key="page.donate.title">
+  <div class="home-bg" aria-hidden="true"><div class="home-bg-grid"></div><div class="home-bg-orb home-bg-orb-a"></div><div class="home-bg-orb home-bg-orb-b"></div></div>
   <div class="legal-wrap">
     <nav class="legal-nav" aria-label="Donate navigation">
-      <a href="/">Home</a>
-      <a class="primary" href="/live.html">Start chatting</a>
-      <a href="/safety.html">Safety</a>
-      <a href="/legal/terms.html">Terms</a>
+      <a href="/" data-keep-lang data-i18n="nav.home">Home</a>
+      <a class="primary" href="/live.html" data-i18n="nav.live">Start chatting</a>
+      <a href="/safety.html" data-keep-lang data-i18n="nav.safety">Safety</a>
+      <a href="/legal/terms.html" data-keep-lang data-i18n="nav.terms">Terms</a>
+      <label class="home-lang legal-lang" title="Language" data-i18n-title="nav.lang">
+        <span class="home-lang-ico" aria-hidden="true">🌐</span>
+        <select id="site-lang" class="site-lang" aria-label="Language" data-i18n-aria="nav.lang">
+          <option value="ru">Русский</option>
+          <option value="en">English</option>
+          <option value="uk">Українська</option>
+          <option value="es">Español</option>
+          <option value="de">Deutsch</option>
+          <option value="fr">Français</option>
+          <option value="pt">Português</option>
+          <option value="tr">Türkçe</option>
+          <option value="pl">Polski</option>
+          <option value="zh">中文</option>
+        </select>
+      </label>
     </nav>
-
     <article class="legal-card">
-      <h1>Donate</h1>
-      <p class="updated">Voluntary support · Bitcoin &amp; Ethereum · No account required to chat</p>
-
-      <p class="donate-lead">
-        <strong>ruletka.vip</strong> is free to use. If you want to help with server, bandwidth, and TURN relay costs
-        for the public seed hub, you can send a small crypto donation. This is <strong>optional</strong> and does not
-        unlock features or change matchmaking.
-      </p>
-
+      <h1 data-i18n="page.donate.h1">Donate</h1>
+      <p class="updated" data-i18n="page.donate.updated">Voluntary support · Bitcoin &amp; Ethereum · No account required to chat</p>
+      <p class="donate-lead" data-i18n-html-brand="page.donate.lead"></p>
       <div class="legal-pill-row">
-        <span class="legal-pill">BTC</span>
-        <span class="legal-pill">ETH</span>
-        <span class="legal-pill">No KYC</span>
-        <span class="legal-pill">Chat stays free</span>
+        <span class="legal-pill" data-i18n="page.donate.pillBtc">BTC</span>
+        <span class="legal-pill" data-i18n="page.donate.pillEth">ETH</span>
+        <span class="legal-pill" data-i18n="page.donate.pillKyc">No KYC</span>
+        <span class="legal-pill" data-i18n="page.donate.pillFree">Chat stays free</span>
       </div>
-
       <div class="donate-grid">
-        <section class="donate-card" aria-labelledby="btc-title">
+        <section class="donate-card">
           <div class="donate-card-head">
             <span class="donate-icon btc" aria-hidden="true">₿</span>
             <div>
-              <h2 id="btc-title">Bitcoin</h2>
-              <p class="sub">BTC network · on-chain</p>
+              <h2 data-i18n="page.donate.btc">Bitcoin</h2>
+              <p class="sub" data-i18n="page.donate.btcSub">BTC network · on-chain</p>
             </div>
           </div>
           <div class="donate-qr-wrap" id="btc-qr" hidden></div>
-          <div class="donate-addr empty" id="btc-addr" data-empty="Address not published yet">Address not published yet</div>
+          <div class="donate-addr empty" id="btc-addr" data-i18n-empty="page.donate.addrEmpty" data-empty="Address not published yet">Address not published yet</div>
           <div class="donate-actions">
-            <button type="button" class="primary" id="btc-copy" disabled>Copy address</button>
-            <a class="donate-btn is-disabled" id="btc-open" href="#" rel="noopener">Open wallet</a>
+            <button type="button" class="primary" id="btc-copy" disabled data-i18n="page.donate.copy">Copy address</button>
+            <a class="donate-btn is-disabled" id="btc-open" href="#" rel="noopener" data-i18n="page.donate.openWallet">Open wallet</a>
           </div>
         </section>
-
-        <section class="donate-card" aria-labelledby="eth-title">
+        <section class="donate-card">
           <div class="donate-card-head">
             <span class="donate-icon eth" aria-hidden="true">Ξ</span>
             <div>
-              <h2 id="eth-title">Ethereum</h2>
-              <p class="sub" id="eth-sub">ETH · Ethereum mainnet</p>
+              <h2 data-i18n="page.donate.eth">Ethereum</h2>
+              <p class="sub" id="eth-sub" data-i18n="page.donate.ethSub">ETH · Ethereum mainnet</p>
             </div>
           </div>
           <div class="donate-qr-wrap" id="eth-qr" hidden></div>
-          <div class="donate-addr empty" id="eth-addr" data-empty="Address not published yet">Address not published yet</div>
+          <div class="donate-addr empty" id="eth-addr" data-i18n-empty="page.donate.addrEmpty" data-empty="Address not published yet">Address not published yet</div>
           <div class="donate-actions">
-            <button type="button" class="primary" id="eth-copy" disabled>Copy address</button>
-            <a class="donate-btn is-disabled" id="eth-open" href="#" rel="noopener">Open wallet</a>
+            <button type="button" class="primary" id="eth-copy" disabled data-i18n="page.donate.copy">Copy address</button>
+            <a class="donate-btn is-disabled" id="eth-open" href="#" rel="noopener" data-i18n="page.donate.openWallet">Open wallet</a>
           </div>
         </section>
       </div>
-
-      <p class="donate-note">
-        <strong>Double-check the address</strong> before sending. We only publish addresses on this page and
-        <code>donate-addresses.json</code>. Network fees are yours. Donations are non-refundable voluntary gifts —
-        not a purchase of service. Questions:
-        <a href="mailto:support@ruletka.vip">support@ruletka.vip</a>
-      </p>
-
-      <h2>What donations help with</h2>
+      <p class="donate-note" data-i18n-html="page.donate.note"></p>
+      <h2 data-i18n="page.donate.helpTitle">What donations help with</h2>
       <ul>
-        <li>Public hub hosting (DigitalOcean / similar)</li>
-        <li>Self-hosted TURN for hard networks</li>
-        <li>Bandwidth and uptime for the seed site</li>
+        <li data-i18n="page.donate.help1">Public hub hosting</li>
+        <li data-i18n="page.donate.help2">Self-hosted TURN</li>
+        <li data-i18n="page.donate.help3">Bandwidth and uptime</li>
       </ul>
-
       <div class="legal-foot-links">
-        <a href="/">Home</a>
-        <a href="/live.html">Live</a>
-        <a href="/legal/terms.html">Terms</a>
-        <a href="/legal/privacy.html">Privacy</a>
+        <a href="/" data-keep-lang data-i18n="nav.home">Home</a>
+        <a href="/live.html" data-i18n="nav.liveShort">Live</a>
+        <a href="/legal/terms.html" data-keep-lang data-i18n="nav.terms">Terms</a>
+        <a href="/legal/privacy.html" data-keep-lang data-i18n="nav.privacy">Privacy</a>
       </div>
     </article>
   </div>
-
   <div class="donate-toast" id="donate-toast" hidden role="status">Copied</div>
-
   <script>
-    (function () {
-      var toastTimer = 0;
-      function toast(msg) {
-        var el = document.getElementById("donate-toast");
-        if (!el) return;
-        el.textContent = msg || "Copied";
-        el.hidden = false;
-        clearTimeout(toastTimer);
-        toastTimer = setTimeout(function () {
-          el.hidden = true;
-        }, 1800);
-      }
-
-      function copyText(text) {
-        if (!text) return Promise.reject();
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          return navigator.clipboard.writeText(text);
-        }
-        return new Promise(function (resolve, reject) {
-          var ta = document.createElement("textarea");
-          ta.value = text;
-          ta.setAttribute("readonly", "");
-          ta.style.position = "fixed";
-          ta.style.left = "-9999px";
-          document.body.appendChild(ta);
-          ta.select();
-          try {
-            document.execCommand("copy") ? resolve() : reject();
-          } catch (e) {
-            reject(e);
-          }
-          document.body.removeChild(ta);
-        });
-      }
-
-      function setAddr(kind, value, uri) {
-        var addr = document.getElementById(kind + "-addr");
-        var copyBtn = document.getElementById(kind + "-copy");
-        var openBtn = document.getElementById(kind + "-open");
-        var qrWrap = document.getElementById(kind + "-qr");
-        var v = (value || "").trim();
-        if (!addr) return;
-        if (!v) {
-          addr.textContent = addr.getAttribute("data-empty") || "Address not published yet";
-          addr.classList.add("empty");
-          if (copyBtn) copyBtn.disabled = true;
-          if (openBtn) {
-            openBtn.href = "#";
-            openBtn.classList.add("is-disabled");
-          }
-          if (qrWrap) {
-            qrWrap.hidden = true;
-            qrWrap.innerHTML = "";
-          }
-          return;
-        }
-        addr.textContent = v;
-        addr.classList.remove("empty");
-        if (copyBtn) {
-          copyBtn.disabled = false;
-          copyBtn.onclick = function () {
-            copyText(v)
-              .then(function () {
-                toast("Address copied");
-              })
-              .catch(function () {
-                toast("Copy failed");
-              });
-          };
-        }
-        if (openBtn) {
-          openBtn.href = uri || "#";
-          openBtn.classList.toggle("is-disabled", !uri);
-        }
-        if (qrWrap) {
-          // Local QR (no third-party host) — address/URI only, never keys
-          var payload = uri || v;
-          if (window.RuletQr && RuletQr.render) {
-            RuletQr.render(qrWrap, payload, {
-              size: 140,
-              margin: 2,
-              alt: kind.toUpperCase() + " donation QR",
-            });
-          } else {
-            var q =
-              "https://api.qrserver.com/v1/create-qr-code/?size=160x160&margin=8&data=" +
-              encodeURIComponent(payload);
-            qrWrap.innerHTML =
-              '<img src="' +
-              q +
-              '" width="140" height="140" alt="' +
-              kind.toUpperCase() +
-              ' donation QR" loading="lazy" />';
-          }
-          qrWrap.hidden = false;
-        }
-      }
-
-      function apply(cfg) {
-        cfg = cfg || {};
-        var btc = (cfg.btc || "").trim();
-        var eth = (cfg.eth || "").trim();
-        setAddr("btc", btc, btc ? "bitcoin:" + btc : "");
-        setAddr("eth", eth, eth ? "ethereum:" + eth : "");
-        if (cfg.eth_note) {
-          var sub = document.getElementById("eth-sub");
-          if (sub) sub.textContent = cfg.eth_note;
-        }
-      }
-
-      // Prefer live config file so operators can update addresses without editing HTML
-      fetch("/donate-addresses.json", { cache: "no-cache" })
-        .then(function (r) {
-          if (!r.ok) throw new Error("no config");
-          return r.json();
-        })
-        .then(apply)
-        .catch(function () {
-          apply({});
-        });
-    })();
-  </script>
-
-  <script>
-    document.addEventListener("DOMContentLoaded", function () {
-      if (window.RuletBrand && RuletBrand.apply) RuletBrand.apply(document);
-      var b = (window.RuletBrand && RuletBrand.name && RuletBrand.name()) || "ruletka.vip";
-      document.title = document.title.replace(/ruletka\.(vip|me)/g, b);
-      document.querySelectorAll("h1, .home-brand > span").forEach(function (el) {
-        if (el.textContent && /ruletka\.(vip|me)/.test(el.textContent)) {
-          el.textContent = el.textContent.replace(/ruletka\.(vip|me)/g, b);
-        }
+  (function(){
+    var toastTimer=0;
+    function t(k){ return (window.SiteI18n && SiteI18n.t(k)) || k; }
+    function toast(msg){
+      var el=document.getElementById("donate-toast"); if(!el) return;
+      el.textContent=msg||t("page.donate.copied"); el.hidden=false;
+      clearTimeout(toastTimer); toastTimer=setTimeout(function(){el.hidden=true;},1800);
+    }
+    function copyText(text){
+      if(!text) return Promise.reject();
+      if(navigator.clipboard&&navigator.clipboard.writeText) return navigator.clipboard.writeText(text);
+      return new Promise(function(resolve,reject){
+        var ta=document.createElement("textarea"); ta.value=text; ta.setAttribute("readonly","");
+        ta.style.position="fixed"; ta.style.left="-9999px"; document.body.appendChild(ta); ta.select();
+        try{ document.execCommand("copy")?resolve():reject(); }catch(e){reject(e);}
+        document.body.removeChild(ta);
       });
-    });
+    }
+    function fill(chain, addr){
+      var a=document.getElementById(chain+"-addr");
+      var c=document.getElementById(chain+"-copy");
+      var o=document.getElementById(chain+"-open");
+      var q=document.getElementById(chain+"-qr");
+      if(!a) return;
+      if(!addr){
+        a.classList.add("empty"); a.dataset.wasEmpty="1";
+        a.textContent=t("page.donate.addrEmpty"); if(c)c.disabled=true; if(o){o.classList.add("is-disabled");o.removeAttribute("href");} if(q)q.hidden=true; return;
+      }
+      a.classList.remove("empty"); a.dataset.wasEmpty="0"; a.textContent=addr; if(c)c.disabled=false;
+      if(o){ o.classList.remove("is-disabled"); o.href=chain==="btc"?("bitcoin:"+addr):("ethereum:"+addr); }
+      if(q && window.RuletQR){ try{ q.innerHTML=""; var img=RuletQR.toImage(addr,{size:140}); if(img){q.appendChild(img); q.hidden=false;} }catch(_){} }
+      if(c) c.onclick=function(){ copyText(addr).then(function(){toast(t("page.donate.copied"));}).catch(function(){toast(t("page.donate.copyFail"));}); };
+    }
+    function load(){
+      fetch("donate-addresses.json",{cache:"no-store"}).then(function(r){return r.ok?r.json():{};}).then(function(j){
+        fill("btc", (j&&j.btc)||""); fill("eth", (j&&j.eth)||"");
+      }).catch(function(){ fill("btc",""); fill("eth",""); });
+    }
+    document.addEventListener("site-i18n-applied", load);
+    if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", function(){ setTimeout(load,50); });
+    else setTimeout(load,50);
+  })();
   </script>
-
 </body>
 </html>

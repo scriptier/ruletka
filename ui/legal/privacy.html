@@ -4,60 +4,64 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Privacy policy — ruletka.vip</title>
-  <meta name="description" content="Privacy policy for ruletka.vip peer-to-peer video chat: media path, signaling, reports, local data." />
   <meta name="theme-color" content="#07080c" />
   <meta name="robots" content="index, follow" />
   <link rel="canonical" href="https://ruletka.vip/legal/privacy.html" />
   <link rel="icon" href="/brand/favicon-32.png" type="image/png" />
-  <link rel="stylesheet" href="../home.css?v=70" />
+  <link rel="stylesheet" href="../home.css?v=74" />
+  <link rel="stylesheet" href="legal.css?v=4" />
   <script src="../brand.js?v=2"></script>
-  <link rel="stylesheet" href="legal.css?v=1" />
+  <script src="../site-i18n.js?v=1" defer></script>
 </head>
-<body class="home-body">
-  <div class="home-bg" aria-hidden="true">
-    <div class="home-bg-grid"></div>
-    <div class="home-bg-orb home-bg-orb-a"></div>
-  </div>
+<body class="home-body" data-i18n-title-key="page.privacy.title">
+  <div class="home-bg" aria-hidden="true"><div class="home-bg-grid"></div><div class="home-bg-orb home-bg-orb-a"></div></div>
   <div class="legal-wrap">
     <nav class="legal-nav">
-      <a href="/">Home</a>
-      <a class="primary" href="/live.html">Live</a>
-      <a href="/safety.html">Safety</a>
-      <a href="/legal/terms.html">Terms</a>
+      <a href="/" data-keep-lang data-i18n="nav.home">Home</a>
+      <a class="primary" href="/live.html" data-i18n="nav.liveShort">Live</a>
+      <a href="/safety.html" data-keep-lang data-i18n="nav.safety">Safety</a>
+      <a href="/legal/terms.html" data-keep-lang data-i18n="nav.terms">Terms</a>
+      <label class="home-lang legal-lang" data-i18n-title="nav.lang" title="Language">
+        <span class="home-lang-ico" aria-hidden="true">🌐</span>
+        <select id="site-lang" class="site-lang" aria-label="Language">
+          <option value="ru">Русский</option>
+          <option value="en">English</option>
+          <option value="uk">Українська</option>
+          <option value="es">Español</option>
+          <option value="de">Deutsch</option>
+          <option value="fr">Français</option>
+          <option value="pt">Português</option>
+          <option value="tr">Türkçe</option>
+          <option value="pl">Polski</option>
+          <option value="zh">中文</option>
+        </select>
+      </label>
     </nav>
     <article class="legal-card">
-      <h1>Privacy policy</h1>
-      <p class="updated">Last updated: 2026-07-31</p>
-      <p><strong>ruletka.vip</strong> is a peer-to-peer video chat service. This page describes what we process.</p>
-
-      <h2>Video and audio</h2>
-      <p>Call media (camera/microphone) is exchanged <strong>directly between browsers</strong> (WebRTC, encrypted with DTLS/SRTP) when the network allows a direct path. We do not operate a media server that stores or rebroadcasts your video/audio streams.</p>
-      <p>If a direct connection fails, media may be relayed through a <strong>TURN</strong> server (still encrypted for the media path). Prefer a direct path when the UI shows “Direct P2P”.</p>
-      <p><strong>Your partner can always screenshot or record</strong> what they see. Use Block and Report if needed.</p>
-
-      <h2>Signaling and matchmaking</h2>
-      <p>To match strangers and connect calls, our bridge may process temporary connection data (WebSocket session ids, display names you choose, room codes, friend codes, and WebRTC signaling messages). This is needed for the service to work. We minimize long-term retention of signaling payloads.</p>
-
-      <h2>Reports and safety</h2>
-      <p>If you report a user, we store the report (reporter id, target id, reason, time) to fight abuse. Multiple independent reports may temporarily restrict matchmaking for the reported identity on this hub. Optional on-device AI may send an assisted report signal without uploading video to us. See <a href="/safety.html">Safety</a>.</p>
-
-      <h2>Local device data</h2>
-      <p>Your browser may store preferences (language, devices, friend history, identity) in <code>localStorage</code> and a device crypto key in <code>IndexedDB</code> (when available). You can export a profile file (Settings → About → Export) to move the same identity to another browser or device; friends lists are stored on the match hub under that identity id. You can clear local data from Settings → Clear local data.</p>
-
-      <h2>Friends and blocks</h2>
-      <p>Friend lists and blocks for this hub are stored on the server instance you connected to, so features like call-when-online can work.</p>
-
-      <h2>Analytics</h2>
-      <p>If the operators enable analytics, public measurement ids may be loaded via <code>/config.json</code> (for example Yandex Metrica or Google Analytics). No analytics run unless those ids are configured.</p>
-
-      <h2>Contact</h2>
-      <p>Questions: <a href="mailto:privacy@ruletka.vip">privacy@ruletka.vip</a></p>
-
+      <h1 data-i18n="page.privacy.h1">Privacy policy</h1>
+      <p class="updated" data-i18n="page.privacy.updated">Last updated: 2026-07-31</p>
+      <p data-i18n-html-brand="page.privacy.intro"></p>
+      <h2 data-i18n="page.privacy.hMedia">Video and audio</h2>
+      <p data-i18n-html="page.privacy.media1"></p>
+      <p data-i18n-html="page.privacy.media2"></p>
+      <p data-i18n-html="page.privacy.media3"></p>
+      <h2 data-i18n="page.privacy.hSignal">Signaling and matchmaking</h2>
+      <p data-i18n-html="page.privacy.signal"></p>
+      <h2 data-i18n="page.privacy.hReports">Reports and safety</h2>
+      <p data-i18n-html="page.privacy.reports"></p>
+      <h2 data-i18n="page.privacy.hLocal">Local device data</h2>
+      <p data-i18n-html="page.privacy.local"></p>
+      <h2 data-i18n="page.privacy.hFriends">Friends and blocks</h2>
+      <p data-i18n-html="page.privacy.friends"></p>
+      <h2 data-i18n="page.privacy.hAnalytics">Analytics</h2>
+      <p data-i18n-html="page.privacy.analytics"></p>
+      <h2 data-i18n="page.privacy.hContact">Contact</h2>
+      <p data-i18n-html="page.privacy.contact"></p>
       <div class="legal-foot-links">
-        <a href="/legal/terms.html">Terms</a>
-        <a href="/legal/community.html">Community</a>
-        <a href="/legal/eula.html">EULA</a>
-        <a href="/safety.html">Safety</a>
+        <a href="/legal/terms.html" data-keep-lang data-i18n="nav.terms">Terms</a>
+        <a href="/legal/community.html" data-keep-lang data-i18n="nav.community">Community</a>
+        <a href="/legal/eula.html" data-keep-lang data-i18n="nav.eula">EULA</a>
+        <a href="/safety.html" data-keep-lang data-i18n="nav.safety">Safety</a>
       </div>
     </article>
   </div>
