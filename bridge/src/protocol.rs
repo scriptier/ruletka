@@ -17,6 +17,9 @@ pub enum ClientMsg {
         /// Soft match: "any" | "man" | "woman" | "" (any)
         #[serde(default)]
         looking: String,
+        /// Cosmetic country/region flag (ISO 3166-1 alpha-2). Not geolocation.
+        #[serde(default)]
+        flag: String,
     },
     /// Update soft match preferences without re-hello.
     SetPrefs {
@@ -24,6 +27,9 @@ pub enum ClientMsg {
         gender: String,
         #[serde(default)]
         looking: String,
+        /// Cosmetic flag (ISO 3166-1 alpha-2) or "" to clear. Not geolocation.
+        #[serde(default)]
+        flag: String,
     },
     Spin {
         #[serde(default)]
@@ -116,6 +122,9 @@ pub struct MatchPeer {
     /// Stable friend code (for history / add-friend from match).
     #[serde(default)]
     pub friend_code: String,
+    /// Self-chosen cosmetic flag (ISO 3166-1 alpha-2). Empty = none. Not real location.
+    #[serde(default)]
+    pub flag: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

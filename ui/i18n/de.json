@@ -461,5 +461,13 @@
   "settings.themeDarkSub": "Nacht-Chrome · Standard",
   "settings.themeLightSub": "Helle Flächen · weiches Grau",
   "settings.themeSaloonSub": "Western · Gold & Leder",
-  "settings.themeSet": "Design: {theme}"
+  "settings.themeSet": "Design: {theme}",
+  "flag.label": "Flagge",
+  "flag.none": "Keine",
+  "flag.noneHint": "Keine Flagge am Namen",
+  "flag.hint": "Optionales Label am Namen. Du wählst es — kein GPS oder IP.",
+  "flag.search": "Suche",
+  "flag.searchPh": "Land oder Code…",
+  "flag.set": "Flagge: {flag}",
+  "flag.cleared": "Flagge entfernt"
 }

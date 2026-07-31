@@ -295,15 +295,170 @@ function syncNameInputs(name) {
     const el = $(id);
     if (el && el.value !== n) el.value = n;
   }
+  refreshLocalNameChip();
+}
+
+/** Curated cosmetic flags — user-chosen only, never from IP/GPS. */
+const FLAG_OPTIONS = [
+  ["", "None"],
+  ["US", "United States"],
+  ["GB", "United Kingdom"],
+  ["CA", "Canada"],
+  ["AU", "Australia"],
+  ["NZ", "New Zealand"],
+  ["IE", "Ireland"],
+  ["DE", "Germany"],
+  ["FR", "France"],
+  ["ES", "Spain"],
+  ["IT", "Italy"],
+  ["PT", "Portugal"],
+  ["NL", "Netherlands"],
+  ["BE", "Belgium"],
+  ["CH", "Switzerland"],
+  ["AT", "Austria"],
+  ["SE", "Sweden"],
+  ["NO", "Norway"],
+  ["DK", "Denmark"],
+  ["FI", "Finland"],
+  ["PL", "Poland"],
+  ["CZ", "Czechia"],
+  ["SK", "Slovakia"],
+  ["HU", "Hungary"],
+  ["RO", "Romania"],
+  ["BG", "Bulgaria"],
+  ["GR", "Greece"],
+  ["TR", "Türkiye"],
+  ["UA", "Ukraine"],
+  ["RU", "Russia"],
+  ["BY", "Belarus"],
+  ["KZ", "Kazakhstan"],
+  ["UZ", "Uzbekistan"],
+  ["GE", "Georgia"],
+  ["AM", "Armenia"],
+  ["AZ", "Azerbaijan"],
+  ["IL", "Israel"],
+  ["SA", "Saudi Arabia"],
+  ["AE", "United Arab Emirates"],
+  ["EG", "Egypt"],
+  ["MA", "Morocco"],
+  ["ZA", "South Africa"],
+  ["NG", "Nigeria"],
+  ["KE", "Kenya"],
+  ["IN", "India"],
+  ["PK", "Pakistan"],
+  ["BD", "Bangladesh"],
+  ["LK", "Sri Lanka"],
+  ["CN", "China"],
+  ["TW", "Taiwan"],
+  ["HK", "Hong Kong"],
+  ["JP", "Japan"],
+  ["KR", "South Korea"],
+  ["VN", "Vietnam"],
+  ["TH", "Thailand"],
+  ["ID", "Indonesia"],
+  ["MY", "Malaysia"],
+  ["PH", "Philippines"],
+  ["SG", "Singapore"],
+  ["BR", "Brazil"],
+  ["MX", "Mexico"],
+  ["AR", "Argentina"],
+  ["CL", "Chile"],
+  ["CO", "Colombia"],
+  ["PE", "Peru"],
+  ["VE", "Venezuela"],
+  ["CU", "Cuba"],
+  ["PR", "Puerto Rico"],
+  ["EU", "European Union"],
+];
+
+function normalizeFlagCode(raw) {
+  const s = String(raw || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z]/g, "")
+    .slice(0, 2);
+  if (s.length !== 2) return "";
+  if (s === "EU") return "EU"; // regional / pseudo — still cosmetic
+  return s;
+}
+
+function flagEmoji(code) {
+  const cc = normalizeFlagCode(code);
+  if (!cc || cc.length !== 2) return "";
+  try {
+    return String.fromCodePoint(
+      ...[...cc].map((c) => 0x1f1e6 - 65 + c.charCodeAt(0))
+    );
+  } catch {
+    return "";
+  }
+}
+
+function getFlag() {
+  return normalizeFlagCode(loadPrefs().flag);
+}
+
+function flagLabel(code) {
+  const cc = normalizeFlagCode(code);
+  if (!cc) return _t("flag.none") || "None";
+  const hit = FLAG_OPTIONS.find((x) => x[0] === cc);
+  const name = hit ? hit[1] : cc;
+  const em = flagEmoji(cc);
+  return em ? `${em} ${name}` : name;
+}
+
+function formatNameWithFlag(name, flag) {
+  const n = (name || "anon").trim() || "anon";
+  const em = flagEmoji(flag);
+  return em ? `${em} ${n}` : n;
+}
+
+function refreshLocalNameChip() {
   const tile = $("local-name");
-  if (tile) tile.textContent = n || "anon";
+  if (tile) tile.textContent = formatNameWithFlag(getDisplayName(), getFlag());
+  syncFlagSettingsSummary();
+}
+
+function syncFlagSettingsSummary() {
+  const cc = getFlag();
+  const em = flagEmoji(cc);
+  if ($("settings-flag-value")) {
+    $("settings-flag-value").textContent = cc
+      ? em || cc
+      : _t("flag.none") || "None";
+  }
+  if ($("settings-flag-emoji")) {
+    $("settings-flag-emoji").textContent = em || "🏳️";
+  }
+  document.querySelectorAll("[data-flag-pick]").forEach((btn) => {
+    const v = btn.getAttribute("data-flag-pick") || "";
+    btn.classList.toggle("is-selected", normalizeFlagCode(v) === cc || (!cc && v === ""));
+  });
+}
+
+function setFlag(code, { persist = true, notify = true } = {}) {
+  const flag = normalizeFlagCode(code);
+  if (persist) savePrefs({ flag });
+  refreshLocalNameChip();
+  if (notify) {
+    // Push to hub so next match sees it; set_prefs updates live client flag
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      sendMatchPrefs();
+    }
+  }
+  log(
+    flag
+      ? _t("flag.set", { flag: flagLabel(flag) }) || `Flag: ${flagLabel(flag)}`
+      : _t("flag.cleared") || "Flag cleared"
+  );
 }
 
 function matchPrefs() {
   const p = loadPrefs();
   const gender = ["man", "woman", "other"].includes(p.gender) ? p.gender : "";
   const looking = ["man", "woman", "any"].includes(p.looking) ? p.looking : "any";
-  return { gender, looking };
+  const flag = normalizeFlagCode(p.flag);
+  return { gender, looking, flag };
 }
 
 function sendHelloPayload(name) {
@@ -315,13 +470,73 @@ function sendHelloPayload(name) {
     name: name || getDisplayName(),
     gender: prefs.gender,
     looking: prefs.looking,
+    flag: prefs.flag || "",
   });
 }
 
 function sendMatchPrefs() {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   const prefs = matchPrefs();
-  send({ type: "set_prefs", gender: prefs.gender, looking: prefs.looking });
+  send({
+    type: "set_prefs",
+    gender: prefs.gender,
+    looking: prefs.looking,
+    flag: prefs.flag || "",
+  });
+}
+
+function renderFlagPickerList(filter = "") {
+  const list = $("settings-flag-list");
+  if (!list) return;
+  const q = String(filter || "").trim().toLowerCase();
+  const cur = getFlag();
+  const rows = FLAG_OPTIONS.filter(([code, name]) => {
+    if (!q) return true;
+    if (!code && ("none".includes(q) || "no flag".includes(q) || "без".includes(q)))
+      return true;
+    return (
+      code.toLowerCase().includes(q) ||
+      name.toLowerCase().includes(q) ||
+      flagEmoji(code).includes(q)
+    );
+  });
+  list.innerHTML = rows
+    .map(([code, name]) => {
+      const em = code ? flagEmoji(code) : "🏳️";
+      const selected = (code || "") === (cur || "");
+      const label = code ? `${em} ${name}` : _t("flag.none") || name;
+      return `<button type="button" class="settings-row settings-choice flag-pick${
+        selected ? " is-selected" : ""
+      }" data-flag-pick="${escapeAttr(code)}">
+        <span class="row-left">
+          <span class="flag-emoji-lg" aria-hidden="true">${em || "🏳️"}</span>
+          <span class="flag-pick-copy">
+            <span class="flag-pick-title">${escapeHtml(code ? name : _t("flag.none") || name)}</span>
+            <span class="flag-pick-sub">${
+              code
+                ? escapeHtml(code)
+                : escapeHtml(_t("flag.noneHint") || "Hide flag on your name")
+            }</span>
+          </span>
+        </span>
+        <span class="choice-check">✓</span>
+      </button>`;
+    })
+    .join("");
+  list.querySelectorAll("[data-flag-pick]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      setFlag(btn.getAttribute("data-flag-pick") || "");
+      showSettingsView("main");
+    });
+  });
+}
+
+function wireFlagSettings() {
+  const search = $("flag-search");
+  if (search && !search.dataset.wired) {
+    search.dataset.wired = "1";
+    search.addEventListener("input", () => renderFlagPickerList(search.value));
+  }
 }
 
 function prefsLabel(key, val) {
@@ -1997,6 +2212,11 @@ function showSettingsView(name) {
   if (name === "main" || name === "devices") syncSettingsSummary();
   if (name === "lang") syncLangChoices();
   if (name === "theme") syncThemeChoices();
+  if (name === "flag") {
+    const search = $("flag-search");
+    if (search) search.value = "";
+    renderFlagPickerList("");
+  }
   if (name === "camera" || name === "mic" || name === "speaker") {
     renderDeviceChoiceList(name);
   }
@@ -2151,6 +2371,7 @@ function syncSettingsSummary() {
   if ($("settings-theme-value")) {
     $("settings-theme-value").textContent = themeLabel(getTheme());
   }
+  syncFlagSettingsSummary();
   const cam = selectedOptionLabel($("sel-camera"));
   const mic = selectedOptionLabel($("sel-mic"));
   const spk = selectedOptionLabel($("sel-speaker"));
@@ -2277,7 +2498,9 @@ function wireSettingsNav() {
   });
   rebuildSettingsLangList();
   wireThemeSettings();
+  wireFlagSettings();
   applyTheme(getTheme(), { persist: false });
+  refreshLocalNameChip();
   $("btn-settings-done")?.addEventListener("click", () => closeSettings());
   $("btn-export-profile")?.addEventListener("click", () => exportProfileFile());
   $("btn-import-profile")?.addEventListener("click", () => {
@@ -2994,12 +3217,14 @@ function handleMatched(msg) {
         name: primary.name || msg.partner_short || "",
         short_id: primary.short_id || msg.partner_short || "",
         friend_code: primary.friend_code || "",
+        flag: normalizeFlagCode(primary.flag || ""),
       }
     : {
         user_id: "",
         name: msg.partner_short || "",
         short_id: msg.partner_short || "",
         friend_code: "",
+        flag: "",
       };
   pushHistory({
     kind: matchMode === "friend" ? "friend" : "stranger",
@@ -3033,13 +3258,20 @@ function handleMatched(msg) {
       if (split) {
         tag.textContent = _t("friends.partyTag");
       } else {
-        // Name only (no "Partner" role label)
+        // Name + optional self-chosen flag (never real location)
+        const peer =
+          peers.find((p) => p.role === "stranger" || p.role === "friend") ||
+          peers[0];
         const named =
-          peers.find((p) => p.role === "stranger" || p.role === "friend")?.name ||
+          peer?.name ||
           lastMatchMeta?.name ||
           msg.partner_short ||
           "";
-        tag.textContent = named;
+        const fl =
+          normalizeFlagCode(peer?.flag) ||
+          normalizeFlagCode(lastMatchMeta?.flag) ||
+          "";
+        tag.textContent = formatNameWithFlag(named, fl);
       }
     }
     if (wrap) wrap.hidden = !(tag && tag.textContent);
@@ -3944,10 +4176,10 @@ function openPartnerMenu() {
   const bd = $("partner-menu-backdrop");
   if (!menu) return;
 
-  const name =
-    lastMatchMeta?.name ||
-    $("remote-tag")?.textContent ||
-    _t("remote.tag");
+  const name = formatNameWithFlag(
+    lastMatchMeta?.name || _t("remote.tag"),
+    lastMatchMeta?.flag
+  );
   const nameEl = $("partner-menu-name");
   if (nameEl) nameEl.textContent = name;
 

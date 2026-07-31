@@ -461,5 +461,13 @@
   "settings.themeDarkSub": "夜间界面 · 默认",
   "settings.themeLightSub": "明亮面板 · 柔和灰",
   "settings.themeSaloonSub": "西部风 · 金与皮革",
-  "settings.themeSet": "主题：{theme}"
+  "settings.themeSet": "主题：{theme}",
+  "flag.label": "旗帜",
+  "flag.none": "无",
+  "flag.noneHint": "名字旁不显示旗帜",
+  "flag.hint": "可选的名字标签。由你选择——不使用 GPS 或 IP。",
+  "flag.search": "搜索",
+  "flag.searchPh": "国家或代码…",
+  "flag.set": "旗帜：{flag}",
+  "flag.cleared": "已清除旗帜"
 }

@@ -461,5 +461,13 @@
   "settings.themeDarkSub": "Chrome noturno · padrão",
   "settings.themeLightSub": "Painéis claros · cinza suave",
   "settings.themeSaloonSub": "Western · ouro e couro",
-  "settings.themeSet": "Tema: {theme}"
+  "settings.themeSet": "Tema: {theme}",
+  "flag.label": "Bandeira",
+  "flag.none": "Nenhuma",
+  "flag.noneHint": "Ocultar bandeira no nome",
+  "flag.hint": "Rótulo opcional no nome. Você escolhe — sem GPS ou IP.",
+  "flag.search": "Buscar",
+  "flag.searchPh": "País ou código…",
+  "flag.set": "Bandeira: {flag}",
+  "flag.cleared": "Bandeira removida"
 }

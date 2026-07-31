@@ -461,5 +461,13 @@
   "settings.themeDarkSub": "Нічний інтерфейс · типово",
   "settings.themeLightSub": "Світлі панелі · м’який сірий",
   "settings.themeSaloonSub": "Вестерн · золото і шкіра",
-  "settings.themeSet": "Тема: {theme}"
+  "settings.themeSet": "Тема: {theme}",
+  "flag.label": "Прапор",
+  "flag.none": "Немає",
+  "flag.noneHint": "Не показувати прапор біля імені",
+  "flag.hint": "Необов’язкова мітка біля імені. Ви обираєте самі — GPS і IP не використовуються.",
+  "flag.search": "Пошук",
+  "flag.searchPh": "Країна або код…",
+  "flag.set": "Прапор: {flag}",
+  "flag.cleared": "Прапор прибрано"
 }

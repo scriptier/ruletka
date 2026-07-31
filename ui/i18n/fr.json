@@ -461,5 +461,13 @@
   "settings.themeDarkSub": "Chrome nuit · par défaut",
   "settings.themeLightSub": "Panneaux clairs · gris doux",
   "settings.themeSaloonSub": "Western · or & cuir",
-  "settings.themeSet": "Thème : {theme}"
+  "settings.themeSet": "Thème : {theme}",
+  "flag.label": "Drapeau",
+  "flag.none": "Aucun",
+  "flag.noneHint": "Masquer le drapeau sur le nom",
+  "flag.hint": "Label optionnel sur votre nom. Vous le choisissez — pas de GPS ni d’IP.",
+  "flag.search": "Rechercher",
+  "flag.searchPh": "Pays ou code…",
+  "flag.set": "Drapeau : {flag}",
+  "flag.cleared": "Drapeau retiré"
 }

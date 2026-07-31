@@ -127,6 +127,8 @@ pub struct Client {
     gender: String,
     /// Soft match preference: any | man | woman | ""
     looking: String,
+    /// Cosmetic self-chosen flag (ISO alpha-2). Not geolocation.
+    flag: String,
     limiter: ClientLimiter,
     /// Sliding window of report submissions (anti ban-bomb).
     report_times: Vec<Instant>,
@@ -206,6 +208,22 @@ fn normalize_looking(raw: &str) -> String {
         "woman" | "female" | "f" | "w" => "woman".into(),
         "any" | "all" | "" => "any".into(),
         _ => "any".into(),
+    }
+}
+
+/// Cosmetic flag only: ISO 3166-1 alpha-2 or empty. Never derived from IP/GPS.
+fn normalize_flag(raw: &str) -> String {
+    let s: String = raw
+        .trim()
+        .chars()
+        .filter(|c| c.is_ascii_alphabetic())
+        .take(2)
+        .collect::<String>()
+        .to_uppercase();
+    if s.len() == 2 {
+        s
+    } else {
+        String::new()
     }
 }
 
@@ -828,6 +846,7 @@ impl SimpleHub {
             is_offerer: local_is_offerer,
             role: "stranger".into(),
             friend_code: String::new(),
+            flag: String::new(),
         };
         self.send(
             local_id,
@@ -1004,6 +1023,7 @@ impl SimpleHub {
                 party_with: None,
                 gender: String::new(),
                 looking: "any".into(),
+                flag: String::new(),
                 limiter: ClientLimiter::new(),
                 report_times: Vec::new(),
             },
@@ -1251,6 +1271,7 @@ impl SimpleHub {
             is_offerer: from.peer_id < to.peer_id,
             role: role.into(),
             friend_code: to.friend_code.clone(),
+            flag: to.flag.clone(),
         }
     }
 
@@ -1661,11 +1682,16 @@ impl SimpleHub {
                 name,
                 gender,
                 looking,
+                flag,
             } => {
-                self.handle_hello(id, user_id, name, gender, looking);
+                self.handle_hello(id, user_id, name, gender, looking, flag);
             }
-            ClientMsg::SetPrefs { gender, looking } => {
-                self.handle_set_prefs(id, gender, looking);
+            ClientMsg::SetPrefs {
+                gender,
+                looking,
+                flag,
+            } => {
+                self.handle_set_prefs(id, gender, looking, flag);
             }
             ClientMsg::Ping => self.send(id, ServerMsg::Pong),
             ClientMsg::SetRoom { room } => {
@@ -1843,12 +1869,14 @@ impl SimpleHub {
         self.party_requeue(a, b, room, "next together — searching again");
     }
 
-    fn handle_set_prefs(&mut self, id: Uuid, gender: String, looking: String) {
+    fn handle_set_prefs(&mut self, id: Uuid, gender: String, looking: String, flag: String) {
         let g = normalize_gender(&gender);
         let l = normalize_looking(&looking);
+        let f = normalize_flag(&flag);
         if let Some(c) = self.clients.get_mut(&id) {
             c.gender = g;
             c.looking = l;
+            c.flag = f;
         }
         self.status(id, "match prefs updated");
         // Re-try match if waiting — soft prefs may unlock a pair
@@ -1869,6 +1897,7 @@ impl SimpleHub {
         name: String,
         gender: String,
         looking: String,
+        flag: String,
     ) {
         let user_id = if user_id.trim().is_empty() {
             id.to_string()
@@ -1879,6 +1908,7 @@ impl SimpleHub {
         let code = friend_code_for(&user_id);
         let gender = normalize_gender(&gender);
         let looking = normalize_looking(&looking);
+        let flag = normalize_flag(&flag);
 
         // Kick previous connection for same user
         if let Some(old) = self.by_user.get(&user_id).copied() {
@@ -1908,6 +1938,7 @@ impl SimpleHub {
             c.friend_code = code.clone();
             c.gender = gender;
             c.looking = looking;
+            c.flag = flag;
         }
         self.by_user.insert(user_id.clone(), id);
         self.code_index.insert(code.clone(), user_id.clone());

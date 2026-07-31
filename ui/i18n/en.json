@@ -470,5 +470,13 @@
   "settings.themeDarkSub": "Night chrome · default",
   "settings.themeLightSub": "Bright panels · soft gray",
   "settings.themeSaloonSub": "Western · gold & leather",
-  "settings.themeSet": "Theme: {theme}"
+  "settings.themeSet": "Theme: {theme}",
+  "flag.label": "Flag",
+  "flag.none": "None",
+  "flag.noneHint": "Hide flag on your name",
+  "flag.hint": "Optional label on your name. You choose it — we never use GPS or your IP to set a flag.",
+  "flag.search": "Search",
+  "flag.searchPh": "Country or code…",
+  "flag.set": "Flag: {flag}",
+  "flag.cleared": "Flag cleared"
 }

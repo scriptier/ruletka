@@ -461,5 +461,13 @@
   "settings.themeDarkSub": "Nocturno · predeterminado",
   "settings.themeLightSub": "Paneles claros · gris suave",
   "settings.themeSaloonSub": "Western · oro y cuero",
-  "settings.themeSet": "Tema: {theme}"
+  "settings.themeSet": "Tema: {theme}",
+  "flag.label": "Bandera",
+  "flag.none": "Ninguna",
+  "flag.noneHint": "Ocultar bandera en tu nombre",
+  "flag.hint": "Etiqueta opcional en tu nombre. Tú la eliges — no usamos GPS ni IP.",
+  "flag.search": "Buscar",
+  "flag.searchPh": "País o código…",
+  "flag.set": "Bandera: {flag}",
+  "flag.cleared": "Bandera quitada"
 }

@@ -461,5 +461,13 @@
   "settings.themeDarkSub": "Nocny wygląd · domyślny",
   "settings.themeLightSub": "Jasne panele · miękka szarość",
   "settings.themeSaloonSub": "Western · złoto i skóra",
-  "settings.themeSet": "Motyw: {theme}"
+  "settings.themeSet": "Motyw: {theme}",
+  "flag.label": "Flaga",
+  "flag.none": "Brak",
+  "flag.noneHint": "Ukryj flagę przy imieniu",
+  "flag.hint": "Opcjonalna etykieta przy imieniu. Wybierasz ją Ty — bez GPS i IP.",
+  "flag.search": "Szukaj",
+  "flag.searchPh": "Kraj lub kod…",
+  "flag.set": "Flaga: {flag}",
+  "flag.cleared": "Flaga usunięta"
 }

@@ -470,5 +470,13 @@
   "settings.themeDarkSub": "Ночной интерфейс · по умолчанию",
   "settings.themeLightSub": "Светлые панели · мягкий серый",
   "settings.themeSaloonSub": "Вестерн · золото и кожа",
-  "settings.themeSet": "Тема: {theme}"
+  "settings.themeSet": "Тема: {theme}",
+  "flag.label": "Флаг",
+  "flag.none": "Нет",
+  "flag.noneHint": "Не показывать флаг у имени",
+  "flag.hint": "Необязательная метка у имени. Вы выбираете сами — GPS и IP не используются.",
+  "flag.search": "Поиск",
+  "flag.searchPh": "Страна или код…",
+  "flag.set": "Флаг: {flag}",
+  "flag.cleared": "Флаг убран"
 }
