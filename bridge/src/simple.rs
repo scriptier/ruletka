@@ -15,6 +15,60 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+/// Shape JSON body for common chat webhook providers.
+fn webhook_body_for_url(
+    url: &str,
+    text: &str,
+    payload: &serde_json::Value,
+) -> serde_json::Value {
+    let lower = url.to_ascii_lowercase();
+    // Telegram Bot API sendMessage — chat_id may be in query string
+    // e.g. https://api.telegram.org/botTOKEN/sendMessage?chat_id=-100123
+    if lower.contains("api.telegram.org") && lower.contains("/sendmessage") {
+        let chat_id = url
+            .split(['?', '&'])
+            .skip(1)
+            .find_map(|pair| {
+                let mut it = pair.splitn(2, '=');
+                let k = it.next()?;
+                let v = it.next()?;
+                if k == "chat_id" && !v.is_empty() {
+                    Some(v.to_string())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_default();
+        if !chat_id.is_empty() {
+            return serde_json::json!({
+                "chat_id": chat_id,
+                "text": text,
+                "disable_web_page_preview": true,
+            });
+        }
+        return serde_json::json!({
+            "text": text,
+            "disable_web_page_preview": true,
+        });
+    }
+    // Discord incoming webhook
+    if lower.contains("discord.com/api/webhooks") || lower.contains("discordapp.com/api/webhooks") {
+        return serde_json::json!({
+            "content": text.chars().take(1900).collect::<String>(),
+        });
+    }
+    // Slack incoming webhook
+    if lower.contains("hooks.slack.com") {
+        return serde_json::json!({ "text": text });
+    }
+    // Generic / custom handlers
+    serde_json::json!({
+        "text": text,
+        "content": text,
+        "ruletka": payload,
+    })
+}
+
 /// Active cross-bridge session (local browser ↔ remote hub peer).
 struct FedSession {
     session_id: String,
@@ -268,19 +322,30 @@ impl SimpleHub {
             let Ok(client) = client else {
                 return;
             };
-            // Slack/Discord-friendly: text + full JSON body
             let text = payload
                 .get("text")
                 .and_then(|v| v.as_str())
                 .unwrap_or("ruletka auto-ban")
                 .to_string();
-            let body = serde_json::json!({
-                "text": text,
-                "content": text,
-                "ruletka": payload,
-            });
-            if let Err(e) = client.post(&url).json(&body).send().await {
-                tracing::warn!(error = %e, "mod webhook post failed");
+
+            // Build provider-shaped bodies:
+            // - Telegram: …/botTOKEN/sendMessage?chat_id=ID  → {chat_id, text, disable_web_page_preview}
+            // - Discord: hooks.discord.com / discord.com/api/webhooks → {content}
+            // - Slack: hooks.slack.com → {text}
+            // - Generic: text + content + ruletka JSON
+            let body = webhook_body_for_url(&url, &text, &payload);
+            match client.post(&url).json(&body).send().await {
+                Ok(resp) if !resp.status().is_success() => {
+                    let status = resp.status();
+                    let body_txt = resp.text().await.unwrap_or_default();
+                    tracing::warn!(
+                        %status,
+                        body = %body_txt.chars().take(200).collect::<String>(),
+                        "mod webhook non-success"
+                    );
+                }
+                Err(e) => tracing::warn!(error = %e, "mod webhook post failed"),
+                _ => {}
             }
         });
     }

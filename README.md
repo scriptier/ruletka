@@ -13,6 +13,7 @@
 | Architecture | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
 | Decentralization | [`docs/DECENTRALIZATION.md`](docs/DECENTRALIZATION.md) |
 | Federation | [`docs/INTEROP.md`](docs/INTEROP.md) |
+| Operator ops | [`docs/OPS.md`](docs/OPS.md) |
 | Security | [`SECURITY.md`](SECURITY.md) |
 | Contributing | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 

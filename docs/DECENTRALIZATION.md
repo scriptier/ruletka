@@ -61,6 +61,9 @@ public bases, operators can add/remove HTTPS claim peers in **Admin → Mesh**
 Env peers and file peers are merged. Outbound claims need **token + public_base + at least one peer**.
 
 Protocol: [`INTEROP.md`](INTEROP.md).  
+Local two-hub smoke test: `./scripts/run-federated-pair.sh`.  
+Operator checklist (webhooks, analytics, deploy): [`OPS.md`](OPS.md).
+
 Helpers **announce** via `/v1/seeder/request` but are **not auto-joined** (by design).
 
 ## Network helper
