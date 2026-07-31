@@ -1178,5 +1178,15 @@
   "stars.trustStepTitle": "100+ stars",
   "stars.trustStepBody": "Your reports count as weight 2 toward auto match-bans (normal = 1). Still one unique report per person.",
   "stars.trustYouAre": "You have 100+ stars — your reports already count double.",
-  "stars.badgeClick": "Click for Stars guide and gifts"
+  "stars.badgeClick": "Click for Stars guide and gifts",
+  "stars.earnedTitle": "You received a star ★",
+  "stars.earnedBody": "Balance: ★ {n}. Tap ★ to open the Stars guide.",
+  "stars.givenTitle": "Star sent ★",
+  "stars.givenBody": "You gifted a star to {name}.",
+  "stars.giftSentTitle": "Gift sent",
+  "stars.giftReceivedTitle": "Gift received",
+  "stars.introTitle": "Stars on your cam",
+  "stars.introBody": "Tap the ★ badge anytime for the guide — earn from long chats, spend on gifts, unlock stronger reports at 100+.",
+  "stars.openGuide": "Open Stars",
+  "settings.secStars": "Stars"
 }

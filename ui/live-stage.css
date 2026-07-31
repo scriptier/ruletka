@@ -12477,6 +12477,34 @@ button.stars-badge {
   margin: 0;
   color: inherit;
 }
+/* Earn / give feedback pulse */
+.stars-badge.is-pulse {
+  animation: stars-badge-pulse 0.85s ease-out;
+}
+@keyframes stars-badge-pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  }
+  35% {
+    transform: scale(1.22);
+    box-shadow:
+      0 0 0 3px rgba(255, 210, 70, 0.55),
+      0 0 28px rgba(255, 200, 60, 0.65),
+      0 8px 20px rgba(0, 0, 0, 0.45);
+    border-color: rgba(255, 240, 140, 0.95);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  }
+}
+.star-feedback-toast strong {
+  color: #ffe9a0;
+}
+.stars-intro-tip {
+  border-color: rgba(255, 215, 80, 0.4);
+}
 .stars-badge .stars-icon {
   color: #ffd54a;
   font-size: 1.05rem;

@@ -54,7 +54,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </noscript>
   <link rel="stylesheet" href="style.css?v=157" />
-  <link rel="stylesheet" href="live-stage.css?v=196" />
+  <link rel="stylesheet" href="live-stage.css?v=197" />
   <script src="brand.js?v=2"></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -1092,6 +1092,13 @@
 
         <p class="settings-section-label" data-i18n="settings.secMore">Preferences</p>
         <div class="settings-group">
+          <button type="button" class="settings-row" id="btn-settings-open-stars" data-settings-open="stars">
+            <span class="row-left">
+              <span class="row-ico" aria-hidden="true">★</span>
+              <span data-i18n="stars.sheetTitle">Stars</span>
+            </span>
+            <span class="row-right"><span id="settings-stars-row-value" class="row-value">★ 0</span> <span class="chev">›</span></span>
+          </button>
           <button type="button" class="settings-row" data-settings-open="devices">
             <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-camera"/></svg></span><span data-i18n="settings.secHardware">Devices</span></span>
             <span class="row-right"><span id="settings-devices-summary" class="row-value">—</span> <span class="chev">›</span></span>
@@ -1835,7 +1842,7 @@
   <script src="identity.js?v=156"></script>
   <script src="hubs.js?v=156"></script>
   <script src="webrtc.js?v=156"></script>
-  <script src="live.js?v=194"></script>
+  <script src="live.js?v=195"></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

@@ -1178,5 +1178,15 @@
   "stars.trustStepTitle": "100+ звёзд",
   "stars.trustStepBody": "Ваши репорты весят 2 (обычные — 1). По-прежнему один репорт на человека.",
   "stars.trustYouAre": "У вас 100+ звёзд — репорты уже считаются вдвойне.",
-  "stars.badgeClick": "Нажмите — гид по звёздам и подарки"
+  "stars.badgeClick": "Нажмите — гид по звёздам и подарки",
+  "stars.earnedTitle": "Вам подарили звезду ★",
+  "stars.earnedBody": "Баланс: ★ {n}. Нажмите ★ — гид по звёздам.",
+  "stars.givenTitle": "Звезда отправлена ★",
+  "stars.givenBody": "Вы подарили звезду: {name}.",
+  "stars.giftSentTitle": "Подарок отправлен",
+  "stars.giftReceivedTitle": "Подарок получен",
+  "stars.introTitle": "Звёзды на камере",
+  "stars.introBody": "Нажмите ★ в любой момент — гид: длинные чаты, подарки, сильнее репорты с 100+.",
+  "stars.openGuide": "Открыть Звёзды",
+  "settings.secStars": "Звёзды"
 }

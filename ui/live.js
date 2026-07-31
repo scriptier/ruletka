@@ -1847,6 +1847,113 @@ function maybeShowMatchPathSummary(reason) {
 }
 
 /**
+ * Soft toast for star earn/give feedback.
+ * @param {"earned"|"given"|"gift"} kind
+ * @param {{ name?: string, n?: number }} [extra]
+ */
+function showStarFeedbackToast(kind, extra = {}) {
+  try {
+    const id = "star-feedback-toast";
+    $(id)?.remove?.();
+    const toast = document.createElement("div");
+    toast.id = id;
+    toast.className = "friend-soft-toast star-feedback-toast";
+    toast.setAttribute("role", "status");
+    let title = "★";
+    let body = "";
+    if (kind === "earned") {
+      title = _t("stars.earnedTitle") || "You received a star ★";
+      body =
+        _t("stars.earnedBody", { n: extra.n ?? myStars }) ||
+        `Balance: ★ ${extra.n ?? myStars}. Tap ★ to open the Stars guide.`;
+    } else if (kind === "given") {
+      title = _t("stars.givenTitle") || "Star sent ★";
+      body =
+        _t("stars.givenBody", { name: extra.name || "them" }) ||
+        `You gifted a star to ${extra.name || "them"}.`;
+    } else if (kind === "gift") {
+      title = extra.title || "Gift";
+      body = extra.body || "";
+    }
+    toast.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${escapeHtml(
+      body
+    )}</span>`;
+    document.body.appendChild(toast);
+    setTimeout(() => {
+      if (toast.parentNode) toast.remove();
+    }, 5200);
+  } catch (_) {}
+}
+
+/** Brief gold pulse on a star badge when count changes. */
+function pulseStarsBadge(which) {
+  const badge = $(which === "local" ? "local-stars-badge" : "remote-stars-badge");
+  if (!badge || badge.hidden) return;
+  badge.classList.remove("is-pulse");
+  // reflow so animation restarts
+  void badge.offsetWidth;
+  badge.classList.add("is-pulse");
+  setTimeout(() => badge.classList.remove("is-pulse"), 900);
+}
+
+const STARS_INTRO_TIP_KEY = "ruletka-stars-intro-tip-v1";
+function starsIntroTipDone() {
+  try {
+    return localStorage.getItem(STARS_INTRO_TIP_KEY) === "1";
+  } catch {
+    return true;
+  }
+}
+function markStarsIntroTipDone() {
+  try {
+    localStorage.setItem(STARS_INTRO_TIP_KEY, "1");
+  } catch (_) {}
+}
+
+/** One-shot: after first match, nudge user to open Stars sheet. */
+function maybeShowStarsIntroTip() {
+  try {
+    if (starsIntroTipDone()) return;
+    if ($("stars-intro-tip") || $("star-feedback-toast")) return;
+    markStarsIntroTipDone();
+    const toast = document.createElement("div");
+    toast.id = "stars-intro-tip";
+    toast.className = "friend-soft-toast stars-intro-tip";
+    toast.setAttribute("role", "status");
+    toast.style.pointerEvents = "auto";
+    toast.innerHTML = `
+      <strong>${escapeHtml(_t("stars.introTitle") || "Stars on your cam")}</strong>
+      <span>${escapeHtml(
+        _t("stars.introBody") ||
+          "Tap the ★ badge anytime for the guide — earn from long chats, spend on gifts, unlock stronger reports at 100+."
+      )}</span>
+      <div class="export-nudge-actions" style="margin-top:0.45rem">
+        <button type="button" class="pill tight ghost" id="btn-stars-intro-later">${escapeHtml(
+          _t("friends.exportNudgeLater") || "Later"
+        )}</button>
+        <button type="button" class="pill tight accent" id="btn-stars-intro-open">${escapeHtml(
+          _t("stars.openGuide") || "Open Stars"
+        )}</button>
+      </div>`;
+    document.body.appendChild(toast);
+    trackEvent("stars_intro_tip_show");
+    const dismiss = () => {
+      if (toast.parentNode) toast.remove();
+    };
+    $("btn-stars-intro-later")?.addEventListener("click", () => {
+      trackEvent("stars_intro_tip_later");
+      dismiss();
+    });
+    $("btn-stars-intro-open")?.addEventListener("click", () => {
+      trackEvent("stars_intro_tip_open");
+      dismiss();
+      openStarsSheet($("local-stars-badge"));
+    });
+    setTimeout(dismiss, 14000);
+  } catch (_) {}
+}
+
+/**
  * Show/hide gold star badge. Click always opens the Stars sheet (like Settings).
  * @param {"local"|"remote"} which
  * @param {number} count
@@ -8121,6 +8228,10 @@ function syncAccountSettingsSummary() {
   if (starsEl) {
     starsEl.textContent = `★ ${Math.max(0, Number(myStars) || 0)}`;
   }
+  const starsRow = $("settings-stars-row-value");
+  if (starsRow) {
+    starsRow.textContent = `★ ${Math.max(0, Number(myStars) || 0)}`;
+  }
 }
 
 function syncSettingsSummary() {
@@ -8247,8 +8358,22 @@ function wireSettingsNav() {
   document.querySelectorAll("[data-settings-open]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const name = btn.getAttribute("data-settings-open");
+      // Stars is a separate flyout (not a nested settings-view)
+      if (name === "stars") {
+        try {
+          closeSettings();
+        } catch (_) {}
+        setTimeout(() => openStarsSheet($("local-stars-badge")), 180);
+        return;
+      }
       if (name) showSettingsView(name);
     });
+  });
+  $("btn-settings-open-stars")?.addEventListener("click", () => {
+    try {
+      closeSettings();
+    } catch (_) {}
+    setTimeout(() => openStarsSheet($("local-stars-badge")), 180);
   });
   document.querySelectorAll("[data-settings-back]").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -9524,15 +9649,33 @@ function handleServer(msg) {
         const uid = String(msg.user_id || "");
         if (msg.ok && msg.star && uid && uid === myUserId) {
           // Someone starred us
+          const prev = myStars;
           myStars = n;
           setStarsBadge("local", myStars);
           syncAccountSettingsSummary();
           setStatus(_t("stars.received") || "You received a star ★");
+          showStarFeedbackToast("earned", { n: myStars });
+          pulseStarsBadge("local");
+          if (n > prev) trackEvent("star_earned", { n: myStars });
         } else if (msg.ok && msg.star && uid) {
           // We starred them (or updated their count)
           if (uid === primaryPartnerUserId || uid === lastMatchMeta?.user_id) {
             setStarsBadge("remote", n);
+            pulseStarsBadge("remote");
           }
+          const name =
+            lastMatchMeta?.name ||
+            lastMatchMeta?.short_id ||
+            _t("remote.tag") ||
+            "Partner";
+          // Giver path: target uid ≠ us
+          if (uid !== myUserId) {
+            showStarFeedbackToast("given", { name });
+            setStatus(_t("stars.given") || "Star given");
+            trackEvent("star_given");
+          }
+        } else if (msg.ok && !msg.star) {
+          setStatus(_t("stars.skipped") || "No star");
         }
         if (msg.message && !msg.ok) {
           setStatus(_srv(msg.message) || msg.message);
@@ -9551,6 +9694,18 @@ function handleServer(msg) {
             myStars = Math.max(0, Number(msg.spender_stars) || 0);
             setStarsBadge("local", myStars);
             syncAccountSettingsSummary();
+            pulseStarsBadge("local");
+            const giftTitle =
+              kind === "flowers"
+                ? _t("stars.flowersBtn") || "Flowers"
+                : _t("stars.barsBtn") || "Behind bars";
+            showStarFeedbackToast("gift", {
+              title: _t("stars.giftSentTitle") || "Gift sent",
+              body:
+                _srv(msg.message) ||
+                msg.message ||
+                giftTitle + ` · ★ ${myStars}`,
+            });
             setStatus(_srv(msg.message) || msg.message || "Gift sent");
           }
           if (uid === myUserId) {
@@ -9558,15 +9713,23 @@ function handleServer(msg) {
             if (!fromMe && msg.from_user_id) {
               const name = msg.from_name || "Someone";
               if (kind === "flowers") {
-                setStatus(
+                const body =
                   _t("stars.flowersOnYou", { name }) ||
-                    `${name} sent you flowers`
-                );
+                  `${name} sent you flowers`;
+                setStatus(body);
+                showStarFeedbackToast("gift", {
+                  title: _t("stars.giftReceivedTitle") || "Gift received",
+                  body,
+                });
               } else {
-                setStatus(
+                const body =
                   _t("stars.barsOnYou", { name }) ||
-                    `${name} put you behind bars`
-                );
+                  `${name} put you behind bars`;
+                setStatus(body);
+                showStarFeedbackToast("gift", {
+                  title: _t("stars.giftReceivedTitle") || "Gift received",
+                  body,
+                });
               }
             }
           }
@@ -9963,6 +10126,12 @@ function handleMatched(msg) {
       Number(p?.effect_until) || 0
     );
   }
+  // One-shot discoverability for Stars sheet
+  setTimeout(() => {
+    try {
+      maybeShowStarsIntroTip();
+    } catch (_) {}
+  }, 2800);
   pushHistory({
     kind: matchMode === "friend" ? "friend" : "stranger",
     ...lastMatchMeta,
