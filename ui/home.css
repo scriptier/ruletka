@@ -405,17 +405,40 @@ html {
   display: inline-flex;
   align-items: center;
   gap: 0.55rem;
-  padding: 1rem 1.7rem;
+  padding: 1.05rem 1.85rem;
   border-radius: 999px;
   text-decoration: none;
   color: #fff;
-  font-weight: 700;
-  font-size: 1.05rem;
+  font-weight: 800;
+  font-size: 1.12rem;
+  letter-spacing: 0.01em;
   background: linear-gradient(135deg, #ff2d55 0%, #ff5c3a 55%, #ff7a3b 100%);
   box-shadow:
     0 12px 40px rgba(255, 45, 85, 0.42),
     inset 0 1px 0 rgba(255, 255, 255, 0.2);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+/* Pulse when people are online — stronger conversion cue */
+.home-live-stats.has-people ~ .home-cta-row .home-cta,
+.home-cta-row:has(+ .home-live-stats.has-people) .home-cta {
+  animation: cta-pulse 2.4s ease-in-out infinite;
+}
+/* Stats sit below CTA in markup — pulse via body class set by JS */
+body.has-live-people .home-cta {
+  animation: cta-pulse 2.4s ease-in-out infinite;
+}
+@keyframes cta-pulse {
+  0%, 100% {
+    box-shadow:
+      0 12px 40px rgba(255, 45, 85, 0.42),
+      inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  }
+  50% {
+    box-shadow:
+      0 16px 48px rgba(255, 45, 85, 0.55),
+      0 0 0 4px rgba(255, 45, 85, 0.15),
+      inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  }
 }
 .home-cta:hover {
   transform: translateY(-2px);
@@ -445,13 +468,13 @@ html {
   border-bottom-color: rgba(126, 182, 255, 0.5);
 }
 
-/* Live stats — slightly more prominent so “people are here” is obvious */
+/* Live stats — always visible; highlight when people are here */
 .home-live-stats {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 0.5rem;
-  margin: 0.15rem 0 0;
+  gap: 0.55rem;
+  margin: 0.35rem 0 0.15rem;
 }
 @media (min-width: 860px) {
   .home-live-stats { justify-content: flex-start; }
@@ -460,21 +483,44 @@ html {
   display: none !important;
 }
 .home-live-stats.has-people .stat-pill:first-child {
-  border-color: rgba(61, 214, 140, 0.4);
-  background: rgba(61, 214, 140, 0.1);
+  border-color: rgba(61, 214, 140, 0.5);
+  background: rgba(61, 214, 140, 0.14);
+  color: #c8f5dc;
+}
+.home-live-stats.has-people .stat-pill:first-child strong {
+  color: #3dd68c;
+  font-size: 1.05rem;
 }
 .stat-pill {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.55rem 0.95rem;
+  padding: 0.6rem 1.05rem;
   border-radius: 999px;
-  font-size: 0.88rem;
-  font-weight: 500;
+  font-size: 0.9rem;
+  font-weight: 550;
   color: var(--muted);
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.07);
   border: 1px solid var(--border);
   backdrop-filter: blur(10px);
+}
+.stat-pill .live-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: #3dd68c;
+  box-shadow: 0 0 8px rgba(61, 214, 140, 0.7);
+  animation: live-dot-pulse 1.4s ease-in-out infinite;
+}
+@keyframes live-dot-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(0.85); }
+}
+.stat-pill strong {
+  color: var(--text);
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  min-width: 0.75rem;
 }
 .stat-pill.muted {
   opacity: 0.95;
@@ -1110,4 +1156,291 @@ html {
 .pwa-install-x:hover {
   color: #fff;
   background: rgba(255, 255, 255, 0.06);
+}
+
+/* Visual polish: hero stats + points cards */
+.home-eyebrow {
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  font-weight: 700;
+  opacity: 0.9;
+}
+.home-points li {
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.home-points li:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+}
+.home-final-cta {
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(165deg, rgba(255,255,255,0.04), rgba(12,16,24,0.5));
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+}
+.stat-pill .live-dot {
+  flex-shrink: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Visual polish pass v3 — nav, hero, cards, CTA
+   ═══════════════════════════════════════════════════════════ */
+
+.home-nav {
+  padding: 0.75rem 1.25rem;
+  backdrop-filter: blur(18px) saturate(1.25);
+  background: linear-gradient(180deg, rgba(7, 8, 12, 0.92) 0%, rgba(7, 8, 12, 0.62) 100%);
+}
+.home-brand-logo {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.home-brand:hover .home-brand-logo {
+  transform: scale(1.04);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.16),
+    0 6px 20px rgba(0, 0, 0, 0.45);
+}
+.home-lang {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.045);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+.home-lang:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+}
+.home-lang select {
+  background: transparent;
+}
+.nav-share-btn {
+  backdrop-filter: blur(8px);
+  transition: border-color 0.12s, background 0.12s, transform 0.1s;
+}
+.nav-share-btn:hover {
+  transform: translateY(-1px);
+}
+.nav-live-link {
+  font-weight: 750;
+  letter-spacing: 0.01em;
+  box-shadow:
+    0 6px 20px rgba(255, 45, 85, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+/* Hero title weight + tracking */
+.home-h1,
+.hero-copy h1 {
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+  font-weight: 800;
+}
+.hero-lead,
+.home-lead {
+  line-height: 1.55;
+  color: #a8b4c8;
+  max-width: 34rem;
+}
+
+/* Primary CTA pulse when people online (subtle) */
+body.has-live-people .home-cta,
+.home-live-stats.has-people ~ .home-cta-row .home-cta {
+  animation: home-cta-glow 2.8s ease-in-out infinite;
+}
+@keyframes home-cta-glow {
+  0%, 100% {
+    box-shadow: 0 12px 36px rgba(255, 45, 85, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  }
+  50% {
+    box-shadow:
+      0 14px 44px rgba(255, 45, 85, 0.5),
+      0 0 0 3px rgba(255, 45, 85, 0.1),
+      inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.has-live-people .home-cta,
+  .home-live-stats.has-people ~ .home-cta-row .home-cta {
+    animation: none;
+  }
+}
+
+.home-cta {
+  border-radius: 999px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  box-shadow:
+    0 12px 36px rgba(255, 45, 85, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+/* Stat pills cleaner */
+.stat-pill,
+.home-live-stats .stat {
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(8px);
+  padding: 0.35rem 0.75rem;
+  font-weight: 650;
+  font-size: 0.82rem;
+}
+
+/* Points cards — deeper glass */
+.home-points li {
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.045), rgba(12, 16, 24, 0.35));
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.2);
+}
+.home-points li:hover {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.07), rgba(16, 22, 32, 0.45));
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.28);
+}
+
+/* Seed / community cards */
+.seed-card {
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.05), rgba(10, 14, 22, 0.55));
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+  transition: transform 0.15s ease, border-color 0.15s, box-shadow 0.15s;
+}
+.seed-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
+}
+.seed-card-btn.primary {
+  box-shadow: 0 6px 20px rgba(255, 45, 85, 0.3);
+  font-weight: 750;
+}
+
+/* Final CTA band */
+.home-final-cta {
+  padding: 2rem 1.5rem;
+  text-align: center;
+  background:
+    radial-gradient(ellipse 70% 80% at 50% 0%, rgba(255, 45, 85, 0.12), transparent 60%),
+    linear-gradient(165deg, rgba(255, 255, 255, 0.05), rgba(12, 16, 24, 0.55));
+}
+.home-final-cta h2 {
+  letter-spacing: -0.03em;
+  font-weight: 800;
+}
+
+/* Footer quieter */
+.home-foot {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  color: #7a879c;
+  font-size: 0.82rem;
+}
+.home-foot a {
+  color: #a8b4c8;
+  text-decoration: none;
+  transition: color 0.12s;
+}
+.home-foot a:hover {
+  color: #fff;
+}
+
+/* Hero logo ring a bit tighter */
+.hero-logo-ring {
+  opacity: 0.85;
+}
+.home-logo-wrap {
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.1),
+    0 28px 72px rgba(0, 0, 0, 0.55),
+    0 0 100px rgba(91, 157, 255, 0.1);
+}
+
+/* PWA banner matches glass system */
+.pwa-install-inner {
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(12, 14, 20, 0.94);
+  box-shadow: 0 20px 56px rgba(0, 0, 0, 0.5);
+}
+.pwa-install-btn {
+  background: linear-gradient(135deg, #ff2d55, #ff5c3a);
+  box-shadow: 0 4px 14px rgba(255, 45, 85, 0.35);
+}
+
+/* residual home polish */
+.home-body ::selection {
+  background: rgba(255, 45, 85, 0.28);
+  color: #fff;
+}
+.home-foot {
+  padding-top: 1.25rem;
+  padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
+}
+
+/* thin scrollbars (home/marketing) */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}
+html::-webkit-scrollbar { width: 8px; }
+html::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+}
+html::-webkit-scrollbar-track { background: transparent; }
+
+/* PWA install banner polish */
+#pwa-install-banner {
+  animation: pwa-slide-up 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes pwa-slide-up {
+  from { opacity: 0; transform: translateX(-50%) translateY(12px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #pwa-install-banner { animation: none; }
+}
+.pwa-install-inner {
+  border-radius: 18px !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  background: rgba(12, 14, 20, 0.94) !important;
+  box-shadow:
+    0 20px 56px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+  backdrop-filter: blur(16px) saturate(1.15) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.15) !important;
+  padding: 0.75rem 0.8rem 0.75rem 0.9rem !important;
+}
+.pwa-install-icon {
+  width: 44px !important;
+  height: 44px !important;
+  border-radius: 12px !important;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12), 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.pwa-install-btn {
+  background: linear-gradient(135deg, #ff2d55, #ff5c3a) !important;
+  box-shadow: 0 6px 18px rgba(255, 45, 85, 0.35) !important;
+  font-weight: 750 !important;
+  letter-spacing: 0.01em;
+  min-height: 2.35rem;
+  padding: 0.5rem 1rem !important;
+}
+.pwa-ios-tip .pwa-install-btn {
+  background: linear-gradient(135deg, #5b9dff, #7eb6ff) !important;
+  box-shadow: 0 6px 18px rgba(91, 157, 255, 0.3) !important;
+}
+.pwa-install-inner { position: relative; overflow: hidden; }
+.pwa-install-bar {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, #ff2d55, #ff6b35);
+  border-radius: 3px 0 0 3px;
+}
+.pwa-ios-tip .pwa-install-bar {
+  background: linear-gradient(180deg, #5b9dff, #7eb6ff);
 }

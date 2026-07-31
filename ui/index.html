@@ -42,10 +42,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="home.css?v=73" />
+  <link rel="stylesheet" href="home.css?v=79" />
   <script src="brand.js?v=2"></script>
   <script src="analytics.js?v=1" defer></script>
-  <script src="pwa-install.js?v=5" defer></script>
+  <script src="pwa-install.js?v=6" defer></script>
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -182,15 +182,15 @@
           <a class="home-secondary" href="#why" data-i18n="home.diffTitle">How we’re different</a>
         </div>
 
-        <div class="home-live-stats" id="home-live-stats" hidden>
+        <div class="home-live-stats" id="home-live-stats" aria-live="polite">
           <span class="stat-pill">
             <span class="live-dot" aria-hidden="true"></span>
             <span data-i18n="home.nowOnline">Online now</span>
-            <strong id="home-stat-online">0</strong>
+            <strong id="home-stat-online">…</strong>
           </span>
           <span class="stat-pill muted">
             <span data-i18n="home.nowWaiting">Waiting</span>
-            <strong id="home-stat-waiting">0</strong>
+            <strong id="home-stat-waiting">…</strong>
           </span>
         </div>
       </div>
@@ -298,7 +298,8 @@
       <a href="#open" class="foot-link" data-i18n="home.openTitle">Open source</a>
       <a href="/contribute.html" class="foot-link" data-i18n="home.openHelper">Run a helper</a>
       <a href="/safety.html" class="foot-link" data-i18n="home.safety">Safety</a>
-      <a href="/legal/privacy.html" class="foot-link" data-i18n="home.privacy">Privacy</a>
+      <a href="/legal/" class="foot-link" data-keep-lang data-i18n="home.legal">Legal</a>
+      <a href="/legal/privacy.html" class="foot-link" data-keep-lang data-i18n="home.privacy">Privacy</a>
       <a href="/legal/terms.html" class="foot-link" data-i18n="home.terms">Terms</a>
       <a href="/donate.html" class="foot-link" data-i18n="home.donate">Donate</a>
     </span>
@@ -338,6 +339,7 @@
           "home.openHubs": "hubs.json",
           "home.openHelper": "Run a helper",
           "home.openOps": "For operators",
+          "home.legal": "Legal",
           "home.privacy": "Privacy",
           "home.terms": "Terms",
           "home.donate": "Donate",
@@ -373,6 +375,7 @@
           "home.openHubs": "hubs.json",
           "home.openHelper": "Запустить helper",
           "home.openOps": "Для операторов",
+          "home.legal": "Правовое",
           "home.privacy": "Конфиденциальность",
           "home.terms": "Условия",
           "home.donate": "Донат",
@@ -441,7 +444,7 @@
         }
         // Flash bundled RU/EN or English while pack loads
         applyDict(lang, STR[lang] || STR.en || {});
-        fetch("/i18n/" + lang + ".json?v=22", { cache: "force-cache" })
+        fetch("/i18n/" + lang + ".json?v=23", { cache: "force-cache" })
           .then(function (r) {
             if (!r.ok) throw new Error("pack");
             return r.json();
@@ -484,7 +487,9 @@
             onlineEl.textContent = String(online);
             waitingEl.textContent = String(waiting);
             wrap.classList.remove("is-offline");
-            wrap.classList.toggle("has-people", online > 0 || waiting > 0);
+            var hasPeople = online > 0 || waiting > 0;
+            wrap.classList.toggle("has-people", hasPeople);
+            document.body.classList.toggle("has-live-people", hasPeople);
             wrap.hidden = false;
           })
           .catch(function () {
@@ -493,6 +498,7 @@
             waitingEl.textContent = "—";
             wrap.classList.add("is-offline");
             wrap.classList.remove("has-people");
+            document.body.classList.remove("has-live-people");
             wrap.hidden = false;
             var offline = wrap.querySelector(".stat-offline");
             if (!offline) {

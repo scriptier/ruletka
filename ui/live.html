@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ru" class="stage-html">
+<html lang="ru" class="stage-html start-idle">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
@@ -35,17 +35,18 @@
   <noscript>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </noscript>
-  <link rel="stylesheet" href="style.css?v=150" />
-  <link rel="stylesheet" href="live-stage.css?v=150" />
+  <link rel="stylesheet" href="style.css?v=157" />
+  <link rel="stylesheet" href="live-stage.css?v=181" />
   <script src="brand.js?v=2"></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
     (function () {
       try {
         var p = JSON.parse(localStorage.getItem("freenet-roulette-media-prefs-v1") || "{}");
-        var t = p.theme === "light" || p.theme === "saloon" || p.theme === "dark" ? p.theme : "dark";
+        var ok = { dark: 1, light: 1, saloon: 1, matrix: 1, pink: 1 };
+        var t = ok[p.theme] ? p.theme : "dark";
         document.documentElement.setAttribute("data-theme", t);
-        if (t === "light") document.documentElement.style.colorScheme = "light";
+        if (t === "light" || t === "pink") document.documentElement.style.colorScheme = "light";
         else document.documentElement.style.colorScheme = "dark";
       } catch (e) {
         document.documentElement.setAttribute("data-theme", "dark");
@@ -169,6 +170,16 @@
       <symbol id="i-lantern" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
         <path d="M9 4h6"/><path d="M12 2v2"/><path d="M8 7h8l1 3v7a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-7l1-3z"/><path d="M10 12h4"/><path d="M10 15h4"/>
       </symbol>
+      <!-- Matrix theme -->
+      <symbol id="i-matrix" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2"/>
+        <path d="M8 7v10"/><path d="M12 7v10"/><path d="M16 7v10"/>
+        <path d="M7 9h2"/><path d="M11 12h2"/><path d="M15 15h2"/>
+      </symbol>
+      <!-- Pink theme -->
+      <symbol id="i-heart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M19.5 12.6 12 20l-7.5-7.4a4.8 4.8 0 0 1 6.8-6.8L12 6.3l.7-.7a4.8 4.8 0 0 1 6.8 6.8z"/>
+      </symbol>
     </defs>
   </svg>
 
@@ -181,8 +192,13 @@
         <span class="badge" data-i18n="brand.badge" data-i18n-title="brand.badgeTitle" title="Matchmaking + P2P video">live</span>
       </a>
       <div class="pool-bar" id="pool-bar">
-        <span><span data-i18n="pool.online">Online</span> <strong id="stat-online">0</strong></span>
-        <span><span data-i18n="pool.waiting">Waiting</span> <strong id="stat-waiting">0</strong></span>
+        <span class="pool-stat pool-stat-online"><span data-i18n="pool.online">Online</span> <strong id="stat-online">0</strong></span>
+        <span class="pool-stat pool-stat-waiting"><span data-i18n="pool.waiting">Waiting</span> <strong id="stat-waiting">0</strong></span>
+        <!-- Shown only while in a call (hides Online/Waiting noise) -->
+        <span class="live-compact-chip" id="live-compact-chip" hidden>
+          <span class="live-compact-dot" aria-hidden="true"></span>
+          <span data-i18n="conn.matched">In a call</span>
+        </span>
         <span class="room-chip" id="room-chip" hidden title="Current room">
           <svg class="icon icon-sm" aria-hidden="true"><use href="#i-door"/></svg>
           <span id="room-chip-label"></span>
@@ -211,7 +227,8 @@
           <input id="display-name-top" type="text" maxlength="32" placeholder="anon" autocomplete="nickname" spellcheck="false" />
         </label>
         <span class="phase" id="phase" data-i18n="phase.idle" hidden>idle</span>
-        <span id="status" class="status-pill" data-i18n="status.disconnected" hidden>disconnected</span>
+        <!-- Header status pill permanently hidden (path / search clutter) -->
+        <span id="status" class="status-pill" hidden aria-hidden="true"></span>
         <label class="lang-switch lang-top-right" title="Language / Язык">
           <svg class="icon icon-sm" aria-hidden="true"><use href="#i-globe"/></svg>
           <select id="sel-lang" aria-label="Language">
@@ -270,6 +287,13 @@
           ></video>
           <div class="empty-bg-scrim" aria-hidden="true"></div>
           <div class="empty-content">
+            <div class="empty-online-chip" id="empty-online-chip" hidden>
+              <span class="empty-online-dot" aria-hidden="true"></span>
+              <span class="empty-online-text">
+                <strong id="empty-online-n">0</strong>
+                <span data-i18n="pool.online">online</span>
+              </span>
+            </div>
             <div class="empty-icon" aria-hidden="true">
               <svg class="icon icon-empty"><use href="#i-pointer"/></svg>
             </div>
@@ -284,10 +308,9 @@
               <div class="friends-online-label" data-i18n="friends.onlineStrip">Friends online</div>
               <div class="friends-online-row" id="friends-online-row"></div>
             </div>
-            <!-- Mobile only: invite when alone (friend path; room share hidden while ROOMS_ENABLED=false) -->
+            <!-- Mobile alone-pool room share (rooms off for now; friend invite removed) -->
             <div class="mobile-invite" id="mobile-invite" hidden>
               <button type="button" class="mobile-invite-btn accent rooms-ui" id="btn-mobile-share" data-i18n="remote.shareRoom" hidden>Share room</button>
-              <button type="button" class="mobile-invite-btn accent" id="btn-mobile-friend" data-i18n="remote.inviteFriend">Invite friend</button>
             </div>
           </div>
         </div>
@@ -327,6 +350,45 @@
             <span class="lbl" data-i18n="btn.blur">Blur them</span>
           </button>
         </aside>
+        <!-- Partner floor tray: Messages | Say something+Send | match actions | Friends -->
+        <div class="tile-floor tile-floor-partner" id="tile-floor-partner">
+          <div class="tile-tray tile-tray-partner">
+            <button type="button" class="tile-dock-btn tile-dock-messages" id="btn-messages" data-i18n-title="msg.open" title="Messages" aria-label="Messages">
+              <svg class="icon" aria-hidden="true"><use href="#i-mail"/></svg>
+              <span class="friends-badge msg-badge" id="messages-badge" hidden>0</span>
+            </button>
+            <form class="tile-compose" id="compose">
+              <input id="msg" type="text" data-i18n-placeholder="chat.placeholder" placeholder="Say something…" autocomplete="off" inputmode="text" enterkeyhint="send" spellcheck="true" maxlength="500" />
+              <button type="submit" class="tile-compose-send" data-i18n="chat.send">Send</button>
+            </form>
+            <div class="tile-match-actions" id="tile-match-actions">
+              <button type="button" id="btn-browse-together" class="dock-pill accent tight" hidden data-i18n="friends.browseTogether">Browse together</button>
+              <button type="button" id="btn-hangup-friend" class="dock-pill danger tight" hidden data-i18n="friends.hangup">Hang up</button>
+              <button type="button" id="btn-block" class="dock-pill danger tight" hidden data-i18n="friends.blockNext" title="Block — you will not match them again">Block</button>
+              <button type="button" id="btn-report-dock" class="dock-pill danger tight" hidden data-i18n="partnerMenu.reportNext" title="Report, block, and find someone else">Report · Next</button>
+              <button type="button" id="btn-find-third" class="dock-pill accent tight" hidden data-i18n="trio.invite" title="Find a third person together">Find 3rd</button>
+              <button type="button" id="btn-find-third-cancel" class="dock-pill ghost tight" hidden data-i18n="trio.cancel" title="Cancel invite">Cancel</button>
+              <button type="button" id="btn-spin" class="dock-pill ghost tight" hidden data-i18n="btn.spin">Spin</button>
+              <button type="button" id="btn-stop" class="dock-pill danger tight stop-in-tile" hidden data-i18n-title="btn.stopTitle" title="Stop searching / leave call" aria-label="Stop">
+                <span data-i18n="btn.stop">Stop</span>
+              </button>
+              <button type="button" id="btn-next" class="next-big next-in-tile next-in-tile-floor" hidden>
+                <svg class="icon icon-next" aria-hidden="true"><use href="#i-skip"/></svg>
+                <span data-i18n="btn.next">Next</span>
+              </button>
+            </div>
+            <button type="button" class="tile-dock-btn tile-dock-friends" id="btn-friends" data-i18n-title="friends.open" title="Friends" aria-label="Friends">
+              <svg class="icon" aria-hidden="true"><use href="#i-users"/></svg>
+              <span class="friends-badge" id="friends-badge" hidden>0</span>
+            </button>
+          </div>
+        </div>
+        <div class="tile-search-status" id="footer-search-status" hidden aria-live="polite">
+          <span class="footer-search-pill">
+            <span class="footer-search-dot" aria-hidden="true"></span>
+            <span id="footer-search-label" data-i18n="conn.searching">Searching for a partner…</span>
+          </span>
+        </div>
         <!-- Compact live chat on partner tile (also openable from Messages inbox) -->
         <aside class="chat-panel" id="chat-panel" hidden>
           <header class="chat-panel-head">
@@ -396,6 +458,7 @@
           </div>
           <div class="empty-title" data-i18n="local.emptyTitle">Your camera</div>
           <div class="empty-sub" id="local-empty-sub" data-i18n="local.emptySub">Allow camera &amp; mic when prompted</div>
+          <p class="local-cam-help" id="local-cam-help" hidden></p>
           <button type="button" class="enable-cam-btn" id="btn-enable-cam" hidden data-i18n="local.enableCam">
             Enable camera
           </button>
@@ -405,13 +468,7 @@
           <span class="name-on-tile" id="local-name">anon</span>
         </div>
         <aside class="side-rail side-rail-right">
-          <button type="button" class="side-btn" id="btn-mute-cam" data-i18n-title="btn.camTitle" title="Camera on/off (V)">
-            <span class="ico" id="ico-cam" aria-hidden="true">
-              <svg class="icon icon-on"><use href="#i-camera"/></svg>
-              <svg class="icon icon-off"><use href="#i-camera-off"/></svg>
-            </span>
-            <span class="lbl" data-i18n="btn.cam">Cam</span>
-          </button>
+          <!-- Cam on/off fully removed — use Hide (self-blur) for privacy; camera stays on for preview -->
           <button type="button" class="side-btn" id="btn-flip-cam" data-i18n-title="btn.flipCamTitle" title="Flip camera (C)" aria-label="Flip camera">
             <span class="ico" aria-hidden="true">
               <svg class="icon"><use href="#i-flip-cam"/></svg>
@@ -436,23 +493,26 @@
             </span>
             <span class="lbl" data-i18n="btn.selfBlur">Hide</span>
           </button>
+          <!-- Settings under Hide (user window) -->
+          <button type="button" class="side-btn side-btn-settings" id="btn-settings" data-i18n-title="btn.settingsTitle" title="Settings" aria-label="Settings">
+            <span class="ico" aria-hidden="true">
+              <svg class="icon"><use href="#i-settings"/></svg>
+            </span>
+            <span class="lbl" data-i18n="btn.settings">Settings</span>
+          </button>
         </aside>
-        <span class="self-blur-badge" id="self-blur-badge" hidden data-i18n="btn.selfBlurBadge">Hidden from them</span>
-      </section>
-    </main>
-
-    <!-- Full-width bottom bar: Friends + room/chat left · Spin/Stop/Next right -->
-    <footer class="stage-footer" id="stage-footer">
-      <div class="stage-footer-left">
-        <button type="button" class="dock-icon footer-friends" id="btn-friends" data-i18n-title="friends.open" title="Friends" aria-label="Friends">
-          <svg class="icon" aria-hidden="true"><use href="#i-users"/></svg>
-          <span class="friends-badge" id="friends-badge" hidden>0</span>
-        </button>
-        <button type="button" class="dock-icon" id="btn-messages" data-i18n-title="msg.open" title="Messages" aria-label="Messages">
-          <svg class="icon" aria-hidden="true"><use href="#i-mail"/></svg>
-          <span class="friends-badge msg-badge" id="messages-badge" hidden>0</span>
-        </button>
-        <!-- Private rooms: hidden while ROOMS_ENABLED=false in live.js -->
+        <!-- User floor tray: room share tools only when ROOMS_ENABLED (friend invite / Friend QR removed) -->
+        <div class="tile-floor tile-floor-local" id="tile-floor-local">
+          <div class="tile-tray tile-tray-local">
+            <div class="tile-local-invite" id="footer-invite" hidden>
+              <button type="button" class="dock-pill tight accent rooms-ui" id="btn-empty-share" data-i18n="remote.shareRoom" title="Share room" hidden>Share room</button>
+              <button type="button" class="dock-pill tight ghost rooms-ui" id="btn-empty-copy" data-i18n="remote.copyLink" title="Copy link" hidden>Copy link</button>
+              <button type="button" class="dock-pill tight ghost rooms-ui" id="btn-empty-qr" data-i18n="remote.showQr" title="Room QR" hidden>QR</button>
+              <div class="footer-invite-qr tile-invite-qr" id="empty-share-qr" hidden></div>
+            </div>
+          </div>
+        </div>
+        <!-- Hidden room field for JS (rooms off) — not shown in UI -->
         <div class="room-field room-in-tile rooms-ui" title="Optional private lobby" hidden>
           <span data-i18n="room.label">Room</span>
           <input id="room" type="text" maxlength="64" data-i18n-placeholder="room.placeholder" placeholder="public" autocomplete="off" spellcheck="false" aria-label="Room" />
@@ -460,51 +520,12 @@
             <svg class="icon icon-sm" aria-hidden="true"><use href="#i-share"/></svg>
           </button>
         </div>
-        <form class="bottom-chat dock-chat" id="compose">
-          <input id="msg" type="text" data-i18n-placeholder="chat.placeholder" placeholder="Say something…" autocomplete="off" inputmode="text" enterkeyhint="send" spellcheck="true" maxlength="500" />
-          <button type="submit" class="dock-pill" data-i18n="chat.send">Send</button>
-        </form>
-      </div>
-      <!-- Center: searching status after Start (was header conn-strip) -->
-      <div class="stage-footer-center" id="footer-search-status" hidden aria-live="polite">
-        <span class="footer-search-pill">
-          <span class="footer-search-dot" aria-hidden="true"></span>
-          <span id="footer-search-label" data-i18n="conn.searching">Searching for a partner…</span>
-        </span>
-      </div>
-      <div class="stage-footer-right">
-        <div class="dock-row dock-row-context footer-context">
-          <button type="button" id="btn-browse-together" class="dock-pill accent" hidden data-i18n="friends.browseTogether">Browse together</button>
-          <button type="button" id="btn-find-third" class="dock-pill accent" hidden data-i18n="trio.invite" title="Find a third person together">Find 3rd</button>
-          <button type="button" id="btn-find-third-cancel" class="dock-pill ghost" hidden data-i18n="trio.cancel" title="Cancel invite">Cancel</button>
-          <button type="button" id="btn-hangup-friend" class="dock-pill danger" hidden data-i18n="friends.hangup">Hang up</button>
-          <button type="button" id="btn-block" class="dock-pill danger" hidden data-i18n="friends.blockNext" title="Block — you will not match them again">Block</button>
-          <button type="button" id="btn-report-dock" class="dock-pill danger" hidden data-i18n="partnerMenu.reportNext" title="Report, block, and find someone else">Report · Next</button>
-        </div>
-        <!-- Desktop invite while idle/searching (before Spin). Room buttons hidden while ROOMS_ENABLED=false -->
-        <div class="dock-row footer-invite" id="footer-invite" hidden>
-          <button type="button" class="dock-pill tight accent rooms-ui" id="btn-empty-share" data-i18n="remote.shareRoom" title="Share room" hidden>Share room</button>
-          <button type="button" class="dock-pill tight ghost rooms-ui" id="btn-empty-copy" data-i18n="remote.copyLink" title="Copy link" hidden>Copy link</button>
-          <button type="button" class="dock-pill tight ghost rooms-ui" id="btn-empty-qr" data-i18n="remote.showQr" title="Room QR" hidden>QR</button>
-          <button type="button" class="dock-pill tight accent" id="btn-empty-friend-invite" data-i18n="remote.inviteFriend" title="Invite friend">Invite friend</button>
-          <button type="button" class="dock-pill tight ghost" id="btn-empty-friend-qr" data-i18n="remote.friendQr" title="Friend QR">Friend QR</button>
-          <div class="footer-invite-qr" id="empty-share-qr" hidden></div>
-        </div>
-        <div class="dock-row dock-row-main footer-match">
-          <button type="button" id="btn-spin" class="dock-pill ghost" data-i18n="btn.spin">Spin</button>
-          <button type="button" id="btn-stop" class="dock-pill danger stop-in-tile" data-i18n-title="btn.stopTitle" title="Stop searching / leave call" aria-label="Stop">
-            <span data-i18n="btn.stop">Stop</span>
-          </button>
-          <button type="button" id="btn-next" class="next-big next-in-tile">
-            <svg class="icon icon-next" aria-hidden="true"><use href="#i-skip"/></svg>
-            <span data-i18n="btn.next">Next</span>
-          </button>
-        </div>
-        <button type="button" class="dock-icon dock-settings" id="btn-settings" data-i18n-title="btn.settingsTitle" title="Settings" aria-label="Settings">
-          <svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg>
-        </button>
-      </div>
-    </footer>
+        <span class="self-blur-badge" id="self-blur-badge" hidden data-i18n="btn.selfBlurBadge">Hidden from them</span>
+      </section>
+    </main>
+
+    <!-- Footer removed — controls live inside camera tiles -->
+    <footer class="stage-footer stage-footer-removed" id="stage-footer" hidden aria-hidden="true"></footer>
 
   </div>
 
@@ -531,7 +552,6 @@
         <li><kbd>Space</kbd> <span data-i18n="keys.next">Next partner</span></li>
         <li><kbd>S</kbd> <span data-i18n="keys.stop">Stop (leave queue / idle)</span></li>
         <li><kbd>M</kbd> <span data-i18n="keys.mic">Mute mic</span></li>
-        <li><kbd>V</kbd> <span data-i18n="keys.cam">Camera on/off</span></li>
         <li><kbd>C</kbd> <span data-i18n="keys.flip">Flip camera</span></li>
         <li><kbd>P</kbd> <span data-i18n="keys.partner">Mute partner</span></li>
         <li><kbd>B</kbd> <span data-i18n="keys.blur">Blur partner</span></li>
@@ -688,8 +708,11 @@
   <div class="partner-menu-backdrop" id="partner-menu-backdrop" hidden></div>
   <div class="partner-menu" id="partner-menu" hidden role="dialog" aria-modal="true" aria-labelledby="partner-menu-title">
     <div class="partner-menu-head">
-      <strong id="partner-menu-title" data-i18n="partnerMenu.title">Partner</strong>
-      <span class="partner-menu-name" id="partner-menu-name"></span>
+      <div class="partner-menu-head-text">
+        <strong id="partner-menu-title" data-i18n="partnerMenu.title">Partner</strong>
+        <span class="partner-menu-name" id="partner-menu-name"></span>
+      </div>
+      <button type="button" class="partner-menu-close" id="btn-partner-menu-close" aria-label="Close" data-i18n-aria="partnerMenu.close" title="Close">×</button>
     </div>
     <div class="partner-menu-actions" id="partner-menu-main">
       <button type="button" class="partner-menu-btn accent" id="btn-partner-find-third" hidden>
@@ -731,8 +754,9 @@
       <div class="age-gate-visual" aria-hidden="true">
         <img class="age-gate-logo" src="/brand/logo-mark.png" width="96" height="96" alt="" />
       </div>
+      <p class="age-gate-kicker" data-i18n="rules.ageGateKicker">18+ only · adult video chat</p>
       <h1 id="age-gate-title" class="age-gate-title" data-i18n="rules.ageGateTitle">Are you 18 or older?</h1>
-      <p class="age-gate-sub" data-i18n="rules.ageGateSub">You must be at least 18 years old to use ruletka.</p>
+      <p class="age-gate-sub" data-i18n="rules.ageGateSub">You must be at least 18 years old to use ruletka. No minors — ever.</p>
       <div class="age-gate-actions">
         <button type="button" class="age-gate-btn primary" id="btn-age-yes" data-i18n="rules.ageYes">
           Yes, I'm 18 or older
@@ -1073,66 +1097,189 @@
         <span class="sheet-nav-spacer"></span>
       </header>
       <div class="sheet-body settings-body">
-        <div class="settings-group">
-          <a class="settings-row" href="mailto:support@ruletka.vip">
-            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-mail"/></svg></span><span data-i18n="settings.contact">Contact us</span></span>
-            <span class="chev">›</span>
-          </a>
-          <a class="settings-row" href="/legal/privacy.html" target="_blank" rel="noopener">
-            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-lock"/></svg></span><span data-i18n="settings.privacy">Privacy policy</span></span>
-            <span class="chev">›</span>
-          </a>
-          <a class="settings-row" href="/legal/terms.html" target="_blank" rel="noopener">
-            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-file"/></svg></span><span data-i18n="settings.terms">Terms of service</span></span>
-            <span class="chev">›</span>
-          </a>
-          <a class="settings-row" href="/safety.html" target="_blank" rel="noopener">
-            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-flag"/></svg></span><span data-i18n="settings.safetyPage">Safety &amp; reports</span></span>
-            <span class="chev">›</span>
-          </a>
-          <a class="settings-row" href="/legal/community.html" target="_blank" rel="noopener">
-            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-users"/></svg></span><span data-i18n="settings.community">Community guidelines</span></span>
-            <span class="chev">›</span>
-          </a>
-          <a class="settings-row" href="/legal/eula.html" target="_blank" rel="noopener">
-            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-file"/></svg></span><span data-i18n="settings.eula">EULA</span></span>
-            <span class="chev">›</span>
-          </a>
-          <a class="settings-row" href="https://github.com/scriptier/ruletka" target="_blank" rel="noopener">
-            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-share"/></svg></span><span data-i18n="settings.source">Source code (GitHub)</span></span>
-            <span class="chev">›</span>
-          </a>
-          <a class="settings-row" href="https://github.com/scriptier/ruletka/blob/main/docs/DECENTRALIZATION.md" target="_blank" rel="noopener">
-            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-globe"/></svg></span><span data-i18n="settings.decentralDocs">Multi-hub &amp; decentralization</span></span>
-            <span class="chev">›</span>
-          </a>
-          <a class="settings-row" href="/source.json" target="_blank" rel="noopener">
-            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-file"/></svg></span><span data-i18n="settings.license">License · LGPL-2.1</span></span>
-            <span class="chev">›</span>
-          </a>
+        <!-- About hero -->
+        <div class="about-hero" id="about-hero">
+          <img class="about-hero-logo" src="/brand/logo-mark.png" width="48" height="48" alt="" />
+          <div class="about-hero-text">
+            <div class="about-hero-name" data-i18n="brand.name">ruletka.vip</div>
+            <div class="about-hero-tag" data-i18n="settings.aboutTag">P2P video · 18+ · no classic account</div>
+            <div class="about-hero-meta">
+              <span class="about-meta-chip" id="about-version" title="Client">—</span>
+              <span class="about-meta-chip" id="about-hub" title="Match hub" hidden></span>
+            </div>
+          </div>
         </div>
-        <p class="settings-section-label" data-i18n="settings.secProfileData">Profile transfer</p>
-        <p class="hint-inline profile-export-callout" data-i18n="settings.profileHintStrong">
-          <strong>Export a backup</strong> before clearing browser data, switching devices, or private mode — friends live under your identity on the hub and won’t appear on a fresh browser without import.
-        </p>
-        <p class="hint-inline" data-i18n="settings.profileHint">
-          Each browser is a separate identity until you export/import. Friends are stored on the hub under your user id — import restores the same id so friends come back on this hub.
+
+        <p class="settings-section-label" data-i18n="settings.secYourData">Your data</p>
+        <p class="hint-inline profile-export-callout" data-i18n-html="settings.profileHintStrong">
+          <strong>Export a backup</strong> before clearing browser data, switching devices, or private mode — friends live under your identity on the hub.
         </p>
         <div class="settings-group">
-          <button type="button" class="settings-row settings-row-accent" id="btn-export-profile">
-            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-share"/></svg></span><span data-i18n="settings.exportProfile">Export profile file</span></span>
+          <button type="button" class="settings-row settings-row-accent settings-row-multi" id="btn-export-profile">
+            <span class="row-left">
+              <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-share"/></svg></span>
+              <span class="settings-row-copy">
+                <span class="settings-row-title" data-i18n="settings.exportProfile">Export profile file</span>
+                <span class="settings-row-sub" data-i18n="settings.exportProfileSub">Move friends &amp; identity to another browser</span>
+              </span>
+            </span>
             <span class="chev">›</span>
           </button>
-          <button type="button" class="settings-row" id="btn-import-profile">
-            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-file"/></svg></span><span data-i18n="settings.importProfile">Import profile file</span></span>
+          <button type="button" class="settings-row settings-row-multi" id="btn-import-profile">
+            <span class="row-left">
+              <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-file"/></svg></span>
+              <span class="settings-row-copy">
+                <span class="settings-row-title" data-i18n="settings.importProfile">Import profile file</span>
+                <span class="settings-row-sub" data-i18n="settings.importProfileSub">Restore a backup on this device</span>
+              </span>
+            </span>
             <span class="chev">›</span>
           </button>
           <input type="file" id="import-profile-file" accept="application/json,.json" hidden />
         </div>
-        <p class="settings-section-label" data-i18n="settings.secOther">Data</p>
+        <p class="hint-inline" data-i18n="settings.profileHint">
+          Each browser is a separate identity until you export/import. Friends are stored on the hub under your user id.
+        </p>
+
+        <p class="settings-section-label" data-i18n="settings.secLegal">Legal</p>
         <div class="settings-group">
-          <button type="button" class="settings-row settings-row-danger" id="btn-clear-local">
-            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-trash"/></svg></span><span data-i18n="settings.clearData">Clear local data</span></span>
+          <a class="settings-row settings-row-multi settings-row-ext" href="/legal/privacy.html" target="_blank" rel="noopener">
+            <span class="row-left">
+              <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-lock"/></svg></span>
+              <span class="settings-row-copy">
+                <span class="settings-row-title" data-i18n="settings.privacy">Privacy policy</span>
+                <span class="settings-row-sub" data-i18n="settings.privacySub">What we process · P2P · retention</span>
+              </span>
+            </span>
+            <span class="row-ext" aria-hidden="true">↗</span>
+          </a>
+          <a class="settings-row settings-row-multi settings-row-ext" href="/legal/terms.html" target="_blank" rel="noopener">
+            <span class="row-left">
+              <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-file"/></svg></span>
+              <span class="settings-row-copy">
+                <span class="settings-row-title" data-i18n="settings.terms">Terms of service</span>
+                <span class="settings-row-sub" data-i18n="settings.termsSub">18+ · rules · liability</span>
+              </span>
+            </span>
+            <span class="row-ext" aria-hidden="true">↗</span>
+          </a>
+          <a class="settings-row settings-row-multi settings-row-ext" href="/safety.html" target="_blank" rel="noopener">
+            <span class="row-left">
+              <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-flag"/></svg></span>
+              <span class="settings-row-copy">
+                <span class="settings-row-title" data-i18n="settings.safetyPage">Safety &amp; reports</span>
+                <span class="settings-row-sub" data-i18n="settings.safetyPageSub">Block, report, on-device tools</span>
+              </span>
+            </span>
+            <span class="row-ext" aria-hidden="true">↗</span>
+          </a>
+          <a class="settings-row settings-row-multi settings-row-ext" href="/legal/" target="_blank" rel="noopener">
+            <span class="row-left">
+              <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-file"/></svg></span>
+              <span class="settings-row-copy">
+                <span class="settings-row-title" data-i18n="nav.legal">Legal</span>
+                <span class="settings-row-sub" data-i18n="settings.legalHubSub">All policies in one place</span>
+              </span>
+            </span>
+            <span class="row-ext" aria-hidden="true">↗</span>
+          </a>
+        </div>
+        <details class="settings-more-legal">
+          <summary data-i18n="settings.legalMore">More legal &amp; license</summary>
+          <div class="settings-group">
+            <a class="settings-row settings-row-ext" href="/legal/community.html" target="_blank" rel="noopener">
+              <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-users"/></svg></span><span data-i18n="settings.community">Community guidelines</span></span>
+              <span class="row-ext" aria-hidden="true">↗</span>
+            </a>
+            <a class="settings-row settings-row-ext" href="/legal/eula.html" target="_blank" rel="noopener">
+              <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-file"/></svg></span><span data-i18n="settings.eula">EULA</span></span>
+              <span class="row-ext" aria-hidden="true">↗</span>
+            </a>
+            <a class="settings-row settings-row-ext" href="/source.json" target="_blank" rel="noopener">
+              <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-file"/></svg></span><span data-i18n="settings.license">License · LGPL-2.1</span></span>
+              <span class="row-ext" aria-hidden="true">↗</span>
+            </a>
+          </div>
+        </details>
+
+        <p class="settings-section-label" data-i18n="settings.secSupport">Support</p>
+        <div class="settings-group">
+          <a class="settings-row settings-row-multi" href="mailto:support@ruletka.vip">
+            <span class="row-left">
+              <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-mail"/></svg></span>
+              <span class="settings-row-copy">
+                <span class="settings-row-title" data-i18n="settings.contact">Contact us</span>
+                <span class="settings-row-sub">support@ruletka.vip</span>
+              </span>
+            </span>
+            <span class="chev">›</span>
+          </a>
+          <a class="settings-row settings-row-multi" href="mailto:privacy@ruletka.vip">
+            <span class="row-left">
+              <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-lock"/></svg></span>
+              <span class="settings-row-copy">
+                <span class="settings-row-title" data-i18n="settings.contactPrivacy">Privacy contact</span>
+                <span class="settings-row-sub">privacy@ruletka.vip</span>
+              </span>
+            </span>
+            <span class="chev">›</span>
+          </a>
+          <button type="button" class="settings-row settings-row-multi" id="btn-about-keys">
+            <span class="row-left">
+              <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-settings"/></svg></span>
+              <span class="settings-row-copy">
+                <span class="settings-row-title" data-i18n="settings.keyboardHelp">Keyboard shortcuts</span>
+                <span class="settings-row-sub" data-i18n="settings.keyboardHelpSub">Press ? anytime</span>
+              </span>
+            </span>
+            <span class="chev">›</span>
+          </button>
+          <a class="settings-row settings-row-multi settings-row-ext" href="/donate.html" target="_blank" rel="noopener">
+            <span class="row-left">
+              <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-share"/></svg></span>
+              <span class="settings-row-copy">
+                <span class="settings-row-title" data-i18n="nav.donate">Donate</span>
+                <span class="settings-row-sub" data-i18n="settings.donateSub">Optional · chat stays free</span>
+              </span>
+            </span>
+            <span class="row-ext" aria-hidden="true">↗</span>
+          </a>
+        </div>
+
+        <p class="settings-section-label" data-i18n="settings.secOpenSource">Open source</p>
+        <div class="settings-group">
+          <a class="settings-row settings-row-multi settings-row-ext" href="https://github.com/scriptier/ruletka" target="_blank" rel="noopener">
+            <span class="row-left">
+              <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-share"/></svg></span>
+              <span class="settings-row-copy">
+                <span class="settings-row-title" data-i18n="settings.source">Source code (GitHub)</span>
+                <span class="settings-row-sub" data-i18n="settings.sourceSub">LGPL-2.1 · run your own hub</span>
+              </span>
+            </span>
+            <span class="row-ext" aria-hidden="true">↗</span>
+          </a>
+          <a class="settings-row settings-row-multi settings-row-ext" href="https://github.com/scriptier/ruletka/blob/main/docs/DECENTRALIZATION.md" target="_blank" rel="noopener">
+            <span class="row-left">
+              <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-globe"/></svg></span>
+              <span class="settings-row-copy">
+                <span class="settings-row-title" data-i18n="settings.decentralDocs">Multi-hub &amp; decentralization</span>
+                <span class="settings-row-sub" data-i18n="settings.decentralDocsSub">How hubs and mesh matching work</span>
+              </span>
+            </span>
+            <span class="row-ext" aria-hidden="true">↗</span>
+          </a>
+        </div>
+
+        <p class="settings-section-label settings-section-danger" data-i18n="settings.secDanger">Danger zone</p>
+        <div class="settings-group settings-group-danger">
+          <button type="button" class="settings-row settings-row-danger settings-row-multi" id="btn-clear-local">
+            <span class="row-left">
+              <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-trash"/></svg></span>
+              <span class="settings-row-copy">
+                <span class="settings-row-title" data-i18n="settings.clearData">Clear local data</span>
+                <span class="settings-row-sub" data-i18n="settings.clearDataSub">Removes prefs &amp; local identity on this device</span>
+              </span>
+            </span>
             <span class="chev">›</span>
           </button>
         </div>
@@ -1302,39 +1449,56 @@
         <p class="hint-inline" data-i18n="settings.themeHint">
           Choose how the chat looks. Theme is saved on this device.
         </p>
-        <div class="settings-group theme-choice-list">
-          <button type="button" class="settings-row settings-choice theme-pick" data-theme-pick="dark">
-            <span class="row-left">
-              <span class="theme-swatch theme-swatch-dark" aria-hidden="true"></span>
-              <span class="row-ico theme-icon-fixed" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-moon"/></svg></span>
-              <span class="theme-pick-copy">
-                <span class="theme-pick-title" data-i18n="settings.themeDark">Dark</span>
-                <span class="theme-pick-sub" data-i18n="settings.themeDarkSub">Night chrome · default</span>
-              </span>
+        <div class="theme-choice-grid theme-choice-list">
+          <button type="button" class="theme-card theme-pick settings-choice" data-theme-pick="dark">
+            <span class="theme-card-preview theme-swatch-dark" aria-hidden="true">
+              <span class="theme-card-ui"></span>
+            </span>
+            <span class="theme-card-body">
+              <span class="theme-pick-title" data-i18n="settings.themeDark">Dark</span>
+              <span class="theme-pick-sub" data-i18n="settings.themeDarkSub">Night chrome · default</span>
             </span>
             <span class="choice-check" data-check-theme="dark">✓</span>
           </button>
-          <button type="button" class="settings-row settings-choice theme-pick" data-theme-pick="light">
-            <span class="row-left">
-              <span class="theme-swatch theme-swatch-light" aria-hidden="true"></span>
-              <span class="row-ico theme-icon-fixed" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-sun"/></svg></span>
-              <span class="theme-pick-copy">
-                <span class="theme-pick-title" data-i18n="settings.themeLight">Light</span>
-                <span class="theme-pick-sub" data-i18n="settings.themeLightSub">Bright panels · soft gray</span>
-              </span>
+          <button type="button" class="theme-card theme-pick settings-choice" data-theme-pick="light">
+            <span class="theme-card-preview theme-swatch-light" aria-hidden="true">
+              <span class="theme-card-ui"></span>
+            </span>
+            <span class="theme-card-body">
+              <span class="theme-pick-title" data-i18n="settings.themeLight">Light</span>
+              <span class="theme-pick-sub" data-i18n="settings.themeLightSub">Soft cream · rose accents</span>
             </span>
             <span class="choice-check" data-check-theme="light">✓</span>
           </button>
-          <button type="button" class="settings-row settings-choice theme-pick" data-theme-pick="saloon">
-            <span class="row-left">
-              <span class="theme-swatch theme-swatch-saloon" aria-hidden="true"></span>
-              <span class="row-ico theme-icon-fixed" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-star"/></svg></span>
-              <span class="theme-pick-copy">
-                <span class="theme-pick-title" data-i18n="settings.themeSaloon">Saloon</span>
-                <span class="theme-pick-sub" data-i18n="settings.themeSaloonSub">Western · gold &amp; leather</span>
-              </span>
+          <button type="button" class="theme-card theme-pick settings-choice" data-theme-pick="saloon">
+            <span class="theme-card-preview theme-swatch-saloon" aria-hidden="true">
+              <span class="theme-card-ui"></span>
+            </span>
+            <span class="theme-card-body">
+              <span class="theme-pick-title" data-i18n="settings.themeSaloon">Saloon</span>
+              <span class="theme-pick-sub" data-i18n="settings.themeSaloonSub">Western · gold &amp; leather</span>
             </span>
             <span class="choice-check" data-check-theme="saloon">✓</span>
+          </button>
+          <button type="button" class="theme-card theme-pick settings-choice" data-theme-pick="matrix">
+            <span class="theme-card-preview theme-swatch-matrix" aria-hidden="true">
+              <span class="theme-card-ui"></span>
+            </span>
+            <span class="theme-card-body">
+              <span class="theme-pick-title" data-i18n="settings.themeMatrix">Matrix</span>
+              <span class="theme-pick-sub" data-i18n="settings.themeMatrixSub">Black · phosphor green</span>
+            </span>
+            <span class="choice-check" data-check-theme="matrix">✓</span>
+          </button>
+          <button type="button" class="theme-card theme-pick settings-choice" data-theme-pick="pink">
+            <span class="theme-card-preview theme-swatch-pink" aria-hidden="true">
+              <span class="theme-card-ui"></span>
+            </span>
+            <span class="theme-card-body">
+              <span class="theme-pick-title" data-i18n="settings.themePink">Pink</span>
+              <span class="theme-pick-sub" data-i18n="settings.themePinkSub">Blush · rose glow</span>
+            </span>
+            <span class="choice-check" data-check-theme="pink">✓</span>
           </button>
         </div>
       </div>
@@ -1396,14 +1560,14 @@
 
   <!-- cache-bust so browsers always get auto-connect / auto-media fixes -->
   <script src="analytics.js?v=2" defer></script>
-  <script src="pwa-install.js?v=5" defer></script>
+  <script src="pwa-install.js?v=6" defer></script>
   <script src="qrcode-generator.js?v=1"></script>
   <script src="qr.js?v=1"></script>
-  <script src="i18n.js?v=150"></script>
-  <script src="identity.js?v=150"></script>
-  <script src="hubs.js?v=150"></script>
-  <script src="webrtc.js?v=150"></script>
-  <script src="live.js?v=150"></script>
+  <script src="i18n.js?v=159"></script>
+  <script src="identity.js?v=156"></script>
+  <script src="hubs.js?v=156"></script>
+  <script src="webrtc.js?v=156"></script>
+  <script src="live.js?v=179"></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

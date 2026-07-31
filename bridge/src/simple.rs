@@ -160,6 +160,12 @@ pub struct DayMetrics {
     pub alone_joins: u64,
     pub peak_online: u64,
     pub peak_waiting: u64,
+    /// Sum of completed stranger match durations (seconds) for avg length.
+    #[serde(default)]
+    pub match_seconds: u64,
+    /// Count of match durations recorded (for average).
+    #[serde(default)]
+    pub match_duration_n: u64,
 }
 
 pub struct SimpleHub {
@@ -895,8 +901,19 @@ impl SimpleHub {
             }
         }
         history.reverse();
+        let joins = self.metrics.queue_joins.max(1);
+        let alone_pct = ((self.metrics.alone_joins as f64 / joins as f64) * 1000.0).round() / 10.0;
+        let avg_match_sec = if self.metrics.match_duration_n > 0 {
+            (self.metrics.match_seconds / self.metrics.match_duration_n) as u64
+        } else {
+            0
+        };
         serde_json::json!({
             "today": self.metrics,
+            "today_extras": {
+                "alone_pct": alone_pct,
+                "avg_match_sec": avg_match_sec,
+            },
             "history": history,
             "path": path.display().to_string(),
         })

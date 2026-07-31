@@ -255,3 +255,211 @@ html {
   max-width: 9.5rem;
 }
 
+
+/* —— Visual polish v5: wider privacy, summary, hub grid, tables —— */
+.legal-wrap-wide {
+  max-width: 48rem;
+}
+
+.legal-card {
+  border-radius: 22px;
+  box-shadow:
+    0 20px 56px rgba(0, 0, 0, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.legal-summary {
+  margin: 0 0 1.15rem;
+  padding: 0.95rem 1rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background:
+    radial-gradient(ellipse 80% 100% at 0% 0%, rgba(255, 45, 85, 0.08), transparent 55%),
+    rgba(0, 0, 0, 0.22);
+}
+.legal-summary .legal-summary-grid {
+  display: grid;
+  gap: 0.85rem 1.25rem;
+}
+@media (min-width: 560px) {
+  .legal-summary .legal-summary-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.legal-summary h3 {
+  margin: 0 0 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.legal-summary ul {
+  margin: 0;
+  padding-left: 1.05rem;
+}
+.legal-summary li {
+  margin-bottom: 0.28rem;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.legal-summary li strong {
+  color: var(--text);
+}
+
+.legal-table-wrap {
+  overflow-x: auto;
+  margin: 0.65rem 0 1.1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.2);
+}
+.legal-table-wrap .legal-table {
+  margin: 0;
+  min-width: 36rem;
+}
+.legal-table th {
+  background: rgba(255, 255, 255, 0.03);
+  position: sticky;
+  top: 0;
+}
+.legal-table tr:last-child td {
+  border-bottom: none;
+}
+.legal-table td:first-child {
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.legal-lang-note {
+  margin: 1.25rem 0 0 !important;
+  padding: 0.65rem 0.85rem;
+  border-radius: 12px;
+  font-size: 0.8rem !important;
+  color: var(--muted) !important;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.legal-hub-grid {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0 0.5rem;
+}
+@media (min-width: 560px) {
+  .legal-hub-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.legal-hub-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1rem 1.05rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.05), rgba(10, 14, 22, 0.4));
+  text-decoration: none !important;
+  border-bottom: none !important;
+  transition: transform 0.12s ease, border-color 0.12s, box-shadow 0.12s;
+  color: inherit !important;
+}
+.legal-hub-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 107, 53, 0.35) !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  color: inherit !important;
+}
+.legal-hub-kicker {
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #ff9a8b;
+}
+.legal-hub-card strong {
+  font-size: 1.02rem;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  color: var(--text) !important;
+  border: none !important;
+}
+.legal-hub-card span:last-child {
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: var(--muted) !important;
+  font-weight: 500;
+}
+
+.legal-card h2 {
+  padding-top: 0.15rem;
+  border-top: 1px solid transparent;
+}
+.legal-card h2:not(:first-of-type) {
+  margin-top: 1.65rem;
+}
+
+/* Secondary pages glass polish (donate / safety) */
+.donate-card {
+  border-radius: 18px !important;
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.05), rgba(10, 14, 22, 0.45)) !important;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.28);
+  transition: transform 0.12s ease, border-color 0.12s, box-shadow 0.12s;
+}
+.donate-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.32);
+}
+.donate-addr {
+  border-radius: 12px !important;
+  background: rgba(0, 0, 0, 0.28) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+.donate-actions button.primary,
+.donate-actions a.donate-btn.primary {
+  box-shadow: 0 6px 18px rgba(255, 45, 85, 0.3);
+  font-weight: 750 !important;
+}
+.donate-lead {
+  font-size: 0.95rem !important;
+  line-height: 1.55 !important;
+}
+.donate-note {
+  border-radius: 14px !important;
+}
+.legal-card .legal-pill-row {
+  margin-bottom: 1.15rem;
+}
+/* Safety feature list cards if present */
+.safety-steps,
+.safety-list {
+  display: grid;
+  gap: 0.65rem;
+}
+.safety-steps > li,
+.safety-list > li,
+.legal-card > ul.safety-cards > li {
+  border-radius: 14px;
+  padding: 0.75rem 0.9rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+/* thin scrollbars on legal pages */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}
+html::-webkit-scrollbar { width: 8px; }
+html::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+}
+.legal-table-wrap {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}

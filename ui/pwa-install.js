@@ -125,6 +125,7 @@
     );
     banner.innerHTML =
       '<div class="pwa-install-inner">' +
+      '<span class="pwa-install-bar" aria-hidden="true"></span>' +
       '<img class="pwa-install-icon" src="/brand/icon-192.png" width="40" height="40" alt="" />' +
       '<div class="pwa-install-copy">' +
       "<strong>" +
@@ -186,6 +187,7 @@
     }
     banner.innerHTML =
       '<div class="pwa-install-inner">' +
+      '<span class="pwa-install-bar" aria-hidden="true"></span>' +
       '<img class="pwa-install-icon" src="/brand/icon-192.png" width="40" height="40" alt="" />' +
       '<div class="pwa-install-copy">' +
       "<strong>" +

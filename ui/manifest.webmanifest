@@ -2,16 +2,19 @@
   "id": "/",
   "name": "ruletka.vip",
   "short_name": "ruletka",
-  "description": "Random peer-to-peer video chat roulette. No account. Friends, block, report.",
+  "description": "Random peer-to-peer video chat. No account. Friends, block, report. 18+.",
   "start_url": "/live.html?source=pwa",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#0a0b0e",
-  "theme_color": "#0a0b0e",
+  "background_color": "#07080c",
+  "theme_color": "#07080c",
   "lang": "en",
   "dir": "ltr",
-  "categories": ["social", "entertainment"],
+  "categories": [
+    "social",
+    "entertainment"
+  ],
   "prefer_related_applications": false,
   "icons": [
     {

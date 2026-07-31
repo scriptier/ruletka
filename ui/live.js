@@ -5,7 +5,8 @@ const PREFS_KEY = "freenet-roulette-media-prefs-v1";
 
 /**
  * Private rooms (codes, share room, room QR, ?room= deep-links).
- * Off while the public pool is small — flip to true to restore fully.
+ * Off while the public pool is small — invite-friend path still works.
+ * Flip to true when enough concurrent users to support private lobbies.
  */
 const ROOMS_ENABLED = false;
 
@@ -109,13 +110,16 @@ function savePrefs(partial) {
   localStorage.setItem(PREFS_KEY, JSON.stringify({ ...loadPrefs(), ...partial }));
 }
 
-/** @typedef {"dark"|"light"|"saloon"} UiTheme */
-const THEME_IDS = ["dark", "light", "saloon"];
+/** @typedef {"dark"|"light"|"saloon"|"matrix"|"pink"} UiTheme */
+const THEME_IDS = ["dark", "light", "saloon", "matrix", "pink"];
 const THEME_META = {
   dark: { color: "#0a0b0e", labelKey: "settings.themeDark", fallback: "Dark" },
-  light: { color: "#f4f6fa", labelKey: "settings.themeLight", fallback: "Light" },
+  light: { color: "#faf7f5", labelKey: "settings.themeLight", fallback: "Light" },
   saloon: { color: "#1a1008", labelKey: "settings.themeSaloon", fallback: "Saloon" },
+  matrix: { color: "#020402", labelKey: "settings.themeMatrix", fallback: "Matrix" },
+  pink: { color: "#fff0f5", labelKey: "settings.themePink", fallback: "Pink" },
 };
+const LIGHT_THEMES = new Set(["light", "pink"]);
 /** Default chrome icons → saloon western set */
 const THEME_ICON_REMAP = {
   saloon: {
@@ -188,7 +192,7 @@ function applyThemeIcons(theme) {
 function applyTheme(theme, { persist = true } = {}) {
   const id = normalizeTheme(theme);
   document.documentElement.setAttribute("data-theme", id);
-  document.documentElement.style.colorScheme = id === "light" ? "light" : "dark";
+  document.documentElement.style.colorScheme = LIGHT_THEMES.has(id) ? "light" : "dark";
   const meta = document.getElementById("meta-theme-color");
   if (meta) meta.setAttribute("content", THEME_META[id].color);
   applyThemeIcons(id);
@@ -201,7 +205,15 @@ function applyTheme(theme, { persist = true } = {}) {
   const rowIco = document.querySelector('[data-settings-open="theme"] .row-ico use');
   if (rowIco) {
     const ico =
-      id === "light" ? "#i-sun" : id === "saloon" ? "#i-star" : "#i-moon";
+      id === "light"
+        ? "#i-sun"
+        : id === "saloon"
+          ? "#i-star"
+          : id === "matrix"
+            ? "#i-matrix"
+            : id === "pink"
+              ? "#i-heart"
+              : "#i-moon";
     rowIco.setAttribute("href", ico);
   }
 }
@@ -548,9 +560,23 @@ function formatNameWithFlag(name, flag) {
   return em ? `${em} ${n}` : n;
 }
 
+/** Put name + larger flag emoji into a .name-on-tile (or similar) element. */
+function setNameOnTile(el, name, flag) {
+  if (!el) return;
+  const n = (name || "anon").trim() || "anon";
+  const em = flagEmoji(flag);
+  if (em) {
+    el.innerHTML = `<span class="name-flag" aria-hidden="true">${em}</span><span class="name-text"></span>`;
+    const t = el.querySelector(".name-text");
+    if (t) t.textContent = n;
+  } else {
+    el.textContent = n;
+  }
+}
+
 function refreshLocalNameChip() {
   const tile = $("local-name");
-  if (tile) tile.textContent = formatNameWithFlag(getDisplayName(), getFlag());
+  if (tile) setNameOnTile(tile, getDisplayName(), getFlag());
   syncFlagSettingsSummary();
 }
 
@@ -1124,10 +1150,76 @@ function log(line, cls = "sys") {
   }
 }
 
-function showChatPanel(show) {
+/** Auto-hide the on-tile chat panel after idle (new messages re-open + reset). */
+let chatPanelHideTimer = 0;
+let chatPanelSticky = false;
+const CHAT_PANEL_AUTO_HIDE_MS = 5000;
+
+function showChatPanel(show, opts = {}) {
   const panel = $("chat-panel");
   if (!panel) return;
-  panel.hidden = !show;
+  if (chatPanelHideTimer) {
+    clearTimeout(chatPanelHideTimer);
+    chatPanelHideTimer = 0;
+  }
+  if (!show) {
+    chatPanelSticky = false;
+    panel.classList.remove("is-pinned");
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+  // Sticky = stay open until user closes (tap panel / pin)
+  if (opts.sticky) {
+    chatPanelSticky = true;
+    panel.classList.add("is-pinned");
+  }
+  if (chatPanelSticky || opts.sticky) return;
+
+  const armHide = () => {
+    if (chatPanelSticky) return;
+    if (chatPanelHideTimer) clearTimeout(chatPanelHideTimer);
+    chatPanelHideTimer = setTimeout(() => {
+      chatPanelHideTimer = 0;
+      if (chatPanelSticky) return;
+      try {
+        if (panel.matches(":hover")) {
+          armHide();
+          return;
+        }
+      } catch (_) {}
+      panel.hidden = true;
+    }, CHAT_PANEL_AUTO_HIDE_MS);
+  };
+  armHide();
+  // One-shot: hover pauses hide; click/tap pins open for reading
+  if (!panel.dataset.autoHideBound) {
+    panel.dataset.autoHideBound = "1";
+    panel.addEventListener("mouseenter", () => {
+      if (chatPanelHideTimer) {
+        clearTimeout(chatPanelHideTimer);
+        chatPanelHideTimer = 0;
+      }
+    });
+    panel.addEventListener("mouseleave", () => {
+      if (!panel.hidden && !chatPanelSticky) armHide();
+    });
+    panel.addEventListener("pointerdown", (e) => {
+      // Close button should still close
+      if (e.target?.closest?.("#btn-clear-chat, .chat-clear, .sheet-close")) {
+        return;
+      }
+      // Any interaction pins the panel so messages stay readable
+      if (!panel.hidden) {
+        chatPanelSticky = true;
+        panel.classList.add("is-pinned");
+        if (chatPanelHideTimer) {
+          clearTimeout(chatPanelHideTimer);
+          chatPanelHideTimer = 0;
+        }
+      }
+    });
+  }
 }
 
 function loadChatThreads() {
@@ -1540,10 +1632,16 @@ function maybeShowMatchPathSummary(reason) {
 function maybeShowPostMatchFriendNudge(reason) {
   try {
     if (matchMode === "friend" || inFriendCall) return;
+    // Snapshot before any tear-down clears partner fields
     const code = lastMatchMeta?.friend_code || "";
     const uid = primaryPartnerUserId || lastMatchMeta?.user_id || "";
-    if (!code || !uid) return;
-    if (isPartnerAlreadyFriend(uid) || isPartnerRequestPending(uid)) return;
+    // Need a way to send the request
+    if (!code && !uid) return;
+    // Already friends (or request in flight) — never ask again
+    if (isPartnerAlreadyFriend(uid, code) || isPartnerRequestPending(uid, code)) {
+      return;
+    }
+    if (!code) return; // can't add without code
     if (matchDurationSec() < 25) return;
     const key = uid || code;
     if (friendNudgeShown.has(key)) return;
@@ -1620,26 +1718,27 @@ function maybeShowStopInviteNudge() {
     toast.className = "friend-soft-toast stop-invite-nudge";
     toast.setAttribute("role", "status");
     toast.style.pointerEvents = "auto";
+    const shareBtn = ROOMS_ENABLED
+      ? `<button type="button" class="pill tight accent" id="btn-stop-invite-share">${escapeHtml(
+          _t("remote.shareRoom") || "Share room"
+        )}</button>`
+      : "";
     toast.innerHTML = `
       <strong>${escapeHtml(
         _t("remote.stopInviteTitle") || "Bring a friend"
       )}</strong>
       <span>${escapeHtml(
         _t("remote.stopInviteBody") ||
-          "Pool was quiet — share a room link or your friend code when you want company."
+          "Pool was quiet — open Friends to share your code when you want company."
       )}</span>
       <div class="export-nudge-actions" style="margin-top:0.45rem">
         <button type="button" class="pill tight ghost" id="btn-stop-invite-later">${escapeHtml(
           _t("friends.exportNudgeLater") || "Later"
         )}</button>
-        <button type="button" class="pill tight" id="btn-stop-invite-friends">${escapeHtml(
+        <button type="button" class="pill tight${ROOMS_ENABLED ? "" : " accent"}" id="btn-stop-invite-friends">${escapeHtml(
           _t("friends.open") || "Friends"
         )}</button>
-        <button type="button" class="pill tight accent" id="btn-stop-invite-share">${escapeHtml(
-          ROOMS_ENABLED
-            ? _t("remote.shareRoom") || "Share room"
-            : _t("remote.inviteFriend") || "Invite friend"
-        )}</button>
+        ${shareBtn}
       </div>`;
     document.body.appendChild(toast);
     const dismiss = () => {
@@ -1657,17 +1756,14 @@ function maybeShowStopInviteNudge() {
     $("btn-stop-invite-share")?.addEventListener("click", () => {
       trackEvent("stop_invite_share");
       dismiss();
-      if (ROOMS_ENABLED) {
-        shareOrCopy(
-          roomShareUrl({ mintIfEmpty: true }),
-          siteBrandName() + " room",
-          "room.shared",
-          "room.copied",
-          { preferShare: true }
-        );
-      } else {
-        shareFriendInvite({ preferShare: true });
-      }
+      if (!ROOMS_ENABLED) return;
+      shareOrCopy(
+        roomShareUrl({ mintIfEmpty: true }),
+        siteBrandName() + " room",
+        "room.shared",
+        "room.copied",
+        { preferShare: true }
+      );
     });
     setTimeout(dismiss, 16000);
   } catch (_) {}
@@ -2231,13 +2327,38 @@ function renderMessagesList() {
   updateMessagesBadge();
 
   if (!entries.length) {
-    list.innerHTML = `<div class="msg-empty">${escapeHtml(
-      messagesTab === "friends"
-        ? _t("msg.emptyFriends") ||
-            "No friends yet. Add a friend code, then message them here."
-        : _t("msg.emptyMatches") ||
-            "No match chats yet. When you text someone during a call, it shows up here."
-    )}</div>`;
+    const isFriends = messagesTab === "friends";
+    const title = isFriends
+      ? _t("msg.emptyFriendsTitle") || "No friend chats yet"
+      : _t("msg.emptyMatchesTitle") || "No match chats yet";
+    const body = isFriends
+      ? _t("msg.emptyFriends") ||
+        "Add a friend code, then message them here anytime."
+      : _t("msg.emptyMatches") ||
+        "When you text someone during a call, it shows up here.";
+    const cta = isFriends
+      ? `<button type="button" class="pill accent tight sheet-empty-cta" id="msg-empty-cta-friends">${escapeHtml(
+          _t("msg.emptyFriendsCta") || "Open Friends"
+        )}</button>`
+      : `<button type="button" class="pill accent tight sheet-empty-cta" id="msg-empty-cta-start">${escapeHtml(
+          _t("msg.emptyMatchesCta") || "Start matching"
+        )}</button>`;
+    list.innerHTML = `<div class="sheet-empty msg-empty">
+      <div class="sheet-empty-icon" aria-hidden="true">${isFriends ? "◎" : "✦"}</div>
+      <div class="sheet-empty-title">${escapeHtml(title)}</div>
+      <p class="sheet-empty-body">${escapeHtml(body)}</p>
+      ${cta}
+    </div>`;
+    $("msg-empty-cta-friends")?.addEventListener("click", () => {
+      closeMessages();
+      openFriends();
+    });
+    $("msg-empty-cta-start")?.addEventListener("click", () => {
+      closeMessages();
+      if (!matched && !inQueue && !wantSearch) {
+        $("btn-start-match")?.click();
+      }
+    });
     return;
   }
 
@@ -2418,14 +2539,26 @@ function openInboxThread(threadKey, meta = {}) {
 }
 
 function openMessages(tab) {
-  closeFriends();
+  closeAllDockFlyouts("messages");
   if (tab) setMessagesTab(tab);
   else setMessagesTab(messagesTab || "friends");
   messagesSheetOpen = true;
   const sheet = $("messages-sheet");
   const bd = $("messages-backdrop");
-  if (sheet) sheet.hidden = false;
-  if (bd) bd.hidden = false;
+  const btn = $("btn-messages");
+  if (sheet) {
+    sheet.hidden = false;
+    sheet.removeAttribute("hidden");
+    positionDockFlyout(sheet, btn, { align: "start", maxWidth: 400 });
+    void sheet.offsetWidth;
+    sheet.classList.add("is-open");
+  }
+  if (bd) {
+    bd.hidden = false;
+    bd.removeAttribute("hidden");
+    bd.classList.add("is-open");
+  }
+  setDockFlyoutOpen(btn, true);
   showMsgListView();
   updateMessagesBadge();
   bindSheetFocusTrap(sheet);
@@ -2442,7 +2575,11 @@ function closeMessages() {
   messagesInThread = false;
   const sheet = $("messages-sheet");
   const bd = $("messages-backdrop");
+  const btn = $("btn-messages");
   releaseSheetFocusTrap(sheet);
+  sheet?.classList.remove("is-open");
+  bd?.classList.remove("is-open");
+  setDockFlyoutOpen(btn, false);
   if (sheet) sheet.hidden = true;
   if (bd) bd.hidden = true;
   // Return to list next open
@@ -3013,6 +3150,14 @@ function handleWebrtcConnectionState(s) {
       mode: matchMode || "solo",
       friend: inFriendCall || matchMode === "friend" ? 1 : 0,
     });
+    // Upgrade match toast once media path is live
+    showMatchFoundToast({ connected: true });
+    flashPartnerTile();
+    // Hide compact "In a call" if ice-path badge is showing
+    const liveChip = $("live-compact-chip");
+    if (liveChip && $("ice-path") && !$("ice-path").hidden) {
+      liveChip.hidden = true;
+    }
   } else if (s === "failed") {
     // Prefer Direct ICE fail: auto-allow TURN + soft Next (once/session)
     if (autoDisablePreferDirectOnFail({ autoNext: true })) {
@@ -3440,13 +3585,13 @@ function bindFirstPartnerToMain(meta) {
   const tag = $("remote-tag");
   const wrap = $("remote-tile-tag");
   if (tag) {
-    tag.textContent =
-      meta?.name ||
-      lastMatchMeta?.name ||
-      _t("trio.partner") ||
-      "Partner";
+    setNameOnTile(
+      tag,
+      meta?.name || lastMatchMeta?.name || _t("trio.partner") || "Partner",
+      meta?.flag || lastMatchMeta?.flag
+    );
   }
-  if (wrap) wrap.hidden = !tag?.textContent;
+  if (wrap) wrap.hidden = !(tag && (tag.textContent || "").trim());
   return pc;
 }
 
@@ -3481,7 +3626,10 @@ function updateFriendActionButtons() {
     // Hang only for real friend parties; stranger find-third uses Stop
     if (hang) hang.hidden = !inFriendCall || trioBrowse;
   }
-  // Find 3rd: stranger 1v1 only (including after a party member drops and we stay with the 3rd)
+  // Find 3rd: stranger 1v1 only (same rules as partner menu — always in footer when available)
+  const hasLivePeer =
+    peerPcs.size >= 1 ||
+    (typeof partnerHasLiveVideo === "function" && partnerHasLiveVideo());
   const canFindThird =
     TRIO_FIND_ENABLED &&
     !!matched &&
@@ -3489,12 +3637,12 @@ function updateFriendActionButtons() {
     matchMode === "solo" &&
     yourRole === "solo" &&
     !trioBrowse &&
-    peerPcs.size >= 1 &&
+    hasLivePeer &&
     findThirdPending !== "out" &&
     findThirdPending !== "in";
   if (findThird) {
     findThird.hidden = !canFindThird;
-    findThird.disabled = false;
+    findThird.disabled = !canFindThird;
     findThird.classList.toggle("accent", canFindThird);
   }
   if (findCancel) {
@@ -3512,46 +3660,33 @@ function updateFriendActionButtons() {
   if (repDock) {
     repDock.hidden = !canMod || matchMode === "friend";
   }
+  syncMatchChrome();
   syncTrioLayout();
   updatePartnerClickable();
 }
 
 /**
- * Header #status noise we never show:
- * - idle/stopped (Stop used to say "stopped — idle")
- * - searching (lives in footer center: "Ищем собеседника…")
+ * Header status pill is permanently off (path / search / idle clutter).
+ * Callers still pass strings for logging; nothing paints next to language.
  */
-function isHeaderStatusNoise(text) {
-  const t = String(text || "").trim();
-  if (!t) return true;
-  if (
-    /^(stopped|остановлено|зупинено|idle|ожидание|очікування)(\s*[—–\-]\s*(idle|ожидание|очікування|stopped|остановлено))?$/i.test(
-      t
-    )
-  ) {
-    return true;
-  }
-  // Searching copy — footer pill already shows this (between WAITING and language was clutter)
-  if (
-    /search|ищем|поиск|looking for|ещё\s+\d+\s+в\s+очереди|other waiting/i.test(t)
-  ) {
-    return true;
-  }
-  return false;
-}
-
 function setStatus(s) {
   const el = $("status");
-  if (!el) return;
-  const text = s == null ? "" : String(s).trim();
-  // Header: errors / friend notes only — not searching or idle
-  if (!text || isHeaderStatusNoise(text)) {
+  if (el) {
     el.textContent = "";
     el.hidden = true;
-    return;
   }
-  el.textContent = text;
-  el.hidden = false;
+  // Keep a trail in the log for useful non-noise messages only
+  const text = s == null ? "" : String(s).trim();
+  if (
+    text &&
+    !/search|ищем|поиск|stopped|idle|ожидание|Direct P2P|path|путь|relay|релей|connecting|подключ|matched|matchedStatus|webrtc|good path|лучший/i.test(
+      text
+    )
+  ) {
+    try {
+      log(text);
+    } catch (_) {}
+  }
 }
 
 /** Last pool online count (for empty-share presence line). */
@@ -3641,9 +3776,23 @@ function updatePoolHint() {
   hint.hidden = !hint.textContent;
 }
 
-/** Online/Waiting live in the header pool-bar only (no duplicate under Start). */
+/** Online count chip on the empty Start card (header still has full pool stats). */
 function updateEmptySharePresence() {
-  // Intentionally empty — stats are in #stat-online / #stat-waiting
+  const chip = $("empty-online-chip");
+  const nEl = $("empty-online-n");
+  if (!chip) return;
+  const empty = $("remote-empty");
+  const emptyOpen =
+    !!empty &&
+    !empty.classList.contains("hidden") &&
+    !matched &&
+    !inFriendCall &&
+    !trioBrowse;
+  const n = Number(lastOnlineCount) || 0;
+  if (nEl) nEl.textContent = String(n);
+  // Show when idle/search empty and anyone is online (incl. self as 1)
+  chip.hidden = !(emptyOpen && n > 0);
+  document.documentElement.classList.toggle("has-live-people", n > 1);
 }
 
 /** Clipboard only (never opens share sheet). */
@@ -4128,9 +4277,8 @@ function isPoolAlone() {
 }
 
 /**
- * Desktop: footer invite while idle/searching.
- * Mobile: Invite friend under Start when alone (idle or searching).
- * Online/Waiting stay in the header only.
+ * Local tray: room-share tools only when ROOMS_ENABLED.
+ * Friend invite / Friend QR UI removed — use Friends sheet (code / invite link).
  */
 function updateEmptyShareVisibility() {
   const invite = $("footer-invite");
@@ -4143,21 +4291,25 @@ function updateEmptyShareVisibility() {
     !inFriendCall &&
     !trioBrowse;
   const alone = isPoolAlone();
-  // Desktop: show invite tools whenever empty partner tile is up
-  if (invite) invite.hidden = !emptyOpen;
-  // Mobile: friend invite when alone (idle Start or still searching)
+  // Room share tray only when rooms are enabled; never show friend-invite chips
+  const showRoomTools = !!(ROOMS_ENABLED && emptyOpen);
+  if (invite) invite.hidden = !showRoomTools;
+  // Mobile strip had friend invite — keep hidden (rooms share stays rooms-ui hidden)
   if (mobile) {
-    const showMobile = emptyOpen && alone;
-    mobile.hidden = !showMobile;
-    mobile.classList.toggle("is-searching-alone", !!(showMobile && (inQueue || wantSearch)));
+    mobile.hidden = true;
+    mobile.classList.remove("is-searching-alone");
   }
-  if (!emptyOpen) {
+  if (!emptyOpen || !ROOMS_ENABLED) {
     hideEmptyShareQr();
     clearLongWaitBoost();
   } else if (alone && (inQueue || wantSearch)) {
     maybeStartLongWaitBoost();
   } else {
     clearLongWaitBoost();
+  }
+  const localFloor = $("tile-floor-local");
+  if (localFloor) {
+    localFloor.classList.toggle("has-invite", !!(invite && !invite.hidden));
   }
   updateFriendsOnlineStrip();
 }
@@ -4215,8 +4367,9 @@ function updateFriendsOnlineStrip() {
   });
 }
 
-/** After ~20s alone in queue, emphasize invite (desktop footer / mobile under Start). */
+/** After ~12s alone in queue, emphasize invite + one-tap share toast. */
 let longWaitTimer = 0;
+let aloneInviteToastShown = false;
 function clearLongWaitBoost() {
   if (longWaitTimer) {
     clearTimeout(longWaitTimer);
@@ -4239,7 +4392,144 @@ function maybeStartLongWaitBoost() {
     if (footer && !footer.hidden) footer.classList.add("is-long-wait");
     const mobile = $("mobile-invite");
     if (mobile && !mobile.hidden) mobile.classList.add("is-long-wait");
-  }, 20_000);
+    maybeShowAloneInviteToast();
+  }, 12_000);
+}
+
+/**
+ * One-tap share while alone searching (once per search session).
+ * Only when rooms are enabled (friend invite tray removed).
+ */
+function maybeShowAloneInviteToast() {
+  try {
+    if (!ROOMS_ENABLED) return;
+    if (aloneInviteToastShown) return;
+    if (matched || inFriendCall || trioBrowse) return;
+    if (!inQueue && !wantSearch) return;
+    if (!isPoolAlone()) return;
+    if ($("alone-invite-toast") || $("stop-invite-nudge") || $("post-match-friend-nudge"))
+      return;
+    aloneInviteToastShown = true;
+    const toast = document.createElement("div");
+    toast.id = "alone-invite-toast";
+    toast.className = "friend-soft-toast alone-invite-toast";
+    toast.setAttribute("role", "status");
+    toast.style.pointerEvents = "auto";
+    const title =
+      _t("remote.shareHintEmpty") ||
+      "Pool is empty — share so someone can join you.";
+    const shareLbl = _t("remote.shareRoom") || "Share room";
+    toast.innerHTML = `
+      <strong>${escapeHtml(_t("remote.stopInviteTitle") || "Bring a friend")}</strong>
+      <span>${escapeHtml(title)}</span>
+      <div class="export-nudge-actions" style="margin-top:0.45rem">
+        <button type="button" class="pill tight ghost" id="btn-alone-invite-later">${escapeHtml(
+          _t("friends.exportNudgeLater") || "Later"
+        )}</button>
+        <button type="button" class="pill tight accent" id="btn-alone-invite-share">${escapeHtml(
+          shareLbl
+        )}</button>
+      </div>`;
+    document.body.appendChild(toast);
+    trackEvent("alone_invite_toast_show");
+    const dismiss = () => {
+      if (toast.parentNode) toast.remove();
+    };
+    $("btn-alone-invite-later")?.addEventListener("click", () => {
+      trackEvent("alone_invite_later");
+      dismiss();
+    });
+    $("btn-alone-invite-share")?.addEventListener("click", async () => {
+      trackEvent("alone_invite_share", { rooms: ROOMS_ENABLED ? 1 : 0 });
+      dismiss();
+      if (ROOMS_ENABLED) {
+        await shareOrCopy(
+          roomShareUrl({ mintIfEmpty: true }),
+          siteBrandName() + " room",
+          "room.shared",
+          "room.copied",
+          { preferShare: true }
+        );
+      } else {
+        await shareFriendInvite({ preferShare: true });
+      }
+    });
+    setTimeout(dismiss, 16000);
+  } catch (_) {}
+}
+
+/** Soft idle nudge when people are online — once per day, not a nag loop. */
+const PEOPLE_ONLINE_NUDGE_KEY = "ruletka-people-online-nudge-day-v1";
+function peopleOnlineNudgeDayDone() {
+  try {
+    const d = new Date().toISOString().slice(0, 10);
+    return localStorage.getItem(PEOPLE_ONLINE_NUDGE_KEY) === d;
+  } catch {
+    return true;
+  }
+}
+function markPeopleOnlineNudgeDay() {
+  try {
+    const d = new Date().toISOString().slice(0, 10);
+    localStorage.setItem(PEOPLE_ONLINE_NUDGE_KEY, d);
+  } catch (_) {}
+}
+function maybeShowPeopleOnlineNudge() {
+  try {
+    if (peopleOnlineNudgeDayDone()) return;
+    if (matched || inFriendCall || inQueue || wantSearch || trioBrowse) return;
+    const online = lastOnlineCount || 0;
+    if (online < 2) return;
+    if ($("people-online-nudge") || $("alone-invite-toast") || $("stop-invite-nudge"))
+      return;
+    // Delay slightly so Start paint settles
+    setTimeout(() => {
+      try {
+        if (peopleOnlineNudgeDayDone()) return;
+        if (matched || inFriendCall || inQueue || wantSearch) return;
+        if ((lastOnlineCount || 0) < 2) return;
+        if ($("people-online-nudge")) return;
+        markPeopleOnlineNudgeDay();
+        const n = lastOnlineCount || online;
+        const toast = document.createElement("div");
+        toast.id = "people-online-nudge";
+        toast.className = "friend-soft-toast people-online-nudge";
+        toast.setAttribute("role", "status");
+        toast.style.pointerEvents = "auto";
+        toast.innerHTML = `
+          <strong>${escapeHtml(
+            _t("pool.peopleOnlineTitle") || "People are online"
+          )}</strong>
+          <span>${escapeHtml(
+            _t("pool.peopleOnlineBody", { n }) ||
+              `${n} online right now — tap Start to find a match.`
+          )}</span>
+          <div class="export-nudge-actions" style="margin-top:0.45rem">
+            <button type="button" class="pill tight ghost" id="btn-people-online-later">${escapeHtml(
+              _t("friends.exportNudgeLater") || "Later"
+            )}</button>
+            <button type="button" class="pill tight accent" id="btn-people-online-start">${escapeHtml(
+              _t("btn.start") || "Start"
+            )}</button>
+          </div>`;
+        document.body.appendChild(toast);
+        trackEvent("people_online_nudge_show", { n });
+        const dismiss = () => {
+          if (toast.parentNode) toast.remove();
+        };
+        $("btn-people-online-later")?.addEventListener("click", () => {
+          trackEvent("people_online_nudge_later");
+          dismiss();
+        });
+        $("btn-people-online-start")?.addEventListener("click", () => {
+          trackEvent("people_online_nudge_start");
+          dismiss();
+          startMatchFromIdle();
+        });
+        setTimeout(dismiss, 12000);
+      } catch (_) {}
+    }, 1800);
+  } catch (_) {}
 }
 
 /** @type {"room"|"friend"|null} */
@@ -4254,30 +4544,22 @@ function hideEmptyShareQr() {
   emptyShareQrMode = null;
   const btn = $("btn-empty-qr");
   if (btn) btn.textContent = _t("remote.showQr") || "QR";
-  const fbtn = $("btn-empty-friend-qr");
-  if (fbtn) fbtn.textContent = _t("remote.friendQr") || "Friend QR";
 }
 
 function showEmptyShareQr(mode) {
   const qr = $("empty-share-qr");
   if (!qr) return;
+  // Friend QR UI removed — room QR only when rooms enabled
+  if (mode === "friend" || !ROOMS_ENABLED) {
+    hideEmptyShareQr();
+    return;
+  }
   if (emptyShareQrMode === mode && !qr.hidden && qr.innerHTML) {
     hideEmptyShareQr();
     return;
   }
-  let url = "";
-  let alt = "QR";
-  if (mode === "friend") {
-    if (!myFriendCode) {
-      setStatus(_t("friends.noCode") || "Friend code not ready yet");
-      return;
-    }
-    url = friendInviteUrl();
-    alt = "Friend invite QR";
-  } else {
-    url = roomShareUrl();
-    alt = "Room QR";
-  }
+  const url = roomShareUrl();
+  const alt = "Room QR";
   // Local QR — no third-party image host (works offline once shell is cached)
   if (typeof RuletQr !== "undefined" && RuletQr.render) {
     RuletQr.render(qr, url, { size: 140, margin: 2, alt });
@@ -4294,17 +4576,7 @@ function showEmptyShareQr(mode) {
   emptyShareQrMode = mode;
   const btn = $("btn-empty-qr");
   if (btn) {
-    btn.textContent =
-      mode === "room"
-        ? _t("remote.hideQr") || "Hide QR"
-        : _t("remote.showQr") || "QR";
-  }
-  const fbtn = $("btn-empty-friend-qr");
-  if (fbtn) {
-    fbtn.textContent =
-      mode === "friend"
-        ? _t("remote.hideQr") || "Hide QR"
-        : _t("remote.friendQr") || "Friend QR";
+    btn.textContent = _t("remote.hideQr") || "Hide QR";
   }
 }
 
@@ -4312,44 +4584,94 @@ function toggleEmptyShareQr() {
   showEmptyShareQr("room");
 }
 
-function toggleEmptyFriendQr() {
-  showEmptyShareQr("friend");
-}
-
 /**
- * Big Start CTA in the center of the partner tile.
- * Visible on first load / after Stop. Hidden once searching or matched.
+ * Footer + Start chrome state machine:
+ *  idle     → Start only (no Spin / Next / Stop)
+ *  search   → Stop only
+ *  matched  → Next + Stop (Spin stays hidden)
+ *  friend   → Stop only (Next hidden unless party/trio)
  */
-function showStartButton(show) {
-  const btn = $("btn-start-match");
+function syncMatchChrome() {
   const empty = $("remote-empty");
-  if (btn) btn.hidden = !show;
+  const startBtn = $("btn-start-match");
+  const next = $("btn-next");
+  const stop = $("btn-stop");
+  const spin = $("btn-spin");
+
+  const emptyOpen =
+    !!empty && !empty.classList.contains("hidden") && !matched && !inFriendCall;
+  const isIdle =
+    emptyOpen && !inQueue && !wantSearch && !trioBrowse && !findThirdPending;
+  const isSearching =
+    !matched && !inFriendCall && (inQueue || wantSearch) && !trioBrowse;
+  const isLive =
+    matched || inFriendCall || !!trioBrowse;
+
+  if (startBtn) startBtn.hidden = !isIdle;
+  document.documentElement.classList.toggle("start-idle", isIdle);
+  document.documentElement.classList.toggle("match-searching", isSearching);
+  document.documentElement.classList.toggle("match-live", isLive);
+  // Quieter header while matched: compact "In a call" instead of Online/Waiting
+  const liveChip = $("live-compact-chip");
+  if (liveChip) {
+    const pathShown = $("ice-path") && !$("ice-path").hidden;
+    liveChip.hidden = !isLive || pathShown;
+  }
+
+  if (spin) spin.hidden = true; // Spin is redundant with Start / Next
+
+  if (isIdle) {
+    if (next) next.hidden = true;
+    if (stop) stop.hidden = true;
+  } else if (isSearching) {
+    if (next) next.hidden = true;
+    if (stop) stop.hidden = false;
+  } else if (isLive) {
+    // Pure 1v1 friend call: hang-up is the main exit; Next is for strangers
+    const pureFriend = inFriendCall && matchMode === "friend" && !trioBrowse;
+    if (next) next.hidden = pureFriend;
+    if (stop) stop.hidden = false;
+  } else {
+    if (next) next.hidden = false;
+    if (stop) stop.hidden = false;
+  }
+
   if (empty) {
-    empty.classList.toggle("is-searching", !show && !empty.classList.contains("hidden"));
-    if (show) empty.classList.remove("is-searching");
+    empty.classList.toggle("is-searching", isSearching);
+    if (isIdle) empty.classList.remove("is-searching");
+  }
+  // Partner tray: hide compose until searching/matched (calmer empty state)
+  const partnerFloor = $("tile-floor-partner");
+  if (partnerFloor) {
+    partnerFloor.classList.toggle("is-idle", isIdle);
+    partnerFloor.classList.toggle("is-active", isSearching || isLive);
+  }
+  const localFloor = $("tile-floor-local");
+  if (localFloor) {
+    localFloor.classList.toggle("is-idle", isIdle);
+    localFloor.classList.toggle("has-invite", !!( $("footer-invite") && !$("footer-invite").hidden ));
   }
   updateEmptyShareVisibility();
+  if (isIdle) maybeShowPeopleOnlineNudge();
+}
+
+/** @deprecated use syncMatchChrome — kept for call sites that pass a bool */
+function showStartButton(show) {
+  if (show) {
+    // Force idle-looking Start if caller wants it (e.g. after Stop)
+    const empty = $("remote-empty");
+    if (empty) empty.classList.remove("hidden");
+  }
+  syncMatchChrome();
+  if (!show) {
+    const startBtn = $("btn-start-match");
+    if (startBtn) startBtn.hidden = true;
+    document.documentElement.classList.remove("start-idle");
+  }
 }
 
 function updateStartButtonVisibility() {
-  const empty = $("remote-empty");
-  const idleEmpty =
-    !!empty &&
-    !empty.classList.contains("hidden") &&
-    !matched &&
-    !inQueue &&
-    !wantSearch &&
-    !inFriendCall;
-  showStartButton(idleEmpty);
-  if (idleEmpty) {
-    // Prefer idle copy (Stop may have overwritten title)
-    const titleEl = empty.querySelector(".empty-title");
-    const subEl = empty.querySelector(".empty-sub");
-    // Only reset if still "stopped" or empty — keep searching copy when searching
-    if (titleEl && !wantSearch && !inQueue) {
-      // leave custom stopped/idle text if already set by doStop / resetRemoteEmptyCopy
-    }
-  }
+  syncMatchChrome();
 }
 
 /** Set partner-tile title while searching (private room vs public / alone). */
@@ -4408,6 +4730,11 @@ function startMatchFromIdle() {
     showRulesGate();
     return;
   }
+  aloneInviteToastShown = false;
+  try {
+    $("alone-invite-toast")?.remove?.();
+    $("people-online-nudge")?.remove?.();
+  } catch (_) {}
   trackEvent("start_match");
   maybeShowCellularDataTip();
   startSession({ forceMedia: true });
@@ -4883,7 +5210,43 @@ function flashPartnerTile() {
   // reflow to restart animation
   void tile.offsetWidth;
   tile.classList.add("match-flash");
-  setTimeout(() => tile.classList.remove("match-flash"), 900);
+  setTimeout(() => tile.classList.remove("match-flash"), 1100);
+}
+
+/** Brief soft toast when a match lands / media path is up. */
+function showMatchFoundToast(opts = {}) {
+  const existing = $("match-found-toast");
+  if (existing) existing.remove();
+  const toast = document.createElement("div");
+  toast.id = "match-found-toast";
+  toast.className = "friend-soft-toast friend-soft-toast-ok match-found-toast";
+  toast.setAttribute("role", "status");
+  const friend = matchMode === "friend" || inFriendCall;
+  let title;
+  let body = "";
+  if (opts.connected) {
+    title =
+      _t("match.connectedTitle") ||
+      (friend ? "Friend call connected" : "Connected");
+    const path = ($("ice-path")?.textContent || "").trim();
+    body =
+      path ||
+      _t("match.connectedBody") ||
+      (friend ? "Private call · P2P video" : "Video is peer-to-peer");
+  } else {
+    title =
+      _t("match.foundTitle") || (friend ? "Friend connected" : "Partner found");
+    body =
+      _t("match.foundBody") ||
+      (friend ? "Connecting video…" : "Connecting video…");
+  }
+  toast.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${escapeHtml(
+    body
+  )}</span>`;
+  document.body.appendChild(toast);
+  setTimeout(() => {
+    if (toast.parentNode) toast.remove();
+  }, opts.connected ? 2800 : 2200);
 }
 
 function setArchPill(mode) {
@@ -4953,7 +5316,8 @@ function recordIcePathStat(kind) {
   trackEvent("ice_path", { kind });
   // One soft status line when path settles (not a nag sheet)
   if (kind === "direct") {
-    setStatus(_t("conn.pathDirectOk") || "Direct P2P — best path");
+    // Path quality stays in Settings / ice chip — not the header
+    log(_t("conn.pathDirectOk") || "Direct P2P — best path");
   } else if (kind === "relay") {
     const prefer =
       typeof preferDirectOnlyEnabled === "function" && preferDirectOnlyEnabled();
@@ -5071,11 +5435,16 @@ function setIcePathBadge(kind) {
   if (!el) return;
   el.hidden = false;
   el.classList.remove("path-direct", "path-relay", "path-unknown", "path-weak");
+  // Hide generic arch-pill while live path badge is shown (avoids dual "Direct P2P")
+  const arch = $("arch-pill");
+  if (arch) arch.hidden = true;
+  // Path badge replaces compact "In a call" chip
+  const liveChip = $("live-compact-chip");
+  if (liveChip) liveChip.hidden = true;
   if (kind === "direct") {
     el.textContent = _t("sec.pathDirect") || "Direct P2P";
     el.classList.add("path-direct");
     el.title = _t("sec.pathDirectTitle") || "Media path is peer-to-peer (best quality)";
-    setArchPill("direct");
     recordIcePathStat("direct");
   } else if (kind === "relay") {
     el.textContent = _t("sec.pathRelay") || "Relay (TURN)";
@@ -5083,7 +5452,6 @@ function setIcePathBadge(kind) {
     el.title =
       _t("sec.pathRelayTitle") ||
       "Media via TURN relay — often higher latency; try better network if video freezes";
-    setArchPill("relay");
     recordIcePathStat("relay");
   } else {
     el.textContent = _t("sec.pathUnknown") || "Connecting…";
@@ -5139,6 +5507,9 @@ function clearIcePathBadge() {
     el.textContent = "";
     el.classList.remove("path-direct", "path-relay", "path-unknown", "path-weak");
   }
+  // Restore generic arch pill when path-specific badge is gone
+  const arch = $("arch-pill");
+  if (arch) arch.hidden = false;
 }
 
 /** i18n helper: never leave raw keys like "sec.mediaP2pShort" in the UI */
@@ -5559,13 +5930,20 @@ function updateMicPill(_level) {
 
 function updateSideIcons() {
   // SVG icons toggle via .muted-on / .active CSS (icon-on / icon-off)
+  // Cam on/off control removed — camera always on; privacy is Hide (self-blur)
+  if (camOff) {
+    camOff = false;
+    previewStream?.getVideoTracks().forEach((tr) => {
+      tr.enabled = true;
+    });
+    pushOutboundVideoTracks().catch(() => {});
+  }
   $("btn-mute-mic")?.classList.toggle("muted-on", micMuted);
-  $("btn-mute-cam")?.classList.toggle("muted-on", camOff);
   $("btn-mute-remote")?.classList.toggle("muted-on", partnerMuted);
   $("btn-blur-remote")?.classList.toggle("active", partnerBlurred);
   $("tile-remote")?.classList.toggle("partner-blurred", partnerBlurred);
   $("btn-blur-self")?.classList.toggle("active", selfBlurred);
-  $("tile-local")?.classList.toggle("self-blurred", selfBlurred && !camOff);
+  $("tile-local")?.classList.toggle("self-blurred", selfBlurred);
   // Label on self-blur button
   const selfLbl = $("btn-blur-self")?.querySelector(".lbl");
   if (selfLbl) {
@@ -5574,7 +5952,7 @@ function updateSideIcons() {
       : _t("btn.selfBlur") || "Hide";
   }
   const badge = $("self-blur-badge");
-  if (badge) badge.hidden = !(selfBlurred && !camOff);
+  if (badge) badge.hidden = !selfBlurred;
 }
 
 /** Black silent canvas stream for privacy hide (partner sees black, local keeps preview). */
@@ -5666,11 +6044,6 @@ function setSelfBlur(on) {
 }
 
 function toggleSelfBlur() {
-  if (camOff) {
-    log(_t("log.selfBlurNeedCam") || "Turn camera on to hide/reveal");
-    setStatus(_t("log.selfBlurNeedCam") || "Turn camera on first");
-    return;
-  }
   setSelfBlur(!selfBlurred);
   log(
     selfBlurred
@@ -6193,26 +6566,55 @@ let mediaPreviewBusy = false;
 function showEnableCamButton(show, message) {
   const btn = $("btn-enable-cam");
   const sub = $("local-empty-sub");
+  const help = $("local-cam-help");
   if (btn) btn.hidden = !show;
   if (sub && message) sub.textContent = message;
+  if (help) {
+    help.hidden = !show;
+    if (show) {
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      const isAndroid = /Android/i.test(navigator.userAgent);
+      const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+      let tip =
+        _t("local.permHelpGeneric") ||
+        "Allow camera & microphone for this site in your browser settings, then tap Enable again.";
+      if (isIOS || isSafari) {
+        tip =
+          _t("local.permHelpIos") ||
+          "iPhone/iPad: Settings → Safari → Camera & Microphone → Allow, then reload and tap Enable.";
+      } else if (isAndroid) {
+        tip =
+          _t("local.permHelpAndroid") ||
+          "Android: tap the lock icon in the address bar → Permissions → Camera & Mic → Allow, then Enable.";
+      } else {
+        tip =
+          _t("local.permHelpDesktop") ||
+          "Desktop: click the camera/lock icon in the address bar → Allow camera & mic, then Enable.";
+      }
+      help.textContent = tip;
+    }
+  }
   if (show) setLocalEmpty(true);
 }
 
 function friendlyMediaError(e) {
   const name = e?.name || "";
   if (name === "NotAllowedError" || name === "PermissionDeniedError") {
-    return _t("local.permDenied");
+    return (
+      _t("local.permDenied") ||
+      "Camera blocked — allow in browser settings, then tap Enable"
+    );
   }
   if (name === "NotFoundError" || name === "DevicesNotFoundError") {
-    return _t("local.noDevice");
+    return _t("local.noDevice") || "No camera or microphone found";
   }
   if (name === "NotReadableError" || name === "TrackStartError") {
-    return _t("local.camBusy");
+    return _t("local.camBusy") || "Camera is in use by another app";
   }
   if (name === "OverconstrainedError") {
-    return _t("local.camConstraints");
+    return _t("local.camConstraints") || "Could not apply that resolution";
   }
-  return _t("local.enableHint");
+  return _t("local.enableHint") || "Allow camera & mic when prompted";
 }
 
 async function startPreview() {
@@ -6369,24 +6771,17 @@ function toggleMicMute() {
   log(micMuted ? _t("log.micMuted") : _t("log.micUnmuted"));
 }
 
+/** Camera on/off UI removed — always keep preview on; use Hide for privacy. */
 function toggleCam() {
-  camOff = !camOff;
+  // no-op (legacy callers / old shortcuts)
   if (camOff) {
-    // Full camera off clears self-hide state visually
-    previewStream?.getVideoTracks().forEach((tr) => {
-      tr.enabled = false;
-    });
-    for (const pc of peerPcs.values()) {
-      pc.setCamEnabled?.(false);
-    }
-  } else {
+    camOff = false;
     previewStream?.getVideoTracks().forEach((tr) => {
       tr.enabled = true;
     });
     pushOutboundVideoTracks().catch(() => {});
+    updateSideIcons();
   }
-  updateSideIcons();
-  log(camOff ? _t("log.camOff") : _t("log.camOn"));
 }
 
 async function applySpeaker() {
@@ -6413,6 +6808,42 @@ function applyRemoteVolume() {
     remote.volume = partnerMuted ? 0 : vol / 100;
     remote.muted = partnerMuted;
   }
+}
+
+/** Last match session that already got a full-volume reset (avoid re-blast on party re-search Matched). */
+let lastVolumeResetKey = "";
+
+/**
+ * New conversationalist → partner volume max (100) and unmuted, even if the previous
+ * call had the slider lowered or mute on.
+ */
+function resetPartnerVolumeForNewMatch(msg) {
+  const key =
+    (msg && (msg.session_id || msg.session_key)) ||
+    `${msg?.mode || ""}:${msg?.partner_short || ""}:${Date.now()}`;
+  // Party re-search re-sends Matched with same party-search session — skip
+  if (key && key === lastVolumeResetKey) return;
+  // Only reset when a stranger/party opponent is present, or classic solo/friend start
+  const peers = Array.isArray(msg?.peers) ? msg.peers : [];
+  const hasOpponent = peers.some(
+    (p) => p.role === "stranger" || p.role === "party"
+  );
+  const mode = msg?.mode || "solo";
+  const onlyTeammateBrowse =
+    mode === "party_browse" &&
+    peers.length > 0 &&
+    peers.every(
+      (p) => p.role === "friend" || p.role === "teammate" || p.role === "party_mate"
+    );
+  if (onlyTeammateBrowse && !hasOpponent) {
+    // Still with same co-search partner, hunting for 3rd — keep their volume
+    return;
+  }
+  lastVolumeResetKey = key;
+  partnerMuted = false;
+  syncVolumeSliders(100);
+  applyRemoteVolume();
+  updateSideIcons();
 }
 
 function togglePartnerMute() {
@@ -6451,6 +6882,40 @@ function showSettingsView(name) {
     syncPreferDirectToggle();
   } else {
     stopConnDetailsLive();
+  }
+  if (name === "about") refreshAboutPanel();
+}
+
+/** About & legal hero: version + connected hub host */
+function refreshAboutPanel() {
+  const verEl = $("about-version");
+  const hubEl = $("about-hub");
+  if (verEl) {
+    const ver =
+      (typeof window !== "undefined" && window.RULETKA_BUILD) ||
+      document.querySelector('script[src*="live.js"]')?.src?.match(/[?&]v=([^&]+)/)?.[1] ||
+      "live";
+    verEl.textContent = "v" + String(ver).replace(/^v/, "");
+    verEl.title = _t("settings.aboutVersionTitle") || "Client cache version";
+  }
+  if (hubEl) {
+    let base = location.origin;
+    try {
+      if (typeof RuletHub !== "undefined" && RuletHub.base) base = RuletHub.base();
+    } catch (_) {}
+    let host = "";
+    try {
+      host = new URL(base).host;
+    } catch {
+      host = String(base || "").replace(/^https?:\/\//, "");
+    }
+    if (host) {
+      hubEl.hidden = false;
+      hubEl.textContent = host;
+      hubEl.title = (_t("hub.current") || "Match hub") + ": " + base;
+    } else {
+      hubEl.hidden = true;
+    }
   }
 }
 
@@ -6766,6 +7231,14 @@ function wireSettingsNav() {
   wireAvatarSettings();
   applyTheme(getTheme(), { persist: false });
   refreshLocalNameChip();
+  $("btn-about-keys")?.addEventListener("click", () => {
+    try {
+      closeSettings();
+    } catch (_) {}
+    try {
+      openKeysHelp();
+    } catch (_) {}
+  });
   $("btn-settings-done")?.addEventListener("click", () => closeSettings());
   $("btn-conn-refresh")?.addEventListener("click", () => {
     refreshConnectionDetails();
@@ -7260,9 +7733,80 @@ function releaseSheetFocusTrap(sheet) {
   }
 }
 
+/** Dock flyouts (Settings / Friends / Messages): open beside icon, no screen dim. */
+const DOCK_FLYOUT_GAP = 8;
+const DOCK_FLYOUT_MARGIN = 8;
+
+function positionDockFlyout(sheet, anchor, opts = {}) {
+  if (!sheet || !anchor) return;
+  const rect = anchor.getBoundingClientRect();
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const maxW = Math.min(opts.maxWidth || 380, vw - DOCK_FLYOUT_MARGIN * 2);
+  const preferH = opts.maxHeight || Math.min(vh * 0.72, 560);
+  const spaceAbove = rect.top - DOCK_FLYOUT_MARGIN;
+  const spaceBelow = vh - rect.bottom - DOCK_FLYOUT_MARGIN;
+  const placeAbove = spaceAbove >= Math.min(preferH, 240) || spaceAbove >= spaceBelow;
+  const maxH = Math.max(160, Math.min(preferH, placeAbove ? spaceAbove - DOCK_FLYOUT_GAP : spaceBelow - DOCK_FLYOUT_GAP));
+
+  // Horizontal: start = left-align to icon, end = right-align, center = mid
+  let left;
+  if (opts.align === "end") left = rect.right - maxW;
+  else if (opts.align === "start") left = rect.left;
+  else left = rect.left + rect.width / 2 - maxW / 2;
+  left = Math.max(DOCK_FLYOUT_MARGIN, Math.min(left, vw - maxW - DOCK_FLYOUT_MARGIN));
+
+  sheet.style.width = `${maxW}px`;
+  sheet.style.maxHeight = `${maxH}px`;
+  // Settings views are position:absolute inset:0 — parent needs a real height.
+  // Friends/Messages use in-flow body scroll; auto height is fine with max-height.
+  if (opts.fixedHeight || sheet.classList.contains("settings-app")) {
+    sheet.style.height = `${Math.round(maxH)}px`;
+  } else {
+    sheet.style.height = "auto";
+  }
+  sheet.style.left = `${Math.round(left)}px`;
+  sheet.style.right = "auto";
+  if (placeAbove) {
+    sheet.style.top = "auto";
+    sheet.style.bottom = `${Math.round(vh - rect.top + DOCK_FLYOUT_GAP)}px`;
+    sheet.style.transformOrigin = opts.align === "end" ? "bottom right" : opts.align === "start" ? "bottom left" : "bottom center";
+  } else {
+    sheet.style.bottom = "auto";
+    sheet.style.top = `${Math.round(rect.bottom + DOCK_FLYOUT_GAP)}px`;
+    sheet.style.transformOrigin = opts.align === "end" ? "top right" : opts.align === "start" ? "top left" : "top center";
+  }
+}
+
+function setDockFlyoutOpen(btn, open) {
+  if (!btn) return;
+  btn.classList.toggle("is-flyout-open", !!open);
+  btn.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+function repositionOpenDockFlyouts() {
+  if (settingsIsOpen()) {
+    positionDockFlyout($("settings-sheet"), $("btn-settings"), { align: "end", maxWidth: 380 });
+  }
+  if (friendsIsOpen()) {
+    positionDockFlyout($("friends-sheet"), $("btn-friends"), { align: "start", maxWidth: 380 });
+  }
+  if (messagesIsOpen()) {
+    positionDockFlyout($("messages-sheet"), $("btn-messages"), { align: "start", maxWidth: 400 });
+  }
+}
+
+function closeAllDockFlyouts(except) {
+  if (except !== "settings" && settingsIsOpen()) closeSettings();
+  if (except !== "friends" && friendsIsOpen()) closeFriends();
+  if (except !== "messages" && messagesIsOpen()) closeMessages();
+}
+
 function openSettings() {
+  closeAllDockFlyouts("settings");
   const sheet = $("settings-sheet");
   const bd = $("sheet-backdrop");
+  const btn = $("btn-settings");
   // Re-apply strings so labels never stick as raw keys
   try {
     NextfaceI18n?.applyI18n?.(sheet || document);
@@ -7272,6 +7816,7 @@ function openSettings() {
   if (sheet) {
     sheet.hidden = false;
     sheet.removeAttribute("hidden");
+    positionDockFlyout(sheet, btn, { align: "end", maxWidth: 380 });
     // force reflow then animate in
     void sheet.offsetWidth;
     sheet.classList.add("is-open");
@@ -7279,9 +7824,9 @@ function openSettings() {
   if (bd) {
     bd.hidden = false;
     bd.removeAttribute("hidden");
-    void bd.offsetWidth;
     bd.classList.add("is-open");
   }
+  setDockFlyoutOpen(btn, true);
   syncNameInputs(getDisplayName());
   refreshSecurityPanel();
   refreshAvatarUi();
@@ -7292,26 +7837,53 @@ function openSettings() {
     await refreshDevices().catch(() => {});
     syncSettingsSummary();
     refreshSecurityPanel();
+    // Reposition after content may have grown
+    if (settingsIsOpen()) positionDockFlyout(sheet, btn, { align: "end", maxWidth: 380 });
   })();
 }
 function closeSettings() {
   stopConnDetailsLive();
   const sheet = $("settings-sheet");
   const bd = $("sheet-backdrop");
+  const btn = $("btn-settings");
   releaseSheetFocusTrap(sheet);
   sheet?.classList.remove("is-open");
   bd?.classList.remove("is-open");
+  setDockFlyoutOpen(btn, false);
   // Allow fade/slide to finish before hiding
   setTimeout(() => {
     if (sheet) sheet.hidden = true;
     if (bd) bd.hidden = true;
     showSettingsView("main");
-  }, 180);
+  }, 160);
 }
 
 function settingsIsOpen() {
   const sheet = $("settings-sheet");
-  return sheet && !sheet.hidden;
+  return !!(sheet && !sheet.hidden);
+}
+
+function friendsIsOpen() {
+  const sheet = $("friends-sheet");
+  return !!(sheet && !sheet.hidden);
+}
+
+function messagesIsOpen() {
+  const sheet = $("messages-sheet");
+  return !!(sheet && !sheet.hidden && messagesSheetOpen);
+}
+
+function toggleSettings() {
+  if (settingsIsOpen()) closeSettings();
+  else openSettings();
+}
+function toggleFriends() {
+  if (friendsIsOpen()) closeFriends();
+  else openFriends();
+}
+function toggleMessages(tab) {
+  if (messagesIsOpen() && !tab) closeMessages();
+  else openMessages(tab);
 }
 
 function startPing() {
@@ -7945,6 +8517,8 @@ function handleMatched(msg) {
   if (matchMode === "friend") inFriendCall = true;
   else if (matchMode === "solo") inFriendCall = false;
   // leave inFriendCall unchanged when entering party_browse from a friend call
+  // New person → full partner volume again (even if previous call was quiet)
+  resetPartnerVolumeForNewMatch(msg);
   setPhase(matchMode === "friend" ? "friend_call" : "matched");
   syncScreenWakeLock();
   updatePipButton();
@@ -8145,7 +8719,7 @@ function handleMatched(msg) {
           normalizeFlagCode(peer?.flag) ||
           normalizeFlagCode(lastMatchMeta?.flag) ||
           "";
-        tag.textContent = formatNameWithFlag(named, fl);
+        setNameOnTile(tag, named, fl);
         const av =
           (isValidAvatarDataUrl(peer?.avatar) && peer.avatar) ||
           lastMatchMeta?.avatar ||
@@ -8153,13 +8727,15 @@ function handleMatched(msg) {
         setTileAvatar("remote", av);
       }
     }
-    if (wrap) wrap.hidden = !(tag && tag.textContent);
+    if (wrap) wrap.hidden = !(tag && (tag.textContent || "").trim());
   }
   if (trioBrowse && opponents[0]) {
     const n = opponents[0].name || msg.partner_short || "";
     setThirdSlotStream(null); // filled after stream in joinPeers
     const ttag = $("third-tag");
-    if (ttag) ttag.textContent = n;
+    if (ttag) {
+      setNameOnTile(ttag, n, opponents[0].flag);
+    }
   }
 
   setStatus(
@@ -8169,8 +8745,9 @@ function handleMatched(msg) {
     })
   );
   log(_t("log.matched", { id: msg.partner_short }) + ` · ${matchMode}`);
-  playMatchChime();
+  // No chime on match/connect — visual flash + toast only (less interruptive)
   flashPartnerTile();
+  showMatchFoundToast({ connecting: true });
   updateFriendActionButtons();
   trackEvent("match", {
     mode: matchMode || "solo",
@@ -8532,6 +9109,11 @@ function clearConnChip() {
   chip.textContent = "";
   chip.className = "conn-chip";
   chip.removeAttribute("title");
+  $("tile-remote")?.classList.remove(
+    "conn-grade-good",
+    "conn-grade-ok",
+    "conn-grade-weak"
+  );
 }
 
 /**
@@ -8632,6 +9214,12 @@ function updateConnChip(rtt, loss, iceKind) {
   chip.hidden = false;
   chip.className = "conn-chip grade-" + grade + (iceKind === "relay" ? " path-relay" : "");
   chip.textContent = label + " · " + path;
+  // Partner tile live frame grade (visual border)
+  const remoteTile = $("tile-remote");
+  if (remoteTile) {
+    remoteTile.classList.remove("conn-grade-good", "conn-grade-ok", "conn-grade-weak");
+    remoteTile.classList.add("conn-grade-" + grade);
+  }
   const detail = [];
   if (rtt != null) detail.push(Math.round(rtt) + " ms");
   if (loss != null) detail.push(loss.toFixed(1) + "% loss");
@@ -8746,7 +9334,22 @@ function renderFriendsList() {
   });
 
   if (!friendsCache.length) {
-    el.innerHTML = `<div class="hint-inline">${escapeHtml(_t("friends.empty"))}</div>`;
+    el.innerHTML = `<div class="sheet-empty friends-empty">
+      <div class="sheet-empty-icon" aria-hidden="true">◎</div>
+      <div class="sheet-empty-title">${escapeHtml(
+        _t("friends.emptyTitle") || "No friends yet"
+      )}</div>
+      <p class="sheet-empty-body">${escapeHtml(
+        _t("friends.empty") || "Share your code so others can Request you"
+      )}</p>
+      <button type="button" class="pill accent tight sheet-empty-cta" id="friends-empty-cta">${escapeHtml(
+        _t("friends.emptyCta") || "Copy my code"
+      )}</button>
+    </div>`;
+    $("friends-empty-cta")?.addEventListener("click", () => {
+      $("btn-copy-code")?.click();
+      $("add-friend-code")?.focus();
+    });
   } else {
     const read = loadChatRead();
     const nicks = loadFriendNicks();
@@ -9632,13 +10235,16 @@ function maybeShowFriendsFirstRun() {
 }
 
 function openFriends() {
-  closeMessages();
+  closeAllDockFlyouts("friends");
   ensureNotifPermissionSoft();
   const sheet = $("friends-sheet");
   const bd = $("friends-backdrop");
+  const btn = $("btn-friends");
   if (sheet) {
     sheet.hidden = false;
     sheet.removeAttribute("hidden");
+    positionDockFlyout(sheet, btn, { align: "start", maxWidth: 380 });
+    void sheet.offsetWidth;
     sheet.classList.add("is-open");
   }
   if (bd) {
@@ -9646,6 +10252,7 @@ function openFriends() {
     bd.removeAttribute("hidden");
     bd.classList.add("is-open");
   }
+  setDockFlyoutOpen(btn, true);
   syncNameInputs(getDisplayName());
   if ($("my-friend-code")) {
     $("my-friend-code").textContent = myFriendCode || "—";
@@ -9677,9 +10284,11 @@ function openFriends() {
 function closeFriends() {
   const sheet = $("friends-sheet");
   const bd = $("friends-backdrop");
+  const btn = $("btn-friends");
   releaseSheetFocusTrap(sheet);
   sheet?.classList.remove("is-open");
   bd?.classList.remove("is-open");
+  setDockFlyoutOpen(btn, false);
   if (sheet) sheet.hidden = true;
   if (bd) bd.hidden = true;
   closeAllFriendMoreMenus();
@@ -9837,26 +10446,93 @@ function partnerMenuOpen() {
   return menu && !menu.hidden;
 }
 
+function showPartnerMenuMain() {
+  const main = $("partner-menu-main");
+  const rep = $("partner-menu-report");
+  if (main) {
+    main.hidden = false;
+    main.removeAttribute("hidden");
+  }
+  if (rep) {
+    rep.hidden = true;
+    rep.setAttribute("hidden", "");
+  }
+  const title = $("partner-menu-title");
+  if (title) title.textContent = _t("partnerMenu.title") || "Partner";
+}
+
+function showPartnerReportReasons() {
+  const main = $("partner-menu-main");
+  const rep = $("partner-menu-report");
+  if (main) {
+    main.hidden = true;
+    main.setAttribute("hidden", "");
+  }
+  if (rep) {
+    rep.hidden = false;
+    rep.removeAttribute("hidden");
+  }
+  const title = $("partner-menu-title");
+  if (title) title.textContent = _t("partnerMenu.reportNext") || _t("partnerMenu.report") || "Report";
+}
+
 function closePartnerMenu() {
   const menu = $("partner-menu");
   const bd = $("partner-menu-backdrop");
   releaseSheetFocusTrap(menu);
-  if (menu) menu.hidden = true;
-  if (bd) bd.hidden = true;
-  const main = $("partner-menu-main");
-  const rep = $("partner-menu-report");
-  if (main) main.hidden = false;
-  if (rep) rep.hidden = true;
+  if (menu) {
+    menu.hidden = true;
+    menu.setAttribute("hidden", "");
+  }
+  if (bd) {
+    bd.hidden = true;
+    bd.setAttribute("hidden", "");
+  }
+  // Always reset to main actions for next open
+  showPartnerMenuMain();
 }
 
-function isPartnerAlreadyFriend(uid) {
-  if (!uid) return false;
-  return (friendsCache || []).some((f) => f.user_id === uid);
+function normalizeFriendCode(c) {
+  return String(c || "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "");
 }
 
-function isPartnerRequestPending(uid) {
-  if (!uid) return false;
-  return (outgoingRequests || []).some((r) => r.user_id === uid);
+/** True if this partner is already on our friends list (live cache or local backup). */
+function isPartnerAlreadyFriend(uid, code) {
+  const u = String(uid || "").trim();
+  const c = normalizeFriendCode(code || lastMatchMeta?.friend_code || "");
+  if (!u && !c) return false;
+  const pools = [];
+  try {
+    pools.push(...(friendsCache || []));
+  } catch (_) {}
+  try {
+    pools.push(...loadFriendsBackup());
+  } catch (_) {}
+  for (const f of pools) {
+    if (!f) continue;
+    if (u && f.user_id && String(f.user_id).trim() === u) return true;
+    if (c && normalizeFriendCode(f.friend_code) === c) return true;
+  }
+  return false;
+}
+
+function isPartnerRequestPending(uid, code) {
+  const u = String(uid || "").trim();
+  const c = normalizeFriendCode(code || lastMatchMeta?.friend_code || "");
+  if (!u && !c) return false;
+  const lists = [
+    ...(outgoingRequests || []),
+    ...(incomingRequests || []),
+  ];
+  for (const r of lists) {
+    if (!r) continue;
+    if (u && r.user_id && String(r.user_id).trim() === u) return true;
+    if (c && normalizeFriendCode(r.friend_code) === c) return true;
+  }
+  return false;
 }
 
 function openPartnerMenu() {
@@ -9867,17 +10543,25 @@ function openPartnerMenu() {
   const bd = $("partner-menu-backdrop");
   if (!menu) return;
 
-  const name = formatNameWithFlag(
-    lastMatchMeta?.name || _t("remote.tag"),
-    lastMatchMeta?.flag
-  );
   const nameEl = $("partner-menu-name");
-  if (nameEl) nameEl.textContent = name;
+  if (nameEl) {
+    setNameOnTile(
+      nameEl,
+      lastMatchMeta?.name || _t("remote.tag"),
+      lastMatchMeta?.flag
+    );
+  }
 
   const friendBtn = $("btn-partner-friend");
   if (friendBtn) {
-    const already = isPartnerAlreadyFriend(primaryPartnerUserId);
-    const pending = isPartnerRequestPending(primaryPartnerUserId);
+    const already = isPartnerAlreadyFriend(
+      primaryPartnerUserId,
+      lastMatchMeta?.friend_code
+    );
+    const pending = isPartnerRequestPending(
+      primaryPartnerUserId,
+      lastMatchMeta?.friend_code
+    );
     const isFriendCall = matchMode === "friend" || inFriendCall;
     friendBtn.disabled = already || pending || isFriendCall;
     const lbl = friendBtn.querySelector("[data-i18n], span:not(.pm-ico)") || friendBtn;
@@ -9907,14 +10591,17 @@ function openPartnerMenu() {
     findBtn.disabled = !canFind;
   }
 
-  const main = $("partner-menu-main");
-  const rep = $("partner-menu-report");
-  if (main) main.hidden = false;
-  if (rep) rep.hidden = true;
+  showPartnerMenuMain();
 
   menu.hidden = false;
-  if (bd) bd.hidden = false;
+  menu.removeAttribute("hidden");
+  if (bd) {
+    bd.hidden = false;
+    bd.removeAttribute("hidden");
+  }
   bindSheetFocusTrap(menu);
+  // Focus close for accessibility
+  setTimeout(() => $("btn-partner-menu-close")?.focus?.(), 30);
 }
 
 function invitePartnerFriend() {
@@ -9928,7 +10615,12 @@ function invitePartnerFriend() {
     closePartnerMenu();
     return;
   }
-  if (isPartnerAlreadyFriend(primaryPartnerUserId)) {
+  if (
+    isPartnerAlreadyFriend(
+      primaryPartnerUserId,
+      lastMatchMeta?.friend_code || code
+    )
+  ) {
     setStatus(_t("partnerMenu.alreadyFriend"));
     closePartnerMenu();
     return;
@@ -9964,13 +10656,6 @@ function blockPartnerFromMenu() {
   updateConnFromState();
   updateFriendsOnlineStrip();
   trackEvent("block_next");
-}
-
-function showPartnerReportReasons() {
-  const main = $("partner-menu-main");
-  const rep = $("partner-menu-report");
-  if (main) main.hidden = true;
-  if (rep) rep.hidden = false;
 }
 
 function saveLocalReport(entry) {
@@ -10077,7 +10762,7 @@ on("btn-restart-cam", "click", async () => {
   await startPreview();
 });
 on("btn-mute-mic", "click", () => toggleMicMute());
-on("btn-mute-cam", "click", () => toggleCam());
+// btn-mute-cam removed from DOM — cam on/off feature retired
 on("btn-mute-remote", "click", () => togglePartnerMute());
 on("btn-blur-remote", "click", () => togglePartnerBlur());
 on("btn-blur-self", "click", () => toggleSelfBlur());
@@ -10098,33 +10783,59 @@ on("btn-partner-find-third", "click", () => {
 on("btn-partner-block", "click", () => blockPartnerFromMenu());
 on("btn-partner-report", "click", () => showPartnerReportReasons());
 on("btn-report-dock", "click", () => {
+  // One-tap Report · Next (default reason); open menu for other reasons via partner video
   if (!primaryPartnerUserId || !matched) return;
-  openPartnerMenu();
-  showPartnerReportReasons();
+  reportPartner("other");
 });
 on("btn-partner-menu-cancel", "click", () => closePartnerMenu());
-on("btn-partner-report-back", "click", () => {
-  const main = $("partner-menu-main");
-  const rep = $("partner-menu-report");
-  if (main) main.hidden = false;
-  if (rep) rep.hidden = true;
+on("btn-partner-menu-close", "click", () => closePartnerMenu());
+// Back from report reasons → main actions (not a no-op when CSS hid both panels)
+on("btn-partner-report-back", "click", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  showPartnerMenuMain();
 });
 on("partner-menu-backdrop", "click", () => closePartnerMenu());
+// Stop clicks inside the sheet from bubbling to backdrop / video
+$("partner-menu")?.addEventListener("click", (e) => e.stopPropagation());
 $("partner-menu-report")?.querySelectorAll("[data-report-reason]").forEach((btn) => {
   btn.addEventListener("click", () => {
     reportPartner(btn.getAttribute("data-report-reason") || "other");
   });
 });
-on("btn-settings", "click", () => openSettings());
+on("btn-settings", "click", (e) => {
+  e.stopPropagation();
+  toggleSettings();
+});
 on("btn-conn-retry", "click", () => manualReconnect());
 on("sheet-close", "click", () => closeSettings());
+// Backdrop is transparent — click outside flyout closes it (no dim)
 on("sheet-backdrop", "click", () => closeSettings());
 on("btn-refresh-devices", "click", () => refreshDevices());
-on("btn-friends", "click", () => openFriends());
+on("btn-friends", "click", (e) => {
+  e.stopPropagation();
+  toggleFriends();
+});
 on("friends-close", "click", () => closeFriends());
-on("btn-messages", "click", () => openMessages());
+on("btn-messages", "click", (e) => {
+  e.stopPropagation();
+  toggleMessages();
+});
 on("messages-close", "click", () => closeMessages());
 on("messages-backdrop", "click", () => closeMessages());
+// Keep flyouts next to their icons on resize / orientation change
+window.addEventListener("resize", () => {
+  try {
+    repositionOpenDockFlyouts();
+  } catch (_) {}
+});
+window.addEventListener("orientationchange", () => {
+  setTimeout(() => {
+    try {
+      repositionOpenDockFlyouts();
+    } catch (_) {}
+  }, 80);
+});
 on("msg-tab-friends", "click", () => {
   showMsgListView();
   setMessagesTab("friends");
@@ -10571,6 +11282,11 @@ on("btn-next", "click", () => {
 function doStopMatchmaking() {
   maybeShowMatchPathSummary("stop");
   maybeShowPostMatchFriendNudge("stop");
+  aloneInviteToastShown = false;
+  try {
+    $("alone-invite-toast")?.remove?.();
+  } catch (_) {}
+  clearLongWaitBoost();
   pendingSignals.length = 0;
   wantSearch = false;
   matched = false;
@@ -10669,11 +11385,7 @@ $("btn-empty-qr")?.addEventListener("click", () => {
   ensureShareableRoom();
   toggleEmptyShareQr();
 });
-$("btn-empty-friend-qr")?.addEventListener("click", () => toggleEmptyFriendQr());
-$("btn-empty-friend-invite")?.addEventListener("click", () => {
-  shareFriendInvite({ preferShare: true });
-});
-// Mobile alone-pool invite (under Start)
+// Mobile alone-pool room share (friend invite button removed)
 $("btn-mobile-share")?.addEventListener("click", () => {
   if (!ROOMS_ENABLED) return;
   trackEvent("mobile_invite_share");
@@ -10684,10 +11396,6 @@ $("btn-mobile-share")?.addEventListener("click", () => {
     "room.copied",
     { preferShare: true }
   );
-});
-$("btn-mobile-friend")?.addEventListener("click", () => {
-  trackEvent("mobile_invite_friend");
-  shareFriendInvite({ preferShare: true });
 });
 document.addEventListener("click", (e) => {
   if (e.target?.closest?.(".friend-more-wrap")) return;
@@ -10875,9 +11583,6 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "m" || e.key === "M") {
     e.preventDefault();
     toggleMicMute();
-  } else if (e.key === "v" || e.key === "V") {
-    e.preventDefault();
-    toggleCam();
   } else if (e.key === "c" || e.key === "C") {
     e.preventDefault();
     flipCamera();
@@ -10907,6 +11612,12 @@ document.addEventListener("keydown", (e) => {
     } else if (settingsIsOpen()) {
       e.preventDefault();
       closeSettings();
+    } else if (friendsIsOpen()) {
+      e.preventDefault();
+      closeFriends();
+    } else if (messagesIsOpen()) {
+      e.preventDefault();
+      closeMessages();
     } else if (partnerMenuOpen()) {
       e.preventDefault();
       closePartnerMenu();

@@ -4,23 +4,28 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Privacy policy — ruletka.vip</title>
+  <meta name="description" content="Privacy policy for ruletka.vip: peer-to-peer video, what we process, retention, and your choices." />
   <meta name="theme-color" content="#07080c" />
   <meta name="robots" content="index, follow" />
   <link rel="canonical" href="https://ruletka.vip/legal/privacy.html" />
   <link rel="icon" href="/brand/favicon-32.png" type="image/png" />
-  <link rel="stylesheet" href="../home.css?v=74" />
-  <link rel="stylesheet" href="legal.css?v=4" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../home.css?v=79" />
+  <link rel="stylesheet" href="legal.css?v=5" />
   <script src="../brand.js?v=2"></script>
-  <script src="../site-i18n.js?v=1" defer></script>
+  <script src="../site-i18n.js?v=3" defer></script>
 </head>
 <body class="home-body" data-i18n-title-key="page.privacy.title">
   <div class="home-bg" aria-hidden="true"><div class="home-bg-grid"></div><div class="home-bg-orb home-bg-orb-a"></div></div>
-  <div class="legal-wrap">
+  <div class="legal-wrap legal-wrap-wide">
     <nav class="legal-nav">
       <a href="/" data-keep-lang data-i18n="nav.home">Home</a>
       <a class="primary" href="/live.html" data-i18n="nav.liveShort">Live</a>
-      <a href="/safety.html" data-keep-lang data-i18n="nav.safety">Safety</a>
+      <a href="/legal/" data-keep-lang data-i18n="nav.legal">Legal</a>
       <a href="/legal/terms.html" data-keep-lang data-i18n="nav.terms">Terms</a>
+      <a href="/safety.html" data-keep-lang data-i18n="nav.safety">Safety</a>
       <label class="home-lang legal-lang" data-i18n-title="nav.lang" title="Language">
         <span class="home-lang-ico" aria-hidden="true">🌐</span>
         <select id="site-lang" class="site-lang" aria-label="Language">
@@ -41,23 +46,91 @@
       <h1 data-i18n="page.privacy.h1">Privacy policy</h1>
       <p class="updated" data-i18n="page.privacy.updated">Last updated: 2026-07-31</p>
       <p data-i18n-html-brand="page.privacy.intro"></p>
-      <h2 data-i18n="page.privacy.hMedia">Video and audio</h2>
+
+      <div class="legal-pill-row">
+        <span class="legal-pill" data-i18n="page.privacy.pillP2p">P2P video</span>
+        <span class="legal-pill" data-i18n="page.privacy.pillNoStore">No media store</span>
+        <span class="legal-pill" data-i18n="page.privacy.pill18">18+ only</span>
+        <span class="legal-pill" data-i18n="page.privacy.pillLocal">Local preferences</span>
+      </div>
+
+      <div class="legal-summary" data-i18n-html="page.privacy.summaryHtml"></div>
+
+      <nav class="legal-toc" aria-label="Table of contents">
+        <strong data-i18n="page.privacy.toc">On this page</strong>
+        <ol>
+          <li><a href="#media" data-i18n="page.privacy.tocMedia">Video and audio</a></li>
+          <li><a href="#signal" data-i18n="page.privacy.tocSignal">Signaling</a></li>
+          <li><a href="#inventory" data-i18n="page.privacy.tocInventory">Data inventory</a></li>
+          <li><a href="#local" data-i18n="page.privacy.tocLocal">Local device</a></li>
+          <li><a href="#friends" data-i18n="page.privacy.tocFriends">Friends</a></li>
+          <li><a href="#reports" data-i18n="page.privacy.tocReports">Reports</a></li>
+          <li><a href="#retention" data-i18n="page.privacy.tocRetention">Retention</a></li>
+          <li><a href="#hubs" data-i18n="page.privacy.tocHubs">Hubs</a></li>
+          <li><a href="#analytics" data-i18n="page.privacy.tocAnalytics">Analytics</a></li>
+          <li><a href="#security" data-i18n="page.privacy.tocSecurity">Security</a></li>
+          <li><a href="#rights" data-i18n="page.privacy.tocRights">Your choices</a></li>
+          <li><a href="#children" data-i18n="page.privacy.tocChildren">Children</a></li>
+          <li><a href="#law" data-i18n="page.privacy.tocLaw">Legal requests</a></li>
+          <li><a href="#changes" data-i18n="page.privacy.tocChanges">Changes</a></li>
+          <li><a href="#contact" data-i18n="page.privacy.tocContact">Contact</a></li>
+        </ol>
+      </nav>
+
+      <h2 id="media" data-i18n="page.privacy.hMedia">Video and audio</h2>
       <p data-i18n-html="page.privacy.media1"></p>
       <p data-i18n-html="page.privacy.media2"></p>
       <p data-i18n-html="page.privacy.media3"></p>
-      <h2 data-i18n="page.privacy.hSignal">Signaling and matchmaking</h2>
+
+      <h2 id="signal" data-i18n="page.privacy.hSignal">Signaling and matchmaking</h2>
       <p data-i18n-html="page.privacy.signal"></p>
-      <h2 data-i18n="page.privacy.hReports">Reports and safety</h2>
-      <p data-i18n-html="page.privacy.reports"></p>
-      <h2 data-i18n="page.privacy.hLocal">Local device data</h2>
+
+      <h2 id="inventory" data-i18n="page.privacy.hInventory">Data inventory</h2>
+      <p data-i18n="page.privacy.inventoryIntro"></p>
+      <div class="legal-table-wrap" data-i18n-html="page.privacy.inventoryTable"></div>
+
+      <h2 id="local" data-i18n="page.privacy.hLocal">Local device data</h2>
       <p data-i18n-html="page.privacy.local"></p>
-      <h2 data-i18n="page.privacy.hFriends">Friends and blocks</h2>
+
+      <h2 id="friends" data-i18n="page.privacy.hFriends">Friends and blocks</h2>
       <p data-i18n-html="page.privacy.friends"></p>
-      <h2 data-i18n="page.privacy.hAnalytics">Analytics</h2>
+
+      <h2 id="reports" data-i18n="page.privacy.hReports">Reports and safety</h2>
+      <p data-i18n-html="page.privacy.reports"></p>
+
+      <h2 id="retention" data-i18n="page.privacy.hRetention">Retention and deletion</h2>
+      <div data-i18n-html="page.privacy.retentionBody"></div>
+
+      <h2 id="hubs" data-i18n="page.privacy.hHubs">Other hubs and federation</h2>
+      <div data-i18n-html="page.privacy.hubsBody"></div>
+
+      <h2 id="analytics" data-i18n="page.privacy.hAnalytics">Analytics</h2>
       <p data-i18n-html="page.privacy.analytics"></p>
-      <h2 data-i18n="page.privacy.hContact">Contact</h2>
+
+      <h2 id="security" data-i18n="page.privacy.hSecurity">Security</h2>
+      <div data-i18n-html="page.privacy.securityBody"></div>
+
+      <h2 id="rights" data-i18n="page.privacy.hRights">Your choices</h2>
+      <div data-i18n-html="page.privacy.rightsBody"></div>
+
+      <h2 id="children" data-i18n="page.privacy.hChildren">Children</h2>
+      <div data-i18n-html="page.privacy.childrenBody"></div>
+
+      <h2 id="law" data-i18n="page.privacy.hLaw">Legal requests</h2>
+      <div data-i18n-html="page.privacy.lawBody"></div>
+
+      <h2 id="changes" data-i18n="page.privacy.hChanges">Changes to this policy</h2>
+      <div data-i18n-html="page.privacy.changesBody"></div>
+
+      <h2 id="contact" data-i18n="page.privacy.hContact">Contact</h2>
       <p data-i18n-html="page.privacy.contact"></p>
+
+      <p class="legal-lang-note" data-i18n="page.privacy.langNote">
+        If a translation differs from the English version, the English text controls.
+      </p>
+
       <div class="legal-foot-links">
+        <a href="/legal/" data-keep-lang data-i18n="nav.legal">Legal hub</a>
         <a href="/legal/terms.html" data-keep-lang data-i18n="nav.terms">Terms</a>
         <a href="/legal/community.html" data-keep-lang data-i18n="nav.community">Community</a>
         <a href="/legal/eula.html" data-keep-lang data-i18n="nav.eula">EULA</a>
