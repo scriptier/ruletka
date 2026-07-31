@@ -200,7 +200,7 @@
   "friends.kindStranger": "stranger",
   "friends.message": "Message",
   "friends.more": "More",
-  "friends.mutualHint": "When someone adds your code, you must Accept before you become friends and can Call.",
+  "friends.mutualHint": "Only friends can Call. When someone adds your code, Accept first — then Call when Online.",
   "friends.nameHint": "This name is what strangers and friends see in chat and when you match. Edit it in the top bar, Friends, or Settings.",
   "friends.needCode": "Enter a friend code first",
   "friends.needConn": "Not connected — wait a moment, then try again",
@@ -1106,5 +1106,6 @@
   "friends.tabHistory": "Call history",
   "friends.tabBlocked": "Blocked",
   "friends.openHistory": "Call history",
-  "friends.blockedEmpty": "No blocked users"
+  "friends.blockedEmpty": "No blocked users",
+  "friends.callOnlyFriends": "Only friends can call — add them by code first"
 }

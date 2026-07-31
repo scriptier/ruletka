@@ -4958,10 +4958,26 @@ function send(obj) {
   return false;
 }
 
-/** Place a friend call (ring). Returns false if not connected / missing uid. */
+/** True if uid is on our mutual friends list (hub-synced). */
+function isMutualFriend(userId) {
+  const uid = (userId || "").trim();
+  if (!uid) return false;
+  return (friendsCache || []).some((f) => f && f.user_id === uid);
+}
+
+/** Place a friend call (ring). Only mutual friends — never strangers. */
 function placeFriendCall(userId, { closePanel = true } = {}) {
   const uid = (userId || "").trim();
   if (!uid) return false;
+  if (!isMutualFriend(uid)) {
+    clearCallTimeout();
+    setStatus(
+      _t("friends.callOnlyFriends") ||
+        "Only friends can call — add them by code first"
+    );
+    log(_t("friends.callOnlyFriends") || "only friends can call");
+    return false;
+  }
   if (!send({ type: "call_friend", user_id: uid })) {
     clearCallTimeout();
     setStatus(_t("status.disconnected") || "disconnected — reconnecting…");
@@ -8735,7 +8751,7 @@ function handleServer(msg) {
         const em = String(msg.message || "");
         // Friend-call failures should cancel the "calling…" timeout UI
         if (
-          /friend offline|not friends|friend request|friend is busy|cannot call|caller offline|accept their friend/i.test(
+          /friend offline|not friends|only friends can call|friend request|friend is busy|cannot call|caller offline|accept their friend/i.test(
             em
           )
         ) {

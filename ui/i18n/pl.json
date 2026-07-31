@@ -198,7 +198,7 @@
   "friends.kindStranger": "obcy",
   "friends.message": "Wiadomość",
   "friends.more": "Więcej",
-  "friends.mutualHint": "Gdy ktoś doda Twój kod, musisz Zaakceptować, zanim będziecie znajomymi i będziecie mogli Dzwonić.",
+  "friends.mutualHint": "Tylko znajomi mogą dzwonić. Dodaj kod → Zaakceptuj → Zadzwoń gdy Online.",
   "friends.nameHint": "Tę nazwę widzą obcy i znajomi na czacie i przy matchu. Edytuj na pasku, w Znajomi lub Ustawieniach.",
   "friends.needCode": "Najpierw wpisz kod znajomego",
   "friends.needConn": "Brak połączenia — poczekaj na zielony status",
@@ -1106,5 +1106,6 @@
   "friends.tabHistory": "Historia",
   "friends.tabBlocked": "Zablokowani",
   "friends.openHistory": "Historia połączeń",
-  "friends.blockedEmpty": "Brak zablokowanych"
+  "friends.blockedEmpty": "Brak zablokowanych",
+  "friends.callOnlyFriends": "Tylko znajomi mogą dzwonić — najpierw dodaj po kodzie"
 }

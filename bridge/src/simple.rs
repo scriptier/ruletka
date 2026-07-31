@@ -3525,7 +3525,7 @@ impl SimpleHub {
             } else if pending_in {
                 "accept their friend request first"
             } else {
-                "not friends — send a request and wait for accept"
+                "only friends can call — send a request and wait for accept"
             };
             tracing::info!(%my_uid, target = %user_id, %msg, "call_friend rejected");
             self.send(
@@ -3611,6 +3611,57 @@ impl SimpleHub {
                 },
             );
             self.status(caller, "call declined");
+            return;
+        }
+        // Only mutual friends may start a direct call (never strangers)
+        let my_uid = self
+            .clients
+            .get(&id)
+            .map(|c| c.user_id.clone())
+            .unwrap_or_default();
+        let i_have = self
+            .friendships
+            .get(&my_uid)
+            .map(|s| s.contains(&from_user_id))
+            .unwrap_or(false);
+        let they_have = self
+            .friendships
+            .get(&from_user_id)
+            .map(|s| s.contains(&my_uid))
+            .unwrap_or(false);
+        if my_uid.is_empty() || !i_have || !they_have {
+            tracing::info!(
+                %my_uid,
+                caller = %from_user_id,
+                "call_respond accept rejected — not mutual friends"
+            );
+            self.send(
+                id,
+                ServerMsg::Error {
+                    message: "not friends — only friends can call".into(),
+                },
+            );
+            self.send(
+                caller,
+                ServerMsg::CallEnded {
+                    reason: "call failed — not friends".into(),
+                },
+            );
+            return;
+        }
+        if self.is_blocked_pair_uid(&my_uid, &from_user_id) {
+            self.send(
+                id,
+                ServerMsg::Error {
+                    message: "cannot call — user is blocked".into(),
+                },
+            );
+            self.send(
+                caller,
+                ServerMsg::CallEnded {
+                    reason: "call failed".into(),
+                },
+            );
             return;
         }
         // Drop any stranger/queue/party state so friend 1:1 can start cleanly

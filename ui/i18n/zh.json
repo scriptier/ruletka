@@ -198,7 +198,7 @@
   "friends.kindStranger": "陌生人",
   "friends.message": "消息",
   "friends.more": "更多",
-  "friends.mutualHint": "有人添加你的代码后，你须先「接受」才能成为好友并呼叫。",
+  "friends.mutualHint": "仅好友可呼叫。添加代码 → 接受 → 在线时呼叫。",
   "friends.nameHint": "陌生人和好友在聊天与匹配时会看到此名称。可在顶栏、好友或设置中修改。",
   "friends.needCode": "请先输入好友代码",
   "friends.needConn": "未连接 — 请等待绿色状态",
@@ -1106,5 +1106,6 @@
   "friends.tabHistory": "通话记录",
   "friends.tabBlocked": "已屏蔽",
   "friends.openHistory": "通话记录",
-  "friends.blockedEmpty": "暂无屏蔽用户"
+  "friends.blockedEmpty": "暂无屏蔽用户",
+  "friends.callOnlyFriends": "仅好友可呼叫 — 请先用代码添加"
 }

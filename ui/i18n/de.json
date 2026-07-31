@@ -198,7 +198,7 @@
   "friends.kindStranger": "Fremder",
   "friends.message": "Nachricht",
   "friends.more": "Mehr",
-  "friends.mutualHint": "Wenn jemand deinen Code hinzufügt, musst du Annehmen, bevor ihr Freunde seid und anrufen könnt.",
+  "friends.mutualHint": "Nur Freunde können anrufen. Code hinzufügen → Annehmen → Anrufen wenn Online.",
   "friends.nameHint": "Diesen Namen sehen Fremde und Freunde im Chat und beim Match. Oben, unter Freunde oder in den Einstellungen ändern.",
   "friends.needCode": "Zuerst Freundescode eingeben",
   "friends.needConn": "Nicht verbunden — warte auf grünen Status",
@@ -1106,5 +1106,6 @@
   "friends.tabHistory": "Verlauf",
   "friends.tabBlocked": "Blockiert",
   "friends.openHistory": "Anrufverlauf",
-  "friends.blockedEmpty": "Keine blockierten Nutzer"
+  "friends.blockedEmpty": "Keine blockierten Nutzer",
+  "friends.callOnlyFriends": "Nur Freunde können anrufen — erst per Code hinzufügen"
 }

@@ -198,7 +198,7 @@
   "friends.kindStranger": "незнакомец",
   "friends.message": "Написать",
   "friends.more": "Ещё",
-  "friends.mutualHint": "Если кто-то добавил ваш код, нажмите «Принять» — только после этого можно звонить.",
+  "friends.mutualHint": "Звонить можно только друзьям. Если кто-то добавил ваш код — «Принять», затем «Звонок» когда Online.",
   "friends.nameHint": "Это имя видят собеседники в чате и при матче. Меняйте вверху, в «Друзья» или в настройках.",
   "friends.needCode": "Сначала введите код друга",
   "friends.needConn": "Нет связи — подождите и попробуйте снова",
@@ -1106,5 +1106,6 @@
   "friends.tabHistory": "История",
   "friends.tabBlocked": "Блок",
   "friends.openHistory": "История звонков",
-  "friends.blockedEmpty": "Нет заблокированных"
+  "friends.blockedEmpty": "Нет заблокированных",
+  "friends.callOnlyFriends": "Звонить можно только друзьям — сначала добавьте по коду"
 }

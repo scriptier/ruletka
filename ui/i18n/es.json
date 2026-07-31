@@ -198,7 +198,7 @@
   "friends.kindStranger": "desconocido",
   "friends.message": "Mensaje",
   "friends.more": "Más",
-  "friends.mutualHint": "Si alguien añade tu código, debes Aceptar antes de ser amigos y poder Llamar.",
+  "friends.mutualHint": "Solo amigos pueden llamar. Añade el código → Aceptar → Llamar cuando esté Online.",
   "friends.nameHint": "Este nombre lo ven desconocidos y amigos en el chat y al emparejar. Edítalo en la barra, Amigos o Ajustes.",
   "friends.needCode": "Introduce un código de amigo",
   "friends.needConn": "Sin conexión — espera el estado verde",
@@ -1106,5 +1106,6 @@
   "friends.tabHistory": "Historial",
   "friends.tabBlocked": "Bloqueados",
   "friends.openHistory": "Historial de llamadas",
-  "friends.blockedEmpty": "Nadie bloqueado"
+  "friends.blockedEmpty": "Nadie bloqueado",
+  "friends.callOnlyFriends": "Solo amigos pueden llamar — añádelos por código primero"
 }

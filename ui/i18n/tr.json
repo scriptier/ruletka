@@ -198,7 +198,7 @@
   "friends.kindStranger": "yabancı",
   "friends.message": "Mesaj",
   "friends.more": "Daha",
-  "friends.mutualHint": "Biri kodunuzu eklediğinde, arkadaş olup Ara’madan önce Kabul etmelisiniz.",
+  "friends.mutualHint": "Yalnızca arkadaşlar arayabilir. Kod ekle → Kabul → Online iken Ara.",
   "friends.nameHint": "Bu ad sohbette ve eşleşmede yabancılar ile arkadaşlar tarafından görülür. Üst çubuk, Arkadaşlar veya Ayarlar’dan düzenleyin.",
   "friends.needCode": "Önce arkadaş kodu girin",
   "friends.needConn": "Bağlı değil — yeşil durumu bekleyin",
@@ -1106,5 +1106,6 @@
   "friends.tabHistory": "Geçmiş",
   "friends.tabBlocked": "Engelli",
   "friends.openHistory": "Arama geçmişi",
-  "friends.blockedEmpty": "Engelli yok"
+  "friends.blockedEmpty": "Engelli yok",
+  "friends.callOnlyFriends": "Yalnızca arkadaşlar arayabilir — önce kodla ekleyin"
 }
