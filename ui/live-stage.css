@@ -1862,16 +1862,31 @@ html.stage-html {
   padding: 0;
   right: 0.75rem;
   bottom: 0.75rem;
+  /* Absolute children don't contribute height — force a real box or sheet is invisible */
+  width: min(400px, calc(100vw - 1.25rem));
+  height: min(88dvh, 640px);
+  max-height: min(88dvh, 640px);
   opacity: 0;
   transform: translateY(12px) scale(0.98);
   transition: opacity 0.18s ease, transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
   /* Stack sub-pages so only one view paints (avoids “meshed” multi-view bleed) */
   position: fixed;
   isolation: isolate;
+  /* Beat .sheet[hidden] when open: ensure flex layout is used */
+  display: flex;
+  flex-direction: column;
+  visibility: visible;
 }
 .sheet.settings-app.is-open {
   opacity: 1;
   transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+/* While hidden attribute is set, stay fully gone */
+.sheet.settings-app[hidden] {
+  display: none !important;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .sheet[hidden],

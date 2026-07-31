@@ -3045,20 +3045,25 @@ async function importProfileFile(file) {
 function openSettings() {
   const sheet = $("settings-sheet");
   const bd = $("sheet-backdrop");
+  // Show main view first so the sheet has content while measuring
+  showSettingsView("main");
   if (sheet) {
     sheet.hidden = false;
+    sheet.removeAttribute("hidden");
     // force reflow then animate in
     void sheet.offsetWidth;
     sheet.classList.add("is-open");
   }
   if (bd) {
     bd.hidden = false;
+    bd.removeAttribute("hidden");
     void bd.offsetWidth;
     bd.classList.add("is-open");
   }
-  showSettingsView("main");
   syncNameInputs(getDisplayName());
   refreshSecurityPanel();
+  refreshAvatarUi();
+  syncSettingsSummary();
   (async () => {
     if (!previewStream?.active) await ensurePreview();
     await refreshDevices().catch(() => {});
