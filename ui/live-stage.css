@@ -1968,8 +1968,8 @@ html.stage-html {
 .settings-body {
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 0.75rem 1rem 0.6rem !important;
-  gap: 0.55rem !important;
+  padding: 0.75rem 1rem 1rem !important;
+  gap: 0.45rem !important;
   flex: 1 1 auto;
   min-height: 0;
   -webkit-overflow-scrolling: touch;
@@ -1977,10 +1977,18 @@ html.stage-html {
   scrollbar-color: #2a3548 transparent;
   display: flex;
   flex-direction: column;
+  align-items: stretch;
 }
 .settings-body-main {
-  /* Hub is short — less scroll clutter */
-  padding-bottom: 0.25rem !important;
+  padding-bottom: 1rem !important;
+}
+/* Keep groups from collapsing / clipping rows */
+.settings-body > .settings-group,
+.settings-body > .settings-hero,
+.settings-body > .settings-status-card,
+.settings-body > .settings-section-label {
+  flex: 0 0 auto;
+  width: 100%;
 }
 
 /* Profile hero */
@@ -2058,12 +2066,13 @@ html.stage-html {
 }
 
 .settings-section-label {
-  margin: 1rem 0 0.4rem 0.45rem;
-  font-size: 0.68rem;
+  margin: 0.85rem 0 0.4rem 0.45rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.07em;
-  color: #6a7a90;
-  font-weight: 600;
+  color: #9aa8bc !important;
+  font-weight: 650;
+  flex-shrink: 0;
 }
 .settings-section-label:first-child { margin-top: 0.2rem; }
 
@@ -2072,7 +2081,8 @@ html.stage-html {
   border-radius: 16px;
   overflow: hidden;
   border: 1px solid #222b3a;
-  margin-bottom: 0.15rem;
+  margin-bottom: 0.35rem;
+  flex-shrink: 0;
 }
 
 .settings-row {
@@ -2086,13 +2096,26 @@ html.stage-html {
   border: none;
   border-bottom: 1px solid rgba(28, 36, 48, 0.95);
   background: transparent;
-  color: #eef2f7;
+  color: #eef2f7 !important;
   font: inherit;
   font-size: 0.94rem;
   text-align: left;
   cursor: pointer;
   text-decoration: none;
   box-sizing: border-box;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+/* Never leave labels unreadable */
+.settings-row .row-left,
+.settings-row .row-left > span:not(.row-ico):not(.row-flag),
+.settings-row .avatar-attach-copy > span:first-child {
+  color: #eef2f7 !important;
+  opacity: 1 !important;
+}
+.settings-row .row-value,
+.settings-row .chev {
+  color: #9aa8bc !important;
 }
 .settings-group .settings-row:last-child { border-bottom: none; }
 .settings-row:hover { background: rgba(255, 255, 255, 0.035); }
@@ -2359,12 +2382,12 @@ html.stage-html {
   margin-bottom: 0.25rem;
 }
 .settings-status-label {
-  margin: 0 0 0.4rem;
-  font-size: 0.65rem;
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #6a7a90;
-  font-weight: 600;
+  color: #9aa8bc !important;
+  font-weight: 650;
 }
 .status-pills {
   display: flex;
@@ -2375,11 +2398,11 @@ html.stage-html {
   display: inline-flex;
   align-items: center;
   max-width: 100%;
-  padding: 0.26rem 0.55rem;
+  padding: 0.3rem 0.6rem;
   border-radius: 999px;
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 600;
-  color: #3dd68c;
+  color: #3dd68c !important;
   background: rgba(61, 214, 140, 0.1);
   border: 1px solid rgba(61, 214, 140, 0.28);
   overflow: hidden;
@@ -2387,15 +2410,15 @@ html.stage-html {
   white-space: nowrap;
 }
 .status-pill-chip.muted {
-  color: #9aa8bc;
-  background: rgba(255, 255, 255, 0.04);
+  color: #c5d0e0 !important;
+  background: rgba(255, 255, 255, 0.05);
   border-color: #2a3548;
 }
 .status-note {
-  margin: 0.45rem 0 0;
-  font-size: 0.72rem;
-  line-height: 1.35;
-  color: #6a7a90;
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: #9aa8bc !important;
 }
 
 .settings-row-danger {

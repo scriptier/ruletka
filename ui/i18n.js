@@ -32,15 +32,32 @@
       "sec.turnLabel": "Relay trust",
       "sec.idLabel": "Device identity",
       "sec.mediaP2p": "WebRTC P2P (when connected)",
+      "sec.mediaP2pShort": "P2P media",
+      "sec.pathUnknown": "Connecting…",
+      "sec.pathUnknownShort": "Connecting…",
+      "sec.pathDirect": "Direct P2P",
+      "sec.pathDirectShort": "Direct",
+      "sec.pathRelay": "Relayed",
+      "sec.pathRelayShort": "Relay",
       "sec.turnOpen": "Demo public TURN (Open Relay)",
+      "sec.turnOpenShort": "Demo TURN",
       "sec.turnEphemeral": "Self-hosted TURN · short-lived creds",
+      "sec.turnEphemeralShort": "Self-hosted TURN",
       "sec.turnStatic": "Self-hosted TURN",
+      "sec.turnStaticShort": "Self-hosted TURN",
       "sec.turnNone": "No TURN (STUN only)",
+      "sec.turnNoneShort": "No TURN",
       "sec.turnOn": "TURN available",
+      "sec.turnOnShort": "TURN on",
       "sec.idCrypto": "Device-bound (crypto key)",
       "sec.idLegacy": "Browser-local id",
       "sec.partnerRecord": "Partner can screenshot — use Block / Report",
+      "sec.partnerRecordShort": "Partner can record — use Block / Report",
       "settings.secSecurity": "Connection",
+      "settings.secConnection": "Connection",
+      "settings.secNetwork": "Network",
+      "settings.secHub": "Network hub",
+      "settings.secMatch": "Match prefs",
       "settings.secSafety": "Safety",
       "settings.secAudio": "Partner audio",
       "settings.secLegal": "Legal & help",
@@ -473,15 +490,29 @@
       "sec.turnLabel": "Доверие к релей",
       "sec.idLabel": "Идентичность",
       "sec.mediaP2p": "WebRTC P2P (в звонке)",
+      "sec.mediaP2pShort": "P2P медиа",
+      "sec.pathUnknownShort": "Подключение…",
+      "sec.pathDirectShort": "Прямой",
+      "sec.pathRelayShort": "Релей",
       "sec.turnOpen": "Демо TURN (Open Relay)",
+      "sec.turnOpenShort": "Демо TURN",
       "sec.turnEphemeral": "Свой TURN · краткосрочные ключи",
+      "sec.turnEphemeralShort": "Свой TURN",
       "sec.turnStatic": "Свой TURN",
+      "sec.turnStaticShort": "Свой TURN",
       "sec.turnNone": "Без TURN (только STUN)",
+      "sec.turnNoneShort": "Без TURN",
       "sec.turnOn": "TURN доступен",
+      "sec.turnOnShort": "TURN вкл",
       "sec.idCrypto": "Привязано к устройству (ключ)",
       "sec.idLegacy": "Локальный id браузера",
       "sec.partnerRecord": "Собеседник может снимать экран — Block / Жалоба",
+      "sec.partnerRecordShort": "Партнёр может записывать — Блок / Жалоба",
       "settings.secSecurity": "Соединение",
+      "settings.secConnection": "Соединение",
+      "settings.secNetwork": "Сеть",
+      "settings.secHub": "Сетевой хаб",
+      "settings.secMatch": "Предпочтения",
       "settings.secSafety": "Безопасность",
       "settings.secAudio": "Звук собеседника",
       "settings.secLegal": "Правовое и помощь",
@@ -961,7 +992,16 @@
 
   function t(key, vars) {
     const table = STR[lang] || {};
-    let s = table[key] ?? STR.en?.[key] ?? key;
+    let s = table[key] ?? STR.en?.[key] ?? STR.ru?.[key];
+    // Missing key → readable fallback (not raw "settings.foo" / uppercased section junk)
+    if (s == null || s === "") {
+      const last = String(key || "").split(".").pop() || key;
+      s = last
+        .replace(/([A-Z])/g, " $1")
+        .replace(/[_-]+/g, " ")
+        .replace(/^\s+/, "")
+        .replace(/^./, (c) => c.toUpperCase());
+    }
     if (vars && typeof vars === "object") {
       for (const [k, v] of Object.entries(vars)) {
         s = s.replace(new RegExp(`\\{${k}\\}`, "g"), String(v));
@@ -1037,20 +1077,30 @@
 
   function loadPack(code) {
     const c = normalizeLang(code);
-    if (!c || BUNDLED.has(c) || STR[c]) return Promise.resolve(STR[c] || STR.en);
+    if (!c) return Promise.resolve(STR.en);
+    // Already merged a full pack (external or overlay)
+    if (STR[c] && STR[c].__packMerged) return Promise.resolve(STR[c]);
+    // External pack already present without merge flag
+    if (!BUNDLED.has(c) && STR[c]) return Promise.resolve(STR[c]);
     if (loading[c]) return loading[c];
-    loading[c] = fetch(`/i18n/${c}.json?v=1`, { cache: "force-cache" })
+    // Always fetch /i18n/{code}.json and merge over built-ins (en/ru too)
+    loading[c] = fetch(`/i18n/${c}.json?v=2`, { cache: "force-cache" })
       .then((r) => {
         if (!r.ok) throw new Error("lang pack " + c);
         return r.json();
       })
       .then((j) => {
-        if (j && typeof j === "object") STR[c] = j;
+        if (j && typeof j === "object") {
+          STR[c] = Object.assign({}, STR[c] || STR.en || {}, j, {
+            __packMerged: true,
+          });
+        }
         return STR[c];
       })
       .catch(() => {
         console.warn("[i18n] failed to load", c);
-        return null;
+        if (STR[c]) STR[c].__packMerged = true;
+        return STR[c] || null;
       })
       .finally(() => {
         delete loading[c];
@@ -1079,10 +1129,7 @@
       applyI18n();
       global.dispatchEvent(new CustomEvent("nextface:lang", { detail: { lang } }));
     };
-    if (BUNDLED.has(n) || STR[n]) {
-      apply();
-      return Promise.resolve();
-    }
+    // Always merge pack (en/ru overlays) so short keys stay complete
     return loadPack(n).then(() => apply());
   }
 
@@ -1096,12 +1143,12 @@
 
   lang = detectLang();
 
-  // Boot: load meta + current pack if external
+  // Boot: load meta + always merge language pack (including en/ru extras)
   const boot = loadMeta()
     .then(() => {
       // re-detect if meta changed supported set
       if (!isSupported(lang)) lang = META.default || "ru";
-      if (!BUNDLED.has(lang) && !STR[lang]) return loadPack(lang);
+      return loadPack(lang);
     })
     .then(() => {
       applyI18n();

@@ -1753,6 +1753,22 @@ function clearIcePathBadge() {
   }
 }
 
+/** i18n helper: never leave raw keys like "sec.mediaP2pShort" in the UI */
+function tt(key, fallback) {
+  const s = _t(key);
+  if (s && s !== key && !String(s).startsWith("sec.") && !String(s).startsWith("settings.")) {
+    return s;
+  }
+  if (fallback) {
+    const f = _t(fallback);
+    if (f && f !== fallback) return f;
+    if (typeof fallback === "string" && !fallback.includes(".")) return fallback;
+  }
+  return typeof fallback === "string" && !fallback.includes(".")
+    ? fallback
+    : s || key;
+}
+
 function refreshSecurityPanel() {
   const meta =
     (typeof getIceMeta === "function" && getIceMeta()) || window.__iceMeta || null;
@@ -1765,32 +1781,37 @@ function refreshSecurityPanel() {
     if (matched) {
       const live = $("ice-path")?.textContent;
       pathEl.textContent =
-        live || _t("sec.pathUnknownShort") || _t("sec.pathUnknown");
+        live || tt("sec.pathUnknownShort", "Connecting…");
     } else {
-      pathEl.textContent = _t("sec.mediaP2pShort") || _t("sec.mediaP2p");
+      pathEl.textContent = tt("sec.mediaP2pShort", "P2P media");
     }
   }
   if (turnEl) {
     const trust = meta?.security?.turn_trust || "";
     if (trust === "open_relay_demo")
-      turnEl.textContent = _t("sec.turnOpenShort") || _t("sec.turnOpen");
+      turnEl.textContent = tt("sec.turnOpenShort", "Demo TURN");
     else if (trust === "self_hosted_ephemeral")
-      turnEl.textContent = _t("sec.turnEphemeralShort") || _t("sec.turnEphemeral");
+      turnEl.textContent = tt("sec.turnEphemeralShort", "Self-hosted TURN");
     else if (trust === "self_hosted_static")
-      turnEl.textContent = _t("sec.turnStaticShort") || _t("sec.turnStatic");
+      turnEl.textContent = tt("sec.turnStaticShort", "Self-hosted TURN");
     else if (trust === "no_turn")
-      turnEl.textContent = _t("sec.turnNoneShort") || _t("sec.turnNone");
+      turnEl.textContent = tt("sec.turnNoneShort", "No TURN");
     else if (meta?.has_turn)
-      turnEl.textContent = _t("sec.turnOnShort") || _t("sec.turnOn");
-    else turnEl.textContent = _t("sec.turnNoneShort") || _t("sec.turnNone");
+      turnEl.textContent = tt("sec.turnOnShort", "TURN on");
+    else turnEl.textContent = tt("sec.turnNoneShort", "No TURN");
   }
   if (idEl) {
     const idn = loadIdentity();
     const cryptoOn = !!idn.cryptoBound || String(idn.user_id || "").startsWith("k");
-    idEl.textContent = cryptoOn ? _t("sec.idCrypto") : _t("sec.idLegacy");
+    idEl.textContent = cryptoOn
+      ? tt("sec.idCrypto", "Device key")
+      : tt("sec.idLegacy", "Browser id");
   }
   if (noteEl)
-    noteEl.textContent = _t("sec.partnerRecordShort") || _t("sec.partnerRecord");
+    noteEl.textContent = tt(
+      "sec.partnerRecordShort",
+      "Partner can record — use Block / Report"
+    );
 }
 
 function selectedDevices() {
@@ -3045,6 +3066,10 @@ async function importProfileFile(file) {
 function openSettings() {
   const sheet = $("settings-sheet");
   const bd = $("sheet-backdrop");
+  // Re-apply strings so labels never stick as raw keys
+  try {
+    NextfaceI18n?.applyI18n?.(sheet || document);
+  } catch (_) {}
   // Show main view first so the sheet has content while measuring
   showSettingsView("main");
   if (sheet) {
@@ -3068,6 +3093,7 @@ function openSettings() {
     if (!previewStream?.active) await ensurePreview();
     await refreshDevices().catch(() => {});
     syncSettingsSummary();
+    refreshSecurityPanel();
   })();
 }
 function closeSettings() {
