@@ -418,5 +418,14 @@
   "sec.mediaP2pShort": "Media P2P",
   "sec.turnEphemeralShort": "Własny TURN",
   "sec.partnerRecordShort": "Partner może nagrywać — Blokuj / Zgłoś",
-  "hub.autoShort": "auto"
+  "hub.autoShort": "auto",
+  "conn.retry": "Ponów",
+  "conn.retrying": "Rozłączono — ponawianie…",
+  "conn.retryIn": "Ponów za {s}s…",
+  "conn.gaveUp": "Nie udało się połączyć",
+  "friends.noCode": "Kod znajomego jeszcze niegotowy",
+  "home.openOps": "Dla operatorów",
+  "home.privacy": "Prywatność",
+  "home.terms": "Regulamin",
+  "home.statsOffline": "Hub offline"
 }

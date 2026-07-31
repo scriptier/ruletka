@@ -418,5 +418,14 @@
   "sec.mediaP2pShort": "P2P medya",
   "sec.turnEphemeralShort": "Özel TURN",
   "sec.partnerRecordShort": "Partner kaydedebilir — Engelle / Bildir",
-  "hub.autoShort": "otomatik"
+  "hub.autoShort": "otomatik",
+  "conn.retry": "Yenile",
+  "conn.retrying": "Bağlantı yok — yeniden deneniyor…",
+  "conn.retryIn": "{s} sn sonra…",
+  "conn.gaveUp": "Bağlanılamadı",
+  "friends.noCode": "Arkadaş kodu henüz yok",
+  "home.openOps": "Operatörler için",
+  "home.privacy": "Gizlilik",
+  "home.terms": "Şartlar",
+  "home.statsOffline": "Hub çevrimdışı"
 }

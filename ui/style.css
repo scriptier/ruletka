@@ -171,7 +171,7 @@ button {
 button:hover { border-color: var(--accent); }
 
 button.primary {
-  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  background: linear-gradient(135deg, #ff2d55, #ff6b35);
   border-color: transparent;
   font-weight: 600;
 }

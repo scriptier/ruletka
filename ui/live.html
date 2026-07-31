@@ -27,8 +27,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=53" />
-  <link rel="stylesheet" href="live-stage.css?v=53" />
+  <link rel="stylesheet" href="style.css?v=56" />
+  <link rel="stylesheet" href="live-stage.css?v=56" />
 </head>
 <body class="stage-body">
   <!-- Stroke icon sprite (currentColor) -->
@@ -282,13 +282,14 @@
         </aside>
         <!-- In-camera social / chat dock — settings pinned bottom-right -->
         <div class="tile-dock tile-dock-local">
-          <label class="room-field room-in-tile" title="Optional private lobby">
+          <!-- div not label: nested share button is invalid inside <label> -->
+          <div class="room-field room-in-tile" title="Optional private lobby">
             <span data-i18n="room.label">Room</span>
-            <input id="room" type="text" maxlength="64" data-i18n-placeholder="room.placeholder" placeholder="public" autocomplete="off" spellcheck="false" />
+            <input id="room" type="text" maxlength="64" data-i18n-placeholder="room.placeholder" placeholder="public" autocomplete="off" spellcheck="false" aria-label="Room" />
             <button type="button" class="dock-pill ghost tight" id="btn-share-room" data-i18n-title="room.shareTitle" title="Share room" aria-label="Share room">
               <svg class="icon icon-sm" aria-hidden="true"><use href="#i-share"/></svg>
             </button>
-          </label>
+          </div>
           <form class="bottom-chat dock-chat" id="compose">
             <input id="msg" type="text" data-i18n-placeholder="chat.placeholder" placeholder="Say something…" autocomplete="off" inputmode="text" enterkeyhint="send" spellcheck="true" />
             <button type="submit" class="dock-pill" data-i18n="chat.send">Send</button>
@@ -305,6 +306,7 @@
       <span class="conn-dot" id="conn-dot"></span>
       <span id="conn-label" data-i18n="conn.connecting">Connecting…</span>
       <span class="conn-ice" id="conn-ice"></span>
+      <button type="button" class="conn-retry" id="btn-conn-retry" hidden data-i18n="conn.retry">Retry</button>
     </div>
 
   </div>
@@ -829,11 +831,11 @@
   <!-- cache-bust so browsers always get auto-connect / auto-media fixes -->
   <script src="analytics.js?v=1" defer></script>
   <script src="pwa-install.js?v=1" defer></script>
-  <script src="i18n.js?v=53"></script>
-  <script src="identity.js?v=53"></script>
-  <script src="hubs.js?v=53"></script>
-  <script src="webrtc.js?v=53"></script>
-  <script src="live.js?v=53"></script>
+  <script src="i18n.js?v=56"></script>
+  <script src="identity.js?v=56"></script>
+  <script src="hubs.js?v=56"></script>
+  <script src="webrtc.js?v=56"></script>
+  <script src="live.js?v=56"></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

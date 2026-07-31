@@ -587,6 +587,21 @@ html {
   gap: 0.5rem;
   margin: 1rem 0 0;
 }
+.home-open-ops {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.55rem;
+  margin: 0.65rem 0 0;
+}
+.home-open-ops-lbl {
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 0.15rem;
+}
 
 .chip-link {
   display: inline-flex;
@@ -602,9 +617,39 @@ html {
   transition: border-color 0.12s, background 0.12s, color 0.12s;
 }
 .chip-link:hover {
-  border-color: rgba(126, 182, 255, 0.4);
-  background: rgba(91, 157, 255, 0.1);
-  color: #dce9ff;
+  border-color: rgba(255, 107, 53, 0.45);
+  background: rgba(255, 45, 85, 0.1);
+  color: #ffd8de;
+}
+.chip-link-primary {
+  border-color: rgba(255, 45, 85, 0.28);
+  background: rgba(255, 45, 85, 0.1);
+  color: #ffd0d8;
+}
+.chip-link-muted {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--muted);
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+.chip-link-muted:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.home-live-stats.is-offline .stat-pill:not(.stat-offline) {
+  opacity: 0.65;
+}
+
+/* Focus rings for keyboard users */
+.home-body :is(a, button, select, input):focus {
+  outline: none;
+}
+.home-body :is(a, button, select, input):focus-visible {
+  outline: 2px solid rgba(255, 107, 53, 0.85);
+  outline-offset: 2px;
 }
 
 /* —— Bottom CTA band —— */
@@ -737,8 +782,8 @@ html {
 .seed-card-btn.primary {
   color: #fff;
   border-color: transparent;
-  background: linear-gradient(135deg, #3b82f6, #6366f1);
-  box-shadow: 0 10px 28px rgba(59, 130, 246, 0.32);
+  background: linear-gradient(135deg, #ff2d55, #ff6b35);
+  box-shadow: 0 10px 28px rgba(255, 45, 85, 0.32);
 }
 .seed-card-btn.primary:hover {
   filter: brightness(1.06);

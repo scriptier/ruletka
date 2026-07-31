@@ -42,7 +42,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="home.css?v=55" />
+  <link rel="stylesheet" href="home.css?v=56" />
   <script src="analytics.js?v=1" defer></script>
   <script src="pwa-install.js?v=1" defer></script>
   <script type="application/ld+json">
@@ -214,10 +214,13 @@
         try other hubs from a public directory. Helpers run a full chat node you can share.
       </p>
       <p class="home-open-links">
-        <a class="chip-link" href="https://github.com/scriptier/ruletka" target="_blank" rel="noopener" data-i18n="home.openSrc">GitHub</a>
-        <a class="chip-link" href="/v1/directory" data-i18n="home.openDir">Hub directory API</a>
-        <a class="chip-link" href="/hubs.json" data-i18n="home.openHubs">hubs.json</a>
-        <a class="chip-link" href="/contribute.html" data-i18n="home.openHelper">Run a helper</a>
+        <a class="chip-link chip-link-primary" href="https://github.com/scriptier/ruletka" target="_blank" rel="noopener" data-i18n="home.openSrc">GitHub</a>
+        <a class="chip-link chip-link-primary" href="/contribute.html" data-i18n="home.openHelper">Run a helper</a>
+      </p>
+      <p class="home-open-ops">
+        <span class="home-open-ops-lbl" data-i18n="home.openOps">For operators</span>
+        <a class="chip-link chip-link-muted" href="/v1/directory" data-i18n="home.openDir">Hub directory API</a>
+        <a class="chip-link chip-link-muted" href="/hubs.json" data-i18n="home.openHubs">hubs.json</a>
       </p>
     </section>
 
@@ -242,6 +245,8 @@
       <a href="#why" class="foot-link" data-i18n="home.diffTitle">How we’re different</a>
       <a href="#open" class="foot-link" data-i18n="home.openTitle">Open source</a>
       <a href="/contribute.html" class="foot-link" data-i18n="home.openHelper">Run a helper</a>
+      <a href="/legal/privacy.html" class="foot-link" data-i18n="home.privacy">Privacy</a>
+      <a href="/legal/terms.html" class="foot-link" data-i18n="home.terms">Terms</a>
     </span>
   </footer>
 
@@ -276,7 +281,11 @@
           "home.openDir": "Hub directory API",
           "home.openHubs": "hubs.json",
           "home.openHelper": "Run a helper",
+          "home.openOps": "For operators",
+          "home.privacy": "Privacy",
+          "home.terms": "Terms",
           "home.foot": "18+ · Be respectful · Use Block if needed",
+          "home.statsOffline": "Hub offline",
         },
         ru: {
           "home.eyebrow": "Peer-to-peer чат-рулетка",
@@ -303,6 +312,10 @@
           "home.openDir": "API каталога хабов",
           "home.openHubs": "hubs.json",
           "home.openHelper": "Запустить helper",
+          "home.openOps": "Для операторов",
+          "home.privacy": "Конфиденциальность",
+          "home.terms": "Условия",
+          "home.statsOffline": "Хаб офлайн",
           "home.diffTitle": "Чем мы отличаемся",
           "home.diffBody":
             "Обычные чат-рулетки гонят видео через серверы компаний и навязывают аккаунты или рекламу. <strong>ruletka.vip</strong> устроен так, что видео идёт между двумя браузерами (peer-to-peer), без регистрации. Есть друзья, блок, жалобы и фильтры безопасности на устройстве — и можно помогать сети расти, не отдавая никому контроль над этим сайтом.",
@@ -333,19 +346,14 @@
         });
         var sel = document.getElementById("home-lang");
         if (sel) sel.value = lang;
-        var cta = document.getElementById("btn-enter");
-        if (cta) {
-          var u = new URL(cta.href, location.origin);
-          if (lang && lang !== "en") u.searchParams.set("lang", lang);
-          else u.searchParams.delete("lang");
-          cta.href = u.pathname + u.search;
-        }
-        document.querySelectorAll(".nav-live-link").forEach(function (a) {
+        // All live CTAs keep lang query for handoff
+        document.querySelectorAll(".home-cta, .nav-live-link, a[href*='live.html']").forEach(function (a) {
           try {
-            var nu = new URL(a.href, location.origin);
+            var nu = new URL(a.getAttribute("href") || a.href, location.origin);
+            if (nu.pathname.indexOf("live") < 0) return;
             if (lang && lang !== "en") nu.searchParams.set("lang", lang);
             else nu.searchParams.delete("lang");
-            a.href = nu.pathname + nu.search;
+            a.href = nu.pathname + nu.search + (nu.hash || "");
           } catch (_) {}
         });
       }
@@ -406,7 +414,7 @@
             return r.json();
           })
           .then(function (j) {
-            if (!j || j.ok === false) return;
+            if (!j || j.ok === false) throw new Error("bad health");
             var online = typeof j.online === "number" ? j.online : 0;
             var waiting =
               typeof j.waiting === "number"
@@ -416,10 +424,23 @@
                   : 0;
             onlineEl.textContent = String(online);
             waitingEl.textContent = String(waiting);
+            wrap.classList.remove("is-offline");
             wrap.hidden = false;
           })
           .catch(function () {
-            /* keep hidden if hub unreachable */
+            var dict = packCache[getLang()] || STR[getLang()] || STR.en;
+            onlineEl.textContent = "—";
+            waitingEl.textContent = "—";
+            wrap.classList.add("is-offline");
+            wrap.hidden = false;
+            var offline = wrap.querySelector(".stat-offline");
+            if (!offline) {
+              offline = document.createElement("span");
+              offline.className = "stat-pill muted stat-offline";
+              wrap.appendChild(offline);
+            }
+            offline.textContent =
+              (dict && dict["home.statsOffline"]) || "Hub offline";
           });
       }
       refreshHomeStats();

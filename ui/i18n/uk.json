@@ -418,5 +418,14 @@
   "sec.mediaP2pShort": "P2P медіа",
   "sec.turnEphemeralShort": "Свій TURN",
   "sec.partnerRecordShort": "Партнер може записувати — Блок / Скарга",
-  "hub.autoShort": "авто"
+  "hub.autoShort": "авто",
+  "conn.retry": "Повтор",
+  "conn.retrying": "Нема зв’язку — повтор…",
+  "conn.retryIn": "Повтор через {s} с…",
+  "conn.gaveUp": "Не вдалося підключитись",
+  "friends.noCode": "Код друга ще не готовий",
+  "home.openOps": "Для операторів",
+  "home.privacy": "Приватність",
+  "home.terms": "Умови",
+  "home.statsOffline": "Хаб офлайн"
 }

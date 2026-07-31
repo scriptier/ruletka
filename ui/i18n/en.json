@@ -423,5 +423,14 @@
   "sec.turnOnShort": "TURN on",
   "sec.pathUnknownShort": "Connecting…",
   "sec.partnerRecordShort": "Partner can record — Block / Report",
-  "hub.autoShort": "auto"
+  "hub.autoShort": "auto",
+  "conn.retry": "Retry",
+  "conn.retrying": "Disconnected — retrying…",
+  "conn.retryIn": "Retry in {s}s…",
+  "conn.gaveUp": "Couldn’t connect",
+  "friends.noCode": "Friend code not ready yet",
+  "home.openOps": "For operators",
+  "home.privacy": "Privacy",
+  "home.terms": "Terms",
+  "home.statsOffline": "Hub offline"
 }

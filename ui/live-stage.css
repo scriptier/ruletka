@@ -321,9 +321,10 @@ html.stage-html {
   gap: 0.5rem;
 }
 .pill.primary {
-  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  background: linear-gradient(135deg, #ff2d55, #ff6b35);
   border-color: transparent;
   color: #fff;
+  box-shadow: 0 6px 18px rgba(255, 45, 85, 0.28);
 }
 
 /* Only present in DOM while a real call is ringing (created in JS) */
@@ -1131,8 +1132,8 @@ html.stage-html {
   font-size: 0.95rem;
   color: #fff;
   cursor: pointer;
-  background: linear-gradient(135deg, #3b82f6, #6366f1);
-  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.35);
+  background: linear-gradient(135deg, #ff2d55, #ff6b35);
+  box-shadow: 0 8px 24px rgba(255, 45, 85, 0.35);
 }
 .enable-cam-btn:active { transform: scale(0.98); }
 .enable-cam-btn[hidden] { display: none !important; }
@@ -1539,9 +1540,11 @@ html.stage-html {
 }
 .pill:hover { border-color: #5b9dff; }
 .pill.primary {
-  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  background: linear-gradient(135deg, #ff2d55, #ff6b35);
   border-color: transparent;
   font-weight: 600;
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(255, 45, 85, 0.28);
 }
 .pill.ghost {
   background: transparent;
@@ -2404,7 +2407,7 @@ html.stage-html {
   }
   .status-pill {
     font-size: 0.68rem;
-    max-width: 7.5rem;
+    max-width: min(11rem, 36vw);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2585,10 +2588,21 @@ html.stage-html {
 html:has(.stage-body),
 html.stage-html {
   background: #07080c;
+  color-scheme: dark;
 }
 
 .stage-body {
   background: #07080c !important;
+  color-scheme: dark;
+}
+
+/* Keyboard focus — match product coral, not browser default blue */
+.stage-body :is(button, a, input, select, textarea, .settings-row, .dock-pill, .side-btn, .home-cta):focus {
+  outline: none;
+}
+.stage-body :is(button, a, input, select, textarea, .settings-row, .dock-pill, .side-btn):focus-visible {
+  outline: 2px solid rgba(255, 107, 53, 0.85);
+  outline-offset: 2px;
 }
 
 .stage-app {
@@ -2866,8 +2880,9 @@ html.stage-html {
   border-color: rgba(126, 182, 255, 0.45);
 }
 .pill.primary {
-  background: linear-gradient(135deg, #3b82f6, #6366f1);
-  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.3);
+  background: linear-gradient(135deg, #ff2d55, #ff6b35);
+  box-shadow: 0 6px 20px rgba(255, 45, 85, 0.3);
+  color: #fff;
 }
 
 /* Conn strip */
@@ -2876,7 +2891,38 @@ html.stage-html {
   background: rgba(12, 16, 24, 0.75);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 999px;
-  padding: 0.28rem 0.7rem;
+  padding: 0.28rem 0.55rem 0.28rem 0.7rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: min(92vw, 28rem);
+}
+.conn-strip #conn-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.conn-retry {
+  flex: 0 0 auto;
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 45, 85, 0.18);
+  color: #ffd0d8;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 650;
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.conn-retry:hover {
+  background: rgba(255, 45, 85, 0.32);
+  color: #fff;
+}
+.conn-retry[hidden] {
+  display: none !important;
 }
 
 /* Federated match (nextface-fed/1) — media still P2P */

@@ -418,5 +418,14 @@
   "sec.mediaP2pShort": "Mídia P2P",
   "sec.turnEphemeralShort": "TURN próprio",
   "sec.partnerRecordShort": "Parceiro pode gravar — Bloquear / Denunciar",
-  "hub.autoShort": "auto"
+  "hub.autoShort": "auto",
+  "conn.retry": "Tentar",
+  "conn.retrying": "Desconectado — tentando…",
+  "conn.retryIn": "Nova tentativa em {s}s…",
+  "conn.gaveUp": "Não foi possível conectar",
+  "friends.noCode": "Código de amigo ainda não pronto",
+  "home.openOps": "Para operadores",
+  "home.privacy": "Privacidade",
+  "home.terms": "Termos",
+  "home.statsOffline": "Hub offline"
 }

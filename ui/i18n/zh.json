@@ -418,5 +418,14 @@
   "sec.mediaP2pShort": "P2P 媒体",
   "sec.turnEphemeralShort": "自建 TURN",
   "sec.partnerRecordShort": "对方可录制 — 拉黑 / 举报",
-  "hub.autoShort": "自动"
+  "hub.autoShort": "自动",
+  "conn.retry": "重试",
+  "conn.retrying": "已断开 — 重连中…",
+  "conn.retryIn": "{s} 秒后重试…",
+  "conn.gaveUp": "无法连接",
+  "friends.noCode": "好友码尚未就绪",
+  "home.openOps": "运维",
+  "home.privacy": "隐私",
+  "home.terms": "条款",
+  "home.statsOffline": "节点离线"
 }

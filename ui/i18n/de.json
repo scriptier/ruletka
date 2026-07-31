@@ -418,5 +418,14 @@
   "sec.mediaP2pShort": "P2P-Medien",
   "sec.turnEphemeralShort": "Eigener TURN",
   "sec.partnerRecordShort": "Partner kann aufnehmen — Block / Melden",
-  "hub.autoShort": "auto"
+  "hub.autoShort": "auto",
+  "conn.retry": "Erneut",
+  "conn.retrying": "Getrennt — versuche erneut…",
+  "conn.retryIn": "Erneut in {s}s…",
+  "conn.gaveUp": "Verbindung fehlgeschlagen",
+  "friends.noCode": "Freundcode noch nicht bereit",
+  "home.openOps": "Für Betreiber",
+  "home.privacy": "Datenschutz",
+  "home.terms": "AGB",
+  "home.statsOffline": "Hub offline"
 }

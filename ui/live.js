@@ -357,13 +357,18 @@ function appendChatBubble(text, cls) {
   box.scrollTop = box.scrollHeight;
 }
 
-function setConnStrip(kind, label, iceHint) {
+function setConnStrip(kind, label, iceHint, opts) {
   const strip = $("conn-strip");
   const lab = $("conn-label");
   const ice = $("conn-ice");
+  const retry = $("btn-conn-retry");
   if (lab && label != null) lab.textContent = label;
   // ICE / STUN / TURN hints intentionally not shown in the UI
   if (ice) ice.textContent = "";
+  if (retry) {
+    const showRetry = !!(opts && opts.showRetry);
+    retry.hidden = !showRetry;
+  }
   if (!strip) return;
   strip.classList.remove("ok", "warn", "bad", "call", "idle");
   if (kind) strip.classList.add(kind);
@@ -380,7 +385,15 @@ function updateConnFromState() {
     return;
   }
   if (ws.readyState !== WebSocket.OPEN) {
-    setConnStrip("bad", _t("conn.disconnected"), "");
+    const retrying = reconnectTimer || reconnectAttempt > 0;
+    setConnStrip(
+      "bad",
+      retrying
+        ? _t("conn.retrying") || _t("conn.disconnected")
+        : _t("conn.disconnected"),
+      "",
+      { showRetry: true }
+    );
     return;
   }
   if (matchMode === "friend" || (inFriendCall && matchMode !== "party_browse")) {
@@ -614,18 +627,8 @@ function updatePoolHint() {
   hint.hidden = !hint.textContent;
 }
 
-/** Prefer native share sheet on mobile; fall back to clipboard. */
-async function shareOrCopy(url, title, okShareKey, okCopyKey) {
-  try {
-    if (navigator.share) {
-      await navigator.share({ title: title || "ruletka.vip", url, text: title || url });
-      setStatus(_t(okShareKey || "room.shared"));
-      log(_t(okShareKey || "room.shared") + ": " + url);
-      return "share";
-    }
-  } catch (e) {
-    if (e && (e.name === "AbortError" || e.name === "NotAllowedError")) return "cancel";
-  }
+/** Clipboard only (never opens share sheet). */
+async function copyToClipboard(url, okCopyKey) {
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(url);
@@ -644,6 +647,32 @@ async function shareOrCopy(url, title, okShareKey, okCopyKey) {
     log(_t("room.copyFail") + ": " + url);
     return "fail";
   }
+}
+
+/**
+ * Prefer native share sheet on mobile; fall back to clipboard.
+ * @param {{ preferShare?: boolean }} [opts] preferShare=false forces clipboard only
+ */
+async function shareOrCopy(url, title, okShareKey, okCopyKey, opts) {
+  const preferShare = !opts || opts.preferShare !== false;
+  if (preferShare) {
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: title || "ruletka.vip",
+          url,
+          text: title || url,
+        });
+        setStatus(_t(okShareKey || "room.shared"));
+        log(_t(okShareKey || "room.shared") + ": " + url);
+        return "share";
+      }
+    } catch (e) {
+      if (e && (e.name === "AbortError" || e.name === "NotAllowedError"))
+        return "cancel";
+    }
+  }
+  return copyToClipboard(url, okCopyKey);
 }
 
 function friendInviteUrl() {
@@ -2185,10 +2214,25 @@ function stopPing() {
 
 const MAX_RECONNECT = 8;
 
+function manualReconnect() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = 0;
+  }
+  reconnectAttempt = 0;
+  intentionalClose = false;
+  setStatus(_t("conn.connecting"));
+  setConnStrip("warn", _t("conn.connecting"), "");
+  connect(false);
+}
+
 function scheduleReconnect() {
   if (intentionalClose) return;
   if (reconnectAttempt >= MAX_RECONNECT) {
     setStatus(_t("status.disconnected"));
+    setConnStrip("bad", _t("conn.gaveUp") || _t("conn.disconnected"), "", {
+      showRetry: true,
+    });
     log(_t("hub.gaveUp") || "gave up reconnecting — trying other hubs / reload");
     // Try another hub from the public directory, then reconnect
     reconnectTimer = setTimeout(async () => {
@@ -2214,7 +2258,14 @@ function scheduleReconnect() {
     return;
   }
   const delay = Math.min(12000, 600 * Math.pow(1.7, reconnectAttempt++));
-  setStatus(_t("log.reconnectIn", { s: Math.round(delay / 100) / 10 }));
+  const secs = Math.round(delay / 100) / 10;
+  setStatus(_t("log.reconnectIn", { s: secs }));
+  setConnStrip(
+    "warn",
+    _t("conn.retryIn", { s: secs }) || _t("log.reconnectIn", { s: secs }),
+    "",
+    { showRetry: true }
+  );
   reconnectTimer = setTimeout(async () => {
     if (
       reconnectAttempt >= 3 &&
@@ -3745,6 +3796,7 @@ $("partner-menu-report")?.querySelectorAll("[data-report-reason]").forEach((btn)
   });
 });
 on("btn-settings", "click", () => openSettings());
+on("btn-conn-retry", "click", () => manualReconnect());
 on("sheet-close", "click", () => closeSettings());
 on("sheet-backdrop", "click", () => closeSettings());
 on("btn-refresh-devices", "click", () => refreshDevices());
@@ -3759,13 +3811,11 @@ on("btn-add-friend", "click", () => {
   setStatus(_t("friends.requestSent"));
 });
 on("btn-copy-code", "click", async () => {
-  if (!myFriendCode) return;
-  try {
-    await navigator.clipboard.writeText(myFriendCode);
-    log(_t("friends.codeCopied"));
-  } catch {
-    log(myFriendCode);
+  if (!myFriendCode) {
+    setStatus(_t("friends.noCode") || "Friend code not ready yet");
+    return;
   }
+  await copyToClipboard(myFriendCode, "friends.codeCopied");
 });
 on("btn-browse-together", "click", () => {
   send({ type: "browse_together", room: currentRoom() });
@@ -3905,18 +3955,19 @@ $("room-settings")?.addEventListener("input", (e) => {
 $("btn-share-room")?.addEventListener("click", () => copyRoomLink());
 $("btn-share-room-settings")?.addEventListener("click", () => copyRoomLink());
 on("btn-clear-chat", "click", () => clearChat());
-async function shareFriendInvite() {
-  if (!myFriendCode) return;
+async function shareFriendInvite({ preferShare = true } = {}) {
+  if (!myFriendCode) {
+    setStatus(_t("friends.noCode") || "Friend code not ready yet");
+    return;
+  }
   const url = friendInviteUrl();
-  await shareOrCopy(
-    url,
-    _t("friends.title") + " · " + myFriendCode,
-    "friends.inviteShared",
-    "friends.inviteCopied"
-  );
+  const title = _t("friends.title") + " · " + myFriendCode;
+  await shareOrCopy(url, title, "friends.inviteShared", "friends.inviteCopied", {
+    preferShare,
+  });
 }
-on("btn-copy-invite", "click", () => shareFriendInvite());
-on("btn-share-invite", "click", () => shareFriendInvite());
+on("btn-copy-invite", "click", () => shareFriendInvite({ preferShare: false }));
+on("btn-share-invite", "click", () => shareFriendInvite({ preferShare: true }));
 
 $("chk-match-sound")?.addEventListener("change", (e) => {
   savePrefs({ matchSound: !!e.target.checked });

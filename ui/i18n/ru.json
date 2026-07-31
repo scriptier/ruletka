@@ -423,5 +423,14 @@
   "sec.turnOnShort": "TURN вкл.",
   "sec.pathUnknownShort": "Подключение…",
   "sec.partnerRecordShort": "Партнёр может записывать — Блок / Жалоба",
-  "hub.autoShort": "авто"
+  "hub.autoShort": "авто",
+  "conn.retry": "Повтор",
+  "conn.retrying": "Нет связи — переподключение…",
+  "conn.retryIn": "Повтор через {s} с…",
+  "conn.gaveUp": "Не удалось подключиться",
+  "friends.noCode": "Код друга ещё не готов",
+  "home.openOps": "Для операторов",
+  "home.privacy": "Конфиденциальность",
+  "home.terms": "Условия",
+  "home.statsOffline": "Хаб офлайн"
 }
