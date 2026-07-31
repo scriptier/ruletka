@@ -12660,7 +12660,7 @@ button.stars-badge {
     padding: 0.16rem 0.36rem 0.16rem 0.28rem;
   }
 }
-/* ─── Star gifts: behind bars (chain-link fence) ─── */
+/* ─── Star gifts: behind bars (open chain-link + rust, photo-like) ─── */
 .fx-overlay {
   position: absolute;
   inset: 0;
@@ -12672,41 +12672,133 @@ button.stars-badge {
 .fx-overlay[hidden] {
   display: none !important;
 }
+/* Large open diamond cells — thin steel wire (ref: chain-link photo) */
 .fx-bars-mesh {
   position: absolute;
-  inset: -8%;
-  /* Diamond chain-link (screenshot style) */
+  inset: -12%;
+  background-color: transparent;
+  background-image: url("/brand/fx-bars-fence.svg?v=2");
+  background-size: 88px 88px; /* less packed than old ~36px solid bands */
+  background-repeat: repeat;
+  background-position: center;
+  opacity: 0.94;
+  /* slight perspective feel */
+  transform: scale(1.02);
+  filter:
+    contrast(1.08)
+    brightness(0.98)
+    drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
+  animation: fx-bars-in 0.4s ease-out;
+}
+/* Fallback pure-CSS mesh if SVG fails (still open + thin) */
+@supports not (background-image: url("/brand/fx-bars-fence.svg")) {
+  .fx-bars-mesh {
+    background-image:
+      linear-gradient(
+        45deg,
+        transparent 46%,
+        rgba(90, 94, 100, 0.35) 46.5%,
+        rgba(200, 202, 208, 0.95) 49%,
+        rgba(90, 94, 100, 0.9) 51%,
+        transparent 51.5%
+      ),
+      linear-gradient(
+        -45deg,
+        transparent 46%,
+        rgba(80, 84, 90, 0.35) 46.5%,
+        rgba(190, 192, 198, 0.95) 49%,
+        rgba(80, 84, 90, 0.9) 51%,
+        transparent 51.5%
+      );
+    background-size: 72px 72px;
+  }
+}
+/* Rust blotches + streaks over the mesh */
+.fx-bars-rust {
+  position: absolute;
+  inset: -5%;
+  pointer-events: none;
+  opacity: 0.72;
+  mix-blend-mode: multiply;
   background-image:
-    linear-gradient(
-      45deg,
-      transparent 42%,
-      rgba(170, 175, 180, 0.22) 43%,
-      rgba(210, 215, 220, 0.95) 48%,
-      rgba(140, 145, 150, 0.95) 52%,
-      transparent 53%
+    /* large soft rust patches */
+    radial-gradient(
+      ellipse 42% 28% at 18% 62%,
+      rgba(140, 62, 28, 0.55) 0%,
+      rgba(100, 45, 20, 0.2) 45%,
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 35% 40% at 78% 28%,
+      rgba(160, 70, 30, 0.45) 0%,
+      rgba(90, 40, 18, 0.15) 50%,
+      transparent 72%
+    ),
+    radial-gradient(
+      ellipse 28% 22% at 55% 80%,
+      rgba(120, 55, 22, 0.4) 0%,
+      transparent 68%
+    ),
+    /* fine freckles */
+    radial-gradient(
+      circle 3px at 30% 40%,
+      rgba(180, 80, 30, 0.7) 0%,
+      transparent 100%
+    ),
+    radial-gradient(
+      circle 2px at 70% 55%,
+      rgba(150, 65, 25, 0.65) 0%,
+      transparent 100%
+    ),
+    radial-gradient(
+      circle 2.5px at 42% 72%,
+      rgba(190, 90, 35, 0.55) 0%,
+      transparent 100%
+    ),
+    radial-gradient(
+      circle 2px at 88% 70%,
+      rgba(130, 55, 22, 0.6) 0%,
+      transparent 100%
+    );
+  animation: fx-bars-rust-in 0.55s ease-out 0.05s both;
+}
+/* Depth: darken edges so face reads through center diamonds */
+.fx-bars-shade {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      ellipse 75% 70% at 50% 45%,
+      transparent 35%,
+      rgba(20, 18, 16, 0.18) 70%,
+      rgba(12, 10, 8, 0.42) 100%
     ),
     linear-gradient(
-      -45deg,
-      transparent 42%,
-      rgba(150, 155, 160, 0.22) 43%,
-      rgba(200, 205, 210, 0.95) 48%,
-      rgba(120, 125, 130, 0.95) 52%,
-      transparent 53%
+      180deg,
+      rgba(0, 0, 0, 0.12) 0%,
+      transparent 18%,
+      transparent 78%,
+      rgba(0, 0, 0, 0.22) 100%
     );
-  background-size: 36px 36px;
-  background-position: 0 0, 0 0;
-  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
-  opacity: 0.92;
-  animation: fx-bars-in 0.35s ease-out;
+  box-shadow: inset 0 0 0 1px rgba(80, 70, 60, 0.25);
 }
 @keyframes fx-bars-in {
   from {
     opacity: 0;
-    transform: scale(1.04);
+    transform: scale(1.06);
   }
   to {
-    opacity: 0.92;
-    transform: scale(1);
+    opacity: 0.94;
+    transform: scale(1.02);
+  }
+}
+@keyframes fx-bars-rust-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.72;
   }
 }
 .fx-bars-timer {
@@ -12714,18 +12806,23 @@ button.stars-badge {
   left: 50%;
   bottom: 0.75rem;
   transform: translateX(-50%);
-  z-index: 1;
+  z-index: 2;
   padding: 0.28rem 0.7rem;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.62);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  color: #f0f4f8;
+  background: rgba(18, 14, 12, 0.72);
+  border: 1px solid rgba(180, 120, 70, 0.35);
+  color: #f0e8e0;
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.02em;
   white-space: nowrap;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.65);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+@media (max-width: 720px) {
+  .fx-bars-mesh {
+    background-size: 70px 70px; /* slightly denser on small screens so pattern still reads */
+  }
 }
 .partner-menu-btn.star-gift {
   border-color: rgba(255, 200, 60, 0.35);
