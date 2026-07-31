@@ -247,12 +247,18 @@ html {
   font: inherit;
   font-size: 0.82rem;
   font-weight: 600;
-  color: var(--text);
-  background: rgba(255,255,255,0.04);
+  color: #e8eef7;
+  background: #141a22;
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 0.32rem 0.65rem;
   max-width: 9.5rem;
+  color-scheme: dark;
+}
+.legal-nav .home-lang select option,
+.legal-nav .site-lang option {
+  background-color: #141a22;
+  color: #e8eef7;
 }
 
 

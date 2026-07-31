@@ -90,6 +90,17 @@ html.stage-html {
   padding: 0.15rem 0.35rem;
   font: inherit;
   cursor: pointer;
+  /* Keep native open-list dark so option labels stay readable */
+  color-scheme: dark;
+}
+.lang-switch select option,
+.lang-switch select optgroup,
+#sel-lang option,
+#sel-lang optgroup,
+#sel-lang-sheet option,
+#sel-lang-sheet optgroup {
+  background-color: #141a22;
+  color: #e8eef7;
 }
 
 .lang-switch .icon {
@@ -6165,6 +6176,16 @@ html[data-theme="light"] .lang-switch select {
   background: #fff;
   color: #0f172a;
   border-color: rgba(15, 23, 42, 0.12);
+  color-scheme: light;
+}
+html[data-theme="light"] .lang-switch select option,
+html[data-theme="light"] .lang-switch select optgroup,
+html[data-theme="light"] #sel-lang option,
+html[data-theme="light"] #sel-lang optgroup,
+html[data-theme="light"] #sel-lang-sheet option,
+html[data-theme="light"] #sel-lang-sheet optgroup {
+  background-color: #ffffff;
+  color: #0f172a;
 }
 html[data-theme="light"] .stage-top-actions .phase {
   border-color: rgba(15, 23, 42, 0.1);
@@ -8593,14 +8614,14 @@ html[data-theme="pink"] .settings-section-label {
   font-size: 0.68rem;
 }
 html[data-theme="pink"] .settings-group {
-  background: #fff;
+  background: #fff !important;
   border: 1px solid rgba(236, 72, 153, 0.12);
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 1px 4px rgba(236, 72, 153, 0.06);
 }
 html[data-theme="pink"] .settings-row {
-  color: #4a1528;
+  color: #4a1528 !important;
   border-bottom-color: rgba(236, 72, 153, 0.08);
 }
 html[data-theme="pink"] .settings-row:hover {
@@ -10219,6 +10240,7 @@ html[data-theme="saloon"].start-idle .start-match-btn {
   border: none;
   color: #e8eef7;
   font-weight: 650;
+  color-scheme: dark;
 }
 .lang-switch .icon {
   color: currentColor;
@@ -10714,10 +10736,16 @@ html[data-theme="light"] .stage-top .conn-strip {
 html[data-theme="light"] .name-chip input,
 html[data-theme="light"] .lang-top-right select {
   color: #0f172a;
+  color-scheme: light;
 }
 html[data-theme="light"] .lang-switch,
 html[data-theme="light"] .lang-switch .icon {
   color: #64748b;
+}
+html[data-theme="light"] .lang-top-right select option,
+html[data-theme="light"] .lang-top-right select optgroup {
+  background-color: #ffffff;
+  color: #0f172a;
 }
 html[data-theme="light"] .pool-bar > span:not(.room-chip):not(.arch-pill):not(.ice-path):not(.pool-hint) {
   background: rgba(15, 23, 42, 0.05);
@@ -10747,6 +10775,30 @@ html[data-theme="light"] .settings-row .row-left,
 html[data-theme="light"] .settings-row .row-left > span:not(.row-ico):not(.row-flag),
 html[data-theme="light"] .settings-row .avatar-attach-copy > span:first-child {
   color: #0f172a !important;
+}
+/* Language / theme choice rows — never light-on-white */
+html[data-theme="light"] #settings-lang-list .settings-row,
+html[data-theme="light"] #settings-lang-list .settings-choice,
+html[data-theme="pink"] #settings-lang-list .settings-row,
+html[data-theme="pink"] #settings-lang-list .settings-choice {
+  color: #0f172a !important;
+  background: #fff !important;
+}
+html[data-theme="light"] #settings-lang-list .settings-row .row-left,
+html[data-theme="pink"] #settings-lang-list .settings-row .row-left {
+  color: #0f172a !important;
+}
+html[data-theme="pink"] #settings-lang-list .settings-row .row-left {
+  color: #4a1528 !important;
+}
+html[data-theme="light"] #settings-lang-list .settings-choice.is-selected,
+html[data-theme="pink"] #settings-lang-list .settings-choice.is-selected {
+  background: rgba(255, 45, 85, 0.08) !important;
+}
+html[data-theme="light"] #settings-lang-list .choice-check,
+html[data-theme="pink"] #settings-lang-list .choice-check {
+  color: #be123c !important;
+  opacity: 1;
 }
 html[data-theme="light"] .settings-row .row-value,
 html[data-theme="light"] .settings-row .chev,
@@ -11759,4 +11811,52 @@ html[data-theme="light"] .settings-body::-webkit-scrollbar-thumb {
 }
 html.alone-searching #remote-empty .empty-sub:not([hidden]) {
   color: #f5d090;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Language picker — readable open lists (native <select>)
+   OS dropdowns often paint white while option text stays light.
+   ═══════════════════════════════════════════════════════════ */
+#sel-lang,
+#sel-lang-sheet,
+.lang-switch select,
+.lang-top-right select {
+  color-scheme: dark;
+  color: #e8eef7;
+}
+#sel-lang option,
+#sel-lang-sheet option,
+.lang-switch select option,
+.lang-top-right select option {
+  background-color: #141a22 !important;
+  color: #e8eef7 !important;
+}
+html[data-theme="light"] #sel-lang,
+html[data-theme="light"] #sel-lang-sheet,
+html[data-theme="light"] .lang-switch select,
+html[data-theme="light"] .lang-top-right select {
+  color-scheme: light;
+  color: #0f172a;
+}
+html[data-theme="light"] #sel-lang option,
+html[data-theme="light"] #sel-lang-sheet option,
+html[data-theme="light"] .lang-switch select option,
+html[data-theme="light"] .lang-top-right select option {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+/* Settings Language list: solid rows on light / pink sheets */
+html[data-theme="light"] #settings-lang-list .settings-choice,
+html[data-theme="pink"] #settings-lang-list .settings-choice {
+  color: #0f172a !important;
+}
+html[data-theme="pink"] #settings-lang-list .settings-choice {
+  color: #4a1528 !important;
+}
+html[data-theme="light"] #settings-lang-list .settings-choice .row-left,
+html[data-theme="pink"] #settings-lang-list .settings-choice .row-left {
+  color: inherit !important;
+}
+html[data-theme="pink"] .settings-group {
+  background: #ffffff !important;
 }
