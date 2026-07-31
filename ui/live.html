@@ -893,6 +893,53 @@
         </div>
         <input type="file" id="avatar-file" accept="image/*,.jpg,.jpeg,.png,.webp,.gif,.heic,.heif" hidden />
 
+        <!-- Account: move identity between devices -->
+        <p class="settings-section-label" data-i18n="settings.secAccount">Your account</p>
+        <p class="hint-inline" data-i18n="settings.accountHint">
+          No password — your user lives in this browser. Export a file to keep friends when you switch phones or clear data.
+        </p>
+        <div class="settings-group settings-account-group">
+          <div class="settings-row settings-row-multi static" aria-live="polite">
+            <span class="row-left">
+              <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-user"/></svg></span>
+              <span class="settings-row-copy">
+                <span class="settings-row-title" data-i18n="settings.userId">User ID</span>
+                <span class="settings-row-sub mono" id="settings-user-id">—</span>
+              </span>
+            </span>
+          </div>
+          <div class="settings-row settings-row-multi static">
+            <span class="row-left">
+              <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-users"/></svg></span>
+              <span class="settings-row-copy">
+                <span class="settings-row-title" data-i18n="friends.yourCode">Friend code</span>
+                <span class="settings-row-sub mono" id="settings-friend-code">—</span>
+              </span>
+            </span>
+          </div>
+          <button type="button" class="settings-row settings-row-accent settings-row-multi btn-export-profile" id="btn-export-profile-main">
+            <span class="row-left">
+              <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-share"/></svg></span>
+              <span class="settings-row-copy">
+                <span class="settings-row-title" data-i18n="settings.exportUser">Export user</span>
+                <span class="settings-row-sub" data-i18n="settings.exportUserSub">Download profile JSON (identity + friends backup)</span>
+              </span>
+            </span>
+            <span class="chev">↓</span>
+          </button>
+          <button type="button" class="settings-row settings-row-multi btn-import-profile" id="btn-import-profile-main">
+            <span class="row-left">
+              <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-file"/></svg></span>
+              <span class="settings-row-copy">
+                <span class="settings-row-title" data-i18n="settings.importUser">Import user</span>
+                <span class="settings-row-sub" data-i18n="settings.importUserSub">Restore a profile file on this device</span>
+              </span>
+            </span>
+            <span class="chev">↑</span>
+          </button>
+          <input type="file" id="import-profile-file" accept="application/json,.json" hidden />
+        </div>
+
         <div class="settings-group">
           <!-- div not label: nested share button is invalid inside <label> and collapsed Language in some browsers -->
           <div class="settings-row settings-row-input settings-row-room rooms-ui" hidden>
@@ -1160,27 +1207,26 @@
           <strong>Export a backup</strong> before clearing browser data, switching devices, or private mode — friends live under your identity on the hub.
         </p>
         <div class="settings-group">
-          <button type="button" class="settings-row settings-row-accent settings-row-multi" id="btn-export-profile">
+          <button type="button" class="settings-row settings-row-accent settings-row-multi btn-export-profile" id="btn-export-profile">
             <span class="row-left">
               <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-share"/></svg></span>
               <span class="settings-row-copy">
-                <span class="settings-row-title" data-i18n="settings.exportProfile">Export profile file</span>
-                <span class="settings-row-sub" data-i18n="settings.exportProfileSub">Move friends &amp; identity to another browser</span>
+                <span class="settings-row-title" data-i18n="settings.exportUser">Export user</span>
+                <span class="settings-row-sub" data-i18n="settings.exportUserSub">Download profile JSON (identity + friends backup)</span>
               </span>
             </span>
-            <span class="chev">›</span>
+            <span class="chev">↓</span>
           </button>
-          <button type="button" class="settings-row settings-row-multi" id="btn-import-profile">
+          <button type="button" class="settings-row settings-row-multi btn-import-profile" id="btn-import-profile">
             <span class="row-left">
               <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-file"/></svg></span>
               <span class="settings-row-copy">
-                <span class="settings-row-title" data-i18n="settings.importProfile">Import profile file</span>
-                <span class="settings-row-sub" data-i18n="settings.importProfileSub">Restore a backup on this device</span>
+                <span class="settings-row-title" data-i18n="settings.importUser">Import user</span>
+                <span class="settings-row-sub" data-i18n="settings.importUserSub">Restore a profile file on this device</span>
               </span>
             </span>
-            <span class="chev">›</span>
+            <span class="chev">↑</span>
           </button>
-          <input type="file" id="import-profile-file" accept="application/json,.json" hidden />
         </div>
         <p class="hint-inline" data-i18n="settings.profileHint">
           Each browser is a separate identity until you export/import. Friends are stored on the hub under your user id.

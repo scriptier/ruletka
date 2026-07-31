@@ -11860,3 +11860,16 @@ html[data-theme="pink"] #settings-lang-list .settings-choice .row-left {
 html[data-theme="pink"] .settings-group {
   background: #ffffff !important;
 }
+
+/* Account export/import rows on main Settings */
+.settings-account-group .settings-row-sub.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  word-break: break-all;
+  max-width: 16rem;
+}
+.settings-account-group .btn-export-profile .settings-row-title,
+.settings-account-group .btn-import-profile .settings-row-title {
+  font-weight: 700;
+}

@@ -1090,5 +1090,12 @@
   "wait.few": "几乎没人在等待。保持打开 — 或用房间代码邀请好友。",
   "wait.title": "仍在寻找…",
   "dock.more": "更多",
-  "dock.moreHint": "或点对方画面打开完整菜单"
+  "dock.moreHint": "或点对方画面打开完整菜单",
+  "settings.exportUser": "导出用户",
+  "settings.exportUserSub": "下载资料 JSON（身份 + 好友）",
+  "settings.importUser": "导入用户",
+  "settings.importUserSub": "在此设备恢复资料文件",
+  "settings.secAccount": "你的账户",
+  "settings.accountHint": "无密码 — 用户保存在浏览器。导出文件以免换机后丢失好友。",
+  "settings.userId": "用户 ID"
 }

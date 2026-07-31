@@ -1090,5 +1090,12 @@
   "wait.few": "Fast niemand wartet. Bleib — oder lade einen Freund mit Raumcode ein.",
   "wait.title": "Suche noch…",
   "dock.more": "Mehr",
-  "dock.moreHint": "Oder Partner-Video antippen für das volle Menü"
+  "dock.moreHint": "Oder Partner-Video antippen für das volle Menü",
+  "settings.exportUser": "Benutzer exportieren",
+  "settings.exportUserSub": "Profil-JSON herunterladen (Identität + Freunde)",
+  "settings.importUser": "Benutzer importieren",
+  "settings.importUserSub": "Profildatei auf diesem Gerät wiederherstellen",
+  "settings.secAccount": "Dein Konto",
+  "settings.accountHint": "Kein Passwort — dein Benutzer liegt im Browser. Exportiere eine Datei, um Freunde zu behalten.",
+  "settings.userId": "Benutzer-ID"
 }

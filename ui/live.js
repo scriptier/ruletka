@@ -7194,6 +7194,29 @@ function wireHubSettings() {
   });
 }
 
+function syncAccountSettingsSummary() {
+  const idEl = $("settings-user-id");
+  const codeEl = $("settings-friend-code");
+  let uid = "";
+  try {
+    uid = loadIdentity()?.user_id || myUserId || "";
+  } catch (_) {
+    uid = myUserId || "";
+  }
+  if (idEl) {
+    idEl.textContent = uid
+      ? uid.length > 22
+        ? uid.slice(0, 10) + "…" + uid.slice(-8)
+        : uid
+      : "—";
+    idEl.title = uid || "";
+  }
+  if (codeEl) {
+    codeEl.textContent = myFriendCode || "—";
+    codeEl.title = myFriendCode || "";
+  }
+}
+
 function syncSettingsSummary() {
   const lang = NextfaceI18n?.getLang?.() || "ru";
   const langs = NextfaceI18n?.listLanguages?.() || [];
@@ -7209,6 +7232,7 @@ function syncSettingsSummary() {
   if ($("settings-theme-value")) {
     $("settings-theme-value").textContent = themeLabel(getTheme());
   }
+  syncAccountSettingsSummary();
   syncFlagSettingsSummary();
   const cam = selectedOptionLabel($("sel-camera"));
   const mic = selectedOptionLabel($("sel-mic"));
@@ -7367,9 +7391,13 @@ function wireSettingsNav() {
     refreshSecurityPanel();
     setStatus(_t("settings.connRefreshed") || "Connection details updated");
   });
-  $("btn-export-profile")?.addEventListener("click", () => exportProfileFile());
-  $("btn-import-profile")?.addEventListener("click", () => {
-    $("import-profile-file")?.click();
+  document.querySelectorAll(".btn-export-profile").forEach((btn) => {
+    btn.addEventListener("click", () => exportProfileFile());
+  });
+  document.querySelectorAll(".btn-import-profile").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      $("import-profile-file")?.click();
+    });
   });
   $("import-profile-file")?.addEventListener("change", (e) => {
     const f = e.target?.files?.[0];
@@ -8355,6 +8383,7 @@ function handleServer(msg) {
       myUserId = msg.user_id || myUserId;
       myFriendCode = msg.friend_code || "";
       if ($("my-friend-code")) $("my-friend-code").textContent = myFriendCode;
+      syncAccountSettingsSummary();
       // Prefer local saved name; otherwise accept server echo
       {
         const local = (loadIdentity().name || "").trim();

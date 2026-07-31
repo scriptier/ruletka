@@ -1090,5 +1090,12 @@
   "wait.few": "Neredeyse kimse beklemiyor. Açık tutun — veya oda koduyla bir arkadaş davet edin.",
   "wait.title": "Hâlâ aranıyor…",
   "dock.more": "Diğer",
-  "dock.moreHint": "Tam menü için partner videosuna dokunun"
+  "dock.moreHint": "Tam menü için partner videosuna dokunun",
+  "settings.exportUser": "Kullanıcıyı dışa aktar",
+  "settings.exportUserSub": "Profil JSON indir (kimlik + arkadaşlar)",
+  "settings.importUser": "Kullanıcıyı içe aktar",
+  "settings.importUserSub": "Bu cihazda profil dosyasını geri yükle",
+  "settings.secAccount": "Hesabın",
+  "settings.accountHint": "Şifre yok — kullanıcı tarayıcıda. Arkadaşları korumak için dosya dışa aktar.",
+  "settings.userId": "Kullanıcı ID"
 }

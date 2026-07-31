@@ -1090,5 +1090,12 @@
   "wait.alone": "You’re the only one in the pool. Share a room code if you want a private match.",
   "wait.body": "Few people online right now. You can share a room code with a friend, or try again later — leave anytime.",
   "wait.few": "Almost nobody is waiting. Invite a friend with a room code, or try again later.",
-  "wait.title": "Still looking…"
+  "wait.title": "Still looking…",
+  "settings.exportUser": "Export user",
+  "settings.exportUserSub": "Download profile JSON (identity + friends backup)",
+  "settings.importUser": "Import user",
+  "settings.importUserSub": "Restore a profile file on this device",
+  "settings.secAccount": "Your account",
+  "settings.accountHint": "No password — your user lives in this browser. Export a file to keep friends when you switch phones or clear data.",
+  "settings.userId": "User ID"
 }

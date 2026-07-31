@@ -1090,5 +1090,12 @@
   "wait.few": "Prawie nikt nie czeka. Zostań — lub zaproś znajomego kodem pokoju.",
   "wait.title": "Nadal szukam…",
   "dock.more": "Więcej",
-  "dock.moreHint": "Albo stuknij wideo partnera — pełne menu"
+  "dock.moreHint": "Albo stuknij wideo partnera — pełne menu",
+  "settings.exportUser": "Eksport użytkownika",
+  "settings.exportUserSub": "Pobierz JSON profilu (tożsamość + znajomi)",
+  "settings.importUser": "Import użytkownika",
+  "settings.importUserSub": "Przywróć plik profilu na tym urządzeniu",
+  "settings.secAccount": "Twoje konto",
+  "settings.accountHint": "Bez hasła — użytkownik jest w przeglądarce. Eksportuj plik, by zachować znajomych.",
+  "settings.userId": "ID użytkownika"
 }

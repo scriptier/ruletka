@@ -1090,5 +1090,12 @@
   "wait.few": "Presque personne n’attend. Restez — ou invitez un ami avec un code de salle.",
   "wait.title": "Toujours en recherche…",
   "dock.more": "Plus",
-  "dock.moreHint": "Ou touchez la vidéo du partenaire pour le menu complet"
+  "dock.moreHint": "Ou touchez la vidéo du partenaire pour le menu complet",
+  "settings.exportUser": "Exporter l’utilisateur",
+  "settings.exportUserSub": "Télécharger le JSON (identité + amis)",
+  "settings.importUser": "Importer l’utilisateur",
+  "settings.importUserSub": "Restaurer un fichier profil sur cet appareil",
+  "settings.secAccount": "Votre compte",
+  "settings.accountHint": "Pas de mot de passe — l’utilisateur est dans le navigateur. Exportez un fichier pour garder vos amis.",
+  "settings.userId": "ID utilisateur"
 }
