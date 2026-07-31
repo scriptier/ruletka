@@ -469,5 +469,12 @@
   "flag.search": "Пошук",
   "flag.searchPh": "Країна або код…",
   "flag.set": "Прапор: {flag}",
-  "flag.cleared": "Прапор прибрано"
+  "flag.cleared": "Прапор прибрано",
+  "avatar.change": "Фото",
+  "avatar.changeTitle": "Обрати маленьке фото профілю",
+  "avatar.clear": "Прибрати",
+  "avatar.saved": "Фото збережено",
+  "avatar.cleared": "Фото видалено",
+  "avatar.fail": "Не вдалося використати зображення",
+  "avatar.tooLarge": "Занадто великий файл (макс. 5 МБ)"
 }

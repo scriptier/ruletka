@@ -469,5 +469,12 @@
   "flag.search": "Buscar",
   "flag.searchPh": "País ou código…",
   "flag.set": "Bandeira: {flag}",
-  "flag.cleared": "Bandeira removida"
+  "flag.cleared": "Bandeira removida",
+  "avatar.change": "Foto",
+  "avatar.changeTitle": "Escolher uma foto pequena de perfil",
+  "avatar.clear": "Remover",
+  "avatar.saved": "Foto salva",
+  "avatar.cleared": "Foto removida",
+  "avatar.fail": "Não foi possível usar a imagem",
+  "avatar.tooLarge": "Imagem muito grande (máx. 5 MB)"
 }

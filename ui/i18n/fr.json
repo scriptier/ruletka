@@ -469,5 +469,12 @@
   "flag.search": "Rechercher",
   "flag.searchPh": "Pays ou code…",
   "flag.set": "Drapeau : {flag}",
-  "flag.cleared": "Drapeau retiré"
+  "flag.cleared": "Drapeau retiré",
+  "avatar.change": "Photo",
+  "avatar.changeTitle": "Choisir une petite photo de profil",
+  "avatar.clear": "Retirer",
+  "avatar.saved": "Photo enregistrée",
+  "avatar.cleared": "Photo supprimée",
+  "avatar.fail": "Image inutilisable",
+  "avatar.tooLarge": "Image trop grande (max. 5 Mo)"
 }

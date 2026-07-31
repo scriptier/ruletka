@@ -453,12 +453,176 @@ function setFlag(code, { persist = true, notify = true } = {}) {
   );
 }
 
+/** Max data-URL length for avatar (must match bridge normalize_avatar). */
+const MAX_AVATAR_CHARS = 24000;
+const AVATAR_PX = 96;
+
+function getAvatar() {
+  const a = loadPrefs().avatar;
+  return typeof a === "string" && a.startsWith("data:image/") ? a : "";
+}
+
+function isValidAvatarDataUrl(s) {
+  if (!s || typeof s !== "string") return false;
+  if (s.length > MAX_AVATAR_CHARS) return false;
+  return /^data:image\/(jpeg|jpg|png|webp);base64,/i.test(s);
+}
+
+function setTileAvatar(which, dataUrl) {
+  const wrap = $(which === "remote" ? "remote-avatar" : "local-avatar");
+  const img = $(which === "remote" ? "remote-avatar-img" : "local-avatar-img");
+  if (!wrap || !img) return;
+  if (dataUrl && isValidAvatarDataUrl(dataUrl)) {
+    img.src = dataUrl;
+    wrap.hidden = false;
+  } else {
+    img.removeAttribute("src");
+    wrap.hidden = true;
+  }
+}
+
+function refreshAvatarUi() {
+  const url = getAvatar();
+  const hero = $("settings-hero-avatar");
+  const img = $("settings-hero-img");
+  const letterEl = $("settings-hero-letter");
+  const clearBtn = $("btn-avatar-clear");
+  const nm = (getDisplayName() || "").trim();
+  const letter = nm && nm !== "anon" ? nm.charAt(0).toUpperCase() : "";
+  if (letterEl) letterEl.textContent = letter || "?";
+  if (img) {
+    if (url) {
+      img.src = url;
+      img.hidden = false;
+    } else {
+      img.removeAttribute("src");
+      img.hidden = true;
+    }
+  }
+  if (hero) {
+    hero.classList.toggle("has-photo", !!url);
+    hero.classList.toggle("has-letter", !url && !!letter);
+  }
+  if (clearBtn) clearBtn.hidden = !url;
+  setTileAvatar("local", url);
+}
+
+/**
+ * Resize/crop image file to a small square JPEG data URL.
+ * @param {File|Blob} file
+ * @returns {Promise<string>}
+ */
+function resizeImageToAvatarDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    if (!file || !String(file.type || "").startsWith("image/")) {
+      reject(new Error("not an image"));
+      return;
+    }
+    // Soft client limit before decode (5 MB)
+    if (file.size > 5 * 1024 * 1024) {
+      reject(new Error("too large"));
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      try {
+        URL.revokeObjectURL(url);
+        const w = img.naturalWidth || img.width;
+        const h = img.naturalHeight || img.height;
+        if (!w || !h) {
+          reject(new Error("bad image"));
+          return;
+        }
+        const side = Math.min(w, h);
+        const sx = Math.floor((w - side) / 2);
+        const sy = Math.floor((h - side) / 2);
+        const canvas = document.createElement("canvas");
+        canvas.width = AVATAR_PX;
+        canvas.height = AVATAR_PX;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("no canvas"));
+          return;
+        }
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(img, sx, sy, side, side, 0, 0, AVATAR_PX, AVATAR_PX);
+        // Prefer jpeg for size; fall back if empty
+        let data = canvas.toDataURL("image/jpeg", 0.78);
+        if (!isValidAvatarDataUrl(data) || data.length > MAX_AVATAR_CHARS) {
+          data = canvas.toDataURL("image/jpeg", 0.62);
+        }
+        if (!isValidAvatarDataUrl(data) || data.length > MAX_AVATAR_CHARS) {
+          data = canvas.toDataURL("image/jpeg", 0.48);
+        }
+        if (!isValidAvatarDataUrl(data) || data.length > MAX_AVATAR_CHARS) {
+          reject(new Error("too big after compress"));
+          return;
+        }
+        resolve(data);
+      } catch (e) {
+        reject(e);
+      }
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("decode failed"));
+    };
+    img.src = url;
+  });
+}
+
+async function setAvatarFromFile(file) {
+  try {
+    const data = await resizeImageToAvatarDataUrl(file);
+    savePrefs({ avatar: data });
+    refreshAvatarUi();
+    if (ws && ws.readyState === WebSocket.OPEN) sendMatchPrefs();
+    setStatus(_t("avatar.saved") || "Photo saved");
+    log(_t("avatar.saved") || "Photo saved");
+  } catch (e) {
+    const msg =
+      e?.message === "too large"
+        ? _t("avatar.tooLarge") || "Image too large (max 5 MB)"
+        : _t("avatar.fail") || "Could not use that image";
+    setStatus(msg);
+    log(msg);
+  }
+}
+
+function clearAvatar() {
+  savePrefs({ avatar: "" });
+  refreshAvatarUi();
+  if (ws && ws.readyState === WebSocket.OPEN) sendMatchPrefs();
+  setStatus(_t("avatar.cleared") || "Photo removed");
+  log(_t("avatar.cleared") || "Photo removed");
+}
+
+function wireAvatarSettings() {
+  const file = $("avatar-file");
+  const openPicker = () => file?.click();
+  $("settings-hero-avatar")?.addEventListener("click", openPicker);
+  $("btn-avatar-change")?.addEventListener("click", openPicker);
+  $("btn-avatar-clear")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    clearAvatar();
+  });
+  file?.addEventListener("change", () => {
+    const f = file.files?.[0];
+    file.value = "";
+    if (f) setAvatarFromFile(f);
+  });
+  refreshAvatarUi();
+}
+
 function matchPrefs() {
   const p = loadPrefs();
   const gender = ["man", "woman", "other"].includes(p.gender) ? p.gender : "";
   const looking = ["man", "woman", "any"].includes(p.looking) ? p.looking : "any";
   const flag = normalizeFlagCode(p.flag);
-  return { gender, looking, flag };
+  const avatar = isValidAvatarDataUrl(p.avatar) ? p.avatar : "";
+  return { gender, looking, flag, avatar };
 }
 
 function sendHelloPayload(name) {
@@ -471,6 +635,7 @@ function sendHelloPayload(name) {
     gender: prefs.gender,
     looking: prefs.looking,
     flag: prefs.flag || "",
+    avatar: prefs.avatar || "",
   });
 }
 
@@ -482,6 +647,7 @@ function sendMatchPrefs() {
     gender: prefs.gender,
     looking: prefs.looking,
     flag: prefs.flag || "",
+    avatar: prefs.avatar || "",
   });
 }
 
@@ -617,14 +783,8 @@ function wireNameInputs() {
       const el = $(id);
       if (el && el !== e.target) el.value = e.target.value;
     }
-    const tile = $("local-name");
-    if (tile) tile.textContent = n || "anon";
-    // Live update settings avatar letter
-    const letterEl = $("settings-hero-letter");
-    const av = $("settings-hero-avatar");
-    const letter = n && n !== "anon" ? n.charAt(0).toUpperCase() : "";
-    if (letterEl) letterEl.textContent = letter || "?";
-    if (av) av.classList.toggle("has-letter", !!letter);
+    refreshLocalNameChip();
+    refreshAvatarUi();
   };
   const commit = (e) => {
     const n = (e.target.value || "").trim().slice(0, 32) || "anon";
@@ -1095,6 +1255,7 @@ function setRemoteEmpty(show) {
     const tag = $("remote-tag");
     if (wrap) wrap.hidden = true;
     if (tag) tag.textContent = "";
+    setTileAvatar("remote", "");
   }
   // Loop brand loading video only while partner slot is empty
   const v = $("remote-empty-video");
@@ -2415,13 +2576,7 @@ function syncSettingsSummary() {
   syncMatchPrefsUi();
   syncHubSettingsUi();
   refreshSecurityPanel();
-  // Avatar letter from display name
-  const letterEl = $("settings-hero-letter");
-  const av = $("settings-hero-avatar");
-  const nm = (getDisplayName() || "").trim();
-  const letter = nm && nm !== "anon" ? nm.charAt(0).toUpperCase() : "";
-  if (letterEl) letterEl.textContent = letter || "?";
-  if (av) av.classList.toggle("has-letter", !!letter);
+  refreshAvatarUi();
 }
 
 function renderDeviceChoiceList(kind) {
@@ -2499,6 +2654,7 @@ function wireSettingsNav() {
   rebuildSettingsLangList();
   wireThemeSettings();
   wireFlagSettings();
+  wireAvatarSettings();
   applyTheme(getTheme(), { persist: false });
   refreshLocalNameChip();
   $("btn-settings-done")?.addEventListener("click", () => closeSettings());
@@ -3218,6 +3374,7 @@ function handleMatched(msg) {
         short_id: primary.short_id || msg.partner_short || "",
         friend_code: primary.friend_code || "",
         flag: normalizeFlagCode(primary.flag || ""),
+        avatar: isValidAvatarDataUrl(primary.avatar) ? primary.avatar : "",
       }
     : {
         user_id: "",
@@ -3225,6 +3382,7 @@ function handleMatched(msg) {
         short_id: msg.partner_short || "",
         friend_code: "",
         flag: "",
+        avatar: "",
       };
   pushHistory({
     kind: matchMode === "friend" ? "friend" : "stranger",
@@ -3257,8 +3415,9 @@ function handleMatched(msg) {
     if (tag) {
       if (split) {
         tag.textContent = _t("friends.partyTag");
+        setTileAvatar("remote", "");
       } else {
-        // Name + optional self-chosen flag (never real location)
+        // Name + optional self-chosen flag / avatar (never real location)
         const peer =
           peers.find((p) => p.role === "stranger" || p.role === "friend") ||
           peers[0];
@@ -3272,6 +3431,11 @@ function handleMatched(msg) {
           normalizeFlagCode(lastMatchMeta?.flag) ||
           "";
         tag.textContent = formatNameWithFlag(named, fl);
+        const av =
+          (isValidAvatarDataUrl(peer?.avatar) && peer.avatar) ||
+          lastMatchMeta?.avatar ||
+          "";
+        setTileAvatar("remote", av);
       }
     }
     if (wrap) wrap.hidden = !(tag && tag.textContent);

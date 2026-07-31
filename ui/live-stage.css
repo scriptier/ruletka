@@ -3784,3 +3784,120 @@ html[data-theme="light"] .flag-pick-sub {
 html[data-theme="saloon"] .flag-pick-sub {
   color: #b89a72;
 }
+
+/* ─── Avatar photo (settings + tiles) ─── */
+.settings-hero-avatar {
+  cursor: pointer;
+  overflow: hidden;
+  padding: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+}
+.settings-hero-avatar:hover {
+  border-color: rgba(255, 107, 53, 0.55);
+  filter: brightness(1.05);
+}
+.settings-hero-avatar:focus-visible {
+  outline: 2px solid rgba(255, 107, 53, 0.85);
+  outline-offset: 2px;
+}
+.settings-hero-img {
+  grid-area: 1 / 1;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 999px;
+  display: block;
+}
+.settings-hero-avatar.has-photo .settings-hero-letter,
+.settings-hero-avatar.has-photo .settings-hero-fallback {
+  display: none !important;
+}
+.settings-hero-cam {
+  grid-area: 1 / 1;
+  align-self: end;
+  justify-self: end;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 999px;
+  background: rgba(10, 12, 18, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  display: grid;
+  place-items: center;
+  color: #eef2f7;
+  transform: translate(10%, 10%);
+  pointer-events: none;
+}
+.settings-hero-cam .icon {
+  width: 0.7rem !important;
+  height: 0.7rem !important;
+  opacity: 1 !important;
+}
+.settings-hero-avatar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.2rem;
+}
+.settings-link-btn {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: #7eb6ff;
+  cursor: pointer;
+  text-decoration: none;
+}
+.settings-link-btn:hover {
+  color: #a8ceff;
+  text-decoration: underline;
+}
+.settings-link-btn[hidden] {
+  display: none !important;
+}
+.tile-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.tile-avatar {
+  width: 1.55rem;
+  height: 1.55rem;
+  border-radius: 999px;
+  overflow: hidden;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  background: #141a22;
+}
+.tile-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.tile-avatar[hidden] {
+  display: none !important;
+}
+html[data-theme="light"] .settings-link-btn {
+  color: #2563eb;
+}
+html[data-theme="light"] .settings-link-btn:hover {
+  color: #1d4ed8;
+}
+html[data-theme="saloon"] .settings-link-btn {
+  color: #f0d78c;
+}
+html[data-theme="saloon"] .settings-hero-cam {
+  background: rgba(26, 16, 8, 0.9);
+  border-color: rgba(201, 162, 39, 0.45);
+  color: #f0d78c;
+}
+html[data-theme="saloon"] .tile-avatar {
+  border-color: rgba(201, 162, 39, 0.4);
+}

@@ -469,5 +469,12 @@
   "flag.search": "Ara",
   "flag.searchPh": "Ülke veya kod…",
   "flag.set": "Bayrak: {flag}",
-  "flag.cleared": "Bayrak kaldırıldı"
+  "flag.cleared": "Bayrak kaldırıldı",
+  "avatar.change": "Fotoğraf",
+  "avatar.changeTitle": "Küçük profil fotoğrafı seç",
+  "avatar.clear": "Kaldır",
+  "avatar.saved": "Fotoğraf kaydedildi",
+  "avatar.cleared": "Fotoğraf kaldırıldı",
+  "avatar.fail": "Bu görsel kullanılamadı",
+  "avatar.tooLarge": "Görsel çok büyük (en fazla 5 MB)"
 }

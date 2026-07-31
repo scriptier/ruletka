@@ -478,5 +478,12 @@
   "flag.search": "Поиск",
   "flag.searchPh": "Страна или код…",
   "flag.set": "Флаг: {flag}",
-  "flag.cleared": "Флаг убран"
+  "flag.cleared": "Флаг убран",
+  "avatar.change": "Фото",
+  "avatar.changeTitle": "Выбрать маленькое фото профиля",
+  "avatar.clear": "Убрать",
+  "avatar.saved": "Фото сохранено",
+  "avatar.cleared": "Фото удалено",
+  "avatar.fail": "Не удалось использовать изображение",
+  "avatar.tooLarge": "Слишком большой файл (макс. 5 МБ)"
 }

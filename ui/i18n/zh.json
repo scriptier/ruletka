@@ -469,5 +469,12 @@
   "flag.search": "搜索",
   "flag.searchPh": "国家或代码…",
   "flag.set": "旗帜：{flag}",
-  "flag.cleared": "已清除旗帜"
+  "flag.cleared": "已清除旗帜",
+  "avatar.change": "照片",
+  "avatar.changeTitle": "选择小尺寸头像",
+  "avatar.clear": "移除",
+  "avatar.saved": "照片已保存",
+  "avatar.cleared": "照片已移除",
+  "avatar.fail": "无法使用该图片",
+  "avatar.tooLarge": "图片过大（最大 5 MB）"
 }

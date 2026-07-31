@@ -20,6 +20,9 @@ pub enum ClientMsg {
         /// Cosmetic country/region flag (ISO 3166-1 alpha-2). Not geolocation.
         #[serde(default)]
         flag: String,
+        /// Small self-chosen avatar as data URL (jpeg/png/webp). Empty = none.
+        #[serde(default)]
+        avatar: String,
     },
     /// Update soft match preferences without re-hello.
     SetPrefs {
@@ -30,6 +33,9 @@ pub enum ClientMsg {
         /// Cosmetic flag (ISO 3166-1 alpha-2) or "" to clear. Not geolocation.
         #[serde(default)]
         flag: String,
+        /// Small self-chosen avatar data URL, or "" to clear.
+        #[serde(default)]
+        avatar: String,
     },
     Spin {
         #[serde(default)]
@@ -125,6 +131,9 @@ pub struct MatchPeer {
     /// Self-chosen cosmetic flag (ISO 3166-1 alpha-2). Empty = none. Not real location.
     #[serde(default)]
     pub flag: String,
+    /// Small self-chosen avatar data URL. Empty = none.
+    #[serde(default)]
+    pub avatar: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

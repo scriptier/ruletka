@@ -129,6 +129,8 @@ pub struct Client {
     looking: String,
     /// Cosmetic self-chosen flag (ISO alpha-2). Not geolocation.
     flag: String,
+    /// Small avatar data URL (jpeg/png/webp). Empty = none.
+    avatar: String,
     limiter: ClientLimiter,
     /// Sliding window of report submissions (anti ban-bomb).
     report_times: Vec<Instant>,
@@ -225,6 +227,32 @@ fn normalize_flag(raw: &str) -> String {
     } else {
         String::new()
     }
+}
+
+/// Tiny profile picture as data URL only. Cap size to keep WS payloads light.
+const MAX_AVATAR_CHARS: usize = 24_000;
+
+fn normalize_avatar(raw: &str) -> String {
+    let s = raw.trim();
+    if s.is_empty() {
+        return String::new();
+    }
+    if s.len() > MAX_AVATAR_CHARS {
+        return String::new();
+    }
+    let lower = s.to_ascii_lowercase();
+    let ok = lower.starts_with("data:image/jpeg;base64,")
+        || lower.starts_with("data:image/jpg;base64,")
+        || lower.starts_with("data:image/png;base64,")
+        || lower.starts_with("data:image/webp;base64,");
+    if !ok {
+        return String::new();
+    }
+    // Reject obvious non-base64 junk / injection
+    if s.chars().any(|c| c.is_control() || c == ' ' || c == '\n' || c == '\r') {
+        return String::new();
+    }
+    s.to_string()
 }
 
 /// Soft preference: empty/any accepts all; unknown other gender is allowed (soft).
@@ -847,6 +875,7 @@ impl SimpleHub {
             role: "stranger".into(),
             friend_code: String::new(),
             flag: String::new(),
+            avatar: String::new(),
         };
         self.send(
             local_id,
@@ -1024,6 +1053,7 @@ impl SimpleHub {
                 gender: String::new(),
                 looking: "any".into(),
                 flag: String::new(),
+                avatar: String::new(),
                 limiter: ClientLimiter::new(),
                 report_times: Vec::new(),
             },
@@ -1272,6 +1302,7 @@ impl SimpleHub {
             role: role.into(),
             friend_code: to.friend_code.clone(),
             flag: to.flag.clone(),
+            avatar: to.avatar.clone(),
         }
     }
 
@@ -1683,15 +1714,17 @@ impl SimpleHub {
                 gender,
                 looking,
                 flag,
+                avatar,
             } => {
-                self.handle_hello(id, user_id, name, gender, looking, flag);
+                self.handle_hello(id, user_id, name, gender, looking, flag, avatar);
             }
             ClientMsg::SetPrefs {
                 gender,
                 looking,
                 flag,
+                avatar,
             } => {
-                self.handle_set_prefs(id, gender, looking, flag);
+                self.handle_set_prefs(id, gender, looking, flag, avatar);
             }
             ClientMsg::Ping => self.send(id, ServerMsg::Pong),
             ClientMsg::SetRoom { room } => {
@@ -1869,14 +1902,23 @@ impl SimpleHub {
         self.party_requeue(a, b, room, "next together — searching again");
     }
 
-    fn handle_set_prefs(&mut self, id: Uuid, gender: String, looking: String, flag: String) {
+    fn handle_set_prefs(
+        &mut self,
+        id: Uuid,
+        gender: String,
+        looking: String,
+        flag: String,
+        avatar: String,
+    ) {
         let g = normalize_gender(&gender);
         let l = normalize_looking(&looking);
         let f = normalize_flag(&flag);
+        let a = normalize_avatar(&avatar);
         if let Some(c) = self.clients.get_mut(&id) {
             c.gender = g;
             c.looking = l;
             c.flag = f;
+            c.avatar = a;
         }
         self.status(id, "match prefs updated");
         // Re-try match if waiting — soft prefs may unlock a pair
@@ -1898,6 +1940,7 @@ impl SimpleHub {
         gender: String,
         looking: String,
         flag: String,
+        avatar: String,
     ) {
         let user_id = if user_id.trim().is_empty() {
             id.to_string()
@@ -1909,6 +1952,7 @@ impl SimpleHub {
         let gender = normalize_gender(&gender);
         let looking = normalize_looking(&looking);
         let flag = normalize_flag(&flag);
+        let avatar = normalize_avatar(&avatar);
 
         // Kick previous connection for same user
         if let Some(old) = self.by_user.get(&user_id).copied() {
@@ -1939,6 +1983,7 @@ impl SimpleHub {
             c.gender = gender;
             c.looking = looking;
             c.flag = flag;
+            c.avatar = avatar;
         }
         self.by_user.insert(user_id.clone(), id);
         self.code_index.insert(code.clone(), user_id.clone());
