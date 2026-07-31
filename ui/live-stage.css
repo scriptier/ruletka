@@ -1817,6 +1817,9 @@ html.stage-html {
   opacity: 0;
   transform: translateY(12px) scale(0.98);
   transition: opacity 0.18s ease, transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* Stack sub-pages so only one view paints (avoids “meshed” multi-view bleed) */
+  position: fixed;
+  isolation: isolate;
 }
 .sheet.settings-app.is-open {
   opacity: 1;
@@ -1838,6 +1841,7 @@ html.stage-html {
   flex-shrink: 0;
   background: rgba(12, 14, 18, 0.96);
   backdrop-filter: blur(10px);
+  z-index: 2;
 }
 
 .sheet header h3,
@@ -1866,27 +1870,50 @@ html.stage-html {
   justify-content: center;
 }
 .sheet-nav-btn:hover { background: #161b24; }
-.sheet-nav-spacer { width: 2.25rem; }
+.sheet-nav-spacer { width: 2.25rem; flex-shrink: 0; }
 
-.settings-view {
+/* One settings page at a time — absolute fill of the sheet */
+#settings-sheet > .settings-view {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: inherit;
+  z-index: 1;
+}
+#settings-sheet > .settings-view:not([hidden]) {
+  display: flex;
+}
+/* Friends / other sheets still use flow layout */
+.sheet:not(.settings-app) > .settings-view,
+.sheet:not(#settings-sheet) .settings-view {
   display: flex;
   flex-direction: column;
   min-height: 0;
   flex: 1;
   overflow: hidden;
+  position: relative;
 }
-.settings-view[hidden] { display: none !important; }
+.settings-view[hidden] {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
 
 .settings-body {
   overflow-y: auto;
   overflow-x: hidden;
   padding: 0.75rem 1rem 0.6rem !important;
-  gap: 0 !important;
+  gap: 0.55rem !important;
   flex: 1 1 auto;
   min-height: 0;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   scrollbar-color: #2a3548 transparent;
+  display: flex;
+  flex-direction: column;
 }
 .settings-body-main {
   /* Hub is short — less scroll clutter */
@@ -2014,6 +2041,38 @@ html.stage-html {
   gap: 0.55rem;
   min-width: 0;
   flex: 1 1 auto;
+}
+/* Multi-line rows (theme / flag / avatar) — keep columns clean */
+.settings-row:has(.theme-pick-copy),
+.settings-row:has(.flag-pick-copy),
+.settings-row:has(.avatar-attach-copy) {
+  align-items: center;
+  min-height: 3.4rem;
+}
+.settings-row .theme-pick-copy,
+.settings-row .flag-pick-copy,
+.settings-row .avatar-attach-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.12rem;
+  min-width: 0;
+  flex: 1 1 auto;
+  text-align: left;
+}
+.settings-row .theme-pick-title,
+.settings-row .flag-pick-title {
+  font-weight: 650;
+  line-height: 1.2;
+}
+.settings-row .theme-pick-sub,
+.settings-row .flag-pick-sub,
+.settings-row .avatar-attach-hint {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: #8b9bb0;
+  line-height: 1.25;
+  white-space: normal;
 }
 .settings-row .row-ico {
   width: 1.35rem;

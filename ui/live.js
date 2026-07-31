@@ -2504,8 +2504,12 @@ function togglePartnerMute() {
 
 function showSettingsView(name) {
   const views = document.querySelectorAll("#settings-sheet .settings-view");
+  const targetId = `settings-view-${name}`;
   views.forEach((v) => {
-    v.hidden = v.id !== `settings-view-${name}`;
+    const on = v.id === targetId;
+    v.hidden = !on;
+    v.setAttribute("aria-hidden", on ? "false" : "true");
+    v.classList.toggle("is-active", on);
   });
   if (name === "main" || name === "devices") syncSettingsSummary();
   if (name === "lang") syncLangChoices();
