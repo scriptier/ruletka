@@ -29,14 +29,27 @@ function Get-File($Url, $Out) {
 
 function Sync-Ui {
   Write-Host "Syncing chat UI from $BaseUrl …"
+  New-Item -ItemType Directory -Force -Path (Join-Path $UiDir "brand") | Out-Null
+  New-Item -ItemType Directory -Force -Path (Join-Path $UiDir "legal") | Out-Null
+  New-Item -ItemType Directory -Force -Path (Join-Path $UiDir "i18n") | Out-Null
   $files = @(
-    "index.html", "live.html", "contribute.html",
+    "index.html", "live.html", "contribute.html", "safety.html",
     "home.css", "style.css", "live-stage.css",
     "i18n.js", "identity.js", "hubs.js", "webrtc.js", "live.js", "sw.js",
-    "hubs.json", "favicon.svg", "manifest.webmanifest"
+    "analytics.js", "pwa-install.js",
+    "hubs.json", "favicon.svg", "manifest.webmanifest", "robots.txt"
   )
   foreach ($f in $files) {
     try { Get-File "$BaseUrl/$f" (Join-Path $UiDir $f) } catch {}
+  }
+  foreach ($f in @("logo-mark.png", "favicon-32.png", "apple-touch-icon-180.png", "icon-192.png")) {
+    try { Get-File "$BaseUrl/brand/$f" (Join-Path (Join-Path $UiDir "brand") $f) } catch {}
+  }
+  foreach ($f in @("community.html", "privacy.html", "terms.html", "eula.html", "legal.css")) {
+    try { Get-File "$BaseUrl/legal/$f" (Join-Path (Join-Path $UiDir "legal") $f) } catch {}
+  }
+  foreach ($f in @("en.json", "ru.json", "uk.json", "es.json", "de.json", "fr.json", "pt.json", "tr.json", "pl.json", "zh.json", "meta.json")) {
+    try { Get-File "$BaseUrl/i18n/$f" (Join-Path (Join-Path $UiDir "i18n") $f) } catch {}
   }
   if (-not (Test-Path (Join-Path $UiDir "live.html"))) {
     Set-Content -Path (Join-Path $UiDir "live.html") -Value "<!doctype html><p>UI download failed — build from source.</p>" -Encoding UTF8

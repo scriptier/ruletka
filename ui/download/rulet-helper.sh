@@ -40,21 +40,27 @@ cd "$DIR"
 sync_ui() {
   echo "Syncing chat UI from $BASE_URL …"
   local files=(
-    index.html live.html contribute.html
+    index.html live.html contribute.html safety.html
     home.css style.css live-stage.css
     i18n.js identity.js hubs.js webrtc.js live.js sw.js
-    hubs.json favicon.svg manifest.webmanifest
+    analytics.js pwa-install.js
+    hubs.json favicon.svg manifest.webmanifest robots.txt
   )
   local f
   for f in "${files[@]}"; do
     curl -fsSL "$BASE_URL/$f" -o "$DIR/ui/$f" 2>/dev/null || true
   done
   # Brand assets (best-effort)
-  for f in logo-mark.png favicon-32.png apple-touch-icon-180.png logo-hero.jpg; do
+  for f in logo-mark.png favicon-32.png apple-touch-icon-180.png logo-hero.jpg icon-192.png; do
     curl -fsSL "$BASE_URL/brand/$f" -o "$DIR/ui/brand/$f" 2>/dev/null || true
   done
-  for f in community.html privacy.html terms.html eula.html; do
+  for f in community.html privacy.html terms.html eula.html legal.css; do
     curl -fsSL "$BASE_URL/legal/$f" -o "$DIR/ui/legal/$f" 2>/dev/null || true
+  done
+  # i18n packs (best-effort)
+  mkdir -p "$DIR/ui/i18n"
+  for f in en.json ru.json uk.json es.json de.json fr.json pt.json tr.json pl.json zh.json meta.json; do
+    curl -fsSL "$BASE_URL/i18n/$f" -o "$DIR/ui/i18n/$f" 2>/dev/null || true
   done
   # Fallback minimal pages if seed was unreachable
   if [[ ! -f "$DIR/ui/live.html" ]]; then

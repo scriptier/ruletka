@@ -450,5 +450,9 @@
   "remote.stoppedSub": "Натисніть Далі або Спін, щоб шукати знову.",
   "keys.stop": "Стоп (вийти з черги)",
   "home.safety": "Безпека",
-  "settings.safetyPage": "Безпека і скарги"
+  "settings.safetyPage": "Безпека і скарги",
+  "srv.reportOk": "скаргу прийнято — дякуємо",
+  "srv.reportRestricted": "скаргу прийнято — користувача обмежено",
+  "srv.restricted": "тимчасово обмежено через скарги",
+  "srv.reportRate": "надто багато скарг — пізніше"
 }

@@ -450,5 +450,9 @@
   "remote.stoppedSub": "Naciśnij Next lub Spin, by szukać znowu.",
   "keys.stop": "Stop (opuść kolejkę)",
   "home.safety": "Bezpieczeństwo",
-  "settings.safetyPage": "Bezpieczeństwo i zgłoszenia"
+  "settings.safetyPage": "Bezpieczeństwo i zgłoszenia",
+  "srv.reportOk": "zgłoszenie przyjęte — dziękujemy",
+  "srv.reportRestricted": "zgłoszenie przyjęte — użytkownik ograniczony",
+  "srv.restricted": "tymczasowo ograniczony z powodu zgłoszeń",
+  "srv.reportRate": "za dużo zgłoszeń — później"
 }

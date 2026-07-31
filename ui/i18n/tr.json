@@ -450,5 +450,9 @@
   "remote.stoppedSub": "Tekrar aramak için Next veya Spin.",
   "keys.stop": "Dur (kuyruktan çık)",
   "home.safety": "Güvenlik",
-  "settings.safetyPage": "Güvenlik ve bildirimler"
+  "settings.safetyPage": "Güvenlik ve bildirimler",
+  "srv.reportOk": "bildirim alındı — teşekkürler",
+  "srv.reportRestricted": "bildirim alındı — kullanıcı kısıtlandı",
+  "srv.restricted": "bildirimler nedeniyle geçici kısıtlama",
+  "srv.reportRate": "çok fazla bildirim — sonra"
 }

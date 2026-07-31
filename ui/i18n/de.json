@@ -450,5 +450,9 @@
   "remote.stoppedSub": "Next oder Spin drücken, um wieder zu suchen.",
   "keys.stop": "Stopp (Queue verlassen)",
   "home.safety": "Sicherheit",
-  "settings.safetyPage": "Sicherheit & Meldungen"
+  "settings.safetyPage": "Sicherheit & Meldungen",
+  "srv.reportOk": "Meldung erhalten — danke",
+  "srv.reportRestricted": "Meldung erhalten — Nutzer eingeschränkt",
+  "srv.restricted": "wegen Meldungen vorübergehend eingeschränkt",
+  "srv.reportRate": "zu viele Meldungen — später"
 }

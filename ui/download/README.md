@@ -1,6 +1,7 @@
 # Helper downloads
 
 Shell/PowerShell helpers (`rulet-helper*`) live in this folder and are part of the source tree.
+On first run they pull chat UI from the seed (including `safety.html`, legal pages, brand icons, and i18n packs).
 
 **Prebuilt `roulette-bridge-*` binaries are not committed** (see root `.gitignore`).  
 Build or CI-attach them; always publish **`SHA256SUMS`** next to downloads.

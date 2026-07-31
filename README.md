@@ -22,7 +22,8 @@
 | Piece | Status |
 |-------|--------|
 | Simple match bridge | `bridge/` — default product path |
-| Live UI (EN/RU) | `ui/live.html` |
+| Live UI (EN/RU + packs) | `ui/live.html`, `ui/i18n/` |
+| Safety / community | `ui/safety.html`, `ui/legal/` |
 | Public hub directory | `ui/hubs.json` + `GET /v1/directory` |
 | Client multi-hub failover | `ui/hubs.js` |
 | Network helpers (Win/Mac/Linux) | `ui/download/rulet-helper*` — full island hub |

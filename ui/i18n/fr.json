@@ -450,5 +450,9 @@
   "remote.stoppedSub": "Appuyez sur Next ou Spin pour chercher à nouveau.",
   "keys.stop": "Stop (quitter la file)",
   "home.safety": "Sécurité",
-  "settings.safetyPage": "Sécurité et signalements"
+  "settings.safetyPage": "Sécurité et signalements",
+  "srv.reportOk": "signalement reçu — merci",
+  "srv.reportRestricted": "signalement reçu — utilisateur restreint",
+  "srv.restricted": "temporairement restreint pour signalements",
+  "srv.reportRate": "trop de signalements — plus tard"
 }

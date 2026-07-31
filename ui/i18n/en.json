@@ -459,5 +459,9 @@
   "remote.stoppedSub": "Tap Next or Spin when you want to search again.",
   "keys.stop": "Stop (leave queue / idle)",
   "home.safety": "Safety",
-  "settings.safetyPage": "Safety & reports"
+  "settings.safetyPage": "Safety & reports",
+  "srv.reportOk": "report received — thank you",
+  "srv.reportRestricted": "report received — user restricted",
+  "srv.restricted": "temporarily restricted due to reports",
+  "srv.reportRate": "too many reports — try again later"
 }

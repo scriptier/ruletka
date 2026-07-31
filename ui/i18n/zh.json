@@ -450,5 +450,9 @@
   "remote.stoppedSub": "想再搜索时点 Next 或 Spin。",
   "keys.stop": "停止（离开队列）",
   "home.safety": "安全",
-  "settings.safetyPage": "安全与举报"
+  "settings.safetyPage": "安全与举报",
+  "srv.reportOk": "已收到举报 — 谢谢",
+  "srv.reportRestricted": "已收到举报 — 用户已受限",
+  "srv.restricted": "因举报暂时限制匹配",
+  "srv.reportRate": "举报过多 — 请稍后再试"
 }

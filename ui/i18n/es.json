@@ -450,5 +450,9 @@
   "remote.stoppedSub": "Pulsa Next o Spin para buscar de nuevo.",
   "keys.stop": "Parar (salir de la cola)",
   "home.safety": "Seguridad",
-  "settings.safetyPage": "Seguridad e informes"
+  "settings.safetyPage": "Seguridad e informes",
+  "srv.reportOk": "reporte recibido — gracias",
+  "srv.reportRestricted": "reporte recibido — usuario restringido",
+  "srv.restricted": "restringido temporalmente por reportes",
+  "srv.reportRate": "demasiados reportes — más tarde"
 }

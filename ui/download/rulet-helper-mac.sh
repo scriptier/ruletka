@@ -38,12 +38,22 @@ mkdir -p "$DIR/ui/brand" "$DIR/ui/legal"
 cd "$DIR"
 
 echo "Syncing chat UI from $BASE_URL …"
-for f in index.html live.html contribute.html home.css style.css live-stage.css \
-  i18n.js identity.js hubs.js webrtc.js live.js sw.js hubs.json favicon.svg manifest.webmanifest; do
+mkdir -p "$DIR/ui/brand" "$DIR/ui/legal" "$DIR/ui/i18n"
+for f in index.html live.html contribute.html safety.html \
+  home.css style.css live-stage.css \
+  i18n.js identity.js hubs.js webrtc.js live.js sw.js \
+  analytics.js pwa-install.js \
+  hubs.json favicon.svg manifest.webmanifest robots.txt; do
   curl -fsSL "$BASE_URL/$f" -o "$DIR/ui/$f" 2>/dev/null || true
 done
-for f in logo-mark.png favicon-32.png apple-touch-icon-180.png; do
+for f in logo-mark.png favicon-32.png apple-touch-icon-180.png icon-192.png; do
   curl -fsSL "$BASE_URL/brand/$f" -o "$DIR/ui/brand/$f" 2>/dev/null || true
+done
+for f in community.html privacy.html terms.html eula.html legal.css; do
+  curl -fsSL "$BASE_URL/legal/$f" -o "$DIR/ui/legal/$f" 2>/dev/null || true
+done
+for f in en.json ru.json uk.json es.json de.json fr.json pt.json tr.json pl.json zh.json meta.json; do
+  curl -fsSL "$BASE_URL/i18n/$f" -o "$DIR/ui/i18n/$f" 2>/dev/null || true
 done
 if [[ ! -f "$DIR/ui/live.html" ]]; then
   echo "<!doctype html><title>helper</title><p>UI download failed — build from source.</p>" >"$DIR/ui/live.html"
