@@ -3959,22 +3959,11 @@ function updatePoolHint() {
   hint.hidden = !hint.textContent;
 }
 
-/** Online count chip on the empty Start card (header still has full pool stats). */
+/** Empty-card online chip removed for cleaner UI (pool stays in header). */
 function updateEmptySharePresence() {
   const chip = $("empty-online-chip");
-  const nEl = $("empty-online-n");
-  if (!chip) return;
-  const empty = $("remote-empty");
-  const emptyOpen =
-    !!empty &&
-    !empty.classList.contains("hidden") &&
-    !matched &&
-    !inFriendCall &&
-    !trioBrowse;
+  if (chip) chip.hidden = true;
   const n = Number(lastOnlineCount) || 0;
-  if (nEl) nEl.textContent = String(n);
-  // Show when idle/search empty and anyone is online (incl. self as 1)
-  chip.hidden = !(emptyOpen && n > 0);
   document.documentElement.classList.toggle("has-live-people", n > 1);
 }
 
@@ -4594,6 +4583,8 @@ function maybeStartLongWaitBoost() {
  * Rooms: share room. Otherwise: open Friends / copy friend code.
  */
 function maybeShowAloneInviteToast() {
+  // Disabled: keeps the empty/search UI clean (no "few people / share code" toast)
+  return;
   try {
     if (aloneInviteToastShown) return;
     if (matched || inFriendCall || trioBrowse) return;
@@ -4888,57 +4879,36 @@ function updateStartButtonVisibility() {
   syncMatchChrome();
 }
 
-/** Set partner-tile title while searching (private room vs public / alone). */
+/** Set partner-tile title while searching — keep clean (no alone-tips / online chip). */
 function setSearchingEmptyCopy() {
   const empty = $("remote-empty");
   const titleEl = empty?.querySelector(".empty-title");
-  const subEl = empty?.querySelector(".empty-sub");
+  const subEl = empty?.querySelector(".empty-sub") || $("remote-empty-sub");
   const room = currentRoom();
   if (titleEl) {
     if (room) {
       titleEl.textContent =
         _t("remote.searchingRoom", { r: room }) ||
         `Waiting in room “${room}”…`;
-    } else if (isPoolAlone() && (inQueue || wantSearch)) {
-      titleEl.textContent =
-        _t("remote.searchingAlone") || "Still looking…";
     } else {
       titleEl.textContent =
         _t("remote.searchingTitle") || "Looking for a partner…";
     }
   }
+  // Cleaner UI: never show the "few people online / share code" sub copy
   if (subEl) {
-    // Alone: short tip under title (desktop/mobile); hide otherwise
-    if (isPoolAlone() && (inQueue || wantSearch) && !room) {
-      subEl.hidden = false;
-      subEl.textContent =
-        _t("remote.searchingAloneSub") ||
-        "Few people online — open Friends and share your code while you wait.";
-    } else {
-      subEl.hidden = true;
-      subEl.textContent = "";
-    }
+    subEl.hidden = true;
+    subEl.textContent = "";
   }
   updateEmptyAloneActions();
-  // Refresh after pool stats arrive (waiting alone may flip)
   maybeScheduleAloneSearchCopy();
 }
 
-/** Show Friends / Copy code under Start while alone in queue (pool growth). */
+/** Alone-queue action buttons hidden for cleaner empty card (invite via Friends). */
 function updateEmptyAloneActions() {
   const row = $("empty-alone-actions");
-  if (!row) return;
-  const empty = $("remote-empty");
-  const emptyOpen =
-    !!empty &&
-    !empty.classList.contains("hidden") &&
-    !matched &&
-    !inFriendCall &&
-    !trioBrowse;
-  const aloneSearch =
-    emptyOpen && isPoolAlone() && (inQueue || wantSearch) && !currentRoom();
-  row.hidden = !aloneSearch;
-  document.documentElement.classList.toggle("alone-searching", aloneSearch);
+  if (row) row.hidden = true;
+  document.documentElement.classList.remove("alone-searching");
 }
 
 let aloneSearchCopyTimer = 0;
@@ -10785,6 +10755,65 @@ function wireKeysHelp() {
   });
 }
 
+/**
+ * Touch: tap a tile to briefly show its chrome (rails / floor).
+ * Desktop uses CSS :hover. Coarse pointers get always-on via CSS media query.
+ */
+function wireTileChromeAutohide() {
+  const remote = $("tile-remote");
+  const local = $("tile-local");
+  if (!remote && !local) return;
+  let hideTimer = 0;
+  const clearHide = () => {
+    if (hideTimer) {
+      clearTimeout(hideTimer);
+      hideTimer = 0;
+    }
+  };
+  const scheduleHide = (tile) => {
+    clearHide();
+    hideTimer = setTimeout(() => {
+      tile?.classList.remove("is-chrome-open");
+      hideTimer = 0;
+    }, 3200);
+  };
+  const openChrome = (tile, e) => {
+    // Don't steal clicks from buttons already visible
+    if (e?.target?.closest?.("button, input, a, select, textarea, label, .pill, .side-btn")) {
+      tile?.classList.add("is-chrome-open");
+      scheduleHide(tile);
+      return;
+    }
+    const coarse =
+      window.matchMedia && window.matchMedia("(hover: none), (pointer: coarse)").matches;
+    if (!coarse && e?.type === "pointerdown") return; // desktop: CSS hover only
+    if (remote) remote.classList.toggle("is-chrome-open", tile === remote);
+    if (local) local.classList.toggle("is-chrome-open", tile === local);
+    scheduleHide(tile);
+  };
+  remote?.addEventListener(
+    "pointerdown",
+    (e) => openChrome(remote, e),
+    { passive: true }
+  );
+  local?.addEventListener(
+    "pointerdown",
+    (e) => openChrome(local, e),
+    { passive: true }
+  );
+  // Keep open while pointer is over chrome
+  [remote, local].forEach((tile) => {
+    if (!tile) return;
+    tile.addEventListener("pointerenter", () => {
+      clearHide();
+      tile.classList.add("is-chrome-open");
+    });
+    tile.addEventListener("pointerleave", () => {
+      scheduleHide(tile);
+    });
+  });
+}
+
 function showFriendRequestToast(msg) {
   const existing = $("friend-req-toast");
   if (existing) existing.remove();
@@ -12593,6 +12622,7 @@ hideCallCoach();
 wireCallCoach();
 wireWaitTips();
 wireKeysHelp();
+wireTileChromeAutohide();
 wireHubSettings();
 wireMatchPrefs();
 wireNameInputs();

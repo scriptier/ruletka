@@ -305,6 +305,7 @@
           ></video>
           <div class="empty-bg-scrim" aria-hidden="true"></div>
           <div class="empty-content">
+            <!-- Online chip intentionally removed (cleaner empty card) -->
             <div class="empty-online-chip" id="empty-online-chip" hidden>
               <span class="empty-online-dot" aria-hidden="true"></span>
               <span class="empty-online-text">
@@ -316,12 +317,12 @@
               <svg class="icon icon-empty"><use href="#i-pointer"/></svg>
             </div>
             <div class="empty-title" data-i18n="remote.emptyTitle">Tap Start to begin</div>
-            <!-- empty-sub only for searching / connecting / stopped status (no idle "Partner appears here" copy) -->
+            <!-- empty-sub kept for connecting status only — alone-tips disabled -->
             <div class="empty-sub" id="remote-empty-sub" hidden></div>
             <button type="button" class="start-match-btn" id="btn-start-match" data-i18n="btn.start">
               Start
             </button>
-            <!-- Alone-queue growth: invite a friend while waiting -->
+            <!-- Alone CTAs kept in DOM but hidden by default (cleaner search UI) -->
             <div class="empty-alone-actions" id="empty-alone-actions" hidden>
               <button type="button" class="empty-alone-btn accent" id="btn-empty-invite-share" data-i18n="friends.inviteNow">
                 Invite friend
@@ -333,7 +334,7 @@
                 Friends
               </button>
             </div>
-            <!-- Online friends strip while idle/searching -->
+            <!-- Friends online strip while idle (still available; hidden when empty) -->
             <div class="friends-online-strip" id="friends-online-strip" hidden>
               <div class="friends-online-label" data-i18n="friends.onlineStrip">Friends online</div>
               <div class="friends-online-row" id="friends-online-row"></div>
