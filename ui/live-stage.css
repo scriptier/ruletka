@@ -12341,7 +12341,7 @@ html.chrome-always .tile-local .tile-floor-local {
   vertical-align: middle;
 }
 
-/* Public star reputation badge (gold star + count) — top-right of cams */
+/* Public star reputation badge (gold star + count) */
 .stars-badge {
   position: absolute;
   top: 0.5rem;
@@ -12362,6 +12362,7 @@ html.chrome-always .tile-local .tile-floor-local {
   letter-spacing: 0.01em;
   pointer-events: none;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+  flex-shrink: 0;
 }
 .stars-badge[hidden] {
   display: none !important;
@@ -12376,13 +12377,32 @@ html.chrome-always .tile-local .tile-floor-local {
   font-variant-numeric: tabular-nums;
   min-width: 0.75rem;
 }
-/* Local: sit left of avatar when both visible */
-.stars-badge-local {
-  top: 0.55rem;
-  right: 5.35rem;
+/* Inline in partner name row: ★ then avatar then name */
+.tile-tag .stars-badge-inline,
+.stars-badge-inline {
+  position: static;
+  top: auto;
+  right: auto;
+  z-index: auto;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
 }
-.tile-local:not(:has(.tile-avatar-local:not([hidden]))) .stars-badge-local {
-  right: 0.5rem;
+/* Desktop / browser: local stars sit left of the avatar (avatar is top-right) */
+@media (min-width: 721px) {
+  .stars-badge-local {
+    top: 0.55rem;
+    /* avatar 4.6rem + gap + right inset */
+    right: calc(0.5rem + 4.6rem + 0.4rem);
+  }
+  .tile-local:not(:has(.tile-avatar-local:not([hidden]))) .stars-badge-local {
+    right: 0.5rem;
+  }
+  /* Nudge partner chip gap so stars sit snug left of avatar */
+  .tile-tag {
+    gap: 0.4rem;
+  }
+  .tile-tag .stars-badge-inline {
+    margin-right: 0.05rem;
+  }
 }
 @media (max-width: 720px) {
   .stars-badge {
@@ -12394,12 +12414,17 @@ html.chrome-always .tile-local .tile-floor-local {
   .stars-badge .stars-icon {
     font-size: 0.95rem;
   }
+  /* Mobile local: still left of avatar when photo present */
   .stars-badge-local {
     top: 0.4rem;
-    right: 4.35rem;
+    right: calc(0.35rem + 3.75rem + 0.28rem);
   }
   .tile-local:not(:has(.tile-avatar-local:not([hidden]))) .stars-badge-local {
     right: 0.35rem;
+  }
+  .tile-tag .stars-badge-inline {
+    font-size: 0.78rem;
+    padding: 0.16rem 0.36rem 0.16rem 0.28rem;
   }
 }
 /* Post-call star review toast */

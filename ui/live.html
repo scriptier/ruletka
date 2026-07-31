@@ -54,7 +54,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </noscript>
   <link rel="stylesheet" href="style.css?v=157" />
-  <link rel="stylesheet" href="live-stage.css?v=188" />
+  <link rel="stylesheet" href="live-stage.css?v=189" />
   <script src="brand.js?v=2"></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -345,12 +345,12 @@
             </div>
           </div>
         </div>
-        <!-- Public star badge (top-right of partner cam) -->
-        <span class="stars-badge" id="remote-stars-badge" hidden title="Stars from long chats">
-          <span class="stars-icon" aria-hidden="true">★</span>
-          <span class="stars-count" id="remote-stars-count">0</span>
-        </span>
         <div class="tile-tag" id="remote-tile-tag" hidden>
+          <!-- Stars sit left of avatar (browser layout) -->
+          <span class="stars-badge stars-badge-inline" id="remote-stars-badge" hidden title="Stars from long chats">
+            <span class="stars-icon" aria-hidden="true">★</span>
+            <span class="stars-count" id="remote-stars-count">0</span>
+          </span>
           <span class="tile-avatar" id="remote-avatar" hidden><img id="remote-avatar-img" alt="" /></span>
           <span class="name-on-tile" id="remote-tag"></span>
           <span class="match-timer" id="match-timer" hidden title="Time with partner">0:00</span>
