@@ -216,6 +216,8 @@ pub struct SimpleHub {
     star_edges: HashSet<String>,
     /// user_id → active star-bought effect until unix
     star_effects: HashMap<String, friends_store::StarEffectRecord>,
+    /// Dedupe keys for 1-hour mutual star rewards
+    hour_star_sessions: HashSet<String>,
     queue: VecDeque<QueueEntry>,
     limits: LimitConfig,
     friends_path: PathBuf,
@@ -483,6 +485,7 @@ impl SimpleHub {
             star_counts: stored.star_counts,
             star_edges: stored.star_edges,
             star_effects: stored.star_effects,
+            hour_star_sessions: stored.hour_star_sessions,
             queue: VecDeque::new(),
             limits,
             friends_path,
@@ -551,6 +554,7 @@ impl SimpleHub {
             star_counts: self.star_counts.clone(),
             star_edges: self.star_edges.clone(),
             star_effects: self.star_effects.clone(),
+            hour_star_sessions: self.hour_star_sessions.clone(),
         };
         if let Err(e) = friends_store::save(&self.friends_path, &data) {
             tracing::warn!(error = %e, "failed to save friends store");
@@ -600,12 +604,24 @@ impl SimpleHub {
 
     /// Minimum chat length before a star review is offered (16 minutes).
     const STAR_MIN_SECS: u64 = 16 * 60;
+    /// Both conversationalists earn +1 star automatically after this long (1 hour).
+    /// Optional extra gifts (RatePartner) still work separately (once per pair).
+    const STAR_HOUR_BONUS_SECS: u64 = 60 * 60;
 
     fn stars_for(&self, user_id: &str) -> u64 {
         if user_id.is_empty() {
             return 0;
         }
         self.star_counts.get(user_id).copied().unwrap_or(0)
+    }
+
+    fn add_stars(&mut self, user_id: &str, n: u64) -> u64 {
+        if user_id.is_empty() || n == 0 {
+            return self.stars_for(user_id);
+        }
+        let next = self.stars_for(user_id).saturating_add(n);
+        self.star_counts.insert(user_id.to_string(), next);
+        next
     }
 
     fn unix_now() -> u64 {
@@ -875,8 +891,115 @@ impl SimpleHub {
         );
     }
 
-    /// After a match/call ends, offer one-time star review if chat lasted ≥16 min.
+    /// Resolve partner connection for star logic (1:1 partner / friend / session peer).
+    fn star_partner_of(&self, id: Uuid) -> Option<(Uuid, String, String)> {
+        let c = self.clients.get(&id)?;
+        let them_id = c
+            .partner
+            .or(c.friend_call)
+            .or_else(|| c.session_peers.iter().next().copied())?;
+        if them_id == id {
+            return None;
+        }
+        let them = self.clients.get(&them_id)?;
+        let them_uid = them.user_id.clone();
+        let them_name = display_label(them);
+        if them_uid.is_empty() {
+            return None;
+        }
+        Some((them_id, them_uid, them_name))
+    }
+
+    /// After ≥1 hour together, both earn +1 star automatically (once per match).
+    /// Safe to call from both sides of the hangup — second call is a no-op.
+    fn try_award_hour_chat_stars(&mut self, id: Uuid) {
+        let Some(c) = self.clients.get(&id) else {
+            return;
+        };
+        let started = c.match_started;
+        let secs = started.map(|t| t.elapsed().as_secs()).unwrap_or(0);
+        if secs < Self::STAR_HOUR_BONUS_SECS {
+            return;
+        }
+        let me_uid = c.user_id.clone();
+        if me_uid.is_empty() {
+            return;
+        }
+        let Some((_them_id, them_uid, them_name)) = self.star_partner_of(id) else {
+            return;
+        };
+        if them_uid == me_uid {
+            return;
+        }
+        let started_unix = Self::unix_now().saturating_sub(secs);
+        let key = format!(
+            "hour|{}|{}",
+            friends_store::dm_conv_key(&me_uid, &them_uid),
+            started_unix
+        );
+        if self.hour_star_sessions.contains(&key) {
+            return;
+        }
+        self.hour_star_sessions.insert(key);
+        // Cap growth of the set (keep last ~5k)
+        if self.hour_star_sessions.len() > 6000 {
+            let drop_n = self.hour_star_sessions.len() - 5000;
+            let drain: Vec<String> = self
+                .hour_star_sessions
+                .iter()
+                .take(drop_n)
+                .cloned()
+                .collect();
+            for k in drain {
+                self.hour_star_sessions.remove(&k);
+            }
+        }
+        let me_stars = self.add_stars(&me_uid, 1);
+        let them_stars = self.add_stars(&them_uid, 1);
+        self.persist_friends();
+        tracing::info!(
+            %me_uid,
+            %them_uid,
+            secs,
+            me_stars,
+            them_stars,
+            "1h mutual star bonus"
+        );
+        // Notify both (same shape as gift receive so client toasts fire)
+        if let Some(&cid) = self.by_user.get(&me_uid) {
+            self.send(
+                cid,
+                ServerMsg::RateResult {
+                    ok: true,
+                    user_id: me_uid.clone(),
+                    star: true,
+                    stars: me_stars,
+                    message: "hour chat reward".into(),
+                },
+            );
+        }
+        if let Some(&tid) = self.by_user.get(&them_uid) {
+            self.send(
+                tid,
+                ServerMsg::RateResult {
+                    ok: true,
+                    user_id: them_uid.clone(),
+                    star: true,
+                    stars: them_stars,
+                    message: "hour chat reward".into(),
+                },
+            );
+        }
+        let _ = them_name; // used for future toast detail if needed
+    }
+
+    /// After a match/call ends:
+    /// 1) ≥1 hour → both get +1 star automatically
+    /// 2) ≥16 min → offer optional extra gift star (once per pair, existing flow)
     fn arm_star_rating(&mut self, id: Uuid) {
+        // Mutual hour bonus first (works even if gift already used)
+        self.try_award_hour_chat_stars(id);
+
         let Some(c) = self.clients.get(&id) else {
             return;
         };
@@ -891,28 +1014,15 @@ impl SimpleHub {
         if me_uid.is_empty() {
             return;
         }
-        // Prefer 1:1 partner / friend call; else first session peer
-        let them_id = c
-            .partner
-            .or(c.friend_call)
-            .or_else(|| c.session_peers.iter().next().copied());
-        let Some(them_id) = them_id else {
+        let Some((_them_id, them_uid, them_name)) = self.star_partner_of(id) else {
             return;
         };
-        if them_id == id {
-            return;
-        }
-        let Some(them) = self.clients.get(&them_id) else {
-            return;
-        };
-        let them_uid = them.user_id.clone();
-        let them_name = display_label(them);
-        if them_uid.is_empty() || them_uid == me_uid {
+        if them_uid == me_uid {
             return;
         }
         let edge = friends_store::star_edge_key(&me_uid, &them_uid);
         if self.star_edges.contains(&edge) {
-            return; // already reviewed this person
+            return; // already gifted/skipped this person
         }
         if let Some(c) = self.clients.get_mut(&id) {
             c.pending_rate_uid = Some(them_uid.clone());
@@ -996,11 +1106,11 @@ impl SimpleHub {
             return;
         }
         self.star_edges.insert(edge);
-        let mut new_stars = self.stars_for(&target_uid);
-        if star {
-            new_stars = new_stars.saturating_add(1);
-            self.star_counts.insert(target_uid.clone(), new_stars);
-        }
+        let new_stars = if star {
+            self.add_stars(&target_uid, 1)
+        } else {
+            self.stars_for(&target_uid)
+        };
         if let Some(c) = self.clients.get_mut(&id) {
             c.pending_rate_uid = None;
             c.pending_rate_name.clear();

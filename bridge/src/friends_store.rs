@@ -52,6 +52,10 @@ pub struct FriendsFile {
     /// user_id → active paid star effect (bars, flowers, …) until unix secs
     #[serde(default)]
     pub star_effects: HashMap<String, StarEffectRecord>,
+    /// Keys for 1h mutual star bonuses already paid (dedupe both sides ending match).
+    /// Format: hour|{sorted_uid_pair}|{match_start_unix}
+    #[serde(default)]
+    pub hour_star_sessions: HashSet<String>,
 }
 
 /// Cosmetic effect bought with stars (no money). Survives logout until `until`.

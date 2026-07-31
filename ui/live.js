@@ -2333,18 +2333,26 @@ function showStarReviewPrompt(msg) {
     if (!uid) return;
     if ($("star-review-toast")) return;
     const name = String(msg?.name || lastMatchMeta?.name || "Partner").trim() || "Partner";
-    const mins = Math.max(16, Math.floor((Number(msg?.duration_secs) || STAR_MIN_SECS) / 60));
+    const secs = Math.max(0, Number(msg?.duration_secs) || STAR_MIN_SECS);
+    const mins = Math.max(16, Math.floor(secs / 60));
+    const hourChat = secs >= 3600;
     const toast = document.createElement("div");
     toast.id = "star-review-toast";
     toast.className = "friend-soft-toast star-review-toast";
     toast.setAttribute("role", "dialog");
     toast.style.pointerEvents = "auto";
+    const body = hourChat
+      ? _t("stars.reviewBodyHour", { name, m: mins }) ||
+        `${name} · you talked ${mins}+ min. You both already earned a star for 1 hour — gift an extra?`
+      : _t("stars.reviewBody", { name, m: mins }) ||
+        `${name} · you talked ${mins}+ min. Give a star?`;
     toast.innerHTML = `
-      <strong>${escapeHtml(_t("stars.reviewTitle") || "Rate this chat?")}</strong>
-      <span>${escapeHtml(
-        _t("stars.reviewBody", { name, m: mins }) ||
-          `${name} · you talked ${mins}+ min. Give a star?`
-      )}</span>
+      <strong>${escapeHtml(
+        hourChat
+          ? _t("stars.reviewTitleExtra") || "Gift an extra star?"
+          : _t("stars.reviewTitle") || "Rate this chat?"
+      )}</strong>
+      <span>${escapeHtml(body)}</span>
       <div class="export-nudge-actions" style="margin-top:0.45rem">
         <button type="button" class="pill tight ghost" id="btn-star-no">${escapeHtml(
           _t("stars.skip") || "No star"
@@ -9647,18 +9655,34 @@ function handleServer(msg) {
       {
         const n = Math.max(0, Number(msg.stars) || 0);
         const uid = String(msg.user_id || "");
+        const msgText = String(msg.message || "");
+        const hourBonus = /hour chat reward/i.test(msgText);
         if (msg.ok && msg.star && uid && uid === myUserId) {
-          // Someone starred us
+          // Someone starred us OR 1h mutual bonus
           const prev = myStars;
           myStars = n;
           setStarsBadge("local", myStars);
           syncAccountSettingsSummary();
-          setStatus(_t("stars.received") || "You received a star ★");
-          showStarFeedbackToast("earned", { n: myStars });
+          if (hourBonus) {
+            setStatus(
+              _t("stars.hourRewardStatus") ||
+                "1 hour chat — you both earned a star ★"
+            );
+            showStarFeedbackToast("gift", {
+              title: _t("stars.hourRewardTitle") || "1 hour reward ★",
+              body:
+                _t("stars.hourRewardBody", { n: myStars }) ||
+                `You both earned a star for a long chat. Balance: ★ ${myStars}. You can still gift an extra star.`,
+            });
+            trackEvent("star_hour_bonus", { n: myStars });
+          } else {
+            setStatus(_t("stars.received") || "You received a star ★");
+            showStarFeedbackToast("earned", { n: myStars });
+            if (n > prev) trackEvent("star_earned", { n: myStars });
+          }
           pulseStarsBadge("local");
-          if (n > prev) trackEvent("star_earned", { n: myStars });
         } else if (msg.ok && msg.star && uid) {
-          // We starred them (or updated their count)
+          // We starred them (optional gift after 16+ min)
           if (uid === primaryPartnerUserId || uid === lastMatchMeta?.user_id) {
             setStarsBadge("remote", n);
             pulseStarsBadge("remote");
@@ -9668,7 +9692,6 @@ function handleServer(msg) {
             lastMatchMeta?.short_id ||
             _t("remote.tag") ||
             "Partner";
-          // Giver path: target uid ≠ us
           if (uid !== myUserId) {
             showStarFeedbackToast("given", { name });
             setStatus(_t("stars.given") || "Star given");

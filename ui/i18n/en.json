@@ -1164,10 +1164,10 @@
   "stars.barsSub": "Chain fence overlay",
   "stars.flowersSub": "Petals around their window",
   "stars.sheetTitle": "Stars",
-  "stars.sheetIntro": "Stars are free reputation — not money. Earn them from long chats, spend them on fun gifts, and unlock stronger reports at 100+.",
+  "stars.sheetIntro": "Stars are free reputation — not money. Earn +1 each after a 1 hour chat, gift an extra after 16+ min, spend on gifts, unlock stronger reports at 100+.",
   "stars.earnTitle": "How to earn",
-  "stars.earnStep1Title": "Chat 16+ minutes",
-  "stars.earnStep1Body": "After a long enough call ends, you may gift one star (or skip).",
+  "stars.earnStep1Title": "Gift after 16+ minutes",
+  "stars.earnStep1Body": "After a long enough call ends, you may gift one extra star to them (or skip) — once per person.",
   "stars.earnStep2Title": "Once per person",
   "stars.earnStep2Body": "You can’t farm the same conversationalist — only one star from each unique pair.",
   "stars.earnStep3Title": "Badge on camera",
@@ -1188,5 +1188,12 @@
   "stars.introTitle": "Stars on your cam",
   "stars.introBody": "Tap the ★ badge anytime for the guide — earn from long chats, spend on gifts, unlock stronger reports at 100+.",
   "stars.openGuide": "Open Stars",
-  "settings.secStars": "Stars"
+  "settings.secStars": "Stars",
+  "stars.earnHourTitle": "Chat 1 hour together",
+  "stars.earnHourBody": "Both of you automatically get +1 star when a call lasts a full hour.",
+  "stars.hourRewardTitle": "1 hour reward ★",
+  "stars.hourRewardBody": "You both earned a star for a long chat. Balance: ★ {n}. You can still gift an extra star.",
+  "stars.hourRewardStatus": "1 hour chat — you both earned a star ★",
+  "stars.reviewTitleExtra": "Gift an extra star?",
+  "stars.reviewBodyHour": "{name} · you talked {m}+ min. You both already earned a star for 1 hour — gift an extra?"
 }
