@@ -471,10 +471,15 @@
   "flag.set": "Bayrak: {flag}",
   "flag.cleared": "Bayrak kaldırıldı",
   "avatar.change": "Fotoğraf",
-  "avatar.changeTitle": "Küçük profil fotoğrafı seç",
-  "avatar.clear": "Kaldır",
+  "avatar.changeTitle": "Kendi fotoğrafını ekle",
+  "avatar.clear": "Fotoğrafı kaldır",
   "avatar.saved": "Fotoğraf kaydedildi",
   "avatar.cleared": "Fotoğraf kaldırıldı",
-  "avatar.fail": "Bu görsel kullanılamadı",
-  "avatar.tooLarge": "Görsel çok büyük (en fazla 5 MB)"
+  "avatar.fail": "Görsel kullanılamadı — JPG veya PNG deneyin",
+  "avatar.tooLarge": "Görsel çok büyük (en fazla 8 MB)",
+  "avatar.attach": "Kendi fotoğrafını ekle",
+  "avatar.attachHint": "Galeriden veya bu cihazdaki dosyalardan",
+  "avatar.none": "Foto yok",
+  "avatar.set": "Var",
+  "avatar.notImage": "Lütfen bir görsel dosyası seçin"
 }

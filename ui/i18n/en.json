@@ -480,10 +480,15 @@
   "flag.set": "Flag: {flag}",
   "flag.cleared": "Flag cleared",
   "avatar.change": "Photo",
-  "avatar.changeTitle": "Choose a small profile photo",
-  "avatar.clear": "Remove",
+  "avatar.changeTitle": "Attach your picture",
+  "avatar.clear": "Remove photo",
   "avatar.saved": "Photo saved",
   "avatar.cleared": "Photo removed",
-  "avatar.fail": "Could not use that image",
-  "avatar.tooLarge": "Image too large (max 5 MB)"
+  "avatar.fail": "Could not use that image — try JPG or PNG",
+  "avatar.tooLarge": "Image too large (max 8 MB)",
+  "avatar.attach": "Attach your picture",
+  "avatar.attachHint": "From gallery or files on this device",
+  "avatar.none": "No photo",
+  "avatar.set": "Set",
+  "avatar.notImage": "Please choose an image file"
 }

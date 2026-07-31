@@ -471,10 +471,15 @@
   "flag.set": "Прапор: {flag}",
   "flag.cleared": "Прапор прибрано",
   "avatar.change": "Фото",
-  "avatar.changeTitle": "Обрати маленьке фото профілю",
-  "avatar.clear": "Прибрати",
+  "avatar.changeTitle": "Прикріпити своє фото",
+  "avatar.clear": "Прибрати фото",
   "avatar.saved": "Фото збережено",
   "avatar.cleared": "Фото видалено",
-  "avatar.fail": "Не вдалося використати зображення",
-  "avatar.tooLarge": "Занадто великий файл (макс. 5 МБ)"
+  "avatar.fail": "Не вдалося використати файл — спробуйте JPG або PNG",
+  "avatar.tooLarge": "Занадто великий файл (макс. 8 МБ)",
+  "avatar.attach": "Прикріпити своє фото",
+  "avatar.attachHint": "З галереї або файлів на пристрої",
+  "avatar.none": "Немає фото",
+  "avatar.set": "Є",
+  "avatar.notImage": "Оберіть файл зображення"
 }

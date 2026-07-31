@@ -471,10 +471,15 @@
   "flag.set": "旗帜：{flag}",
   "flag.cleared": "已清除旗帜",
   "avatar.change": "照片",
-  "avatar.changeTitle": "选择小尺寸头像",
-  "avatar.clear": "移除",
+  "avatar.changeTitle": "上传自己的照片",
+  "avatar.clear": "移除照片",
   "avatar.saved": "照片已保存",
   "avatar.cleared": "照片已移除",
-  "avatar.fail": "无法使用该图片",
-  "avatar.tooLarge": "图片过大（最大 5 MB）"
+  "avatar.fail": "无法使用该图片 — 请尝试 JPG 或 PNG",
+  "avatar.tooLarge": "图片过大（最大 8 MB）",
+  "avatar.attach": "上传自己的照片",
+  "avatar.attachHint": "来自相册或本机文件",
+  "avatar.none": "无照片",
+  "avatar.set": "已设置",
+  "avatar.notImage": "请选择图片文件"
 }

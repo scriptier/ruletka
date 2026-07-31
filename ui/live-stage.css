@@ -3901,3 +3901,40 @@ html[data-theme="saloon"] .settings-hero-cam {
 html[data-theme="saloon"] .tile-avatar {
   border-color: rgba(201, 162, 39, 0.4);
 }
+
+/* Avatar attach row */
+.avatar-attach-group {
+  margin-bottom: 0.65rem;
+}
+.avatar-attach-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  text-align: left;
+}
+.avatar-attach-hint {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: #8b9bb0;
+  line-height: 1.25;
+}
+.settings-hero.is-drop-target {
+  outline: 2px dashed rgba(126, 182, 255, 0.75);
+  outline-offset: 2px;
+  background: linear-gradient(145deg, #1a2438 0%, #141a28 100%);
+}
+html[data-theme="light"] .avatar-attach-hint {
+  color: #64748b;
+}
+html[data-theme="light"] .settings-hero.is-drop-target {
+  outline-color: rgba(37, 99, 235, 0.65);
+  background: #eef2ff;
+}
+html[data-theme="saloon"] .avatar-attach-hint {
+  color: #b89a72;
+}
+html[data-theme="saloon"] .settings-hero.is-drop-target {
+  outline-color: rgba(201, 162, 39, 0.7);
+  background: linear-gradient(145deg, #2a1a0c, #1a1008);
+}

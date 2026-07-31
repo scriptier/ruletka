@@ -480,10 +480,15 @@
   "flag.set": "Флаг: {flag}",
   "flag.cleared": "Флаг убран",
   "avatar.change": "Фото",
-  "avatar.changeTitle": "Выбрать маленькое фото профиля",
-  "avatar.clear": "Убрать",
+  "avatar.changeTitle": "Прикрепить своё фото",
+  "avatar.clear": "Убрать фото",
   "avatar.saved": "Фото сохранено",
   "avatar.cleared": "Фото удалено",
-  "avatar.fail": "Не удалось использовать изображение",
-  "avatar.tooLarge": "Слишком большой файл (макс. 5 МБ)"
+  "avatar.fail": "Не удалось использовать файл — попробуйте JPG или PNG",
+  "avatar.tooLarge": "Слишком большой файл (макс. 8 МБ)",
+  "avatar.attach": "Прикрепить своё фото",
+  "avatar.attachHint": "Из галереи или файлов на устройстве",
+  "avatar.none": "Нет фото",
+  "avatar.set": "Есть",
+  "avatar.notImage": "Выберите файл изображения"
 }

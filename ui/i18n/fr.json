@@ -471,10 +471,15 @@
   "flag.set": "Drapeau : {flag}",
   "flag.cleared": "Drapeau retiré",
   "avatar.change": "Photo",
-  "avatar.changeTitle": "Choisir une petite photo de profil",
-  "avatar.clear": "Retirer",
+  "avatar.changeTitle": "Joindre votre photo",
+  "avatar.clear": "Retirer la photo",
   "avatar.saved": "Photo enregistrée",
   "avatar.cleared": "Photo supprimée",
-  "avatar.fail": "Image inutilisable",
-  "avatar.tooLarge": "Image trop grande (max. 5 Mo)"
+  "avatar.fail": "Image inutilisable — essayez JPG ou PNG",
+  "avatar.tooLarge": "Image trop grande (max. 8 Mo)",
+  "avatar.attach": "Joindre votre photo",
+  "avatar.attachHint": "Depuis la galerie ou les fichiers de l’appareil",
+  "avatar.none": "Pas de photo",
+  "avatar.set": "Définie",
+  "avatar.notImage": "Choisissez un fichier image"
 }

@@ -481,12 +481,22 @@ function setTileAvatar(which, dataUrl) {
   }
 }
 
+function looksLikeImageFile(file) {
+  if (!file) return false;
+  const t = String(file.type || "").toLowerCase();
+  if (t.startsWith("image/")) return true;
+  // Some mobile pickers leave type empty — allow common extensions
+  const n = String(file.name || "").toLowerCase();
+  return /\.(jpe?g|png|webp|gif|bmp|heic|heif)$/i.test(n);
+}
+
 function refreshAvatarUi() {
   const url = getAvatar();
   const hero = $("settings-hero-avatar");
   const img = $("settings-hero-img");
   const letterEl = $("settings-hero-letter");
   const clearBtn = $("btn-avatar-clear");
+  const valueEl = $("settings-avatar-value");
   const nm = (getDisplayName() || "").trim();
   const letter = nm && nm !== "anon" ? nm.charAt(0).toUpperCase() : "";
   if (letterEl) letterEl.textContent = letter || "?";
@@ -504,7 +514,38 @@ function refreshAvatarUi() {
     hero.classList.toggle("has-letter", !url && !!letter);
   }
   if (clearBtn) clearBtn.hidden = !url;
+  if (valueEl) {
+    valueEl.textContent = url
+      ? _t("avatar.set") || "Set"
+      : _t("avatar.none") || "No photo";
+  }
   setTileAvatar("local", url);
+}
+
+/**
+ * Draw a loaded image source into a small square JPEG data URL.
+ * @param {CanvasImageSource} source
+ * @param {number} w
+ * @param {number} h
+ */
+function avatarDataUrlFromImageSource(source, w, h) {
+  if (!w || !h) throw new Error("bad image");
+  const side = Math.min(w, h);
+  const sx = Math.floor((w - side) / 2);
+  const sy = Math.floor((h - side) / 2);
+  const canvas = document.createElement("canvas");
+  canvas.width = AVATAR_PX;
+  canvas.height = AVATAR_PX;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("no canvas");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(source, sx, sy, side, side, 0, 0, AVATAR_PX, AVATAR_PX);
+  for (const q of [0.78, 0.62, 0.48, 0.35]) {
+    const data = canvas.toDataURL("image/jpeg", q);
+    if (isValidAvatarDataUrl(data) && data.length <= MAX_AVATAR_CHARS) return data;
+  }
+  throw new Error("too big after compress");
 }
 
 /**
@@ -512,55 +553,46 @@ function refreshAvatarUi() {
  * @param {File|Blob} file
  * @returns {Promise<string>}
  */
-function resizeImageToAvatarDataUrl(file) {
+async function resizeImageToAvatarDataUrl(file) {
+  if (!file || !looksLikeImageFile(file)) {
+    throw new Error("not an image");
+  }
+  // Soft client limit before decode (8 MB — phones often send large photos)
+  if (file.size > 8 * 1024 * 1024) {
+    throw new Error("too large");
+  }
+
+  // Prefer createImageBitmap when available (better HEIC/orientation on some browsers)
+  if (typeof createImageBitmap === "function") {
+    try {
+      const bmp = await createImageBitmap(file);
+      try {
+        return avatarDataUrlFromImageSource(
+          bmp,
+          bmp.width,
+          bmp.height
+        );
+      } finally {
+        if (typeof bmp.close === "function") bmp.close();
+      }
+    } catch (_) {
+      /* fall through to Image() path */
+    }
+  }
+
   return new Promise((resolve, reject) => {
-    if (!file || !String(file.type || "").startsWith("image/")) {
-      reject(new Error("not an image"));
-      return;
-    }
-    // Soft client limit before decode (5 MB)
-    if (file.size > 5 * 1024 * 1024) {
-      reject(new Error("too large"));
-      return;
-    }
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
       try {
         URL.revokeObjectURL(url);
-        const w = img.naturalWidth || img.width;
-        const h = img.naturalHeight || img.height;
-        if (!w || !h) {
-          reject(new Error("bad image"));
-          return;
-        }
-        const side = Math.min(w, h);
-        const sx = Math.floor((w - side) / 2);
-        const sy = Math.floor((h - side) / 2);
-        const canvas = document.createElement("canvas");
-        canvas.width = AVATAR_PX;
-        canvas.height = AVATAR_PX;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) {
-          reject(new Error("no canvas"));
-          return;
-        }
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = "high";
-        ctx.drawImage(img, sx, sy, side, side, 0, 0, AVATAR_PX, AVATAR_PX);
-        // Prefer jpeg for size; fall back if empty
-        let data = canvas.toDataURL("image/jpeg", 0.78);
-        if (!isValidAvatarDataUrl(data) || data.length > MAX_AVATAR_CHARS) {
-          data = canvas.toDataURL("image/jpeg", 0.62);
-        }
-        if (!isValidAvatarDataUrl(data) || data.length > MAX_AVATAR_CHARS) {
-          data = canvas.toDataURL("image/jpeg", 0.48);
-        }
-        if (!isValidAvatarDataUrl(data) || data.length > MAX_AVATAR_CHARS) {
-          reject(new Error("too big after compress"));
-          return;
-        }
-        resolve(data);
+        resolve(
+          avatarDataUrlFromImageSource(
+            img,
+            img.naturalWidth || img.width,
+            img.naturalHeight || img.height
+          )
+        );
       } catch (e) {
         reject(e);
       }
@@ -578,14 +610,28 @@ async function setAvatarFromFile(file) {
     const data = await resizeImageToAvatarDataUrl(file);
     savePrefs({ avatar: data });
     refreshAvatarUi();
-    if (ws && ws.readyState === WebSocket.OPEN) sendMatchPrefs();
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      // Prefer full hello so name+avatar stay in sync
+      try {
+        sendHelloPayload();
+      } catch (_) {
+        sendMatchPrefs();
+      }
+    }
     setStatus(_t("avatar.saved") || "Photo saved");
     log(_t("avatar.saved") || "Photo saved");
   } catch (e) {
-    const msg =
+    const key =
       e?.message === "too large"
-        ? _t("avatar.tooLarge") || "Image too large (max 5 MB)"
-        : _t("avatar.fail") || "Could not use that image";
+        ? "avatar.tooLarge"
+        : e?.message === "not an image"
+          ? "avatar.notImage"
+          : "avatar.fail";
+    const msg =
+      _t(key) ||
+      (e?.message === "too large"
+        ? "Image too large (max 8 MB)"
+        : "Could not use that image — try JPG or PNG");
     setStatus(msg);
     log(msg);
   }
@@ -594,25 +640,75 @@ async function setAvatarFromFile(file) {
 function clearAvatar() {
   savePrefs({ avatar: "" });
   refreshAvatarUi();
-  if (ws && ws.readyState === WebSocket.OPEN) sendMatchPrefs();
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    try {
+      sendHelloPayload();
+    } catch (_) {
+      sendMatchPrefs();
+    }
+  }
   setStatus(_t("avatar.cleared") || "Photo removed");
   log(_t("avatar.cleared") || "Photo removed");
 }
 
+function openAvatarPicker() {
+  const file = $("avatar-file");
+  if (!file) return;
+  try {
+    file.value = "";
+  } catch (_) {}
+  // Defer so the click is treated as a direct user gesture on mobile
+  file.click();
+}
+
 function wireAvatarSettings() {
   const file = $("avatar-file");
-  const openPicker = () => file?.click();
-  $("settings-hero-avatar")?.addEventListener("click", openPicker);
-  $("btn-avatar-change")?.addEventListener("click", openPicker);
+  $("settings-hero-avatar")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    openAvatarPicker();
+  });
+  $("btn-avatar-change")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    openAvatarPicker();
+  });
   $("btn-avatar-clear")?.addEventListener("click", (e) => {
     e.preventDefault();
     clearAvatar();
   });
   file?.addEventListener("change", () => {
     const f = file.files?.[0];
-    file.value = "";
+    try {
+      file.value = "";
+    } catch (_) {}
     if (f) setAvatarFromFile(f);
   });
+
+  // Drag & drop your own picture onto the profile hero
+  const hero = $("settings-hero");
+  if (hero && !hero.dataset.avatarDrop) {
+    hero.dataset.avatarDrop = "1";
+    const stop = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    hero.addEventListener("dragenter", (e) => {
+      stop(e);
+      hero.classList.add("is-drop-target");
+    });
+    hero.addEventListener("dragover", (e) => {
+      stop(e);
+      hero.classList.add("is-drop-target");
+    });
+    hero.addEventListener("dragleave", () => {
+      hero.classList.remove("is-drop-target");
+    });
+    hero.addEventListener("drop", (e) => {
+      stop(e);
+      hero.classList.remove("is-drop-target");
+      const f = e.dataTransfer?.files?.[0];
+      if (f) setAvatarFromFile(f);
+    });
+  }
   refreshAvatarUi();
 }
 

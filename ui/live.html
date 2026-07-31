@@ -27,8 +27,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&family=Rye&family=Source+Serif+4:opsz,wght@8..60,400;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=65" />
-  <link rel="stylesheet" href="live-stage.css?v=65" />
+  <link rel="stylesheet" href="style.css?v=66" />
+  <link rel="stylesheet" href="live-stage.css?v=66" />
   <script>
     /* Apply saved theme before paint to avoid flash */
     (function () {
@@ -525,9 +525,9 @@
         <button type="button" class="sheet-nav-btn sheet-close-x" id="sheet-close" aria-label="Close">✕</button>
       </header>
       <div class="sheet-body settings-body settings-body-main">
-        <div class="settings-hero">
+        <div class="settings-hero" id="settings-hero">
           <button type="button" class="settings-hero-avatar" id="settings-hero-avatar"
-            data-i18n-title="avatar.changeTitle" title="Change photo" aria-label="Change photo">
+            data-i18n-title="avatar.changeTitle" title="Attach your picture" aria-label="Attach your picture">
             <img id="settings-hero-img" class="settings-hero-img" alt="" hidden />
             <span class="settings-hero-letter" id="settings-hero-letter">?</span>
             <svg class="icon settings-hero-fallback"><use href="#i-user"/></svg>
@@ -538,13 +538,28 @@
           <div class="settings-hero-text">
             <input id="display-name-settings" class="settings-hero-name" type="text" maxlength="32" placeholder="anon" autocomplete="nickname" data-i18n-placeholder="friends.yourName" />
             <p class="settings-hero-sub" data-i18n="settings.heroHint">Shown to partners in chat</p>
-            <div class="settings-hero-avatar-actions">
-              <button type="button" class="settings-link-btn" id="btn-avatar-change" data-i18n="avatar.change">Photo</button>
-              <button type="button" class="settings-link-btn" id="btn-avatar-clear" data-i18n="avatar.clear" hidden>Remove</button>
-            </div>
           </div>
-          <input type="file" id="avatar-file" accept="image/jpeg,image/png,image/webp,image/*" hidden />
         </div>
+        <div class="settings-group avatar-attach-group">
+          <button type="button" class="settings-row" id="btn-avatar-change">
+            <span class="row-left">
+              <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-camera"/></svg></span>
+              <span class="avatar-attach-copy">
+                <span data-i18n="avatar.attach">Attach your picture</span>
+                <span class="avatar-attach-hint" data-i18n="avatar.attachHint">From gallery or files on this device</span>
+              </span>
+            </span>
+            <span class="row-right"><span id="settings-avatar-value" class="row-value" data-i18n="avatar.none">No photo</span> <span class="chev">›</span></span>
+          </button>
+          <button type="button" class="settings-row settings-row-danger" id="btn-avatar-clear" hidden>
+            <span class="row-left">
+              <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-trash"/></svg></span>
+              <span data-i18n="avatar.clear">Remove photo</span>
+            </span>
+            <span class="chev">›</span>
+          </button>
+        </div>
+        <input type="file" id="avatar-file" accept="image/*,.jpg,.jpeg,.png,.webp,.gif,.heic,.heif" hidden />
 
         <div class="settings-group">
           <!-- div not label: nested share button is invalid inside <label> and collapsed Language in some browsers -->
@@ -999,11 +1014,11 @@
   <!-- cache-bust so browsers always get auto-connect / auto-media fixes -->
   <script src="analytics.js?v=1" defer></script>
   <script src="pwa-install.js?v=1" defer></script>
-  <script src="i18n.js?v=65"></script>
-  <script src="identity.js?v=65"></script>
-  <script src="hubs.js?v=65"></script>
-  <script src="webrtc.js?v=65"></script>
-  <script src="live.js?v=65"></script>
+  <script src="i18n.js?v=66"></script>
+  <script src="identity.js?v=66"></script>
+  <script src="hubs.js?v=66"></script>
+  <script src="webrtc.js?v=66"></script>
+  <script src="live.js?v=66"></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

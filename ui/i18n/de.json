@@ -471,10 +471,15 @@
   "flag.set": "Flagge: {flag}",
   "flag.cleared": "Flagge entfernt",
   "avatar.change": "Foto",
-  "avatar.changeTitle": "Kleines Profilfoto wählen",
-  "avatar.clear": "Entfernen",
+  "avatar.changeTitle": "Eigenes Foto anhängen",
+  "avatar.clear": "Foto entfernen",
   "avatar.saved": "Foto gespeichert",
   "avatar.cleared": "Foto entfernt",
-  "avatar.fail": "Bild konnte nicht verwendet werden",
-  "avatar.tooLarge": "Bild zu groß (max. 5 MB)"
+  "avatar.fail": "Bild nicht nutzbar — bitte JPG oder PNG",
+  "avatar.tooLarge": "Bild zu groß (max. 8 MB)",
+  "avatar.attach": "Eigenes Foto anhängen",
+  "avatar.attachHint": "Aus Galerie oder Dateien auf diesem Gerät",
+  "avatar.none": "Kein Foto",
+  "avatar.set": "Gesetzt",
+  "avatar.notImage": "Bitte eine Bilddatei wählen"
 }
