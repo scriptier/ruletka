@@ -448,5 +448,7 @@
   "home.p4d": "Signaler, bloquer, flou, IA sur l’appareil — plusieurs signalements restreignent le match",
   "remote.stoppedTitle": "Arrêté",
   "remote.stoppedSub": "Appuyez sur Next ou Spin pour chercher à nouveau.",
-  "keys.stop": "Stop (quitter la file)"
+  "keys.stop": "Stop (quitter la file)",
+  "home.safety": "Sécurité",
+  "settings.safetyPage": "Sécurité et signalements"
 }

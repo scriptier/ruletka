@@ -448,5 +448,7 @@
   "home.p4d": "Melden, blockieren, Blur, KI auf dem Gerät — mehrere Meldungen sperren Matchmaking",
   "remote.stoppedTitle": "Gestoppt",
   "remote.stoppedSub": "Next oder Spin drücken, um wieder zu suchen.",
-  "keys.stop": "Stopp (Queue verlassen)"
+  "keys.stop": "Stopp (Queue verlassen)",
+  "home.safety": "Sicherheit",
+  "settings.safetyPage": "Sicherheit & Meldungen"
 }

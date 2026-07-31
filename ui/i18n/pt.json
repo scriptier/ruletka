@@ -448,5 +448,7 @@
   "home.p4d": "Denunciar, bloquear, desfoque, IA no dispositivo — vários reports restringem o match",
   "remote.stoppedTitle": "Parado",
   "remote.stoppedSub": "Toque em Next ou Spin para buscar de novo.",
-  "keys.stop": "Parar (sair da fila)"
+  "keys.stop": "Parar (sair da fila)",
+  "home.safety": "Segurança",
+  "settings.safetyPage": "Segurança e denúncias"
 }

@@ -448,5 +448,7 @@
   "home.p4d": "Bildir, engelle, bulanıklaştır, cihaz AI — çoklu bildirim eşleşmeyi kısıtlar",
   "remote.stoppedTitle": "Durdu",
   "remote.stoppedSub": "Tekrar aramak için Next veya Spin.",
-  "keys.stop": "Dur (kuyruktan çık)"
+  "keys.stop": "Dur (kuyruktan çık)",
+  "home.safety": "Güvenlik",
+  "settings.safetyPage": "Güvenlik ve bildirimler"
 }

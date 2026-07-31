@@ -448,5 +448,7 @@
   "home.p4d": "Zgłoś, blokuj, blur, AI na urządzeniu — wiele zgłoszeń ogranicza match",
   "remote.stoppedTitle": "Zatrzymano",
   "remote.stoppedSub": "Naciśnij Next lub Spin, by szukać znowu.",
-  "keys.stop": "Stop (opuść kolejkę)"
+  "keys.stop": "Stop (opuść kolejkę)",
+  "home.safety": "Bezpieczeństwo",
+  "settings.safetyPage": "Bezpieczeństwo i zgłoszenia"
 }

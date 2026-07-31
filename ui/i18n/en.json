@@ -457,5 +457,7 @@
   "home.p4d": "Report, block, blur-first, on-device AI skip — multi-report auto-restricts",
   "remote.stoppedTitle": "Stopped",
   "remote.stoppedSub": "Tap Next or Spin when you want to search again.",
-  "keys.stop": "Stop (leave queue / idle)"
+  "keys.stop": "Stop (leave queue / idle)",
+  "home.safety": "Safety",
+  "settings.safetyPage": "Safety & reports"
 }

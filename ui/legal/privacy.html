@@ -1,40 +1,64 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Privacy policy — ruletka.vip</title>
-  <link rel="stylesheet" href="../home.css" />
-  <style>
-    .legal { max-width: 40rem; margin: 0 auto; padding: 1.5rem 1.25rem 3rem; position: relative; z-index: 1; }
-    .legal h1 { font-size: 1.4rem; margin: 0 0 1rem; }
-    .legal h2 { font-size: 1.05rem; margin: 1.5rem 0 0.5rem; }
-    .legal p, .legal li { color: #8b9bb0; line-height: 1.55; font-size: 0.95rem; }
-    .legal a { color: #5b9dff; }
-    .back { display: inline-block; margin-bottom: 1rem; color: #8b9bb0; text-decoration: none; }
-  </style>
+  <meta name="description" content="Privacy policy for ruletka.vip peer-to-peer video chat: media path, signaling, reports, local data." />
+  <meta name="theme-color" content="#07080c" />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://ruletka.vip/legal/privacy.html" />
+  <link rel="icon" href="/brand/favicon-32.png" type="image/png" />
+  <link rel="stylesheet" href="../home.css?v=61" />
+  <link rel="stylesheet" href="legal.css?v=1" />
 </head>
 <body class="home-body">
-  <div class="home-bg" aria-hidden="true"></div>
-  <article class="legal">
-    <a class="back" href="/live.html">← Live</a>
-    <h1>Privacy policy</h1>
-    <p>Last updated: 2026-07-30</p>
-    <p><strong>ruletka.vip</strong> is a peer-to-peer video chat service. This page describes what we process.</p>
-    <h2>Video and audio</h2>
-    <p>Call media (camera/microphone) is exchanged <strong>directly between browsers</strong> (WebRTC, encrypted with DTLS/SRTP) when the network allows a direct path. We do not operate a media server that stores or rebroadcasts your video/audio streams.</p>
-    <p>If a direct connection fails, media may be relayed through a <strong>TURN</strong> server (still encrypted end-to-end for the media path). Prefer a direct path when the UI shows “Direct P2P”. A third party on a relay path can theoretically observe traffic; use a trusted TURN in production.</p>
-    <p><strong>Your partner can always screenshot or record</strong> what they see. Use Block and Report if needed.</p>
-    <h2>Signaling and matchmaking</h2>
-    <p>To match strangers and connect calls, our bridge may process temporary connection data (WebSocket session ids, display names you choose, room codes, friend codes, and WebRTC signaling messages). This is needed for the service to work. We minimize long-term retention of signaling payloads.</p>
-    <h2>Reports and safety</h2>
-    <p>If you report a user, we store the report (reporter id, target id, reason, time) to fight abuse. Multiple independent reports may temporarily restrict matchmaking for the reported account on this hub.</p>
-    <h2>Local device data</h2>
-    <p>Your browser may store preferences (language, devices, friend history, identity) in <code>localStorage</code> and a device crypto key in <code>IndexedDB</code> (when available). You can export a profile file (Settings → About → Export) to move the same identity to another browser or device; friends lists are stored on the match hub under that identity id. You can clear local data from Settings → Clear local data.</p>
-    <h2>Friends and blocks</h2>
-    <p>Friend lists and blocks for this hub are stored on the server instance you connected to, so features like call-when-online can work.</p>
-    <h2>Contact</h2>
-    <p>Questions: <a href="mailto:privacy@ruletka.vip">privacy@ruletka.vip</a></p>
-  </article>
+  <div class="home-bg" aria-hidden="true">
+    <div class="home-bg-grid"></div>
+    <div class="home-bg-orb home-bg-orb-a"></div>
+  </div>
+  <div class="legal-wrap">
+    <nav class="legal-nav">
+      <a href="/">Home</a>
+      <a class="primary" href="/live.html">Live</a>
+      <a href="/safety.html">Safety</a>
+      <a href="/legal/terms.html">Terms</a>
+    </nav>
+    <article class="legal-card">
+      <h1>Privacy policy</h1>
+      <p class="updated">Last updated: 2026-07-31</p>
+      <p><strong>ruletka.vip</strong> is a peer-to-peer video chat service. This page describes what we process.</p>
+
+      <h2>Video and audio</h2>
+      <p>Call media (camera/microphone) is exchanged <strong>directly between browsers</strong> (WebRTC, encrypted with DTLS/SRTP) when the network allows a direct path. We do not operate a media server that stores or rebroadcasts your video/audio streams.</p>
+      <p>If a direct connection fails, media may be relayed through a <strong>TURN</strong> server (still encrypted for the media path). Prefer a direct path when the UI shows “Direct P2P”.</p>
+      <p><strong>Your partner can always screenshot or record</strong> what they see. Use Block and Report if needed.</p>
+
+      <h2>Signaling and matchmaking</h2>
+      <p>To match strangers and connect calls, our bridge may process temporary connection data (WebSocket session ids, display names you choose, room codes, friend codes, and WebRTC signaling messages). This is needed for the service to work. We minimize long-term retention of signaling payloads.</p>
+
+      <h2>Reports and safety</h2>
+      <p>If you report a user, we store the report (reporter id, target id, reason, time) to fight abuse. Multiple independent reports may temporarily restrict matchmaking for the reported identity on this hub. Optional on-device AI may send an assisted report signal without uploading video to us. See <a href="/safety.html">Safety</a>.</p>
+
+      <h2>Local device data</h2>
+      <p>Your browser may store preferences (language, devices, friend history, identity) in <code>localStorage</code> and a device crypto key in <code>IndexedDB</code> (when available). You can export a profile file (Settings → About → Export) to move the same identity to another browser or device; friends lists are stored on the match hub under that identity id. You can clear local data from Settings → Clear local data.</p>
+
+      <h2>Friends and blocks</h2>
+      <p>Friend lists and blocks for this hub are stored on the server instance you connected to, so features like call-when-online can work.</p>
+
+      <h2>Analytics</h2>
+      <p>If the operators enable analytics, public measurement ids may be loaded via <code>/config.json</code> (for example Yandex Metrica or Google Analytics). No analytics run unless those ids are configured.</p>
+
+      <h2>Contact</h2>
+      <p>Questions: <a href="mailto:privacy@ruletka.vip">privacy@ruletka.vip</a></p>
+
+      <div class="legal-foot-links">
+        <a href="/legal/terms.html">Terms</a>
+        <a href="/legal/community.html">Community</a>
+        <a href="/legal/eula.html">EULA</a>
+        <a href="/safety.html">Safety</a>
+      </div>
+    </article>
+  </div>
 </body>
 </html>

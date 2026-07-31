@@ -514,7 +514,10 @@
       "status.friendCallLost": "связь потеряна — позвоните снова",
 
       "remote.emptyTitle": "Нажмите «Далее», чтобы начать",
-      "remote.emptySub": "Собеседник появится здесь",
+      "remote.emptySub": "Собеседник здесь. «Далее» = новый матч · «Стоп» = пауза.",
+      "remote.stoppedTitle": "Остановлено",
+      "remote.stoppedSub": "Нажмите «Далее» или «Спин», когда захотите искать снова.",
+      "keys.stop": "Стоп (выйти из очереди)",
       "remote.connecting": "Соединение…",
       "remote.handshake": "Установка WebRTC",
       "remote.tag": "Собеседник",

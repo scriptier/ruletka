@@ -448,5 +448,7 @@
   "home.p4d": "举报、拉黑、先模糊、设备端 AI 跳过 — 多人举报会限制匹配",
   "remote.stoppedTitle": "已停止",
   "remote.stoppedSub": "想再搜索时点 Next 或 Spin。",
-  "keys.stop": "停止（离开队列）"
+  "keys.stop": "停止（离开队列）",
+  "home.safety": "安全",
+  "settings.safetyPage": "安全与举报"
 }

@@ -99,6 +99,8 @@ pub struct SimpleHub {
     queue: VecDeque<QueueEntry>,
     limits: LimitConfig,
     friends_path: PathBuf,
+    /// Optional HTTPS webhook (Slack/Discord/Telegram bot URL) fired on auto-ban.
+    mod_webhook_url: Option<String>,
     /// Federated sessions by session_id
     fed_sessions: HashMap<String, FedSession>,
     /// local client uuid → session_id
@@ -204,6 +206,14 @@ impl SimpleHub {
     }
 
     pub fn with_limits_and_store(limits: LimitConfig, friends_path: PathBuf) -> Self {
+        Self::with_limits_store_webhook(limits, friends_path, None)
+    }
+
+    pub fn with_limits_store_webhook(
+        limits: LimitConfig,
+        friends_path: PathBuf,
+        mod_webhook_url: Option<String>,
+    ) -> Self {
         let stored = friends_store::load(&friends_path);
         if !stored.friendships.is_empty()
             || !stored.code_index.is_empty()
@@ -221,6 +231,12 @@ impl SimpleHub {
                 "loaded friends store"
             );
         }
+        let webhook = mod_webhook_url
+            .map(|s| s.trim().to_string())
+            .filter(|s| s.starts_with("https://"));
+        if webhook.is_some() {
+            tracing::info!("mod webhook enabled for auto-ban events");
+        }
         Self {
             clients: HashMap::new(),
             by_user: HashMap::new(),
@@ -234,10 +250,39 @@ impl SimpleHub {
             queue: VecDeque::new(),
             limits,
             friends_path,
+            mod_webhook_url: webhook,
             fed_sessions: HashMap::new(),
             fed_by_client: HashMap::new(),
             fed_outbox: VecDeque::new(),
         }
+    }
+
+    fn fire_mod_webhook(&self, payload: serde_json::Value) {
+        let Some(url) = self.mod_webhook_url.clone() else {
+            return;
+        };
+        tokio::spawn(async move {
+            let client = reqwest::Client::builder()
+                .timeout(Duration::from_secs(8))
+                .build();
+            let Ok(client) = client else {
+                return;
+            };
+            // Slack/Discord-friendly: text + full JSON body
+            let text = payload
+                .get("text")
+                .and_then(|v| v.as_str())
+                .unwrap_or("ruletka auto-ban")
+                .to_string();
+            let body = serde_json::json!({
+                "text": text,
+                "content": text,
+                "ruletka": payload,
+            });
+            if let Err(e) = client.post(&url).json(&body).send().await {
+                tracing::warn!(error = %e, "mod webhook post failed");
+            }
+        });
     }
 
     fn persist_friends(&self) {
@@ -2094,6 +2139,25 @@ impl SimpleHub {
                     until,
                     "auto match-ban after reports"
                 );
+                let short = if user_id.len() > 14 {
+                    format!("{}…", &user_id[..12])
+                } else {
+                    user_id.clone()
+                };
+                self.fire_mod_webhook(serde_json::json!({
+                    "event": "auto_ban",
+                    "text": format!(
+                        "ruletka auto-ban: {short} reason={reason_s} reporters={report_count} ban_secs={ban_secs}"
+                    ),
+                    "target_user_id": user_id,
+                    "target_name": target_name,
+                    "reason": reason_s,
+                    "unique_reporters": report_count,
+                    "threshold": effective_threshold,
+                    "ban_secs": ban_secs,
+                    "until": until,
+                    "ai_assisted": is_ai,
+                }));
             }
         }
         self.persist_friends();

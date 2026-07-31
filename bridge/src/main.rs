@@ -141,6 +141,9 @@ struct Args {
     /// Admin API + /admin.html token (empty = admin API disabled).
     #[arg(long, default_value = "", env = "ROULETTE_ADMIN_TOKEN")]
     admin_token: String,
+    /// Optional HTTPS webhook (Slack/Discord/Telegram) when auto-ban fires.
+    #[arg(long, default_value = "", env = "ROULETTE_MOD_WEBHOOK_URL")]
+    mod_webhook_url: String,
     /// Freenet WS host (freenet mode only)
     #[arg(long, default_value = "127.0.0.1:7509")]
     freenet: String,
@@ -1290,10 +1293,16 @@ async fn main() {
         tracing::info!("analytics ids published via /config.json (no secrets)");
     }
 
+    let mod_hook = args.mod_webhook_url.trim().to_string();
     let state = AppState {
-        hub: Arc::new(Mutex::new(SimpleHub::with_limits_and_store(
+        hub: Arc::new(Mutex::new(SimpleHub::with_limits_store_webhook(
             limits,
             friends_path,
+            if mod_hook.is_empty() {
+                None
+            } else {
+                Some(mod_hook)
+            },
         ))),
         public_config,
         stun: args.stun.clone(),

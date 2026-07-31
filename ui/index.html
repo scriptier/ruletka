@@ -42,7 +42,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="home.css?v=61" />
+  <link rel="stylesheet" href="home.css?v=62" />
   <script src="analytics.js?v=1" defer></script>
   <script src="pwa-install.js?v=1" defer></script>
   <script type="application/ld+json">
@@ -251,6 +251,7 @@
       <a href="#why" class="foot-link" data-i18n="home.diffTitle">How we’re different</a>
       <a href="#open" class="foot-link" data-i18n="home.openTitle">Open source</a>
       <a href="/contribute.html" class="foot-link" data-i18n="home.openHelper">Run a helper</a>
+      <a href="/safety.html" class="foot-link" data-i18n="home.safety">Safety</a>
       <a href="/legal/privacy.html" class="foot-link" data-i18n="home.privacy">Privacy</a>
       <a href="/legal/terms.html" class="foot-link" data-i18n="home.terms">Terms</a>
     </span>
@@ -325,6 +326,7 @@
           "home.openOps": "Для операторов",
           "home.privacy": "Конфиденциальность",
           "home.terms": "Условия",
+          "home.safety": "Безопасность",
           "home.statsOffline": "Хаб офлайн",
           "home.diffTitle": "Чем мы отличаемся",
           "home.diffBody":
@@ -384,7 +386,7 @@
           return;
         }
         applyDict(lang, STR.en); // show EN until pack loads
-        fetch("/i18n/" + lang + ".json?v=61", { cache: "force-cache" })
+        fetch("/i18n/" + lang + ".json?v=62", { cache: "force-cache" })
           .then(function (r) {
             if (!r.ok) throw new Error("pack");
             return r.json();

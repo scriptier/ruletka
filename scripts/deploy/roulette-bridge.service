@@ -30,6 +30,10 @@ Environment=ROULETTE_INSTANCE_ID=ruletka-vip
 # Environment=ROULETTE_YANDEX_METRICA_ID=
 # Environment=ROULETTE_GA_ID=
 EnvironmentFile=-/opt/ruletka/data/analytics.env
+# Optional auto-ban webhook (Slack/Discord/Telegram HTTPS URL):
+# EnvironmentFile=-/opt/ruletka/data/mod.env
+#   ROULETTE_MOD_WEBHOOK_URL=https://hooks.slack.com/services/...
+EnvironmentFile=-/opt/ruletka/data/mod.env
 ExecStart=/opt/ruletka/bin/roulette-bridge \
   --mode simple \
   --listen 127.0.0.1:8790 \
