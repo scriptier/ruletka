@@ -602,8 +602,8 @@ impl SimpleHub {
         }
     }
 
-    /// Minimum chat length before a star review is offered (16 minutes).
-    const STAR_MIN_SECS: u64 = 16 * 60;
+    /// Minimum chat length before a star review is offered (15 minutes).
+    const STAR_MIN_SECS: u64 = 15 * 60;
     /// Both conversationalists earn +1 star automatically after this long (1 hour).
     /// Optional extra gifts (RatePartner) still work separately (once per pair).
     const STAR_HOUR_BONUS_SECS: u64 = 60 * 60;
@@ -995,7 +995,7 @@ impl SimpleHub {
 
     /// After a match/call ends:
     /// 1) ≥1 hour → both get +1 star automatically
-    /// 2) ≥16 min → offer optional extra gift star (once per pair, existing flow)
+    /// 2) ≥15 min → offer optional extra gift star (once per pair, existing flow)
     fn arm_star_rating(&mut self, id: Uuid) {
         // Mutual hour bonus first (works even if gift already used)
         self.try_award_hour_chat_stars(id);
@@ -1081,7 +1081,7 @@ impl SimpleHub {
                     user_id: target_uid,
                     star: false,
                     stars: 0,
-                    message: "chat too short for a star (need 16 minutes)".into(),
+                    message: "chat too short for a star (need 15 minutes)".into(),
                 },
             );
             return;

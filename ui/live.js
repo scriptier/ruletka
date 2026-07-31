@@ -301,7 +301,7 @@ let myStars = 0;
 /** Partner star count during current match. */
 let partnerStars = 0;
 /** Min chat length for star review (must match bridge STAR_MIN_SECS). */
-const STAR_MIN_SECS = 16 * 60;
+const STAR_MIN_SECS = 15 * 60;
 /** Star-gift costs (must match bridge EFFECT_COST / DURATION). */
 const STAR_EFFECT_COST = 5;
 const STAR_EFFECT_SECS = 30;
@@ -2324,7 +2324,7 @@ function spendFlowersOnPartner() {
 }
 
 /**
- * After RatePrompt from hub (chat ≥16 min): give a star or skip.
+ * After RatePrompt from hub (chat ≥15 min): give a star or skip.
  * Same pair can only review once (server-enforced).
  */
 function showStarReviewPrompt(msg) {
@@ -2334,7 +2334,7 @@ function showStarReviewPrompt(msg) {
     if ($("star-review-toast")) return;
     const name = String(msg?.name || lastMatchMeta?.name || "Partner").trim() || "Partner";
     const secs = Math.max(0, Number(msg?.duration_secs) || STAR_MIN_SECS);
-    const mins = Math.max(16, Math.floor(secs / 60));
+    const mins = Math.max(15, Math.floor(secs / 60));
     const hourChat = secs >= 3600;
     const toast = document.createElement("div");
     toast.id = "star-review-toast";

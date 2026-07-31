@@ -126,7 +126,7 @@ pub enum ClientMsg {
     FriendChatHistory {
         with_user_id: String,
     },
-    /// After a long enough chat (≥16 min), rate partner: star or skip.
+    /// After a long enough chat (≥15 min), rate partner: star or skip.
     /// Same pair can only rate once (star or not).
     RatePartner {
         user_id: String,
