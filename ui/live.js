@@ -1174,6 +1174,63 @@ function setSplitRemote(on) {
   if (!on && v2) v2.srcObject = null;
 }
 
+function showFriendPip(show) {
+  const wrap = $("friend-pip-wrap");
+  const vid = $("friend-pip");
+  if (wrap) wrap.hidden = !show;
+  if (!show && vid) {
+    try {
+      vid.srcObject = null;
+    } catch (_) {}
+  }
+}
+
+/**
+ * Bind a peer connection’s remote stream to a video element (or detach).
+ * Fixes party-browse: friend used to own #remote and blocked the stranger feed.
+ */
+function bindPcVideo(pc, el) {
+  if (!pc) return;
+  pc._videoEl = el || null;
+  const stream = pc.remoteStream;
+  if (el && stream) {
+    el.srcObject = stream;
+    try {
+      const p = el.play?.();
+      if (p && typeof p.catch === "function") p.catch(() => {});
+    } catch (_) {}
+  }
+}
+
+function paintRemoteFromPc(pc, stream) {
+  const el = pc?._videoEl;
+  if (!el) return;
+  el.srcObject = stream || pc.remoteStream || null;
+  try {
+    const p = el.play?.();
+    if (p && typeof p.catch === "function") p.catch(() => {});
+  } catch (_) {}
+  // Main partner tile only — not friend PiP
+  if (el.id === "remote" || el.id === "remote2") {
+    setRemoteEmpty(false);
+    applyRemoteVolume();
+    applySpeaker();
+  }
+}
+
+/** After stranger leaves, put friend back on the main remote tile. */
+function reattachFriendToMainRemote() {
+  showFriendPip(false);
+  setSplitRemote(false);
+  for (const pc of peerPcs.values()) {
+    if (pc._role !== "friend") continue;
+    bindPcVideo(pc, $("remote"));
+    if (pc.remoteStream) {
+      paintRemoteFromPc(pc, pc.remoteStream);
+    }
+  }
+}
+
 function updateFriendActionButtons() {
   const browse = $("btn-browse-together");
   const hang = $("btn-hangup-friend");
@@ -3376,6 +3433,9 @@ function handleServer(msg) {
         inFriendCall = true;
         matched = true;
         matchMode = "friend";
+        yourRole = "friend";
+        showFriendPip(false);
+        reattachFriendToMainRemote();
         updateFriendActionButtons();
       }
       // Partner left / Next: tear down stranger WebRTC
@@ -3399,6 +3459,12 @@ function handleServer(msg) {
           matchMode = "solo";
           yourRole = "solo";
           setFedChip(false);
+          showFriendPip(false);
+        } else {
+          // Still with friend — back to 1:1 friend layout
+          matchMode = "friend";
+          yourRole = "friend";
+          reattachFriendToMainRemote();
         }
         setArchPill("default");
         if (detailRaw) log(detailRu);
@@ -3501,10 +3567,11 @@ function handleMatched(msg) {
   setFedChip(isFedMatch);
   if (isFedMatch) log(_t("log.fedMatch"));
 
-  // Prefer friend/stranger for Block target (not party co-browser)
+  // Block target: stranger/party opponent first (not the friend you're browsing with)
   const primary =
-    peers.find((p) => p.role === "friend" && p.user_id) ||
     peers.find((p) => p.role === "stranger" && p.user_id) ||
+    peers.find((p) => p.role === "party" && p.user_id) ||
+    peers.find((p) => p.role === "friend" && p.user_id) ||
     peers.find((p) => p.user_id) ||
     null;
   primaryPartnerUserId = primary?.user_id || "";
@@ -3625,8 +3692,9 @@ function closeAllPeers({ keepFriend = false } = {}) {
   for (const [pid, pc] of [...peerPcs.entries()]) {
     const keep =
       keepFriend &&
-      (matchMode === "friend" || yourRole === "party") &&
-      // keep first friend link heuristically — role stored on dataset
+      (matchMode === "friend" ||
+        yourRole === "party" ||
+        inFriendCall) &&
       pc._role === "friend";
     if (keep) continue;
     try {
@@ -3636,8 +3704,12 @@ function closeAllPeers({ keepFriend = false } = {}) {
   }
   rtc = peerPcs.size ? [...peerPcs.values()][0] : null;
   if (!keepFriend) {
-    $("remote").srcObject = null;
+    if ($("remote")) $("remote").srcObject = null;
     if ($("remote2")) $("remote2").srcObject = null;
+    showFriendPip(false);
+  } else {
+    // Stranger gone — friend back on main remote (not PiP)
+    reattachFriendToMainRemote();
   }
   stopStats();
   stopNsfwWatch();
@@ -3653,14 +3725,25 @@ async function joinPeers(peers) {
     return;
   }
 
-  // Drop stranger/legacy peers; keep existing friend PCs
+  const list = Array.isArray(peers) ? peers : [];
+  const opponents = list
+    .filter((p) => p.role === "stranger" || p.role === "party")
+    .sort((a, b) => String(a.peer_id).localeCompare(String(b.peer_id)))
+    .slice(0, 2);
+  const friendMeta = list.find((p) => p.role === "friend");
+  const partyBrowsing =
+    matchMode === "party_browse" &&
+    (yourRole === "party" || opponents.length > 0);
+
+  // Drop opponent PCs that are gone; keep friend link
   for (const [pid, pc] of [...peerPcs.entries()]) {
-    const still = peers.find((p) => p.peer_id === pid);
-    if (!still || still.role === "stranger" || still.role === "party") {
-      if (pc._role === "friend" && still?.role === "friend") continue;
-      if (pc._role === "friend" && !still) continue;
-      if (still?.role === "friend" && pc._role === "friend") continue;
-      if (pc._role === "friend") continue;
+    const still = list.find((p) => p.peer_id === pid);
+    if (pc._role === "friend") {
+      // Keep friend PC always during party / friend call
+      continue;
+    }
+    // Close stranger/party PCs not in this match (or role changed)
+    if (!still || still.role === "friend") {
       try {
         pc.closeCall({ keepLocal: true, sendBye: false });
       } catch (_) {}
@@ -3668,30 +3751,60 @@ async function joinPeers(peers) {
     }
   }
 
-  // At most 2 opponent video slots (1v1 / 1v2 / 2v2). Friend PC stays on local side.
-  const videoSlots = [];
-  const opponentsForVideo = peers
-    .filter((p) => p.role === "stranger" || p.role === "party")
-    .sort((a, b) => String(a.peer_id).localeCompare(String(b.peer_id)))
-    .slice(0, 2);
-  if (opponentsForVideo.length >= 2) {
-    videoSlots.push([opponentsForVideo[0].peer_id, $("remote")]);
-    videoSlots.push([opponentsForVideo[1].peer_id, $("remote2")]);
+  // Video layout: opponents on main remote tile(s); friend → PiP when party-browsing
+  setSplitRemote(opponents.length >= 2);
+  const videoSlots = new Map();
+  if (opponents.length >= 2) {
+    videoSlots.set(opponents[0].peer_id, $("remote"));
+    videoSlots.set(opponents[1].peer_id, $("remote2"));
     if ($("remote2")) $("remote2").hidden = false;
+  } else if (opponents.length === 1) {
+    videoSlots.set(opponents[0].peer_id, $("remote"));
   }
 
-  for (const p of peers) {
-    if (p.role === "friend" && peerPcs.has(p.peer_id)) {
-      continue; // already in friend call
+  if (partyBrowsing && yourRole === "party" && friendMeta) {
+    // Free #remote for stranger — friend moves to corner PiP
+    const fpc = peerPcs.get(friendMeta.peer_id);
+    const pip = $("friend-pip");
+    if (fpc) {
+      // Clear friend from main remote if still attached
+      if ($("remote")?.srcObject && fpc.remoteStream && $("remote").srcObject === fpc.remoteStream) {
+        $("remote").srcObject = null;
+      }
+      bindPcVideo(fpc, pip);
+      showFriendPip(true);
+    } else {
+      showFriendPip(false);
     }
-    if (p.role === "friend" && matchMode === "party_browse") {
-      // Friend link already active from friend call
+  } else if (matchMode === "friend" || (inFriendCall && opponents.length === 0)) {
+    // Pure friend call — friend on main remote
+    showFriendPip(false);
+    if (friendMeta) {
+      const fpc = peerPcs.get(friendMeta.peer_id);
+      if (fpc) bindPcVideo(fpc, $("remote"));
+    }
+  } else {
+    showFriendPip(false);
+  }
+
+  for (const p of list) {
+    // Friend already connected from friend call — never rebuild
+    if (p.role === "friend") {
+      if (peerPcs.has(p.peer_id)) continue;
+      // Friend listed but no PC yet (rare) — fall through and create
+    }
+
+    if (peerPcs.has(p.peer_id)) {
+      // Rebind video for existing opponent PC if needed
+      const existing = peerPcs.get(p.peer_id);
+      if (existing && (p.role === "stranger" || p.role === "party")) {
+        const el = videoSlots.get(p.peer_id) || $("remote");
+        bindPcVideo(existing, el);
+      }
       continue;
     }
 
-    if (peerPcs.has(p.peer_id)) continue;
-
-    // Never open more than 2 stranger/party WebRTC links (+ existing friend)
+    // Cap stranger/party PCs at 2
     const strangerCount = [...peerPcs.values()].filter(
       (pc) => pc._role === "stranger" || pc._role === "party"
     ).length;
@@ -3703,9 +3816,15 @@ async function joinPeers(peers) {
       continue;
     }
 
-    const videoEl =
-      videoSlots.find((s) => s[0] === p.peer_id)?.[1] ||
-      (strangerCount === 0 ? $("remote") : $("remote2") || $("remote"));
+    let videoEl = null;
+    if (p.role === "friend") {
+      videoEl =
+        partyBrowsing && yourRole === "party"
+          ? $("friend-pip")
+          : $("remote");
+    } else {
+      videoEl = videoSlots.get(p.peer_id) || $("remote");
+    }
 
     const pc = new RouletteWebRtc(
       {
@@ -3716,10 +3835,7 @@ async function joinPeers(peers) {
           send(body);
         },
         onRemoteStream: (stream) => {
-          if (videoEl) videoEl.srcObject = stream;
-          setRemoteEmpty(false);
-          applyRemoteVolume();
-          applySpeaker();
+          paintRemoteFromPc(pc, stream);
         },
         onConnectionState: (s) => {
           handleWebrtcConnectionState(s);
@@ -3732,9 +3848,14 @@ async function joinPeers(peers) {
       p.peer_id === "legacy" ? "" : p.peer_id
     );
     pc._role = p.role || "stranger";
+    pc._videoEl = videoEl;
     pc.setLocalStream(previewStream);
     peerPcs.set(p.peer_id, pc);
-    rtc = pc;
+    // Prefer stranger as active rtc for mute/stats when present
+    if (p.role !== "friend" || !rtc) rtc = pc;
+    if (p.role === "friend" && videoEl === $("friend-pip")) {
+      showFriendPip(true);
+    }
     try {
       await pc.connect();
       // Drain pending for this peer
@@ -3749,6 +3870,15 @@ async function joinPeers(peers) {
       pendingSignals.push(...left);
     } catch (e) {
       log(_t("log.callFail", { e: e.message || e }));
+    }
+  }
+
+  // Ensure friend PiP still painted after stranger connects
+  if (partyBrowsing && yourRole === "party" && friendMeta) {
+    const fpc = peerPcs.get(friendMeta.peer_id);
+    if (fpc?.remoteStream && $("friend-pip")) {
+      bindPcVideo(fpc, $("friend-pip"));
+      showFriendPip(true);
     }
   }
 }

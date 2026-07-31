@@ -27,8 +27,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&family=Rye&family=Source+Serif+4:opsz,wght@8..60,400;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=71" />
-  <link rel="stylesheet" href="live-stage.css?v=71" />
+  <link rel="stylesheet" href="style.css?v=72" />
+  <link rel="stylesheet" href="live-stage.css?v=72" />
   <script>
     /* Apply saved theme before paint to avoid flash */
     (function () {
@@ -293,6 +293,11 @@
       <!-- YOU (right) -->
       <section class="tile tile-local" id="tile-local">
         <video id="local" class="vid local" autoplay playsinline playsInline webkit-playsinline muted></video>
+        <!-- Friend PiP while browsing together (party) so main remote can show stranger(s) -->
+        <div class="friend-pip" id="friend-pip-wrap" hidden>
+          <video id="friend-pip" class="friend-pip-vid" autoplay playsinline playsInline></video>
+          <span class="friend-pip-lbl" data-i18n="friends.pipLabel">Friend</span>
+        </div>
         <div class="tile-empty" id="local-empty">
           <div class="empty-icon" aria-hidden="true">
             <svg class="icon icon-empty"><use href="#i-camera"/></svg>
@@ -1013,11 +1018,11 @@
   <!-- cache-bust so browsers always get auto-connect / auto-media fixes -->
   <script src="analytics.js?v=1" defer></script>
   <script src="pwa-install.js?v=1" defer></script>
-  <script src="i18n.js?v=71"></script>
-  <script src="identity.js?v=71"></script>
-  <script src="hubs.js?v=71"></script>
-  <script src="webrtc.js?v=71"></script>
-  <script src="live.js?v=71"></script>
+  <script src="i18n.js?v=72"></script>
+  <script src="identity.js?v=72"></script>
+  <script src="hubs.js?v=72"></script>
+  <script src="webrtc.js?v=72"></script>
+  <script src="live.js?v=72"></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

@@ -250,6 +250,14 @@ class RouletteWebRtc {
     this.pc.ontrack = (ev) => {
       if (!this.remoteStream) this.remoteStream = new MediaStream();
       this.remoteStream.addTrack(ev.track);
+      // Prefer explicit video binding (party-browse: friend → PiP, stranger → #remote)
+      if (this._videoEl) {
+        try {
+          this._videoEl.srcObject = this.remoteStream;
+          const p = this._videoEl.play?.();
+          if (p && typeof p.catch === "function") p.catch(() => {});
+        } catch (_) {}
+      }
       this.hooks.onRemoteStream?.(this.remoteStream);
     };
 
