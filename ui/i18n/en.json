@@ -1142,5 +1142,7 @@
   "stars.needStars": "Need {n} stars (you have {have})",
   "stars.needLive": "Only during a live chat",
   "stars.noPartner": "No partner to gift",
-  "stars.giftHint": "Spend stars for fun overlays (no money). Earn stars from long chats."
+  "stars.giftHint": "Spend stars for fun overlays (no money). Earn stars from long chats.",
+  "stars.trustedReporterHint": "You have 100+ stars — your report carries stronger weight (counts as 2).",
+  "stars.trustedReporter": "Trusted reporter"
 }

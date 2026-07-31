@@ -1158,14 +1158,19 @@ impl SimpleHub {
             .unwrap_or(false)
     }
 
-    /// Fallback unique reporters before auto match-ban (generic/other).
+    /// Fallback unique *weight* before auto match-ban (generic/other).
+    /// Weight is usually 1 per reporter; trusted (100+ stars) count as 2.
     const REPORT_BAN_THRESHOLD: usize = 3;
     /// Default ban length when generic threshold is hit (3 days).
     const REPORT_BAN_SECS: u64 = 3 * 24 * 3600;
     /// Max reports one user may file per rolling hour (anti abuse).
     const REPORT_RATE_PER_HOUR: usize = 12;
+    /// Reputation stars needed for stronger report weight (trusted moderator).
+    const TRUSTED_REPORTER_STARS: u64 = 100;
+    /// How much a trusted reporter counts toward the ban threshold (normal = 1).
+    const TRUSTED_REPORT_WEIGHT: u32 = 2;
 
-    /// Severity → (unique reporters needed, ban duration secs).
+    /// Severity → (weight needed, ban duration secs).
     /// Underage: single independent report → long restriction (ops review via log).
     fn report_severity(reason: &str) -> (usize, u64) {
         let r = reason.trim().to_ascii_lowercase();
@@ -1176,6 +1181,23 @@ impl SimpleHub {
             "spam" | "scam" => (3, 3 * 24 * 3600),
             _ => (Self::REPORT_BAN_THRESHOLD, Self::REPORT_BAN_SECS),
         }
+    }
+
+    /// Report weight for a user: 2 if they earned ≥100 stars, else 1.
+    fn report_weight_for(&self, reporter_uid: &str) -> u32 {
+        if self.stars_for(reporter_uid) >= Self::TRUSTED_REPORTER_STARS {
+            Self::TRUSTED_REPORT_WEIGHT
+        } else {
+            1
+        }
+    }
+
+    /// Sum of unique reporters' weights (trusted stars → stronger say).
+    fn report_score_for_target(&self, target_uid: &str) -> u32 {
+        self.report_reporters
+            .get(target_uid)
+            .map(|set| set.iter().map(|uid| self.report_weight_for(uid)).sum())
+            .unwrap_or(0)
     }
 
     fn is_blocked_pair_conn(&self, a: Uuid, b: Uuid) -> bool {
@@ -3864,19 +3886,23 @@ impl SimpleHub {
         };
         let (threshold, ban_secs) = Self::report_severity(&reason_s);
         let is_ai = reason_s.eq_ignore_ascii_case("explicit_ai");
+        let reporter_stars = self.stars_for(&reporter.0);
+        let reporter_weight = self.report_weight_for(&reporter.0);
+        let trusted = reporter_weight >= Self::TRUSTED_REPORT_WEIGHT;
 
-        // Unique reporters → auto match-ban after severity threshold
+        // Unique reporters → weighted score (100+ stars = stronger say)
         let reporters = self.report_reporters.entry(user_id.clone()).or_default();
         reporters.insert(reporter.0.clone());
         let report_count = reporters.len();
-        // AI-only signals need one extra unique reporter (reduces false-positive bans)
+        let report_score = self.report_score_for_target(&user_id);
+        // AI-only signals need one extra weight point (reduces false-positive bans)
         let effective_threshold = if is_ai {
             threshold.saturating_add(1)
         } else {
             threshold
         };
         let mut banned = false;
-        if report_count >= effective_threshold {
+        if report_score as usize >= effective_threshold {
             let until = Self::now_unix().saturating_add(ban_secs);
             let prev = self.match_bans.get(&user_id).copied().unwrap_or(0);
             if until > prev {
@@ -3885,10 +3911,11 @@ impl SimpleHub {
                 tracing::warn!(
                     target = %user_id,
                     reporters = report_count,
+                    score = report_score,
                     threshold = effective_threshold,
                     reason = %reason_s,
                     until,
-                    "auto match-ban after reports"
+                    "auto match-ban after weighted reports"
                 );
                 let short = if user_id.len() > 14 {
                     format!("{}…", &user_id[..12])
@@ -3898,16 +3925,19 @@ impl SimpleHub {
                 self.fire_mod_webhook(serde_json::json!({
                     "event": "auto_ban",
                     "text": format!(
-                        "ruletka auto-ban: {short} reason={reason_s} reporters={report_count} ban_secs={ban_secs}"
+                        "ruletka auto-ban: {short} reason={reason_s} score={report_score}/{effective_threshold} reporters={report_count} ban_secs={ban_secs}"
                     ),
                     "target_user_id": user_id,
                     "target_name": target_name,
                     "reason": reason_s,
                     "unique_reporters": report_count,
+                    "report_score": report_score,
                     "threshold": effective_threshold,
                     "ban_secs": ban_secs,
                     "until": until,
                     "ai_assisted": is_ai,
+                    "last_reporter_trusted": trusted,
+                    "last_reporter_stars": reporter_stars,
                 }));
             }
         }
@@ -3918,10 +3948,14 @@ impl SimpleHub {
             "reporter_user_id": reporter.0,
             "reporter_name": reporter.1,
             "reporter_short": reporter.2,
+            "reporter_stars": reporter_stars,
+            "reporter_weight": reporter_weight,
+            "reporter_trusted": trusted,
             "target_user_id": user_id,
             "target_name": target_name,
             "reason": reason_s,
             "unique_reporters": report_count,
+            "report_score": report_score,
             "threshold": effective_threshold,
             "ai_assisted": is_ai,
             "auto_banned": banned,
@@ -3953,6 +3987,8 @@ impl SimpleHub {
             id,
             if banned {
                 "report received — user restricted"
+            } else if trusted {
+                "report received — trusted reporter (stronger weight)"
             } else {
                 "report received — thank you"
             },

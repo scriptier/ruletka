@@ -2464,6 +2464,18 @@ html[data-theme="light"] .pref-tag.is-selected {
   font-size: 0.8rem;
   color: #9aa8bc;
 }
+.partner-menu-hint.partner-menu-trusted {
+  color: #ffe9a0;
+  background: rgba(255, 200, 60, 0.1);
+  border: 1px solid rgba(255, 215, 80, 0.28);
+  border-radius: 10px;
+  padding: 0.45rem 0.55rem;
+  margin-bottom: 0.35rem;
+  font-weight: 600;
+}
+.partner-menu-hint.partner-menu-trusted[hidden] {
+  display: none !important;
+}
 .partner-menu-actions {
   display: flex;
   flex-direction: column;

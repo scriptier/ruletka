@@ -11879,6 +11879,14 @@ function showPartnerReportReasons() {
   }
   const title = $("partner-menu-title");
   if (title) title.textContent = _t("partnerMenu.reportNext") || _t("partnerMenu.report") || "Report";
+  // 100+ stars → trusted reporter (server weights report as 2)
+  const trustedHint = $("partner-menu-trusted-hint");
+  if (trustedHint) {
+    const trusted = myStars >= 100;
+    trustedHint.hidden = !trusted;
+    if (trusted) trustedHint.removeAttribute("hidden");
+    else trustedHint.setAttribute("hidden", "");
+  }
 }
 
 function closePartnerMenu() {

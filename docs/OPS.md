@@ -20,12 +20,14 @@ Admin UI: `https://your-hub/admin.html` (token from `admin.env`).
 
 ## Auto-moderation (no admin required)
 
-| Reason | Unique reporters | Match ban |
-|--------|------------------|-----------|
+| Reason | Weight needed | Match ban |
+|--------|---------------|-----------|
 | underage | 1 | 30 days |
 | explicit / harassment / hate | 2 | 7 days |
 | spam / other | 3 | 3 days |
 | explicit_ai (on-device NSFW) | threshold + 1 | 7 days |
+
+**Trusted reporters:** users who earned **≥100 stars** (long-chat reputation) count as **weight 2** per report (normal users count as 1). Still unique per reporter — no spam stacking. So one trusted report can ban for harassment/explicit; spam still needs more signal.
 
 Reports are append-logged (JSONL under the friends data dir / reports path).  
 Clients always **block + skip** locally after Report.
