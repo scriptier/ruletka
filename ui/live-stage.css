@@ -4155,14 +4155,14 @@ html[data-theme="saloon"] .weak-conn-tip {
 
 .sheet.settings-app {
   padding: 0;
-  /* Compact flyout — no longer full-viewport side panel */
+  /* Tall flyout so main list + account section fit with less cramped scroll */
   top: auto;
   right: 0.75rem;
   bottom: 4.25rem;
   left: auto;
-  width: min(380px, calc(100vw - 1rem));
+  width: min(400px, calc(100vw - 1rem));
   height: auto;
-  max-height: min(72dvh, 560px);
+  max-height: min(90dvh, 780px);
   opacity: 0;
   transform: translateY(8px) scale(0.98);
   transform-origin: bottom right;
@@ -4247,6 +4247,30 @@ html[data-theme="saloon"] .weak-conn-tip {
 #settings-sheet.is-open {
   display: flex !important;
 }
+/* Settings flyout: tall + scrollable body */
+#settings-sheet.settings-app,
+#settings-sheet {
+  max-height: min(90dvh, 780px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+#settings-sheet.is-open {
+  display: flex !important;
+}
+#settings-sheet .settings-body,
+#settings-sheet .sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+#settings-sheet .settings-footer {
+  flex-shrink: 0;
+}
+
 /* Friends flyout: tall + always scrollable body */
 #friends-sheet {
   max-height: min(88dvh, 720px);

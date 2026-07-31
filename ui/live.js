@@ -8133,6 +8133,12 @@ function friendsFlyoutMaxHeight() {
   return Math.min(vh * 0.88, 720);
 }
 
+function settingsFlyoutMaxHeight() {
+  const vh = window.innerHeight || 640;
+  // Tall settings so account section at the bottom is reachable with less scroll
+  return Math.min(vh * 0.9, 780);
+}
+
 function positionDockFlyout(sheet, anchor, opts = {}) {
   if (!sheet || !anchor) return;
   const rect = anchor.getBoundingClientRect();
@@ -8140,17 +8146,23 @@ function positionDockFlyout(sheet, anchor, opts = {}) {
   const vh = window.innerHeight;
   const maxW = Math.min(opts.maxWidth || 380, vw - DOCK_FLYOUT_MARGIN * 2);
   const isFriends = sheet.id === "friends-sheet";
+  const isSettings = sheet.id === "settings-sheet" || sheet.classList.contains("settings-app");
   const preferH =
     opts.maxHeight ||
-    (isFriends ? friendsFlyoutMaxHeight() : Math.min(vh * 0.72, 560));
+    (isFriends
+      ? friendsFlyoutMaxHeight()
+      : isSettings
+        ? settingsFlyoutMaxHeight()
+        : Math.min(vh * 0.72, 560));
   const spaceAbove = rect.top - DOCK_FLYOUT_MARGIN;
   const spaceBelow = vh - rect.bottom - DOCK_FLYOUT_MARGIN;
-  // Prefer opening upward for Friends so we get more vertical room above the dock
-  const placeAbove = isFriends
-    ? spaceAbove >= Math.min(preferH * 0.55, 280) || spaceAbove >= spaceBelow
-    : spaceAbove >= Math.min(preferH, 240) || spaceAbove >= spaceBelow;
+  // Prefer opening upward for Friends/Settings so we get more vertical room above the dock
+  const placeAbove =
+    isFriends || isSettings
+      ? spaceAbove >= Math.min(preferH * 0.55, 280) || spaceAbove >= spaceBelow
+      : spaceAbove >= Math.min(preferH, 240) || spaceAbove >= spaceBelow;
   const maxH = Math.max(
-    isFriends ? 280 : 160,
+    isFriends || isSettings ? 320 : 160,
     Math.min(preferH, placeAbove ? spaceAbove - DOCK_FLYOUT_GAP : spaceBelow - DOCK_FLYOUT_GAP)
   );
 
@@ -8195,7 +8207,12 @@ function setDockFlyoutOpen(btn, open) {
 
 function repositionOpenDockFlyouts() {
   if (settingsIsOpen()) {
-    positionDockFlyout($("settings-sheet"), $("btn-settings"), { align: "end", maxWidth: 380 });
+    positionDockFlyout($("settings-sheet"), $("btn-settings"), {
+      align: "end",
+      maxWidth: 400,
+      maxHeight: settingsFlyoutMaxHeight(),
+      fixedHeight: true,
+    });
   }
   if (friendsIsOpen()) {
     positionDockFlyout($("friends-sheet"), $("btn-friends"), {
@@ -8230,7 +8247,12 @@ function openSettings() {
   if (sheet) {
     sheet.hidden = false;
     sheet.removeAttribute("hidden");
-    positionDockFlyout(sheet, btn, { align: "end", maxWidth: 380 });
+    positionDockFlyout(sheet, btn, {
+      align: "end",
+      maxWidth: 400,
+      maxHeight: settingsFlyoutMaxHeight(),
+      fixedHeight: true,
+    });
     // force reflow then animate in
     void sheet.offsetWidth;
     sheet.classList.add("is-open");
@@ -8252,7 +8274,14 @@ function openSettings() {
     syncSettingsSummary();
     refreshSecurityPanel();
     // Reposition after content may have grown
-    if (settingsIsOpen()) positionDockFlyout(sheet, btn, { align: "end", maxWidth: 380 });
+    if (settingsIsOpen()) {
+      positionDockFlyout(sheet, btn, {
+        align: "end",
+        maxWidth: 400,
+        maxHeight: settingsFlyoutMaxHeight(),
+        fixedHeight: true,
+      });
+    }
   })();
 }
 function closeSettings() {
