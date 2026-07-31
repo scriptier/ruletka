@@ -3541,24 +3541,27 @@ function handleMatched(msg) {
   closePartnerMenu();
   clearIcePathBadge();
 
-  // Solo viewing a party of 2 → vertical split
-  const partyPeers = peers.filter((p) => p.role === "party" || p.role === "stranger");
-  const split =
-    matchMode === "party_browse" &&
-    yourRole === "solo" &&
-    peers.filter((p) => p.role === "party").length >= 2;
+  // Opponents only (exclude friend teammate). Cap 2 remotes → 1v1 / 1v2 / 2v2 only.
+  const opponents = peers
+    .filter((p) => p.role === "stranger" || p.role === "party")
+    .slice(0, 2);
+  const split = opponents.length >= 2;
   setSplitRemote(split);
   {
     const tag = $("remote-tag");
     const wrap = $("remote-tile-tag");
     if (tag) {
       if (split) {
-        tag.textContent = _t("friends.partyTag");
+        tag.textContent =
+          msg.partner_short ||
+          _t("friends.partyTag") ||
+          "2";
         setTileAvatar("remote", "");
       } else {
         // Name + optional self-chosen flag / avatar (never real location)
         const peer =
-          peers.find((p) => p.role === "stranger" || p.role === "friend") ||
+          opponents[0] ||
+          peers.find((p) => p.role === "friend") ||
           peers[0];
         const named =
           peer?.name ||
@@ -3661,18 +3664,15 @@ async function joinPeers(peers) {
     }
   }
 
-  // Video element assignment for split (party members sorted)
+  // At most 2 opponent video slots (1v1 / 1v2 / 2v2). Friend PC stays on local side.
   const videoSlots = [];
-  if (
-    matchMode === "party_browse" &&
-    yourRole === "solo" &&
-    peers.filter((p) => p.role === "party").length >= 2
-  ) {
-    const party = peers
-      .filter((p) => p.role === "party")
-      .sort((a, b) => a.peer_id.localeCompare(b.peer_id));
-    videoSlots.push([party[0].peer_id, $("remote")]);
-    videoSlots.push([party[1].peer_id, $("remote2")]);
+  const opponentsForVideo = peers
+    .filter((p) => p.role === "stranger" || p.role === "party")
+    .sort((a, b) => String(a.peer_id).localeCompare(String(b.peer_id)))
+    .slice(0, 2);
+  if (opponentsForVideo.length >= 2) {
+    videoSlots.push([opponentsForVideo[0].peer_id, $("remote")]);
+    videoSlots.push([opponentsForVideo[1].peer_id, $("remote2")]);
     if ($("remote2")) $("remote2").hidden = false;
   }
 
@@ -3687,9 +3687,21 @@ async function joinPeers(peers) {
 
     if (peerPcs.has(p.peer_id)) continue;
 
+    // Never open more than 2 stranger/party WebRTC links (+ existing friend)
+    const strangerCount = [...peerPcs.values()].filter(
+      (pc) => pc._role === "stranger" || pc._role === "party"
+    ).length;
+    if (
+      (p.role === "stranger" || p.role === "party") &&
+      strangerCount >= 2
+    ) {
+      log(_t("log.partyCap") || "max 2 opponents — skipping extra peer");
+      continue;
+    }
+
     const videoEl =
       videoSlots.find((s) => s[0] === p.peer_id)?.[1] ||
-      (peerPcs.size === 0 ? $("remote") : $("remote2") || $("remote"));
+      (strangerCount === 0 ? $("remote") : $("remote2") || $("remote"));
 
     const pc = new RouletteWebRtc(
       {

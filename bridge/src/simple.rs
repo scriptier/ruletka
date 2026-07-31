@@ -1,4 +1,10 @@
 //! In-memory matchmaking + friends + party-of-2 browse + chat/signal relay.
+//!
+//! Match shapes (hard caps — no larger sessions):
+//! - **1v1** solo ↔ solo
+//! - **1v2** solo ↔ party of 2
+//! - **2v2** party of 2 ↔ party of 2
+//! Parties are always size 2 (friend pair browsing together).
 
 use crate::federation::{
     self, caller_is_offerer, federated_peer_id, parse_federated_peer_id, ClaimRequest,
@@ -1444,7 +1450,99 @@ impl SimpleHub {
                 peers: b_peers,
             },
         );
-        tracing::info!(%solo, %a, %b, "party vs solo matched");
+        tracing::info!(%solo, %a, %b, "party vs solo matched (1v2)");
+        self.broadcast_lobby_info();
+    }
+
+    /// Party of 2 vs party of 2 (2v2). Each side already has a friend WebRTC link.
+    fn start_party_vs_party(&mut self, a1: Uuid, a2: Uuid, b1: Uuid, b2: Uuid) {
+        let room = self.room_of(a1);
+        let (session_id, session_key) = {
+            let ca1 = self.clients.get(&a1).unwrap();
+            let ca2 = self.clients.get(&a2).unwrap();
+            let cb1 = self.clients.get(&b1).unwrap();
+            let cb2 = self.clients.get(&b2).unwrap();
+            Self::make_session_id(&[
+                &ca1.peer_id,
+                &ca2.peer_id,
+                &cb1.peer_id,
+                &cb2.peer_id,
+                "2v2",
+            ])
+        };
+
+        // Peers for each: two strangers on the other team + friend teammate
+        let peers_for = |me: Uuid, friend: Uuid, o1: Uuid, o2: Uuid| -> Vec<MatchPeer> {
+            let c_me = self.clients.get(&me).unwrap();
+            let c_f = self.clients.get(&friend).unwrap();
+            let c_o1 = self.clients.get(&o1).unwrap();
+            let c_o2 = self.clients.get(&o2).unwrap();
+            vec![
+                Self::match_peer(c_me, c_o1, "stranger"),
+                Self::match_peer(c_me, c_o2, "stranger"),
+                Self::match_peer(c_me, c_f, "friend"),
+            ]
+        };
+
+        let a1_peers = peers_for(a1, a2, b1, b2);
+        let a2_peers = peers_for(a2, a1, b1, b2);
+        let b1_peers = peers_for(b1, b2, a1, a2);
+        let b2_peers = peers_for(b2, b1, a1, a2);
+
+        let label_ab = format!(
+            "{}+{}",
+            display_label(&self.clients[&a1]),
+            display_label(&self.clients[&a2])
+        );
+        let label_cd = format!(
+            "{}+{}",
+            display_label(&self.clients[&b1]),
+            display_label(&self.clients[&b2])
+        );
+
+        let set_matched =
+            |clients: &mut HashMap<Uuid, Client>, id: Uuid, peers: &[Uuid], party: Uuid| {
+                if let Some(c) = clients.get_mut(&id) {
+                    c.phase = Phase::Matched;
+                    c.session_id = Some(session_id.clone());
+                    c.session_peers = peers.iter().copied().collect();
+                    c.partner = peers.first().copied();
+                    c.party_with = Some(party);
+                }
+            };
+        set_matched(&mut self.clients, a1, &[b1, b2, a2], a2);
+        set_matched(&mut self.clients, a2, &[b1, b2, a1], a1);
+        set_matched(&mut self.clients, b1, &[a1, a2, b2], b2);
+        set_matched(&mut self.clients, b2, &[a1, a2, b1], b1);
+
+        let send_party = |hub: &mut SimpleHub,
+                          id: Uuid,
+                          partner_short: String,
+                          peers: Vec<MatchPeer>| {
+            let is_offerer = peers
+                .iter()
+                .any(|p| p.is_offerer && p.role == "stranger");
+            hub.send(
+                id,
+                ServerMsg::Matched {
+                    partner_short,
+                    session_id: session_id.clone(),
+                    session_key: session_key.clone(),
+                    is_offerer,
+                    room: room.clone(),
+                    mode: "party_browse".into(),
+                    your_role: "party".into(),
+                    peers,
+                },
+            );
+        };
+
+        send_party(self, a1, label_cd.clone(), a1_peers);
+        send_party(self, a2, label_cd, a2_peers);
+        send_party(self, b1, label_ab.clone(), b1_peers);
+        send_party(self, b2, label_ab, b2_peers);
+
+        tracing::info!(%a1, %a2, %b1, %b2, "party vs party matched (2v2)");
         self.broadcast_lobby_info();
     }
 
@@ -1580,21 +1678,16 @@ impl SimpleHub {
                 if !ok {
                     continue;
                 }
-                // Party only matches solo (not another party)
-                match (&first, e) {
-                    (QueueEntry::Party { .. }, QueueEntry::Party { .. }) => continue,
-                    _ => {
-                        if !self.entries_compatible(&first, e) {
-                            continue;
-                        }
-                        if self.entries_prefs_soft_ok(&first, e) {
-                            found_idx = Some(i);
-                            break;
-                        }
-                        if found_fallback.is_none() {
-                            found_fallback = Some(i);
-                        }
-                    }
+                // Allowed: solo↔solo (1v1), solo↔party (1v2), party↔party (2v2). Never larger.
+                if !self.entries_compatible(&first, e) {
+                    continue;
+                }
+                if self.entries_prefs_soft_ok(&first, e) {
+                    found_idx = Some(i);
+                    break;
+                }
+                if found_fallback.is_none() {
+                    found_fallback = Some(i);
                 }
             }
             if found_idx.is_none() {
@@ -1618,9 +1711,8 @@ impl SimpleHub {
                 | (QueueEntry::Party { a, b }, QueueEntry::Solo(s)) => {
                     self.start_party_vs_solo(s, a, b);
                 }
-                (QueueEntry::Party { a, b }, QueueEntry::Party { .. }) => {
-                    // Shouldn't happen; requeue first party
-                    self.queue.push_back(QueueEntry::Party { a, b });
+                (QueueEntry::Party { a: a1, b: a2 }, QueueEntry::Party { a: b1, b: b2 }) => {
+                    self.start_party_vs_party(a1, a2, b1, b2);
                 }
             }
         }
