@@ -1502,21 +1502,35 @@ impl SimpleHub {
                 return;
             };
 
-        // End friend call
-        if let Some(fid) = friend_call {
-            self.end_friend_call(fid, "friend disconnected");
-        }
-
-        // 3-way leave: keep the other two as a normal 1v1 (can Find 3rd again)
+        // 3-way leave FIRST (while party_with / session_peers still intact).
+        // end_friend_call would wipe mate state and prevent "keep remaining + 3rd".
         let kept_pair =
             self.leave_keep_remaining_pair(id, "partner left — still chatting");
-        if !kept_pair {
+        if kept_pair {
+            // Remaining pair was collapsed to solo 1v1 (or party re-queued).
+            // Do not end_friend_call on the mate — that would kick them out of the keep.
+            if let Some(fid) = friend_call {
+                // Only clear the leaving side's friend_call flag (mate already reconfigured)
+                if let Some(c) = self.clients.get_mut(&id) {
+                    if c.friend_call == Some(fid) {
+                        c.friend_call = None;
+                    }
+                }
+            }
+        } else {
+            // End friend call (pure 1:1 friend leave)
+            if let Some(fid) = friend_call {
+                self.end_friend_call(fid, "friend disconnected");
+            }
             // Dissolve party (searching, no 3rd yet, or non-trio)
             if let Some(pid) = party_with {
                 let online = self.clients.len().saturating_sub(1);
                 if let Some(p) = self.clients.get_mut(&pid) {
                     p.party_with = None;
                     p.stranger_party = false;
+                    if p.friend_call == Some(id) {
+                        p.friend_call = None;
+                    }
                     if p.phase == Phase::Waiting {
                         p.phase = Phase::Idle;
                     }
@@ -1702,11 +1716,16 @@ impl SimpleHub {
     /// so they can keep chatting and optionally Find 3rd again.
     /// Returns true if remaining peers were reconfigured (caller should only clear `leaving`).
     fn leave_keep_remaining_pair(&mut self, leaving: Uuid, detail: &str) -> bool {
-        let (party_mate, session_peers) = {
+        let (party_mate, session_peers, friend_call, phase) = {
             let Some(c) = self.clients.get(&leaving) else {
                 return false;
             };
-            (c.party_with, c.session_peers.clone())
+            (
+                c.party_with,
+                c.session_peers.clone(),
+                c.friend_call,
+                c.phase,
+            )
         };
 
         // Case A: leaving is a party/teammate member (has party_with)
@@ -1714,22 +1733,37 @@ impl SimpleHub {
             if !self.clients.contains_key(&mate) {
                 return false;
             }
-            // Stranger = other session peer (the 3rd)
+            // Stranger = other session peer (the 3rd) — not the party mate
             let stranger = session_peers.iter().copied().find(|&p| p != mate);
             if let Some(s) = stranger {
                 if self.clients.contains_key(&s) {
                     tracing::info!(%leaving, %mate, %s, "trio collapse: keep mate+stranger as 1v1");
+                    // Clear friend-call link to leaving without idling the mate
+                    if friend_call == Some(mate) || self.clients.get(&mate).and_then(|c| c.friend_call) == Some(leaving)
+                    {
+                        if let Some(c) = self.clients.get_mut(&mate) {
+                            if c.friend_call == Some(leaving) {
+                                c.friend_call = None;
+                            }
+                        }
+                    }
+                    if let Some(c) = self.clients.get_mut(&s) {
+                        c.session_peers.retain(|x| *x != leaving);
+                    }
                     self.collapse_to_solo_1v1(mate, s, detail);
                     return true;
                 }
             }
-            // Still searching as party (no 3rd yet) — mate goes idle
+            // Still searching as party (no 3rd yet) — mate goes idle (or stays friend if linked)
             if let Some(p) = self.clients.get_mut(&mate) {
                 p.party_with = None;
                 p.stranger_party = false;
                 p.partner = None;
                 p.session_peers.clear();
                 p.session_id = None;
+                if p.friend_call == Some(leaving) {
+                    p.friend_call = None;
+                }
                 p.phase = Phase::Idle;
             }
             self.dequeue_client(mate);
@@ -1737,8 +1771,10 @@ impl SimpleHub {
             return true;
         }
 
+        // Case A2: leaving has no party_with but is in a 3-peer session as solo 3rd's peer —
+        // also handle when session has 2 peers and one is party-linked through the other side.
         // Case B: leaving is the solo 3rd in a 1v2 — re-queue the original party
-        if session_peers.len() == 2 {
+        if session_peers.len() == 2 && matches!(phase, Phase::Matched) {
             let peers: Vec<Uuid> = session_peers.iter().copied().collect();
             let a = peers[0];
             let b = peers[1];
@@ -1769,6 +1805,17 @@ impl SimpleHub {
                 self.try_match();
                 return true;
             }
+            // Not a linked party pair — but still two remaining peers in session: keep them as 1v1
+            // (e.g. mis-flagged party_with). Prefer keep-chat over full disconnect.
+            if self.clients.contains_key(&a)
+                && self.clients.contains_key(&b)
+                && a != leaving
+                && b != leaving
+            {
+                tracing::info!(%leaving, %a, %b, "trio collapse: keep remaining session peers as 1v1");
+                self.collapse_to_solo_1v1(a, b, detail);
+                return true;
+            }
         }
 
         false
@@ -1782,10 +1829,14 @@ impl SimpleHub {
             if let Some(c) = self.clients.get_mut(&id) {
                 c.party_with = None;
                 c.stranger_party = false;
+                // Leaving a friend-party 1v2: drop friend_call so UI is stranger 1v1 with Find 3rd
+                // (they can re-friend later). Keeps collapse path consistent.
+                c.friend_call = None;
             }
         }
         // Fresh solo matched — both get mode=solo so Find 3rd is available again
         self.start_solo_match(a, b);
+        // Status after Matched so clients treat "still chatting" without tearing media first
         self.status(a, detail);
         self.status(b, detail);
     }
@@ -2637,12 +2688,9 @@ impl SimpleHub {
 
     /// Leave waiting queue and/or stranger match; do not re-queue.
     fn stop_matchmaking(&mut self, id: Uuid) {
-        if self.clients.get(&id).and_then(|c| c.friend_call).is_some() {
-            self.end_friend_call(id, "stopped");
-        }
         self.clear_find_third_involving(id);
 
-        // Leaving a 3-way: other two stay as 1v1 (Find 3rd available again)
+        // Leaving a 3-way FIRST — keep remaining two as 1v1 before ending friend call
         if self.leave_keep_remaining_pair(id, "partner left — still chatting") {
             if let Some(c) = self.clients.get_mut(&id) {
                 c.phase = Phase::Idle;
@@ -2656,6 +2704,11 @@ impl SimpleHub {
             self.dequeue_client(id);
             self.status(id, "stopped — idle");
             self.broadcast_lobby_info();
+            return;
+        }
+
+        if self.clients.get(&id).and_then(|c| c.friend_call).is_some() {
+            self.end_friend_call(id, "stopped");
             return;
         }
 

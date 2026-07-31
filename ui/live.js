@@ -3305,6 +3305,90 @@ function syncLocalPipMirror() {
  * Desktop & landscape: Local | Partner | 3rd
  * Mobile portrait: Partner (+ self PiP) | 3rd
  */
+/**
+ * After a find-3rd / 1v2 session loses one person: keep the remaining peer,
+ * switch to normal 2-cam layout (you + them), drop the leaver's video.
+ * @param {Array} peers Matched.peers for the survivor pair
+ */
+function collapseMultiPeerToSoloLayout(peers) {
+  const list = Array.isArray(peers) ? peers : [];
+  const keepIds = new Set(list.map((p) => p.peer_id).filter(Boolean));
+  let keepPeer =
+    list.find((p) => p.role === "stranger" || p.role === "party") ||
+    list[0] ||
+    null;
+  let keepPc = keepPeer
+    ? peerPcs.get(keepPeer.peer_id) || findPcForPeer(keepPeer.peer_id)
+    : null;
+  if (!keepPc) {
+    // Any live remote still in the keep set or sole remaining live stream
+    for (const [pid, pc] of peerPcs.entries()) {
+      if (keepIds.size && !keepIds.has(pid)) continue;
+      const live = (pc.remoteStream?.getVideoTracks?.() || []).some(
+        (t) => t.readyState === "live"
+      );
+      if (live) {
+        keepPc = pc;
+        if (!keepPeer) keepPeer = { peer_id: pid, role: "stranger" };
+        break;
+      }
+    }
+  }
+  // Close the person who left (and any extras)
+  for (const [pid, pc] of [...peerPcs.entries()]) {
+    if (keepPc && pc === keepPc) continue;
+    if (keepPeer && pid === keepPeer.peer_id) continue;
+    if (keepIds.has(pid)) continue;
+    try {
+      pc.closeCall({ keepLocal: true, sendBye: false });
+    } catch (_) {}
+    peerPcs.delete(pid);
+  }
+  // Two-cam layout only
+  trioBrowse = false;
+  findThirdPending = null;
+  yourRole = "solo";
+  matchMode = "solo";
+  inFriendCall = false;
+  enableTrioLayout(false);
+  setSplitRemote(false);
+  showFriendPip(false);
+  const r2 = $("remote2");
+  if (r2) {
+    try {
+      r2.srcObject = null;
+    } catch (_) {}
+    r2.hidden = true;
+  }
+  const r3 = $("remote-third");
+  if (r3) {
+    try {
+      r3.srcObject = null;
+    } catch (_) {}
+    r3.hidden = true;
+  }
+  if (keepPc) {
+    if (keepPeer?.peer_id) rekeyPeerPc(keepPeer.peer_id, keepPc);
+    keepPc._role = "stranger";
+    bindPcVideo(keepPc, $("remote"));
+    if (keepPc.remoteStream) {
+      paintRemoteFromPc(keepPc, keepPc.remoteStream);
+    }
+    setRemoteEmpty(false);
+    rtc = keepPc;
+  } else {
+    setRemoteEmpty(true, { force: true });
+  }
+  setStatus(
+    _t("trio.partnerLeftKeep") || "Partner left — still chatting with the other person"
+  );
+  updateFriendActionButtons();
+  trackEvent("trio_collapse_solo", {
+    kept: keepPeer?.peer_id ? 1 : 0,
+    peers: peerPcs.size,
+  });
+}
+
 function enableTrioLayout(on, { searching = false } = {}) {
   trioBrowse = !!on;
   const stage = document.querySelector("main.stage");
@@ -8791,8 +8875,16 @@ function handleServer(msg) {
         if (detailRaw) log(detailRu);
         updateFriendActionButtons();
       } else if (stillChatting && matched) {
-        // Trio collapsed server-side; Matched(solo) may arrive next — keep media
-        setStatus(detailRu || _t("trio.partnerLeftKeep") || "Partner left — still connected");
+        // Trio collapsed server-side; Matched(solo) follows — keep media, prep 2-cam layout
+        setStatus(
+          detailRu || _t("trio.partnerLeftKeep") || "Partner left — still connected"
+        );
+        // Soft prep: hide empty third pane chrome; Matched handler does full collapse
+        if (trioBrowse || peerPcs.size > 1) {
+          document
+            .querySelector("main.stage")
+            ?.classList.remove("stage-trio-searching");
+        }
         updateFriendActionButtons();
       }
       // Friend / block / call details should always surface (even while searching)
@@ -8988,56 +9080,25 @@ function handleMatched(msg) {
     wantSearch = !hasStranger || onlyTeammate;
     if (wantSearch) inQueue = true;
   } else {
-    // Collapse trio → solo 1v1 (first partner left, stay with 3rd): keep media, re-enable Find 3rd
-    const collapsingTrio =
-      matchMode === "solo" &&
-      (trioBrowse || document.querySelector("main.stage")?.classList.contains("stage-trio"));
+    // Entering solo 1v1: new match OR collapse from trio / 1v2 after someone left
+    const wasMultiLayout =
+      trioBrowse ||
+      !!document.querySelector("main.stage")?.classList.contains("stage-trio") ||
+      peerPcs.size > 1 ||
+      !!$("remote-stack")?.classList.contains("split") ||
+      matchMode === "party_browse" ||
+      yourRole === "party";
     if (matchMode === "party_browse" && yourRole === "solo" && hasStranger) {
       // Solo matched a party — classic split, not trio
       enableTrioLayout(false);
       setRemoteEmpty(true, { force: true });
+    } else if (matchMode === "solo" && wasMultiLayout) {
+      // Keep the remaining conversationalist (3rd or mate); drop the leaver's window
+      collapseMultiPeerToSoloLayout(peers);
     } else if (matchMode === "solo") {
-      // Promote 3rd (middle tile) → main before hiding trio layout (avoids black flash)
-      if (collapsingTrio) {
-        const keepPeer =
-          peers.find((p) => p.role === "stranger" || p.role === "party") ||
-          peers[0] ||
-          null;
-        const keepPc = keepPeer
-          ? peerPcs.get(keepPeer.peer_id) || findPcForPeer(keepPeer.peer_id)
-          : [...peerPcs.values()].find(
-              (pc) =>
-                !isTeammateRole(pc._role) &&
-                (pc.remoteStream?.getVideoTracks?.() || []).some(
-                  (t) => t.readyState === "live"
-                )
-            );
-        // Drop departed first-partner PC so peer map is clean solo 1v1
-        for (const [pid, pc] of [...peerPcs.entries()]) {
-          if (keepPc && pc === keepPc) continue;
-          if (keepPeer && pid === keepPeer.peer_id) continue;
-          try {
-            pc.closeCall({ keepLocal: true, sendBye: false });
-          } catch (_) {}
-          peerPcs.delete(pid);
-        }
-        if (keepPc) {
-          if (keepPeer) rekeyPeerPc(keepPeer.peer_id, keepPc);
-          keepPc._role = "stranger";
-          enableTrioLayout(false);
-          bindPcVideo(keepPc, $("remote"));
-          if (keepPc.remoteStream) {
-            paintRemoteFromPc(keepPc, keepPc.remoteStream);
-          }
-          setRemoteEmpty(false);
-        } else {
-          enableTrioLayout(false);
-          setRemoteEmpty(true, { force: true });
-        }
-      } else {
-        enableTrioLayout(false);
-        setRemoteEmpty(true, { force: true });
-      }
+      enableTrioLayout(false);
+      setSplitRemote(false);
+      setRemoteEmpty(true, { force: true });
       trioBrowse = false;
       findThirdPending = null;
     } else {
