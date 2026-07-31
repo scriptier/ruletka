@@ -32,6 +32,26 @@ Clients always **block + skip** locally after Report.
 
 Public explanation: `/safety.html`.
 
+## Donations (BTC / ETH)
+
+Homepage footer links to `/donate.html` (beside Terms only).
+
+Edit addresses on the droplet (or in the repo UI) then redeploy / rsync:
+
+```bash
+# /opt/ruletka/ui/donate-addresses.json
+{
+  "btc": "bc1q…your-bech32…",
+  "eth": "0x…your-ethereum…",
+  "eth_note": "Ethereum mainnet",
+  "updated": "2026-07-31",
+  "contact": "support@ruletka.vip"
+}
+```
+
+Empty `btc` / `eth` fields show “Address not published yet” (safe default).  
+Never put seed phrases or private keys in this file — public receive addresses only.
+
 ## Moderation webhook (Telegram / Slack / Discord)
 
 Set HTTPS URL only:
