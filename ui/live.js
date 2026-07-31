@@ -8494,6 +8494,10 @@ function wireSettingsNav() {
 
 const PROFILE_FORMAT = "ruletka-profile/1";
 
+/** Keys that must never be written to or read from a profile file (anti star double-spend). */
+const PROFILE_STAR_DENY =
+  /^(stars?|my_?stars?|star_count|star_counts|star_edges|star_effects|hour_star|reputation|coins?)$/i;
+
 function loadHistorySafe() {
   try {
     const raw = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
@@ -8501,6 +8505,54 @@ function loadHistorySafe() {
   } catch {
     return [];
   }
+}
+
+/**
+ * Prefs for export: strip anything star/coin related so balances can't be forged offline.
+ * Stars live only on the hub under user_id (server-authoritative).
+ */
+function prefsForProfileExport() {
+  const p = loadPrefs() || {};
+  const out = {};
+  for (const [k, v] of Object.entries(p)) {
+    if (PROFILE_STAR_DENY.test(String(k))) continue;
+    if (String(k).toLowerCase().includes("star")) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+/** Friends backup rows without star badges (hub is source of truth). */
+function friendsForProfileExport() {
+  return loadFriendsBackup().map((f) => ({
+    user_id: String(f.user_id || ""),
+    name: String(f.name || f.short_id || "").slice(0, 32),
+    friend_code: String(f.friend_code || "").toUpperCase(),
+    short_id: String(f.short_id || "").slice(0, 16),
+    saved_at: f.saved_at || Date.now(),
+    // deliberately omit: stars, star_count, effects
+  }));
+}
+
+/**
+ * Strip star/coin fields from any imported JSON object (nested, shallow-safe).
+ * Prevents crafted profile files from seeding fake balances into localStorage.
+ */
+function scrubStarsFromImportValue(val, depth = 0) {
+  if (depth > 6 || val == null) return val;
+  if (Array.isArray(val)) {
+    return val.map((x) => scrubStarsFromImportValue(x, depth + 1));
+  }
+  if (typeof val !== "object") return val;
+  const out = {};
+  for (const [k, v] of Object.entries(val)) {
+    const key = String(k);
+    if (PROFILE_STAR_DENY.test(key) || key.toLowerCase().includes("star")) {
+      continue;
+    }
+    out[k] = scrubStarsFromImportValue(v, depth + 1);
+  }
+  return out;
 }
 
 function buildProfileExport() {
@@ -8517,19 +8569,23 @@ function buildProfileExport() {
   try {
     lang = NextfaceI18n?.getLang?.() || localStorage.getItem("nextface-lang-v1") || "ru";
   } catch (_) {}
+  // Never embed myStars / star balances — only identity. Stars are hub-side.
   return {
     format: PROFILE_FORMAT,
     exported_at: new Date().toISOString(),
     software: "ruletka.vip",
     note:
-      "Import this file on another browser/device to keep the same identity. Friends are stored on the hub under user_id — same hub + same user_id restores them automatically. friend_codes help re-request if identity is lost.",
+      "Import this file on another browser/device to keep the same identity. Friends are stored on the hub under user_id — same hub + same user_id restores them automatically. friend_codes help re-request if identity is lost. STARS are NOT in this file: reputation lives only on the hub for this user_id (cannot be forged or double-spent via export/import).",
+    stars_note:
+      "Stars are server-side only. Do not add stars/coins fields — they are ignored on import.",
     identity: {
       user_id: id.user_id || myUserId || "",
       name: (id.name || getDisplayName() || "").slice(0, 32),
       friend_code: myFriendCode || "",
+      // no stars field
     },
-    friends: loadFriendsBackup(),
-    prefs: loadPrefs(),
+    friends: friendsForProfileExport(),
+    prefs: prefsForProfileExport(),
     history: loadHistorySafe(),
     lang,
     rules_accepted: rulesAccepted(),
@@ -8811,7 +8867,11 @@ function exportProfileFile() {
     a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     markExportNudgeDone();
-    setStatus(_t("settings.exportDone"));
+    setStatus(
+      (_t("settings.exportDone") || "Profile exported") +
+        " · " +
+        (_t("settings.exportStarsNote") || "Stars are not in this file (hub-only).")
+    );
     log(_t("settings.exportDone"));
   } catch (e) {
     setStatus(_t("settings.exportFail") || "Export failed");
@@ -8828,6 +8888,21 @@ async function importProfileFile(file) {
   } catch {
     setStatus(_t("settings.importBad") || "Invalid profile file");
     return;
+  }
+  // Strip any star/coin fields before applying (crafted files cannot mint reputation)
+  data = scrubStarsFromImportValue(data);
+  if (data && typeof data === "object") {
+    delete data.stars;
+    delete data.myStars;
+    delete data.star_counts;
+    delete data.star_edges;
+    delete data.star_effects;
+    delete data.coins;
+    if (data.identity && typeof data.identity === "object") {
+      delete data.identity.stars;
+      delete data.identity.star_count;
+      delete data.identity.coins;
+    }
   }
   const uid =
     data?.identity?.user_id ||
@@ -8863,18 +8938,25 @@ async function importProfileFile(file) {
       cryptoBound: false,
       imported: true,
       importedAt: Date.now(),
+      // never import stars into identity
     });
+    // Never trust client-side star balances — reset until hub hello
+    myStars = 0;
+    partnerStars = 0;
+    try {
+      setStarsBadge("local", 0);
+      setStarsBadge("remote", 0);
+    } catch (_) {}
     if (data.prefs && typeof data.prefs === "object") {
       try {
-        localStorage.setItem(PREFS_KEY, JSON.stringify(data.prefs));
+        const cleanPrefs = scrubStarsFromImportValue(data.prefs);
+        localStorage.setItem(PREFS_KEY, JSON.stringify(cleanPrefs));
       } catch (_) {}
     }
     if (Array.isArray(data.history)) {
       try {
-        localStorage.setItem(
-          HISTORY_KEY,
-          JSON.stringify(data.history.slice(0, MAX_HISTORY))
-        );
+        const hist = scrubStarsFromImportValue(data.history.slice(0, MAX_HISTORY));
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(hist));
       } catch (_) {}
     }
     if (data.lang) {
@@ -8899,12 +8981,17 @@ async function importProfileFile(file) {
     if (data.identity?.friend_code) {
       myFriendCode = String(data.identity.friend_code);
     }
-    // Restore local friend-code backup for re-request UI
+    // Restore local friend-code backup for re-request UI (no stars on friends)
     if (Array.isArray(data.friends) && data.friends.length) {
-      saveFriendsBackup(data.friends);
+      const cleaned = scrubStarsFromImportValue(data.friends);
+      saveFriendsBackup(cleaned);
     }
     markImportBackupNudgePending();
-    setStatus(_t("settings.importDone"));
+    setStatus(
+      _t("settings.importDoneStarsHub") ||
+        _t("settings.importDone") ||
+        "Profile imported — stars load from the hub for this identity"
+    );
     log(_t("settings.importDone") + " → " + String(uid).slice(0, 16));
     setTimeout(() => location.reload(), 400);
   } catch (e) {

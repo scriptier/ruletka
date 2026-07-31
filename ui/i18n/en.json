@@ -1195,5 +1195,8 @@
   "stars.hourRewardBody": "You both earned a star for a long chat. Balance: ★ {n}. You can still gift an extra star.",
   "stars.hourRewardStatus": "1 hour chat — you both earned a star ★",
   "stars.reviewTitleExtra": "Gift an extra star?",
-  "stars.reviewBodyHour": "{name} · you talked {m}+ min. You both already earned a star for 1 hour — gift an extra?"
+  "stars.reviewBodyHour": "{name} · you talked {m}+ min. You both already earned a star for 1 hour — gift an extra?",
+  "stars.hubOnlyNote": "Stars live only on the hub for your user id. Export/import never includes star balances — they cannot be forged or double-spent via a profile file.",
+  "settings.importDoneStarsHub": "Profile imported — stars load from the hub for this identity",
+  "settings.exportStarsNote": "Stars are not in this file (hub-only)."
 }
