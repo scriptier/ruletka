@@ -11599,3 +11599,49 @@ html[data-theme="light"] .settings-body::-webkit-scrollbar-thumb {
 .pwa-ios-tip .pwa-install-bar {
   background: linear-gradient(180deg, #5b9dff, #7eb6ff);
 }
+
+/* Alone-queue Friends CTA under Start */
+.empty-alone-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: center;
+  margin-top: 0.65rem;
+  max-width: 100%;
+}
+.empty-alone-actions[hidden] {
+  display: none !important;
+}
+.empty-alone-btn {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.07);
+  color: #eef2f7;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 0.5rem 0.95rem;
+  border-radius: 999px;
+  cursor: pointer;
+  min-height: 2.4rem;
+  transition: transform 0.1s, border-color 0.12s, background 0.12s;
+}
+.empty-alone-btn.accent {
+  border: none;
+  background: linear-gradient(135deg, var(--tile-accent, #ff2d55), var(--tile-accent-2, #ff5c3a));
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(255, 45, 85, 0.32);
+}
+.empty-alone-btn.ghost {
+  background: rgba(0, 0, 0, 0.28);
+}
+.empty-alone-btn:hover {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+}
+.empty-alone-btn:active {
+  transform: scale(0.98);
+}
+html.alone-searching #remote-empty .empty-sub:not([hidden]) {
+  color: #f5d090;
+}

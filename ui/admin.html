@@ -259,6 +259,7 @@
       <div class="stat">Queue joins <strong id="mt-joins">0</strong></div>
       <div class="stat">Alone joins <strong id="mt-alone">0</strong></div>
       <div class="stat">Alone % <strong id="mt-alone-pct">0</strong></div>
+      <div class="stat">Avg match <strong id="mt-avg-match">—</strong></div>
       <div class="stat">Peak online <strong id="mt-peak-on">0</strong></div>
       <div class="stat">Peak waiting <strong id="mt-peak-w">0</strong></div>
     </div>
@@ -811,7 +812,27 @@
         const alone = Number(today.alone_joins) || 0;
         const alonePct =
           joins > 0 ? Math.round((alone / joins) * 1000) / 10 : 0;
-        if ($("mt-alone-pct")) $("mt-alone-pct").textContent = alonePct + "%";
+        const extras = (metrics && metrics.today_extras) || {};
+        const alonePctEx =
+          extras.alone_pct != null ? Number(extras.alone_pct) : alonePct;
+        if ($("mt-alone-pct")) $("mt-alone-pct").textContent = alonePctEx + "%";
+        const avgSec =
+          extras.avg_match_sec != null
+            ? Number(extras.avg_match_sec)
+            : today.match_duration_n > 0
+              ? Math.round(
+                  (Number(today.match_seconds) || 0) /
+                    (Number(today.match_duration_n) || 1)
+                )
+              : 0;
+        if ($("mt-avg-match")) {
+          $("mt-avg-match").textContent =
+            avgSec > 0
+              ? avgSec >= 60
+                ? Math.floor(avgSec / 60) + "m " + (avgSec % 60) + "s"
+                : avgSec + "s"
+              : "—";
+        }
         $("mt-peak-on").textContent = today.peak_online ?? 0;
         $("mt-peak-w").textContent = today.peak_waiting ?? 0;
       }

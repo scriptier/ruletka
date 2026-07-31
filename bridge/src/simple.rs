@@ -146,6 +146,8 @@ pub struct Client {
     limiter: ClientLimiter,
     /// Sliding window of report submissions (anti ban-bomb).
     report_times: Vec<Instant>,
+    /// When current stranger match began (for avg match length metrics).
+    match_started: Option<Instant>,
 }
 
 /// Daily hub counters (persisted as JSONL under data/metrics.jsonl).
@@ -856,6 +858,20 @@ impl SimpleHub {
         }
     }
 
+    /// Record length of a completed stranger match (seconds).
+    fn metrics_record_match_duration(&mut self, started: Option<Instant>) {
+        let Some(t0) = started else {
+            return;
+        };
+        let secs = t0.elapsed().as_secs().min(86_400);
+        if secs == 0 {
+            return;
+        }
+        self.metrics_roll_day();
+        self.metrics.match_seconds = self.metrics.match_seconds.saturating_add(secs);
+        self.metrics.match_duration_n = self.metrics.match_duration_n.saturating_add(1);
+    }
+
     fn metrics_inc_report(&mut self) {
         self.metrics_roll_day();
         self.metrics.reports = self.metrics.reports.saturating_add(1);
@@ -1167,6 +1183,7 @@ impl SimpleHub {
             c.session_id = Some(session_id.to_string());
             c.party_with = None;
             c.friend_call = None;
+            c.match_started = Some(Instant::now());
         }
 
         self.fed_sessions.insert(
@@ -1377,6 +1394,7 @@ impl SimpleHub {
                 tags: Vec::new(),
                 limiter: ClientLimiter::new(),
                 report_times: Vec::new(),
+                match_started: None,
             },
         );
         // by_user/code_index set on Hello with persistent user_id (not ephemeral uuid)
@@ -1591,10 +1609,20 @@ impl SimpleHub {
         self.dequeue_client(id);
         self.clear_fed_for_client(id);
         let party = self.clients.get(&id).and_then(|c| c.party_with);
+        // Capture match duration before clearing match state
+        let started = self.clients.get(&id).and_then(|c| {
+            if c.phase == Phase::Matched {
+                c.match_started
+            } else {
+                None
+            }
+        });
+        self.metrics_record_match_duration(started);
         if let Some(c) = self.clients.get_mut(&id) {
             c.partner = None;
             c.session_peers.clear();
             c.session_id = None;
+            c.match_started = None;
             // Stay party if still browsing
             if c.party_with.is_some() {
                 c.phase = Phase::Waiting;
@@ -1904,6 +1932,7 @@ impl SimpleHub {
                 c.session_peers = peers.iter().copied().collect();
                 c.partner = peers.first().copied();
                 c.party_with = party;
+                c.match_started = Some(Instant::now());
             }
         };
         set_matched(&mut self.clients, solo, &[a, b], None);
@@ -2012,6 +2041,7 @@ impl SimpleHub {
                     c.session_peers = peers.iter().copied().collect();
                     c.partner = peers.first().copied();
                     c.party_with = Some(party);
+                    c.match_started = Some(Instant::now());
                 }
             };
         set_matched(&mut self.clients, a1, &[b1, b2, a2], a2);
@@ -2069,6 +2099,7 @@ impl SimpleHub {
                 c.session_peers = HashSet::from([them]);
                 c.session_id = Some(session_id.clone());
                 c.last_partner = Some(them);
+                c.match_started = Some(Instant::now());
             }
             let offerer = peer.is_offerer;
             self.send(

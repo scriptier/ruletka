@@ -36,7 +36,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </noscript>
   <link rel="stylesheet" href="style.css?v=157" />
-  <link rel="stylesheet" href="live-stage.css?v=181" />
+  <link rel="stylesheet" href="live-stage.css?v=182" />
   <script src="brand.js?v=2"></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -303,6 +303,15 @@
             <button type="button" class="start-match-btn" id="btn-start-match" data-i18n="btn.start">
               Start
             </button>
+            <!-- Alone-queue growth: open Friends / copy code while waiting -->
+            <div class="empty-alone-actions" id="empty-alone-actions" hidden>
+              <button type="button" class="empty-alone-btn accent" id="btn-empty-open-friends" data-i18n="friends.open">
+                Friends
+              </button>
+              <button type="button" class="empty-alone-btn ghost" id="btn-empty-copy-code" data-i18n="friends.copyCode">
+                Copy code
+              </button>
+            </div>
             <!-- Online friends strip while idle/searching -->
             <div class="friends-online-strip" id="friends-online-strip" hidden>
               <div class="friends-online-label" data-i18n="friends.onlineStrip">Friends online</div>
@@ -1563,11 +1572,11 @@
   <script src="pwa-install.js?v=6" defer></script>
   <script src="qrcode-generator.js?v=1"></script>
   <script src="qr.js?v=1"></script>
-  <script src="i18n.js?v=159"></script>
+  <script src="i18n.js?v=160"></script>
   <script src="identity.js?v=156"></script>
   <script src="hubs.js?v=156"></script>
   <script src="webrtc.js?v=156"></script>
-  <script src="live.js?v=179"></script>
+  <script src="live.js?v=182"></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

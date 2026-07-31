@@ -4312,6 +4312,7 @@ function updateEmptyShareVisibility() {
     localFloor.classList.toggle("has-invite", !!(invite && !invite.hidden));
   }
   updateFriendsOnlineStrip();
+  updateEmptyAloneActions();
 }
 
 /**
@@ -4397,12 +4398,11 @@ function maybeStartLongWaitBoost() {
 }
 
 /**
- * One-tap share while alone searching (once per search session).
- * Only when rooms are enabled (friend invite tray removed).
+ * Soft toast while alone searching (once per search session).
+ * Rooms: share room. Otherwise: open Friends / copy friend code.
  */
 function maybeShowAloneInviteToast() {
   try {
-    if (!ROOMS_ENABLED) return;
     if (aloneInviteToastShown) return;
     if (matched || inFriendCall || trioBrowse) return;
     if (!inQueue && !wantSearch) return;
@@ -4415,10 +4415,19 @@ function maybeShowAloneInviteToast() {
     toast.className = "friend-soft-toast alone-invite-toast";
     toast.setAttribute("role", "status");
     toast.style.pointerEvents = "auto";
-    const title =
-      _t("remote.shareHintEmpty") ||
-      "Pool is empty — share so someone can join you.";
-    const shareLbl = _t("remote.shareRoom") || "Share room";
+    const title = ROOMS_ENABLED
+      ? _t("remote.shareHintEmpty") ||
+        "Pool is empty — share so someone can join you."
+      : _t("remote.searchingAloneSub") ||
+        "Few people online — open Friends and share your code while you wait.";
+    const primaryLbl = ROOMS_ENABLED
+      ? _t("remote.shareRoom") || "Share room"
+      : _t("friends.open") || "Friends";
+    const secondaryLbl = ROOMS_ENABLED
+      ? ""
+      : `<button type="button" class="pill tight" id="btn-alone-copy-code">${escapeHtml(
+          _t("friends.copyCode") || "Copy code"
+        )}</button>`;
     toast.innerHTML = `
       <strong>${escapeHtml(_t("remote.stopInviteTitle") || "Bring a friend")}</strong>
       <span>${escapeHtml(title)}</span>
@@ -4426,18 +4435,26 @@ function maybeShowAloneInviteToast() {
         <button type="button" class="pill tight ghost" id="btn-alone-invite-later">${escapeHtml(
           _t("friends.exportNudgeLater") || "Later"
         )}</button>
+        ${secondaryLbl}
         <button type="button" class="pill tight accent" id="btn-alone-invite-share">${escapeHtml(
-          shareLbl
+          primaryLbl
         )}</button>
       </div>`;
     document.body.appendChild(toast);
-    trackEvent("alone_invite_toast_show");
+    trackEvent("alone_invite_toast_show", { rooms: ROOMS_ENABLED ? 1 : 0 });
     const dismiss = () => {
       if (toast.parentNode) toast.remove();
     };
     $("btn-alone-invite-later")?.addEventListener("click", () => {
       trackEvent("alone_invite_later");
       dismiss();
+    });
+    $("btn-alone-copy-code")?.addEventListener("click", async () => {
+      trackEvent("alone_invite_copy_code");
+      dismiss();
+      try {
+        await shareFriendInvite({ preferShare: false });
+      } catch (_) {}
     });
     $("btn-alone-invite-share")?.addEventListener("click", async () => {
       trackEvent("alone_invite_share", { rooms: ROOMS_ENABLED ? 1 : 0 });
@@ -4451,7 +4468,9 @@ function maybeShowAloneInviteToast() {
           { preferShare: true }
         );
       } else {
-        await shareFriendInvite({ preferShare: true });
+        try {
+          openFriends();
+        } catch (_) {}
       }
     });
     setTimeout(dismiss, 16000);
@@ -4687,7 +4706,7 @@ function setSearchingEmptyCopy() {
         `Waiting in room “${room}”…`;
     } else if (isPoolAlone() && (inQueue || wantSearch)) {
       titleEl.textContent =
-        _t("remote.searchingAlone") || "Still looking… invite a friend?";
+        _t("remote.searchingAlone") || "Still looking…";
     } else {
       titleEl.textContent =
         _t("remote.searchingTitle") || "Looking for a partner…";
@@ -4699,14 +4718,32 @@ function setSearchingEmptyCopy() {
       subEl.hidden = false;
       subEl.textContent =
         _t("remote.searchingAloneSub") ||
-        "Few people online — invite a friend while you wait.";
+        "Few people online — open Friends and share your code while you wait.";
     } else {
       subEl.hidden = true;
       subEl.textContent = "";
     }
   }
+  updateEmptyAloneActions();
   // Refresh after pool stats arrive (waiting alone may flip)
   maybeScheduleAloneSearchCopy();
+}
+
+/** Show Friends / Copy code under Start while alone in queue (pool growth). */
+function updateEmptyAloneActions() {
+  const row = $("empty-alone-actions");
+  if (!row) return;
+  const empty = $("remote-empty");
+  const emptyOpen =
+    !!empty &&
+    !empty.classList.contains("hidden") &&
+    !matched &&
+    !inFriendCall &&
+    !trioBrowse;
+  const aloneSearch =
+    emptyOpen && isPoolAlone() && (inQueue || wantSearch) && !currentRoom();
+  row.hidden = !aloneSearch;
+  document.documentElement.classList.toggle("alone-searching", aloneSearch);
 }
 
 let aloneSearchCopyTimer = 0;
@@ -7237,6 +7274,18 @@ function wireSettingsNav() {
     } catch (_) {}
     try {
       openKeysHelp();
+    } catch (_) {}
+  });
+  $("btn-empty-open-friends")?.addEventListener("click", () => {
+    trackEvent("empty_alone_open_friends");
+    try {
+      openFriends();
+    } catch (_) {}
+  });
+  $("btn-empty-copy-code")?.addEventListener("click", async () => {
+    trackEvent("empty_alone_copy_code");
+    try {
+      await shareFriendInvite({ preferShare: false });
     } catch (_) {}
   });
   $("btn-settings-done")?.addEventListener("click", () => closeSettings());
