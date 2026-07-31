@@ -2559,6 +2559,7 @@ html[data-theme="light"] .pref-tag.is-selected {
 
 /* Looping brand loading video behind idle / searching partner copy */
 .empty-bg-poster {
+  display: none !important;
   position: absolute;
   inset: 0;
   width: 100%;
@@ -7397,13 +7398,13 @@ html[data-theme="saloon"] .flag-pick-sub {
   gap: 0.4rem;
 }
 .tile-avatar {
-  width: 3.75rem;
-  height: 3.75rem;
+  width: 3.1rem;
+  height: 3.1rem;
   border-radius: 999px;
   overflow: hidden;
   flex-shrink: 0;
   border: 2px solid rgba(255, 255, 255, 0.28);
-  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.5);
   background: #141a22;
 }
 .tile-avatar img {
@@ -12305,13 +12306,13 @@ html.chrome-always .tile-local .tile-floor-local {
   left: auto;
   bottom: auto;
   z-index: 4;
-  width: 4.6rem;
-  height: 4.6rem;
+  width: 3.55rem;
+  height: 3.55rem;
   border-radius: 999px;
   overflow: hidden;
   flex-shrink: 0;
-  border: 2.5px solid rgba(255, 255, 255, 0.36);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55);
+  border: 2px solid rgba(255, 255, 255, 0.36);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
   background: #141a22;
   pointer-events: none;
 }
@@ -12390,8 +12391,8 @@ html.chrome-always .tile-local .tile-floor-local {
 @media (min-width: 721px) {
   .stars-badge-local {
     top: 0.55rem;
-    /* avatar 4.6rem + gap + right inset */
-    right: calc(0.5rem + 4.6rem + 0.4rem);
+    /* avatar 3.55rem + gap + right inset */
+    right: calc(0.5rem + 3.55rem + 0.35rem);
   }
   .tile-local:not(:has(.tile-avatar-local:not([hidden]))) .stars-badge-local {
     right: 0.5rem;
@@ -12417,7 +12418,7 @@ html.chrome-always .tile-local .tile-floor-local {
   /* Mobile local: still left of avatar when photo present */
   .stars-badge-local {
     top: 0.4rem;
-    right: calc(0.35rem + 3.75rem + 0.28rem);
+    right: calc(0.35rem + 3.05rem + 0.28rem);
   }
   .tile-local:not(:has(.tile-avatar-local:not([hidden]))) .stars-badge-local {
     right: 0.35rem;
@@ -12524,14 +12525,14 @@ html.chrome-always .tile-local .tile-floor-local {
 
 @media (max-width: 720px) {
   .tile-local .tile-avatar-local {
-    width: 3.75rem;
-    height: 3.75rem;
+    width: 3.05rem;
+    height: 3.05rem;
     top: 0.35rem;
     right: 0.35rem;
   }
   /* Flag + name sit under the avatar on the top-right (mobile) */
   .tile-local .tile-tag-local-name {
-    top: calc(0.35rem + 3.75rem + 0.28rem);
+    top: calc(0.35rem + 3.05rem + 0.28rem);
     left: auto;
     right: 0.35rem;
     align-items: center;

@@ -4668,15 +4668,14 @@ function setRemoteEmpty(show, opts) {
 }
 
 /**
- * Empty partner tile: looping /brand/loading-screen.mp4 (cylinder animation).
- * Static logo-hero is only a fallback under the video.
+ * Empty partner tile: looping /brand/loading-screen.mp4 only (no static poster).
  */
 function syncEmptyBrandMedia(showEmpty) {
-  playBrandLoopVideo($("remote-empty-video"), $("remote-empty-poster"), showEmpty);
+  playBrandLoopVideo($("remote-empty-video"), null, showEmpty);
 }
 
 /**
- * Force brand mp4 to loop. Video is z-index above poster; never leave only static image.
+ * Force brand mp4 to loop. No static image behind it.
  */
 function playBrandLoopVideo(v, poster, showEmpty) {
   if (!v && !poster) return;

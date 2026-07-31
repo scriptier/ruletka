@@ -54,7 +54,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </noscript>
   <link rel="stylesheet" href="style.css?v=157" />
-  <link rel="stylesheet" href="live-stage.css?v=190" />
+  <link rel="stylesheet" href="live-stage.css?v=191" />
   <script src="brand.js?v=2"></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -284,20 +284,11 @@
           <span class="local-pip-lbl" data-i18n="name.you">You</span>
         </div>
         <div class="tile-empty" id="remote-empty">
-          <!-- Static fallback under video; looping brand clip on top -->
-          <img
-            class="empty-bg-poster"
-            id="remote-empty-poster"
-            src="/brand/logo-hero.jpg?v=3"
-            alt=""
-            decoding="async"
-            aria-hidden="true"
-          />
+          <!-- Looping brand clip only (no static poster behind it) -->
           <video
             class="empty-bg-video is-brand-loop"
             id="remote-empty-video"
             src="/brand/loading-screen.mp4?v=4"
-            poster="/brand/logo-hero.jpg?v=3"
             muted
             defaultMuted
             loop
@@ -468,14 +459,6 @@
       <section class="tile tile-third" id="tile-third" hidden>
         <video id="remote-third" class="vid remote remote-third" autoplay playsinline playsInline webkit-playsinline hidden></video>
         <div class="tile-empty third-empty" id="third-empty">
-          <img
-            class="empty-bg-poster"
-            id="third-empty-poster"
-            src="/brand/logo-hero.jpg?v=3"
-            alt=""
-            decoding="async"
-            aria-hidden="true"
-          />
           <video
             class="empty-bg-video is-brand-loop"
             id="third-empty-video"
@@ -1739,7 +1722,7 @@
   <script src="identity.js?v=156"></script>
   <script src="hubs.js?v=156"></script>
   <script src="webrtc.js?v=156"></script>
-  <script src="live.js?v=187"></script>
+  <script src="live.js?v=188"></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {
