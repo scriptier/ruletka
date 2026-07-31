@@ -1144,5 +1144,13 @@
   "stars.noPartner": "No partner to gift",
   "stars.giftHint": "Spend stars for fun overlays (no money). Earn stars from long chats.",
   "stars.trustedReporterHint": "You have 100+ stars — your report carries stronger weight (counts as 2).",
-  "stars.trustedReporter": "Trusted reporter"
+  "stars.trustedReporter": "Trusted reporter",
+  "stars.tipYoursTitle": "★ Your stars",
+  "stars.tipYoursBody": "Others can gift you a star after a 16+ min chat (once per person). Spend stars on gifts like Behind bars. At 100+ stars your reports count double.",
+  "stars.tipTheirsTitle": "★ Reputation",
+  "stars.tipTheirsBody": "Earned when someone gifts a star after a 16+ min chat. Spend on gifts. 100+ stars = stronger reports.",
+  "stars.tipCount": "{n} stars",
+  "stars.tipCountOne": "1 star",
+  "stars.tipNone": "No stars yet",
+  "stars.tipTrusted": "You are a trusted reporter."
 }

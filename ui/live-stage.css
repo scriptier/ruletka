@@ -12354,7 +12354,7 @@ html.chrome-always .tile-local .tile-floor-local {
   vertical-align: middle;
 }
 
-/* Public star reputation badge (gold star + count) */
+/* Public star reputation badge (gold star + count) — hover shows info tip */
 .stars-badge {
   position: absolute;
   top: 0.5rem;
@@ -12373,31 +12373,145 @@ html.chrome-always .tile-local .tile-floor-local {
   font-size: 0.92rem;
   line-height: 1;
   letter-spacing: 0.01em;
-  pointer-events: none;
+  /* Allow hover for star info tip (parent tile-tag is pointer-events: none) */
+  pointer-events: auto;
+  cursor: help;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
   flex-shrink: 0;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease,
+    transform 0.15s ease;
 }
 .stars-badge[hidden] {
   display: none !important;
+}
+.stars-badge:hover,
+.stars-badge:focus-visible {
+  border-color: rgba(255, 230, 120, 0.95);
+  background: rgba(40, 30, 8, 0.88);
+  box-shadow:
+    0 0 0 2px rgba(255, 210, 70, 0.35),
+    0 6px 18px rgba(0, 0, 0, 0.5),
+    0 0 20px rgba(255, 200, 60, 0.25);
+  transform: scale(1.06);
+  outline: none;
+  z-index: 12;
 }
 .stars-badge .stars-icon {
   color: #ffd54a;
   font-size: 1.05rem;
   line-height: 1;
   filter: drop-shadow(0 0 4px rgba(255, 200, 60, 0.55));
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+.stars-badge:hover .stars-icon,
+.stars-badge:focus-visible .stars-icon {
+  transform: scale(1.12);
+  filter: drop-shadow(0 0 8px rgba(255, 220, 80, 0.85));
 }
 .stars-badge .stars-count {
   font-variant-numeric: tabular-nums;
   min-width: 0.75rem;
 }
+/* Rich hover / focus info panel */
+.stars-tip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 0.45rem);
+  transform: translateX(-50%) translateY(4px);
+  width: min(16.5rem, 72vw);
+  padding: 0.55rem 0.65rem 0.6rem;
+  border-radius: 12px;
+  background: rgba(12, 14, 20, 0.96);
+  border: 1px solid rgba(255, 215, 80, 0.4);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+  color: #e8eef7;
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: 0;
+  text-shadow: none;
+  text-align: left;
+  white-space: normal;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.14s ease,
+    visibility 0.14s ease,
+    transform 0.14s ease;
+  z-index: 20;
+}
+.stars-tip::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: rgba(255, 215, 80, 0.4);
+}
+.stars-tip-title {
+  display: block;
+  margin-bottom: 0.28rem;
+  color: #ffe9a0;
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+.stars-tip-body {
+  display: block;
+  color: #c5d0e0;
+}
+.stars-badge:hover .stars-tip,
+.stars-badge:focus-visible .stars-tip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+/* Local badge is top-right — keep tip above and slightly left if near edge */
+.stars-badge-local .stars-tip {
+  left: auto;
+  right: 0;
+  transform: translateY(4px);
+}
+.stars-badge-local:hover .stars-tip,
+.stars-badge-local:focus-visible .stars-tip {
+  transform: translateY(0);
+}
+.stars-badge-local .stars-tip::after {
+  left: auto;
+  right: 0.9rem;
+  transform: none;
+}
 /* Inline in partner name row: ★ then avatar then name */
 .tile-tag .stars-badge-inline,
 .stars-badge-inline {
-  position: static;
+  position: relative;
   top: auto;
   right: auto;
-  z-index: auto;
+  z-index: 5;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+/* Partner chip is near top-left — tip below badge so it stays on-screen */
+.tile-tag .stars-badge-inline .stars-tip {
+  bottom: auto;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  transform: translateY(-4px);
+}
+.tile-tag .stars-badge-inline:hover .stars-tip,
+.tile-tag .stars-badge-inline:focus-visible .stars-tip {
+  transform: translateY(0);
+}
+.tile-tag .stars-badge-inline .stars-tip::after {
+  top: auto;
+  bottom: 100%;
+  left: 0.85rem;
+  transform: none;
+  border-top-color: transparent;
+  border-bottom-color: rgba(255, 215, 80, 0.4);
 }
 /* Desktop / browser: local stars sit left of the avatar (avatar is top-right) */
 @media (min-width: 721px) {

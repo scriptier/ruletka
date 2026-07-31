@@ -1847,7 +1847,40 @@ function maybeShowMatchPathSummary(reason) {
 }
 
 /**
- * Show/hide gold star badge on a tile (screenshot-style: ★ count top-right).
+ * Hover / focus tip copy for star badges.
+ * @param {"local"|"remote"} which
+ * @param {number} n
+ */
+function starsTipCopy(which, n) {
+  const countLine =
+    n <= 0
+      ? _t("stars.tipNone") || "No stars yet."
+      : n === 1
+        ? _t("stars.tipCountOne") || "1 star"
+        : _t("stars.tipCount", { n }) || `${n} stars`;
+  if (which === "local") {
+    const title = _t("stars.tipYoursTitle") || "★ Your stars";
+    let body =
+      _t("stars.tipYoursBody") ||
+      "Others can gift you a star after a 16+ min chat (once per person). Spend stars on gifts like Behind bars. At 100+ stars your reports count double.";
+    if (n >= 100) {
+      body +=
+        " " +
+        (_t("stars.tipTrusted") || "You are a trusted reporter.");
+    }
+    return { title, body: `${countLine}. ${body}` };
+  }
+  return {
+    title: _t("stars.tipTheirsTitle") || "★ Reputation",
+    body: `${countLine}. ${
+      _t("stars.tipTheirsBody") ||
+      "Earned when someone gifts a star after a 16+ min chat. Spend on gifts. 100+ stars = stronger reports."
+    }`,
+  };
+}
+
+/**
+ * Show/hide gold star badge on a tile; hover shows star info tip.
  * @param {"local"|"remote"} which
  * @param {number} count
  */
@@ -1855,16 +1888,21 @@ function setStarsBadge(which, count) {
   const n = Math.max(0, Math.floor(Number(count) || 0));
   const badge = $(which === "local" ? "local-stars-badge" : "remote-stars-badge");
   const el = $(which === "local" ? "local-stars-count" : "remote-stars-count");
+  const tip = $(which === "local" ? "local-stars-tip" : "remote-stars-tip");
   if (el) el.textContent = String(n);
   if (badge) {
     // Always show when > 0; hide at 0 so empty tiles stay clean
     badge.hidden = n <= 0;
-    badge.title =
-      n > 0
-        ? n === 1
-          ? "1 star from long chats"
-          : `${n} stars from long chats`
-        : "No stars yet";
+    const tipCopy = starsTipCopy(which, n);
+    badge.setAttribute("aria-label", `${tipCopy.title}. ${tipCopy.body}`);
+    // Native title as fallback; rich CSS tip is primary on hover
+    badge.title = "";
+    if (tip) {
+      const titleEl = tip.querySelector(".stars-tip-title");
+      const bodyEl = tip.querySelector(".stars-tip-body");
+      if (titleEl) titleEl.textContent = tipCopy.title;
+      if (bodyEl) bodyEl.textContent = tipCopy.body;
+    }
   }
   if (which === "local") myStars = n;
   if (which === "remote") partnerStars = n;
