@@ -549,10 +549,100 @@ function saveIdentity(partial) {
   return next;
 }
 
-/** Keep strangers blurred until the user taps Blur (opt-in). Default off. */
+/**
+ * Keep strangers blurred until the user taps Blur.
+ * Permanent: Settings toggle.
+ * Starter (Week B): first N stranger matches for new users (safer cold start).
+ */
+const BLUR_STARTER_KEY = "ruletka-blur-starter-left-v1";
+const BLUR_STARTER_DEFAULT = 5;
+const BLUR_STARTER_TIP_KEY = "ruletka-blur-starter-tip-v1";
+
+function blurStarterLeft() {
+  try {
+    const raw = localStorage.getItem(BLUR_STARTER_KEY);
+    // null = never initialized
+    if (raw === null || raw === "") {
+      // Returning users (already have call history) skip re-onboarding blur
+      try {
+        const hist = localStorage.getItem(HISTORY_KEY);
+        if (hist && hist.length > 8 && hist !== "[]") {
+          localStorage.setItem(BLUR_STARTER_KEY, "0");
+          return 0;
+        }
+      } catch (_) {}
+      return BLUR_STARTER_DEFAULT;
+    }
+    const n = Number(raw);
+    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function setBlurStarterLeft(n) {
+  try {
+    localStorage.setItem(BLUR_STARTER_KEY, String(Math.max(0, Math.floor(n))));
+  } catch (_) {}
+}
+
+/** True when Settings forces blur-first (not just starter budget). */
+function blurFirstPrefEnabled() {
+  try {
+    return loadPrefs().blurFirst === true;
+  } catch {
+    return false;
+  }
+}
+
 function blurFirstEnabled() {
-  const prefs = loadPrefs();
-  return prefs.blurFirst === true;
+  if (blurFirstPrefEnabled()) return true;
+  return blurStarterLeft() > 0;
+}
+
+/** Consume one starter match when a stranger session begins under starter mode. */
+function consumeBlurStarterIfNeeded() {
+  if (blurFirstPrefEnabled()) return;
+  const left = blurStarterLeft();
+  if (left <= 0) return;
+  setBlurStarterLeft(left - 1);
+  try {
+    trackEvent("blur_starter_consume", { left: left - 1 });
+  } catch (_) {}
+}
+
+/** One-shot tip: how to unblur (status + short toast). */
+function maybeShowBlurStarterTip() {
+  try {
+    if (localStorage.getItem(BLUR_STARTER_TIP_KEY) === "1") return;
+    localStorage.setItem(BLUR_STARTER_TIP_KEY, "1");
+  } catch {
+    return;
+  }
+  const body =
+    _t("safety.blurStarterTip") ||
+    "Strangers start blurred for your first chats. Tap “Blur them” to reveal when ready.";
+  setStatus(body);
+  try {
+    if ($("blur-starter-tip")) return;
+    const tip = document.createElement("div");
+    tip.id = "blur-starter-tip";
+    tip.className = "weak-conn-tip blur-starter-tip";
+    tip.setAttribute("role", "status");
+    tip.style.pointerEvents = "auto";
+    tip.innerHTML = `
+      <span>${escapeHtml(body)}</span>
+      <button type="button" class="pill tight accent" id="btn-blur-starter-ok">${escapeHtml(
+        _t("pwa.iosGotIt") || "Got it"
+      )}</button>`;
+    document.body.appendChild(tip);
+    const dismiss = () => {
+      if (tip.parentNode) tip.remove();
+    };
+    $("btn-blur-starter-ok")?.addEventListener("click", dismiss);
+    setTimeout(dismiss, 9000);
+    trackEvent("blur_starter_tip_show");
+  } catch (_) {}
 }
 
 /** Timed safety blur on new stranger matches (then auto-clear unless blur-first). */
@@ -569,13 +659,29 @@ function clearIntroBlurTimer() {
 
 /**
  * Blur a new stranger for INTRO_BLUR_MS so the user can Next/Stop if needed,
- * then unblur automatically — unless Settings → "keep blurred" is on.
+ * then unblur automatically — unless blur-first (settings or starter) is on.
  */
 function applyStrangerIntroBlur() {
   clearIntroBlurTimer();
   setPartnerBlur(true);
-  if (blurFirstEnabled()) {
-    log(_t("log.blurFirst"));
+  const keepBlurred = blurFirstEnabled();
+  if (keepBlurred) {
+    // Starter path: burn one of the first-N matches
+    const wasStarter = !blurFirstPrefEnabled() && blurStarterLeft() > 0;
+    if (wasStarter) {
+      consumeBlurStarterIfNeeded();
+      maybeShowBlurStarterTip();
+      log(
+        _t("log.blurStarter") ||
+          "partner blurred until you unblur (starter safety)"
+      );
+    } else {
+      log(_t("log.blurFirst") || "partner stays blurred until you unblur");
+    }
+    // Sync settings checkbox so user sees permanent option is separate
+    try {
+      syncBlurFirstUi();
+    } catch (_) {}
     return;
   }
   log(_t("log.blurIntro") || "partner blurred 2s — Next if needed");
@@ -584,12 +690,28 @@ function applyStrangerIntroBlur() {
     introBlurTimer = 0;
     if (gen !== introBlurGen) return;
     if (!matched) return;
-    // Friends / hangup may have cleared match
     if (blurFirstEnabled()) return;
     if (!partnerBlurred) return; // user already unblurred
     setPartnerBlur(false);
     log(_t("log.blurIntroDone") || "partner unblurred");
   }, INTRO_BLUR_MS);
+}
+
+function syncBlurFirstUi() {
+  const chk = $("chk-blur-first");
+  if (!chk) return;
+  chk.checked = blurFirstPrefEnabled();
+  const hint = chk
+    .closest(".settings-row")
+    ?.querySelector?.(".toggle-hint");
+  if (hint && !blurFirstPrefEnabled()) {
+    const left = blurStarterLeft();
+    if (left > 0) {
+      hint.textContent =
+        _t("settings.blurFirstHintStarter", { n: left }) ||
+        `First ${left} stranger matches stay blurred until you unblur · then 2s intro blur`;
+    }
+  }
 }
 
 /** Current display name for UI + server (falls back to short id / anon). */
@@ -18407,7 +18529,14 @@ $("chk-nsfw-auto")?.addEventListener("change", (e) => {
   syncSettingsSummary();
 });
 $("chk-blur-first")?.addEventListener("change", (e) => {
-  savePrefs({ blurFirst: !!e.target.checked });
+  const on = !!e.target.checked;
+  savePrefs({ blurFirst: on });
+  // Opting into permanent blur-first ends the starter budget (already covered)
+  // Opting out clears permanent; starter may still apply if left > 0
+  try {
+    trackEvent("blur_first_pref", { on: on ? 1 : 0, starter: blurStarterLeft() });
+    syncBlurFirstUi();
+  } catch (_) {}
   syncSettingsSummary();
 });
 $("chk-prefer-direct")?.addEventListener("change", (e) => {
@@ -18802,6 +18931,9 @@ document.addEventListener(
   }
   if ($("chk-blur-first")) {
     $("chk-blur-first").checked = prefs.blurFirst === true;
+    try {
+      syncBlurFirstUi();
+    } catch (_) {}
   }
   // Name from URL ?name= or saved identity
   const nameQ = q.get("name");

@@ -335,7 +335,7 @@
   "local.permHelpGeneric": "Allow camera & microphone for this site in your browser settings, then tap Enable again.",
   "local.permHelpIos": "iPhone/iPad: Settings → Safari → Camera & Microphone → Allow, then reload and tap Enable.",
   "local.tag": "You",
-  "log.blurFirst": "partner blurred (safety) — tap Blur to show",
+  "log.blurFirst": "partner stays blurred until you unblur",
   "log.blurIntro": "partner blurred 2s — Next if needed",
   "log.blurIntroDone": "partner unblurred",
   "log.blurOff": "partner video unblurred",
@@ -906,7 +906,7 @@
   "settings.aboutTag": "P2P video · 18+ · no classic account",
   "settings.aboutVersionTitle": "Client cache version",
   "settings.blurFirst": "Keep strangers blurred until I unblur",
-  "settings.blurFirstHint": "Off = auto-unblur after 2 seconds (default)",
+  "settings.blurFirstHint": "First chats stay blurred by default · off = only 2s intro blur after that",
   "settings.camera": "Camera",
   "settings.clearConfirm": "Clear language, devices, history and identity on this browser?",
   "settings.clearConfirmFriends": "Clearing local data creates a NEW identity. Friends stay on the server under the OLD id and will look empty here unless you import a profile backup first. Continue?",
@@ -1400,5 +1400,8 @@
   "friends.aloneWindowSoon": "Pool is quiet. Tonight live starts at {start} — share invite and meet then.",
   "friends.aloneWindowLater": "Pool is quiet. Best odds {range} local — invite a friend for the same slot.",
   "remote.windowChipOpen": "Tonight live · open now · {range}",
-  "remote.windowChipNext": "Tonight live · {start}–{end} local"
+  "remote.windowChipNext": "Tonight live · {start}–{end} local",
+  "settings.blurFirstHintStarter": "Next {n} stranger matches stay blurred until you unblur · then 2s intro blur",
+  "safety.blurStarterTip": "Strangers start blurred for your first chats. Tap “Blur them” to reveal when ready.",
+  "log.blurStarter": "partner blurred until you unblur (starter safety)"
 }

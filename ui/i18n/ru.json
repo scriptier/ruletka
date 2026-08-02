@@ -333,7 +333,7 @@
   "local.permHelpGeneric": "Разрешите камеру и микрофон для этого сайта в настройках браузера, затем «Включить».",
   "local.permHelpIos": "iPhone/iPad: Настройки → Safari → Камера и микрофон → Разрешить, обновите страницу и нажмите «Включить».",
   "local.tag": "Вы",
-  "log.blurFirst": "собеседник размыт (безопасность) — Blur чтобы показать",
+  "log.blurFirst": "партнёр в блюре, пока не снимете",
   "log.blurIntro": "собеседник размыт 2 сек — «Далее», если нужно",
   "log.blurIntroDone": "блюр снят",
   "log.blurOff": "размытие снято",
@@ -904,7 +904,7 @@
   "settings.aboutTag": "Видео P2P · 18+ · без классического аккаунта",
   "settings.aboutVersionTitle": "Версия кэша клиента",
   "settings.blurFirst": "Держать блюр, пока не сниму",
-  "settings.blurFirstHint": "Выкл = снять блюр через 2 сек (по умолчанию)",
+  "settings.blurFirstHint": "Первые чаты по умолчанию с блюром · выкл. = только 2 с вступления",
   "settings.camera": "Камера",
   "settings.clearConfirm": "Очистить язык, устройства, историю и профиль в этом браузере?",
   "settings.clearConfirmFriends": "Очистка создаёт НОВУЮ личность. Друзья останутся на сервере под старым id и список здесь опустеет, пока не импортируете резерв. Продолжить?",
@@ -1400,5 +1400,8 @@
   "friends.aloneWindowSoon": "Тихо. Вечерний live с {start} — поделись приглашением и встретьтесь тогда.",
   "friends.aloneWindowLater": "Тихо. Лучше {range} по местному — пригласи друга в тот же слот.",
   "remote.windowChipOpen": "Вечерний live · сейчас · {range}",
-  "remote.windowChipNext": "Вечерний live · {start}–{end} по местному"
+  "remote.windowChipNext": "Вечерний live · {start}–{end} по местному",
+  "settings.blurFirstHintStarter": "Ещё {n} незнакомцев с блюром, пока не снимите · потом 2 с",
+  "safety.blurStarterTip": "Незнакомцы сначала в блюре. Нажмите «Блюр», чтобы показать, когда будете готовы.",
+  "log.blurStarter": "партнёр в блюре, пока не снимете (старт)"
 }
