@@ -167,9 +167,18 @@ cd mobile && python3 scripts/gen-store-assets.py
 - [ ] Internal test track / TestFlight smoke (A/V + friend call)  
 - [ ] Production submit  
 
+## App Links (after signing)
+
+Set on hub when store certs exist — see [`APP_LINKS.md`](APP_LINKS.md):
+
+```bash
+ROULETTE_IOS_TEAM_ID=...
+ROULETTE_ANDROID_SHA256=AA:BB:...
+```
+
 ## Not automated here
 
 - Paid **Authenticode** / Apple **notarization** for desktop helpers (separate)  
 - Marketing video / screenshot design  
-- Push notifications for killed-app rings (post-v1)  
+- Push notifications for killed-app rings (post-v1; design in APP_LINKS.md)  
 - Creating the Expo/Apple/Google accounts (operator)  

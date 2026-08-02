@@ -45,6 +45,8 @@ const expo = {
   ],
   ios: {
     ...base.expo.ios,
+    // Universal Links (hub must serve AASA with ROULETTE_IOS_TEAM_ID)
+    associatedDomains: ["applinks:ruletka.vip", "applinks:ruletka.me"],
     infoPlist: {
       ...(base.expo.ios?.infoPlist || {}),
       ITSAppUsesNonExemptEncryption: false,
@@ -78,9 +80,23 @@ const expo = {
       {
         action: "VIEW",
         autoVerify: false,
+        data: [{ scheme: "ruletka" }],
+        category: ["BROWSABLE", "DEFAULT"],
+      },
+      // App Links (assetlinks.json + ROULETTE_ANDROID_SHA256 on hub)
+      {
+        action: "VIEW",
+        autoVerify: true,
         data: [
           {
-            scheme: "ruletka",
+            scheme: "https",
+            host: "ruletka.vip",
+            pathPrefix: "/live.html",
+          },
+          {
+            scheme: "https",
+            host: "ruletka.me",
+            pathPrefix: "/live.html",
           },
         ],
         category: ["BROWSABLE", "DEFAULT"],

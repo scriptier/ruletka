@@ -59,6 +59,7 @@ Push for friend rings while killed is **post-first-submit** unless schedule allo
 - [x] Call / answer / decline / cancel (in-app banners)
 - [x] No-answer / missed call history UI
 - [x] Friend invite deep links (`ruletka://friend/CODE` + `?friend=` web URLs)
+- [x] Hub Universal Links / App Links endpoints (fill Team ID + SHA256 after signing)
 
 ### Stars
 
@@ -113,3 +114,4 @@ Default hub: `https://ruletka.vip` (override with env `EXPO_PUBLIC_HUB_BASE`).
 - [`HELPERS.md`](HELPERS.md) — desktop island helpers (not the store apps)  
 - [`STORE.md`](STORE.md) — Play / App Store submission checklist  
 - [`DEVICE_SMOKE.md`](DEVICE_SMOKE.md) — native A/V + friends smoke matrix  
+- [`APP_LINKS.md`](APP_LINKS.md) — Universal Links / App Links / future push  

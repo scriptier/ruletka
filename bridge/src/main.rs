@@ -175,6 +175,106 @@ async fn branded_ui(
     }
 }
 
+/// iOS Universal Links — `ROULETTE_IOS_TEAM_ID` required for a live applinks entry.
+/// Optional static file: `ui/.well-known/apple-app-site-association`.
+async fn apple_app_site_association(State(state): State<AppState>) -> Response {
+    let team = std::env::var("ROULETTE_IOS_TEAM_ID").unwrap_or_default();
+    let team = team.trim().to_string();
+    let bundle = std::env::var("ROULETTE_IOS_BUNDLE_ID")
+        .unwrap_or_else(|_| "vip.ruletka.app".into());
+    let bundle = bundle.trim().to_string();
+
+    let body = if !team.is_empty() {
+        let app_id = format!("{team}.{bundle}");
+        serde_json::json!({
+            "applinks": {
+                "apps": [],
+                "details": [{
+                    "appID": app_id,
+                    "paths": [
+                        "/live.html",
+                        "/live.html*",
+                        "/live",
+                        "/live*"
+                    ]
+                }]
+            },
+            "webcredentials": {
+                "apps": [app_id]
+            }
+        })
+        .to_string()
+    } else if let Ok(bytes) = tokio::fs::read(
+        state
+            .ui_dir
+            .join(".well-known/apple-app-site-association"),
+    )
+    .await
+    {
+        String::from_utf8_lossy(&bytes).into_owned()
+    } else {
+        // Valid empty document so crawlers get 200 JSON (not 404)
+        r#"{"applinks":{"apps":[],"details":[]}}"#.to_string()
+    };
+
+    (
+        [
+            (
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            ),
+            (
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("public, max-age=300"),
+            ),
+        ],
+        body,
+    )
+        .into_response()
+}
+
+/// Android App Links — `ROULETTE_ANDROID_SHA256` (colon-hex fingerprint of signing cert).
+async fn assetlinks_json(State(state): State<AppState>) -> Response {
+    let package = std::env::var("ROULETTE_ANDROID_PACKAGE")
+        .unwrap_or_else(|_| "vip.ruletka.app".into());
+    let package = package.trim().to_string();
+    let sha = std::env::var("ROULETTE_ANDROID_SHA256").unwrap_or_default();
+    let sha = sha.trim().to_string();
+
+    let body = if !sha.is_empty() {
+        serde_json::json!([{
+            "relation": ["delegate_permission/common.handle_all_urls"],
+            "target": {
+                "namespace": "android_app",
+                "package_name": package,
+                "sha256_cert_fingerprints": [sha]
+            }
+        }])
+        .to_string()
+    } else if let Ok(bytes) =
+        tokio::fs::read(state.ui_dir.join(".well-known/assetlinks.json")).await
+    {
+        String::from_utf8_lossy(&bytes).into_owned()
+    } else {
+        "[]".to_string()
+    };
+
+    (
+        [
+            (
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            ),
+            (
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("public, max-age=300"),
+            ),
+        ],
+        body,
+    )
+        .into_response()
+}
+
 #[derive(Clone, Copy, Debug, ValueEnum, Default)]
 enum Mode {
     /// In-memory matchmaking (recommended for product / demos).
@@ -1629,6 +1729,16 @@ async fn main() {
         .route("/v1/admin/stars", post(admin_stars_handler))
         .route("/v1/seeder/request", post(seeder_request_handler))
         .route("/v1/funnel", post(funnel_handler))
+        // Mobile Universal Links / App Links (JSON content-type, no HTML branding)
+        .route(
+            "/.well-known/apple-app-site-association",
+            get(apple_app_site_association),
+        )
+        .route(
+            "/apple-app-site-association",
+            get(apple_app_site_association),
+        )
+        .route("/.well-known/assetlinks.json", get(assetlinks_json))
         .fallback(branded_ui)
         .layer(CorsLayer::permissive())
         .with_state(state);

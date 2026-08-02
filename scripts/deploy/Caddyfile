@@ -25,6 +25,20 @@ ruletka.vip, ruletka.me {
 		reverse_proxy 127.0.0.1:8790
 	}
 
+	# Mobile app-site association (JSON from bridge; do not HTML-rewrite)
+	handle /.well-known/apple-app-site-association {
+		reverse_proxy 127.0.0.1:8790
+		header Cache-Control "public, max-age=300"
+	}
+	handle /apple-app-site-association {
+		reverse_proxy 127.0.0.1:8790
+		header Cache-Control "public, max-age=300"
+	}
+	handle /.well-known/assetlinks.json {
+		reverse_proxy 127.0.0.1:8790
+		header Cache-Control "public, max-age=300"
+	}
+
 	# API / health / federation / ICE config — short cache / no cache
 	handle /health {
 		reverse_proxy 127.0.0.1:8790
