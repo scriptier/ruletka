@@ -90,7 +90,7 @@ Packs are copied from `ui/i18n/*.json` into `src/i18n/packs/`:
 ./scripts/sync-i18n.sh   # after editing web strings
 ```
 
-Mobile-only keys live in `src/i18n/mobile-overlay.ts` (EN + RU). Other langs use web packs and fall back to EN for `mobile.*` keys. Language: Settings → System or force EN/RU/DE/ES/…
+Mobile-only keys live in `src/i18n/overlay/{lang}.json` (all 10 app languages). Web packs cover shared copy. Language: Settings → System or force EN/RU/DE/ES/…
 
 ## Store / EAS
 

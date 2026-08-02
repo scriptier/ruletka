@@ -28,7 +28,7 @@ for lang in langs:
             print("  missing sample", missing[:5])
         if bad_ph[:5]:
             print("  bad_ph sample", bad_ph[:5])
-# mobile sync
+# mobile pack sync
 mp = root / "mobile" / "src" / "i18n" / "packs" / "en.json"
 if mp.exists():
     men = json.loads(mp.read_text(encoding="utf-8"))
@@ -36,4 +36,19 @@ if mp.exists():
     print(f"mobile packs en vs ui en: symmetric_diff={diff}")
     if diff:
         fail += 1
+
+# mobile overlay parity (app-only strings)
+ov = root / "mobile" / "src" / "i18n" / "overlay"
+if ov.is_dir():
+    oen = json.loads((ov / "en.json").read_text(encoding="utf-8"))
+    for path in sorted(ov.glob("*.json")):
+        data = json.loads(path.read_text(encoding="utf-8"))
+        missing = sorted(set(oen) - set(data))
+        extra = sorted(set(data) - set(oen))
+        print(
+            f"overlay {path.stem}: keys={len(data)} missing={len(missing)} extra={len(extra)}"
+        )
+        if missing or extra:
+            fail += 1
+
 sys.exit(1 if fail else 0)
