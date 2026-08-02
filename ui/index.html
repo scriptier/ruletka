@@ -42,8 +42,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="home.css?v=90" />
+  <link rel="stylesheet" href="home.css?v=91" />
   <script src="brand.js?v=2"></script>
+  <script src="live-window.js?v=1"></script>
   <script src="analytics.js?v=1" defer></script>
   <script src="pwa-install.js?v=7" defer></script>
   <script type="application/ld+json">
@@ -198,10 +199,14 @@
             <a href="/live.html" id="home-join-now" data-i18n="home.joinNow">Join now →</a>
           </span>
         </div>
-        <!-- Week-1 liquidity: busy window + bring-a-friend -->
+        <!-- Liquidity: dynamic “tonight live” window (local time) + bring-a-friend -->
         <div class="home-liquidity" id="home-liquidity" role="status">
-          <p class="home-busy-hours" id="home-busy-hours" data-i18n="home.busyHours">
-            Best odds: evenings (18:00–23:00 your local time) — bring a friend online at the same time.
+          <p class="home-window-chip" id="home-window-chip" hidden>
+            <span class="home-window-dot" aria-hidden="true"></span>
+            <span id="home-window-chip-text">Tonight live · 18:00–23:00</span>
+          </p>
+          <p class="home-busy-hours" id="home-busy-hours">
+            Best odds: evenings (18:00–23:00 local) — bring a friend online at the same time.
           </p>
           <p class="home-invite-hint" id="home-invite-hint" data-i18n="home.inviteHint">
             Quiet right now? Invite a friend — Call works when both of you are online.
@@ -350,8 +355,14 @@
           "home.busyHours": "Best odds: evenings (18:00–23:00 local) — bring a friend online at the same time.",
           "home.quietCta": "Nobody waiting — use Invite friends so two of you land together.",
           "home.busyNow": "People online now — Start chatting is the fastest path.",
-          "home.inviteText": "Join me on {brand} — random video chat, or add me as a friend and Call when online.",
+          "home.windowOpen": "Tonight live is open ({range}) — join now or invite a friend so you’re not alone.",
+          "home.windowSoon": "Tonight live starts at {start} (in ~{h}h). Set a reminder — bring a friend.",
+          "home.windowLater": "Best odds: {range} local. Quiet now — invite a friend for the evening window.",
+          "home.windowChipOpen": "Tonight live · open now · {range}",
+          "home.windowChipNext": "Tonight live · {range} local",
+          "home.inviteText": "Join me on {brand} tonight ({range}) — random video chat, or add me as a friend and Call.",
           "home.inviteTextLive": "{n} online now on {brand}. Open live — match or Call friends.",
+          "home.inviteTextWindow": "I’m going on {brand} during tonight live ({range}). Join so we’re not alone — random chat or Call as friends.",
           "home.joinNow": "Join now →",
           "home.nowOnline": "Online now",
           "home.nowWaiting": "Waiting",
@@ -402,8 +413,14 @@
           "home.busyHours": "Лучше вечером (18:00–23:00 по местному) — зайдите с другом в одно время.",
           "home.quietCta": "Никого в очереди — нажмите «Пригласить друзей», чтобы зайти вдвоём.",
           "home.busyNow": "Кто-то уже онлайн — быстрее всего «Начать чат».",
-          "home.inviteText": "Заходи на {brand} — случайный видеочат или добавь меня в друзья и позвони.",
+          "home.windowOpen": "Вечерний live открыт ({range}) — зайди сейчас или пригласи друга, чтобы не ждать в одиночку.",
+          "home.windowSoon": "Вечерний live с {start} (через ~{h} ч). Поставь напоминание — приходи с другом.",
+          "home.windowLater": "Лучше {range} по местному. Сейчас тихо — пригласи друга на вечернее окно.",
+          "home.windowChipOpen": "Вечерний live · сейчас · {range}",
+          "home.windowChipNext": "Вечерний live · {range} по местному",
+          "home.inviteText": "Заходи на {brand} вечером ({range}) — случайный видеочат или друзья и звонок.",
           "home.inviteTextLive": "Сейчас {n} онлайн на {brand}. Открой live — матч или звонок другу.",
+          "home.inviteTextWindow": "Буду на {brand} в вечерний live ({range}). Заходи, чтобы не ждать вдвоём — чат или звонок друзьям.",
           "home.joinNow": "Зайти →",
           "home.nowOnline": "Сейчас онлайн",
           "home.nowWaiting": "В очереди",
@@ -493,12 +510,36 @@
           localStorage.setItem("nextface-lang-v1", lang);
         } catch (_) {}
         // Prefer full pack cache (all languages, including en/ru overlays)
+        function peekOnline() {
+          try {
+            var el = document.getElementById("home-stat-online");
+            return el
+              ? parseInt(String(el.textContent || "0").replace(/\D/g, ""), 10) ||
+                  0
+              : 0;
+          } catch (_) {
+            return 0;
+          }
+        }
         if (packCache[lang]) {
           applyDict(lang, packCache[lang]);
+          try {
+            var n0 = peekOnline();
+            updateHomeLiveWindow(packCache[lang], {
+              hasPeople: n0 > 0,
+              online: n0,
+            });
+          } catch (_) {}
           return;
         }
         // Flash bundled RU/EN or English while pack loads
         applyDict(lang, STR[lang] || STR.en || {});
+        try {
+          updateHomeLiveWindow(STR[lang] || STR.en || {}, {
+            hasPeople: false,
+            online: 0,
+          });
+        } catch (_) {}
         fetch("/i18n/" + lang + ".json?v=25", { cache: "force-cache" })
           .then(function (r) {
             if (!r.ok) throw new Error("pack");
@@ -506,7 +547,16 @@
           })
           .then(function (j) {
             packCache[lang] = Object.assign({}, STR[lang] || STR.en || {}, j);
-            if (getLang() === lang) applyDict(lang, packCache[lang]);
+            if (getLang() === lang) {
+              applyDict(lang, packCache[lang]);
+              try {
+                var n1 = peekOnline();
+                updateHomeLiveWindow(packCache[lang], {
+                  hasPeople: n1 > 0,
+                  online: n1,
+                });
+              } catch (_) {}
+            }
           })
           .catch(function () {});
       }
@@ -518,6 +568,63 @@
         });
       }
       setLang(getLang());
+
+      function tHome(dict, key, fallback, vars) {
+        var s = (dict && dict[key]) || fallback || key;
+        if (vars && window.RuletLiveWindow && RuletLiveWindow.fill) {
+          return RuletLiveWindow.fill(s, vars);
+        }
+        if (vars) {
+          return String(s).replace(/\{(\w+)\}/g, function (_, k) {
+            return vars[k] != null ? String(vars[k]) : "";
+          });
+        }
+        return s;
+      }
+
+      /** Dynamic “tonight live” chip + busy line from local time + pool state. */
+      function updateHomeLiveWindow(dict, ctx) {
+        ctx = ctx || {};
+        var busyEl = document.getElementById("home-busy-hours");
+        var chip = document.getElementById("home-window-chip");
+        var chipText = document.getElementById("home-window-chip-text");
+        var LW = window.RuletLiveWindow;
+        if (!busyEl) return;
+
+        if (LW && LW.homeBusyLine) {
+          var line = LW.homeBusyLine(function (k, fb, vars) {
+            return tHome(dict, k, fb, vars);
+          }, ctx);
+          busyEl.textContent = line.text;
+          busyEl.classList.remove(
+            "is-live",
+            "is-window-open",
+            "is-window-soon",
+            "is-window-later"
+          );
+          if (line.className) busyEl.classList.add(line.className);
+        } else {
+          busyEl.textContent =
+            tHome(
+              dict,
+              "home.busyHours",
+              "Best odds: evenings (18:00–23:00 local) — bring a friend online at the same time."
+            );
+        }
+
+        if (chip && chipText && LW && LW.getState) {
+          var st = LW.getState();
+          chip.hidden = false;
+          chip.classList.toggle("is-open", !!st.inWindow);
+          chipText.textContent = st.inWindow
+            ? tHome(dict, "home.windowChipOpen", "Tonight live · open now · {range}", {
+                range: st.rangeLabel,
+              })
+            : tHome(dict, "home.windowChipNext", "Tonight live · {range} local", {
+                range: st.rangeLabel,
+              });
+        }
+      }
 
       // Live pool snapshot from bridge /health (no account, public)
       function refreshHomeStats() {
@@ -553,24 +660,19 @@
             if (quietCta) quietCta.hidden = hasPeople;
             var inviteHint = document.getElementById("home-invite-hint");
             if (inviteHint) inviteHint.hidden = !hasPeople;
-            var busyEl = document.getElementById("home-busy-hours");
             var dict = packCache[getLang()] || STR[getLang()] || STR.en;
-            if (busyEl) {
-              if (hasPeople && online > 0) {
-                busyEl.textContent =
-                  (dict && dict["home.busyNow"]) ||
-                  "People online now — Start chatting is the fastest path.";
-                busyEl.classList.add("is-live");
-              } else {
-                busyEl.textContent =
-                  (dict && dict["home.busyHours"]) ||
-                  "Best odds: evenings (18:00–23:00 local) — bring a friend online at the same time.";
-                busyEl.classList.remove("is-live");
-              }
-            }
+            updateHomeLiveWindow(dict, { hasPeople: hasPeople, online: online });
             var inviteBtn = document.getElementById("btn-home-invite");
             if (inviteBtn) {
-              inviteBtn.classList.toggle("is-priority", !hasPeople);
+              // Quiet pool OR outside evening window → push invite harder
+              var st =
+                window.RuletLiveWindow && RuletLiveWindow.getState
+                  ? RuletLiveWindow.getState()
+                  : { inWindow: true };
+              inviteBtn.classList.toggle(
+                "is-priority",
+                !hasPeople || !st.inWindow
+              );
             }
             var cta = document.getElementById("btn-enter");
             if (cta && hasPeople && online > 0) {
@@ -594,6 +696,7 @@
             if (quietCta) quietCta.hidden = false;
             var inviteHint = document.getElementById("home-invite-hint");
             if (inviteHint) inviteHint.hidden = true;
+            updateHomeLiveWindow(dict, { hasPeople: false, online: 0 });
             var offline = wrap.querySelector(".stat-offline");
             if (!offline) {
               offline = document.createElement("span");
@@ -604,8 +707,25 @@
               (dict && dict["home.statsOffline"]) || "Hub offline";
           });
       }
+      // Initial window line before health returns
+      updateHomeLiveWindow(
+        packCache[getLang()] || STR[getLang()] || STR.en,
+        { hasPeople: false, online: 0 }
+      );
       refreshHomeStats();
       setInterval(refreshHomeStats, 10000);
+      // Refresh window labels every minute (phase can flip at :00)
+      setInterval(function () {
+        var dict = packCache[getLang()] || STR[getLang()] || STR.en;
+        var onlineEl = document.getElementById("home-stat-online");
+        var n =
+          onlineEl &&
+          parseInt(String(onlineEl.textContent || "0").replace(/\D/g, ""), 10);
+        updateHomeLiveWindow(dict, {
+          hasPeople: !!(n > 0),
+          online: n || 0,
+        });
+      }, 60000);
 
       // Hero video: poster is LCP; load mp4 only when in view (saves mobile data)
       (function setupHeroVideo() {
@@ -711,6 +831,12 @@
         var okLabel = (dict && dict["home.shareOk"]) || "Link copied";
         var n = homeOnlineCount();
         var text;
+        var range = "18:00–23:00";
+        try {
+          if (window.RuletLiveWindow && RuletLiveWindow.getState) {
+            range = RuletLiveWindow.getState().rangeLabel;
+          }
+        } catch (_) {}
         if (n > 0) {
           text = (
             (dict && dict["home.inviteTextLive"]) ||
@@ -720,9 +846,12 @@
             .replace(/\{brand\}/g, brand);
         } else {
           text = (
+            (dict && dict["home.inviteTextWindow"]) ||
             (dict && dict["home.inviteText"]) ||
-            "Join me on {brand} — random video chat, or Call me as a friend when online."
-          ).replace(/\{brand\}/g, brand);
+            "I’m going on {brand} during tonight live ({range}). Join so we’re not alone."
+          )
+            .replace(/\{brand\}/g, brand)
+            .replace(/\{range\}/g, range);
         }
         var done = function () {
           var prev = btn.textContent;

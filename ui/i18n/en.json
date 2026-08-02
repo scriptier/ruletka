@@ -1389,5 +1389,16 @@
   "remote.camWhy": "Camera is only used for live chat — video goes browser-to-browser, not uploaded to us.",
   "btn.startFirst": "Start chatting",
   "status.afterRules": "Tap Start to meet someone — allow camera when asked",
-  "status.startingCam": "Starting camera… then looking for a partner"
+  "status.startingCam": "Starting camera… then looking for a partner",
+  "home.windowOpen": "Tonight live is open ({range}) — join now or invite a friend so you’re not alone.",
+  "home.windowSoon": "Tonight live starts at {start} (in ~{h}h). Set a reminder — bring a friend.",
+  "home.windowLater": "Best odds: {range} local. Quiet now — invite a friend for the evening window.",
+  "home.windowChipOpen": "Tonight live · open now · {range}",
+  "home.windowChipNext": "Tonight live · {range} local",
+  "home.inviteTextWindow": "I’m going on {brand} during tonight live ({range}). Join so we’re not alone — random chat or Call as friends.",
+  "friends.aloneWindowOpen": "Live window is open ({range}) but the pool is quiet — Share invite so a friend joins now.",
+  "friends.aloneWindowSoon": "Pool is quiet. Tonight live starts at {start} — share invite and meet then.",
+  "friends.aloneWindowLater": "Pool is quiet. Best odds {range} local — invite a friend for the same slot.",
+  "remote.windowChipOpen": "Tonight live · open now · {range}",
+  "remote.windowChipNext": "Tonight live · {start}–{end} local"
 }

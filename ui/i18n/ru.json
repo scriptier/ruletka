@@ -1389,5 +1389,16 @@
   "remote.camWhy": "Камера только для live-чата — видео идёт браузер к браузеру, не на наш сервер.",
   "btn.startFirst": "Начать чат",
   "status.afterRules": "Нажмите Старт — разрешите камеру, когда спросит браузер",
-  "status.startingCam": "Запуск камеры… затем поиск партнёра"
+  "status.startingCam": "Запуск камеры… затем поиск партнёра",
+  "home.windowOpen": "Вечерний live открыт ({range}) — зайди сейчас или пригласи друга, чтобы не ждать в одиночку.",
+  "home.windowSoon": "Вечерний live с {start} (через ~{h} ч). Поставь напоминание — приходи с другом.",
+  "home.windowLater": "Лучше {range} по местному. Сейчас тихо — пригласи друга на вечернее окно.",
+  "home.windowChipOpen": "Вечерний live · сейчас · {range}",
+  "home.windowChipNext": "Вечерний live · {range} по местному",
+  "home.inviteTextWindow": "Буду на {brand} в вечерний live ({range}). Заходи, чтобы не ждать вдвоём — чат или звонок друзьям.",
+  "friends.aloneWindowOpen": "Окно live открыто ({range}), но тихо — поделись приглашением, чтобы друг зашёл сейчас.",
+  "friends.aloneWindowSoon": "Тихо. Вечерний live с {start} — поделись приглашением и встретьтесь тогда.",
+  "friends.aloneWindowLater": "Тихо. Лучше {range} по местному — пригласи друга в тот же слот.",
+  "remote.windowChipOpen": "Вечерний live · сейчас · {range}",
+  "remote.windowChipNext": "Вечерний live · {start}–{end} по местному"
 }

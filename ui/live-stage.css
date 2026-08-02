@@ -4142,6 +4142,50 @@ html[data-theme="saloon"] .weak-conn-tip {
   font-weight: 550;
 }
 
+/* Tonight live window chip on empty partner tile */
+.empty-window-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.35rem auto 0.15rem;
+  padding: 0.28rem 0.7rem 0.28rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  color: #f0d9a0;
+  background: rgba(255, 180, 60, 0.12);
+  border: 1px solid rgba(255, 190, 80, 0.28);
+  max-width: min(22rem, 100%);
+}
+.empty-window-chip[hidden] {
+  display: none !important;
+}
+.empty-window-chip.is-open {
+  color: #9ee6c0;
+  background: rgba(60, 200, 140, 0.14);
+  border-color: rgba(80, 200, 140, 0.35);
+}
+.empty-window-dot {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 50%;
+  background: #f0b040;
+  flex-shrink: 0;
+}
+.empty-window-chip.is-open .empty-window-dot {
+  background: #3dd68c;
+  box-shadow: 0 0 0 3px rgba(61, 214, 140, 0.22);
+  animation: empty-window-pulse 1.6s ease-in-out infinite;
+}
+@keyframes empty-window-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .empty-window-chip.is-open .empty-window-dot { animation: none; }
+}
+
 /* Week-6 cold-start: steps on empty card (not a popup) */
 .empty-first-hint {
   list-style: none;

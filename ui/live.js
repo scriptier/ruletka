@@ -7782,6 +7782,9 @@ function updateEmptyShareVisibility() {
   try {
     updateFirstRunEmptyHint();
   } catch (_) {}
+  try {
+    updateEmptyWindowChip();
+  } catch (_) {}
 }
 
 /**
@@ -8367,6 +8370,39 @@ function setSearchingEmptyCopy() {
 let aloneQrAutoTimer = 0;
 
 /**
+ * Tonight-live chip on empty card (idle or alone search).
+ */
+function updateEmptyWindowChip() {
+  const chip = $("empty-window-chip");
+  const text = $("empty-window-chip-text");
+  if (!chip || !text) return;
+  const empty = $("remote-empty");
+  const emptyOpen =
+    !!empty &&
+    !empty.classList.contains("hidden") &&
+    !matched &&
+    !inFriendCall &&
+    !trioBrowse;
+  if (!emptyOpen || typeof RuletLiveWindow === "undefined") {
+    chip.hidden = true;
+    return;
+  }
+  const st = RuletLiveWindow.getState();
+  const t = (k, fb, vars) => {
+    let s = _t(k) || fb;
+    if (s === k) s = fb;
+    return RuletLiveWindow.fill ? RuletLiveWindow.fill(s, vars) : s;
+  };
+  chip.hidden = false;
+  chip.classList.toggle("is-open", !!st.inWindow);
+  text.textContent = RuletLiveWindow.idleChipLine
+    ? RuletLiveWindow.idleChipLine(t)
+    : st.inWindow
+      ? `Tonight live · open · ${st.rangeLabel}`
+      : `Tonight live · ${st.rangeLabel}`;
+}
+
+/**
  * Alone / quiet pool while searching: one dominant Share CTA (+ optional Call).
  * Secondary actions (copy / QR / friends) stay collapsed under “More”.
  */
@@ -8392,6 +8428,25 @@ function updateEmptyAloneActions() {
     row.classList.toggle("is-dominant", !!show);
   }
   document.documentElement.classList.toggle("alone-searching", !!show);
+
+  // Dynamic alone lead from tonight-live window
+  try {
+    const lead = row?.querySelector?.(".empty-alone-lead");
+    if (lead && show && typeof RuletLiveWindow !== "undefined") {
+      const t = (k, fb, vars) => {
+        let s = _t(k) || fb;
+        if (s === k) s = fb;
+        return RuletLiveWindow.fill ? RuletLiveWindow.fill(s, vars) : s;
+      };
+      lead.textContent =
+        RuletLiveWindow.aloneLeadLine?.(t) ||
+        _t("friends.aloneInviteLead") ||
+        lead.textContent;
+    }
+  } catch (_) {}
+  try {
+    updateEmptyWindowChip();
+  } catch (_) {}
 
   // Online friends → one-tap Call (better than cold invite when possible)
   const callRow = $("empty-alone-call-row");

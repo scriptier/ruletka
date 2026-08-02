@@ -54,7 +54,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&family=Pixelify+Sans:wght@400;500;600;700&family=Press+Start+2P&display=swap" rel="stylesheet" />
   </noscript>
   <link rel="stylesheet" href="style.css?v=157" />
-  <link rel="stylesheet" href="live-stage.css?v=261" />
+  <link rel="stylesheet" href="live-stage.css?v=262" />
   <script src="brand.js?v=2"></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -358,6 +358,11 @@
               <svg class="icon icon-empty"><use href="#i-pointer"/></svg>
             </div>
             <div class="empty-title" data-i18n="remote.emptyTitle">Tap Start to begin</div>
+            <!-- Tonight live window chip (local time) -->
+            <p class="empty-window-chip" id="empty-window-chip" hidden>
+              <span class="empty-window-dot" aria-hidden="true"></span>
+              <span id="empty-window-chip-text">Tonight live · 18:00–23:00</span>
+            </p>
             <!-- empty-sub kept for connecting status only — alone-tips disabled -->
             <div class="empty-sub" id="remote-empty-sub" hidden></div>
             <!-- Week-6 cold-start: one-screen path (not a soft-popup nag) -->
@@ -2089,13 +2094,14 @@
   <!-- cache-bust so browsers always get auto-connect / auto-media fixes -->
   <script src="analytics.js?v=2" defer></script>
   <script src="pwa-install.js?v=7" defer></script>
+  <script src="live-window.js?v=1"></script>
   <script src="qrcode-generator.js?v=1"></script>
   <script src="qr.js?v=1"></script>
-  <script src="i18n.js?v=192"></script>
+  <script src="i18n.js?v=193"></script>
   <script src="identity.js?v=156"></script>
   <script src="hubs.js?v=156"></script>
   <script src="webrtc.js?v=158"></script>
-  <script src="live.js?v=261"></script>
+  <script src="live.js?v=262"></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

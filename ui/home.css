@@ -1258,10 +1258,51 @@ body.has-live-people .home-cta {
   }
 }
 
-/* Week-1 liquidity strip under hero stats */
+/* Liquidity strip: tonight live window + invite */
 .home-liquidity {
   margin-top: 0.85rem;
   max-width: 34rem;
+}
+.home-window-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 0.45rem;
+  padding: 0.28rem 0.7rem 0.28rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  color: #f0d9a0;
+  background: rgba(255, 180, 60, 0.1);
+  border: 1px solid rgba(255, 190, 80, 0.28);
+}
+.home-window-chip[hidden] {
+  display: none !important;
+}
+.home-window-chip.is-open {
+  color: #9ee6c0;
+  background: rgba(60, 200, 140, 0.12);
+  border-color: rgba(80, 200, 140, 0.35);
+}
+.home-window-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: #f0b040;
+  box-shadow: 0 0 0 3px rgba(240, 176, 64, 0.2);
+}
+.home-window-chip.is-open .home-window-dot {
+  background: #3dd68c;
+  box-shadow: 0 0 0 3px rgba(61, 214, 140, 0.25);
+  animation: home-window-pulse 1.6s ease-in-out infinite;
+}
+@keyframes home-window-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-window-chip.is-open .home-window-dot { animation: none; }
 }
 .home-busy-hours {
   margin: 0 0 0.4rem;
@@ -1271,8 +1312,15 @@ body.has-live-people .home-cta {
   color: #f0d9a0;
   letter-spacing: 0.01em;
 }
-.home-busy-hours.is-live {
+.home-busy-hours.is-live,
+.home-busy-hours.is-window-open {
   color: #9ee6c0;
+}
+.home-busy-hours.is-window-soon {
+  color: #ffd28a;
+}
+.home-busy-hours.is-window-later {
+  color: #f0d9a0;
 }
 .home-quiet-cta {
   margin: 0.35rem 0 0;
