@@ -8364,6 +8364,29 @@ function maybeShowPeopleOnlineNudge() {
 /** @type {"room"|"friend"|null} */
 let emptyShareQrMode = null;
 
+/** Dynamic script loader (QR / invite helpers — off critical path). */
+const _scriptLoadCache = Object.create(null);
+function loadScriptOnce(src) {
+  if (_scriptLoadCache[src]) return _scriptLoadCache[src];
+  _scriptLoadCache[src] = new Promise((resolve, reject) => {
+    if (document.querySelector(`script[data-dyn-src="${src}"]`)) {
+      resolve();
+      return;
+    }
+    const s = document.createElement("script");
+    s.src = src;
+    s.async = true;
+    s.dataset.dynSrc = src;
+    s.onload = () => resolve();
+    s.onerror = () => {
+      delete _scriptLoadCache[src];
+      reject(new Error("load " + src));
+    };
+    document.head.appendChild(s);
+  });
+  return _scriptLoadCache[src];
+}
+
 /** Lazy-load QR libs only when user opens a QR (saves ~56KB on first paint). */
 let _qrLoadPromise = null;
 function ensureRuletQr() {
@@ -8371,29 +8394,33 @@ function ensureRuletQr() {
     return Promise.resolve(true);
   }
   if (_qrLoadPromise) return _qrLoadPromise;
-  _qrLoadPromise = new Promise((resolve) => {
-    const loadOne = (src) =>
-      new Promise((res, rej) => {
-        const s = document.createElement("script");
-        s.src = src;
-        s.async = true;
-        s.onload = () => res();
-        s.onerror = () => rej(new Error("load " + src));
-        document.head.appendChild(s);
-      });
-    loadOne("/qrcode-generator.js?v=2")
-      .then(() => loadOne("/qr.js?v=2"))
-      .then(() =>
-        resolve(
-          typeof RuletQr !== "undefined" && typeof RuletQr.render === "function"
-        )
-      )
-      .catch(() => {
-        _qrLoadPromise = null;
-        resolve(false);
-      });
-  });
+  _qrLoadPromise = loadScriptOnce("/qrcode-generator.js?v=2")
+    .then(() => loadScriptOnce("/qr.js?v=2"))
+    .then(
+      () =>
+        typeof RuletQr !== "undefined" && typeof RuletQr.render === "function"
+    )
+    .catch(() => {
+      _qrLoadPromise = null;
+      return false;
+    });
   return _qrLoadPromise;
+}
+
+/** Tonight-window helper — tiny, but not needed until empty/alone UI paints. */
+function ensureLiveWindow() {
+  if (typeof RuletLiveWindow !== "undefined") return Promise.resolve(true);
+  return loadScriptOnce("/live-window.js?v=2")
+    .then(() => typeof RuletLiveWindow !== "undefined")
+    .catch(() => false);
+}
+
+/** Invite copy pack helper — load on first share. */
+function ensureInviteCopy() {
+  if (typeof RuletInviteCopy !== "undefined") return Promise.resolve(true);
+  return loadScriptOnce("/invite-copy.js?v=2")
+    .then(() => typeof RuletInviteCopy !== "undefined")
+    .catch(() => false);
 }
 
 function hideEmptyShareQr() {
@@ -8593,23 +8620,36 @@ function updateEmptyWindowChip() {
     !matched &&
     !inFriendCall &&
     !trioBrowse;
-  if (!emptyOpen || typeof RuletLiveWindow === "undefined") {
+  if (!emptyOpen) {
     chip.hidden = true;
     return;
   }
-  const st = RuletLiveWindow.getState();
-  const t = (k, fb, vars) => {
-    let s = _t(k) || fb;
-    if (s === k) s = fb;
-    return RuletLiveWindow.fill ? RuletLiveWindow.fill(s, vars) : s;
+  const paint = () => {
+    if (typeof RuletLiveWindow === "undefined") {
+      chip.hidden = true;
+      return;
+    }
+    const st = RuletLiveWindow.getState();
+    const t = (k, fb, vars) => {
+      let s = _t(k) || fb;
+      if (s === k) s = fb;
+      return RuletLiveWindow.fill ? RuletLiveWindow.fill(s, vars) : s;
+    };
+    chip.hidden = false;
+    chip.classList.toggle("is-open", !!st.inWindow);
+    text.textContent = RuletLiveWindow.idleChipLine
+      ? RuletLiveWindow.idleChipLine(t)
+      : st.inWindow
+        ? `Tonight live · open · ${st.rangeLabel}`
+        : `Tonight live · ${st.rangeLabel}`;
   };
-  chip.hidden = false;
-  chip.classList.toggle("is-open", !!st.inWindow);
-  text.textContent = RuletLiveWindow.idleChipLine
-    ? RuletLiveWindow.idleChipLine(t)
-    : st.inWindow
-      ? `Tonight live · open · ${st.rangeLabel}`
-      : `Tonight live · ${st.rangeLabel}`;
+  if (typeof RuletLiveWindow !== "undefined") {
+    paint();
+  } else {
+    ensureLiveWindow().then((ok) => {
+      if (ok) paint();
+    });
+  }
 }
 
 /**
@@ -8639,10 +8679,11 @@ function updateEmptyAloneActions() {
   }
   document.documentElement.classList.toggle("alone-searching", !!show);
 
-  // Dynamic alone lead from tonight-live window
+  // Dynamic alone lead from tonight-live window (helper may load async)
   try {
     const lead = row?.querySelector?.(".empty-alone-lead");
-    if (lead && show && typeof RuletLiveWindow !== "undefined") {
+    const applyLead = () => {
+      if (!lead || !show || typeof RuletLiveWindow === "undefined") return;
       const t = (k, fb, vars) => {
         let s = _t(k) || fb;
         if (s === k) s = fb;
@@ -8652,7 +8693,9 @@ function updateEmptyAloneActions() {
         RuletLiveWindow.aloneLeadLine?.(t) ||
         _t("friends.aloneInviteLead") ||
         lead.textContent;
-    }
+    };
+    if (typeof RuletLiveWindow !== "undefined") applyLead();
+    else if (show) ensureLiveWindow().then((ok) => ok && applyLead());
   } catch (_) {}
   try {
     updateEmptyWindowChip();
@@ -18498,10 +18541,11 @@ async function shareFriendInvite({ preferShare = true, liveNow = false } = {}) {
       _t("friends.inviteLiveNow", { code, brand }) ||
       `I'm on ${brand} live now — add me with code ${code} then Call when Online`;
   }
-  // Full paste pack (Telegram-friendly) via shared invite-copy helper
+  // Full paste pack (Telegram-friendly) — load helper on first share
   let packText = title;
   let shareLine = title;
   try {
+    await ensureInviteCopy();
     if (typeof RuletInviteCopy !== "undefined" && RuletInviteCopy.buildPack) {
       const t = (k, fb) => {
         const v = _t(k);
