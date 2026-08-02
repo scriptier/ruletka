@@ -41,6 +41,7 @@ npx expo run:android
 | 15 | Export encrypted backup → import on second install | |
 | 16 | Kill network → reconnect strip → recovers | |
 | 17 | (Optional) friends-only build: no stranger Start | |
+| 18 | Open `ruletka://friend/OTHERCODE` → Friends + request sent | | |
 
 Hub default: `https://ruletka.vip` (`EXPO_PUBLIC_HUB_BASE`).
 

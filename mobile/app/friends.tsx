@@ -20,6 +20,7 @@ import { hubBase } from "../src/config";
 import type { FriendInfo } from "../src/hub/types";
 import { useHub } from "../src/hub/HubProvider";
 import { useT } from "../src/i18n";
+import { friendInviteShareMessage } from "../src/linking/friendInvite";
 
 function FriendRow(props: {
   item: FriendInfo;
@@ -81,6 +82,7 @@ export default function FriendsScreen() {
     connected,
     setOutboundCall,
     callHistoryTick,
+    pendingFriendCode,
   } = useHub();
   const t = useT();
   const [code, setCode] = useState("");
@@ -90,6 +92,10 @@ export default function FriendsScreen() {
     loadCallHistory().then(setHistory);
     markMissedCallsRead().catch(() => {});
   }, [callHistoryTick]);
+
+  useEffect(() => {
+    if (pendingFriendCode) setCode(pendingFriendCode);
+  }, [pendingFriendCode]);
 
   function add() {
     const c = code.trim().toUpperCase();
@@ -107,16 +113,11 @@ export default function FriendsScreen() {
   }
 
   function shareMyCode() {
-    const url = `${hubBase()}/live.html?friend=${encodeURIComponent(friendCode)}&ref=friend_invite`;
+    const share = friendInviteShareMessage(hubBase(), friendCode, "ruletka");
     Share.share({
-      message: t("friends.inviteLiveNow", {
-        brand: "ruletka",
-        code: friendCode,
-      }) + `\n${url}`,
-      title: t("friends.inviteLiveTitle", {
-        brand: "ruletka",
-        code: friendCode,
-      }),
+      message: share.message,
+      title: share.title,
+      url: share.url,
     }).catch(() => {});
   }
 

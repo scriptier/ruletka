@@ -14,6 +14,7 @@ import { hubBase, isFriendsOnly } from "../src/config";
 import { useHub } from "../src/hub/HubProvider";
 import type { MatchPeer, ServerMatched, ServerMsg } from "../src/hub/types";
 import { useT } from "../src/i18n";
+import { friendInviteShareMessage } from "../src/linking/friendInvite";
 import { MediaSession, type MediaStreamLike } from "../src/media/MediaSession";
 import { loadMatchPrefs } from "../src/prefs/store";
 import { GIFTS } from "../src/stars/gifts";
@@ -392,11 +393,11 @@ export default function LiveScreen() {
 
   function shareInvite() {
     const code = friendCode || "……";
-    const url = `${hubBase()}/live.html?friend=${encodeURIComponent(code)}&ref=friend_invite`;
+    const share = friendInviteShareMessage(hubBase(), code, "ruletka");
     Share.share({
-      message:
-        t("friends.inviteLiveNow", { brand: "ruletka", code }) + `\n${url}`,
-      title: t("friends.inviteLiveTitle", { brand: "ruletka", code }),
+      message: share.message,
+      title: share.title,
+      url: share.url,
     }).catch(() => {});
   }
 

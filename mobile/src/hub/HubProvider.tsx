@@ -65,9 +65,14 @@ type HubContextValue = {
   setOutboundCall: (c: OutboundCall | null) => void;
   toast: string;
   clearToast: () => void;
+  showToast: (msg: string) => void;
   /** Bumps when local call history changes (Friends screen reloads). */
   callHistoryTick: number;
   recordNoAnswer: (peer: OutboundCall) => void;
+  /** Pending friend code from deep link (Friends screen may prefill). */
+  pendingFriendCode: string;
+  clearPendingFriendCode: () => void;
+  consumeFriendInvite: (code: string) => void;
 };
 
 const HubCtx = createContext<HubContextValue | null>(null);
@@ -98,6 +103,8 @@ export function HubProvider(props: {
   const [lastError, setLastError] = useState("");
   const [toast, setToast] = useState("");
   const [callHistoryTick, setCallHistoryTick] = useState(0);
+  const [pendingFriendCode, setPendingFriendCode] = useState("");
+  const inviteSentRef = useRef<Set<string>>(new Set());
 
   const incomingRef = useRef<IncomingCall | null>(null);
   const outboundRef = useRef<OutboundCall | null>(null);
@@ -105,8 +112,13 @@ export function HubProvider(props: {
   outboundRef.current = outboundCall;
 
   const clearToast = useCallback(() => setToast(""), []);
+  const showToast = useCallback((msg: string) => setToast(msg), []);
   const clearIncomingCall = useCallback(() => setIncomingCall(null), []);
   const clearRatePrompt = useCallback(() => setRatePrompt(null), []);
+  const clearPendingFriendCode = useCallback(
+    () => setPendingFriendCode(""),
+    []
+  );
 
   const bumpHistory = useCallback(() => {
     setCallHistoryTick((n) => n + 1);
@@ -123,6 +135,16 @@ export function HubProvider(props: {
     },
     [bumpHistory]
   );
+
+  /** Queue a friend code from deep link; auto-send when connected. */
+  const consumeFriendInvite = useCallback((code: string) => {
+    const c = String(code || "")
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "");
+    if (c.length < 4) return;
+    setPendingFriendCode(c);
+  }, []);
 
   const addMessageListener = useCallback((fn: (msg: ServerMsg) => void) => {
     listeners.current.add(fn);
@@ -342,6 +364,23 @@ export function HubProvider(props: {
     };
   }, [identity.name, identity.user_id, bumpHistory]);
 
+  // Auto-send pending friend invite once WS is up
+  useEffect(() => {
+    if (!connected || !pendingFriendCode) return;
+    if (inviteSentRef.current.has(pendingFriendCode)) {
+      setPendingFriendCode("");
+      return;
+    }
+    try {
+      hubRef.current.addFriend(pendingFriendCode);
+      inviteSentRef.current.add(pendingFriendCode);
+      setToast(`Friend request → ${pendingFriendCode}`);
+      setPendingFriendCode("");
+    } catch {
+      /* keep pending for retry */
+    }
+  }, [connected, pendingFriendCode]);
+
   const value = useMemo<HubContextValue>(
     () => ({
       hub: hubRef.current,
@@ -362,8 +401,12 @@ export function HubProvider(props: {
       setOutboundCall,
       toast,
       clearToast,
+      showToast,
       callHistoryTick,
       recordNoAnswer,
+      pendingFriendCode,
+      clearPendingFriendCode,
+      consumeFriendInvite,
     }),
     [
       connected,
@@ -381,8 +424,12 @@ export function HubProvider(props: {
       clearIncomingCall,
       toast,
       clearToast,
+      showToast,
       callHistoryTick,
       recordNoAnswer,
+      pendingFriendCode,
+      clearPendingFriendCode,
+      consumeFriendInvite,
     ]
   );
 

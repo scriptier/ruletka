@@ -15,7 +15,7 @@
     "build:preview": "eas build --profile preview --platform all",
     "build:prod": "eas build --profile production --platform all",
     "build:friends": "eas build --profile production-friends --platform all",
-    "test": "jest --passWithNoTests"
+    "test": "node scripts/test-friend-invite.mjs"
   },
   "dependencies": {
     "@config-plugins/react-native-webrtc": "^10.0.0",

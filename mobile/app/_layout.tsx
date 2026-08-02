@@ -21,6 +21,7 @@ import {
   type LocalIdentity,
 } from "../src/identity/store";
 import { I18nProvider, useT } from "../src/i18n";
+import { FriendInviteHandler } from "../src/linking/FriendInviteHandler";
 
 export type AppContext = {
   identity: LocalIdentity;
@@ -165,6 +166,7 @@ function Shell({
   if (!rulesOk) return <>{children}</>;
   return (
     <HubProvider identity={identity}>
+      <FriendInviteHandler />
       <CallBanners />
       {children}
     </HubProvider>

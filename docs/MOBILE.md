@@ -58,6 +58,7 @@ Push for friend rings while killed is **post-first-submit** unless schedule allo
 - [x] Online presence (friends list)
 - [x] Call / answer / decline / cancel (in-app banners)
 - [x] No-answer / missed call history UI
+- [x] Friend invite deep links (`ruletka://friend/CODE` + `?friend=` web URLs)
 
 ### Stars
 

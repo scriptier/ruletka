@@ -32,6 +32,7 @@ See monorepo docs:
 | 30s outbound ring timeout | ✅ |
 | i18n (web packs + mobile overlay) | ✅ Settings → Language |
 | Store icons + Play feature graphic | ✅ `assets/` + `assets/store/` from brand |
+| Friend invite deep links | ✅ `ruletka://friend/CODE` + web `?friend=` |
 
 ### First A/V call (device)
 

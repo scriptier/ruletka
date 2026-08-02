@@ -35,3 +35,38 @@ jobs:
           done
           grep -q 'ruletka-directory/1' ui/hubs.json
           grep -q 'RuletHub' ui/hubs.js
+
+  mobile:
+    name: Mobile typecheck + invite tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Friend invite unit tests
+        run: npm test
+      - name: Store assets present
+        run: |
+          test -f assets/icon.png
+          test -f assets/store/play-feature-1024x500.png
+          test -f assets/store/app-icon-1024.png
+          # icons must not be the old 48px placeholders (PNG IHDR)
+          python3 - <<'PY'
+          import struct
+          from pathlib import Path
+          data = Path("assets/icon.png").read_bytes()
+          assert data[:8] == b"\x89PNG\r\n\x1a\n"
+          w, h = struct.unpack(">II", data[16:24])
+          assert w >= 512 and h >= 512, (w, h)
+          print("icon", w, h)
+          PY
