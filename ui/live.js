@@ -2491,6 +2491,10 @@ function setStarsBadge(which, count, opts = {}) {
       (_t("stars.badgeClick") || "Click for Stars guide and gifts");
   }
   applyStarsTierFrames(which, tierScore);
+  // Match-time tier chip (New / Known / Trusted / Senior)
+  try {
+    setTrustTierChip(which, which === "local" ? tierScore : n);
+  } catch (_) {}
   if (which === "local" && (n !== prevLocalBal || tierScore !== prevLocalTrust)) {
     maybeStarsAlmostThereNudge(tierScore);
   }
@@ -2526,6 +2530,80 @@ function reportWeightForStars(stars) {
   if (n >= STARS_SENIOR_GOAL) return 3;
   if (n >= STARS_TRUSTED_GOAL) return 2;
   return 1;
+}
+
+/**
+ * Human tier key from trust score.
+ * @returns {"new"|"known"|"trusted"|"senior"}
+ */
+function trustTierKey(trust) {
+  const n = Math.max(0, Number(trust) || 0);
+  if (n >= STARS_SENIOR_GOAL) return "senior";
+  if (n >= STARS_TRUSTED_GOAL) return "trusted";
+  if (n > 0) return "known";
+  return "new";
+}
+
+function trustTierLabel(trust) {
+  const key = trustTierKey(trust);
+  if (key === "senior") return _t("stars.chipSenior") || "Senior";
+  if (key === "trusted") return _t("stars.chipTrusted") || "Trusted";
+  if (key === "known") return _t("stars.chipKnown") || "Known";
+  return _t("stars.chipNew") || "New";
+}
+
+/**
+ * Compact tier chip on video tiles (match-time reputation signal).
+ * @param {"local"|"remote"} which
+ * @param {number} trust
+ * @param {{ forceShow?: boolean }} [opts]
+ */
+function setTrustTierChip(which, trust, opts = {}) {
+  const id = which === "local" ? "local-trust-chip" : "remote-trust-chip";
+  const el = $(id);
+  if (!el) return;
+  const n = Math.max(0, Math.floor(Number(trust) || 0));
+  const key = trustTierKey(n);
+  const live = !!(matched || inFriendCall);
+  // Local: show during live or when trust > 0. Remote: during live always.
+  const show =
+    opts.forceShow ||
+    (which === "remote" ? live : live || n > 0);
+  el.classList.remove(
+    "tier-new",
+    "tier-known",
+    "tier-trusted",
+    "tier-senior",
+    "is-live"
+  );
+  el.classList.add(`tier-${key}`);
+  if (live) el.classList.add("is-live");
+  el.textContent = trustTierLabel(n);
+  el.dataset.trust = String(n);
+  el.dataset.tier = key;
+  const tip =
+    key === "senior"
+      ? _t("stars.chipSeniorTip") || "Senior · reports ×3 · harder to ban"
+      : key === "trusted"
+        ? _t("stars.chipTrustedTip") || "Trusted · reports ×2"
+        : key === "known"
+          ? _t("stars.chipKnownTip", { n }) || `Known · trust ${n}`
+          : _t("stars.chipNewTip") || "New · no peer gifts yet";
+  el.title = tip;
+  el.setAttribute("aria-label", tip);
+  el.hidden = !show;
+  if (show) el.removeAttribute("hidden");
+  else el.setAttribute("hidden", "");
+}
+
+function clearTrustTierChips() {
+  setTrustTierChip("remote", 0, { forceShow: false });
+  const remote = $("remote-trust-chip");
+  if (remote) {
+    remote.hidden = true;
+    remote.setAttribute("hidden", "");
+  }
+  setTrustTierChip("local", myTrust);
 }
 
 function syncStarsSheetUi() {
@@ -2951,6 +3029,13 @@ function wireStarBadgeInteractions() {
 function clearPartnerStarsBadge() {
   partnerStars = 0;
   setStarsBadge("remote", 0);
+  try {
+    const chip = $("remote-trust-chip");
+    if (chip) {
+      chip.hidden = true;
+      chip.setAttribute("hidden", "");
+    }
+  } catch (_) {}
   try {
     closeStarGiftPop();
   } catch (_) {}
@@ -9933,19 +10018,33 @@ function showMatchFoundToast(opts = {}) {
   const friend = matchMode === "friend" || inFriendCall;
   let title;
   let body = "";
+  const tierBit = (() => {
+    try {
+      if (friend) return "";
+      const t = Math.max(0, Number(partnerStars) || 0);
+      const label = trustTierLabel(t);
+      return label
+        ? _t("match.partnerTier", { tier: label, n: t }) ||
+            (t > 0 ? `${label} · trust ${t}` : label)
+        : "";
+    } catch (_) {
+      return "";
+    }
+  })();
   if (opts.connected) {
     title =
       _t("match.connectedTitle") ||
       (friend ? "Friend call connected" : "Connected");
     const path = ($("ice-path")?.textContent || "").trim();
     body =
-      path ||
+      [path, tierBit].filter(Boolean).join(" · ") ||
       _t("match.connectedBody") ||
       (friend ? "Private call · P2P video" : "Video is peer-to-peer");
   } else {
     title =
       _t("match.foundTitle") || (friend ? "Friend connected" : "Partner found");
     body =
+      tierBit ||
       _t("match.foundBody") ||
       (friend ? "Connecting video…" : "Connecting video…");
   }
@@ -15060,7 +15159,7 @@ function handleMatched(msg) {
     refreshFlairUi();
   } catch (_) {}
   setStarsBadge("remote", partnerStars);
-  setStarsBadge("local", myStars); // show yours so click-to-spend works
+  setStarsBadge("local", myStars, { trust: myTrust }); // balance + trust tier
   // Partner may already be behind bars from a prior gift
   {
     const p =
@@ -18650,7 +18749,7 @@ on("btn-spin", "click", () => {
   try {
     closeStarGiftPop();
   } catch (_) {}
-  setStarsBadge("local", myStars); // hide if 0 when not in call
+  setStarsBadge("local", myStars, { trust: myTrust });
   trioBrowse = false;
   setSplitRemote(false);
   enableTrioLayout(false);

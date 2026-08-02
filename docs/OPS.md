@@ -97,6 +97,8 @@ When changing the SW shell list, bump `CACHE` in `sw.js`.
 
 **Star rate window:** first **3** unique partners can open the post-chat ★ gift after **5 minutes**; after that, **15 minutes** (unchanged). Hour mutual mint stays at 60 minutes. Client shows mid-chat progress toward the unlock.
 
+**Matchmaking (soft trust rank):** among gender/tag-compatible candidates, the hub prefers mixed (new+known) over new↔new, and lightly boosts trusted/senior when **≥3 solos** are waiting. Never blocks a match when the pool is empty — FIFO rematch still works.
+
 Reports are append-logged (JSONL under the friends data dir / reports path).  
 Clients always **block + skip** locally after Report.
 

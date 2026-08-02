@@ -13729,6 +13729,71 @@ html.has-duo-flair .flair-chip {
   }
 }
 
+/* Match-time trust tier chip (New / Known / Trusted / Senior) */
+.trust-tier-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 5.5rem;
+  padding: 0.12rem 0.38rem;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(12, 14, 20, 0.72);
+  color: rgba(220, 230, 245, 0.88);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.trust-tier-chip[hidden] {
+  display: none !important;
+}
+.trust-tier-chip.tier-new {
+  opacity: 0.78;
+  border-color: rgba(160, 175, 200, 0.28);
+  color: rgba(190, 200, 220, 0.9);
+}
+.trust-tier-chip.tier-known {
+  border-color: rgba(120, 180, 255, 0.4);
+  color: rgba(180, 215, 255, 0.95);
+  background: rgba(40, 80, 140, 0.35);
+}
+.trust-tier-chip.tier-trusted {
+  border-color: rgba(255, 200, 70, 0.55);
+  color: rgba(255, 230, 150, 0.98);
+  background: rgba(90, 60, 10, 0.45);
+  box-shadow: 0 0 10px rgba(255, 180, 40, 0.25);
+}
+.trust-tier-chip.tier-senior {
+  border-color: rgba(255, 220, 100, 0.75);
+  color: #ffe9a0;
+  background: linear-gradient(
+    135deg,
+    rgba(120, 70, 10, 0.55),
+    rgba(80, 40, 0, 0.5)
+  );
+  box-shadow:
+    0 0 12px rgba(255, 180, 40, 0.35),
+    0 0 0 1px rgba(255, 220, 120, 0.2);
+}
+.tile-remote-id .trust-tier-chip,
+.tile-tag-local-name .trust-tier-chip {
+  margin-left: 0.15rem;
+  flex-shrink: 0;
+}
+@media (max-width: 520px) {
+  .trust-tier-chip {
+    font-size: 0.55rem;
+    padding: 0.1rem 0.3rem;
+    max-width: 4.5rem;
+  }
+}
+
 /* ── Star tier frames: avatars only (name/flag stay plain) ── */
 /* Intentionally no gold ring on .name-on-tile / #local-name / #remote-tag */
 .tile-tag.has-star-tier.tier-trusted,

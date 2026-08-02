@@ -2369,6 +2369,61 @@ impl SimpleHub {
         }
     }
 
+    /// Representative trust for a queue entry (solo = user; party = max of members).
+    fn entry_trust(&self, e: &QueueEntry) -> u64 {
+        match e {
+            QueueEntry::Solo(id) => self
+                .clients
+                .get(id)
+                .map(|c| self.trust_for(&c.user_id))
+                .unwrap_or(0),
+            QueueEntry::Party { a, b } => {
+                let ta = self
+                    .clients
+                    .get(a)
+                    .map(|c| self.trust_for(&c.user_id))
+                    .unwrap_or(0);
+                let tb = self
+                    .clients
+                    .get(b)
+                    .map(|c| self.trust_for(&c.user_id))
+                    .unwrap_or(0);
+                ta.max(tb)
+            }
+        }
+    }
+
+    /// Soft ranking among gender/tag-compatible pairs (never hard-blocks).
+    /// Higher = preferred. Deprioritizes new↔new; lightly boosts known/trusted.
+    /// Only meaningful when several soft candidates exist (empty pool: FIFO).
+    fn pair_trust_rank(&self, left: &QueueEntry, right: &QueueEntry) -> i32 {
+        let ta = self.entry_trust(left);
+        let tb = self.entry_trust(right);
+        let mut score: i32 = 0;
+        // Prefer mixed or known pairs over two brand-new (trust 0) strangers
+        if ta == 0 && tb == 0 {
+            score -= 50;
+        } else if (ta == 0) != (tb == 0) {
+            // One new + one known — good onboarding
+            score += 25;
+        } else {
+            score += 8;
+        }
+        // Tiny priority for high-trust when pool is busy (waiting solos ≥ 3)
+        let busy = self.waiting_solo_count() >= 3;
+        if busy {
+            if ta >= Self::SENIOR_REPORTER_STARS || tb >= Self::SENIOR_REPORTER_STARS {
+                score += 12;
+            } else if ta >= Self::TRUSTED_REPORTER_STARS || tb >= Self::TRUSTED_REPORTER_STARS {
+                score += 6;
+            }
+        }
+        // Slight preference for higher min trust (less spammy pairings)
+        let min_t = ta.min(tb).min(50) as i32;
+        score += min_t / 10;
+        score
+    }
+
     fn metrics_path(&self) -> PathBuf {
         self.friends_path
             .parent()
@@ -4263,11 +4318,12 @@ impl SimpleHub {
             };
 
             // Find compatible second entry:
-            // 1) soft gender/tags prefs (not last partner)
+            // 1) soft gender/tags prefs (not last partner) — best trust rank wins
             // 2) any non-last-partner
             // 3) last partner (rematch) — only when no one else is waiting
             //    (hard-blocking rematch left 2-person pools stuck until refresh)
-            let mut found_idx = None;
+            // Trust rank is soft only: never blocks matching when pool is empty.
+            let mut best_soft: Option<(usize, i32)> = None;
             let mut found_fallback = None;
             let mut rematch_fallback = None;
             for (i, e) in self.queue.iter().enumerate() {
@@ -4315,16 +4371,21 @@ impl SimpleHub {
                     continue;
                 }
                 if self.entries_prefs_soft_ok(&first, e) {
-                    found_idx = Some(i);
-                    break;
+                    let rank = self.pair_trust_rank(&first, e);
+                    match best_soft {
+                        Some((_, best)) if rank <= best => {}
+                        _ => best_soft = Some((i, rank)),
+                    }
+                    continue;
                 }
                 if found_fallback.is_none() {
                     found_fallback = Some(i);
                 }
             }
-            if found_idx.is_none() {
-                found_idx = found_fallback.or(rematch_fallback);
-            }
+            let found_idx = best_soft
+                .map(|(i, _)| i)
+                .or(found_fallback)
+                .or(rematch_fallback);
 
             let Some(i) = found_idx else {
                 self.queue.push_back(first);

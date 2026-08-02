@@ -54,9 +54,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </noscript>
   <!-- Critical CSS: preload then apply (faster first paint on mobile) -->
-  <link rel="preload" href="live-stage.css?v=266" as="style" />
+  <link rel="preload" href="live-stage.css?v=267" as="style" />
   <link rel="stylesheet" href="style.css?v=158" />
-  <link rel="stylesheet" href="live-stage.css?v=266" />
+  <link rel="stylesheet" href="live-stage.css?v=267" />
   <script src="brand.js?v=2"></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -463,6 +463,7 @@
           <div class="tile-remote-id">
             <span class="tile-avatar tile-avatar-remote" id="remote-avatar" hidden><img id="remote-avatar-img" alt="" /></span>
             <span class="name-on-tile name-on-tile-stack" id="remote-tag"></span>
+            <span class="trust-tier-chip" id="remote-trust-chip" hidden title="Reputation tier"></span>
             <span class="flair-chip" id="remote-flair-chip" hidden title="Flair" aria-hidden="true"></span>
           </div>
           <div class="tile-remote-meta">
@@ -668,6 +669,7 @@
           </span>
           <div class="tile-tag tile-tag-local-name" id="local-name-tag">
             <span class="name-on-tile name-on-tile-stack" id="local-name">anon</span>
+            <span class="trust-tier-chip" id="local-trust-chip" hidden title="Your reputation tier"></span>
             <span class="flair-chip" id="local-flair-chip" hidden title="Flair" aria-hidden="true"></span>
           </div>
         </div>
@@ -2130,7 +2132,7 @@
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=156" defer></script>
   <script src="webrtc.js?v=159" defer></script>
-  <script src="live.js?v=271" defer></script>
+  <script src="live.js?v=272" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {
