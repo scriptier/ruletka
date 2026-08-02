@@ -13,6 +13,16 @@ Open `https://ruletka.vip/live.html?friend=CODE` in the **installed app** when p
 
 Custom scheme **`ruletka://friend/CODE`** works without these files (Share sheet includes both).
 
+## Live on production
+
+Deployed with the hub: `https://ruletka.vip/.well-known/…` returns **200** + `application/json`  
+(empty applinks until Team ID / SHA256 env are set).
+
+```bash
+./scripts/verify-app-links.sh
+# or: ./scripts/verify-app-links.sh https://ruletka.me
+```
+
 ## Operator setup (after first store / EAS signing)
 
 ### iOS
