@@ -670,7 +670,7 @@ impl SimpleHub {
         };
         let (last_msg, last_msg_ts) = self.last_dm_preview_for(fuid);
         // Friends list shows public trust (peer gifts), not spendable balance
-        let stars = self.trust_for(fuid);
+        let stars = self.effective_trust_for(fuid);
         FriendInfo {
             user_id: fuid.to_string(),
             name,
@@ -733,13 +733,201 @@ impl SimpleHub {
         self.star_ledger.balance(user_id)
     }
 
-    /// Public reputation / report power — peer rate-gifts only (not hour/admin mints).
+    /// Raw peer-gift trust (before decay / gifter floors).
     fn trust_for(&self, user_id: &str) -> u64 {
         self.star_ledger.trust_for(user_id)
     }
 
     fn trust_gifters_for(&self, user_id: &str) -> u32 {
         self.star_ledger.trust_gifters(user_id)
+    }
+
+    /// Soft decay start / full (days since last trust activity).
+    const TRUST_DECAY_START_DAYS: u64 = 45;
+    const TRUST_DECAY_FULL_DAYS: u64 = 180;
+    /// Max fraction of trust lost to idle decay (50%).
+    const TRUST_DECAY_MAX_PCT: u64 = 50;
+    /// Distinct gifters required for trusted / senior report tiers.
+    const TRUSTED_MIN_GIFTERS: u32 = 5;
+    const SENIOR_MIN_GIFTERS: u32 = 12;
+
+    /// Apply soft idle decay to raw trust (does not mutate ledger).
+    fn decayed_trust(&self, user_id: &str, raw: u64) -> u64 {
+        if raw == 0 || user_id.is_empty() {
+            return 0;
+        }
+        let last = self.star_ledger.trust_last_ts(user_id);
+        if last == 0 {
+            // Legacy gifts without timestamps — no decay
+            return raw;
+        }
+        let now = Self::unix_now();
+        if now <= last {
+            return raw;
+        }
+        let days = (now - last) / 86_400;
+        if days < Self::TRUST_DECAY_START_DAYS {
+            return raw;
+        }
+        let span = Self::TRUST_DECAY_FULL_DAYS
+            .saturating_sub(Self::TRUST_DECAY_START_DAYS)
+            .max(1);
+        let overdue = (days - Self::TRUST_DECAY_START_DAYS).min(span);
+        let lost_pct = Self::TRUST_DECAY_MAX_PCT.saturating_mul(overdue) / span;
+        let keep_pct = 100u64.saturating_sub(lost_pct);
+        raw.saturating_mul(keep_pct) / 100
+    }
+
+    /// Effective trust for report weight, shields, match rank, public tier.
+    /// Applies soft decay then gifter-diversity floors (cannot claim senior on 1 friend).
+    fn effective_trust_for(&self, user_id: &str) -> u64 {
+        let raw = self.trust_for(user_id);
+        let decayed = self.decayed_trust(user_id, raw);
+        let g = self.trust_gifters_for(user_id);
+        // Cap effective score so report tiers need enough unique gifters
+        if g < Self::TRUSTED_MIN_GIFTERS {
+            return decayed.min(Self::TRUSTED_REPORTER_STARS.saturating_sub(1));
+        }
+        if g < Self::SENIOR_MIN_GIFTERS {
+            return decayed.min(Self::SENIOR_REPORTER_STARS.saturating_sub(1));
+        }
+        decayed
+    }
+
+    /// Ban clawback: burn some balance + trust so banned users don't keep Senior power.
+    fn clawback_on_ban(&mut self, user_id: &str, ban_reason: &str) {
+        if user_id.is_empty() {
+            return;
+        }
+        let bal = self.stars_for(user_id);
+        let trust = self.trust_for(user_id);
+        if bal == 0 && trust == 0 {
+            return;
+        }
+        // ~25% balance (cap 100), ~35% trust (cap 80) — at least 1 if any
+        let mut burn_bal = ((bal as u128) * 25 / 100) as u64;
+        if bal > 0 && burn_bal == 0 {
+            burn_bal = 1;
+        }
+        burn_bal = burn_bal.min(100).min(bal);
+        let mut burn_trust = ((trust as u128) * 35 / 100) as u64;
+        if trust > 0 && burn_trust == 0 {
+            burn_trust = 1;
+        }
+        burn_trust = burn_trust.min(80).min(trust);
+        if burn_bal == 0 && burn_trust == 0 {
+            return;
+        }
+        let r = ban_reason
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+            .take(32)
+            .collect::<String>();
+        let reason = format!("clawback:ban:{}", if r.is_empty() { "report" } else { &r });
+        let op = format!(
+            "claw|{}|{}|{}",
+            user_id,
+            Self::unix_now(),
+            reason.chars().take(24).collect::<String>()
+        );
+        match self
+            .star_ledger
+            .clawback(user_id, burn_bal, burn_trust, &reason, &op)
+        {
+            Ok((ev, new_bal)) => {
+                if new_bal == 0 {
+                    self.star_counts.remove(user_id);
+                } else {
+                    self.star_counts.insert(user_id.to_string(), new_bal);
+                }
+                self.persist_friends();
+                tracing::info!(
+                    seq = ev.seq,
+                    %user_id,
+                    burn_bal,
+                    burn_trust,
+                    new_bal,
+                    trust_after = self.trust_for(user_id),
+                    %reason,
+                    "star/trust clawback on ban"
+                );
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, %user_id, "clawback failed");
+            }
+        }
+    }
+
+    /// Admin graph: mutual gift edges + low-diversity high-trust flags.
+    fn trust_graph_stats(&self) -> serde_json::Value {
+        let edges = self.star_ledger.trust_edges_snapshot();
+        let edge_set: std::collections::HashSet<&str> =
+            edges.iter().map(|s| s.as_str()).collect();
+        let mut mutual = 0u32;
+        let mut seen_pairs = std::collections::HashSet::new();
+        for e in &edges {
+            let Some((a, b)) = e.split_once('|') else {
+                continue;
+            };
+            if a.is_empty() || b.is_empty() || a == b {
+                continue;
+            }
+            let rev = format!("{b}|{a}");
+            if edge_set.contains(rev.as_str()) {
+                let key = if a < b {
+                    format!("{a}|{b}")
+                } else {
+                    format!("{b}|{a}")
+                };
+                if seen_pairs.insert(key) {
+                    mutual += 1;
+                }
+            }
+        }
+        // High raw trust but not enough unique gifters for tier
+        let mut low_diversity: Vec<serde_json::Value> = Vec::new();
+        for (uid, raw) in self.star_ledger.trust_snapshot() {
+            if uid.is_empty() || raw == 0 {
+                continue;
+            }
+            let g = self.trust_gifters_for(&uid);
+            let eff = self.effective_trust_for(&uid);
+            let capped = eff < raw
+                && (raw >= Self::TRUSTED_REPORTER_STARS || raw >= 50);
+            if !capped && g >= Self::TRUSTED_MIN_GIFTERS {
+                continue;
+            }
+            if raw < 50 && g >= 2 {
+                continue;
+            }
+            if raw >= Self::TRUSTED_REPORTER_STARS && g < Self::TRUSTED_MIN_GIFTERS
+                || raw >= Self::SENIOR_REPORTER_STARS && g < Self::SENIOR_MIN_GIFTERS
+                || (raw >= 50 && g < 3)
+            {
+                low_diversity.push(serde_json::json!({
+                    "user_id": uid,
+                    "trust": raw,
+                    "trust_effective": eff,
+                    "gifters": g,
+                    "name": self.known_names.get(&uid).cloned().unwrap_or_default(),
+                }));
+            }
+        }
+        low_diversity.sort_by(|a, b| {
+            let ta = a.get("trust").and_then(|v| v.as_u64()).unwrap_or(0);
+            let tb = b.get("trust").and_then(|v| v.as_u64()).unwrap_or(0);
+            tb.cmp(&ta)
+        });
+        low_diversity.truncate(12);
+        serde_json::json!({
+            "trust_edges": edges.len(),
+            "mutual_pairs": mutual,
+            "trusted_min_gifters": Self::TRUSTED_MIN_GIFTERS,
+            "senior_min_gifters": Self::SENIOR_MIN_GIFTERS,
+            "decay_start_days": Self::TRUST_DECAY_START_DAYS,
+            "decay_full_days": Self::TRUST_DECAY_FULL_DAYS,
+            "low_diversity": low_diversity,
+        })
     }
 
     /// Soft daily cap on *natural* mints (rate/hour/egg). Admin adjusts bypass.
@@ -929,12 +1117,14 @@ impl SimpleHub {
                 serde_json::json!({
                     "user_id": u,
                     "trust": t,
+                    "trust_effective": self.effective_trust_for(u),
                     "stars": self.stars_for(u),
                     "trust_gifters": self.trust_gifters_for(u),
                     "name": self.known_names.get(u).cloned().unwrap_or_default(),
                 })
             })
             .collect();
+        let graph = self.trust_graph_stats();
         serde_json::json!({
             "seq": self.star_ledger.seq(),
             "tip_hash": self.star_ledger.tip_hash(),
@@ -943,8 +1133,11 @@ impl SimpleHub {
             "users_with_trust": trust_rows.len(),
             "total_trust": total_trust,
             "daily_mint_cap": Self::DAILY_MINT_CAP,
+            "trusted_min_gifters": Self::TRUSTED_MIN_GIFTERS,
+            "senior_min_gifters": Self::SENIOR_MIN_GIFTERS,
             "top": top,
             "top_trust": top_trust,
+            "graph": graph,
         })
     }
 
@@ -1711,8 +1904,8 @@ impl SimpleHub {
         self.hour_star_sessions.insert(early_key);
         self.trim_hour_star_sessions();
 
-        let me_s0 = self.trust_for(&me_uid);
-        let them_s0 = self.trust_for(&them_uid);
+        let me_s0 = self.effective_trust_for(&me_uid);
+        let them_s0 = self.effective_trust_for(&them_uid);
         let me_amt = Self::hour_reward_amount_for(me_s0, them_s0);
         let them_amt = Self::hour_reward_amount_for(them_s0, me_s0);
         let sess = format!("hour|{pair}|{started_unix}");
@@ -1807,8 +2000,8 @@ impl SimpleHub {
             return;
         }
 
-        let me_s = self.trust_for(&me_uid);
-        let them_s = self.trust_for(&them_uid);
+        let me_s = self.effective_trust_for(&me_uid);
+        let them_s = self.effective_trust_for(&them_uid);
         let (boost_uid, boost_amt) = if me_s < Self::TRUSTED_REPORTER_STARS
             && them_s >= Self::SENIOR_REPORTER_STARS
         {
@@ -1907,10 +2100,10 @@ impl SimpleHub {
         );
     }
 
-    /// Max free stars a user may gift after a long chat (trust tier).
-    /// Normal → 1 · Trusted (100+ trust) → 2 · Senior (250+ trust) → 3.
+    /// Max free stars a user may gift after a long chat (effective trust tier).
+    /// Normal → 1 · Trusted (100+) → 2 · Senior (250+) → 3.
     fn max_post_chat_gift(&self, user_id: &str) -> u64 {
-        let s = self.trust_for(user_id);
+        let s = self.effective_trust_for(user_id);
         if s >= Self::SENIOR_REPORTER_STARS {
             3
         } else if s >= Self::TRUSTED_REPORTER_STARS {
@@ -2204,10 +2397,10 @@ impl SimpleHub {
         }
     }
 
-    /// Report weight from **trust** (peer gifts): 3 if ≥250, 2 if ≥100, else 1.
-    /// Hour/admin balance mints do not raise report power.
+    /// Report weight from **effective trust** (decay + gifter floors):
+    /// 3 if ≥250, 2 if ≥100, else 1. Hour/admin balance mints do not raise power.
     fn report_weight_for(&self, reporter_uid: &str) -> u32 {
-        let trust = self.trust_for(reporter_uid);
+        let trust = self.effective_trust_for(reporter_uid);
         if trust >= Self::SENIOR_REPORTER_STARS {
             Self::SENIOR_REPORT_WEIGHT
         } else if trust >= Self::TRUSTED_REPORTER_STARS {
@@ -2217,7 +2410,7 @@ impl SimpleHub {
         }
     }
 
-    /// Extra ban-score needed when the *target* is high trust (harder to ban).
+    /// Extra ban-score needed when the *target* is high effective trust (harder to ban).
     /// Not applied to underage reports (safety takes priority).
     fn target_reputation_shield(target_trust: u64) -> usize {
         if target_trust >= Self::SENIOR_REPORTER_STARS {
@@ -2230,7 +2423,7 @@ impl SimpleHub {
     }
 
     /// Weight this reporter contributes toward auto-banning this target.
-    /// Peer protection uses **trust**, not spendable balance.
+    /// Peer protection uses **effective trust**, not spendable balance.
     /// - Two seniors (250+ trust) cannot auto-ban each other (weight 0 either way).
     /// - Trusted (100+) reporting another 100+ counts only as 1 (not easy peer bans).
     /// Underage reports always use full reporter weight (no peer dampening).
@@ -2247,8 +2440,8 @@ impl SimpleHub {
         if underage {
             return base;
         }
-        let r_trust = self.trust_for(reporter_uid);
-        let t_trust = self.trust_for(target_uid);
+        let r_trust = self.effective_trust_for(reporter_uid);
+        let t_trust = self.effective_trust_for(target_uid);
         // Seniors cannot cancel each other out via auto match-ban
         if r_trust >= Self::SENIOR_REPORTER_STARS && t_trust >= Self::SENIOR_REPORTER_STARS {
             return 0;
@@ -2369,24 +2562,24 @@ impl SimpleHub {
         }
     }
 
-    /// Representative trust for a queue entry (solo = user; party = max of members).
+    /// Representative **effective** trust for a queue entry (solo / party max).
     fn entry_trust(&self, e: &QueueEntry) -> u64 {
         match e {
             QueueEntry::Solo(id) => self
                 .clients
                 .get(id)
-                .map(|c| self.trust_for(&c.user_id))
+                .map(|c| self.effective_trust_for(&c.user_id))
                 .unwrap_or(0),
             QueueEntry::Party { a, b } => {
                 let ta = self
                     .clients
                     .get(a)
-                    .map(|c| self.trust_for(&c.user_id))
+                    .map(|c| self.effective_trust_for(&c.user_id))
                     .unwrap_or(0);
                 let tb = self
                     .clients
                     .get(b)
-                    .map(|c| self.trust_for(&c.user_id))
+                    .map(|c| self.effective_trust_for(&c.user_id))
                     .unwrap_or(0);
                 ta.max(tb)
             }
@@ -3009,7 +3202,7 @@ impl SimpleHub {
             friend_code: String::new(),
             flag: String::new(),
             avatar: String::new(),
-            stars: self.trust_for(&remote.user_id),
+            stars: self.effective_trust_for(&remote.user_id),
             effect: eff,
             effect_until: eff_until,
         };
@@ -3215,6 +3408,7 @@ impl SimpleHub {
             signaling: "bridge".into(),
             stars: 0,
             trust: 0,
+            trust_effective: 0,
             trust_gifters: 0,
             effect: String::new(),
             effect_until: 0,
@@ -3614,7 +3808,7 @@ impl SimpleHub {
                 } else {
                     "friend"
                 };
-                (Self::match_peer(ca, cb, role, self.trust_for(&cb.user_id), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)), display_label(cb))
+                (Self::match_peer(ca, cb, role, self.effective_trust_for(&cb.user_id), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)), display_label(cb))
             };
             let offerer = peer.is_offerer;
             self.send(
@@ -3731,7 +3925,7 @@ impl SimpleHub {
             let (peer, label) = {
                 let ca = self.clients.get(&me).unwrap();
                 let cb = self.clients.get(&them).unwrap();
-                (Self::match_peer(ca, cb, "friend", self.trust_for(&cb.user_id), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)), display_label(cb))
+                (Self::match_peer(ca, cb, "friend", self.effective_trust_for(&cb.user_id), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)), display_label(cb))
             };
             if let Some(c) = self.clients.get_mut(&me) {
                 c.phase = Phase::FriendCall;
@@ -3776,8 +3970,8 @@ impl SimpleHub {
             let ca = self.clients.get(&a).unwrap();
             let cb = self.clients.get(&b).unwrap();
             vec![
-                Self::match_peer(cs, ca, "party", self.trust_for(&ca.user_id), self.star_effects.get(&ca.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&ca.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
-                Self::match_peer(cs, cb, "party", self.trust_for(&cb.user_id), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
+                Self::match_peer(cs, ca, "party", self.effective_trust_for(&ca.user_id), self.star_effects.get(&ca.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&ca.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
+                Self::match_peer(cs, cb, "party", self.effective_trust_for(&cb.user_id), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
             ]
         };
         // Party member A: stranger + teammate B (friend or find-third partner)
@@ -3793,8 +3987,8 @@ impl SimpleHub {
             let cs = self.clients.get(&solo).unwrap();
             let cb = self.clients.get(&b).unwrap();
             vec![
-                Self::match_peer(ca, cs, "stranger", self.trust_for(&cs.user_id), self.star_effects.get(&cs.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cs.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
-                Self::match_peer(ca, cb, mate_role, self.trust_for(&cb.user_id), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
+                Self::match_peer(ca, cs, "stranger", self.effective_trust_for(&cs.user_id), self.star_effects.get(&cs.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cs.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
+                Self::match_peer(ca, cb, mate_role, self.effective_trust_for(&cb.user_id), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
             ]
         };
         let b_peers = {
@@ -3802,8 +3996,8 @@ impl SimpleHub {
             let cs = self.clients.get(&solo).unwrap();
             let ca = self.clients.get(&a).unwrap();
             vec![
-                Self::match_peer(cb, cs, "stranger", self.trust_for(&cs.user_id), self.star_effects.get(&cs.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cs.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
-                Self::match_peer(cb, ca, mate_role, self.trust_for(&ca.user_id), self.star_effects.get(&ca.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&ca.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
+                Self::match_peer(cb, cs, "stranger", self.effective_trust_for(&cs.user_id), self.star_effects.get(&cs.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cs.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
+                Self::match_peer(cb, ca, mate_role, self.effective_trust_for(&ca.user_id), self.star_effects.get(&ca.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&ca.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
             ]
         };
 
@@ -3896,9 +4090,9 @@ impl SimpleHub {
             let c_o1 = self.clients.get(&o1).unwrap();
             let c_o2 = self.clients.get(&o2).unwrap();
             vec![
-                Self::match_peer(c_me, c_o1, "stranger", self.trust_for(&c_o1.user_id), self.star_effects.get(&c_o1.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&c_o1.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
-                Self::match_peer(c_me, c_o2, "stranger", self.trust_for(&c_o2.user_id), self.star_effects.get(&c_o2.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&c_o2.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
-                Self::match_peer(c_me, c_f, "friend", self.trust_for(&c_f.user_id), self.star_effects.get(&c_f.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&c_f.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
+                Self::match_peer(c_me, c_o1, "stranger", self.effective_trust_for(&c_o1.user_id), self.star_effects.get(&c_o1.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&c_o1.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
+                Self::match_peer(c_me, c_o2, "stranger", self.effective_trust_for(&c_o2.user_id), self.star_effects.get(&c_o2.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&c_o2.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
+                Self::match_peer(c_me, c_f, "friend", self.effective_trust_for(&c_f.user_id), self.star_effects.get(&c_f.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&c_f.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
             ]
         };
 
@@ -3976,7 +4170,7 @@ impl SimpleHub {
             let (peer, label) = {
                 let ca = self.clients.get(&me).unwrap();
                 let cb = self.clients.get(&them).unwrap();
-                (Self::match_peer(ca, cb, "stranger", self.trust_for(&cb.user_id), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)), display_label(cb))
+                (Self::match_peer(ca, cb, "stranger", self.effective_trust_for(&cb.user_id), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)), display_label(cb))
             };
             if let Some(c) = self.clients.get_mut(&me) {
                 c.phase = Phase::Matched;
@@ -4223,7 +4417,7 @@ impl SimpleHub {
             let peer = {
                 let ca = self.clients.get(&me).unwrap();
                 let cb = self.clients.get(&them).unwrap();
-                Self::match_peer(ca, cb, "teammate", self.trust_for(&cb.user_id), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0))
+                Self::match_peer(ca, cb, "teammate", self.effective_trust_for(&cb.user_id), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0))
             };
             let label = display_label(self.clients.get(&them).unwrap());
             let offerer = peer.is_offerer;
@@ -4892,6 +5086,7 @@ impl SimpleHub {
         let short_id = self.clients[&id].short_id.clone();
         let my_stars = self.stars_for(&user_id);
         let my_trust = self.trust_for(&user_id);
+        let my_trust_effective = self.effective_trust_for(&user_id);
         let my_trust_gifters = self.trust_gifters_for(&user_id);
         let (my_eff, my_eff_until) = self.active_effect_for(&user_id);
         let rate_min_secs = self.rate_min_secs_for(&user_id);
@@ -4909,6 +5104,7 @@ impl SimpleHub {
                 signaling: "bridge".into(),
                 stars: my_stars,
                 trust: my_trust,
+                trust_effective: my_trust_effective,
                 trust_gifters: my_trust_gifters,
                 effect: my_eff,
                 effect_until: my_eff_until,
@@ -5164,9 +5360,9 @@ impl SimpleHub {
         let (threshold, ban_secs) = Self::report_severity(&reason_s);
         let is_ai = reason_s.eq_ignore_ascii_case("explicit_ai");
         let is_underage = reason_s.eq_ignore_ascii_case("underage");
-        // Trust (peer gifts) drives report weight / shields — not spendable balance
-        let reporter_stars = self.trust_for(&reporter.0);
-        let target_stars = self.trust_for(&user_id);
+        // Effective trust drives report weight / shields — not spendable balance
+        let reporter_stars = self.effective_trust_for(&reporter.0);
+        let target_stars = self.effective_trust_for(&user_id);
         let reporter_weight = self.report_weight_for(&reporter.0);
         let applied_weight =
             self.report_weight_against(&reporter.0, &user_id, is_underage);
@@ -5202,6 +5398,8 @@ impl SimpleHub {
             if until > prev {
                 self.match_bans.insert(user_id.clone(), until);
                 banned = true;
+                // Strip some ★ / trust so banned accounts don't keep Senior power
+                self.clawback_on_ban(&user_id, &reason_s);
                 tracing::warn!(
                     target = %user_id,
                     reporters = report_count,

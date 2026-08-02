@@ -20,6 +20,8 @@ use std::path::{Path, PathBuf};
 pub const KIND_MINT: &str = "mint";
 pub const KIND_SPEND: &str = "spend";
 pub const KIND_ADJUST: &str = "adjust";
+/// Burn spendable balance and/or trust (ban clawback / ops).
+pub const KIND_CLAWBACK: &str = "clawback";
 
 /// True when this mint/adjust should raise **trust** (peer social gifts only).
 pub fn is_trust_mint_reason(reason: &str) -> bool {
@@ -29,6 +31,19 @@ pub fn is_trust_mint_reason(reason: &str) -> bool {
         || r == "rate_partner"
         // Optional admin path to restore trust after investigation
         || r.starts_with("admin:trust")
+}
+
+/// Parse `trust:N` from clawback session field.
+pub fn parse_trust_burn_session(session: &str) -> u64 {
+    for part in session.split(|c| c == '|' || c == ',' || c == ' ') {
+        let p = part.trim();
+        if let Some(rest) = p.strip_prefix("trust:") {
+            if let Ok(n) = rest.trim().parse::<u64>() {
+                return n;
+            }
+        }
+    }
+    0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -94,6 +109,8 @@ pub struct StarLedger {
     trust_scores: HashMap<String, u64>,
     /// Directed trust edges from|to when a peer gifted after a long chat
     trust_edges: HashSet<String>,
+    /// Last unix ts a user received trust (gift) or clawback — for soft decay
+    trust_last_ts: HashMap<String, u64>,
 }
 
 impl StarLedger {
@@ -113,6 +130,7 @@ impl StarLedger {
             balances: HashMap::new(),
             trust_scores: HashMap::new(),
             trust_edges: HashSet::new(),
+            trust_last_ts: HashMap::new(),
         }
     }
 
@@ -159,8 +177,69 @@ impl StarLedger {
         self.trust_scores.clone()
     }
 
+    /// Last activity on trust for decay (0 = unknown).
+    pub fn trust_last_ts(&self, user_id: &str) -> u64 {
+        if user_id.is_empty() {
+            return 0;
+        }
+        self.trust_last_ts.get(user_id).copied().unwrap_or(0)
+    }
+
+    /// All directed trust edges (`from|to`) for admin graph / clique scans.
+    pub fn trust_edges_snapshot(&self) -> Vec<String> {
+        let mut v: Vec<String> = self.trust_edges.iter().cloned().collect();
+        v.sort();
+        v
+    }
+
     pub fn has_spend_op(&self, op_id: &str) -> bool {
         !op_id.is_empty() && self.spent_ops.contains(op_id)
+    }
+
+    /// Burn balance and/or trust after ban (or ops). Idempotent via op_id when set.
+    /// `session` should include `trust:N` for trust burn amount.
+    pub fn clawback(
+        &mut self,
+        user_id: &str,
+        balance_burn: u64,
+        trust_burn: u64,
+        reason: &str,
+        op_id: &str,
+    ) -> Result<(StarEvent, u64), SpendError> {
+        let uid = user_id.trim();
+        if uid.is_empty() {
+            return Err(SpendError::Empty);
+        }
+        if balance_burn == 0 && trust_burn == 0 {
+            return Err(SpendError::Empty);
+        }
+        let op = op_id.trim();
+        if !op.is_empty() && self.spent_ops.contains(op) {
+            return Err(SpendError::AlreadyApplied {
+                from_balance: self.balance(uid),
+            });
+        }
+        let have = self.balance(uid);
+        let bal = balance_burn.min(have);
+        let session = format!("trust:{trust_burn}");
+        let note: String = if reason.is_empty() {
+            "clawback".into()
+        } else {
+            reason.chars().take(96).collect()
+        };
+        let ev = self
+            .append_event(
+                KIND_CLAWBACK,
+                uid,
+                "",
+                bal,
+                &note,
+                &session,
+                op,
+                unix_now(),
+            )
+            .map_err(SpendError::Io)?;
+        Ok((ev, self.balance(uid)))
     }
 
     /// Load ledger; if empty, seed genesis adjust events from legacy star_counts.
@@ -253,6 +332,7 @@ impl StarLedger {
         let mut spent_ops: HashSet<String> = HashSet::new();
         let mut trust_scores: HashMap<String, u64> = HashMap::new();
         let mut trust_edges: HashSet<String> = HashSet::new();
+        let mut trust_last_ts: HashMap<String, u64> = HashMap::new();
         let mut line_no = 0u64;
 
         for line in reader.lines() {
@@ -305,8 +385,8 @@ impl StarLedger {
                 break;
             }
             apply_event_to_balances(&mut balances, &ev);
-            apply_event_to_trust(&mut trust_scores, &mut trust_edges, &ev);
-            if ev.kind == KIND_SPEND && !ev.op_id.is_empty() {
+            apply_event_to_trust(&mut trust_scores, &mut trust_edges, &mut trust_last_ts, &ev);
+            if (ev.kind == KIND_SPEND || ev.kind == KIND_CLAWBACK) && !ev.op_id.is_empty() {
                 spent_ops.insert(ev.op_id.clone());
             }
             prev = ev.hash.clone();
@@ -318,6 +398,7 @@ impl StarLedger {
         self.spent_ops = spent_ops;
         self.trust_scores = trust_scores;
         self.trust_edges = trust_edges;
+        self.trust_last_ts = trust_last_ts;
         Ok(())
     }
 
@@ -484,8 +565,13 @@ impl StarLedger {
         f.flush()?;
 
         apply_event_to_balances(&mut self.balances, &ev);
-        apply_event_to_trust(&mut self.trust_scores, &mut self.trust_edges, &ev);
-        if ev.kind == KIND_SPEND && !ev.op_id.is_empty() {
+        apply_event_to_trust(
+            &mut self.trust_scores,
+            &mut self.trust_edges,
+            &mut self.trust_last_ts,
+            &ev,
+        );
+        if (ev.kind == KIND_SPEND || ev.kind == KIND_CLAWBACK) && !ev.op_id.is_empty() {
             self.spent_ops.insert(ev.op_id.clone());
         }
         self.seq = seq;
@@ -503,16 +589,23 @@ fn apply_event_to_balances(balances: &mut HashMap<String, u64>, ev: &StarEvent) 
             let next = balances.get(&ev.to).copied().unwrap_or(0).saturating_add(ev.amount);
             balances.insert(ev.to.clone(), next);
         }
-        KIND_SPEND => {
-            if ev.from.is_empty() || ev.amount == 0 {
+        KIND_SPEND | KIND_CLAWBACK => {
+            let who = if !ev.from.is_empty() {
+                &ev.from
+            } else if !ev.to.is_empty() {
+                &ev.to
+            } else {
+                return;
+            };
+            if ev.amount == 0 {
                 return;
             }
-            let have = balances.get(&ev.from).copied().unwrap_or(0);
+            let have = balances.get(who).copied().unwrap_or(0);
             let next = have.saturating_sub(ev.amount);
             if next == 0 {
-                balances.remove(&ev.from);
+                balances.remove(who);
             } else {
-                balances.insert(ev.from.clone(), next);
+                balances.insert(who.clone(), next);
             }
         }
         _ => {}
@@ -522,8 +615,35 @@ fn apply_event_to_balances(balances: &mut HashMap<String, u64>, ev: &StarEvent) 
 fn apply_event_to_trust(
     trust_scores: &mut HashMap<String, u64>,
     trust_edges: &mut HashSet<String>,
+    trust_last_ts: &mut HashMap<String, u64>,
     ev: &StarEvent,
 ) {
+    if ev.kind == KIND_CLAWBACK {
+        let who = if !ev.from.is_empty() {
+            &ev.from
+        } else if !ev.to.is_empty() {
+            &ev.to
+        } else {
+            return;
+        };
+        let burn = parse_trust_burn_session(&ev.session);
+        if burn > 0 {
+            let have = trust_scores.get(who).copied().unwrap_or(0);
+            let next = have.saturating_sub(burn);
+            if next == 0 {
+                trust_scores.remove(who);
+            } else {
+                trust_scores.insert(who.clone(), next);
+            }
+        }
+        if ev.ts > 0 {
+            let prev = trust_last_ts.get(who).copied().unwrap_or(0);
+            if ev.ts >= prev {
+                trust_last_ts.insert(who.clone(), ev.ts);
+            }
+        }
+        return;
+    }
     if ev.kind != KIND_MINT && ev.kind != KIND_ADJUST {
         return;
     }
@@ -538,6 +658,12 @@ fn apply_event_to_trust(
     trust_scores.insert(ev.to.clone(), next);
     if !ev.from.is_empty() && ev.from != ev.to {
         trust_edges.insert(format!("{}|{}", ev.from, ev.to));
+    }
+    if ev.ts > 0 {
+        let prev = trust_last_ts.get(&ev.to).copied().unwrap_or(0);
+        if ev.ts >= prev {
+            trust_last_ts.insert(ev.to.clone(), ev.ts);
+        }
     }
 }
 
@@ -619,11 +745,20 @@ mod tests {
         }
 
         // Reload preserves balances + trust + op_id
-        let led2 = StarLedger::load_or_migrate(path, &HashMap::new()).unwrap();
+        let led2 = StarLedger::load_or_migrate(path.clone(), &HashMap::new()).unwrap();
         assert_eq!(led2.balance("alice"), 9);
         assert_eq!(led2.trust_for("alice"), 2);
         assert_eq!(led2.trust_gifters("alice"), 1);
         assert!(led2.has_spend_op("op-1"));
+
+        // Clawback burns balance + trust
+        let mut led3 = StarLedger::load_or_migrate(path, &HashMap::new()).unwrap();
+        let (_, bal) = led3
+            .clawback("alice", 2, 1, "clawback:ban:test", "claw-1")
+            .unwrap();
+        assert_eq!(bal, 7);
+        assert_eq!(led3.trust_for("alice"), 1);
+        assert!(led3.has_spend_op("claw-1"));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

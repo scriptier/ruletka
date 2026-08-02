@@ -462,10 +462,15 @@ let primaryPartnerUserId = "";
 let lastMatchMeta = null;
 /** Your spendable star balance (from hub). */
 let myStars = 0;
-/** Your trust score — peer rate-gifts only (report power / public tier). */
+/** Your raw trust score — peer rate-gifts (progress toward 100/250). */
 let myTrust = 0;
+/** Effective trust after decay + gifter floors (report tier / badge chrome). */
+let myTrustEffective = 0;
 /** Distinct peers who gifted you post-chat stars. */
 let myTrustGifters = 0;
+/** Gifter floors (must match bridge). */
+const TRUSTED_MIN_GIFTERS = 5;
+const SENIOR_MIN_GIFTERS = 12;
 /** Partner trust (public reputation) during current match. */
 let partnerStars = 0;
 /** Min chat length for star review (must match bridge STAR_MIN_SECS). */
@@ -2423,13 +2428,17 @@ function setStarsBadge(which, count, opts = {}) {
   const prevLocalTrust = myTrust;
   if (which === "local") myStars = n;
   if (which === "remote") partnerStars = n;
-  // Tier chrome: local uses trust; remote count *is* trust
+  // Tier chrome: local uses effective trust; remote count *is* effective trust
   const tierScore =
     which === "local"
       ? Math.max(
           0,
           Math.floor(
-            Number(opts.trust != null ? opts.trust : myTrust) || 0
+            Number(
+              opts.trust != null
+                ? opts.trust
+                : myTrustEffective || myTrust
+            ) || 0
           )
         )
       : n;
@@ -2501,13 +2510,31 @@ function setStarsBadge(which, count, opts = {}) {
   if (starsSheetIsOpen()) syncStarsSheetUi();
 }
 
-function setMyTrust(trust, gifters) {
+function setMyTrust(trust, gifters, effective) {
   myTrust = Math.max(0, Math.floor(Number(trust) || 0));
+  if (effective != null) {
+    myTrustEffective = Math.max(0, Math.floor(Number(effective) || 0));
+  } else {
+    // Client-side floor mirror when hub didn't send effective
+    myTrustEffective = clientEffectiveTrust(myTrust, myTrustGifters);
+  }
   if (gifters != null) {
     myTrustGifters = Math.max(0, Math.floor(Number(gifters) || 0));
+    if (effective == null) {
+      myTrustEffective = clientEffectiveTrust(myTrust, myTrustGifters);
+    }
   }
   // Refresh local badge tier without changing displayed balance
-  setStarsBadge("local", myStars, { trust: myTrust });
+  setStarsBadge("local", myStars, { trust: myTrustEffective });
+}
+
+/** Mirror bridge gifter floors (decay is hub-only). */
+function clientEffectiveTrust(raw, gifters) {
+  let t = Math.max(0, Math.floor(Number(raw) || 0));
+  const g = Math.max(0, Math.floor(Number(gifters) || 0));
+  if (g < TRUSTED_MIN_GIFTERS) t = Math.min(t, STARS_TRUSTED_GOAL - 1);
+  else if (g < SENIOR_MIN_GIFTERS) t = Math.min(t, STARS_SENIOR_GOAL - 1);
+  return t;
 }
 
 function starsSheetIsOpen() {
@@ -2609,8 +2636,12 @@ function clearTrustTierChips() {
 function syncStarsSheetUi() {
   const balN = Math.max(0, Number(myStars) || 0);
   const trustN = Math.max(0, Number(myTrust) || 0);
-  /** Ladder / report tier uses trust, not spendable balance */
-  const n = trustN;
+  const effN = Math.max(
+    0,
+    Number(myTrustEffective) || clientEffectiveTrust(trustN, myTrustGifters)
+  );
+  /** Ladder / report tier uses effective trust */
+  const n = effN;
   const w = reportWeightForStars(n);
   const isSenior = n >= STARS_SENIOR_GOAL;
   const isTrusted = n >= STARS_TRUSTED_GOAL;
@@ -2620,10 +2651,39 @@ function syncStarsSheetUi() {
   const bal = $("stars-sheet-balance");
   if (bal) bal.textContent = String(balN);
   const trustEl = $("stars-sheet-trust");
-  if (trustEl) trustEl.textContent = String(trustN);
+  if (trustEl) {
+    trustEl.textContent =
+      effN !== trustN ? `${trustN}→${effN}` : String(trustN);
+  }
   const giftersEl = $("stars-sheet-gifters");
   if (giftersEl) {
     giftersEl.textContent = String(Math.max(0, Number(myTrustGifters) || 0));
+  }
+  const floorEl = $("stars-gifters-floor-hint");
+  if (floorEl) {
+    const g = Math.max(0, Number(myTrustGifters) || 0);
+    if (trustN >= STARS_SENIOR_GOAL && g < SENIOR_MIN_GIFTERS) {
+      floorEl.hidden = false;
+      floorEl.textContent =
+        _t("stars.floorSenior", { n: SENIOR_MIN_GIFTERS, have: g }) ||
+        `Need ${SENIOR_MIN_GIFTERS} unique gifters for senior (have ${g}).`;
+    } else if (trustN >= STARS_TRUSTED_GOAL && g < TRUSTED_MIN_GIFTERS) {
+      floorEl.hidden = false;
+      floorEl.textContent =
+        _t("stars.floorTrusted", { n: TRUSTED_MIN_GIFTERS, have: g }) ||
+        `Need ${TRUSTED_MIN_GIFTERS} unique gifters for trusted (have ${g}).`;
+    } else if (g < TRUSTED_MIN_GIFTERS) {
+      floorEl.hidden = false;
+      floorEl.textContent =
+        _t("stars.floorHint", {
+          n: TRUSTED_MIN_GIFTERS,
+          have: g,
+          s: SENIOR_MIN_GIFTERS,
+        }) ||
+        `Trusted needs ${TRUSTED_MIN_GIFTERS}+ gifters · senior ${SENIOR_MIN_GIFTERS}+ (you have ${g}).`;
+    } else {
+      floorEl.hidden = true;
+    }
   }
 
   // Hero tier chip + name
@@ -2750,20 +2810,41 @@ function syncStarsSheetUi() {
   }
   if (hintProg) {
     const g = Math.max(0, Number(myTrustGifters) || 0);
+    // Progress bar targets raw milestones; tier uses effective
+    const rawLeftTrusted = Math.max(0, STARS_TRUSTED_GOAL - trustN);
+    const rawLeftSenior = Math.max(0, STARS_SENIOR_GOAL - trustN);
     if (isSenior) {
       hintProg.textContent =
         _t("stars.progressSenior", { g }) ||
         `Senior reporter — reports ×3 · ${g} gifters. Other seniors can’t auto-ban you.`;
     } else if (isTrusted) {
-      const left = STARS_SENIOR_GOAL - n;
+      const needG =
+        g < SENIOR_MIN_GIFTERS
+          ? _t("stars.needGiftersSenior", {
+              n: SENIOR_MIN_GIFTERS - g,
+              have: g,
+            }) || ` · need ${SENIOR_MIN_GIFTERS - g} more gifters`
+          : "";
       hintProg.textContent =
-        _t("stars.progressHintSeniorLeft", { n: left, g }) ||
-        `Trusted (×2). ${left} more trust to senior (×3) · ${g} gifters.`;
+        (_t("stars.progressHintSeniorLeft", { n: rawLeftSenior, g }) ||
+          `Trusted (×2). ${rawLeftSenior} more trust to senior (×3) · ${g} gifters.`) +
+        needG;
     } else {
-      const left = STARS_TRUSTED_GOAL - n;
+      const needG =
+        g < TRUSTED_MIN_GIFTERS
+          ? _t("stars.needGiftersTrusted", {
+              n: TRUSTED_MIN_GIFTERS - g,
+              have: g,
+            }) || ` · need ${TRUSTED_MIN_GIFTERS - g} more gifters`
+          : "";
       hintProg.textContent =
-        _t("stars.progressHintLeft", { n: left, g, bal: balN }) ||
-        `${left} more trust to trusted (reports ×2). Balance ★ ${balN} spends on gifts.`;
+        (_t("stars.progressHintLeft", {
+          n: rawLeftTrusted,
+          g,
+          bal: balN,
+        }) ||
+          `${rawLeftTrusted} more trust to trusted (reports ×2). Balance ★ ${balN}.`) +
+        needG;
     }
   }
 
@@ -4597,7 +4678,7 @@ function showStarReviewPrompt(msg) {
     // Prefer server max_gift; fall back to local tier
     let maxGift = Math.max(1, Math.min(3, Number(msg?.max_gift) || 0));
     if (!maxGift || maxGift < 1) {
-      maxGift = reportWeightForStars(myTrust); // 1 / 2 / 3 matches trust tier
+      maxGift = reportWeightForStars(myTrustEffective || myTrust); // effective tier
     }
     maxGift = Math.max(1, Math.min(3, maxGift));
     const toast = document.createElement("div");
@@ -13647,6 +13728,7 @@ async function applyImportedProfile(data) {
     // Never trust client-side star balances — reset until hub hello
     myStars = 0;
     myTrust = 0;
+    myTrustEffective = 0;
     myTrustGifters = 0;
     partnerStars = 0;
     try {
@@ -14309,8 +14391,12 @@ function handleServer(msg) {
       myStars = Math.max(0, Number(msg.stars) || 0);
       myTrust = Math.max(0, Number(msg.trust) || 0);
       myTrustGifters = Math.max(0, Number(msg.trust_gifters) || 0);
+      myTrustEffective =
+        msg.trust_effective != null
+          ? Math.max(0, Number(msg.trust_effective) || 0)
+          : clientEffectiveTrust(myTrust, myTrustGifters);
       applyStarRateWindowFromHub(msg);
-      setStarsBadge("local", myStars, { trust: myTrust });
+      setStarsBadge("local", myStars, { trust: myTrustEffective });
       // Bars (etc.) persist across logout — re-apply on hello
       setFxOverlay("local", msg.effect || "", Number(msg.effect_until) || 0);
       syncAccountSettingsSummary();
@@ -14520,8 +14606,11 @@ function handleServer(msg) {
               myTrustGifters = Math.max(0, myTrustGifters) + 1;
             }
             myTrust = trustIn;
+            myTrustEffective = clientEffectiveTrust(myTrust, myTrustGifters);
           }
-          setStarsBadge("local", myStars, { trust: myTrust });
+          setStarsBadge("local", myStars, {
+            trust: myTrustEffective || myTrust,
+          });
           syncAccountSettingsSummary();
           if (hourBonus || seniorTalk) {
             let title =

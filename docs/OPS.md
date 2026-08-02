@@ -91,13 +91,21 @@ When changing the SW shell list, bump `CACHE` in `sw.js`.
 | spam / other | 3 | 3 days |
 | explicit_ai (on-device NSFW) | threshold + 1 | 7 days |
 
-**Trusted reporters:** based on **trust** (peer post-chat ★ gifts only), not spendable balance. **≥100 trust** → report weight **2**; **≥250 trust** → weight **3**. Hour bonuses and admin grants raise balance only (unless `admin:trust…`). Still unique per reporter — no spam stacking.
+**Trusted reporters:** based on **effective trust** (peer post-chat ★ gifts only), not spendable balance. **≥100 effective trust** → report weight **2**; **≥250** → weight **3**. Hour bonuses and admin grants raise balance only (unless `admin:trust…`). Still unique per reporter — no spam stacking.
 
-**Balance vs trust:** ledger balance spends on cosmetic gifts; trust is rebuilt from `mint:rate_partner` events (and optional `admin:trust`). Partner badges / friends list show **trust**.
+**Gifter floors (Phase D):** trusted needs **≥5** distinct gifters; senior needs **≥12**. Raw trust can sit high, but report tier / public badge use the capped effective score until diversity is met.
+
+**Soft decay:** after **45 days** without trust activity, effective trust decays up to **50%** by day **180** idle (raw ledger trust is kept).
+
+**Ban clawback:** auto match-ban appends a ledger `clawback` event burning ~**25%** balance (cap 100) and ~**35%** trust (cap 80) so banned accounts do not keep Senior power.
+
+**Balance vs trust:** ledger balance spends on cosmetic gifts; trust is rebuilt from `mint:rate_partner` events (and optional `admin:trust`). Partner badges / friends list show **effective trust**.
 
 **Star rate window:** first **3** unique partners can open the post-chat ★ gift after **5 minutes**; after that, **15 minutes** (unchanged). Hour mutual mint stays at 60 minutes. Client shows mid-chat progress toward the unlock.
 
 **Matchmaking (soft trust rank):** among gender/tag-compatible candidates, the hub prefers mixed (new+known) over new↔new, and lightly boosts trusted/senior when **≥3 solos** are waiting. Never blocks a match when the pool is empty — FIFO rematch still works.
+
+**Admin graph:** metrics `stars_ledger.graph` includes mutual gift pairs and **low_diversity** users (high trust, few gifters).
 
 Reports are append-logged (JSONL under the friends data dir / reports path).  
 Clients always **block + skip** locally after Report.

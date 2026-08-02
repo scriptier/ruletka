@@ -11259,6 +11259,17 @@ html.alone-searching #remote-empty .empty-sub:not([hidden]) {
   opacity: 0.65;
   font-size: 0.65rem;
 }
+.stars-gifters-floor-hint {
+  position: relative;
+  z-index: 1;
+  margin: 0.35rem 0 0;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: rgba(255, 210, 120, 0.9);
+}
+.stars-gifters-floor-hint[hidden] {
+  display: none !important;
+}
 /* Legacy wrapper (older deploy) — keep readable if present */
 .stars-sheet-hero-text {
   position: relative;

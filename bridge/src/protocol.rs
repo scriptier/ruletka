@@ -232,9 +232,12 @@ pub enum ServerMsg {
         /// Your spendable star balance (gifts / cosmetics).
         #[serde(default)]
         stars: u64,
-        /// Your trust score (peer rate-gifts only) — report weight & public badge tier.
+        /// Your raw trust (peer rate-gifts) — progress toward 100/250.
         #[serde(default)]
         trust: u64,
+        /// Effective trust after soft decay + gifter floors (report tier / public badge).
+        #[serde(default)]
+        trust_effective: u64,
         /// Distinct peers who gifted you post-chat stars.
         #[serde(default)]
         trust_gifters: u32,

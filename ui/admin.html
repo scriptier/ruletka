@@ -637,25 +637,44 @@
     <p class="hint">
       Append-only <code>data/star_ledger.jsonl</code> · daily natural mint cap · admin grants write
       <code>adjust</code> events (never edit balances by hand).
+      Trust = peer gifts only · report tiers need 5+ / 12+ unique gifters · auto-ban clawback burns ~25% balance / ~35% trust.
     </p>
     <div class="stats" id="ledger-stats" hidden>
       <div class="stat">Seq <strong id="lg-seq">0</strong></div>
       <div class="stat">Users ★ <strong id="lg-users">0</strong></div>
       <div class="stat">Total ★ <strong id="lg-total">0</strong></div>
+      <div class="stat">Trust users <strong id="lg-trust-users">0</strong></div>
+      <div class="stat">Mutual gifts <strong id="lg-mutual">0</strong></div>
       <div class="stat">Day mint cap <strong id="lg-cap">40</strong></div>
       <div class="stat">Tip <strong id="lg-tip" style="font-size:0.72rem;word-break:break-all">—</strong></div>
     </div>
     <div class="card" style="margin-bottom:1rem">
       <div class="empty" id="ledger-empty">Sign in to load ledger</div>
+      <p class="hint" id="ledger-graph-hint" hidden style="margin:0 0 0.65rem"></p>
       <table id="ledger-table" hidden>
         <thead>
           <tr>
             <th>User</th>
             <th>Name</th>
-            <th>★</th>
+            <th>★ bal</th>
+            <th>Trust</th>
+            <th>Gifters</th>
           </tr>
         </thead>
         <tbody id="ledger-body"></tbody>
+      </table>
+      <p class="settings-section-label" id="ledger-ld-label" hidden style="margin:0.85rem 0 0.35rem;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted)">Low diversity (high trust, few gifters)</p>
+      <table id="ledger-ld-table" hidden>
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Name</th>
+            <th>Trust</th>
+            <th>Effective</th>
+            <th>Gifters</th>
+          </tr>
+        </thead>
+        <tbody id="ledger-ld-body"></tbody>
       </table>
       <div class="auth" style="margin-top:0.85rem;padding:0;border:none;background:transparent">
         <label>
@@ -1309,10 +1328,17 @@
 
       if ($("gl-ledger-v"))
         $("gl-ledger-v").textContent = seq ? "#" + seq : "—";
+      const trustUsers = Number(led.users_with_trust) || 0;
+      const mutual = Number((led.graph || {}).mutual_pairs) || 0;
       if ($("gl-ledger-s"))
         $("gl-ledger-s").textContent =
-          usersStars + " users · " + totalStars + "★ total" +
-          (tip ? " · " + tip.slice(0, 10) + "…" : "");
+          usersStars +
+          " bal · " +
+          trustUsers +
+          " trust · " +
+          mutual +
+          " mutual" +
+          (tip ? " · " + tip.slice(0, 8) + "…" : "");
       setGlanceTone("gl-ledger", seq > 0 ? "good" : "warn");
 
       if ($("gl-safety-v")) $("gl-safety-v").textContent = reports + " / " + bans;
@@ -1739,6 +1765,10 @@
       const empty = $("ledger-empty");
       const table = $("ledger-table");
       const body = $("ledger-body");
+      const ldTable = $("ledger-ld-table");
+      const ldBody = $("ledger-ld-body");
+      const ldLabel = $("ledger-ld-label");
+      const graphHint = $("ledger-graph-hint");
       if (!led) {
         if (stats) stats.hidden = true;
         if (empty) {
@@ -1746,19 +1776,50 @@
           empty.textContent = "No ledger data";
         }
         if (table) table.hidden = true;
+        if (ldTable) ldTable.hidden = true;
+        if (ldLabel) ldLabel.hidden = true;
+        if (graphHint) graphHint.hidden = true;
         return;
       }
       if (stats) stats.hidden = false;
       if ($("lg-seq")) $("lg-seq").textContent = led.seq ?? 0;
       if ($("lg-users")) $("lg-users").textContent = led.users_with_stars ?? 0;
       if ($("lg-total")) $("lg-total").textContent = led.total_stars ?? 0;
+      if ($("lg-trust-users"))
+        $("lg-trust-users").textContent = led.users_with_trust ?? 0;
       if ($("lg-cap")) $("lg-cap").textContent = led.daily_mint_cap ?? 40;
+      const graph = led.graph || {};
+      if ($("lg-mutual"))
+        $("lg-mutual").textContent = graph.mutual_pairs ?? 0;
+      if (graphHint) {
+        const edges = graph.trust_edges ?? 0;
+        const mutual = graph.mutual_pairs ?? 0;
+        const tMin = graph.trusted_min_gifters ?? led.trusted_min_gifters ?? 5;
+        const sMin = graph.senior_min_gifters ?? led.senior_min_gifters ?? 12;
+        graphHint.hidden = false;
+        graphHint.textContent =
+          edges +
+          " trust edges · " +
+          mutual +
+          " mutual pairs · floors trusted≥" +
+          tMin +
+          " gifters · senior≥" +
+          sMin +
+          " · decay after " +
+          (graph.decay_start_days ?? 45) +
+          "d idle";
+      }
       if ($("lg-tip")) {
         const tip = String(led.tip_hash || "");
         $("lg-tip").textContent = tip ? tip.slice(0, 16) + "…" : "—";
         $("lg-tip").title = tip;
       }
-      const top = Array.isArray(led.top) ? led.top : [];
+      const topTrust = Array.isArray(led.top_trust) ? led.top_trust : [];
+      const top = topTrust.length
+        ? topTrust
+        : Array.isArray(led.top)
+          ? led.top
+          : [];
       if (!body) return;
       if (!top.length) {
         if (empty) {
@@ -1767,33 +1828,64 @@
         }
         if (table) table.hidden = true;
         body.innerHTML = "";
-        return;
-      }
-      if (empty) empty.hidden = true;
-      if (table) table.hidden = false;
-      body.innerHTML = top
-        .map((r) => {
-          const uid = r.user_id || "";
-          return `<tr>
+      } else {
+        if (empty) empty.hidden = true;
+        if (table) table.hidden = false;
+        body.innerHTML = top
+          .map((r) => {
+            const uid = r.user_id || "";
+            const trust = r.trust ?? 0;
+            const eff =
+              r.trust_effective != null ? r.trust_effective : trust;
+            const g = r.trust_gifters ?? 0;
+            return `<tr>
           <td class="uid" title="${escapeAttr(uid)}">${escapeHtml(
-            shortId(uid)
-          )}</td>
+              shortId(uid)
+            )}</td>
           <td>${escapeHtml(r.name || "—")}</td>
           <td><strong>★ ${r.stars ?? 0}</strong>
             <button type="button" data-grant-fill="${escapeAttr(
               uid
             )}" style="margin-left:0.35rem;font-size:0.72rem">Grant…</button>
           </td>
+          <td>${trust}${eff !== trust ? " → " + eff : ""}</td>
+          <td>${g}</td>
         </tr>`;
-        })
-        .join("");
-      body.querySelectorAll("[data-grant-fill]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const uid = btn.getAttribute("data-grant-fill") || "";
-          if ($("grant-uid")) $("grant-uid").value = uid;
-          $("grant-uid")?.focus?.();
+          })
+          .join("");
+        body.querySelectorAll("[data-grant-fill]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const uid = btn.getAttribute("data-grant-fill") || "";
+            if ($("grant-uid")) $("grant-uid").value = uid;
+            $("grant-uid")?.focus?.();
+          });
         });
-      });
+      }
+      const low = Array.isArray(graph.low_diversity) ? graph.low_diversity : [];
+      if (ldBody && ldTable) {
+        if (!low.length) {
+          ldTable.hidden = true;
+          if (ldLabel) ldLabel.hidden = true;
+          ldBody.innerHTML = "";
+        } else {
+          if (ldLabel) ldLabel.hidden = false;
+          ldTable.hidden = false;
+          ldBody.innerHTML = low
+            .map((r) => {
+              const uid = r.user_id || "";
+              return `<tr>
+            <td class="uid" title="${escapeAttr(uid)}">${escapeHtml(
+                shortId(uid)
+              )}</td>
+            <td>${escapeHtml(r.name || "—")}</td>
+            <td>${r.trust ?? 0}</td>
+            <td>${r.trust_effective ?? 0}</td>
+            <td>${r.gifters ?? 0}</td>
+          </tr>`;
+            })
+            .join("");
+        }
+      }
     }
 
     async function grantStars() {
