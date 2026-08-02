@@ -71,36 +71,89 @@ function preferDirectOnlyEnabled() {
 }
 
 /**
- * Apply optional “no TURN” filter to iceConfig from lastRawIceServers.
+ * Hide IP from partner: force TURN relay only (no host/srflx path to peer).
+ * Mutually exclusive with Prefer Direct. Requires TURN on the hub.
+ * @returns {boolean}
+ */
+function hideIpRelayOnlyEnabled() {
+  try {
+    const p = JSON.parse(
+      localStorage.getItem("freenet-roulette-media-prefs-v1") || "{}"
+    );
+    return !!p.hideIpRelayOnly;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Keep only STUN (or only TURN) URL entries from iceServers list.
+ * @param {RTCIceServer[]} raw
+ * @param {"stun"|"turn"} mode
+ * @returns {RTCIceServer[]}
+ */
+function filterIceServersByMode(raw, mode) {
+  return (raw || [])
+    .map((s) => {
+      const urls = Array.isArray(s.urls) ? s.urls : s.urls ? [s.urls] : [];
+      const kept = urls.filter((u) => {
+        const x = String(u).toLowerCase();
+        if (mode === "turn") {
+          return x.startsWith("turn:") || x.startsWith("turns:");
+        }
+        return x.startsWith("stun:") || (!x.startsWith("turn:") && !x.startsWith("turns:"));
+      });
+      if (!kept.length) return null;
+      const entry = { urls: kept.length === 1 ? kept[0] : kept };
+      if (s.username) entry.username = s.username;
+      if (s.credential) entry.credential = s.credential;
+      return entry;
+    })
+    .filter(Boolean);
+}
+
+/**
+ * Apply ICE policy from prefs:
+ * - hideIpRelayOnly → iceTransportPolicy "relay" + TURN servers only
+ * - preferDirectOnly → STUN only (no TURN)
+ * - default → all servers, policy "all"
  */
 function applyIceDirectPreference() {
   const raw = lastRawIceServers?.length
     ? lastRawIceServers
     : DEFAULT_ICE.iceServers;
-  const directOnly = preferDirectOnlyEnabled();
+  const hideIp = hideIpRelayOnlyEnabled();
+  const directOnly = !hideIp && preferDirectOnlyEnabled();
   let servers = raw;
-  if (directOnly) {
-    servers = raw
-      .map((s) => {
-        const urls = Array.isArray(s.urls) ? s.urls : s.urls ? [s.urls] : [];
-        const kept = urls.filter((u) => {
-          const x = String(u).toLowerCase();
-          return !x.startsWith("turn:") && !x.startsWith("turns:");
-        });
-        if (!kept.length) return null;
-        const entry = { urls: kept.length === 1 ? kept[0] : kept };
-        if (s.username) entry.username = s.username;
-        if (s.credential) entry.credential = s.credential;
-        return entry;
-      })
-      .filter(Boolean);
+  /** @type {RTCIceTransportPolicy} */
+  let iceTransportPolicy = "all";
+
+  if (hideIp) {
+    // Force relay: partner never sees host/srflx candidates from us
+    const turnOnly = filterIceServersByMode(raw, "turn");
+    if (turnOnly.length) {
+      servers = turnOnly;
+      iceTransportPolicy = "relay";
+    } else {
+      // No TURN configured — cannot hide IP; fall back to all (UI should warn)
+      servers = raw;
+      iceTransportPolicy = "all";
+      console.warn(
+        "[webrtc] Hide IP needs TURN, but no turn: servers in config — using default ICE"
+      );
+    }
+  } else if (directOnly) {
+    servers = filterIceServersByMode(raw, "stun");
     if (!servers.length) servers = DEFAULT_ICE.iceServers;
+    iceTransportPolicy = "all";
   }
+
   iceConfig = {
     iceServers: servers,
     iceCandidatePoolSize: ICE_CANDIDATE_POOL_SIZE,
     bundlePolicy: "max-bundle",
     rtcpMuxPolicy: "require",
+    iceTransportPolicy,
   };
   return iceConfig;
 }
@@ -1013,6 +1066,7 @@ if (typeof window !== "undefined") {
   window.getIceConfig = getIceConfig;
   window.applyIceDirectPreference = applyIceDirectPreference;
   window.preferDirectOnlyEnabled = preferDirectOnlyEnabled;
+  window.hideIpRelayOnlyEnabled = hideIpRelayOnlyEnabled;
   window.QUALITY_TIERS = QUALITY_TIERS;
   window.applyLowLatencyPlayout = applyLowLatencyPlayout;
   window.lowLatencyAudioConstraints = lowLatencyAudioConstraints;

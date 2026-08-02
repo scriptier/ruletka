@@ -6497,9 +6497,17 @@ function hideCallCoach() {
 let preferDirectAutoOffDone = false;
 
 function setPreferDirectOnly(on, { silent = false } = {}) {
-  savePrefs({ preferDirectOnly: !!on });
+  const want = !!on;
+  // Prefer Direct and Hide IP are mutually exclusive
+  if (want && loadPrefs().hideIpRelayOnly) {
+    savePrefs({ preferDirectOnly: true, hideIpRelayOnly: false });
+    const hideChk = $("chk-hide-ip");
+    if (hideChk) hideChk.checked = false;
+  } else {
+    savePrefs({ preferDirectOnly: want });
+  }
   const chk = $("chk-prefer-direct");
-  if (chk) chk.checked = !!on;
+  if (chk) chk.checked = !!loadPrefs().preferDirectOnly;
   if (typeof applyIceDirectPreference === "function") {
     applyIceDirectPreference();
   }
@@ -6509,13 +6517,71 @@ function setPreferDirectOnly(on, { silent = false } = {}) {
   } catch (_) {}
   if (!silent) {
     setStatus(
-      on
+      loadPrefs().preferDirectOnly
         ? _t("settings.preferDirectOnStatus") ||
             "Prefer Direct on — next match uses STUN only"
         : _t("settings.preferDirectOffStatus") ||
             "TURN allowed again on next match"
     );
   }
+}
+
+/**
+ * Hide IP from partner: force TURN relay-only ICE (next PeerConnection).
+ * No account — stored in local media prefs (import/export identity stays separate).
+ * @param {boolean} on
+ * @param {{ silent?: boolean }} [opts]
+ */
+function setHideIpRelayOnly(on, { silent = false } = {}) {
+  const want = !!on;
+  const hasTurn =
+    !!(window.__hasTurn || window.__iceMeta?.has_turn) ||
+    !!(
+      typeof getIceMeta === "function" &&
+      getIceMeta()?.has_turn
+    );
+  if (want && !hasTurn) {
+    const chk = $("chk-hide-ip");
+    if (chk) chk.checked = false;
+    savePrefs({ hideIpRelayOnly: false });
+    if (!silent) {
+      setStatus(
+        _t("settings.hideIpNoTurn") ||
+          "Hide IP needs TURN on this hub — not available right now"
+      );
+    }
+    try {
+      refreshConnectionDetails?.();
+    } catch (_) {}
+    return false;
+  }
+  if (want) {
+    // Turn off Prefer Direct (can't hide IP without TURN)
+    savePrefs({ hideIpRelayOnly: true, preferDirectOnly: false });
+    const pd = $("chk-prefer-direct");
+    if (pd) pd.checked = false;
+  } else {
+    savePrefs({ hideIpRelayOnly: false });
+  }
+  const chk = $("chk-hide-ip");
+  if (chk) chk.checked = !!loadPrefs().hideIpRelayOnly;
+  if (typeof applyIceDirectPreference === "function") {
+    applyIceDirectPreference();
+  }
+  try {
+    syncSettingsSummary?.();
+    refreshConnectionDetails?.();
+  } catch (_) {}
+  if (!silent) {
+    setStatus(
+      loadPrefs().hideIpRelayOnly
+        ? _t("settings.hideIpOnStatus") ||
+            "Hide IP on — next match uses TURN only (partner won’t see your IP)"
+        : _t("settings.hideIpOffStatus") ||
+            "Hide IP off — direct P2P allowed when possible"
+    );
+  }
+  return true;
 }
 
 function autoDisablePreferDirectOnFail({ autoNext = true } = {}) {
@@ -10496,11 +10562,18 @@ function setIcePathBadge(kind) {
     el.title = _t("sec.pathDirectTitle") || "Media path is peer-to-peer (best quality)";
     recordIcePathStat("direct");
   } else if (kind === "relay") {
-    el.textContent = _t("sec.pathRelay") || "Relay (TURN)";
+    const hideIp =
+      (typeof hideIpRelayOnlyEnabled === "function" && hideIpRelayOnlyEnabled()) ||
+      !!loadPrefs().hideIpRelayOnly;
+    el.textContent = hideIp
+      ? _t("sec.pathRelayPrivate") || "Relay (private)"
+      : _t("sec.pathRelay") || "Relay (TURN)";
     el.classList.add("path-relay");
-    el.title =
-      _t("sec.pathRelayTitle") ||
-      "Media via TURN relay — often higher latency; try better network if video freezes";
+    el.title = hideIp
+      ? _t("sec.pathRelayPrivateTitle") ||
+        "Media via TURN only — partner does not see your IP (higher latency is normal)"
+      : _t("sec.pathRelayTitle") ||
+        "Media via TURN relay — often higher latency; try better network if video freezes";
     recordIcePathStat("relay");
   } else {
     el.textContent = _t("sec.pathUnknown") || "Connecting…";
@@ -10721,6 +10794,23 @@ function refreshConnectionDetails() {
     directPref.textContent = loadPrefs().preferDirectOnly
       ? _t("settings.preferDirectOn") || "On — STUN only (harder NATs may fail)"
       : _t("settings.preferDirectOff") || "Off — TURN available when needed";
+  }
+  const hideIpEl = $("conn-detail-hide-ip");
+  if (hideIpEl) {
+    const on = !!loadPrefs().hideIpRelayOnly;
+    const hasTurn =
+      !!(window.__hasTurn || window.__iceMeta?.has_turn) ||
+      !!(typeof getIceMeta === "function" && getIceMeta()?.has_turn);
+    if (on && hasTurn) {
+      hideIpEl.textContent =
+        _t("settings.hideIpOn") || "On — TURN only (IP hidden from partner)";
+    } else if (on && !hasTurn) {
+      hideIpEl.textContent =
+        _t("settings.hideIpNeedTurn") || "On but TURN missing on hub";
+    } else {
+      hideIpEl.textContent =
+        _t("settings.hideIpOff") || "Off — direct P2P allowed";
+    }
   }
 }
 
@@ -12419,10 +12509,15 @@ function refreshAboutPanel() {
 }
 
 function syncPreferDirectToggle() {
-  const chk = $("chk-prefer-direct");
-  if (!chk) return;
   const prefs = loadPrefs();
-  chk.checked = !!prefs.preferDirectOnly;
+  const chk = $("chk-prefer-direct");
+  if (chk) chk.checked = !!prefs.preferDirectOnly;
+  const hide = $("chk-hide-ip");
+  if (hide) hide.checked = !!prefs.hideIpRelayOnly;
+}
+
+function syncHideIpToggle() {
+  syncPreferDirectToggle();
 }
 
 /** Low-latency audio (lipsync) — default on unless user opted out. */
@@ -19401,10 +19496,22 @@ $("chk-prefer-direct")?.addEventListener("change", (e) => {
   // User explicitly re-enabled — allow future auto-off again after another fail
   if (on) preferDirectAutoOffDone = false;
   setPreferDirectOnly(on, { silent: false });
+  syncPreferDirectToggle();
   log(
     on
       ? "prefer direct P2P (no TURN)"
       : "prefer direct off (TURN allowed)"
+  );
+});
+$("chk-hide-ip")?.addEventListener("change", (e) => {
+  const on = !!e.target.checked;
+  setHideIpRelayOnly(on, { silent: false });
+  syncPreferDirectToggle();
+  trackEvent("hide_ip_pref", { on: on ? 1 : 0 });
+  log(
+    on
+      ? "hide IP (TURN relay only)"
+      : "hide IP off (direct allowed)"
   );
 });
 function wireLowLatencyAudioToggle(id) {

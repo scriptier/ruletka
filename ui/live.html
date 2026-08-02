@@ -1872,11 +1872,26 @@
             <span class="conn-detail-value" id="conn-detail-direct-pref">—</span>
             <span class="conn-detail-hint" data-i18n="settings.preferDirectHint">Disables TURN for the next match. Some mobile networks won’t connect.</span>
           </div>
+          <div class="conn-detail-row">
+            <span class="conn-detail-label" data-i18n="settings.hideIp">Hide my IP</span>
+            <span class="conn-detail-value" id="conn-detail-hide-ip">—</span>
+            <span class="conn-detail-hint" data-i18n="settings.hideIpHint">Force TURN relay so the partner never sees your IP. Slightly higher latency. Needs hub TURN.</span>
+          </div>
         </div>
+        <label class="settings-toggle-row conn-hide-ip-row">
+          <span class="toggle-copy">
+            <span class="toggle-title" data-i18n="settings.hideIp">Hide my IP</span>
+            <span class="toggle-hint" data-i18n="settings.hideIpHint">Force TURN relay so the partner never sees your IP. Slightly higher latency. Needs hub TURN. No account required — just this device preference.</span>
+          </span>
+          <span class="toggle-switch">
+            <input type="checkbox" id="chk-hide-ip" />
+            <span class="toggle-ui" aria-hidden="true"></span>
+          </span>
+        </label>
         <label class="settings-toggle-row conn-prefer-direct-row">
           <span class="toggle-copy">
             <span class="toggle-title" data-i18n="settings.preferDirect">Prefer Direct only</span>
-            <span class="toggle-hint" data-i18n="settings.preferDirectHint">Disables TURN for the next match. Some mobile networks won’t connect.</span>
+            <span class="toggle-hint" data-i18n="settings.preferDirectHint">Disables TURN for the next match. Some mobile networks won’t connect. Conflicts with Hide my IP.</span>
           </span>
           <span class="toggle-switch">
             <input type="checkbox" id="chk-prefer-direct" />
@@ -2132,8 +2147,8 @@
   <script src="i18n.js?v=195" defer></script>
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=156" defer></script>
-  <script src="webrtc.js?v=159" defer></script>
-  <script src="live.js?v=274" defer></script>
+  <script src="webrtc.js?v=160" defer></script>
+  <script src="live.js?v=275" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {
