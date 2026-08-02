@@ -11,13 +11,12 @@ import {
   type ViewStyle,
 } from "react-native";
 import { hubBase } from "../src/config";
-import { HubClient } from "../src/hub/HubClient";
+import { useHub } from "../src/hub/HubProvider";
 import type { MatchPeer, ServerMatched, ServerMsg } from "../src/hub/types";
 import { MediaSession, type MediaStreamLike } from "../src/media/MediaSession";
-import { loadMatchPrefs, type MatchPrefs } from "../src/prefs/store";
-import { useApp } from "./_layout";
+import { loadMatchPrefs } from "../src/prefs/store";
 
-type Phase = "idle" | "connecting" | "search" | "matched" | "error";
+type Phase = "idle" | "search" | "matched" | "error";
 
 function VideoView(props: {
   stream: MediaStreamLike | null;
@@ -55,6 +54,7 @@ function pickPeer(msg: ServerMatched): {
   userId: string;
   isOfferer: boolean;
   name: string;
+  mode: string;
 } {
   const peers = (msg.peers || []) as MatchPeer[];
   if (peers.length) {
@@ -64,6 +64,7 @@ function pickPeer(msg: ServerMatched): {
       userId: String(p.user_id || ""),
       isOfferer: p.is_offerer != null ? !!p.is_offerer : !!msg.is_offerer,
       name: String(p.name || p.short_id || msg.partner_short || "?"),
+      mode: String(msg.mode || "solo"),
     };
   }
   return {
@@ -71,26 +72,24 @@ function pickPeer(msg: ServerMatched): {
     userId: "",
     isOfferer: !!msg.is_offerer,
     name: String(msg.partner_short || "?"),
+    mode: String(msg.mode || "solo"),
   };
 }
 
 export default function LiveScreen() {
-  const { identity } = useApp();
-  const hubRef = useRef<HubClient | null>(null);
+  const { hub, friendCode, stars, addMessageListener, connected } = useHub();
   const mediaRef = useRef<MediaSession | null>(null);
   const remotePeerId = useRef<string>("");
   const partnerUserId = useRef<string>("");
-  const prefsRef = useRef<MatchPrefs | null>(null);
   const searchingRef = useRef(false);
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [log, setLog] = useState<string[]>([]);
   const [showLog, setShowLog] = useState(false);
-  const [friendCode, setFriendCode] = useState("");
   const [online, setOnline] = useState(0);
   const [waiting, setWaiting] = useState(0);
   const [partner, setPartner] = useState("");
-  const [stars, setStars] = useState(0);
+  const [matchMode, setMatchMode] = useState("");
   const [conn, setConn] = useState("");
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
@@ -107,32 +106,9 @@ export default function LiveScreen() {
     setLog((prev) => [line, ...prev].slice(0, 50));
   }, []);
 
-  const sendHello = useCallback(
-    (hub: HubClient) => {
-      const p = prefsRef.current;
-      hub.hello({
-        user_id: identity.user_id,
-        name: identity.name,
-        gender: p?.gender || "",
-        looking: p?.looking || "any",
-      });
-      if (p) {
-        try {
-          hub.setPrefs({ gender: p.gender, looking: p.looking });
-        } catch {
-          /* not connected yet */
-        }
-      }
-    },
-    [identity.name, identity.user_id]
-  );
-
   useEffect(() => {
     setWebrtcOk(MediaSession.webrtcAvailable());
-    let cancelled = false;
-    const hub = new HubClient();
     const media = new MediaSession();
-    hubRef.current = hub;
     mediaRef.current = media;
 
     media.setHandlers({
@@ -157,143 +133,128 @@ export default function LiveScreen() {
       onError: (e) => push(`media ${e.message}`),
     });
 
-    hub.setHandlers({
-      onOpen: () => {
-        push("ws open");
-        setPhase("connecting");
-        sendHello(hub);
-        // Resume search after reconnect if user was searching
-        if (searchingRef.current) {
-          try {
-            hub.spin();
-            setPhase("search");
-            push("→ spin (reconnect)");
-          } catch {
-            /* ignore */
-          }
-        }
-      },
-      onClose: ({ code, reason }) => {
-        push(`ws close ${code} ${reason}`);
-        if (!searchingRef.current) setPhase("idle");
-      },
-      onError: (e) => push(`ws err ${String(e)}`),
-      onMessage: (msg: ServerMsg) => {
-        switch (msg.type) {
-          case "hello_ok": {
-            const m = msg as {
-              friend_code?: string;
-              stars?: number;
-              short_id?: string;
-            };
-            setFriendCode(m.friend_code || "");
-            setStars(Number(m.stars || 0));
-            push(`hello_ok · ${m.short_id || ""} · ★${m.stars ?? 0}`);
-            if (!searchingRef.current) setPhase("idle");
-            media.ensureLocalStream().then((s) => {
-              if (s) push("local preview ready");
-            });
-            break;
-          }
-          case "status": {
-            const m = msg as {
-              phase?: string;
-              online?: number;
-              waiting_peers?: number;
-              detail?: string;
-            };
-            const on = Number(m.online || 0);
-            const wait = Number(m.waiting_peers || 0);
-            setOnline(on);
-            setWaiting(wait);
-            if (m.phase === "search" || m.phase === "waiting") {
-              setPhase("search");
-              searchingRef.current = true;
-              setAlone(wait <= 1 && on <= 2);
-            }
-            if (m.detail) push(`status ${m.phase}: ${m.detail}`);
-            break;
-          }
-          case "matched": {
-            const m = msg as ServerMatched;
-            const peer = pickPeer(m);
-            remotePeerId.current = peer.peerId;
-            partnerUserId.current = peer.userId;
-            setPartner(peer.name);
-            setPhase("matched");
-            searchingRef.current = false;
-            setAlone(false);
-            setRemoteStream(null);
-            setChat([]);
-            push(
-              `matched ${peer.name} offerer=${peer.isOfferer} uid=${peer.userId.slice(0, 8)}`
-            );
-            media
-              .startCall({ isOfferer: peer.isOfferer })
-              .then(() => push("startCall ok"))
-              .catch((e) => push(`startCall ${e}`));
-            break;
-          }
-          case "signal": {
-            const m = msg as {
-              kind?: string;
-              payload?: string;
-              from_peer?: string;
-            };
-            if (m.from_peer) remotePeerId.current = m.from_peer;
-            push(`signal ← ${m.kind}`);
-            if (m.kind && m.payload != null) {
-              media
-                .handleRemoteSignal(m.kind, m.payload)
-                .catch((e) => push(`handle ${e}`));
-            }
-            break;
-          }
-          case "chat": {
-            const m = msg as { author?: string; body?: string };
-            if (m.body) {
-              setChat((c) =>
-                [...c, { from: m.author || "peer", body: m.body || "" }].slice(
-                  -30
-                )
-              );
-            }
-            break;
-          }
-          case "error":
-            push(`error ${(msg as { message?: string }).message}`);
-            setPhase("error");
-            searchingRef.current = false;
-            break;
-          default:
-            if (msg.type && msg.type !== "pong") push(`← ${msg.type}`);
-        }
-      },
+    loadMatchPrefs().then((prefs) => {
+      media.setHideIp(prefs.hideIp);
     });
 
-    (async () => {
-      const prefs = await loadMatchPrefs();
-      if (cancelled) return;
-      prefsRef.current = prefs;
-      media.setHideIp(prefs.hideIp);
-      try {
-        const cfg = await hub.fetchIceConfig();
+    hub
+      .fetchIceConfig()
+      .then((cfg) => {
         media.setIceConfig(cfg);
         push(`ICE has_turn=${cfg.has_turn}`);
-      } catch (e) {
-        push(`config fail ${e}`);
+      })
+      .catch((e) => push(`config fail ${e}`));
+
+    media.ensureLocalStream().then((s) => {
+      if (s) push("local preview ready");
+    });
+
+    const unsub = addMessageListener((msg: ServerMsg) => {
+      switch (msg.type) {
+        case "status": {
+          const m = msg as {
+            phase?: string;
+            online?: number;
+            waiting_peers?: number;
+            detail?: string;
+          };
+          const on = Number(m.online || 0);
+          const wait = Number(m.waiting_peers || 0);
+          setOnline(on);
+          setWaiting(wait);
+          if (m.phase === "search" || m.phase === "waiting") {
+            setPhase("search");
+            searchingRef.current = true;
+            setAlone(wait <= 1 && on <= 2);
+          }
+          if (m.detail) push(`status ${m.phase}: ${m.detail}`);
+          break;
+        }
+        case "matched": {
+          const m = msg as ServerMatched;
+          const peer = pickPeer(m);
+          remotePeerId.current = peer.peerId;
+          partnerUserId.current = peer.userId;
+          setPartner(peer.name);
+          setMatchMode(peer.mode);
+          setPhase("matched");
+          searchingRef.current = false;
+          setAlone(false);
+          setRemoteStream(null);
+          setChat([]);
+          push(
+            `matched ${peer.name} mode=${peer.mode} offerer=${peer.isOfferer}`
+          );
+          media
+            .startCall({ isOfferer: peer.isOfferer })
+            .then(() => push("startCall ok"))
+            .catch((e) => push(`startCall ${e}`));
+          break;
+        }
+        case "signal": {
+          const m = msg as {
+            kind?: string;
+            payload?: string;
+            from_peer?: string;
+          };
+          if (m.from_peer) remotePeerId.current = m.from_peer;
+          push(`signal ← ${m.kind}`);
+          if (m.kind && m.payload != null) {
+            media
+              .handleRemoteSignal(m.kind, m.payload)
+              .catch((e) => push(`handle ${e}`));
+          }
+          break;
+        }
+        case "chat": {
+          const m = msg as { author?: string; body?: string };
+          if (m.body) {
+            setChat((c) =>
+              [...c, { from: m.author || "peer", body: m.body || "" }].slice(
+                -30
+              )
+            );
+          }
+          break;
+        }
+        case "call_ended": {
+          // If we were in a friend call, return to idle
+          if (matchMode === "friend" || searchingRef.current === false) {
+            media.closeCall({ keepLocal: true, sendBye: false });
+            setRemoteStream(null);
+            setPartner("");
+            setPhase("idle");
+          }
+          break;
+        }
+        case "error":
+          push(`error ${(msg as { message?: string }).message}`);
+          setPhase("error");
+          searchingRef.current = false;
+          break;
+        default:
+          break;
       }
-      hub.connect({ autoReconnect: true });
-    })();
+    });
 
     return () => {
-      cancelled = true;
+      unsub();
       media.close();
-      hub.disconnect();
-      hubRef.current = null;
       mediaRef.current = null;
     };
-  }, [identity.name, identity.user_id, push, sendHello]);
+  }, [addMessageListener, hub, push]);
+
+  // Resume stranger search after reconnect
+  useEffect(() => {
+    if (connected && searchingRef.current && phase === "search") {
+      try {
+        hub.spin();
+        push("→ spin (resume)");
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [connected, hub, phase, push]);
 
   function start() {
     try {
@@ -301,7 +262,7 @@ export default function LiveScreen() {
       setRemoteStream(null);
       setChat([]);
       searchingRef.current = true;
-      hubRef.current?.spin();
+      hub.spin();
       setPhase("search");
       push("→ spin");
     } catch (e) {
@@ -317,8 +278,20 @@ export default function LiveScreen() {
       setChat([]);
       remotePeerId.current = "";
       partnerUserId.current = "";
+      if (matchMode === "friend") {
+        try {
+          hub.hangupFriend();
+        } catch {
+          /* ignore */
+        }
+        searchingRef.current = false;
+        setPhase("idle");
+        setMatchMode("");
+        push("→ hangup friend");
+        return;
+      }
       searchingRef.current = true;
-      hubRef.current?.next();
+      hub.next();
       setPhase("search");
       push("→ next");
     } catch (e) {
@@ -336,7 +309,16 @@ export default function LiveScreen() {
       partnerUserId.current = "";
       searchingRef.current = false;
       setAlone(false);
-      hubRef.current?.stop();
+      if (matchMode === "friend") {
+        try {
+          hub.hangupFriend();
+        } catch {
+          /* ignore */
+        }
+      } else {
+        hub.stop();
+      }
+      setMatchMode("");
       setPhase("idle");
       push("→ stop");
     } catch (e) {
@@ -360,7 +342,7 @@ export default function LiveScreen() {
     const body = chatDraft.trim();
     if (!body || phase !== "matched") return;
     try {
-      hubRef.current?.send({ type: "chat", body });
+      hub.chat(body);
       setChat((c) => [...c, { from: "you", body }].slice(-30));
       setChatDraft("");
     } catch (e) {
@@ -371,8 +353,10 @@ export default function LiveScreen() {
   function shareInvite() {
     const code = friendCode || "……";
     const url = `${hubBase()}/live.html?friend=${encodeURIComponent(code)}&ref=friend_invite`;
-    const message = `I'm on ruletka live — add code ${code}, Accept, then Call.\n${url}`;
-    Share.share({ message, title: "ruletka invite" }).catch(() => {});
+    Share.share({
+      message: `I'm on ruletka live — add code ${code}, Accept, then Call.\n${url}`,
+      title: "ruletka invite",
+    }).catch(() => {});
   }
 
   function reportOrBlock() {
@@ -388,7 +372,7 @@ export default function LiveScreen() {
         style: "destructive",
         onPress: () => {
           try {
-            hubRef.current?.blockUser(uid);
+            hub.blockUser(uid);
             push("→ block");
             next();
           } catch (e) {
@@ -405,18 +389,12 @@ export default function LiveScreen() {
               text: "Harassment",
               onPress: () => doReport(uid, "harassment"),
             },
-            {
-              text: "Spam",
-              onPress: () => doReport(uid, "spam"),
-            },
+            { text: "Spam", onPress: () => doReport(uid, "spam") },
             {
               text: "Underage suspicion",
               onPress: () => doReport(uid, "underage"),
             },
-            {
-              text: "Other",
-              onPress: () => doReport(uid, "other"),
-            },
+            { text: "Other", onPress: () => doReport(uid, "other") },
             { text: "Cancel", style: "cancel" },
           ]);
         },
@@ -426,8 +404,8 @@ export default function LiveScreen() {
 
   function doReport(uid: string, reason: string) {
     try {
-      hubRef.current?.reportUser(uid, reason);
-      hubRef.current?.blockUser(uid);
+      hub.reportUser(uid, reason);
+      hub.blockUser(uid);
       push(`→ report ${reason} + block`);
       next();
     } catch (e) {
@@ -436,6 +414,7 @@ export default function LiveScreen() {
   }
 
   const showAloneBanner = phase === "search" && alone;
+  const isFriendCall = matchMode === "friend";
 
   return (
     <View style={styles.root}>
@@ -459,7 +438,7 @@ export default function LiveScreen() {
         <View style={styles.overlay}>
           <Text style={styles.stageLabel}>
             {phase === "matched"
-              ? `Matched · ${partner}${conn ? ` · ${conn}` : ""}`
+              ? `${isFriendCall ? "Friend" : "Matched"} · ${partner}${conn ? ` · ${conn}` : ""}`
               : phase === "search"
                 ? alone
                   ? "You're first in line…"
@@ -525,20 +504,25 @@ export default function LiveScreen() {
         <Text style={styles.meta}>
           ★ {stars} · online {online} · wait {waiting}
           {friendCode ? ` · code ${friendCode}` : ""}
+          {!connected ? " · reconnecting" : ""}
         </Text>
         <View style={styles.row}>
-          {phase === "idle" || phase === "error" || phase === "connecting" ? (
+          {phase === "idle" || phase === "error" ? (
             <Pressable style={styles.btn} onPress={start}>
               <Text style={styles.btnText}>Start</Text>
             </Pressable>
           ) : null}
           {phase === "search" || phase === "matched" ? (
             <>
-              <Pressable style={styles.btnSecondary} onPress={next}>
-                <Text style={styles.btnText}>Next</Text>
-              </Pressable>
+              {!isFriendCall ? (
+                <Pressable style={styles.btnSecondary} onPress={next}>
+                  <Text style={styles.btnText}>Next</Text>
+                </Pressable>
+              ) : null}
               <Pressable style={styles.btnGhost} onPress={stop}>
-                <Text style={styles.btnText}>Stop</Text>
+                <Text style={styles.btnText}>
+                  {isFriendCall ? "Hang up" : "Stop"}
+                </Text>
               </Pressable>
             </>
           ) : null}
@@ -616,12 +600,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.25)",
   },
   pipVideo: { width: "100%", height: "100%" },
-  overlay: {
-    position: "absolute",
-    left: 12,
-    top: 12,
-    right: 12,
-  },
+  overlay: { position: "absolute", left: 12, top: 12, right: 12 },
   stageLabel: {
     color: "#e8eef7",
     fontSize: 15,
@@ -629,12 +608,7 @@ const styles = StyleSheet.create({
     textShadowColor: "#000",
     textShadowRadius: 4,
   },
-  stageHint: {
-    color: "#9aa8bc",
-    fontSize: 11,
-    marginTop: 6,
-    lineHeight: 16,
-  },
+  stageHint: { color: "#9aa8bc", fontSize: 11, marginTop: 6, lineHeight: 16 },
   aloneCard: {
     position: "absolute",
     left: 12,
@@ -736,10 +710,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingVertical: 4,
   },
-  log: {
-    maxHeight: 100,
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-  },
+  log: { maxHeight: 100, paddingHorizontal: 16, paddingBottom: 12 },
   logLine: { color: "#6b7a90", fontSize: 10, fontFamily: "monospace" },
 });

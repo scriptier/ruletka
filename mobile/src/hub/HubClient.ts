@@ -8,9 +8,6 @@ export type HubClientHandlers = {
   onMessage?: (msg: ServerMsg) => void;
 };
 
-/**
- * Thin WebSocket client for roulette-bridge.
- */
 export class HubClient {
   private ws: WebSocket | null = null;
   private handlers: HubClientHandlers = {};
@@ -26,11 +23,15 @@ export class HubClient {
   }
 
   setHandlers(h: HubClientHandlers) {
-    this.handlers = h;
+    this.handlers = { ...this.handlers, ...h };
   }
 
   get connected(): boolean {
     return !!this.ws && this.ws.readyState === WebSocket.OPEN;
+  }
+
+  get hubBaseUrl(): string {
+    return this.base;
   }
 
   async fetchIceConfig(): Promise<IceConfig> {
@@ -39,7 +40,6 @@ export class HubClient {
     return (await res.json()) as IceConfig;
   }
 
-  /** Connect and keep trying if the socket drops (until disconnect()). */
   connect(opts: { autoReconnect?: boolean } = {}): void {
     this.shouldReconnect = opts.autoReconnect !== false;
     this.intentionalClose = false;
@@ -57,8 +57,7 @@ export class HubClient {
       }
       this.ws = null;
     }
-    const url = wsUrl(this.base);
-    const ws = new WebSocket(url);
+    const ws = new WebSocket(wsUrl(this.base));
     this.ws = ws;
 
     ws.onopen = () => {
@@ -77,13 +76,10 @@ export class HubClient {
         this.scheduleReconnect();
       }
     };
-    ws.onerror = (err) => {
-      this.handlers.onError?.(err);
-    };
+    ws.onerror = (err) => this.handlers.onError?.(err);
     ws.onmessage = (ev) => {
       try {
-        const data = JSON.parse(String(ev.data)) as ServerMsg;
-        this.handlers.onMessage?.(data);
+        this.handlers.onMessage?.(JSON.parse(String(ev.data)) as ServerMsg);
       } catch (e) {
         this.handlers.onError?.(e);
       }
@@ -127,6 +123,15 @@ export class HubClient {
     this.ws.send(JSON.stringify(msg));
   }
 
+  trySend(msg: ClientMsg): boolean {
+    try {
+      this.send(msg);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   hello(opts: {
     user_id: string;
     name: string;
@@ -159,25 +164,47 @@ export class HubClient {
   spin(room = ""): void {
     this.send({ type: "spin", room });
   }
-
   next(room = ""): void {
     this.send({ type: "next", room });
   }
-
   stop(): void {
     this.send({ type: "stop" });
   }
-
   signal(kind: string, payload: string, to = ""): void {
     this.send({ type: "signal", kind, payload, to });
   }
-
+  chat(body: string): void {
+    this.send({ type: "chat", body });
+  }
   blockUser(user_id: string): void {
     this.send({ type: "block_user", user_id });
   }
-
   reportUser(user_id: string, reason = "other"): void {
     this.send({ type: "report_user", user_id, reason });
+  }
+  addFriend(code: string): void {
+    this.send({ type: "add_friend", code: code.trim().toUpperCase() });
+  }
+  acceptFriend(user_id: string): void {
+    this.send({ type: "accept_friend", user_id });
+  }
+  declineFriend(user_id: string): void {
+    this.send({ type: "decline_friend", user_id });
+  }
+  removeFriend(user_id: string): void {
+    this.send({ type: "remove_friend", user_id });
+  }
+  callFriend(user_id: string): void {
+    this.send({ type: "call_friend", user_id });
+  }
+  callRespond(user_id: string, accept: boolean): void {
+    this.send({ type: "call_respond", user_id, accept });
+  }
+  callCancel(user_id: string): void {
+    this.send({ type: "call_cancel", user_id });
+  }
+  hangupFriend(): void {
+    this.send({ type: "hangup_friend" });
   }
 
   private startPing() {

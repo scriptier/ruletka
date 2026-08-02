@@ -53,11 +53,11 @@ Push for friend rings while killed is **post-first-submit** unless schedule allo
 
 ### Friends
 
-- [ ] Friend code display + add by code
-- [ ] Accept / decline
-- [ ] Online presence
-- [ ] Call / answer / decline / cancel
-- [ ] No-answer + missed in-app
+- [x] Friend code display + add by code
+- [x] Accept / decline
+- [x] Online presence (friends list)
+- [x] Call / answer / decline / cancel (in-app banners)
+- [ ] No-answer / missed call history UI
 
 ### Stars
 

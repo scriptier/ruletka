@@ -1,6 +1,6 @@
 /**
- * Subset of bridge wire types for Phase 0–1.
- * Full enum lives in bridge/src/protocol.rs — keep field names in sync.
+ * Subset of bridge wire types for Phase 0–2.
+ * Full enum: bridge/src/protocol.rs
  */
 
 export type ClientHello = {
@@ -38,6 +38,19 @@ export type ClientReport = {
   user_id: string;
   reason?: string;
 };
+export type ClientChat = { type: "chat"; body: string };
+export type ClientAddFriend = { type: "add_friend"; code: string };
+export type ClientAcceptFriend = { type: "accept_friend"; user_id: string };
+export type ClientDeclineFriend = { type: "decline_friend"; user_id: string };
+export type ClientRemoveFriend = { type: "remove_friend"; user_id: string };
+export type ClientCallFriend = { type: "call_friend"; user_id: string };
+export type ClientCallRespond = {
+  type: "call_respond";
+  user_id: string;
+  accept: boolean;
+};
+export type ClientCallCancel = { type: "call_cancel"; user_id: string };
+export type ClientHangupFriend = { type: "hangup_friend" };
 
 export type ClientMsg =
   | ClientHello
@@ -49,7 +62,28 @@ export type ClientMsg =
   | ClientPing
   | ClientBlock
   | ClientReport
+  | ClientChat
+  | ClientAddFriend
+  | ClientAcceptFriend
+  | ClientDeclineFriend
+  | ClientRemoveFriend
+  | ClientCallFriend
+  | ClientCallRespond
+  | ClientCallCancel
+  | ClientHangupFriend
   | { type: string; [k: string]: unknown };
+
+export type FriendInfo = {
+  user_id: string;
+  name: string;
+  friend_code: string;
+  short_id: string;
+  online: boolean;
+  last_msg?: string;
+  last_msg_ts?: number;
+  avatar?: string;
+  stars?: number;
+};
 
 export type ServerHelloOk = {
   type: "hello_ok";
@@ -107,6 +141,43 @@ export type ServerSignal = {
   from_peer?: string;
 };
 
+export type ServerFriends = {
+  type: "friends";
+  friends: FriendInfo[];
+  friend_code: string;
+  blocked?: string[];
+  incoming_requests?: FriendInfo[];
+  outgoing_requests?: FriendInfo[];
+};
+
+export type ServerFriendRequest = {
+  type: "friend_request";
+  from_user_id: string;
+  from_name: string;
+  from_code: string;
+};
+
+export type ServerCallIncoming = {
+  type: "call_incoming";
+  from_user_id: string;
+  from_name: string;
+  from_short: string;
+  from_peer: string;
+  from_code?: string;
+};
+
+export type ServerCallEnded = {
+  type: "call_ended";
+  reason: string;
+};
+
+export type ServerChat = {
+  type: "chat";
+  author?: string;
+  body?: string;
+  from_user_id?: string;
+};
+
 export type ServerError = { type: "error"; message: string };
 
 export type ServerMsg =
@@ -114,6 +185,11 @@ export type ServerMsg =
   | ServerStatus
   | ServerMatched
   | ServerSignal
+  | ServerFriends
+  | ServerFriendRequest
+  | ServerCallIncoming
+  | ServerCallEnded
+  | ServerChat
   | ServerError
   | { type: string; [k: string]: unknown };
 
@@ -123,7 +199,6 @@ export type IceConfig = {
   notes?: string[];
 };
 
-// Minimal DOM-like type for RN WebRTC config JSON
 export type RTCIceServer = {
   urls: string | string[];
   username?: string;

@@ -24,6 +24,12 @@ export default function HomeScreen() {
         </Pressable>
       </Link>
 
+      <Link href="/friends" asChild>
+        <Pressable style={styles.secondary}>
+          <Text style={styles.secondaryText}>Friends &amp; Call</Text>
+        </Pressable>
+      </Link>
+
       <Link href="/settings" asChild>
         <Pressable style={styles.secondary}>
           <Text style={styles.secondaryText}>Match prefs &amp; name</Text>
@@ -31,7 +37,7 @@ export default function HomeScreen() {
       </Link>
 
       <Text style={styles.note}>
-        Phase 1: stranger loop + prefs + report/block. A/V needs a native build
+        Phase 2: friends + calls. Stranger loop ready. A/V needs a native build
         (expo prebuild + react-native-webrtc).
       </Text>
     </View>

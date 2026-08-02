@@ -36,7 +36,7 @@ function Chip(props: {
 }
 
 export default function SettingsScreen() {
-  const { identity } = useApp();
+  const { identity, setIdentityName } = useApp();
   const [name, setName] = useState(identity.name);
   const [prefs, setPrefs] = useState<MatchPrefs | null>(null);
   const [saved, setSaved] = useState(false);
@@ -48,6 +48,7 @@ export default function SettingsScreen() {
   async function save() {
     if (!prefs) return;
     await setDisplayName(name);
+    setIdentityName(name);
     await saveMatchPrefs(prefs);
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);

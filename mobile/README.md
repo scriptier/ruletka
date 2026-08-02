@@ -19,7 +19,9 @@ See monorepo docs:
 | Alone-pool invite share | ✅ |
 | In-call chat | ✅ |
 | Report + Block | ✅ |
-| Friends / stars UI | ⏳ Phase 2–3 |
+| Friends list + Call | ✅ Phase 2 |
+| Incoming/outbound call banners | ✅ |
+| Stars gift / spend UI | ⏳ Phase 3 |
 
 ### First A/V call (device)
 
