@@ -60,6 +60,7 @@ export default function RootLayout() {
         <Stack.Screen name="index" options={{ title: "ruletka" }} />
         <Stack.Screen name="rules" options={{ title: "18+ rules" }} />
         <Stack.Screen name="live" options={{ title: "Live", headerShown: false }} />
+        <Stack.Screen name="settings" options={{ title: "Settings" }} />
       </Stack>
     </AppCtx.Provider>
   );

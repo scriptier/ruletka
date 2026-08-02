@@ -24,9 +24,15 @@ export default function HomeScreen() {
         </Pressable>
       </Link>
 
+      <Link href="/settings" asChild>
+        <Pressable style={styles.secondary}>
+          <Text style={styles.secondaryText}>Match prefs &amp; name</Text>
+        </Pressable>
+      </Link>
+
       <Text style={styles.note}>
-        Phase 0 scaffold: hub WebSocket client + identity. Full WebRTC needs a
-        native build (expo prebuild + react-native-webrtc).
+        Phase 1: stranger loop + prefs + report/block. A/V needs a native build
+        (expo prebuild + react-native-webrtc).
       </Text>
     </View>
   );
@@ -55,5 +61,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   ctaText: { color: "#fff", fontWeight: "700", fontSize: 17 },
+  secondary: {
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 999,
+    alignItems: "center",
+  },
+  secondaryText: { color: "#c5d0e0", fontWeight: "600", fontSize: 15 },
   note: { color: "#6b7a90", fontSize: 12, lineHeight: 18, marginTop: 16 },
 });

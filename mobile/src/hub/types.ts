@@ -14,6 +14,14 @@ export type ClientHello = {
   tags?: string[];
 };
 
+export type ClientSetPrefs = {
+  type: "set_prefs";
+  gender?: string;
+  looking?: string;
+  flag?: string;
+  avatar?: string;
+  tags?: string[];
+};
 export type ClientSpin = { type: "spin"; room?: string };
 export type ClientNext = { type: "next"; room?: string };
 export type ClientStop = { type: "stop" };
@@ -24,14 +32,23 @@ export type ClientSignal = {
   to?: string;
 };
 export type ClientPing = { type: "ping" };
+export type ClientBlock = { type: "block_user"; user_id: string };
+export type ClientReport = {
+  type: "report_user";
+  user_id: string;
+  reason?: string;
+};
 
 export type ClientMsg =
   | ClientHello
+  | ClientSetPrefs
   | ClientSpin
   | ClientNext
   | ClientStop
   | ClientSignal
   | ClientPing
+  | ClientBlock
+  | ClientReport
   | { type: string; [k: string]: unknown };
 
 export type ServerHelloOk = {

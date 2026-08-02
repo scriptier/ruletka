@@ -34,21 +34,22 @@ Push for friend rings while killed is **post-first-submit** unless schedule allo
 
 ### Safety
 
-- [ ] 18+ rules gate before camera
-- [ ] Block + Report (hub `report_user` / `block_user`)
+- [x] 18+ rules gate before camera
+- [x] Block + Report (hub `report_user` / `block_user`)
 - [ ] In-app safety / community links (existing legal pages)
-- [ ] No claim that video is stored on our servers
+- [x] No claim that video is stored on our servers
 
 ### Strangers
 
-- [ ] Hello + soft gender prefs
-- [ ] Start / Next / Stop
-- [ ] Alone / quiet pool invite share
-- [ ] Matched WebRTC A/V
-- [ ] Mute mic / flip camera
-- [ ] Hide IP relay preference (TURN)
-- [ ] In-call text chat
-- [ ] Reconnect / ICE soft recovery
+- [x] Hello + soft gender prefs
+- [x] Start / Next / Stop
+- [x] Alone / quiet pool invite share
+- [x] Matched WebRTC A/V (native build)
+- [x] Mute mic / flip camera
+- [x] Hide IP relay preference (TURN)
+- [x] In-call text chat
+- [x] WS reconnect + resume search
+- [ ] ICE soft recovery (media restart)
 
 ### Friends
 
@@ -60,7 +61,7 @@ Push for friend rings while killed is **post-first-submit** unless schedule allo
 
 ### Stars
 
-- [ ] Balance + trust from `hello_ok` / events
+- [x] Balance shown from `hello_ok` (read-only)
 - [ ] Mid-chat unlock timing (early ramp + 15m)
 - [ ] Post-chat gift
 - [ ] Spend at least Heart + one mid-tier gift
@@ -68,7 +69,7 @@ Push for friend rings while killed is **post-first-submit** unless schedule allo
 
 ### Account-less identity
 
-- [ ] Stable device `user_id`
+- [x] Stable device `user_id` (SecureStore)
 - [ ] Encrypted export / import (web-compatible)
 - [ ] Hub failover via directory
 

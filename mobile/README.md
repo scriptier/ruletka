@@ -7,17 +7,18 @@ See monorepo docs:
 - [`docs/MOBILE.md`](../docs/MOBILE.md) — phases + parity checklist  
 - [`docs/PROTOCOL.md`](../docs/PROTOCOL.md) — WebSocket JSON  
 
-## Status (Phase 0 → A/V wiring)
+## Status (Phase 1 stranger loop)
 
 | Piece | Status |
 |-------|--------|
 | Expo app shell + 18+ rules | ✅ |
 | SecureStore identity | ✅ |
-| `HubClient` → `wss://hub/ws` | ✅ hello / spin / next / stop / signal / ping |
-| Live screen + match | ✅ |
-| `MediaSession` offer/answer/ice | ✅ code path (native module required) |
-| Local/remote `RTCView` | ✅ when WebRTC linked |
-| Mic / cam / flip | ✅ |
+| `HubClient` + auto-reconnect | ✅ |
+| Soft gender prefs / hide IP | ✅ Settings screen |
+| Live: Start/Next/Stop + A/V path | ✅ native build for camera |
+| Alone-pool invite share | ✅ |
+| In-call chat | ✅ |
+| Report + Block | ✅ |
 | Friends / stars UI | ⏳ Phase 2–3 |
 
 ### First A/V call (device)
