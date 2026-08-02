@@ -12,7 +12,7 @@ Companion to [`MOBILE.md`](MOBILE.md). Code lives in `mobile/`.
 | Privacy Policy URL | https://ruletka.vip/legal/privacy.html |
 | Terms / EULA URL | https://ruletka.vip/legal/terms.html · eula |
 | Support email | e.g. support@ruletka.vip |
-| App icons 1024 / Play feature graphic | Replace `mobile/assets/*` placeholders |
+| App icons 1024 / Play feature graphic | Generated under `mobile/assets/` + `mobile/assets/store/` (from `ui/brand/`) |
 
 ## One-time EAS project setup
 
@@ -137,15 +137,31 @@ EXPO_PUBLIC_FRIENDS_ONLY=1
 
 Re-submit full stranger mode after appeals or policy changes. Optionally use a different bundle id if both must stay listed.
 
+## Listing assets (in repo)
+
+| Asset | Path |
+|-------|------|
+| Expo icon / adaptive / splash | `mobile/assets/icon.png` etc. (1024) |
+| App Store / Play high-res icon | `mobile/assets/store/app-icon-1024.png` |
+| Play feature graphic | `mobile/assets/store/play-feature-1024x500.png` |
+| Listing copy draft | `mobile/assets/store/LISTING.md` |
+
+Regenerate from brand:
+
+```bash
+cd mobile && python3 scripts/gen-store-assets.py
+# or: npm run assets:store
+```
+
 ## Listing checklist (manual)
 
-- [ ] `eas init` real `projectId`  
+- [x] 1024×1024 icon, adaptive icon, splash (from brand)  
+- [x] Play feature graphic 1024×500  
+- [x] Short / long description draft (`assets/store/LISTING.md`)  
+- [ ] `eas init` real `projectId` (operator login)  
 - [ ] Apple: create App, set ASC App ID in `eas.json`  
 - [ ] Google: create app, service account JSON under `secrets/`  
-- [ ] 1024×1024 icon, adaptive icon, splash  
-- [ ] Play feature graphic 1024×500  
-- [ ] Screenshots (phone + optional tablet) — live, friends, settings  
-- [ ] Short / long description + 18+ / UGC policy text  
+- [ ] Screenshots on device — shot list in `LISTING.md` / `docs/DEVICE_SMOKE.md`  
 - [ ] Age rating questionnaires  
 - [ ] Privacy questionnaire matches this doc  
 - [ ] Internal test track / TestFlight smoke (A/V + friend call)  

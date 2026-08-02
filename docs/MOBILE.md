@@ -111,3 +111,4 @@ Default hub: `https://ruletka.vip` (override with env `EXPO_PUBLIC_HUB_BASE`).
 - [`SELF_HOST.md`](SELF_HOST.md) — run a hub  
 - [`HELPERS.md`](HELPERS.md) — desktop island helpers (not the store apps)  
 - [`STORE.md`](STORE.md) — Play / App Store submission checklist  
+- [`DEVICE_SMOKE.md`](DEVICE_SMOKE.md) — native A/V + friends smoke matrix  

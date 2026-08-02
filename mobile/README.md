@@ -31,6 +31,7 @@ See monorepo docs:
 | Safety / legal links | ✅ Settings |
 | 30s outbound ring timeout | ✅ |
 | i18n (web packs + mobile overlay) | ✅ Settings → Language |
+| Store icons + Play feature graphic | ✅ `assets/` + `assets/store/` from brand |
 
 ### First A/V call (device)
 
@@ -105,9 +106,9 @@ WebRTC: `@config-plugins/react-native-webrtc` + `expo-build-properties` (minSdk 
 
 ## Next milestones
 
-1. Operator: `eas init` + real device A/V smoke  
-2. Store assets (1024 icon, screenshots, feature graphic)  
-3. Internal track / TestFlight  
+1. Operator: `eas login` + `eas init` + device smoke ([`docs/DEVICE_SMOKE.md`](../docs/DEVICE_SMOKE.md))  
+2. Capture store screenshots on device  
+3. Internal track / TestFlight → production submit  
 4. Optional: push for killed-app rings  
 
 ## License

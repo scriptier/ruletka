@@ -9,6 +9,7 @@
     "ios": "expo run:ios",
     "lint": "tsc --noEmit",
     "sync-i18n": "bash scripts/sync-i18n.sh",
+    "assets:store": "python3 scripts/gen-store-assets.py",
     "prebuild": "expo prebuild",
     "build:dev": "eas build --profile development --platform android",
     "build:preview": "eas build --profile preview --platform all",
