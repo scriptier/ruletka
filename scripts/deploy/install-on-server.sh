@@ -27,8 +27,16 @@ if ! command -v caddy >/dev/null 2>&1; then
 fi
 
 id -u ruletka >/dev/null 2>&1 || useradd --system --home "$APP_DIR" --shell /usr/sbin/nologin ruletka
-mkdir -p "$APP_DIR"/{bin,ui,data,deploy}
+# data/ + backups/ must outlive deploys (push.sh never rsyncs them)
+mkdir -p "$APP_DIR"/{bin,ui,data,deploy,backups}
 chown -R ruletka:ruletka "$APP_DIR"
+# Keep secrets/root-owned files readable by bridge group after chown -R
+for f in admin.env turn.env analytics.env mod.env; do
+  if [[ -f "$APP_DIR/data/$f" ]]; then
+    chown root:ruletka "$APP_DIR/data/$f" 2>/dev/null || true
+    chmod 640 "$APP_DIR/data/$f" 2>/dev/null || true
+  fi
+done
 
 if [[ ! -x "$APP_DIR/bin/roulette-bridge" ]]; then
   echo "Missing $APP_DIR/bin/roulette-bridge — upload the release bundle first"

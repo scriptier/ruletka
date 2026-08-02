@@ -94,10 +94,14 @@ cp -a scripts/deploy/Caddyfile \
   scripts/deploy/install-on-server.sh \
   scripts/deploy/coturn.conf \
   scripts/deploy/setup-turn.sh \
+  scripts/deploy/backup-ruletka-data.sh \
   "$STAGE/deploy/"
-chmod +x "$STAGE/bin/roulette-bridge" "$STAGE/deploy/install-on-server.sh" "$STAGE/deploy/setup-turn.sh"
-# seed empty friends store if missing
-[[ -f data/friends.json ]] && cp data/friends.json "$STAGE/data/" || echo '{}' > "$STAGE/data/friends.json"
+chmod +x "$STAGE/bin/roulette-bridge" \
+  "$STAGE/deploy/install-on-server.sh" \
+  "$STAGE/deploy/setup-turn.sh" \
+  "$STAGE/deploy/backup-ruletka-data.sh"
+# NEVER put friends/ledger/secrets in STAGE — production data must survive deploys.
+# (Older push.sh rsync --delete'd the whole /opt/ruletka tree and wiped backups + env.)
 
 echo "Testing SSH to $HOST …"
 if ! "${SSH[@]}" "$HOST" 'echo ssh_ok'; then
@@ -119,10 +123,14 @@ EOF
   exit 1
 fi
 
-echo "Uploading to $HOST:/opt/ruletka …"
-"${SSH[@]}" "$HOST" 'mkdir -p /opt/ruletka && apt-get update -qq && apt-get install -y -qq rsync >/dev/null || true'
-rsync -az --delete -e "$RSYNC_SSH" \
-  "$STAGE"/ "$HOST:/opt/ruletka/"
+echo "Uploading to $HOST:/opt/ruletka (bin/ui/deploy only — data & backups preserved)…"
+"${SSH[@]}" "$HOST" 'mkdir -p /opt/ruletka/{bin,ui,deploy,data,backups} && apt-get update -qq && apt-get install -y -qq rsync >/dev/null || true'
+# Sync only code/UI/deploy. --delete is safe inside these dirs; never touch data/ or backups/.
+rsync -az --delete -e "$RSYNC_SSH" "$STAGE/bin/"    "$HOST:/opt/ruletka/bin/"
+rsync -az --delete -e "$RSYNC_SSH" "$STAGE/ui/"     "$HOST:/opt/ruletka/ui/"
+rsync -az --delete -e "$RSYNC_SSH" "$STAGE/deploy/" "$HOST:/opt/ruletka/deploy/"
+# Seed empty friends.json ONLY if production has none (first install).
+"${SSH[@]}" "$HOST" 'if [[ ! -f /opt/ruletka/data/friends.json ]]; then echo "{}" >/opt/ruletka/data/friends.json; chown ruletka:ruletka /opt/ruletka/data/friends.json 2>/dev/null || true; echo "seeded empty friends.json"; fi'
 
 echo "Running install on server…"
 "${SSH[@]}" "$HOST" 'bash /opt/ruletka/deploy/install-on-server.sh'
