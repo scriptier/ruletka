@@ -2233,7 +2233,59 @@ function showStarFeedbackToast(kind, extra = {}) {
     }
     const line = body ? `${title} · ${body}` : title;
     setStatus(line);
+    // Corner toast for live gifts (stronger than status line alone)
+    if (kind === "gift" && (extra.corner || extra.level >= 2 || extra.received)) {
+      showGiftCornerToast(title, body, {
+        accent: extra.accent || "",
+        level: extra.level || 1,
+        ico: extra.ico || "★",
+      });
+    }
   } catch (_) {}
+}
+
+/**
+ * Brief corner gift toast (receive / high stack send).
+ * @param {string} title
+ * @param {string} body
+ * @param {{ accent?: string, level?: number, ico?: string }} [opts]
+ */
+function showGiftCornerToast(title, body, opts = {}) {
+  try {
+    const id = "gift-corner-toast";
+    $(id)?.remove?.();
+    const toast = document.createElement("div");
+    toast.id = id;
+    toast.className = "corner-toast gift-corner-toast";
+    const lvl = Math.max(1, Math.min(3, Number(opts.level) || 1));
+    if (lvl >= 2) toast.classList.add("is-stack");
+    if (lvl >= 3) toast.classList.add("is-mega");
+    if (opts.accent) toast.style.setProperty("--gift-accent", opts.accent);
+    toast.setAttribute("role", "status");
+    toast.innerHTML = `<span class="gift-corner-ico" aria-hidden="true">${escapeHtml(
+      opts.ico || "★"
+    )}</span><div class="gift-corner-copy"><strong>${escapeHtml(
+      title || "Gift"
+    )}</strong><span>${escapeHtml(body || "")}</span></div>`;
+    document.body.appendChild(toast);
+    setTimeout(() => {
+      if (toast.parentNode) toast.remove();
+    }, lvl >= 3 ? 4200 : 3200);
+  } catch (_) {}
+}
+
+function giftKindMeta(kind) {
+  const k = String(kind || "").toLowerCase();
+  const map = {
+    heart: { ico: "💖", name: "Heart", accent: "#ff5a8a" },
+    flowers: { ico: "🌸", name: "Flowers", accent: "#ff6bb5" },
+    balloons: { ico: "🎈", name: "Balloons", accent: "#5ad4ff" },
+    confetti: { ico: "🎊", name: "Confetti", accent: "#ffd14a" },
+    fireworks: { ico: "🎆", name: "Fireworks", accent: "#ffb020" },
+    bars: { ico: "🔒", name: "Behind bars", accent: "#a0b0c8" },
+    please_stay: { ico: "🙏", name: "Please stay", accent: "#ff8fab" },
+  };
+  return map[k] || { ico: "★", name: "Gift", accent: "#ffd54a" };
 }
 
 /** Brief gold pulse on a star badge when count changes. */
@@ -3142,9 +3194,16 @@ function unixNowSec() {
 /** Dedupe TikTok-style impact so the 1s FX ticker doesn't re-fire every tick. */
 const _giftImpactKey = { local: "", remote: "" };
 
-function setFxOverlay(which, kind, until) {
+/**
+ * @param {"local"|"remote"} which
+ * @param {string} kind
+ * @param {number} until unix seconds
+ * @param {number} [level] intensity 1–3
+ */
+function setFxOverlay(which, kind, until, level) {
   const k = String(kind || "").toLowerCase();
   const u = Math.max(0, Number(until) || 0);
+  const lvl = Math.max(1, Math.min(3, Math.floor(Number(level) || 1)));
   const now = unixNowSec();
   const isStay = k === "please_stay" || k === "stay" || k === "dont_skip";
   const cosmeticKinds = [
@@ -3175,6 +3234,9 @@ function setFxOverlay(which, kind, until) {
       el.hidden = false;
       el.removeAttribute("hidden");
       el.dataset.until = String(u);
+      el.dataset.level = "1";
+      el.classList.remove("fx-lvl-1", "fx-lvl-2", "fx-lvl-3");
+      el.classList.add("fx-lvl-1");
       if (timerEl) {
         const left = Math.max(0, u - now);
         timerEl.textContent =
@@ -3183,7 +3245,7 @@ function setFxOverlay(which, kind, until) {
       const stayKey = `please_stay:${u}`;
       if (_giftImpactKey[which + "_stay"] !== stayKey) {
         _giftImpactKey[which + "_stay"] = stayKey;
-        triggerGiftImpact(el, "please_stay");
+        triggerGiftImpact(el, "please_stay", { combo: 1 });
       }
       ensureFxTicker();
     } else {
@@ -3191,6 +3253,8 @@ function setFxOverlay(which, kind, until) {
         el.hidden = true;
         el.setAttribute("hidden", "");
         delete el.dataset.until;
+        delete el.dataset.level;
+        el.classList.remove("fx-lvl-1", "fx-lvl-2", "fx-lvl-3");
       }
       if (timerEl) timerEl.textContent = "";
       _giftImpactKey[which + "_stay"] = "";
@@ -3199,6 +3263,7 @@ function setFxOverlay(which, kind, until) {
         updateNextSkipLockUi();
       }
     }
+    applyFxTileFlavor(which, "", 1);
     return;
   }
 
@@ -3207,15 +3272,18 @@ function setFxOverlay(which, kind, until) {
   const timers = Object.fromEntries(kinds.map((x) => [x, pickT(x)]));
 
   if (which === "local") {
-    selfFx = active ? { kind: k, until: u } : null;
+    selfFx = active ? { kind: k, until: u, level: lvl } : null;
   } else {
-    partnerFx = active ? { kind: k, until: u } : null;
+    partnerFx = active ? { kind: k, until: u, level: lvl } : null;
   }
 
   const hide = (el, timerEl) => {
     if (el) {
       el.hidden = true;
       el.setAttribute("hidden", "");
+      el.classList.remove("fx-lvl-1", "fx-lvl-2", "fx-lvl-3");
+      delete el.dataset.level;
+      delete el.dataset.until;
     }
     if (timerEl) timerEl.textContent = "";
   };
@@ -3223,16 +3291,33 @@ function setFxOverlay(which, kind, until) {
     if (!el) return;
     el.hidden = false;
     el.removeAttribute("hidden");
-    if (el.classList.contains("fx-flowers")) ensureFlowerPetals(el);
-    if (el.classList.contains("fx-balloons")) ensureBalloons(el);
-    if (el.classList.contains("fx-confetti")) ensureConfetti(el);
-    if (el.classList.contains("fx-heart")) ensureHeartsFx(el);
-    if (el.classList.contains("fx-fireworks")) ensureFireworks(el);
+    el.dataset.until = String(u);
+    el.dataset.level = String(lvl);
+    el.classList.remove("fx-lvl-1", "fx-lvl-2", "fx-lvl-3");
+    el.classList.add(`fx-lvl-${lvl}`);
+    // Force particle rebuild when level changes so density tracks stack
+    const layer =
+      el.querySelector(".fx-balloons-layer") ||
+      el.querySelector(".fx-heart-layer") ||
+      el.querySelector(".fx-flowers-ring") ||
+      el.querySelector(".fx-confetti-layer") ||
+      el.querySelector(".fx-fireworks-layer");
+    if (layer && layer.dataset.fxLvl !== String(lvl)) {
+      delete layer.dataset.ready;
+      layer.dataset.fxLvl = String(lvl);
+    }
+    if (el.classList.contains("fx-flowers")) ensureFlowerPetals(el, lvl);
+    if (el.classList.contains("fx-balloons")) ensureBalloons(el, lvl);
+    if (el.classList.contains("fx-confetti")) ensureConfetti(el, lvl);
+    if (el.classList.contains("fx-heart")) ensureHeartsFx(el, lvl);
+    if (el.classList.contains("fx-fireworks")) ensureFireworks(el, lvl);
     if (timerEl) {
       const cost = giftCost(k);
       const secs = giftSecs(k);
+      const lvlBit = lvl >= 2 ? ` ×${lvl}` : "";
       timerEl.textContent =
         label +
+        lvlBit +
         (which === "remote" && myStars >= cost && k !== "please_stay"
           ? ` · +${secs}s = ${cost}★`
           : "");
@@ -3264,13 +3349,13 @@ function setFxOverlay(which, kind, until) {
   hideAll();
   if (active && els[k]) {
     show(els[k], timers[k], _t(timerKey[k], { s: left }) || timerFb[k]);
-    // TikTok-style impact only when this gift instance first appears
-    const impactKey = `${k}:${u}`;
+    applyFxTileFlavor(which, k, lvl);
+    // TikTok-style impact when gift instance or level changes
+    const impactKey = `${k}:${u}:L${lvl}`;
     if (_giftImpactKey[which] !== impactKey) {
       _giftImpactKey[which] = impactKey;
-      const combo = nextGiftCombo(which, k);
-      triggerGiftImpact(els[k], k, { combo });
-      // Remember combo for receive celebration on local side
+      const combo = Math.max(lvl, nextGiftCombo(which, k));
+      triggerGiftImpact(els[k], k, { combo, level: lvl });
       try {
         els[k].dataset.giftCombo = String(combo);
       } catch (_) {}
@@ -3278,7 +3363,38 @@ function setFxOverlay(which, kind, until) {
     ensureFxTicker();
   } else {
     _giftImpactKey[which] = "";
+    applyFxTileFlavor(which, "", 1);
   }
+}
+
+/**
+ * Per-kind tile flavor so mid-tier gifts feel different (CSS filters on video tile).
+ * @param {"local"|"remote"} which
+ * @param {string} kind
+ * @param {number} level
+ */
+function applyFxTileFlavor(which, kind, level) {
+  const tile =
+    which === "local"
+      ? document.querySelector(".tile-local") || $("local")?.closest?.(".tile")
+      : $("tile-remote") || document.querySelector(".tile-remote");
+  if (!tile) return;
+  tile.classList.remove(
+    "fx-flavor-bars",
+    "fx-flavor-flowers",
+    "fx-flavor-balloons",
+    "fx-flavor-confetti",
+    "fx-flavor-heart",
+    "fx-flavor-fireworks",
+    "fx-flavor-l2",
+    "fx-flavor-l3"
+  );
+  const k = String(kind || "").toLowerCase();
+  if (!k || k === "please_stay") return;
+  tile.classList.add(`fx-flavor-${k}`);
+  const lvl = Math.max(1, Math.min(3, Number(level) || 1));
+  if (lvl >= 2) tile.classList.add("fx-flavor-l2");
+  if (lvl >= 3) tile.classList.add("fx-flavor-l3");
 }
 
 /**
@@ -3496,22 +3612,26 @@ function triggerGiftImpact(overlay, kind, opts = {}) {
   }
 }
 
-/** Populate many petals/hearts along a heart outline around the partner window. */
-function ensureFlowerPetals(overlay) {
+/** Populate petals along a heart outline. @param {number} [level] denser at L2+ */
+function ensureFlowerPetals(overlay, level) {
   const ring = overlay?.querySelector?.(".fx-flowers-ring");
   if (!ring) return;
-  // Versioned so older layouts rebuild for denser TikTok-style frame
-  if (ring.dataset.ready === "heart-v5") return;
+  const lvl = Math.max(1, Math.min(3, Math.floor(Number(level) || 1)));
+  const tag = `flowers-v6-L${lvl}`;
+  if (ring.dataset.ready === tag) return;
   const glyphs = [
     "🌸", "💗", "🌺", "💕", "🌹", "🌷", "💮", "💖", "🌼", "💞",
     "🩷", "❤️", "💐", "❣️", "🎀", "💗", "🌸", "❤️‍🔥",
   ];
-  const outer = heartCurvePoints(52);
-  const mid = heartCurvePoints(40).map((p) => ({
+  const outerN = 36 + lvl * 10;
+  const midN = 28 + lvl * 8;
+  const innerN = 18 + lvl * 6;
+  const outer = heartCurvePoints(outerN);
+  const mid = heartCurvePoints(midN).map((p) => ({
     x: 0.5 + (p.x - 0.5) * 0.88,
     y: 0.5 + (p.y - 0.5) * 0.88,
   }));
-  const inner = heartCurvePoints(28).map((p) => ({
+  const inner = heartCurvePoints(innerN).map((p) => ({
     x: 0.5 + (p.x - 0.5) * 0.74,
     y: 0.5 + (p.y - 0.5) * 0.74,
   }));
@@ -3523,7 +3643,7 @@ function ensureFlowerPetals(overlay) {
       const rot = ((i * 41) % 56) - 28;
       const scale =
         sizeClass === "lg"
-          ? 1.12 + (i % 4) * 0.1
+          ? 1.12 + (i % 4) * 0.1 + (lvl - 1) * 0.06
           : sizeClass === "md"
             ? 0.95 + (i % 3) * 0.08
             : 0.72 + (i % 3) * 0.07;
@@ -3538,8 +3658,9 @@ function ensureFlowerPetals(overlay) {
   place(outer, "lg");
   place(mid, "md");
   place(inner, "sm");
-  for (let s = 0; s < 16; s++) {
-    const hp = heartCurvePoints(16)[s];
+  const sparkN = 12 + lvl * 6;
+  for (let s = 0; s < sparkN; s++) {
+    const hp = heartCurvePoints(sparkN)[s];
     if (!hp) continue;
     const jx = (Math.sin(s * 2.3) * 0.05).toFixed(3);
     const jy = (Math.cos(s * 1.9) * 0.05).toFixed(3);
@@ -3548,21 +3669,24 @@ function ensureFlowerPetals(overlay) {
     )}%;--y:${((hp.y + Number(jy)) * 100).toFixed(2)}%;--i:${s}" aria-hidden="true">✨</span>`;
   }
   ring.innerHTML = html;
-  ring.dataset.ready = "heart-v5";
+  ring.dataset.ready = tag;
+  ring.dataset.fxLvl = String(lvl);
 }
 
-/** Rising balloons across the partner window. */
-function ensureBalloons(overlay) {
+/** Rising balloons across the partner window. @param {number} [level] 1–3 density */
+function ensureBalloons(overlay, level) {
   const layer = overlay?.querySelector?.(".fx-balloons-layer");
   if (!layer) return;
-  if (layer.dataset.ready === "balloons-v2") return;
+  const lvl = Math.max(1, Math.min(3, Math.floor(Number(level) || 1)));
+  const tag = `balloons-v3-L${lvl}`;
+  if (layer.dataset.ready === tag) return;
   const colors = [
     "#ff5a7a", "#ff8a3d", "#ffd14a", "#5ad48a", "#4db7ff",
     "#a78bfa", "#ff6bcb", "#f472b6", "#34d399", "#60a5fa",
     "#fb7185", "#fbbf24",
   ];
   let html = "";
-  const n = 32;
+  const n = 18 + lvl * 12; // L1=30, L2=42, L3=54
   for (let i = 0; i < n; i++) {
     const left = 2 + ((i * 13 + (i % 7) * 11) % 94);
     const delay = ((i * 0.28) % 5.2).toFixed(2);
@@ -3578,19 +3702,23 @@ function ensureBalloons(overlay) {
     </span>`;
   }
   layer.innerHTML = html;
-  layer.dataset.ready = "balloons-v2";
+  layer.dataset.ready = tag;
+  layer.dataset.fxLvl = String(lvl);
 }
 
-/** Floating hearts (1★) — denser rise with side sway. */
-function ensureHeartsFx(overlay) {
+/** Floating hearts (1★) — denser rise with side sway. @param {number} [level] */
+function ensureHeartsFx(overlay, level) {
   const layer = overlay?.querySelector?.(".fx-heart-layer");
   if (!layer) return;
-  if (layer.dataset.ready === "heart-v2") return;
+  const lvl = Math.max(1, Math.min(3, Math.floor(Number(level) || 1)));
+  const tag = `heart-v3-L${lvl}`;
+  if (layer.dataset.ready === tag) return;
   const icons = ["💖", "💗", "❤️", "💕", "💘", "🩷", "❤️‍🔥", "❣️"];
   let html = "";
-  // Hero big heart
-  html += `<span class="fx-heart-hero" aria-hidden="true">💖</span>`;
-  for (let i = 0; i < 36; i++) {
+  // Hero big heart (bigger at L2+)
+  html += `<span class="fx-heart-hero" style="--scale:${1 + (lvl - 1) * 0.25}" aria-hidden="true">💖</span>`;
+  const n = 22 + lvl * 14;
+  for (let i = 0; i < n; i++) {
     const left = 2 + ((i * 11 + (i % 5) * 13) % 94);
     const delay = ((i * 0.16) % 3.6).toFixed(2);
     const dur = (2.8 + (i % 5) * 0.5).toFixed(2);
@@ -3601,20 +3729,24 @@ function ensureHeartsFx(overlay) {
     }</span>`;
   }
   layer.innerHTML = html;
-  layer.dataset.ready = "heart-v2";
+  layer.dataset.ready = tag;
+  layer.dataset.fxLvl = String(lvl);
 }
 
-/** Premium fireworks — CSS sparks + canvas cinematic bursts. */
-function ensureFireworks(overlay) {
+/** Premium fireworks — CSS sparks + canvas cinematic bursts. @param {number} [level] */
+function ensureFireworks(overlay, level) {
   const layer = overlay?.querySelector?.(".fx-fireworks-layer");
   if (!layer) return;
-  if (layer.dataset.ready === "fw-v4") return;
+  const lvl = Math.max(1, Math.min(3, Math.floor(Number(level) || 1)));
+  const tag = `fw-v5-L${lvl}`;
+  if (layer.dataset.ready === tag) return;
   const colors = [
     "#ff5a7a", "#ffd14a", "#5ad48a", "#4db7ff", "#a78bfa",
     "#ff8a3d", "#fff", "#ff6bcb", "#fde68a", "#fbbf24",
   ];
   let html = "";
-  for (let b = 0; b < 14; b++) {
+  const bursts = 8 + lvl * 6;
+  for (let b = 0; b < bursts; b++) {
     const cx = 6 + ((b * 21 + (b % 4) * 9) % 88);
     const cy = 10 + ((b * 17) % 62);
     const delay = (b * 0.32).toFixed(2);
@@ -3637,7 +3769,8 @@ function ensureFireworks(overlay) {
   html += `<span class="fx-fw-emoji" style="--left:64%;--delay:1.7s" aria-hidden="true">🌟</span>`;
   html += `<canvas class="fx-fw-canvas" aria-hidden="true"></canvas>`;
   layer.innerHTML = html;
-  layer.dataset.ready = "fw-v4";
+  layer.dataset.ready = tag;
+  layer.dataset.fxLvl = String(lvl);
 }
 
 /**
@@ -3935,40 +4068,45 @@ function playConfettiCanvasBurst(overlay, opts = {}) {
   canvas._cfRaf = requestAnimationFrame(tick);
 }
 
-/** Falling confetti with tumble — denser burst. */
-function ensureConfetti(overlay) {
+/** Falling confetti burst — denser at higher stack levels. @param {number} [level] */
+function ensureConfetti(overlay, level) {
   const layer = overlay?.querySelector?.(".fx-confetti-layer");
   if (!layer) return;
-  if (layer.dataset.ready === "confetti-v2") return;
+  const lvl = Math.max(1, Math.min(3, Math.floor(Number(level) || 1)));
+  const tag = `confetti-v3-L${lvl}`;
+  if (layer.dataset.ready === tag) return;
   const colors = [
     "#ff5a7a", "#ffd14a", "#5ad48a", "#4db7ff", "#a78bfa",
     "#ff8a3d", "#f472b6", "#fff", "#34d399", "#fbbf24",
   ];
   const shapes = ["rect", "rect", "circle", "heart", "rect", "ribbon"];
   let html = "";
-  const n = 72;
+  // Burst-heavy: more bits, slightly shorter default fall at L1
+  const n = 48 + lvl * 28;
   for (let i = 0; i < n; i++) {
     const left = 1 + ((i * 13 + (i % 9) * 9) % 97);
-    const delay = ((i * 0.11) % 2.8).toFixed(2);
-    const dur = (2.6 + (i % 6) * 0.4).toFixed(2);
-    const size = (7 + (i % 7) * 2.2).toFixed(0);
+    const delay = ((i * 0.08) % 1.8).toFixed(2);
+    const dur = (2.0 + (i % 5) * 0.35 + (lvl - 1) * 0.15).toFixed(2);
+    const size = (7 + (i % 7) * 2.2 + (lvl - 1) * 1.5).toFixed(0);
     const rot = ((i * 53) % 360).toFixed(0);
     const color = colors[i % colors.length];
     const shape = shapes[i % shapes.length];
     const spin = (0.8 + (i % 5) * 0.35).toFixed(2);
     html += `<span class="fx-confetti-bit fx-confetti-${shape}" style="--left:${left}%;--delay:${delay}s;--dur:${dur}s;--size:${size}px;--rot:${rot}deg;--color:${color};--spin:${spin}s" aria-hidden="true"></span>`;
   }
-  for (let i = 0; i < 14; i++) {
+  const emoN = 8 + lvl * 6;
+  for (let i = 0; i < emoN; i++) {
     const left = 5 + ((i * 19) % 88);
-    const delay = (0.15 + i * 0.22).toFixed(2);
-    const dur = (3.4 + (i % 4) * 0.45).toFixed(2);
+    const delay = (0.1 + i * 0.15).toFixed(2);
+    const dur = (2.8 + (i % 4) * 0.35).toFixed(2);
     const emos = ["💖", "✨", "🎉", "⭐", "💫"];
     html += `<span class="fx-confetti-emoji" style="--left:${left}%;--delay:${delay}s;--dur:${dur}s" aria-hidden="true">${
       emos[i % emos.length]
     }</span>`;
   }
   layer.innerHTML = html;
-  layer.dataset.ready = "confetti-v2";
+  layer.dataset.ready = tag;
+  layer.dataset.fxLvl = String(lvl);
 }
 
 /** Soft celebration pop + sound when you receive a gift. */
@@ -4451,13 +4589,18 @@ function ensureFxTicker() {
     const now = unixNowSec();
     let any = false;
     if (partnerFx && partnerFx.until > now) {
-      setFxOverlay("remote", partnerFx.kind, partnerFx.until);
+      setFxOverlay(
+        "remote",
+        partnerFx.kind,
+        partnerFx.until,
+        partnerFx.level || 1
+      );
       any = true;
     } else if (partnerFx) {
       setFxOverlay("remote", "", 0);
     }
     if (selfFx && selfFx.until > now) {
-      setFxOverlay("local", selfFx.kind, selfFx.until);
+      setFxOverlay("local", selfFx.kind, selfFx.until, selfFx.level || 1);
       any = true;
     } else if (selfFx) {
       setFxOverlay("local", "", 0);
@@ -14398,7 +14541,12 @@ function handleServer(msg) {
       applyStarRateWindowFromHub(msg);
       setStarsBadge("local", myStars, { trust: myTrustEffective });
       // Bars (etc.) persist across logout — re-apply on hello
-      setFxOverlay("local", msg.effect || "", Number(msg.effect_until) || 0);
+      setFxOverlay(
+        "local",
+        msg.effect || "",
+        Number(msg.effect_until) || 0,
+        Number(msg.effect_level) || 1
+      );
       syncAccountSettingsSummary();
       // Prefer local saved name; otherwise accept server echo
       {
@@ -14716,12 +14864,15 @@ function handleServer(msg) {
         const uid = String(msg.user_id || "");
         const kind = String(msg.effect || "");
         const until = Math.max(0, Number(msg.until) || 0);
+        const level = Math.max(1, Math.min(3, Number(msg.level) || 1));
+        const cost = Math.max(0, Number(msg.cost) || 0);
+        const meta = giftKindMeta(kind);
         const fromMe =
           String(msg.from_user_id || "") === String(myUserId || "");
         if (msg.ok) {
           if (fromMe) {
             myStars = Math.max(0, Number(msg.spender_stars) || 0);
-            setStarsBadge("local", myStars);
+            setStarsBadge("local", myStars, { trust: myTrustEffective || myTrust });
             syncAccountSettingsSummary();
             pulseStarsBadge("local");
             const giftTitle =
@@ -14738,23 +14889,32 @@ function handleServer(msg) {
                         : kind === "please_stay"
                           ? _t("stars.giftPleaseStayName") || "Please stay"
                           : _t("stars.giftBarsName") || "Behind bars";
+            const lvlBit =
+              level >= 2
+                ? _t("stars.giftStack", { n: level }) || ` · ×${level}`
+                : "";
+            const body =
+              (_srv(msg.message) || msg.message || giftTitle) +
+              lvlBit +
+              (_t("stars.giftLeft", { n: myStars }) || ` · ★ ${myStars} left`);
             showStarFeedbackToast("gift", {
               title:
                 kind === "please_stay"
                   ? _t("stars.pleaseStaySentTitle") || "Please stay sent"
                   : _t("stars.giftSentTitle") || "Gift sent",
-              body:
-                _srv(msg.message) ||
-                msg.message ||
-                giftTitle + ` · ★ ${myStars}`,
+              body,
+              corner: level >= 2,
+              level,
+              ico: meta.ico,
+              accent: meta.accent,
             });
-            setStatus(_srv(msg.message) || msg.message || "Gift sent");
+            setStatus(body);
             try {
               playGiftSound(kind);
             } catch (_) {}
           }
           if (uid === myUserId) {
-            setFxOverlay("local", kind, until);
+            setFxOverlay("local", kind, until, level);
             if (!fromMe && msg.from_user_id) {
               const name = msg.from_name || "Someone";
               let body;
@@ -14787,6 +14947,14 @@ function handleServer(msg) {
                   _t("stars.barsOnYou", { name }) ||
                   `${name} put you behind bars`;
               }
+              if (level >= 2) {
+                body +=
+                  _t("stars.giftStack", { n: level }) || ` · ×${level}`;
+              }
+              if (cost > 0) {
+                body +=
+                  _t("stars.giftCost", { n: cost }) || ` · ★${cost}`;
+              }
               setStatus(body);
               showStarFeedbackToast("gift", {
                 title:
@@ -14794,10 +14962,14 @@ function handleServer(msg) {
                     ? _t("stars.pleaseStayReceivedTitle") || "Please stay"
                     : _t("stars.giftReceivedTitle") || "Gift received",
                 body,
+                received: true,
+                corner: true,
+                level,
+                ico: meta.ico,
+                accent: meta.accent,
               });
-              // Combo was set by setFxOverlay above
               const c = Math.max(
-                1,
+                level,
                 Number(
                   document.querySelector(`#local-fx-${kind}`)?.dataset
                     ?.giftCombo || giftComboState.count || 1
@@ -14810,7 +14982,7 @@ function handleServer(msg) {
             uid &&
             (uid === primaryPartnerUserId || uid === lastMatchMeta?.user_id)
           ) {
-            setFxOverlay("remote", kind, until);
+            setFxOverlay("remote", kind, until, level);
             if (msg.target_stars != null) {
               setStarsBadge(
                 "remote",
@@ -14824,7 +14996,9 @@ function handleServer(msg) {
           );
           if (fromMe && msg.spender_stars != null) {
             myStars = Math.max(0, Number(msg.spender_stars) || myStars);
-            setStarsBadge("local", myStars);
+            setStarsBadge("local", myStars, {
+              trust: myTrustEffective || myTrust,
+            });
             syncAccountSettingsSummary();
           }
         }
@@ -15258,7 +15432,8 @@ function handleMatched(msg) {
     setFxOverlay(
       "remote",
       p?.effect || "",
-      Number(p?.effect_until) || 0
+      Number(p?.effect_until) || 0,
+      Number(p?.effect_level) || 1
     );
   }
   // One-shot discoverability for Stars sheet

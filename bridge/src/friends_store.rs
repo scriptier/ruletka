@@ -67,10 +67,17 @@ pub struct FriendsFile {
 /// Cosmetic effect bought with stars (no money). Survives logout until `until`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StarEffectRecord {
-    /// "bars" | "flowers" (flowers reserved for later)
+    /// "bars" | "flowers" | "balloons" | "confetti" | "heart" | "fireworks"
     pub kind: String,
     /// Unix seconds when the effect ends
     pub until: u64,
+    /// Intensity stack 1–3 (same gift respend raises level).
+    #[serde(default = "default_effect_level")]
+    pub level: u8,
+}
+
+fn default_effect_level() -> u8 {
+    1
 }
 
 /// Directed star edge key (order matters: A→B ≠ B→A).

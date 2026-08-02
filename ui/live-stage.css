@@ -14511,3 +14511,119 @@ html.alone-searching .empty-alone-actions:not([hidden]) {
   from { opacity: 0; transform: translateY(10px) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
+
+/* ── Gift stack levels + tile flavor (spend FX differentiation) ── */
+.fx-overlay.fx-lvl-2 { --fx-stack: 1.12; }
+.fx-overlay.fx-lvl-3 { --fx-stack: 1.28; }
+.fx-overlay.fx-lvl-2 .fx-bars-mesh,
+.fx-overlay.fx-lvl-3 .fx-bars-mesh {
+  filter: brightness(1.05) contrast(1.08);
+}
+.fx-overlay.fx-lvl-3 .fx-bars-mesh {
+  filter: brightness(1.1) contrast(1.12) saturate(1.15);
+}
+.fx-overlay.fx-lvl-2 .fx-heart-hero,
+.fx-overlay.fx-lvl-3 .fx-heart-hero {
+  transform: scale(var(--scale, 1.2));
+}
+
+/* Tile video flavor while gift is active */
+.tile-remote.fx-flavor-bars video,
+.tile-local.fx-flavor-bars video {
+  filter: brightness(0.78) contrast(1.08) saturate(0.85);
+  transition: filter 0.35s ease;
+}
+.tile-remote.fx-flavor-bars.fx-flavor-l2 video,
+.tile-local.fx-flavor-bars.fx-flavor-l2 video {
+  filter: brightness(0.65) contrast(1.12) saturate(0.7);
+}
+.tile-remote.fx-flavor-bars.fx-flavor-l3 video,
+.tile-local.fx-flavor-bars.fx-flavor-l3 video {
+  filter: brightness(0.55) contrast(1.18) saturate(0.55) grayscale(0.25);
+}
+.tile-remote.fx-flavor-flowers video,
+.tile-local.fx-flavor-flowers video {
+  filter: brightness(1.06) saturate(1.2) hue-rotate(-8deg);
+  transition: filter 0.35s ease;
+}
+.tile-remote.fx-flavor-flowers.fx-flavor-l2 video,
+.tile-local.fx-flavor-flowers.fx-flavor-l2 video {
+  filter: brightness(1.1) saturate(1.35) hue-rotate(-12deg);
+}
+.tile-remote.fx-flavor-flowers.fx-flavor-l3 video,
+.tile-local.fx-flavor-flowers.fx-flavor-l3 video {
+  filter: brightness(1.14) saturate(1.5) hue-rotate(-16deg);
+}
+.tile-remote.fx-flavor-balloons video,
+.tile-local.fx-flavor-balloons video {
+  filter: brightness(1.04) saturate(1.15);
+  transition: filter 0.35s ease;
+}
+.tile-remote.fx-flavor-confetti video,
+.tile-local.fx-flavor-confetti video {
+  filter: brightness(1.08) contrast(1.05);
+  transition: filter 0.25s ease;
+}
+.tile-remote.fx-flavor-heart video,
+.tile-local.fx-flavor-heart video {
+  filter: brightness(1.05) saturate(1.25) hue-rotate(-18deg);
+  transition: filter 0.35s ease;
+}
+.tile-remote.fx-flavor-fireworks video,
+.tile-local.fx-flavor-fireworks video {
+  filter: brightness(1.1) contrast(1.08) saturate(1.2);
+  transition: filter 0.3s ease;
+}
+
+/* Corner gift toast (receive / stack send) */
+.gift-corner-toast {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  max-width: min(20rem, 88vw);
+  border-color: color-mix(in srgb, var(--gift-accent, #ffd14a) 45%, transparent);
+  box-shadow:
+    0 8px 28px rgba(0, 0, 0, 0.45),
+    0 0 0 1px color-mix(in srgb, var(--gift-accent, #ffd14a) 25%, transparent);
+}
+.gift-corner-ico {
+  font-size: 1.55rem;
+  line-height: 1;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.4));
+}
+.gift-corner-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+}
+.gift-corner-copy strong {
+  font-size: 0.88rem;
+  color: var(--gift-accent, #ffe08a);
+}
+.gift-corner-copy span {
+  font-size: 0.78rem;
+  opacity: 0.92;
+  line-height: 1.3;
+}
+.gift-corner-toast.is-stack {
+  animation: gift-corner-pop 0.45s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+.gift-corner-toast.is-mega {
+  box-shadow:
+    0 10px 36px rgba(0, 0, 0, 0.5),
+    0 0 24px color-mix(in srgb, var(--gift-accent, #ffd14a) 35%, transparent);
+}
+@keyframes gift-corner-pop {
+  from { opacity: 0; transform: translateY(12px) scale(0.94); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tile-remote[class*="fx-flavor-"] video,
+  .tile-local[class*="fx-flavor-"] video {
+    transition: none;
+  }
+  .gift-corner-toast.is-stack {
+    animation: none;
+  }
+}

@@ -215,6 +215,9 @@ pub struct MatchPeer {
     /// Unix seconds when that effect ends (0 = none).
     #[serde(default)]
     pub effect_until: u64,
+    /// Intensity of active effect (1–3).
+    #[serde(default = "default_effect_level_u32")]
+    pub effect_level: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -247,6 +250,9 @@ pub enum ServerMsg {
         /// Unix seconds when your effect ends.
         #[serde(default)]
         effect_until: u64,
+        /// Intensity of your active effect (1–3).
+        #[serde(default = "default_effect_level_u32")]
+        effect_level: u32,
         /// Seconds of live chat required before RatePrompt (5m early ramp or 15m).
         #[serde(default = "default_rate_min_secs")]
         rate_min_secs: u64,
@@ -405,6 +411,9 @@ pub enum ServerMsg {
         effect: String,
         /// Unix seconds when it ends
         until: u64,
+        /// Intensity stack 1–3 (respend same kind raises level).
+        #[serde(default = "default_effect_level_u32")]
+        level: u32,
         /// Stars charged this action (0 if failed)
         cost: u64,
         /// Spender's remaining stars (when they spent); 0 if N/A
@@ -454,4 +463,8 @@ fn default_rate_max_gift() -> u64 {
 /// Default post-chat rate threshold (15 minutes) for older clients / missing fields.
 fn default_rate_min_secs() -> u64 {
     15 * 60
+}
+
+fn default_effect_level_u32() -> u32 {
+    1
 }

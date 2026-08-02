@@ -54,9 +54,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </noscript>
   <!-- Critical CSS: preload then apply (faster first paint on mobile) -->
-  <link rel="preload" href="live-stage.css?v=268" as="style" />
+  <link rel="preload" href="live-stage.css?v=269" as="style" />
   <link rel="stylesheet" href="style.css?v=158" />
-  <link rel="stylesheet" href="live-stage.css?v=268" />
+  <link rel="stylesheet" href="live-stage.css?v=269" />
   <script src="brand.js?v=2"></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -332,11 +332,11 @@
         <!-- Quick gift strip (long-press partner video) -->
         <div class="gift-strip" id="gift-strip" hidden role="toolbar" aria-label="Send a star gift">
           <button type="button" class="gift-strip-btn" data-gift="heart" title="Heart · 1★">💖</button>
-          <button type="button" class="gift-strip-btn" data-gift="bars" title="Behind bars · 5★">🔒</button>
-          <button type="button" class="gift-strip-btn" data-gift="flowers" title="Flowers · 5★">🌸</button>
-          <button type="button" class="gift-strip-btn" data-gift="balloons" title="Balloons · 5★">🎈</button>
-          <button type="button" class="gift-strip-btn" data-gift="confetti" title="Confetti · 5★">🎊</button>
-          <button type="button" class="gift-strip-btn" data-gift="fireworks" title="Fireworks · 15★">🎆</button>
+          <button type="button" class="gift-strip-btn" data-gift="bars" title="Behind bars · 5★ · dims video · stack ×3">🔒</button>
+          <button type="button" class="gift-strip-btn" data-gift="flowers" title="Flowers · 5★ · warm glow · stack ×3">🌸</button>
+          <button type="button" class="gift-strip-btn" data-gift="balloons" title="Balloons · 5★ · float party · stack ×3">🎈</button>
+          <button type="button" class="gift-strip-btn" data-gift="confetti" title="Confetti · 5★ · short burst · stack ×3">🎊</button>
+          <button type="button" class="gift-strip-btn" data-gift="fireworks" title="Fireworks · 15★ · multi-wave · stack ×3">🎆</button>
           <button type="button" class="gift-strip-btn gift-strip-stay" data-gift="please_stay" title="Please stay · 30★ · 15s">🙏</button>
           <button type="button" class="gift-strip-btn gift-strip-more" id="gift-strip-more" title="More">⋯</button>
         </div>
@@ -2133,7 +2133,7 @@
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=156" defer></script>
   <script src="webrtc.js?v=159" defer></script>
-  <script src="live.js?v=273" defer></script>
+  <script src="live.js?v=274" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

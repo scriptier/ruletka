@@ -1260,9 +1260,10 @@ impl SimpleHub {
     }
 
     /// Active effect for user if still running (clears expired from memory lazily).
-    fn active_effect_for(&mut self, user_id: &str) -> (String, u64) {
+    /// Returns (kind, until, level).
+    fn active_effect_for(&mut self, user_id: &str) -> (String, u64, u32) {
         if user_id.is_empty() {
-            return (String::new(), 0);
+            return (String::new(), 0, 1);
         }
         let now = Self::unix_now();
         let expired = self
@@ -1275,22 +1276,22 @@ impl SimpleHub {
                 // Soft persist occasionally — only when something expired
                 self.persist_friends();
             }
-            return (String::new(), 0);
+            return (String::new(), 0, 1);
         }
         self.star_effects
             .get(user_id)
-            .map(|e| (e.kind.clone(), e.until))
-            .unwrap_or_default()
+            .map(|e| (e.kind.clone(), e.until, e.level.max(1) as u32))
+            .unwrap_or_else(|| (String::new(), 0, 1))
     }
 
-    fn active_effect_ro(&self, user_id: &str) -> (String, u64) {
+    fn active_effect_ro(&self, user_id: &str) -> (String, u64, u32) {
         if user_id.is_empty() {
-            return (String::new(), 0);
+            return (String::new(), 0, 1);
         }
         let now = Self::unix_now();
         match self.star_effects.get(user_id) {
-            Some(e) if e.until > now => (e.kind.clone(), e.until),
-            _ => (String::new(), 0),
+            Some(e) if e.until > now => (e.kind.clone(), e.until, e.level.max(1) as u32),
+            _ => (String::new(), 0, 1),
         }
     }
 
@@ -1306,6 +1307,7 @@ impl SimpleHub {
         spender_stars: u64,
         ok: bool,
         message: &str,
+        level: u32,
     ) {
         let target_stars = self.stars_for(target_uid);
         let msg = ServerMsg::StarEffect {
@@ -1313,6 +1315,7 @@ impl SimpleHub {
             user_id: target_uid.to_string(),
             effect: effect.to_string(),
             until,
+            level: level.max(1).min(3),
             cost,
             spender_stars,
             target_stars,
@@ -1359,6 +1362,7 @@ impl SimpleHub {
                     user_id: to_user_id,
                     effect: effect_raw,
                     until: 0,
+                    level: 1,
                     cost: 0,
                     spender_stars: 0,
                     target_stars: 0,
@@ -1387,6 +1391,7 @@ impl SimpleHub {
                     user_id: to_user_id.clone(),
                     effect: kind.into(),
                     until: 0,
+                    level: 1,
                     cost: 0,
                     spender_stars: my_stars,
                     target_stars: 0,
@@ -1401,7 +1406,7 @@ impl SimpleHub {
         // Idempotent retry: same client op_id already committed in ledger
         if !op_id.is_empty() && self.star_ledger.has_spend_op(&op_id) {
             let bal = self.stars_for(&me_uid);
-            let (eff, until) = self.active_effect_ro(&to_user_id);
+            let (eff, until, eff_level) = self.active_effect_ro(&to_user_id);
             let until_out = if kind == "please_stay" {
                 self.no_skip_until
                     .get(&to_user_id)
@@ -1427,6 +1432,7 @@ impl SimpleHub {
                 bal,
                 true,
                 "already applied",
+                eff_level,
             );
             return;
         }
@@ -1452,6 +1458,7 @@ impl SimpleHub {
                     user_id: to_user_id.clone(),
                     effect: kind.into(),
                     until: 0,
+                    level: 1,
                     cost: 0,
                     spender_stars: my_stars,
                     target_stars: self.stars_for(&to_user_id),
@@ -1473,6 +1480,7 @@ impl SimpleHub {
                     user_id: to_user_id.clone(),
                     effect: kind.into(),
                     until: 0,
+                    level: 1,
                     cost: 0,
                     spender_stars: my_stars,
                     target_stars: self.stars_for(&to_user_id),
@@ -1502,6 +1510,7 @@ impl SimpleHub {
                             user_id: to_user_id.clone(),
                             effect: kind.into(),
                             until: 0,
+                    level: 1,
                             cost: 0,
                             spender_stars: my_stars,
                             target_stars: self.stars_for(&to_user_id),
@@ -1531,6 +1540,7 @@ impl SimpleHub {
                         user_id: to_user_id.clone(),
                         effect: kind.into(),
                         until: 0,
+                    level: 1,
                         cost: 0,
                         spender_stars: my_stars,
                         target_stars: self.stars_for(&to_user_id),
@@ -1560,7 +1570,7 @@ impl SimpleHub {
                     .trim_start_matches("already_applied:")
                     .parse()
                     .unwrap_or_else(|_| self.stars_for(&me_uid));
-                let (eff, until) = self.active_effect_ro(&to_user_id);
+                let (eff, until, eff_level) = self.active_effect_ro(&to_user_id);
                 let ns = self.no_skip_secs_left(&to_user_id);
                 let effect_out = if kind == "please_stay" {
                     kind.to_string()
@@ -1589,6 +1599,7 @@ impl SimpleHub {
                     bal,
                     true,
                     "already applied",
+                    eff_level,
                 );
                 return;
             }
@@ -1601,6 +1612,7 @@ impl SimpleHub {
                         user_id: to_user_id.clone(),
                         effect: kind.into(),
                         until: 0,
+                    level: 1,
                         cost: 0,
                         spender_stars: self.stars_for(&me_uid),
                         target_stars: self.stars_for(&to_user_id),
@@ -1615,6 +1627,7 @@ impl SimpleHub {
 
         let until;
         let message;
+        let mut stack_level: u8 = 1;
         if kind == "please_stay" {
             // Separate from cosmetic overlays (bars/flowers…) so they can coexist.
             until = now.saturating_add(dur_secs);
@@ -1625,56 +1638,72 @@ impl SimpleHub {
             message = format!("please stay · {}s — they can't skip", dur_secs);
         } else {
             let prev = self.star_effects.get(&to_user_id).cloned();
+            let extended = prev
+                .as_ref()
+                .map(|e| e.kind == kind && e.until > now)
+                .unwrap_or(false);
+            // Same-kind respend: raise intensity L1→L2→L3 and extend timer
+            stack_level = if extended {
+                prev.as_ref()
+                    .map(|e| e.level.max(1).saturating_add(1).min(3))
+                    .unwrap_or(1)
+            } else {
+                1
+            };
             let base = match &prev {
                 Some(e) if e.kind == kind && e.until > now => e.until,
                 _ => now,
             };
-            until = base.saturating_add(dur_secs);
+            // Higher stacks last a bit longer (+3s per level above 1)
+            let bonus = (stack_level.saturating_sub(1) as u64) * 3;
+            until = base.saturating_add(dur_secs.saturating_add(bonus));
             self.star_effects.insert(
                 to_user_id.clone(),
                 friends_store::StarEffectRecord {
                     kind: kind.to_string(),
                     until,
+                    level: stack_level,
                 },
             );
-            let extended = prev
-                .as_ref()
-                .map(|e| e.kind == kind && e.until > now)
-                .unwrap_or(false);
+            let lvl_tag = if stack_level >= 2 {
+                format!(" · ×{stack_level}")
+            } else {
+                String::new()
+            };
             message = if kind == "flowers" {
                 if extended {
-                    format!("+{}s flowers extended", dur_secs)
+                    format!("+{dur_secs}s flowers extended{lvl_tag}")
                 } else {
-                    format!("flowers for {}s", dur_secs)
+                    format!("flowers for {dur_secs}s{lvl_tag}")
                 }
             } else if kind == "balloons" {
                 if extended {
-                    format!("+{}s balloons extended", dur_secs)
+                    format!("+{dur_secs}s balloons extended{lvl_tag}")
                 } else {
-                    format!("balloons for {}s", dur_secs)
+                    format!("balloons for {dur_secs}s{lvl_tag}")
                 }
             } else if kind == "confetti" {
                 if extended {
-                    format!("+{}s confetti extended", dur_secs)
+                    format!("+{dur_secs}s confetti burst extended{lvl_tag}")
                 } else {
-                    format!("confetti for {}s", dur_secs)
+                    format!("confetti burst · {dur_secs}s{lvl_tag}")
                 }
             } else if kind == "heart" {
                 if extended {
-                    format!("+{}s hearts extended", dur_secs)
+                    format!("+{dur_secs}s hearts extended{lvl_tag}")
                 } else {
-                    format!("hearts for {}s", dur_secs)
+                    format!("hearts for {dur_secs}s{lvl_tag}")
                 }
             } else if kind == "fireworks" {
                 if extended {
-                    format!("+{}s fireworks extended", dur_secs)
+                    format!("+{dur_secs}s fireworks extended{lvl_tag}")
                 } else {
-                    format!("fireworks for {}s", dur_secs)
+                    format!("fireworks for {dur_secs}s{lvl_tag}")
                 }
             } else if extended {
-                format!("+{}s bars extended", dur_secs)
+                format!("+{dur_secs}s bars extended{lvl_tag}")
             } else {
-                format!("behind bars for {}s", dur_secs)
+                format!("behind bars for {dur_secs}s{lvl_tag}")
             };
         }
         self.persist_friends();
@@ -1686,6 +1715,7 @@ impl SimpleHub {
             %to_user_id,
             kind,
             until,
+            level = stack_level,
             cost,
             remaining = new_bal,
             "star effect applied"
@@ -1701,6 +1731,7 @@ impl SimpleHub {
             new_bal,
             true,
             &message,
+            stack_level as u32,
         );
     }
 
@@ -3191,7 +3222,7 @@ impl SimpleHub {
         self.fed_by_client
             .insert(local_id, session_id.to_string());
 
-        let (eff, eff_until) = self.active_effect_ro(&remote.user_id);
+        let (eff, eff_until, eff_level) = self.active_effect_ro(&remote.user_id);
         let peer = MatchPeer {
             peer_id: remote_fed,
             short_id: remote.short_id.clone(),
@@ -3205,6 +3236,7 @@ impl SimpleHub {
             stars: self.effective_trust_for(&remote.user_id),
             effect: eff,
             effect_until: eff_until,
+            effect_level: eff_level,
         };
         self.send(
             local_id,
@@ -3412,6 +3444,7 @@ impl SimpleHub {
             trust_gifters: 0,
             effect: String::new(),
             effect_until: 0,
+            effect_level: 1,
             // Pre-identity connect: treat as full early-rate budget
             rate_min_secs: Self::STAR_FIRST_RATE_SECS,
             early_rates_left: Self::STAR_FIRST_RATE_SLOTS as u32,
@@ -3808,7 +3841,7 @@ impl SimpleHub {
                 } else {
                     "friend"
                 };
-                (Self::match_peer(ca, cb, role, self.effective_trust_for(&cb.user_id), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)), display_label(cb))
+                (Self::match_peer(ca, cb, role, self.effective_trust_for(&cb.user_id), self.effect_snapshot_for(&cb.user_id).0, self.effect_snapshot_for(&cb.user_id).1, self.effect_snapshot_for(&cb.user_id).2), display_label(cb))
             };
             let offerer = peer.is_offerer;
             self.send(
@@ -3897,6 +3930,7 @@ impl SimpleHub {
         stars: u64,
         effect: String,
         effect_until: u64,
+        effect_level: u32,
     ) -> MatchPeer {
         MatchPeer {
             peer_id: to.peer_id.clone(),
@@ -3911,7 +3945,13 @@ impl SimpleHub {
             stars,
             effect,
             effect_until,
+            effect_level: effect_level.max(1).min(3),
         }
+    }
+
+    /// Active cosmetic effect snapshot for match payloads: (kind, until, level).
+    fn effect_snapshot_for(&self, user_id: &str) -> (String, u64, u32) {
+        self.active_effect_ro(user_id)
     }
 
     fn start_friend_session(&mut self, a: Uuid, b: Uuid) {
@@ -3925,7 +3965,7 @@ impl SimpleHub {
             let (peer, label) = {
                 let ca = self.clients.get(&me).unwrap();
                 let cb = self.clients.get(&them).unwrap();
-                (Self::match_peer(ca, cb, "friend", self.effective_trust_for(&cb.user_id), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)), display_label(cb))
+                (Self::match_peer(ca, cb, "friend", self.effective_trust_for(&cb.user_id), self.effect_snapshot_for(&cb.user_id).0, self.effect_snapshot_for(&cb.user_id).1, self.effect_snapshot_for(&cb.user_id).2), display_label(cb))
             };
             if let Some(c) = self.clients.get_mut(&me) {
                 c.phase = Phase::FriendCall;
@@ -3970,8 +4010,8 @@ impl SimpleHub {
             let ca = self.clients.get(&a).unwrap();
             let cb = self.clients.get(&b).unwrap();
             vec![
-                Self::match_peer(cs, ca, "party", self.effective_trust_for(&ca.user_id), self.star_effects.get(&ca.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&ca.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
-                Self::match_peer(cs, cb, "party", self.effective_trust_for(&cb.user_id), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
+                Self::match_peer(cs, ca, "party", self.effective_trust_for(&ca.user_id), self.effect_snapshot_for(&ca.user_id).0, self.effect_snapshot_for(&ca.user_id).1, self.effect_snapshot_for(&ca.user_id).2),
+                Self::match_peer(cs, cb, "party", self.effective_trust_for(&cb.user_id), self.effect_snapshot_for(&cb.user_id).0, self.effect_snapshot_for(&cb.user_id).1, self.effect_snapshot_for(&cb.user_id).2),
             ]
         };
         // Party member A: stranger + teammate B (friend or find-third partner)
@@ -3987,8 +4027,8 @@ impl SimpleHub {
             let cs = self.clients.get(&solo).unwrap();
             let cb = self.clients.get(&b).unwrap();
             vec![
-                Self::match_peer(ca, cs, "stranger", self.effective_trust_for(&cs.user_id), self.star_effects.get(&cs.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cs.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
-                Self::match_peer(ca, cb, mate_role, self.effective_trust_for(&cb.user_id), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
+                Self::match_peer(ca, cs, "stranger", self.effective_trust_for(&cs.user_id), self.effect_snapshot_for(&cs.user_id).0, self.effect_snapshot_for(&cs.user_id).1, self.effect_snapshot_for(&cs.user_id).2),
+                Self::match_peer(ca, cb, mate_role, self.effective_trust_for(&cb.user_id), self.effect_snapshot_for(&cb.user_id).0, self.effect_snapshot_for(&cb.user_id).1, self.effect_snapshot_for(&cb.user_id).2),
             ]
         };
         let b_peers = {
@@ -3996,8 +4036,8 @@ impl SimpleHub {
             let cs = self.clients.get(&solo).unwrap();
             let ca = self.clients.get(&a).unwrap();
             vec![
-                Self::match_peer(cb, cs, "stranger", self.effective_trust_for(&cs.user_id), self.star_effects.get(&cs.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cs.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
-                Self::match_peer(cb, ca, mate_role, self.effective_trust_for(&ca.user_id), self.star_effects.get(&ca.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&ca.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
+                Self::match_peer(cb, cs, "stranger", self.effective_trust_for(&cs.user_id), self.effect_snapshot_for(&cs.user_id).0, self.effect_snapshot_for(&cs.user_id).1, self.effect_snapshot_for(&cs.user_id).2),
+                Self::match_peer(cb, ca, mate_role, self.effective_trust_for(&ca.user_id), self.effect_snapshot_for(&ca.user_id).0, self.effect_snapshot_for(&ca.user_id).1, self.effect_snapshot_for(&ca.user_id).2),
             ]
         };
 
@@ -4090,9 +4130,9 @@ impl SimpleHub {
             let c_o1 = self.clients.get(&o1).unwrap();
             let c_o2 = self.clients.get(&o2).unwrap();
             vec![
-                Self::match_peer(c_me, c_o1, "stranger", self.effective_trust_for(&c_o1.user_id), self.star_effects.get(&c_o1.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&c_o1.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
-                Self::match_peer(c_me, c_o2, "stranger", self.effective_trust_for(&c_o2.user_id), self.star_effects.get(&c_o2.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&c_o2.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
-                Self::match_peer(c_me, c_f, "friend", self.effective_trust_for(&c_f.user_id), self.star_effects.get(&c_f.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&c_f.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)),
+                Self::match_peer(c_me, c_o1, "stranger", self.effective_trust_for(&c_o1.user_id), self.effect_snapshot_for(&c_o1.user_id).0, self.effect_snapshot_for(&c_o1.user_id).1, self.effect_snapshot_for(&c_o1.user_id).2),
+                Self::match_peer(c_me, c_o2, "stranger", self.effective_trust_for(&c_o2.user_id), self.effect_snapshot_for(&c_o2.user_id).0, self.effect_snapshot_for(&c_o2.user_id).1, self.effect_snapshot_for(&c_o2.user_id).2),
+                Self::match_peer(c_me, c_f, "friend", self.effective_trust_for(&c_f.user_id), self.effect_snapshot_for(&c_f.user_id).0, self.effect_snapshot_for(&c_f.user_id).1, self.effect_snapshot_for(&c_f.user_id).2),
             ]
         };
 
@@ -4170,7 +4210,7 @@ impl SimpleHub {
             let (peer, label) = {
                 let ca = self.clients.get(&me).unwrap();
                 let cb = self.clients.get(&them).unwrap();
-                (Self::match_peer(ca, cb, "stranger", self.effective_trust_for(&cb.user_id), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0)), display_label(cb))
+                (Self::match_peer(ca, cb, "stranger", self.effective_trust_for(&cb.user_id), self.effect_snapshot_for(&cb.user_id).0, self.effect_snapshot_for(&cb.user_id).1, self.effect_snapshot_for(&cb.user_id).2), display_label(cb))
             };
             if let Some(c) = self.clients.get_mut(&me) {
                 c.phase = Phase::Matched;
@@ -4417,7 +4457,7 @@ impl SimpleHub {
             let peer = {
                 let ca = self.clients.get(&me).unwrap();
                 let cb = self.clients.get(&them).unwrap();
-                Self::match_peer(ca, cb, "teammate", self.effective_trust_for(&cb.user_id), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.kind.clone()).unwrap_or_default(), self.star_effects.get(&cb.user_id).filter(|e| e.until > Self::unix_now()).map(|e| e.until).unwrap_or(0))
+                Self::match_peer(ca, cb, "teammate", self.effective_trust_for(&cb.user_id), self.effect_snapshot_for(&cb.user_id).0, self.effect_snapshot_for(&cb.user_id).1, self.effect_snapshot_for(&cb.user_id).2)
             };
             let label = display_label(self.clients.get(&them).unwrap());
             let offerer = peer.is_offerer;
@@ -5088,7 +5128,7 @@ impl SimpleHub {
         let my_trust = self.trust_for(&user_id);
         let my_trust_effective = self.effective_trust_for(&user_id);
         let my_trust_gifters = self.trust_gifters_for(&user_id);
-        let (my_eff, my_eff_until) = self.active_effect_for(&user_id);
+        let (my_eff, my_eff_until, my_eff_level) = self.active_effect_for(&user_id);
         let rate_min_secs = self.rate_min_secs_for(&user_id);
         let early_rates_left = self.early_rates_left_for(&user_id);
         self.send(
@@ -5108,6 +5148,7 @@ impl SimpleHub {
                 trust_gifters: my_trust_gifters,
                 effect: my_eff,
                 effect_until: my_eff_until,
+                effect_level: my_eff_level,
                 rate_min_secs,
                 early_rates_left,
             },
