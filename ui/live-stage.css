@@ -11219,6 +11219,46 @@ html.alone-searching #remote-empty .empty-sub:not([hidden]) {
   font-weight: 700;
   user-select: none;
 }
+/* Balance (spend) vs Trust (mod power) dual readout */
+.stars-balance-trust-row {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.45rem;
+}
+.stars-dual-chip {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.35rem;
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 0.72rem;
+  line-height: 1.2;
+}
+.stars-dual-chip.is-trust {
+  border-color: rgba(255, 200, 70, 0.35);
+  background: rgba(255, 196, 60, 0.08);
+}
+.stars-dual-lbl {
+  opacity: 0.72;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.62rem;
+}
+.stars-dual-val {
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+.stars-dual-sub {
+  opacity: 0.65;
+  font-size: 0.65rem;
+}
 /* Legacy wrapper (older deploy) — keep readable if present */
 .stars-sheet-hero-text {
   position: relative;

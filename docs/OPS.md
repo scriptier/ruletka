@@ -91,7 +91,9 @@ When changing the SW shell list, bump `CACHE` in `sw.js`.
 | spam / other | 3 | 3 days |
 | explicit_ai (on-device NSFW) | threshold + 1 | 7 days |
 
-**Trusted reporters:** users who earned **≥100 stars** (long-chat reputation) count as **weight 2** per report (normal users count as 1). Still unique per reporter — no spam stacking. So one trusted report can ban for harassment/explicit; spam still needs more signal.
+**Trusted reporters:** based on **trust** (peer post-chat ★ gifts only), not spendable balance. **≥100 trust** → report weight **2**; **≥250 trust** → weight **3**. Hour bonuses and admin grants raise balance only (unless `admin:trust…`). Still unique per reporter — no spam stacking.
+
+**Balance vs trust:** ledger balance spends on cosmetic gifts; trust is rebuilt from `mint:rate_partner` events (and optional `admin:trust`). Partner badges / friends list show **trust**.
 
 **Star rate window:** first **3** unique partners can open the post-chat ★ gift after **5 minutes**; after that, **15 minutes** (unchanged). Hour mutual mint stays at 60 minutes. Client shows mid-chat progress toward the unlock.
 

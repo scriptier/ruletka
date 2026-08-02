@@ -3,6 +3,8 @@
 //! Design goals:
 //! - Hub is still the authority (not a multi-party blockchain).
 //! - Balances are derived from events; `star_counts` is a cache mirrored into friends.json.
+//! - **Trust** (mod / public reputation) is derived only from peer rate-gifts
+//!   (`mint:rate_partner`), not hour bonuses or admin grants.
 //! - Client retries with the same `op_id` cannot double-spend.
 //! - Restoring an old friends.json cannot inflate stars after ledger has recorded spends.
 //!
@@ -18,6 +20,16 @@ use std::path::{Path, PathBuf};
 pub const KIND_MINT: &str = "mint";
 pub const KIND_SPEND: &str = "spend";
 pub const KIND_ADJUST: &str = "adjust";
+
+/// True when this mint/adjust should raise **trust** (peer social gifts only).
+pub fn is_trust_mint_reason(reason: &str) -> bool {
+    let r = reason.trim();
+    r == "mint:rate_partner"
+        || r.ends_with(":rate_partner")
+        || r == "rate_partner"
+        // Optional admin path to restore trust after investigation
+        || r.starts_with("admin:trust")
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StarEvent {
@@ -78,6 +90,10 @@ pub struct StarLedger {
     spent_ops: HashSet<String>,
     /// Cached balances (authoritative after load / each append)
     balances: HashMap<String, u64>,
+    /// Trust scores: stars received via peer rate-gifts (not hour/admin mints)
+    trust_scores: HashMap<String, u64>,
+    /// Directed trust edges from|to when a peer gifted after a long chat
+    trust_edges: HashSet<String>,
 }
 
 impl StarLedger {
@@ -95,6 +111,8 @@ impl StarLedger {
             tip_hash: String::new(),
             spent_ops: HashSet::new(),
             balances: HashMap::new(),
+            trust_scores: HashMap::new(),
+            trust_edges: HashSet::new(),
         }
     }
 
@@ -113,8 +131,32 @@ impl StarLedger {
         self.balances.get(user_id).copied().unwrap_or(0)
     }
 
+    /// Public reputation / report-power score (peer gifts only).
+    pub fn trust_for(&self, user_id: &str) -> u64 {
+        if user_id.is_empty() {
+            return 0;
+        }
+        self.trust_scores.get(user_id).copied().unwrap_or(0)
+    }
+
+    /// Distinct peers who gifted this user a post-chat star.
+    pub fn trust_gifters(&self, user_id: &str) -> u32 {
+        if user_id.is_empty() {
+            return 0;
+        }
+        let suffix = format!("|{user_id}");
+        self.trust_edges
+            .iter()
+            .filter(|e| e.ends_with(&suffix))
+            .count() as u32
+    }
+
     pub fn balances_snapshot(&self) -> HashMap<String, u64> {
         self.balances.clone()
+    }
+
+    pub fn trust_snapshot(&self) -> HashMap<String, u64> {
+        self.trust_scores.clone()
     }
 
     pub fn has_spend_op(&self, op_id: &str) -> bool {
@@ -209,6 +251,8 @@ impl StarLedger {
         let mut prev = String::new();
         let mut balances: HashMap<String, u64> = HashMap::new();
         let mut spent_ops: HashSet<String> = HashSet::new();
+        let mut trust_scores: HashMap<String, u64> = HashMap::new();
+        let mut trust_edges: HashSet<String> = HashSet::new();
         let mut line_no = 0u64;
 
         for line in reader.lines() {
@@ -261,6 +305,7 @@ impl StarLedger {
                 break;
             }
             apply_event_to_balances(&mut balances, &ev);
+            apply_event_to_trust(&mut trust_scores, &mut trust_edges, &ev);
             if ev.kind == KIND_SPEND && !ev.op_id.is_empty() {
                 spent_ops.insert(ev.op_id.clone());
             }
@@ -271,12 +316,26 @@ impl StarLedger {
 
         self.balances = balances;
         self.spent_ops = spent_ops;
+        self.trust_scores = trust_scores;
+        self.trust_edges = trust_edges;
         Ok(())
     }
 
-    /// Mint stars to `to` (earn / gift received).
+    /// Mint stars to `to` (earn / gift received). `from` empty for system mints.
     pub fn mint(
         &mut self,
+        to: &str,
+        amount: u64,
+        reason: &str,
+        session: &str,
+    ) -> std::io::Result<(StarEvent, u64)> {
+        self.mint_from("", to, amount, reason, session)
+    }
+
+    /// Peer rate-gift mint: records `from` for trust edges + balances.
+    pub fn mint_from(
+        &mut self,
+        from: &str,
         to: &str,
         amount: u64,
         reason: &str,
@@ -288,7 +347,7 @@ impl StarLedger {
                     seq: self.seq,
                     id: String::new(),
                     kind: KIND_MINT.into(),
-                    from: String::new(),
+                    from: from.into(),
                     to: to.into(),
                     amount: 0,
                     reason: reason.into(),
@@ -303,7 +362,7 @@ impl StarLedger {
         }
         let ev = self.append_event(
             KIND_MINT,
-            "",
+            from,
             to,
             amount,
             reason,
@@ -425,6 +484,7 @@ impl StarLedger {
         f.flush()?;
 
         apply_event_to_balances(&mut self.balances, &ev);
+        apply_event_to_trust(&mut self.trust_scores, &mut self.trust_edges, &ev);
         if ev.kind == KIND_SPEND && !ev.op_id.is_empty() {
             self.spent_ops.insert(ev.op_id.clone());
         }
@@ -456,6 +516,28 @@ fn apply_event_to_balances(balances: &mut HashMap<String, u64>, ev: &StarEvent) 
             }
         }
         _ => {}
+    }
+}
+
+fn apply_event_to_trust(
+    trust_scores: &mut HashMap<String, u64>,
+    trust_edges: &mut HashSet<String>,
+    ev: &StarEvent,
+) {
+    if ev.kind != KIND_MINT && ev.kind != KIND_ADJUST {
+        return;
+    }
+    if !is_trust_mint_reason(&ev.reason) || ev.to.is_empty() || ev.amount == 0 {
+        return;
+    }
+    let next = trust_scores
+        .get(&ev.to)
+        .copied()
+        .unwrap_or(0)
+        .saturating_add(ev.amount);
+    trust_scores.insert(ev.to.clone(), next);
+    if !ev.from.is_empty() && ev.from != ev.to {
+        trust_edges.insert(format!("{}|{}", ev.from, ev.to));
     }
 }
 
@@ -512,25 +594,35 @@ mod tests {
 
         let (_, bal) = led.mint("alice", 10, "test_mint", "").unwrap();
         assert_eq!(bal, 10);
+        assert_eq!(led.trust_for("alice"), 0); // hour/system mint ≠ trust
+        let (_, bal) = led
+            .mint_from("carol", "alice", 2, "mint:rate_partner", "")
+            .unwrap();
+        assert_eq!(bal, 12);
+        assert_eq!(led.trust_for("alice"), 2);
+        assert_eq!(led.trust_gifters("alice"), 1);
         let (_, bal) = led
             .spend("alice", "bob", 3, "gift:heart", "op-1", "")
             .unwrap();
-        assert_eq!(bal, 7);
+        assert_eq!(bal, 9);
+        assert_eq!(led.trust_for("alice"), 2); // spend does not burn trust
         match led.spend("alice", "bob", 3, "gift:heart", "op-1", "") {
-            Err(SpendError::AlreadyApplied { from_balance }) => assert_eq!(from_balance, 7),
+            Err(SpendError::AlreadyApplied { from_balance }) => assert_eq!(from_balance, 9),
             other => panic!("expected AlreadyApplied, got {other:?}"),
         }
         match led.spend("alice", "bob", 100, "gift:fw", "op-2", "") {
             Err(SpendError::Insufficient { have, need }) => {
-                assert_eq!(have, 7);
+                assert_eq!(have, 9);
                 assert_eq!(need, 100);
             }
             other => panic!("expected Insufficient, got {other:?}"),
         }
 
-        // Reload preserves balances + op_id
+        // Reload preserves balances + trust + op_id
         let led2 = StarLedger::load_or_migrate(path, &HashMap::new()).unwrap();
-        assert_eq!(led2.balance("alice"), 7);
+        assert_eq!(led2.balance("alice"), 9);
+        assert_eq!(led2.trust_for("alice"), 2);
+        assert_eq!(led2.trust_gifters("alice"), 1);
         assert!(led2.has_spend_op("op-1"));
 
         let _ = std::fs::remove_dir_all(&dir);

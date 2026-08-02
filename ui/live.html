@@ -54,9 +54,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </noscript>
   <!-- Critical CSS: preload then apply (faster first paint on mobile) -->
-  <link rel="preload" href="live-stage.css?v=265" as="style" />
+  <link rel="preload" href="live-stage.css?v=266" as="style" />
   <link rel="stylesheet" href="style.css?v=158" />
-  <link rel="stylesheet" href="live-stage.css?v=265" />
+  <link rel="stylesheet" href="live-stage.css?v=266" />
   <script src="brand.js?v=2"></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -987,6 +987,17 @@
           <span class="stars-meta-dot" aria-hidden="true">·</span>
           <span class="stars-tier-name" id="stars-tier-name" data-i18n="stars.tierNormal">Normal reporter</span>
         </div>
+        <div class="stars-balance-trust-row" id="stars-balance-trust-row">
+          <span class="stars-dual-chip is-balance">
+            <span class="stars-dual-lbl" data-i18n="stars.balanceLabel">Balance</span>
+            <strong class="stars-dual-val">spends on gifts</strong>
+          </span>
+          <span class="stars-dual-chip is-trust">
+            <span class="stars-dual-lbl" data-i18n="stars.trustLabel">Trust</span>
+            <strong class="stars-dual-val">★ <span id="stars-sheet-trust">0</span></strong>
+            <span class="stars-dual-sub"><span id="stars-sheet-gifters">0</span> <span data-i18n="stars.giftersLabel">gifters</span></span>
+          </span>
+        </div>
         <p class="stars-unlock-line" id="stars-unlock-line"></p>
       </div>
       <p class="stars-live-line" id="stars-live-line" hidden></p>
@@ -1006,7 +1017,7 @@
             <span>0</span><span>100</span><span>250</span>
           </div>
           <p class="stars-progress-hint" id="stars-progress-hint" data-i18n="stars.progressHint">
-            Collect 100★ so your reports count double.
+            Trust from peer gifts · 100 trust → reports ×2.
           </p>
         </div>
         <p class="settings-section-label" data-i18n="stars.earnTitle">Earn</p>
@@ -2119,7 +2130,7 @@
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=156" defer></script>
   <script src="webrtc.js?v=159" defer></script>
-  <script src="live.js?v=270" defer></script>
+  <script src="live.js?v=271" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

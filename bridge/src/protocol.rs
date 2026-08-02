@@ -171,7 +171,7 @@ pub struct FriendInfo {
     /// Small self-chosen avatar data URL (when known). Empty = none.
     #[serde(default)]
     pub avatar: String,
-    /// Public reputation: stars received from unique long chats.
+    /// Public reputation trust (peer rate-gifts only; not spendable balance).
     #[serde(default)]
     pub stars: u64,
 }
@@ -206,7 +206,7 @@ pub struct MatchPeer {
     /// Small self-chosen avatar data URL. Empty = none.
     #[serde(default)]
     pub avatar: String,
-    /// Public reputation: stars received from unique long chats.
+    /// Public reputation trust (peer rate-gifts; not spendable balance).
     #[serde(default)]
     pub stars: u64,
     /// Active star-bought effect on this peer ("bars", …). Empty = none.
@@ -229,9 +229,15 @@ pub enum ServerMsg {
         name: String,
         media: String,
         signaling: String,
-        /// Your public star badge count.
+        /// Your spendable star balance (gifts / cosmetics).
         #[serde(default)]
         stars: u64,
+        /// Your trust score (peer rate-gifts only) — report weight & public badge tier.
+        #[serde(default)]
+        trust: u64,
+        /// Distinct peers who gifted you post-chat stars.
+        #[serde(default)]
+        trust_gifters: u32,
         /// Effect currently on *you* ("bars", …). Empty = none.
         #[serde(default)]
         effect: String,
@@ -379,8 +385,11 @@ pub enum ServerMsg {
         /// How many stars were awarded this action (0 if skip).
         #[serde(default)]
         amount: u64,
-        /// Target's new total stars (0 if not awarded).
+        /// Target's new spendable balance (or unchanged).
         stars: u64,
+        /// Target's new trust score after peer gift (0 if skip / not gift).
+        #[serde(default)]
+        trust: u64,
         #[serde(default)]
         message: String,
     },

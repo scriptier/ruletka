@@ -460,9 +460,13 @@ let outgoingRequests = [];
 let primaryPartnerUserId = "";
 /** Last matched peer meta for history */
 let lastMatchMeta = null;
-/** Your public star count (from hub). */
+/** Your spendable star balance (from hub). */
 let myStars = 0;
-/** Partner star count during current match. */
+/** Your trust score — peer rate-gifts only (report power / public tier). */
+let myTrust = 0;
+/** Distinct peers who gifted you post-chat stars. */
+let myTrustGifters = 0;
+/** Partner trust (public reputation) during current match. */
 let partnerStars = 0;
 /** Min chat length for star review (must match bridge STAR_MIN_SECS). */
 const STAR_MIN_SECS = 15 * 60;
@@ -2405,32 +2409,49 @@ function maybeStarsAlmostThereNudge(n) {
   } catch (_) {}
 }
 
-function setStarsBadge(which, count) {
+/**
+ * @param {"local"|"remote"} which
+ * @param {number} count  Local = spendable balance; remote = public trust
+ * @param {{ trust?: number }} [opts] optional trust override for local tier chrome
+ */
+function setStarsBadge(which, count, opts = {}) {
   const n = Math.max(0, Math.floor(Number(count) || 0));
   const badge = $(which === "local" ? "local-stars-badge" : "remote-stars-badge");
   const el = $(which === "local" ? "local-stars-count" : "remote-stars-count");
   if (el) el.textContent = String(n);
-  const prevLocal = which === "local" ? myStars : partnerStars;
+  const prevLocalBal = which === "local" ? myStars : partnerStars;
+  const prevLocalTrust = myTrust;
   if (which === "local") myStars = n;
   if (which === "remote") partnerStars = n;
+  // Tier chrome: local uses trust; remote count *is* trust
+  const tierScore =
+    which === "local"
+      ? Math.max(
+          0,
+          Math.floor(
+            Number(opts.trust != null ? opts.trust : myTrust) || 0
+          )
+        )
+      : n;
   if (badge) {
     const live = !!(matched || inFriendCall);
     // Your ★ always visible (even 0) so you can open the guide anytime.
-    // Partner ★ when they have stars, or during live chat (shows 0).
+    // Partner ★ when they have trust, or during live chat (shows 0).
     const show = which === "local" ? true : n > 0 || live;
     badge.hidden = !show;
     if (show) badge.removeAttribute("hidden");
     else badge.setAttribute("hidden", "");
     badge.classList.add("is-clickable");
     badge.classList.toggle("is-live-chat", live);
-    // Visual evolution by reputation tier (matches report weight goals)
-    const w = reportWeightForStars(n);
+    // Visual evolution by **trust** tier (report weight goals)
+    const w = reportWeightForStars(tierScore);
     badge.classList.remove("tier-normal", "tier-trusted", "tier-senior");
     badge.classList.add(
       w >= 3 ? "tier-senior" : w >= 2 ? "tier-trusted" : "tier-normal"
     );
     badge.dataset.tier = String(w);
     badge.dataset.stars = String(n);
+    badge.dataset.trust = String(tierScore);
     const ico = badge.querySelector(".stars-icon");
     if (ico) {
       // Same glyph; CSS beefs up trusted/senior (glow, size, gold)
@@ -2452,7 +2473,11 @@ function setStarsBadge(which, count) {
           : "";
     const label =
       which === "local"
-        ? (_t("stars.yours") || "Your stars") + ` · ★ ${n}`
+        ? (_t("stars.yours") || "Your balance") +
+          ` · ★ ${n}` +
+          (tierScore
+            ? ` · ${_t("stars.trustShort") || "trust"} ${tierScore}`
+            : "")
         : (_t("stars.tipTheirsTitle") || "Reputation") + ` · ★ ${n}`;
     badge.setAttribute(
       "aria-label",
@@ -2465,11 +2490,20 @@ function setStarsBadge(which, count) {
       (tierBit ? tierBit + " · " : "") +
       (_t("stars.badgeClick") || "Click for Stars guide and gifts");
   }
-  applyStarsTierFrames(which, n);
-  if (which === "local" && n !== prevLocal) {
-    maybeStarsAlmostThereNudge(n);
+  applyStarsTierFrames(which, tierScore);
+  if (which === "local" && (n !== prevLocalBal || tierScore !== prevLocalTrust)) {
+    maybeStarsAlmostThereNudge(tierScore);
   }
   if (starsSheetIsOpen()) syncStarsSheetUi();
+}
+
+function setMyTrust(trust, gifters) {
+  myTrust = Math.max(0, Math.floor(Number(trust) || 0));
+  if (gifters != null) {
+    myTrustGifters = Math.max(0, Math.floor(Number(gifters) || 0));
+  }
+  // Refresh local badge tier without changing displayed balance
+  setStarsBadge("local", myStars, { trust: myTrust });
 }
 
 function starsSheetIsOpen() {
@@ -2495,7 +2529,10 @@ function reportWeightForStars(stars) {
 }
 
 function syncStarsSheetUi() {
-  const n = Math.max(0, Number(myStars) || 0);
+  const balN = Math.max(0, Number(myStars) || 0);
+  const trustN = Math.max(0, Number(myTrust) || 0);
+  /** Ladder / report tier uses trust, not spendable balance */
+  const n = trustN;
   const w = reportWeightForStars(n);
   const isSenior = n >= STARS_SENIOR_GOAL;
   const isTrusted = n >= STARS_TRUSTED_GOAL;
@@ -2503,7 +2540,13 @@ function syncStarsSheetUi() {
   const hasPartner = !!(primaryPartnerUserId || lastMatchMeta?.user_id);
 
   const bal = $("stars-sheet-balance");
-  if (bal) bal.textContent = String(n);
+  if (bal) bal.textContent = String(balN);
+  const trustEl = $("stars-sheet-trust");
+  if (trustEl) trustEl.textContent = String(trustN);
+  const giftersEl = $("stars-sheet-gifters");
+  if (giftersEl) {
+    giftersEl.textContent = String(Math.max(0, Number(myTrustGifters) || 0));
+  }
 
   // Hero tier chip + name
   const chip = $("stars-tier-chip");
@@ -2537,11 +2580,11 @@ function syncStarsSheetUi() {
     } else if (isTrusted) {
       unlock.textContent =
         _t("stars.unlockTrusted") ||
-        "Trusted · reports ×2 · gift up to 2★ after long chats · 250★ → senior";
+        "Trusted · reports ×2 · gift up to 2★ · 250 trust → senior";
     } else {
       unlock.textContent =
         _t("stars.unlockNormal") ||
-        "Earn from long chats · 100★ → trusted · 250★ → senior";
+        "Balance for gifts · trust from peer ★ · 100 trust → trusted";
     }
   }
 
@@ -2586,7 +2629,7 @@ function syncStarsSheetUi() {
     }
   }
 
-  // Overall progress 0→250 with marks at 100 and 250
+  // Overall progress 0→250 **trust** with marks at 100 and 250
   const fill = $("stars-progress-fill");
   const countEl = $("stars-progress-count");
   const bar = $("stars-progress-bar");
@@ -2601,7 +2644,7 @@ function syncStarsSheetUi() {
   if (countEl) {
     if (isSenior) {
       countEl.textContent =
-        _t("stars.progressDoneSenior", { n }) || `★ ${n} · max`;
+        _t("stars.progressDoneSenior", { n }) || `trust ${n} · max`;
     } else if (isTrusted) {
       countEl.textContent = `${n} / ${STARS_SENIOR_GOAL}`;
     } else {
@@ -2628,20 +2671,21 @@ function syncStarsSheetUi() {
         : _t("stars.progressLabel") || "Trusted reporter";
   }
   if (hintProg) {
+    const g = Math.max(0, Number(myTrustGifters) || 0);
     if (isSenior) {
       hintProg.textContent =
-        _t("stars.progressSenior") ||
-        "Senior reporter — reports ×3. Other seniors can’t auto-ban you.";
+        _t("stars.progressSenior", { g }) ||
+        `Senior reporter — reports ×3 · ${g} gifters. Other seniors can’t auto-ban you.`;
     } else if (isTrusted) {
       const left = STARS_SENIOR_GOAL - n;
       hintProg.textContent =
-        _t("stars.progressHintSeniorLeft", { n: left }) ||
-        `Trusted (×2). ${left} more ★ to senior (×3).`;
+        _t("stars.progressHintSeniorLeft", { n: left, g }) ||
+        `Trusted (×2). ${left} more trust to senior (×3) · ${g} gifters.`;
     } else {
       const left = STARS_TRUSTED_GOAL - n;
       hintProg.textContent =
-        _t("stars.progressHintLeft", { n: left }) ||
-        `${left} more ★ to trusted reporter (reports ×2).`;
+        _t("stars.progressHintLeft", { n: left, g, bal: balN }) ||
+        `${left} more trust to trusted (reports ×2). Balance ★ ${balN} spends on gifts.`;
     }
   }
 
@@ -2913,7 +2957,7 @@ function clearPartnerStarsBadge() {
 }
 /** Keep your ★ visible/clickable during a live chat. */
 function refreshLocalStarsVisibility() {
-  setStarsBadge("local", myStars);
+  setStarsBadge("local", myStars, { trust: myTrust });
   if (matched || inFriendCall) {
     setStarsBadge("remote", partnerStars);
   }
@@ -4468,7 +4512,7 @@ function showStarReviewPrompt(msg) {
     // Prefer server max_gift; fall back to local tier
     let maxGift = Math.max(1, Math.min(3, Number(msg?.max_gift) || 0));
     if (!maxGift || maxGift < 1) {
-      maxGift = reportWeightForStars(myStars); // 1 / 2 / 3 matches tier
+      maxGift = reportWeightForStars(myTrust); // 1 / 2 / 3 matches trust tier
     }
     maxGift = Math.max(1, Math.min(3, maxGift));
     const toast = document.createElement("div");
@@ -12393,11 +12437,19 @@ function syncAccountSettingsSummary() {
     codeEl.title = myFriendCode || "";
   }
   if (starsEl) {
-    starsEl.textContent = `★ ${Math.max(0, Number(myStars) || 0)}`;
+    const bal = Math.max(0, Number(myStars) || 0);
+    const tr = Math.max(0, Number(myTrust) || 0);
+    starsEl.textContent =
+      tr > 0 || bal > 0
+        ? `★ ${bal} · ${_t("stars.trustShort") || "trust"} ${tr}`
+        : `★ ${bal}`;
   }
   const starsRow = $("settings-stars-row-value");
   if (starsRow) {
-    starsRow.textContent = `★ ${Math.max(0, Number(myStars) || 0)}`;
+    const bal = Math.max(0, Number(myStars) || 0);
+    const tr = Math.max(0, Number(myTrust) || 0);
+    starsRow.textContent =
+      tr > 0 ? `★ ${bal} / T${tr}` : `★ ${bal}`;
   }
 }
 
@@ -13495,6 +13547,8 @@ async function applyImportedProfile(data) {
     });
     // Never trust client-side star balances — reset until hub hello
     myStars = 0;
+    myTrust = 0;
+    myTrustGifters = 0;
     partnerStars = 0;
     try {
       setStarsBadge("local", 0);
@@ -14154,8 +14208,10 @@ function handleServer(msg) {
       myFriendCode = msg.friend_code || "";
       if ($("my-friend-code")) $("my-friend-code").textContent = myFriendCode;
       myStars = Math.max(0, Number(msg.stars) || 0);
+      myTrust = Math.max(0, Number(msg.trust) || 0);
+      myTrustGifters = Math.max(0, Number(msg.trust_gifters) || 0);
       applyStarRateWindowFromHub(msg);
-      setStarsBadge("local", myStars);
+      setStarsBadge("local", myStars, { trust: myTrust });
       // Bars (etc.) persist across logout — re-apply on hello
       setFxOverlay("local", msg.effect || "", Number(msg.effect_until) || 0);
       syncAccountSettingsSummary();
@@ -14353,11 +14409,20 @@ function handleServer(msg) {
         const hourBonus = /hour chat reward/i.test(msgText);
         const seniorTalk = /senior talk reward|talked to senior/i.test(msgText);
         const trustedSenior = /trusted with senior/i.test(msgText);
+        const trustIn = msg.trust != null ? Math.max(0, Number(msg.trust) || 0) : null;
         if (msg.ok && msg.star && uid && uid === myUserId) {
           // Someone starred us OR auto hour / senior-talk bonus
           const prev = myStars;
+          const prevTrust = myTrust;
           myStars = n;
-          setStarsBadge("local", myStars);
+          // Peer gifts raise trust; hour/senior bonuses only raise balance
+          if (trustIn != null && !hourBonus && !seniorTalk) {
+            if (trustIn > prevTrust) {
+              myTrustGifters = Math.max(0, myTrustGifters) + 1;
+            }
+            myTrust = trustIn;
+          }
+          setStarsBadge("local", myStars, { trust: myTrust });
           syncAccountSettingsSummary();
           if (hourBonus || seniorTalk) {
             let title =
