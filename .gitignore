@@ -38,6 +38,11 @@ phone-qr.png
 *.swp
 *~
 
+# Brand working masters (keep compressed sources in ui/brand/, not huge intermediates)
+ui/brand/*.full.mp4
+ui/brand/*.prev.jpg
+ui/brand/*.prev.png
+
 # Packaged webapp staging
 /webapp/dist/
 /target/webapp/

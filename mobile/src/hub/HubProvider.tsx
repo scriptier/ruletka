@@ -16,6 +16,7 @@ import type { LocalIdentity } from "../identity/store";
 import { setHubBaseOverride } from "../config";
 import { pickHealthyHub } from "../hubs/directory";
 import { loadMatchPrefs } from "../prefs/store";
+import { tryRegisterPush } from "../push/register";
 import { HubClient } from "./HubClient";
 import type {
   FriendInfo,
@@ -208,6 +209,10 @@ export function HubProvider(props: {
             };
             if (m.friend_code) setFriendCode(m.friend_code);
             setStars(Number(m.stars || 0));
+            // Re-register offline ring token after each successful hello
+            loadMatchPrefs()
+              .then((prefs) => tryRegisterPush(hub, prefs.notifyFriendCalls))
+              .catch(() => {});
             break;
           }
           case "friends": {
