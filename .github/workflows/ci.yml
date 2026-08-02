@@ -35,6 +35,8 @@ jobs:
           done
           grep -q 'ruletka-directory/1' ui/hubs.json
           grep -q 'RuletHub' ui/hubs.js
+      - name: i18n pack parity
+        run: python3 scripts/check-i18n.py
 
   mobile:
     name: Mobile typecheck + invite tests

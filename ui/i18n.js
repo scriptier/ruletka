@@ -88,7 +88,7 @@
       "conn.pathRelayPreferDirect": "Relay path — Prefer Direct is on but network needs TURN",
       "conn.directFailedHint": "Connect failed with Prefer Direct — try turning it off in Connection settings",
       "friends.postMatchTitle": "Add as friend?",
-      "friends.postMatchBody": "Optional — request only if you want to meet again.",
+      "friends.postMatchBody": "{name} · request them to Call later when online.",
       "friends.postMatchYes": "Add friend",
       "friends.postMatchNo": "No thanks",
       "settings.profileHintStrong": "Export a backup before clearing browser data, switching devices, or private mode — friends live under your identity on the hub.",
@@ -356,6 +356,9 @@
       // bottom
       "btn.connect": "Connect",
       "btn.next": "Next",
+      "btn.nextTitle": "Next partner",
+      "btn.audio": "Audio",
+      "btn.audioTitle": "Devices & speaker",
       "btn.spin": "Spin",
       "friends.open": "Friends",
       "friends.title": "Friends",
@@ -614,6 +617,7 @@
       "lang.ru": "Русский",
 
       // device labels
+      "device.rearCamFail": "Could not open that camera — check permissions",
       "device.camera": "camera",
       "device.mic": "mic",
       "device.speaker": "speaker",
@@ -873,7 +877,7 @@
       "conn.pathRelayPreferDirect": "Путь через TURN — «Только Direct» вкл., но сеть требует релей",
       "conn.directFailedHint": "С «Только Direct» не соединилось — отключите в настройках Connection",
       "friends.postMatchTitle": "Добавить в друзья?",
-      "friends.postMatchBody": "По желанию — только если хотите встретиться снова.",
+      "friends.postMatchBody": "{name} · отправьте запрос, чтобы звонить позже онлайн.",
       "friends.postMatchYes": "Добавить",
       "friends.postMatchNo": "Нет",
       "settings.profileHintStrong": "Экспортируйте резерв перед очисткой браузера, сменой устройства или инкогнито — друзья привязаны к id на хабе.",
@@ -1748,7 +1752,7 @@
     if (!BUNDLED.has(c) && STR[c]) return Promise.resolve(STR[c]);
     if (loading[c]) return loading[c];
     // Always fetch /i18n/{code}.json and merge over built-ins (en/ru too)
-    loading[c] = fetch(`/i18n/${c}.json?v=67`, { cache: "force-cache" })
+    loading[c] = fetch(`/i18n/${c}.json?v=68`, { cache: "force-cache" })
       .then((r) => {
         if (!r.ok) throw new Error("lang pack " + c);
         return r.json();
