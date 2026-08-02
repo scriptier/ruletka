@@ -90,11 +90,24 @@ Packs are copied from `ui/i18n/*.json` into `src/i18n/packs/`:
 
 Mobile-only keys live in `src/i18n/mobile-overlay.ts` (EN + RU). Other langs use web packs and fall back to EN for `mobile.*` keys. Language: Settings → System or force EN/RU/DE/ES/…
 
+## Store / EAS
+
+See [`docs/STORE.md`](../docs/STORE.md).
+
+```bash
+npx eas-cli login && npx eas init   # once — writes projectId
+npm run build:preview              # internal
+npm run build:prod                 # store AAB/IPA
+npm run build:friends              # contingency (no stranger Start)
+```
+
+WebRTC: `@config-plugins/react-native-webrtc` + `expo-build-properties` (minSdk 24) are wired in `app.config.js`.
+
 ## Next milestones
 
-1. Native device smoke: app ↔ web A/V + friend Call  
-2. `eas init` projectId + internal TestFlight / Play track  
-3. Store assets (1024 icon, screenshots, feature graphic)  
+1. Operator: `eas init` + real device A/V smoke  
+2. Store assets (1024 icon, screenshots, feature graphic)  
+3. Internal track / TestFlight  
 4. Optional: push for killed-app rings  
 
 ## License

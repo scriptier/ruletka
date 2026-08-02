@@ -1,6 +1,11 @@
 /** Runtime config for the mobile client. */
+import Constants from "expo-constants";
 
 let _overrideBase = "";
+
+function extra(): Record<string, unknown> {
+  return (Constants.expoConfig?.extra || {}) as Record<string, unknown>;
+}
 
 /** Prefer env, then runtime override (failover), then seed. */
 export function hubBase(): string {
@@ -9,11 +14,39 @@ export function hubBase(): string {
     typeof process !== "undefined" && process.env?.EXPO_PUBLIC_HUB_BASE
       ? String(process.env.EXPO_PUBLIC_HUB_BASE).replace(/\/$/, "")
       : "";
-  return fromEnv || "https://ruletka.vip";
+  if (fromEnv) return fromEnv;
+  const fromExtra = String(extra().hubBase || "").replace(/\/$/, "");
+  return fromExtra || "https://ruletka.vip";
 }
 
 export function setHubBaseOverride(base: string) {
   _overrideBase = String(base || "").replace(/\/$/, "");
+}
+
+/**
+ * Store contingency: hide stranger queue, keep Friends + Call.
+ * Set EXPO_PUBLIC_FRIENDS_ONLY=1 or eas profile *-friends.
+ */
+export function isFriendsOnly(): boolean {
+  if (
+    typeof process !== "undefined" &&
+    (process.env?.EXPO_PUBLIC_FRIENDS_ONLY === "1" ||
+      process.env?.EXPO_PUBLIC_FRIENDS_ONLY === "true")
+  ) {
+    return true;
+  }
+  return !!extra().friendsOnly;
+}
+
+export function privacyPolicyUrl(): string {
+  return (
+    String(extra().privacyPolicyUrl || "") ||
+    `${hubBase()}/legal/privacy.html`
+  );
+}
+
+export function termsUrl(): string {
+  return String(extra().termsUrl || "") || `${hubBase()}/legal/terms.html`;
 }
 
 export function wsUrl(base = hubBase()): string {

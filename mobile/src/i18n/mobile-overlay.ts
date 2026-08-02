@@ -11,6 +11,10 @@ export const MOBILE_EN: Overlay = {
   "mobile.home.settings": "Match prefs & name",
   "mobile.home.note":
     "Strangers, friends, and stars. A/V needs a native build (expo prebuild + react-native-webrtc).",
+  "mobile.home.friendsOnlyNote":
+    "Friends-only build: Call friends by code. Stranger matchmaking is off.",
+  "mobile.live.friendsOnlyHint":
+    "Stranger Start is disabled in this build. Use Friends → Call.",
   "mobile.nav.live": "Live",
   "mobile.nav.friends": "Friends",
   "mobile.nav.settings": "Settings",
@@ -124,6 +128,10 @@ export const MOBILE_RU: Overlay = {
   "mobile.home.settings": "Настройки и имя",
   "mobile.home.note":
     "Незнакомцы, друзья и звёзды. A/V нужен native-сборку (expo prebuild + react-native-webrtc).",
+  "mobile.home.friendsOnlyNote":
+    "Сборка только для друзей: звоните по коду. Случайный матч отключён.",
+  "mobile.live.friendsOnlyHint":
+    "Start с незнакомцами отключён. Друзья → Call.",
   "mobile.nav.live": "Эфир",
   "mobile.nav.friends": "Друзья",
   "mobile.nav.settings": "Настройки",

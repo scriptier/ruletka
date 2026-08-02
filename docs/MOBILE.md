@@ -89,8 +89,9 @@ Push for friend rings while killed is **post-first-submit** unless schedule allo
 ## Store notes
 
 - Age rating high (UGC video). Expect **multiple App Store review cycles**.
-- Contingency: friends-only binary if stranger roulette blocked.
+- Contingency: friends-only binary if stranger roulette blocked (`EXPO_PUBLIC_FRIENDS_ONLY=1` / EAS `*-friends` profiles).
 - Camera/mic purpose strings; Data safety / App Privacy questionnaires.
+- Full runbook: [`STORE.md`](STORE.md).
 
 ## Dev
 

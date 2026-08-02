@@ -10,12 +10,12 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
-import { hubBase } from "../src/config";
+import { hubBase, isFriendsOnly } from "../src/config";
 import { useHub } from "../src/hub/HubProvider";
 import type { MatchPeer, ServerMatched, ServerMsg } from "../src/hub/types";
+import { useT } from "../src/i18n";
 import { MediaSession, type MediaStreamLike } from "../src/media/MediaSession";
 import { loadMatchPrefs } from "../src/prefs/store";
-import { useT } from "../src/i18n";
 import { GIFTS } from "../src/stars/gifts";
 
 type Phase = "idle" | "search" | "matched" | "error";
@@ -80,6 +80,7 @@ function pickPeer(msg: ServerMatched): {
 
 export default function LiveScreen() {
   const t = useT();
+  const friendsOnly = isFriendsOnly();
   const {
     hub,
     friendCode,
@@ -291,6 +292,11 @@ export default function LiveScreen() {
   }, [connected, hub, phase, push]);
 
   function start() {
+    if (friendsOnly) {
+      push("friends-only: stranger Start disabled");
+      Alert.alert(t("mobile.nav.live"), t("mobile.live.friendsOnlyHint"));
+      return;
+    }
     try {
       mediaRef.current?.closeCall({ keepLocal: true, sendBye: false });
       setRemoteStream(null);
@@ -645,15 +651,20 @@ export default function LiveScreen() {
           {friendCode ? t("mobile.live.metaCode", { code: friendCode }) : ""}
           {!connected ? t("mobile.live.reconnecting") : ""}
         </Text>
+        {friendsOnly && phase === "idle" ? (
+          <Text style={styles.friendsOnlyHint}>
+            {t("mobile.live.friendsOnlyHint")}
+          </Text>
+        ) : null}
         <View style={styles.row}>
-          {phase === "idle" || phase === "error" ? (
+          {(phase === "idle" || phase === "error") && !friendsOnly ? (
             <Pressable style={styles.btn} onPress={start}>
               <Text style={styles.btnText}>{t("btn.start")}</Text>
             </Pressable>
           ) : null}
           {phase === "search" || phase === "matched" ? (
             <>
-              {!isFriendCall ? (
+              {!isFriendCall && !friendsOnly ? (
                 <Pressable style={styles.btnSecondary} onPress={next}>
                   <Text style={styles.btnText}>{t("btn.next")}</Text>
                 </Pressable>
@@ -870,6 +881,13 @@ const styles = StyleSheet.create({
   },
   bar: { paddingHorizontal: 16, paddingBottom: 8, gap: 8 },
   meta: { color: "#9aa8bc", fontSize: 12 },
+  friendsOnlyHint: {
+    color: "#ffe9a0",
+    fontSize: 12,
+    lineHeight: 18,
+    paddingHorizontal: 4,
+    marginBottom: 4,
+  },
   row: { flexDirection: "row", gap: 8 },
   btn: {
     flex: 1,

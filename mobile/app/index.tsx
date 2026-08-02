@@ -1,12 +1,13 @@
 import { Link, Redirect } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { hubBase } from "../src/config";
+import { hubBase, isFriendsOnly } from "../src/config";
 import { useT } from "../src/i18n";
 import { useApp } from "./_layout";
 
 export default function HomeScreen() {
   const { identity, rulesOk } = useApp();
   const t = useT();
+  const friendsOnly = isFriendsOnly();
 
   if (!rulesOk) {
     return <Redirect href="/rules" />;
@@ -18,17 +19,28 @@ export default function HomeScreen() {
       <Text style={styles.tag}>{t("mobile.home.tag")}</Text>
       <Text style={styles.meta}>
         User · {identity.user_id.slice(0, 8)}… · hub {hubBase()}
+        {friendsOnly ? " · friends-only" : ""}
       </Text>
 
-      <Link href="/live" asChild>
-        <Pressable style={styles.cta}>
-          <Text style={styles.ctaText}>{t("mobile.home.start")}</Text>
-        </Pressable>
-      </Link>
+      {friendsOnly ? (
+        <Link href="/friends" asChild>
+          <Pressable style={styles.cta}>
+            <Text style={styles.ctaText}>{t("mobile.home.friends")}</Text>
+          </Pressable>
+        </Link>
+      ) : (
+        <Link href="/live" asChild>
+          <Pressable style={styles.cta}>
+            <Text style={styles.ctaText}>{t("mobile.home.start")}</Text>
+          </Pressable>
+        </Link>
+      )}
 
-      <Link href="/friends" asChild>
+      <Link href={friendsOnly ? "/live" : "/friends"} asChild>
         <Pressable style={styles.secondary}>
-          <Text style={styles.secondaryText}>{t("mobile.home.friends")}</Text>
+          <Text style={styles.secondaryText}>
+            {friendsOnly ? t("mobile.nav.live") : t("mobile.home.friends")}
+          </Text>
         </Pressable>
       </Link>
 
@@ -38,7 +50,11 @@ export default function HomeScreen() {
         </Pressable>
       </Link>
 
-      <Text style={styles.note}>{t("mobile.home.note")}</Text>
+      <Text style={styles.note}>
+        {friendsOnly
+          ? t("mobile.home.friendsOnlyNote")
+          : t("mobile.home.note")}
+      </Text>
     </View>
   );
 }

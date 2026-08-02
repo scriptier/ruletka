@@ -16,3 +16,7 @@ android/
 npm-debug.*
 *.log
 .DS_Store
+secrets/*
+!secrets/.gitkeep
+google-play.json
+*.keystore

@@ -7,6 +7,9 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_HUB_BASE": "https://ruletka.vip"
+      },
       "android": {
         "buildType": "apk"
       },
@@ -16,14 +19,36 @@
     },
     "preview": {
       "distribution": "internal",
+      "channel": "preview",
+      "env": {
+        "EXPO_PUBLIC_HUB_BASE": "https://ruletka.vip"
+      },
       "android": {
         "buildType": "apk"
       }
     },
+    "preview-friends": {
+      "extends": "preview",
+      "env": {
+        "EXPO_PUBLIC_HUB_BASE": "https://ruletka.vip",
+        "EXPO_PUBLIC_FRIENDS_ONLY": "1"
+      }
+    },
     "production": {
       "autoIncrement": true,
+      "channel": "production",
+      "env": {
+        "EXPO_PUBLIC_HUB_BASE": "https://ruletka.vip"
+      },
       "android": {
         "buildType": "app-bundle"
+      }
+    },
+    "production-friends": {
+      "extends": "production",
+      "env": {
+        "EXPO_PUBLIC_HUB_BASE": "https://ruletka.vip",
+        "EXPO_PUBLIC_FRIENDS_ONLY": "1"
       }
     }
   },
