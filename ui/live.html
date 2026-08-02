@@ -41,20 +41,20 @@
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="/brand/apple-touch-icon-180.png" />
   <link rel="manifest" href="manifest.webmanifest" />
-  <!-- Fonts: non-blocking; system UI paints first. Saloon uses Rye/Source Serif when loaded. -->
+  <!-- Fonts: Inter + Noto only on first paint; theme fonts load on demand -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
     rel="stylesheet"
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&family=Rye&family=Source+Serif+4:opsz,wght@8..60,400;600;700&family=Pixelify+Sans:wght@400;500;600;700&family=Press+Start+2P&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap"
     media="print"
     onload="this.media='all'"
   />
   <noscript>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&family=Pixelify+Sans:wght@400;500;600;700&family=Press+Start+2P&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </noscript>
-  <link rel="stylesheet" href="style.css?v=157" />
-  <link rel="stylesheet" href="live-stage.css?v=262" />
+  <link rel="stylesheet" href="style.css?v=158" />
+  <link rel="stylesheet" href="live-stage.css?v=263" />
   <script src="brand.js?v=2"></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -66,6 +66,21 @@
         document.documentElement.setAttribute("data-theme", t);
         if (t === "light" || t === "pink") document.documentElement.style.colorScheme = "light";
         else document.documentElement.style.colorScheme = "dark";
+        // Prefetch theme fonts only when a fancy theme is already saved
+        if (t === "saloon" || t === "pixel") {
+          var href =
+            t === "saloon"
+              ? "https://fonts.googleapis.com/css2?family=Rye&family=Source+Serif+4:opsz,wght@8..60,400;600;700&display=swap"
+              : "https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500;600;700&family=Press+Start+2P&display=swap";
+          var l = document.createElement("link");
+          l.rel = "stylesheet";
+          l.href = href;
+          l.media = "print";
+          l.onload = function () {
+            this.media = "all";
+          };
+          document.head.appendChild(l);
+        }
       } catch (e) {
         document.documentElement.setAttribute("data-theme", "dark");
       }
@@ -333,15 +348,14 @@
           <video
             class="empty-bg-video is-brand-loop"
             id="remote-empty-video"
-            src="/brand/loading-screen.mp4?v=4"
+            data-src="/brand/loading-screen.mp4?v=6"
             muted
             defaultMuted
             loop
-            autoplay
             playsinline
             playsInline
             webkit-playsinline
-            preload="auto"
+            preload="none"
             aria-hidden="true"
           ></video>
           <div class="empty-bg-scrim" aria-hidden="true"></div>
@@ -562,15 +576,14 @@
           <video
             class="empty-bg-video is-brand-loop"
             id="third-empty-video"
-            src="/brand/loading-screen.mp4?v=5"
+            data-src="/brand/loading-screen.mp4?v=6"
             muted
             defaultMuted
             loop
-            autoplay
             playsinline
             playsInline
             webkit-playsinline
-            preload="auto"
+            preload="none"
             aria-hidden="true"
           ></video>
           <div class="empty-bg-scrim" aria-hidden="true"></div>
@@ -2102,7 +2115,7 @@
   <script src="identity.js?v=156"></script>
   <script src="hubs.js?v=156"></script>
   <script src="webrtc.js?v=158"></script>
-  <script src="live.js?v=264"></script>
+  <script src="live.js?v=265"></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

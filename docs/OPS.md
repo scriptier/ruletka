@@ -74,6 +74,14 @@ stuck on old gift/star logic. Clients poll for SW updates ~15 min and show an
 
 When changing the SW shell list, bump `CACHE` in `sw.js`.
 
+### Performance (deploy)
+
+- Caddy: `encode gzip zstd` + long `Cache-Control` for `*.js` / `*.css` / images
+  (`?v=` query busts). HTML: 60s. See `scripts/deploy/Caddyfile`.
+- Minify on ship: `scripts/deploy/optimize-ui.sh` (run from `push.sh` staging).
+- Live fonts: Inter + Noto only on first paint; saloon/pixel fonts load on demand.
+- Empty brand video: `preload="none"` + `data-src` (loads when empty UI plays).
+
 ## Auto-moderation (no admin required)
 
 | Reason | Weight needed | Match ban |

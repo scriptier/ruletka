@@ -27,7 +27,15 @@ cp -a target/release/roulette-bridge "$STAGE/bin/"
 # UI only (not whole repo)
 rsync -a --delete \
   --exclude '*.map' \
+  --exclude 'brand/loading-screen.full.mp4' \
+  --exclude 'brand/og-1200.prev.jpg' \
   ui/ "$STAGE/ui/"
+# Minify heavy JS/CSS before upload
+if [[ -x "$ROOT/scripts/deploy/optimize-ui.sh" ]]; then
+  bash "$ROOT/scripts/deploy/optimize-ui.sh" "$STAGE/ui"
+elif [[ -f "$ROOT/scripts/deploy/optimize-ui.sh" ]]; then
+  bash "$ROOT/scripts/deploy/optimize-ui.sh" "$STAGE/ui"
+fi
 # Public helper downloads (Linux / Windows / macOS)
 mkdir -p "$STAGE/ui/download"
 cp -a target/release/roulette-bridge "$STAGE/ui/download/roulette-bridge-linux-amd64"

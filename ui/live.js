@@ -304,6 +304,34 @@ function applyThemeIcons(theme) {
   });
 }
 
+/** Theme fonts (not loaded on first paint — Inter/Noto only). */
+const THEME_FONT_HREF = {
+  saloon:
+    "https://fonts.googleapis.com/css2?family=Rye&family=Source+Serif+4:opsz,wght@8..60,400;600;700&display=swap",
+  pixel:
+    "https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500;600;700&family=Press+Start+2P&display=swap",
+};
+const _themeFontsLoaded = Object.create(null);
+
+function ensureThemeFonts(theme) {
+  const id = normalizeTheme(theme);
+  const href = THEME_FONT_HREF[id];
+  if (!href || _themeFontsLoaded[id]) return;
+  _themeFontsLoaded[id] = true;
+  try {
+    if (document.querySelector(`link[data-theme-font="${id}"]`)) return;
+    const l = document.createElement("link");
+    l.rel = "stylesheet";
+    l.href = href;
+    l.setAttribute("data-theme-font", id);
+    l.media = "print";
+    l.onload = function () {
+      this.media = "all";
+    };
+    document.head.appendChild(l);
+  } catch (_) {}
+}
+
 function applyTheme(theme, { persist = true } = {}) {
   const id = normalizeTheme(theme);
   document.documentElement.setAttribute("data-theme", id);
@@ -311,6 +339,7 @@ function applyTheme(theme, { persist = true } = {}) {
   const meta = document.getElementById("meta-theme-color");
   if (meta) meta.setAttribute("content", THEME_META[id].color);
   applyThemeIcons(id);
+  ensureThemeFonts(id);
   if (persist) savePrefs({ theme: id });
   syncThemeChoices();
   if ($("settings-theme-value")) {
@@ -7721,8 +7750,11 @@ function playBrandLoopVideo(v, poster, showEmpty) {
   v.style.cssText =
     "position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1;display:block!important;opacity:1!important;visibility:visible!important;pointer-events:none;";
 
+  // Lazy-load brand loop (preload=none in HTML) so JS/ICE win first bytes
   if (!v.getAttribute("src")) {
-    v.src = "/brand/loading-screen.mp4?v=4";
+    const src =
+      v.getAttribute("data-src") || "/brand/loading-screen.mp4?v=6";
+    v.src = src;
   }
 
   try {
