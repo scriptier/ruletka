@@ -49,7 +49,7 @@ Push for friend rings while killed is **post-first-submit** unless schedule allo
 - [x] Hide IP relay preference (TURN)
 - [x] In-call text chat
 - [x] WS reconnect + resume search
-- [ ] ICE soft recovery (media restart)
+- [x] ICE soft recovery (media restart)
 
 ### Friends
 
@@ -66,12 +66,13 @@ Push for friend rings while killed is **post-first-submit** unless schedule allo
 - [x] In-call spend gifts (heart → please_stay)
 - [ ] Mid-chat unlock progress UI (hub still enforces timing)
 - [x] Never import stars from profile file
+- [x] Mid-chat ★ unlock progress bar
 
 ### Account-less identity
 
 - [x] Stable device `user_id` (SecureStore)
 - [x] Encrypted export / import (web-compatible envelope)
-- [ ] Hub failover via directory
+- [x] Hub failover via directory (`/v1/directory` + health)
 
 ### i18n
 
@@ -108,3 +109,4 @@ Default hub: `https://ruletka.vip` (override with env `EXPO_PUBLIC_HUB_BASE`).
 - [`PROTOCOL.md`](PROTOCOL.md) — wire format  
 - [`SELF_HOST.md`](SELF_HOST.md) — run a hub  
 - [`HELPERS.md`](HELPERS.md) — desktop island helpers (not the store apps)  
+- [`STORE.md`](STORE.md) — Play / App Store submission checklist  

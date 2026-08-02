@@ -109,6 +109,8 @@ export class MediaSession {
   private isOfferer = false;
   private makingOffer = false;
   private rtc: WebrtcMod | null = null;
+  private iceRestartCount = 0;
+  private discIceTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     this.rtc = loadWebrtc();
@@ -226,9 +228,21 @@ export class MediaSession {
 
     pc.onconnectionstatechange = () => {
       this.handlers.onConnectionState?.(pc.connectionState);
+      if (
+        pc.connectionState === "disconnected" ||
+        pc.connectionState === "failed"
+      ) {
+        this.scheduleIceRestartProbe();
+      }
     };
     pc.oniceconnectionstatechange = () => {
       this.handlers.onIceConnectionState?.(pc.iceConnectionState);
+      if (
+        pc.iceConnectionState === "disconnected" ||
+        pc.iceConnectionState === "failed"
+      ) {
+        this.scheduleIceRestartProbe();
+      }
     };
 
     if (this.localStream) {
@@ -261,14 +275,16 @@ export class MediaSession {
     }
   }
 
-  private async createAndSendOffer(): Promise<void> {
+  private async createAndSendOffer(iceRestart = false): Promise<void> {
     const pc = this.ensurePc();
     const rtc = this.rtc;
     if (!pc || !rtc) return;
     if (this.makingOffer) return;
     this.makingOffer = true;
     try {
-      const offer = await pc.createOffer({});
+      const offer = await pc.createOffer(
+        iceRestart ? { iceRestart: true } : {}
+      );
       await pc.setLocalDescription(offer);
       const desc = pc.localDescription;
       if (desc) {
@@ -282,6 +298,53 @@ export class MediaSession {
     } finally {
       this.makingOffer = false;
     }
+  }
+
+  private scheduleIceRestartProbe() {
+    if (this.discIceTimer) return;
+    this.discIceTimer = setTimeout(() => {
+      this.discIceTimer = null;
+      const pc = this.pc;
+      if (!pc) return;
+      const ice = pc.iceConnectionState;
+      const cs = pc.connectionState;
+      if (
+        ice === "disconnected" ||
+        ice === "failed" ||
+        cs === "disconnected" ||
+        cs === "failed"
+      ) {
+        void this.tryIceRestart();
+      }
+    }, 4000);
+  }
+
+  private clearIceRestartProbe() {
+    if (this.discIceTimer) {
+      clearTimeout(this.discIceTimer);
+      this.discIceTimer = null;
+    }
+  }
+
+  /** Soft ICE restart (mirrors web webrtc.js). Offerer sends new offer. */
+  async tryIceRestart(): Promise<boolean> {
+    if (this.iceRestartCount >= 3) return false;
+    const pc = this.pc;
+    if (!pc) return false;
+    this.iceRestartCount += 1;
+    try {
+      if (this.isOfferer) {
+        await this.createAndSendOffer(true);
+        return true;
+      }
+      if (typeof pc.restartIce === "function") {
+        pc.restartIce();
+        return true;
+      }
+    } catch (e) {
+      this.handlers.onError?.(e instanceof Error ? e : new Error(String(e)));
+    }
+    return false;
   }
 
   async handleRemoteSignal(kind: string, payload: string): Promise<void> {
@@ -355,6 +418,8 @@ export class MediaSession {
 
   closeCall(opts: { keepLocal?: boolean; sendBye?: boolean } = {}) {
     const { keepLocal = false, sendBye = true } = opts;
+    this.clearIceRestartProbe();
+    this.iceRestartCount = 0;
     if (sendBye) {
       try {
         this.handlers.onSignal?.("bye", "{}");

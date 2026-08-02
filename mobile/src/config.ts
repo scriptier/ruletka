@@ -1,11 +1,19 @@
 /** Runtime config for the mobile client. */
 
+let _overrideBase = "";
+
+/** Prefer env, then runtime override (failover), then seed. */
 export function hubBase(): string {
+  if (_overrideBase) return _overrideBase.replace(/\/$/, "");
   const fromEnv =
     typeof process !== "undefined" && process.env?.EXPO_PUBLIC_HUB_BASE
       ? String(process.env.EXPO_PUBLIC_HUB_BASE).replace(/\/$/, "")
       : "";
   return fromEnv || "https://ruletka.vip";
+}
+
+export function setHubBaseOverride(base: string) {
+  _overrideBase = String(base || "").replace(/\/$/, "");
 }
 
 export function wsUrl(base = hubBase()): string {

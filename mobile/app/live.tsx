@@ -110,10 +110,20 @@ export default function LiveScreen() {
   const [chat, setChat] = useState<{ from: string; body: string }[]>([]);
   const [chatDraft, setChatDraft] = useState("");
   const [alone, setAlone] = useState(false);
+  const [rateMinSecs, setRateMinSecs] = useState(15 * 60);
+  const [matchStartedAt, setMatchStartedAt] = useState(0);
+  const [nowTick, setNowTick] = useState(Date.now());
 
   const push = useCallback((line: string) => {
     setLog((prev) => [line, ...prev].slice(0, 50));
   }, []);
+
+  // Mid-chat ★ unlock progress tick
+  useEffect(() => {
+    if (phase !== "matched" || !matchStartedAt) return;
+    const t = setInterval(() => setNowTick(Date.now()), 2000);
+    return () => clearInterval(t);
+  }, [phase, matchStartedAt]);
 
   useEffect(() => {
     setWebrtcOk(MediaSession.webrtcAvailable());
@@ -160,6 +170,18 @@ export default function LiveScreen() {
 
     const unsub = addMessageListener((msg: ServerMsg) => {
       switch (msg.type) {
+        case "hello_ok": {
+          const m = msg as {
+            rate_min_secs?: number;
+            early_rates_left?: number;
+          };
+          if (m.rate_min_secs != null) {
+            setRateMinSecs(
+              Math.max(60, Math.floor(Number(m.rate_min_secs) || 900))
+            );
+          }
+          break;
+        }
         case "status": {
           const m = msg as {
             phase?: string;
@@ -187,6 +209,7 @@ export default function LiveScreen() {
           setPartner(peer.name);
           setMatchMode(peer.mode);
           setPhase("matched");
+          setMatchStartedAt(Date.now());
           searchingRef.current = false;
           setAlone(false);
           setRemoteStream(null);
@@ -449,6 +472,16 @@ export default function LiveScreen() {
 
   const showAloneBanner = phase === "search" && alone;
   const isFriendCall = matchMode === "friend";
+  const elapsedSecs =
+    phase === "matched" && matchStartedAt
+      ? Math.floor((nowTick - matchStartedAt) / 1000)
+      : 0;
+  const starProgress = Math.min(
+    1,
+    rateMinSecs > 0 ? elapsedSecs / rateMinSecs : 0
+  );
+  const starReady = starProgress >= 1;
+  const needMin = Math.max(1, Math.round(rateMinSecs / 60));
 
   return (
     <View style={styles.root}>
@@ -513,6 +546,23 @@ export default function LiveScreen() {
                   ? "Preview"
                   : "Idle"}
           </Text>
+          {phase === "matched" ? (
+            <View style={styles.starProg}>
+              <View style={styles.starProgTrack}>
+                <View
+                  style={[
+                    styles.starProgFill,
+                    { width: `${Math.round(starProgress * 100)}%` },
+                  ]}
+                />
+              </View>
+              <Text style={styles.starProgLabel}>
+                {starReady
+                  ? "★ review unlocks when chat ends"
+                  : `★ unlock ~${needMin} min · ${Math.floor(elapsedSecs / 60)}:${String(elapsedSecs % 60).padStart(2, "0")}`}
+              </Text>
+            </View>
+          ) : null}
           {!webrtcOk ? (
             <Text style={styles.stageHint}>
               WebRTC needs a native build:{"\n"}
@@ -692,6 +742,25 @@ const styles = StyleSheet.create({
     textShadowRadius: 4,
   },
   stageHint: { color: "#9aa8bc", fontSize: 11, marginTop: 6, lineHeight: 16 },
+  starProg: { marginTop: 8, gap: 4, maxWidth: 220 },
+  starProgTrack: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    overflow: "hidden",
+  },
+  starProgFill: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#ffc850",
+  },
+  starProgLabel: {
+    color: "#ffe9a0",
+    fontSize: 11,
+    fontWeight: "600",
+    textShadowColor: "#000",
+    textShadowRadius: 3,
+  },
   aloneCard: {
     position: "absolute",
     left: 12,

@@ -22,6 +22,10 @@ export class HubClient {
     this.base = base.replace(/\/$/, "");
   }
 
+  setBase(base: string) {
+    this.base = String(base || "").replace(/\/$/, "") || hubBase();
+  }
+
   setHandlers(h: HubClientHandlers) {
     this.handlers = { ...this.handlers, ...h };
   }

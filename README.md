@@ -15,7 +15,7 @@
 |------|--|
 | **Self-host (Docker / VPS)** | [`docs/SELF_HOST.md`](docs/SELF_HOST.md) |
 | Island helpers (PC double-click) | [`docs/HELPERS.md`](docs/HELPERS.md) |
-| Mobile App Store / Play | [`docs/MOBILE.md`](docs/MOBILE.md) |
+| Mobile App Store / Play | [`docs/MOBILE.md`](docs/MOBILE.md) · [`docs/STORE.md`](docs/STORE.md) |
 | Signaling protocol | [`docs/PROTOCOL.md`](docs/PROTOCOL.md) |
 | Hub directory policy | [`docs/HUB_DIRECTORY.md`](docs/HUB_DIRECTORY.md) |
 | Architecture | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |

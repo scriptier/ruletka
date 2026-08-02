@@ -9,6 +9,8 @@ import {
   type ReactNode,
 } from "react";
 import type { LocalIdentity } from "../identity/store";
+import { setHubBaseOverride } from "../config";
+import { pickHealthyHub } from "../hubs/directory";
 import { loadMatchPrefs } from "../prefs/store";
 import { HubClient } from "./HubClient";
 import type {
@@ -102,9 +104,13 @@ export function HubProvider(props: {
 
   useEffect(() => {
     const hub = hubRef.current;
+    let closed = false;
+    let failStreak = 0;
+
     hub.setHandlers({
       onOpen: async () => {
         setConnected(true);
+        failStreak = 0;
         const prefs = await loadMatchPrefs();
         try {
           hub.hello({
@@ -121,7 +127,24 @@ export function HubProvider(props: {
           /* ignore */
         }
       },
-      onClose: () => setConnected(false),
+      onClose: async () => {
+        setConnected(false);
+        failStreak += 1;
+        // After a few drops, try another healthy hub from directory
+        if (failStreak >= 3 && !closed) {
+          failStreak = 0;
+          try {
+            const next = await pickHealthyHub(hub.hubBaseUrl);
+            if (next && next !== hub.hubBaseUrl) {
+              setHubBaseOverride(next);
+              hub.setBase(next);
+              setToast(`Switched hub · ${next.replace(/^https?:\/\//, "")}`);
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+      },
       onError: () => setLastError("connection error"),
       onMessage: (msg) => {
         switch (msg.type) {
@@ -129,6 +152,8 @@ export function HubProvider(props: {
             const m = msg as {
               friend_code?: string;
               stars?: number;
+              rate_min_secs?: number;
+              early_rates_left?: number;
             };
             if (m.friend_code) setFriendCode(m.friend_code);
             setStars(Number(m.stars || 0));
@@ -247,8 +272,21 @@ export function HubProvider(props: {
         });
       },
     });
-    hub.connect({ autoReconnect: true });
-    return () => hub.disconnect();
+    (async () => {
+      try {
+        const healthy = await pickHealthyHub();
+        if (closed) return;
+        setHubBaseOverride(healthy);
+        hub.setBase(healthy);
+      } catch {
+        /* use default */
+      }
+      if (!closed) hub.connect({ autoReconnect: true });
+    })();
+    return () => {
+      closed = true;
+      hub.disconnect();
+    };
   }, [identity.name, identity.user_id]);
 
   const value = useMemo<HubContextValue>(

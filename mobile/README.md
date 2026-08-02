@@ -23,6 +23,10 @@ See monorepo docs:
 | Incoming/outbound call banners | ✅ |
 | Stars rate prompt + in-call gifts | ✅ Phase 3 |
 | Profile export/import (web-compatible) | ✅ |
+| ICE soft-restart | ✅ |
+| Hub directory failover | ✅ |
+| Mid-chat ★ progress | ✅ |
+| EAS / store checklist | ✅ `eas.json` + `docs/STORE.md` |
 
 ### First A/V call (device)
 
