@@ -14,6 +14,7 @@ use crate::federation::{
 use crate::friends_store::{self, FriendsFile};
 use crate::limits::{ClientLimiter, LimitConfig};
 use crate::protocol::{ClientMsg, FriendChatLine, FriendInfo, MatchPeer, ServerMsg};
+use crate::push_tokens::{self, PushToken};
 use crate::star_ledger::{SpendError, StarLedger};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -283,6 +284,11 @@ pub struct SimpleHub {
     queue: VecDeque<QueueEntry>,
     limits: LimitConfig,
     friends_path: PathBuf,
+    /// user_id → last known push device token (offline friend rings)
+    push_tokens: HashMap<String, PushToken>,
+    push_tokens_path: PathBuf,
+    /// Optional HTTPS webhook for offline ring delivery (custom push relay / ntfy / etc.)
+    push_webhook_url: Option<String>,
     /// Optional HTTPS webhook (Slack/Discord/Telegram bot URL) fired on auto-ban.
     mod_webhook_url: Option<String>,
     /// Federated sessions by session_id
@@ -501,13 +507,14 @@ impl SimpleHub {
     }
 
     pub fn with_limits_and_store(limits: LimitConfig, friends_path: PathBuf) -> Self {
-        Self::with_limits_store_webhook(limits, friends_path, None)
+        Self::with_limits_store_webhook(limits, friends_path, None, None)
     }
 
     pub fn with_limits_store_webhook(
         limits: LimitConfig,
         friends_path: PathBuf,
         mod_webhook_url: Option<String>,
+        push_webhook_url: Option<String>,
     ) -> Self {
         let stored = friends_store::load(&friends_path);
         if !stored.friendships.is_empty()
@@ -542,6 +549,21 @@ impl SimpleHub {
         if webhook.is_some() {
             tracing::info!("mod webhook enabled for auto-ban events");
         }
+        let push_wh = push_webhook_url
+            .map(|s| s.trim().to_string())
+            .filter(|s| s.starts_with("https://"));
+        if push_wh.is_some() {
+            tracing::info!("push webhook enabled for offline friend rings");
+        }
+        let push_tokens_path = push_tokens::path_beside_friends(&friends_path);
+        let push_tokens = push_tokens::load(&push_tokens_path);
+        if !push_tokens.is_empty() {
+            tracing::info!(
+                n = push_tokens.len(),
+                path = %push_tokens_path.display(),
+                "loaded push tokens"
+            );
+        }
         let hub = Self {
             clients: HashMap::new(),
             by_user: HashMap::new(),
@@ -565,6 +587,9 @@ impl SimpleHub {
             queue: VecDeque::new(),
             limits,
             friends_path,
+            push_tokens,
+            push_tokens_path,
+            push_webhook_url: push_wh,
             mod_webhook_url: webhook,
             fed_sessions: HashMap::new(),
             fed_by_client: HashMap::new(),
@@ -578,6 +603,33 @@ impl SimpleHub {
         // Persist reconciled star_counts so friends.json cache matches ledger
         hub.persist_friends();
         hub
+    }
+
+    fn persist_push_tokens(&self) {
+        if let Err(e) = push_tokens::save(&self.push_tokens_path, &self.push_tokens) {
+            tracing::warn!(error = %e, "push_tokens save failed");
+        }
+    }
+
+    fn fire_push_webhook(&self, payload: serde_json::Value) {
+        let Some(url) = self.push_webhook_url.clone() else {
+            return;
+        };
+        let text = payload
+            .get("text")
+            .and_then(|v| v.as_str())
+            .unwrap_or("ruletka friend call")
+            .to_string();
+        tokio::spawn(async move {
+            let body = webhook_body_for_url(&url, &text, &payload);
+            let client = reqwest::Client::builder()
+                .timeout(Duration::from_secs(8))
+                .build();
+            let Ok(client) = client else {
+                return;
+            };
+            let _ = client.post(&url).json(&body).send().await;
+        });
     }
 
     fn fire_mod_webhook(&self, payload: serde_json::Value) {
@@ -4938,6 +4990,11 @@ impl SimpleHub {
                 self.handle_report_user(id, user_id, reason)
             }
             ClientMsg::CallFriend { user_id } => self.handle_call_friend(id, user_id),
+            ClientMsg::RegisterPush {
+                token,
+                platform,
+                clear,
+            } => self.handle_register_push(id, token, platform, clear),
             ClientMsg::CallRespond { user_id, accept } => {
                 self.handle_call_respond(id, user_id, accept)
             }
@@ -5821,12 +5878,37 @@ impl SimpleHub {
         }
         let Some(&oid) = self.by_user.get(&user_id) else {
             tracing::info!(%my_uid, target = %user_id, "call_friend: friend offline");
-            self.send(
-                id,
-                ServerMsg::Error {
-                    message: "friend offline".into(),
-                },
-            );
+            // Offline ring path: if they registered a push token, fire webhook / record attempt
+            if let Some(tok) = self.push_tokens.get(&user_id).cloned() {
+                let text = format!(
+                    "ruletka: {} is calling you — open the app to answer",
+                    my_name
+                );
+                self.fire_push_webhook(serde_json::json!({
+                    "type": "friend_call_ring",
+                    "text": text,
+                    "to_user_id": user_id,
+                    "from_user_id": my_uid,
+                    "from_name": my_name,
+                    "token": tok.token,
+                    "platform": tok.platform,
+                }));
+                self.metrics_inc_call_ring();
+                self.send(
+                    id,
+                    ServerMsg::Error {
+                        message: "friend offline — notification sent".into(),
+                    },
+                );
+                self.status(id, "friend offline — ring notification sent");
+            } else {
+                self.send(
+                    id,
+                    ServerMsg::Error {
+                        message: "friend offline".into(),
+                    },
+                );
+            }
             // Refresh caller's friends list so UI drops stale "online"
             self.push_friends_list(id);
             return;
@@ -5866,6 +5948,67 @@ impl SimpleHub {
         );
         self.metrics_inc_call_ring();
         self.status(id, "calling friend…");
+    }
+
+    fn handle_register_push(
+        &mut self,
+        id: Uuid,
+        token: String,
+        platform: String,
+        clear: bool,
+    ) {
+        let Some(me) = self.clients.get(&id) else {
+            return;
+        };
+        let uid = me.user_id.clone();
+        if uid.is_empty() {
+            self.send(
+                id,
+                ServerMsg::PushRegistered {
+                    ok: false,
+                    message: "hello first".into(),
+                },
+            );
+            return;
+        }
+        if clear || token.trim().is_empty() {
+            self.push_tokens.remove(&uid);
+            self.persist_push_tokens();
+            self.send(
+                id,
+                ServerMsg::PushRegistered {
+                    ok: true,
+                    message: "cleared".into(),
+                },
+            );
+            return;
+        }
+        let tok = token.chars().take(512).collect::<String>();
+        let plat = platform.chars().take(32).collect::<String>();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        self.push_tokens.insert(
+            uid,
+            PushToken {
+                token: tok,
+                platform: if plat.is_empty() {
+                    "unknown".into()
+                } else {
+                    plat
+                },
+                updated: now,
+            },
+        );
+        self.persist_push_tokens();
+        self.send(
+            id,
+            ServerMsg::PushRegistered {
+                ok: true,
+                message: "registered".into(),
+            },
+        );
     }
 
     /// Caller hung up while the target was still ringing.

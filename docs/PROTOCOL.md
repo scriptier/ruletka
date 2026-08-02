@@ -39,6 +39,7 @@ Unknown fields should be ignored by both sides for forward compatibility.
 | `ping` | Keepalive |
 | `add_friend` / `accept_friend` / `decline_friend` / `remove_friend` | Friend graph by `code` / `user_id` |
 | `call_friend` / `call_respond` / `call_cancel` / `hangup_friend` | Friend call ring |
+| `register_push` | Device push token for offline rings (`token`, `platform`, optional `clear`) |
 | `browse_together` | Party of 2 enters stranger queue |
 | `find_third_invite` / `find_third_respond` / `find_third_cancel` | Optional trio |
 | `block_user` / `unblock_user` | Social block |

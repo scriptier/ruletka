@@ -67,16 +67,26 @@ curl -s https://ruletka.vip/.well-known/assetlinks.json | jq .
 adb shell pm get-app-links vip.ruletka.app
 ```
 
-## Push for killed-app rings (post-v1)
+## Push for killed-app rings
 
-Not wired yet. Preferred path:
+| Layer | Status |
+|-------|--------|
+| Protocol `register_push` / `push_registered` | Hub + mobile types |
+| Store `data/push_tokens.json` | Hub |
+| Offline `call_friend` → webhook | `ROULETTE_PUSH_WEBHOOK_URL` |
+| Mobile Settings toggle | “Friend call alerts” |
+| `expo-notifications` + Expo Push API | After `eas init` (optional install) |
 
-1. `expo-notifications` + EAS project push credentials  
-2. Client sends `register_push` with token after hello  
-3. Hub stores token per `user_id`; on `call_friend` → FCM/APNs when callee offline  
-4. Tap notification opens app → existing call banner if still ringing  
+Until OS notifications are linked: **in-app banners** while the app is open (shipped).
 
-Until then: in-app banners while the app is open (shipped).
+Preferred full path:
+
+1. `npx expo install expo-notifications` in `mobile/` after EAS project  
+2. Client registers token (Settings save already calls `tryRegisterPush`)  
+3. Hub stores token; offline call fires webhook with Expo token  
+4. Relay or Expo Push API delivers; tap opens app  
+
+See [`OPERATOR_NEXT.md`](OPERATOR_NEXT.md).
 
 ## Related
 

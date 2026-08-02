@@ -153,6 +153,17 @@ pub enum ClientMsg {
         #[serde(default)]
         op_id: String,
     },
+    /// Register device push token for offline friend-call rings (FCM/APNs/Expo).
+    RegisterPush {
+        #[serde(default)]
+        token: String,
+        /// "ios" | "android" | "expo" | …
+        #[serde(default)]
+        platform: String,
+        /// true = clear stored token for this user
+        #[serde(default)]
+        clear: bool,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -316,6 +327,12 @@ pub enum ServerMsg {
         from_peer: String,
     },
     Error {
+        message: String,
+    },
+    /// Ack for register_push
+    PushRegistered {
+        ok: bool,
+        #[serde(default)]
         message: String,
     },
     Pong,

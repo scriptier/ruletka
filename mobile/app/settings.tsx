@@ -36,6 +36,7 @@ import {
   type MatchPrefs,
   type SoftGender,
 } from "../src/prefs/store";
+import { tryRegisterPush } from "../src/push/register";
 import { useApp } from "./_layout";
 
 function Chip(props: {
@@ -57,7 +58,7 @@ function Chip(props: {
 
 export default function SettingsScreen() {
   const { identity, setIdentityName } = useApp();
-  const { friendCode, stars } = useHub();
+  const { friendCode, stars, hub, connected } = useHub();
   const t = useT();
   const { pref, setPref, lang } = useI18n();
   const [name, setName] = useState(identity.name);
@@ -66,6 +67,7 @@ export default function SettingsScreen() {
   const [exportPw, setExportPw] = useState("");
   const [importPw, setImportPw] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pushNote, setPushNote] = useState("");
 
   useEffect(() => {
     loadMatchPrefs().then(setPrefs);
@@ -76,6 +78,18 @@ export default function SettingsScreen() {
     await setDisplayName(name);
     setIdentityName(name);
     await saveMatchPrefs(prefs);
+    if (connected) {
+      try {
+        const r = await tryRegisterPush(hub, prefs.notifyFriendCalls);
+        setPushNote(
+          r.ok
+            ? `Push token registered (${r.platform})`
+            : `Push: ${r.reason}`
+        );
+      } catch (e) {
+        setPushNote(String(e));
+      }
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
   }
@@ -170,6 +184,10 @@ export default function SettingsScreen() {
                     gender: (raw.prefs.gender as SoftGender) || "",
                     looking: (raw.prefs.looking as LookingFor) || "any",
                     hideIp: !!raw.prefs.hideIp,
+                    notifyFriendCalls:
+                      raw.prefs.notifyFriendCalls === undefined
+                        ? true
+                        : !!raw.prefs.notifyFriendCalls,
                   });
                 }
                 Alert.alert(
@@ -291,6 +309,22 @@ export default function SettingsScreen() {
         />
       </View>
       <Text style={styles.hint}>{t("settings.hideIpHint")}</Text>
+
+      <Text style={styles.h}>{t("mobile.settings.notifyCalls")}</Text>
+      <View style={styles.row}>
+        <Chip
+          label={t("mobile.settings.notifyOn")}
+          active={prefs.notifyFriendCalls}
+          onPress={() => setPrefs({ ...prefs, notifyFriendCalls: true })}
+        />
+        <Chip
+          label={t("mobile.settings.notifyOff")}
+          active={!prefs.notifyFriendCalls}
+          onPress={() => setPrefs({ ...prefs, notifyFriendCalls: false })}
+        />
+      </View>
+      <Text style={styles.hint}>{t("mobile.settings.notifyHint")}</Text>
+      {pushNote ? <Text style={styles.hint}>{pushNote}</Text> : null}
 
       <Pressable style={styles.cta} onPress={save} disabled={busy}>
         <Text style={styles.ctaText}>

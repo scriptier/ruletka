@@ -12,6 +12,7 @@ mod federation;
 mod friends_store;
 mod limits;
 mod protocol;
+mod push_tokens;
 mod simple;
 mod star_ledger;
 
@@ -1660,6 +1661,13 @@ async fn main() {
     if mod_webhook_set {
         tracing::info!("mod auto-ban webhook configured (URL not logged)");
     }
+    let push_hook = std::env::var("ROULETTE_PUSH_WEBHOOK_URL")
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if !push_hook.is_empty() {
+        tracing::info!("push webhook configured for offline friend rings (URL not logged)");
+    }
     let state = AppState {
         hub: Arc::new(Mutex::new(SimpleHub::with_limits_store_webhook(
             limits,
@@ -1668,6 +1676,11 @@ async fn main() {
                 None
             } else {
                 Some(mod_hook)
+            },
+            if push_hook.is_empty() {
+                None
+            } else {
+                Some(push_hook)
             },
         ))),
         public_config,

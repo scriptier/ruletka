@@ -9,12 +9,15 @@ export type MatchPrefs = {
   gender: SoftGender;
   looking: LookingFor;
   hideIp: boolean;
+  /** Prefer offline friend-call rings when a push token is available. */
+  notifyFriendCalls: boolean;
 };
 
 const DEFAULTS: MatchPrefs = {
   gender: "",
   looking: "any",
   hideIp: false,
+  notifyFriendCalls: true,
 };
 
 export async function loadMatchPrefs(): Promise<MatchPrefs> {
@@ -26,6 +29,8 @@ export async function loadMatchPrefs(): Promise<MatchPrefs> {
       gender: (j.gender as SoftGender) || "",
       looking: (j.looking as LookingFor) || "any",
       hideIp: !!j.hideIp,
+      notifyFriendCalls:
+        j.notifyFriendCalls === undefined ? true : !!j.notifyFriendCalls,
     };
   } catch {
     return { ...DEFAULTS };

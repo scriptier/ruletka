@@ -63,6 +63,12 @@ export type ClientSpendStars = {
   effect: string;
   op_id?: string;
 };
+export type ClientRegisterPush = {
+  type: "register_push";
+  token: string;
+  platform?: string;
+  clear?: boolean;
+};
 
 export type ClientMsg =
   | ClientHello
@@ -85,6 +91,7 @@ export type ClientMsg =
   | ClientHangupFriend
   | ClientRatePartner
   | ClientSpendStars
+  | ClientRegisterPush
   | { type: string; [k: string]: unknown };
 
 export type FriendInfo = {

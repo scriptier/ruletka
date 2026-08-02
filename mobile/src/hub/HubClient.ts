@@ -207,6 +207,15 @@ export class HubClient {
   callCancel(user_id: string): void {
     this.send({ type: "call_cancel", user_id });
   }
+  /** Register device token for offline friend-call rings (hub stores; delivery via push webhook / FCM later). */
+  registerPush(token: string, platform = "expo", clear = false): void {
+    this.send({
+      type: "register_push",
+      token: clear ? "" : token,
+      platform,
+      clear,
+    });
+  }
   hangupFriend(): void {
     this.send({ type: "hangup_friend" });
   }

@@ -80,6 +80,11 @@ export const MOBILE_EN: Overlay = {
   "mobile.settings.lookingWomen": "Women",
   "mobile.settings.hideIpOff": "Off (P2P OK)",
   "mobile.settings.hideIpOn": "On (TURN only)",
+  "mobile.settings.notifyCalls": "Friend call alerts",
+  "mobile.settings.notifyOn": "On (when possible)",
+  "mobile.settings.notifyOff": "Off",
+  "mobile.settings.notifyHint":
+    "Registers a device token with the hub for offline rings. Full OS notifications need expo-notifications + EAS push after store setup.",
   "mobile.settings.save": "Save prefs",
   "mobile.settings.saved": "Saved ✓",
   "mobile.settings.backup": "Backup (no account)",
@@ -197,6 +202,11 @@ export const MOBILE_RU: Overlay = {
   "mobile.settings.lookingWomen": "Женщин",
   "mobile.settings.hideIpOff": "Выкл (P2P ОК)",
   "mobile.settings.hideIpOn": "Вкл (только TURN)",
+  "mobile.settings.notifyCalls": "Звонки друзей",
+  "mobile.settings.notifyOn": "Вкл (если можно)",
+  "mobile.settings.notifyOff": "Выкл",
+  "mobile.settings.notifyHint":
+    "Токен на хабе для офлайн-звонков. Полные OS-уведомления — после EAS push.",
   "mobile.settings.save": "Сохранить",
   "mobile.settings.saved": "Сохранено ✓",
   "mobile.settings.backup": "Резервная копия (без аккаунта)",
