@@ -31,8 +31,17 @@ jobs:
             ui/download/rulet-helper.ps1 \
             ui/download/rulet-helper.bat \
             ui/download/rulet-helper.desktop \
-            dist/
+            ui/download/START-WINDOWS.txt \
+            ui/download/START-MAC.txt \
+            ui/download/START-LINUX.txt \
+            ui/download/README.md \
+            dist/ 2>/dev/null || true
           chmod +x dist/rulet-helper.sh dist/rulet-helper-mac.sh dist/rulet-helper-mac.command 2>/dev/null || true
+          # ZIP packs (single download per OS)
+          sudo apt-get update -qq && sudo apt-get install -y -qq zip
+          (cd dist && zip -q -9 ruletka-helper-windows.zip rulet-helper.bat rulet-helper.ps1 START-WINDOWS.txt README.md)
+          (cd dist && zip -q -9 ruletka-helper-macos.zip rulet-helper-mac.command rulet-helper-mac.sh START-MAC.txt README.md)
+          (cd dist && zip -q -9 ruletka-helper-linux.zip rulet-helper.sh rulet-helper.desktop START-LINUX.txt README.md)
       - name: Checksums
         run: |
           cd dist

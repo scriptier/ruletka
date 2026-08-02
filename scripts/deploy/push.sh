@@ -51,6 +51,12 @@ for f in \
   rulet-helper.ps1 \
   rulet-helper.bat \
   rulet-helper.desktop \
+  START-WINDOWS.txt \
+  START-MAC.txt \
+  START-LINUX.txt \
+  ruletka-helper-windows.zip \
+  ruletka-helper-macos.zip \
+  ruletka-helper-linux.zip \
   SHA256SUMS \
   SHA256SUMS.asc \
   RELEASE.txt \
@@ -73,30 +79,70 @@ done
 chmod +x "$STAGE/ui/download/"roulette-bridge-* \
   "$STAGE/ui/download/"rulet-helper*.sh \
   "$STAGE/ui/download/"rulet-helper*.command 2>/dev/null || true
-# Always recompute checksums for what we actually ship (linux binary is freshly built)
-(
-  cd "$STAGE/ui/download"
-  files=()
-  for f in \
-    roulette-bridge-linux-amd64 \
-    roulette-bridge-windows-amd64.exe \
-    roulette-bridge-macos-arm64 \
-    roulette-bridge-macos-amd64 \
-    rulet-helper.sh \
-    rulet-helper-mac.sh \
-    rulet-helper-mac.command \
-    rulet-helper.ps1 \
-    rulet-helper.bat \
-    rulet-helper.desktop
-  do
-    [[ -f "$f" ]] && files+=("$f")
-  done
-  if [[ ${#files[@]} -gt 0 ]]; then
-    sha256sum "${files[@]}" > SHA256SUMS
-    echo "Helper SHA256SUMS:"
-    cat SHA256SUMS
-  fi
-)
+# Refresh ZIP packs + checksums for the staged download folder
+if [[ -x "$ROOT/scripts/build-helpers.sh" ]]; then
+  # Re-pack from STAGE download dir contents
+  OUT="$STAGE/ui/download" bash -c '
+    set -euo pipefail
+    OUT="'"$STAGE"'/ui/download"
+    pack_zip() {
+      local zipname="$1"; shift; local tmp f
+      tmp=$(mktemp -d)
+      for f in "$@"; do [[ -f "$OUT/$f" ]] && cp -a "$OUT/$f" "$tmp/"; done
+      [[ -n "$(ls -A "$tmp" 2>/dev/null)" ]] || { rm -rf "$tmp"; return 0; }
+      rm -f "$OUT/$zipname"
+      (cd "$tmp" && zip -q -9 "$OUT/$zipname" ./*)
+      rm -rf "$tmp"
+      echo "  packed $zipname"
+    }
+    if command -v zip >/dev/null 2>&1; then
+      pack_zip ruletka-helper-windows.zip rulet-helper.bat rulet-helper.ps1 START-WINDOWS.txt README.md
+      pack_zip ruletka-helper-macos.zip rulet-helper-mac.command rulet-helper-mac.sh START-MAC.txt README.md
+      pack_zip ruletka-helper-linux.zip rulet-helper.sh rulet-helper.desktop START-LINUX.txt README.md
+    fi
+    cd "$OUT"
+    files=()
+    for f in \
+      roulette-bridge-linux-amd64 roulette-bridge-windows-amd64.exe \
+      roulette-bridge-macos-arm64 roulette-bridge-macos-amd64 \
+      rulet-helper.sh rulet-helper-mac.sh rulet-helper-mac.command \
+      rulet-helper.ps1 rulet-helper.bat rulet-helper.desktop \
+      ruletka-helper-windows.zip ruletka-helper-macos.zip ruletka-helper-linux.zip
+    do [[ -f "$f" ]] && files+=("$f"); done
+    if [[ ${#files[@]} -gt 0 ]]; then
+      sha256sum "${files[@]}" > SHA256SUMS
+      echo "Helper SHA256SUMS:"
+      cat SHA256SUMS
+    fi
+  '
+else
+  (
+    cd "$STAGE/ui/download"
+    files=()
+    for f in \
+      roulette-bridge-linux-amd64 \
+      roulette-bridge-windows-amd64.exe \
+      roulette-bridge-macos-arm64 \
+      roulette-bridge-macos-amd64 \
+      rulet-helper.sh \
+      rulet-helper-mac.sh \
+      rulet-helper-mac.command \
+      rulet-helper.ps1 \
+      rulet-helper.bat \
+      rulet-helper.desktop \
+      ruletka-helper-windows.zip \
+      ruletka-helper-macos.zip \
+      ruletka-helper-linux.zip
+    do
+      [[ -f "$f" ]] && files+=("$f")
+    done
+    if [[ ${#files[@]} -gt 0 ]]; then
+      sha256sum "${files[@]}" > SHA256SUMS
+      echo "Helper SHA256SUMS:"
+      cat SHA256SUMS
+    fi
+  )
+fi
 cp -a scripts/deploy/Caddyfile \
   scripts/deploy/roulette-bridge.service \
   scripts/deploy/install-on-server.sh \

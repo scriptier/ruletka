@@ -1,0 +1,14 @@
+ruletka network helper — macOS
+==============================
+
+1. Unzip this folder (e.g. Desktop).
+2. Double-click:  rulet-helper-mac.command
+   First time Gatekeeper may block it → right-click the file → Open → Open.
+3. Terminal opens; first run downloads bridge + tunnel (internet required).
+4. Browser opens to local chat. Share the Public URL from the terminal.
+
+Stop: Ctrl+C in the Terminal window.
+
+Apple Silicon and Intel Macs are both supported (script picks the binary).
+
+Open source · LGPL-2.1 · https://github.com/scriptier/ruletka

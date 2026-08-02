@@ -38,6 +38,42 @@ fi
 
 chmod +x "$OUT/rulet-helper.sh" "$OUT/rulet-helper-mac.sh" "$OUT/rulet-helper-mac.command" 2>/dev/null || true
 
+# One-folder ZIP packs (double-click friendly — single download)
+pack_zip() {
+  local zipname="$1"
+  shift
+  local tmp f
+  tmp="$(mktemp -d)"
+  for f in "$@"; do
+    if [[ -f "$OUT/$f" ]]; then
+      cp -a "$OUT/$f" "$tmp/"
+    else
+      echo "  skip missing for $zipname: $f" >&2
+    fi
+  done
+  if [[ -z "$(ls -A "$tmp" 2>/dev/null)" ]]; then
+    echo "  skip empty zip $zipname" >&2
+    rm -rf "$tmp"
+    return 0
+  fi
+  rm -f "$OUT/$zipname"
+  (cd "$tmp" && zip -q -9 "$OUT/$zipname" ./*)
+  rm -rf "$tmp"
+  echo "  packed $zipname ($(du -h "$OUT/$zipname" | awk '{print $1}'))"
+}
+
+echo "Packing helper ZIPs…"
+if command -v zip >/dev/null 2>&1; then
+  pack_zip "ruletka-helper-windows.zip" \
+    rulet-helper.bat rulet-helper.ps1 START-WINDOWS.txt README.md
+  pack_zip "ruletka-helper-macos.zip" \
+    rulet-helper-mac.command rulet-helper-mac.sh START-MAC.txt README.md
+  pack_zip "ruletka-helper-linux.zip" \
+    rulet-helper.sh rulet-helper.desktop START-LINUX.txt README.md
+else
+  echo "  zip not installed — skip ZIP packs" >&2
+fi
+
 echo "Writing SHA256SUMS…"
 (
   cd "$OUT"
@@ -53,7 +89,10 @@ echo "Writing SHA256SUMS…"
     rulet-helper-mac.command \
     rulet-helper.ps1 \
     rulet-helper.bat \
-    rulet-helper.desktop
+    rulet-helper.desktop \
+    ruletka-helper-windows.zip \
+    ruletka-helper-macos.zip \
+    ruletka-helper-linux.zip
   do
     [[ -f "$f" ]] && files+=("$f")
   done

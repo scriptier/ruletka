@@ -3,17 +3,27 @@
 Launchers + scripts for a **personal mini-hub** (bridge + free HTTPS tunnel).  
 On first run they pull chat UI from the seed and the `roulette-bridge` binary.
 
-## Double-click (recommended)
+## Easiest: one ZIP per OS
 
-| OS | Double-click | Notes |
-|----|--------------|--------|
-| **Windows** | `rulet-helper.bat` | Keep `rulet-helper.ps1` in the **same folder**. Bypasses PowerShell execution policy for this run. Console stays open. |
-| **macOS** | `rulet-helper-mac.command` | Keep `rulet-helper-mac.sh` beside it. First time: right-click → **Open** if Gatekeeper blocks. |
-| **Linux** | run `rulet-helper.sh` or install `rulet-helper.desktop` | `.desktop` needs `Terminal=true` and a terminal app. |
+| OS | Download | Then |
+|----|----------|------|
+| **Windows** | [`ruletka-helper-windows.zip`](ruletka-helper-windows.zip) | Unzip → double-click **`rulet-helper.bat`** |
+| **macOS** | [`ruletka-helper-macos.zip`](ruletka-helper-macos.zip) | Unzip → double-click **`rulet-helper-mac.command`** (first time: right-click → Open) |
+| **Linux** | [`ruletka-helper-linux.zip`](ruletka-helper-linux.zip) | Unzip → `chmod +x rulet-helper.sh && ./rulet-helper.sh` |
+
+Each zip includes the launcher pair + `START-*.txt`. First run downloads the bridge binary + free tunnel (internet required).
 
 After start, the helper **opens your browser** to local live chat and copies the public URL when the tunnel is ready.
 
 `RULETKA_NO_BROWSER=1` skips auto-open.
+
+### Loose files (same folder)
+
+| OS | Double-click | Notes |
+|----|--------------|--------|
+| **Windows** | `rulet-helper.bat` + `rulet-helper.ps1` | Keep both in the **same folder**. |
+| **macOS** | `rulet-helper-mac.command` + `.sh` | Keep both together. |
+| **Linux** | `rulet-helper.sh` / `.desktop` | Optional desktop entry. |
 
 **Prebuilt `roulette-bridge-*` binaries are not committed** (see root `.gitignore`).  
 Build or CI-attach them; always publish **`SHA256SUMS`** next to downloads.

@@ -14,6 +14,7 @@
 | Docs | |
 |------|--|
 | **Self-host (Docker / VPS)** | [`docs/SELF_HOST.md`](docs/SELF_HOST.md) |
+| Island helpers (PC double-click) | [`docs/HELPERS.md`](docs/HELPERS.md) |
 | Signaling protocol | [`docs/PROTOCOL.md`](docs/PROTOCOL.md) |
 | Hub directory policy | [`docs/HUB_DIRECTORY.md`](docs/HUB_DIRECTORY.md) |
 | Architecture | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
@@ -36,6 +37,7 @@
 | Network helpers (Win/Mac/Linux) | `ui/download/rulet-helper*` — full island hub |
 | Federation between operators | `nextface-fed/1` allowlisted peers |
 | Docker self-host | `Dockerfile` + `docker-compose.yml` |
+| Island helpers (double-click) | `ui/download/ruletka-helper-*.zip` — see `/contribute.html` |
 | Freenet contracts (research) | `contracts/`, `agent/` |
 
 ## Quick start

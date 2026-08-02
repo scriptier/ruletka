@@ -1,0 +1,19 @@
+ruletka network helper — Linux (x86_64)
+=======================================
+
+1. Unzip this folder.
+2. In a terminal:
+
+     chmod +x rulet-helper.sh
+     ./rulet-helper.sh
+
+3. Optional desktop launcher: edit rulet-helper.desktop Exec= path, then:
+
+     desktop-file-install --dir=$HOME/.local/share/applications rulet-helper.desktop
+
+4. Browser opens to local chat when ready. Share the Public URL from the terminal.
+
+Stop: Ctrl+C.
+
+Open source · LGPL-2.1 · https://github.com/scriptier/ruletka
+Self-host server (Docker): docs/SELF_HOST.md in the git repo.

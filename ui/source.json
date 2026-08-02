@@ -14,5 +14,11 @@
     "hubs": "/hubs.json"
   },
   "docker": "docker compose up --build",
+  "helpers": {
+    "windows_zip": "/download/ruletka-helper-windows.zip",
+    "macos_zip": "/download/ruletka-helper-macos.zip",
+    "linux_zip": "/download/ruletka-helper-linux.zip",
+    "page": "/contribute.html"
+  },
   "notes": "Seed hub is ruletka.vip. Software is open source (LGPL-2.1) — run your own hub under any domain. Do not imply official operation of ruletka.vip without permission."
 }

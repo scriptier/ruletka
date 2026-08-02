@@ -1,0 +1,18 @@
+ruletka network helper — Windows
+================================
+
+1. Unzip this folder anywhere (Desktop is fine).
+2. Double-click:  rulet-helper.bat
+3. First run needs internet (downloads bridge + free HTTPS tunnel).
+4. A browser window opens to local chat. Share the Public URL shown in the console.
+
+Stop: close the black console window, or press Ctrl+C.
+
+Optional: binary-only roulette-bridge-windows-amd64.exe is NOT required —
+the helper downloads it automatically from https://ruletka.vip
+
+Open source · LGPL-2.1 · https://github.com/scriptier/ruletka
+Docs: https://github.com/scriptier/ruletka/blob/main/ui/download/README.md
+
+If Windows SmartScreen warns on the bridge binary: More info → Run anyway
+(only if you got this zip from ruletka.vip or our GitHub releases).
