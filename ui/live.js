@@ -466,6 +466,17 @@ let myStars = 0;
 let partnerStars = 0;
 /** Min chat length for star review (must match bridge STAR_MIN_SECS). */
 const STAR_MIN_SECS = 15 * 60;
+/** First unique partners use a shorter window (must match bridge STAR_FIRST_RATE_SECS). */
+const STAR_FIRST_RATE_SECS = 5 * 60;
+/** How many unique partners get the short window (must match STAR_FIRST_RATE_SLOTS). */
+const STAR_FIRST_RATE_SLOTS = 3;
+/** Current rate threshold from hub (5m early ramp or 15m). Optimistic until hello_ok. */
+let starRateMinSecs = STAR_FIRST_RATE_SECS;
+/** Remaining short-window slots from hub. Optimistic until hello_ok. */
+let earlyRatesLeft = STAR_FIRST_RATE_SLOTS;
+/** Per-match mid-chat ★ progress flags (reset on new match). */
+let starProgressHalfShown = false;
+let starProgressNearShown = false;
 /** Mid-tier gift cost / duration (must match bridge defaults). */
 const STAR_EFFECT_COST = 5;
 const STAR_EFFECT_SECS = 15;
@@ -2534,6 +2545,47 @@ function syncStarsSheetUi() {
     }
   }
 
+  // Early-rate ramp copy on earn step
+  const earnTitle = document.querySelector(
+    '#stars-panel-overview [data-i18n="stars.earnStep1Title"]'
+  );
+  const earnBody = document.querySelector(
+    '#stars-panel-overview [data-i18n="stars.earnStep1BodyShort"]'
+  );
+  const needM = Math.max(1, Math.round((starRateMinSecs || STAR_MIN_SECS) / 60));
+  if (earnTitle) {
+    if (earlyRatesLeft > 0) {
+      earnTitle.textContent =
+        _t("stars.earnStep1TitleEarly", { m: needM, n: earlyRatesLeft }) ||
+        `Gift after ${needM}+ min (first chats)`;
+    } else {
+      earnTitle.textContent =
+        _t("stars.earnStep1Title") || "Gift after 15+ minutes";
+    }
+  }
+  if (earnBody) {
+    if (earlyRatesLeft > 0) {
+      earnBody.textContent =
+        _t("stars.earnStep1BodyEarly", { n: earlyRatesLeft, m: needM }) ||
+        `${earlyRatesLeft} early unlocks left · then 15 min`;
+    } else {
+      earnBody.textContent =
+        _t("stars.earnStep1BodyShort") || "Optional stars once per person";
+    }
+  }
+  const hintEl = $("settings-stars-hint");
+  if (hintEl) {
+    if (earlyRatesLeft > 0) {
+      hintEl.textContent =
+        _t("stars.hintEarly", { m: needM, n: earlyRatesLeft }) ||
+        `First ${earlyRatesLeft} new people: gift after ${needM}+ min. Then 15+ min. ★ shows on camera.`;
+    } else {
+      hintEl.textContent =
+        _t("stars.hint") ||
+        "After 15+ minutes you can gift one star per person. Your total shows as ★ on camera.";
+    }
+  }
+
   // Overall progress 0→250 with marks at 100 and 250
   const fill = $("stars-progress-fill");
   const countEl = $("stars-progress-count");
@@ -4294,7 +4346,108 @@ function spendFireworksOnPartner() {
 }
 
 /**
- * After RatePrompt from hub (chat ≥15 min): gift 1–3★ (by your tier) or skip.
+ * Apply hub rate-window hints (hello_ok / after local rate).
+ * @param {{ rate_min_secs?: number, early_rates_left?: number }} msg
+ */
+function applyStarRateWindowFromHub(msg) {
+  try {
+    if (msg && msg.rate_min_secs != null) {
+      const n = Math.max(60, Math.floor(Number(msg.rate_min_secs) || STAR_MIN_SECS));
+      starRateMinSecs = n;
+    }
+    if (msg && msg.early_rates_left != null) {
+      earlyRatesLeft = Math.max(
+        0,
+        Math.min(STAR_FIRST_RATE_SLOTS, Math.floor(Number(msg.early_rates_left) || 0))
+      );
+      // Keep min in sync if hub only sent left
+      if (msg.rate_min_secs == null) {
+        starRateMinSecs =
+          earlyRatesLeft > 0 ? STAR_FIRST_RATE_SECS : STAR_MIN_SECS;
+      }
+    }
+  } catch (_) {}
+  try {
+    syncStarsSheetUi?.();
+  } catch (_) {}
+}
+
+/** After a successful local rate (gift or skip), consume one early slot. */
+function noteLocalStarRateCompleted() {
+  if (earlyRatesLeft > 0) {
+    earlyRatesLeft = Math.max(0, earlyRatesLeft - 1);
+  }
+  starRateMinSecs =
+    earlyRatesLeft > 0 ? STAR_FIRST_RATE_SECS : STAR_MIN_SECS;
+  try {
+    syncStarsSheetUi?.();
+  } catch (_) {}
+}
+
+/**
+ * Mid-chat ★ unlock progress (status line + timer title). Once per half/near per match.
+ * @param {number} elapsedSec
+ */
+function maybeStarChatProgress(elapsedSec) {
+  if (!matched && !inFriendCall) return;
+  const need = Math.max(60, Number(starRateMinSecs) || STAR_MIN_SECS);
+  const secs = Math.max(0, Math.floor(Number(elapsedSec) || 0));
+  if (secs < 30) return;
+  // Update timer title with time-to-★
+  try {
+    const el = $("match-timer");
+    if (el && !el.hidden) {
+      if (secs < need) {
+        const left = need - secs;
+        const lm = Math.floor(left / 60);
+        const ls = left % 60;
+        const early = earlyRatesLeft > 0 || need <= STAR_FIRST_RATE_SECS + 30;
+        el.title =
+          (_t("stars.timerUnlock", {
+            t: `${lm}:${String(ls).padStart(2, "0")}`,
+            m: Math.round(need / 60),
+          }) ||
+            `★ rate unlocks in ${lm}:${String(ls).padStart(2, "0")} (${Math.round(
+              need / 60
+            )} min chat)`) + (early ? " · early" : "");
+      } else {
+        el.title =
+          _t("stars.timerUnlockReady") ||
+          "★ rate unlocks when chat ends (long enough)";
+      }
+    }
+  } catch (_) {}
+  if (secs >= need) return;
+  const half = need * 0.5;
+  const near = need * 0.9;
+  if (!starProgressHalfShown && secs >= half) {
+    starProgressHalfShown = true;
+    const leftM = Math.max(1, Math.ceil((need - secs) / 60));
+    setStatus(
+      _t("stars.progressHalf", { m: leftM, need: Math.round(need / 60) }) ||
+        `Halfway to ★ — about ${leftM} min left to unlock rate`
+    );
+    trackEvent("star_progress_half", {
+      need,
+      early: earlyRatesLeft > 0 ? 1 : 0,
+    });
+  } else if (!starProgressNearShown && secs >= near) {
+    starProgressNearShown = true;
+    const leftM = Math.max(1, Math.ceil((need - secs) / 60));
+    setStatus(
+      _t("stars.progressNear", { m: leftM }) ||
+        `Almost there — ~${leftM} min until you can gift a star`
+    );
+    trackEvent("star_progress_near", {
+      need,
+      early: earlyRatesLeft > 0 ? 1 : 0,
+    });
+  }
+}
+
+/**
+ * After RatePrompt from hub (chat long enough): gift 1–3★ (by your tier) or skip.
+ * First 3 unique partners: 5 min · after that: 15 min.
  * Normal → max 1 · Trusted 100+ → max 2 · Senior 250+ → max 3.
  * Same pair can only review once (server-enforced).
  */
@@ -4304,9 +4457,14 @@ function showStarReviewPrompt(msg) {
     if (!uid) return;
     if ($("star-review-toast")) return;
     const name = String(msg?.name || lastMatchMeta?.name || "Partner").trim() || "Partner";
-    const secs = Math.max(0, Number(msg?.duration_secs) || STAR_MIN_SECS);
-    const mins = Math.max(15, Math.floor(secs / 60));
+    const minReq = Math.max(
+      60,
+      Number(msg?.min_secs) || starRateMinSecs || STAR_MIN_SECS
+    );
+    const secs = Math.max(0, Number(msg?.duration_secs) || minReq);
+    const mins = Math.max(1, Math.floor(secs / 60));
     const hourChat = secs >= 3600;
+    const early = !!(msg?.early || minReq < STAR_MIN_SECS);
     // Prefer server max_gift; fall back to local tier
     let maxGift = Math.max(1, Math.min(3, Number(msg?.max_gift) || 0));
     if (!maxGift || maxGift < 1) {
@@ -4328,14 +4486,19 @@ function showStarReviewPrompt(msg) {
           : hourChat
             ? _t("stars.reviewBodyHour", { name, m: mins }) ||
               `${name} · you talked ${mins}+ min. You both already earned a star for 1 hour — gift an extra?`
-            : _t("stars.reviewBody", { name, m: mins }) ||
-              `${name} · you talked ${mins}+ min. Give a star?`;
+            : early
+              ? _t("stars.reviewBodyEarly", { name, m: mins }) ||
+                `${name} · ${mins}+ min (first chats unlock earlier). Give a star?`
+              : _t("stars.reviewBody", { name, m: mins }) ||
+                `${name} · you talked ${mins}+ min. Give a star?`;
     const title =
       maxGift >= 2
         ? _t("stars.reviewTitleMulti", { n: maxGift }) || `Gift stars (up to ${maxGift}★)?`
         : hourChat
           ? _t("stars.reviewTitleExtra") || "Gift an extra star?"
-          : _t("stars.reviewTitle") || "Rate this chat?";
+          : early
+            ? _t("stars.reviewTitleEarly") || "Rate this chat? (early unlock)"
+            : _t("stars.reviewTitle") || "Rate this chat?";
     let giftBtns = "";
     for (let a = 1; a <= maxGift; a++) {
       const label =
@@ -4363,13 +4526,20 @@ function showStarReviewPrompt(msg) {
     };
     const sendRate = (amount) => {
       const star = amount > 0;
-      trackEvent("star_rate", { star: star ? 1 : 0, amount: amount || 0, max: maxGift });
+      trackEvent("star_rate", {
+        star: star ? 1 : 0,
+        amount: amount || 0,
+        max: maxGift,
+        early: early ? 1 : 0,
+        min: minReq,
+      });
       send({
         type: "rate_partner",
         user_id: uid,
         star: !!star,
         amount: star ? amount : 0,
       });
+      noteLocalStarRateCompleted();
       dismiss();
       setStatus(
         star
@@ -13984,6 +14154,7 @@ function handleServer(msg) {
       myFriendCode = msg.friend_code || "";
       if ($("my-friend-code")) $("my-friend-code").textContent = myFriendCode;
       myStars = Math.max(0, Number(msg.stars) || 0);
+      applyStarRateWindowFromHub(msg);
       setStarsBadge("local", myStars);
       // Bars (etc.) persist across logout — re-apply on hello
       setFxOverlay("local", msg.effect || "", Number(msg.effect_until) || 0);
@@ -16503,16 +16674,23 @@ function startMatchTimer() {
   stopMatchTimer();
   lastMatchDurationSec = 0;
   matchTimerStartedAt = Date.now();
+  starProgressHalfShown = false;
+  starProgressNearShown = false;
   const el = $("match-timer");
   if (el) {
     el.textContent = "0:00";
+    el.title = _t("stars.timerTitle") || "Time with partner";
   }
   // Brief peek of timer + quality row, then autohide
   peekRemoteMeta(REMOTE_META_PEEK_MS);
   matchTimerInterval = setInterval(() => {
     const el2 = $("match-timer");
     if (!el2 || !matched) return;
-    el2.textContent = formatMatchDuration(Date.now() - matchTimerStartedAt);
+    const elapsedMs = Date.now() - matchTimerStartedAt;
+    el2.textContent = formatMatchDuration(elapsedMs);
+    try {
+      maybeStarChatProgress(Math.floor(elapsedMs / 1000));
+    } catch (_) {}
   }, 1000);
 }
 

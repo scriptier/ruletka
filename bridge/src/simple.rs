@@ -683,11 +683,42 @@ impl SimpleHub {
         }
     }
 
-    /// Minimum chat length before a star review is offered (15 minutes).
+    /// Minimum chat length before a star review is offered (normal path).
     const STAR_MIN_SECS: u64 = 15 * 60;
+    /// First few unique partners: shorter rate window so cold-start users see ★.
+    const STAR_FIRST_RATE_SECS: u64 = 5 * 60;
+    /// How many unique outgoing rate edges still use the short window.
+    const STAR_FIRST_RATE_SLOTS: usize = 3;
     /// Both conversationalists earn +1 star automatically after this long (1 hour).
     /// Optional extra gifts (RatePartner) still work separately (once per pair).
     const STAR_HOUR_BONUS_SECS: u64 = 60 * 60;
+
+    /// Count of directed star reviews this user already completed (gift or skip).
+    fn outgoing_star_rate_count(&self, user_id: &str) -> usize {
+        if user_id.is_empty() {
+            return 0;
+        }
+        let prefix = format!("{user_id}|");
+        self.star_edges
+            .iter()
+            .filter(|e| e.starts_with(&prefix))
+            .count()
+    }
+
+    /// Seconds of live chat required before RatePrompt for this user.
+    fn rate_min_secs_for(&self, user_id: &str) -> u64 {
+        if self.outgoing_star_rate_count(user_id) < Self::STAR_FIRST_RATE_SLOTS {
+            Self::STAR_FIRST_RATE_SECS
+        } else {
+            Self::STAR_MIN_SECS
+        }
+    }
+
+    /// How many short-window slots remain (0 = always full 15 min).
+    fn early_rates_left_for(&self, user_id: &str) -> u32 {
+        let used = self.outgoing_star_rate_count(user_id);
+        Self::STAR_FIRST_RATE_SLOTS.saturating_sub(used) as u32
+    }
     /// Quiet easter-egg: chat with site owner (Драконов) — not advertised in UI.
     const OWNER_EGG_TIER1_SECS: u64 = 2 * 60;
     const OWNER_EGG_TIER1_STARS: u64 = 5;
@@ -1761,7 +1792,8 @@ impl SimpleHub {
     /// 1) ≥1 hour → tier-aware auto stars
     /// 2) ≥15 min normal+senior (no hour) → normal +3
     /// 3) quiet host easter egg (if applicable)
-    /// 4) ≥15 min → optional gift (up to 1/2/3 by giver tier)
+    /// 4) long enough chat → optional gift (up to 1/2/3 by giver tier)
+    ///    First 3 unique partners: 5 min; after that: 15 min.
     fn arm_star_rating(&mut self, id: Uuid) {
         // Mutual hour bonus first (works even if gift already used)
         self.try_award_hour_chat_stars(id);
@@ -1777,11 +1809,12 @@ impl SimpleHub {
         let secs = started
             .map(|t| t.elapsed().as_secs())
             .unwrap_or(0);
-        if secs < Self::STAR_MIN_SECS {
-            return;
-        }
         let me_uid = c.user_id.clone();
         if me_uid.is_empty() {
+            return;
+        }
+        let need = self.rate_min_secs_for(&me_uid);
+        if secs < need {
             return;
         }
         let Some((_them_id, them_uid, them_name)) = self.star_partner_of(id) else {
@@ -1794,6 +1827,7 @@ impl SimpleHub {
         if self.star_edges.contains(&edge) {
             return; // already gifted/skipped this person
         }
+        let early = need < Self::STAR_MIN_SECS;
         if let Some(c) = self.clients.get_mut(&id) {
             c.pending_rate_uid = Some(them_uid.clone());
             c.pending_rate_name = them_name.clone();
@@ -1807,6 +1841,8 @@ impl SimpleHub {
                 name: them_name,
                 duration_secs: secs,
                 max_gift,
+                early,
+                min_secs: need,
             },
         );
     }
@@ -1860,7 +1896,9 @@ impl SimpleHub {
             );
             return;
         }
-        if pending_secs < Self::STAR_MIN_SECS {
+        let need = self.rate_min_secs_for(&me_uid);
+        if pending_secs < need {
+            let need_m = (need + 59) / 60;
             self.send(
                 id,
                 ServerMsg::RateResult {
@@ -1869,7 +1907,7 @@ impl SimpleHub {
                     star: false,
                     amount: 0,
                     stars: 0,
-                    message: "chat too short for a star (need 15 minutes)".into(),
+                    message: format!("chat too short for a star (need {need_m} minutes)"),
                 },
             );
             return;
@@ -3055,6 +3093,9 @@ impl SimpleHub {
             stars: 0,
             effect: String::new(),
             effect_until: 0,
+            // Pre-identity connect: treat as full early-rate budget
+            rate_min_secs: Self::STAR_FIRST_RATE_SECS,
+            early_rates_left: Self::STAR_FIRST_RATE_SLOTS as u32,
         })
     }
 
@@ -4720,6 +4761,8 @@ impl SimpleHub {
         let short_id = self.clients[&id].short_id.clone();
         let my_stars = self.stars_for(&user_id);
         let (my_eff, my_eff_until) = self.active_effect_for(&user_id);
+        let rate_min_secs = self.rate_min_secs_for(&user_id);
+        let early_rates_left = self.early_rates_left_for(&user_id);
         self.send(
             id,
             ServerMsg::HelloOk {
@@ -4734,6 +4777,8 @@ impl SimpleHub {
                 stars: my_stars,
                 effect: my_eff,
                 effect_until: my_eff_until,
+                rate_min_secs,
+                early_rates_left,
             },
         );
         self.push_friends_list(id);

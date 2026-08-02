@@ -93,6 +93,8 @@ When changing the SW shell list, bump `CACHE` in `sw.js`.
 
 **Trusted reporters:** users who earned **≥100 stars** (long-chat reputation) count as **weight 2** per report (normal users count as 1). Still unique per reporter — no spam stacking. So one trusted report can ban for harassment/explicit; spam still needs more signal.
 
+**Star rate window:** first **3** unique partners can open the post-chat ★ gift after **5 minutes**; after that, **15 minutes** (unchanged). Hour mutual mint stays at 60 minutes. Client shows mid-chat progress toward the unlock.
+
 Reports are append-logged (JSONL under the friends data dir / reports path).  
 Clients always **block + skip** locally after Report.
 

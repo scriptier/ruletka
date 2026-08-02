@@ -130,8 +130,8 @@ pub enum ClientMsg {
     FriendChatHistory {
         with_user_id: String,
     },
-    /// After a long enough chat (≥15 min), rate partner: gift stars or skip.
-    /// Same pair can only rate once (star or not).
+    /// After a long enough chat (15 min normal; first 3 unique partners 5 min),
+    /// rate partner: gift stars or skip. Same pair can only rate once (star or not).
     /// amount: 1–3 when star=true (capped by giver tier: normal 1, 100+ →2, 250+ →3).
     RatePartner {
         user_id: String,
@@ -238,6 +238,12 @@ pub enum ServerMsg {
         /// Unix seconds when your effect ends.
         #[serde(default)]
         effect_until: u64,
+        /// Seconds of live chat required before RatePrompt (5m early ramp or 15m).
+        #[serde(default = "default_rate_min_secs")]
+        rate_min_secs: u64,
+        /// How many more unique partners still unlock the shorter first-chat rate window.
+        #[serde(default)]
+        early_rates_left: u32,
     },
     Status {
         phase: String,
@@ -357,6 +363,12 @@ pub enum ServerMsg {
         /// Max stars this user may gift (1 normal · 2 if 100+ · 3 if 250+).
         #[serde(default = "default_rate_max_gift")]
         max_gift: u64,
+        /// True when this review used the shorter first-chat ramp (not full 15 min).
+        #[serde(default)]
+        early: bool,
+        /// Threshold that was required for this prompt (seconds).
+        #[serde(default = "default_rate_min_secs")]
+        min_secs: u64,
     },
     /// Result of RatePartner.
     RateResult {
@@ -425,4 +437,9 @@ fn default_mode() -> String {
 
 fn default_rate_max_gift() -> u64 {
     1
+}
+
+/// Default post-chat rate threshold (15 minutes) for older clients / missing fields.
+fn default_rate_min_secs() -> u64 {
+    15 * 60
 }
