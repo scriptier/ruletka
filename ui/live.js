@@ -5944,6 +5944,7 @@ function updateConnFromState() {
 
 /** WebRTC connect watchdog + coach overlay */
 let webrtcWatchTimer = 0;
+let webrtcWatchSoftTimer = 0;
 let webrtcConnectedOk = false;
 let coachShownForMatch = false;
 
@@ -5951,6 +5952,10 @@ function clearWebrtcWatch() {
   if (webrtcWatchTimer) {
     clearTimeout(webrtcWatchTimer);
     webrtcWatchTimer = 0;
+  }
+  if (webrtcWatchSoftTimer) {
+    clearTimeout(webrtcWatchSoftTimer);
+    webrtcWatchSoftTimer = 0;
   }
 }
 
@@ -6005,6 +6010,7 @@ function autoDisablePreferDirectOnFail({ autoNext = true } = {}) {
   log("prefer direct auto-off after ICE fail");
   if (autoNext && matched && !inFriendCall) {
     // Soft recovery: skip this partner and try with TURN available
+    // (existing PC still has STUN-only servers — must rematch)
     setTimeout(() => {
       if (matched && !webrtcConnectedOk) {
         hideCallCoach();
@@ -6013,6 +6019,25 @@ function autoDisablePreferDirectOnFail({ autoNext = true } = {}) {
     }, 700);
   }
   return true;
+}
+
+/**
+ * True if remote video/audio tracks are live on the stage.
+ */
+function hasLiveRemoteMedia() {
+  try {
+    const streams = [];
+    const r = $("remote")?.srcObject;
+    if (r) streams.push(r);
+    const t = $("remote-third")?.srcObject;
+    if (t) streams.push(t);
+    for (const s of streams) {
+      if ((s.getTracks?.() || []).some((tr) => tr.readyState === "live")) {
+        return true;
+      }
+    }
+  } catch (_) {}
+  return false;
 }
 
 function showPreferDirectAutoToast() {
@@ -6066,13 +6091,17 @@ function startWebrtcWatch() {
   webrtcConnectedOk = false;
   coachShownForMatch = false;
   hideCallCoach();
-  // If no media path after 14s while still matched → coach / Prefer Direct recovery
+  // ~8s: Prefer Direct → TURN+Next, else soft ICE restart once while still matched
+  webrtcWatchSoftTimer = setTimeout(() => {
+    if (!matched || webrtcConnectedOk || hasLiveRemoteMedia()) return;
+    if (autoDisablePreferDirectOnFail({ autoNext: true })) return;
+    const target = rtc || [...peerPcs.values()][0];
+    if (target) trySoftRecoverAny(target, { reason: "watch_mid" });
+  }, 8000);
+  // If no media path after 14s while still matched → coach
   webrtcWatchTimer = setTimeout(() => {
     if (!matched || webrtcConnectedOk) return;
-    const hasRemote =
-      !!$("remote")?.srcObject &&
-      ($("remote").srcObject.getTracks?.() || []).some((t) => t.readyState === "live");
-    if (!hasRemote) {
+    if (!hasLiveRemoteMedia()) {
       // Prefer Direct stuck: auto-allow TURN + Next (toast). Else open coach.
       if (!autoDisablePreferDirectOnFail({ autoNext: true })) {
         showCallCoach("coach.timeout");
@@ -6127,11 +6156,16 @@ function handleWebrtcConnectionState(s, pcHint) {
       return;
     }
     // Prefer Direct ICE fail: auto-allow TURN + soft Next (once/session)
+    // Must rematch — existing PC still has STUN-only iceServers.
     if (autoDisablePreferDirectOnFail({ autoNext: true })) {
       /* toast + Next scheduled */
-    } else {
-      showCallCoach("coach.failed");
+      return;
     }
+    // 1v1 / friend: soft ICE restart once before coach
+    if (pcHint && trySoftRecoverAny(pcHint, { reason: "failed" })) {
+      return;
+    }
+    showCallCoach("coach.failed");
   } else if (s === "disconnected") {
     setConnStrip("warn", _t("coach.unstable"), "");
   }
@@ -6187,6 +6221,47 @@ function trySoftRecoverPeer(pc) {
   // Step 2 already requested
   if (pc._softReconnectScheduled) return true;
   schedulePeerHardReconnect(peerId, pc);
+  return true;
+}
+
+/**
+ * 1v1 / friend soft ICE restart (no rematch). Prefer Direct is handled
+ * separately — STUN-only PCs cannot gain TURN without a new PeerConnection.
+ * @param {import('./webrtc.js').RouletteWebRtc | object} pc
+ * @param {{ reason?: string }} [opts]
+ * @returns {boolean} true if recovery was started
+ */
+function trySoftRecoverAny(pc, opts = {}) {
+  if (!pc || !matched) return false;
+  // Multi-peer: dedicated path (may hard-reconnect stranger only)
+  if (trioBrowse || matchMode === "party_browse" || peerPcs.size > 1) {
+    return trySoftRecoverPeer(pc);
+  }
+  if (pc._softIceTried) return false;
+  // Prefer Direct still on → caller should autoDisable + Next instead
+  if (
+    typeof preferDirectOnlyEnabled === "function" &&
+    preferDirectOnlyEnabled()
+  ) {
+    return false;
+  }
+  pc._softIceTried = true;
+  setStatus(_t("trio.iceRestart") || "Reconnecting…");
+  setConnStrip("warn", _t("conn.retrying") || "Reconnecting…", "");
+  trackEvent("solo_soft_ice", {
+    reason: opts.reason || "",
+    mode: matchMode || "",
+    friend: inFriendCall ? 1 : 0,
+  });
+  Promise.resolve(pc.softIceRestart?.()).catch(() => {});
+  // If still no media after restart window → coach (once)
+  setTimeout(() => {
+    try {
+      if (!matched || webrtcConnectedOk || hasLiveRemoteMedia()) return;
+      if (autoDisablePreferDirectOnFail({ autoNext: true })) return;
+      showCallCoach("coach.failed");
+    } catch (_) {}
+  }, 5500);
   return true;
 }
 
@@ -8829,6 +8904,12 @@ function startMatchFromIdle() {
     showRulesGate();
     return;
   }
+  // Warm / refresh ICE (TURN credentials) before first PC is built
+  try {
+    if (typeof loadRtcConfig === "function") {
+      loadRtcConfig(hubBase()).catch(() => {});
+    }
+  } catch (_) {}
   // First Start completes cold-start path
   let wasFirst = false;
   try {

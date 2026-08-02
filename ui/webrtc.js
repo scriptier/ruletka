@@ -10,13 +10,16 @@
  * - Prefer direct P2P; self-hosted TURN is fallback via /config.json.
  */
 
+/** Pre-gather host/srflx candidates before createOffer (faster first match). */
+const ICE_CANDIDATE_POOL_SIZE = 8;
+
 const DEFAULT_ICE = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
   ],
-  // Gather a few candidates early so first match connects faster
-  iceCandidatePoolSize: 2,
+  // Gather candidates early so first match connects faster
+  iceCandidatePoolSize: ICE_CANDIDATE_POOL_SIZE,
   bundlePolicy: "max-bundle",
   rtcpMuxPolicy: "require",
 };
@@ -95,7 +98,7 @@ function applyIceDirectPreference() {
   }
   iceConfig = {
     iceServers: servers,
-    iceCandidatePoolSize: 2,
+    iceCandidatePoolSize: ICE_CANDIDATE_POOL_SIZE,
     bundlePolicy: "max-bundle",
     rtcpMuxPolicy: "require",
   };
@@ -632,15 +635,8 @@ class RouletteWebRtc {
   async softIceRestart() {
     if (!this.pc) return false;
     try {
-      if (this.isOfferer) {
-        await this._tryIceRestart();
-        return true;
-      }
-      // Answerer: restartIce() if available (Chromium) so offerer can renegotiate
-      if (typeof this.pc.restartIce === "function") {
-        this.pc.restartIce();
-        return true;
-      }
+      // force: live soft-recover may race the auto-restart on ice=failed
+      return !!(await this._tryIceRestart({ force: true }));
     } catch (e) {
       console.warn("[webrtc] softIceRestart", e);
     }
@@ -784,12 +780,16 @@ class RouletteWebRtc {
       const ice = this.pc.iceConnectionState;
       this.hooks.onIceConnectionState?.(ice);
       if (ice === "failed") {
-        // ICE restart can recover after NAT/path change
+        // ICE restart can recover after NAT/path change (rate-limited)
         this._tryIceRestart();
         this.hooks.onConnectionState?.("failed");
       } else if (ice === "disconnected") {
+        // Brief disconnect is common on mobile handoff; restart only if stuck
+        this._scheduleDisconnectedIceProbe();
         this.hooks.onConnectionState?.(this.pc.connectionState);
       } else if (ice === "connected" || ice === "completed") {
+        this._clearDisconnectedIceProbe();
+        this._iceRestartCount = 0;
         this._startAdaptiveQuality();
         applyLowLatencyPlayout(this.pc);
       }
@@ -851,15 +851,68 @@ class RouletteWebRtc {
     }
   }
 
-  async _tryIceRestart() {
-    if (!this.pc || !this.isOfferer) return;
+  /**
+   * Rate-limited ICE restart. Offerer renego; answerer uses restartIce() so the
+   * remote can renegotiate. Caps spam when ICE flaps failed/disconnected.
+   * @param {{ force?: boolean }} [opts] force=true for explicit soft-recover from live.js
+   * @returns {Promise<boolean>}
+   */
+  async _tryIceRestart(opts = {}) {
+    if (!this.pc) return false;
+    const force = !!opts.force;
+    const now = Date.now();
+    const last = this._iceRestartAt || 0;
+    const count = this._iceRestartCount || 0;
+    // Restart already in flight — report success so callers don't hard-fail immediately
+    if (last && now - last < 2500 && count > 0) return true;
+    // Auto path: at most every 6s, max 2 restarts until connected again
+    // Force path: allow one more attempt (max 3) after cooldown of 4s
+    if (!force) {
+      if (now - last < 6000) return false;
+      if (count >= 2) return false;
+    } else {
+      if (now - last < 4000) return count > 0; // still in flight or too soon
+      if (count >= 3) return false;
+    }
+    this._iceRestartAt = now;
+    this._iceRestartCount = count + 1;
     try {
-      const offer = await this.pc.createOffer({ iceRestart: true });
-      await this.pc.setLocalDescription(offer);
-      this._emitSignal("offer", JSON.stringify(this.pc.localDescription));
-      console.info("[webrtc] ICE restart offer sent");
+      if (this.isOfferer) {
+        const offer = await this.pc.createOffer({ iceRestart: true });
+        await this.pc.setLocalDescription(offer);
+        this._emitSignal("offer", JSON.stringify(this.pc.localDescription));
+        console.info("[webrtc] ICE restart offer sent");
+        return true;
+      }
+      // Answerer: mark for restart; Chromium will regenerate ufrag on next offer path
+      if (typeof this.pc.restartIce === "function") {
+        this.pc.restartIce();
+        console.info("[webrtc] restartIce() (answerer)");
+        return true;
+      }
     } catch (e) {
       console.warn("[webrtc] ICE restart failed", e);
+    }
+    return false;
+  }
+
+  _scheduleDisconnectedIceProbe() {
+    if (this._discIceTimer) return;
+    this._discIceTimer = setTimeout(() => {
+      this._discIceTimer = 0;
+      if (!this.pc) return;
+      const ice = this.pc.iceConnectionState;
+      const cs = this.pc.connectionState;
+      if (ice === "disconnected" || cs === "disconnected") {
+        this._tryIceRestart();
+      }
+    }, 4000);
+  }
+
+  _clearDisconnectedIceProbe() {
+    if (this._discIceTimer) {
+      clearTimeout(this._discIceTimer);
+      this._discIceTimer = 0;
     }
   }
 
@@ -896,6 +949,7 @@ class RouletteWebRtc {
   closeCall(opts = {}) {
     const { keepLocal = false, sendBye = true } = opts;
     this._stopAdaptiveQuality();
+    this._clearDisconnectedIceProbe();
     if (sendBye) {
       try {
         this._emitSignal("bye", "{}");
