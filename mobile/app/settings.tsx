@@ -1,5 +1,6 @@
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
+import * as SecureStore from "expo-secure-store";
 import { useEffect, useState } from "react";
 import {
   Alert,
@@ -14,6 +15,13 @@ import {
 import { hubBase } from "../src/config";
 import { useHub } from "../src/hub/HubProvider";
 import {
+  LANG_LABELS,
+  SUPPORTED_LANGS,
+  useI18n,
+  useT,
+  type LangCode,
+} from "../src/i18n";
+import {
   buildPlainProfile,
   decryptProfile,
   encryptProfile,
@@ -21,7 +29,6 @@ import {
   shareProfileJson,
 } from "../src/identity/profileBackup";
 import { setDisplayName } from "../src/identity/store";
-import * as SecureStore from "expo-secure-store";
 import {
   loadMatchPrefs,
   saveMatchPrefs,
@@ -51,6 +58,8 @@ function Chip(props: {
 export default function SettingsScreen() {
   const { identity, setIdentityName } = useApp();
   const { friendCode, stars } = useHub();
+  const t = useT();
+  const { pref, setPref, lang } = useI18n();
   const [name, setName] = useState(identity.name);
   const [prefs, setPrefs] = useState<MatchPrefs | null>(null);
   const [saved, setSaved] = useState(false);
@@ -73,7 +82,10 @@ export default function SettingsScreen() {
 
   async function exportBackup() {
     if (exportPw.length > 0 && exportPw.length < 8) {
-      Alert.alert("Password too short", "Use at least 8 characters, or leave empty for plain JSON (not recommended).");
+      Alert.alert(
+        t("settings.exportPwWeak"),
+        t("settings.exportPwTooWeak")
+      );
       return;
     }
     setBusy(true);
@@ -92,12 +104,9 @@ export default function SettingsScreen() {
       } else {
         await shareProfileJson(plain, `ruletka-profile-${stamp}.json`);
       }
-      Alert.alert(
-        "Backup ready",
-        "Stars are not in this file — they stay on the hub for your user id."
-      );
+      Alert.alert(t("settings.exportDone"), t("settings.exportStarsNote"));
     } catch (e) {
-      Alert.alert("Export failed", String(e));
+      Alert.alert(t("settings.exportFail"), String(e));
     } finally {
       setBusy(false);
     }
@@ -119,7 +128,7 @@ export default function SettingsScreen() {
       let raw = JSON.parse(text);
       if (isEncryptedProfile(raw)) {
         if (!importPw) {
-          Alert.alert("Password required", "This backup is encrypted.");
+          Alert.alert(t("settings.importFail"), t("settings.exportPwTooWeak"));
           setBusy(false);
           return;
         }
@@ -127,19 +136,26 @@ export default function SettingsScreen() {
       }
       const uid = raw?.identity?.user_id || raw?.user_id;
       if (!uid || String(uid).length < 8) {
-        throw new Error("Invalid profile file");
+        throw new Error(t("settings.importBad"));
       }
       const newName = String(raw?.identity?.name || raw?.name || "anon").slice(
         0,
         32
       );
       Alert.alert(
-        "Replace identity?",
-        `Import ${String(uid).slice(0, 12)}… as ${newName}? This device will use that hub identity. Stars load from the hub.`,
+        t("settings.importUser"),
+        t("settings.importConfirm", {
+          id: String(uid).slice(0, 12),
+          cur: identity.user_id.slice(0, 12),
+        }),
         [
-          { text: "Cancel", style: "cancel", onPress: () => setBusy(false) },
           {
-            text: "Import",
+            text: t("mobile.common.cancel"),
+            style: "cancel",
+            onPress: () => setBusy(false),
+          },
+          {
+            text: t("settings.importUser"),
             style: "destructive",
             onPress: async () => {
               try {
@@ -157,11 +173,11 @@ export default function SettingsScreen() {
                   });
                 }
                 Alert.alert(
-                  "Imported",
-                  "Reload the app (kill & reopen) so hub hello uses the new id."
+                  t("settings.importDoneStarsHub"),
+                  t("settings.importDone")
                 );
               } catch (e) {
-                Alert.alert("Import failed", String(e));
+                Alert.alert(t("settings.importFail"), String(e));
               } finally {
                 setBusy(false);
               }
@@ -170,7 +186,7 @@ export default function SettingsScreen() {
         ]
       );
     } catch (e) {
-      Alert.alert("Import failed", String(e));
+      Alert.alert(t("settings.importFail"), String(e));
       setBusy(false);
     }
   }
@@ -178,7 +194,7 @@ export default function SettingsScreen() {
   if (!prefs) {
     return (
       <View style={styles.root}>
-        <Text style={styles.meta}>Loading…</Text>
+        <Text style={styles.meta}>{t("mobile.common.loading")}</Text>
       </View>
     );
   }
@@ -192,7 +208,7 @@ export default function SettingsScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.root}>
-      <Text style={styles.h}>Display name</Text>
+      <Text style={styles.h}>{t("mobile.settings.displayName")}</Text>
       <TextInput
         style={styles.input}
         value={name}
@@ -202,14 +218,36 @@ export default function SettingsScreen() {
         placeholderTextColor="#6b7a90"
       />
 
-      <Text style={styles.h}>I am</Text>
+      <Text style={styles.h}>{t("mobile.lang")}</Text>
+      <View style={styles.row}>
+        <Chip
+          label={t("mobile.lang.system")}
+          active={!pref}
+          onPress={() => setPref("")}
+        />
+        {SUPPORTED_LANGS.map((code) => (
+          <Chip
+            key={code}
+            label={LANG_LABELS[code as LangCode]}
+            active={pref === code}
+            onPress={() => setPref(code)}
+          />
+        ))}
+      </View>
+      <Text style={styles.hint}>
+        {pref
+          ? LANG_LABELS[pref as LangCode] || pref
+          : `${t("mobile.lang.auto")} → ${LANG_LABELS[lang]}`}
+      </Text>
+
+      <Text style={styles.h}>{t("mobile.settings.iAm")}</Text>
       <View style={styles.row}>
         {(
           [
-            ["", "Unset"],
-            ["man", "Man"],
-            ["woman", "Woman"],
-            ["other", "Other"],
+            ["", t("mobile.settings.genderUnset")],
+            ["man", t("mobile.settings.genderMan")],
+            ["woman", t("mobile.settings.genderWoman")],
+            ["other", t("mobile.settings.genderOther")],
           ] as [SoftGender, string][]
         ).map(([v, label]) => (
           <Chip
@@ -221,13 +259,13 @@ export default function SettingsScreen() {
         ))}
       </View>
 
-      <Text style={styles.h}>Looking for</Text>
+      <Text style={styles.h}>{t("prefs.looking")}</Text>
       <View style={styles.row}>
         {(
           [
-            ["any", "Anyone"],
-            ["man", "Men"],
-            ["woman", "Women"],
+            ["any", t("mobile.settings.lookingAnyone")],
+            ["man", t("mobile.settings.lookingMen")],
+            ["woman", t("mobile.settings.lookingWomen")],
           ] as [LookingFor, string][]
         ).map(([v, label]) => (
           <Chip
@@ -239,39 +277,37 @@ export default function SettingsScreen() {
         ))}
       </View>
 
-      <Text style={styles.h}>Hide my IP</Text>
+      <Text style={styles.h}>{t("settings.hideIp")}</Text>
       <View style={styles.row}>
         <Chip
-          label="Off (P2P OK)"
+          label={t("mobile.settings.hideIpOff")}
           active={!prefs.hideIp}
           onPress={() => setPrefs({ ...prefs, hideIp: false })}
         />
         <Chip
-          label="On (TURN only)"
+          label={t("mobile.settings.hideIpOn")}
           active={prefs.hideIp}
           onPress={() => setPrefs({ ...prefs, hideIp: true })}
         />
       </View>
-      <Text style={styles.hint}>
-        Hide IP forces TURN relay so the partner never sees your address. Needs
-        hub TURN.
-      </Text>
+      <Text style={styles.hint}>{t("settings.hideIpHint")}</Text>
 
       <Pressable style={styles.cta} onPress={save} disabled={busy}>
-        <Text style={styles.ctaText}>{saved ? "Saved ✓" : "Save prefs"}</Text>
+        <Text style={styles.ctaText}>
+          {saved ? t("mobile.settings.saved") : t("mobile.settings.save")}
+        </Text>
       </Pressable>
 
-      <Text style={styles.section}>Backup (no account)</Text>
+      <Text style={styles.section}>{t("mobile.settings.backup")}</Text>
       <Text style={styles.hint}>
-        Export identity + prefs. Stars stay on the hub (★ {stars}). Password
-        optional but recommended.
+        {t("mobile.settings.backupHint", { stars })}
       </Text>
       <TextInput
         style={styles.input}
         value={exportPw}
         onChangeText={setExportPw}
         secureTextEntry
-        placeholder="Export password (optional)"
+        placeholder={t("mobile.settings.exportPw")}
         placeholderTextColor="#6b7a90"
       />
       <Pressable
@@ -279,7 +315,7 @@ export default function SettingsScreen() {
         onPress={exportBackup}
         disabled={busy}
       >
-        <Text style={styles.secondaryText}>Export backup…</Text>
+        <Text style={styles.secondaryText}>{t("mobile.settings.exportBtn")}</Text>
       </Pressable>
 
       <TextInput
@@ -287,7 +323,7 @@ export default function SettingsScreen() {
         value={importPw}
         onChangeText={setImportPw}
         secureTextEntry
-        placeholder="Import password if encrypted"
+        placeholder={t("mobile.settings.importPw")}
         placeholderTextColor="#6b7a90"
       />
       <Pressable
@@ -295,20 +331,18 @@ export default function SettingsScreen() {
         onPress={importBackup}
         disabled={busy}
       >
-        <Text style={styles.secondaryText}>Import backup…</Text>
+        <Text style={styles.secondaryText}>{t("mobile.settings.importBtn")}</Text>
       </Pressable>
 
-      <Text style={styles.section}>Safety & legal</Text>
-      <Text style={styles.hint}>
-        Open on the hub site (same policies as web). Required for store review.
-      </Text>
+      <Text style={styles.section}>{t("mobile.settings.legal")}</Text>
+      <Text style={styles.hint}>{t("mobile.settings.legalHint")}</Text>
       {(
         [
-          ["Safety", "/safety.html"],
-          ["Community", "/community.html"],
-          ["Privacy", "/legal/privacy.html"],
-          ["Terms", "/legal/terms.html"],
-          ["EULA", "/legal/eula.html"],
+          [t("nav.safety"), "/safety.html"],
+          [t("nav.community"), "/community.html"],
+          [t("nav.privacy"), "/legal/privacy.html"],
+          [t("nav.terms"), "/legal/terms.html"],
+          [t("nav.eula"), "/legal/eula.html"],
         ] as const
       ).map(([label, path]) => (
         <Pressable
@@ -316,9 +350,7 @@ export default function SettingsScreen() {
           style={styles.linkRow}
           onPress={() => {
             const url = `${hubBase()}${path}`;
-            Linking.openURL(url).catch(() =>
-              Alert.alert("Could not open", url)
-            );
+            Linking.openURL(url).catch(() => Alert.alert(label, url));
           }}
         >
           <Text style={styles.linkText}>{label}</Text>
@@ -327,7 +359,10 @@ export default function SettingsScreen() {
       ))}
 
       <Text style={styles.meta}>
-        User {identity.user_id.slice(0, 12)}… · hub {hubBase()}
+        {t("mobile.settings.userMeta", {
+          id: identity.user_id.slice(0, 12),
+          hub: hubBase(),
+        })}
       </Text>
     </ScrollView>
   );

@@ -1,10 +1,12 @@
 import { Link, Redirect } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { hubBase } from "../src/config";
+import { useT } from "../src/i18n";
 import { useApp } from "./_layout";
 
 export default function HomeScreen() {
   const { identity, rulesOk } = useApp();
+  const t = useT();
 
   if (!rulesOk) {
     return <Redirect href="/rules" />;
@@ -13,33 +15,30 @@ export default function HomeScreen() {
   return (
     <View style={styles.root}>
       <Text style={styles.brand}>ruletka</Text>
-      <Text style={styles.tag}>Peer-to-peer video · 18+ · no classic account</Text>
+      <Text style={styles.tag}>{t("mobile.home.tag")}</Text>
       <Text style={styles.meta}>
         User · {identity.user_id.slice(0, 8)}… · hub {hubBase()}
       </Text>
 
       <Link href="/live" asChild>
         <Pressable style={styles.cta}>
-          <Text style={styles.ctaText}>Start chatting</Text>
+          <Text style={styles.ctaText}>{t("mobile.home.start")}</Text>
         </Pressable>
       </Link>
 
       <Link href="/friends" asChild>
         <Pressable style={styles.secondary}>
-          <Text style={styles.secondaryText}>Friends &amp; Call</Text>
+          <Text style={styles.secondaryText}>{t("mobile.home.friends")}</Text>
         </Pressable>
       </Link>
 
       <Link href="/settings" asChild>
         <Pressable style={styles.secondary}>
-          <Text style={styles.secondaryText}>Match prefs &amp; name</Text>
+          <Text style={styles.secondaryText}>{t("mobile.home.settings")}</Text>
         </Pressable>
       </Link>
 
-      <Text style={styles.note}>
-        Phase 2: friends + calls. Stranger loop ready. A/V needs a native build
-        (expo prebuild + react-native-webrtc).
-      </Text>
+      <Text style={styles.note}>{t("mobile.home.note")}</Text>
     </View>
   );
 }

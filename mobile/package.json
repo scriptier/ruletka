@@ -8,6 +8,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "lint": "tsc --noEmit",
+    "sync-i18n": "bash scripts/sync-i18n.sh",
     "test": "jest --passWithNoTests"
   },
   "dependencies": {

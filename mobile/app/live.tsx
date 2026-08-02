@@ -15,6 +15,7 @@ import { useHub } from "../src/hub/HubProvider";
 import type { MatchPeer, ServerMatched, ServerMsg } from "../src/hub/types";
 import { MediaSession, type MediaStreamLike } from "../src/media/MediaSession";
 import { loadMatchPrefs } from "../src/prefs/store";
+import { useT } from "../src/i18n";
 import { GIFTS } from "../src/stars/gifts";
 
 type Phase = "idle" | "search" | "matched" | "error";
@@ -78,6 +79,7 @@ function pickPeer(msg: ServerMatched): {
 }
 
 export default function LiveScreen() {
+  const t = useT();
   const {
     hub,
     friendCode,
@@ -386,21 +388,22 @@ export default function LiveScreen() {
     const code = friendCode || "……";
     const url = `${hubBase()}/live.html?friend=${encodeURIComponent(code)}&ref=friend_invite`;
     Share.share({
-      message: `I'm on ruletka live — add code ${code}, Accept, then Call.\n${url}`,
-      title: "ruletka invite",
+      message:
+        t("friends.inviteLiveNow", { brand: "ruletka", code }) + `\n${url}`,
+      title: t("friends.inviteLiveTitle", { brand: "ruletka", code }),
     }).catch(() => {});
   }
 
   function reportOrBlock() {
     const uid = partnerUserId.current;
     if (!uid) {
-      Alert.alert("Not ready", "Partner id not known yet — try Next.");
+      Alert.alert(t("mobile.live.safetyTitle"), t("mobile.live.partnerNotReady"));
       return;
     }
-    Alert.alert("Safety", `Partner ${partner || uid.slice(0, 8)}…`, [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(t("mobile.live.safetyTitle"), `Partner ${partner || uid.slice(0, 8)}…`, [
+      { text: t("mobile.common.cancel"), style: "cancel" },
       {
-        text: "Block + Next",
+        text: t("friends.blockNext"),
         style: "destructive",
         onPress: () => {
           try {
@@ -413,21 +416,21 @@ export default function LiveScreen() {
         },
       },
       {
-        text: "Report + Block",
+        text: t("partnerMenu.reportNext"),
         style: "destructive",
         onPress: () => {
-          Alert.alert("Report reason", undefined, [
+          Alert.alert(t("mobile.live.reportReason"), undefined, [
             {
-              text: "Harassment",
+              text: t("mobile.live.reasonHarassment"),
               onPress: () => doReport(uid, "harassment"),
             },
-            { text: "Spam", onPress: () => doReport(uid, "spam") },
+            { text: t("mobile.live.reasonSpam"), onPress: () => doReport(uid, "spam") },
             {
-              text: "Underage suspicion",
+              text: t("mobile.live.reasonUnderage"),
               onPress: () => doReport(uid, "underage"),
             },
-            { text: "Other", onPress: () => doReport(uid, "other") },
-            { text: "Cancel", style: "cancel" },
+            { text: t("mobile.live.reasonOther"), onPress: () => doReport(uid, "other") },
+            { text: t("mobile.common.cancel"), style: "cancel" },
           ]);
         },
       },
@@ -449,7 +452,7 @@ export default function LiveScreen() {
     const uid = partnerUserId.current;
     if (!uid || phase !== "matched") return;
     if (stars < cost) {
-      Alert.alert("Need more ★", `This gift costs ${cost}★ (you have ${stars}).`);
+      Alert.alert(t("mobile.live.needStars", { cost, stars }), t("mobile.live.needStars", { cost, stars }));
       return;
     }
     try {
@@ -488,12 +491,14 @@ export default function LiveScreen() {
       {ratePrompt ? (
         <View style={styles.rateCard}>
           <Text style={styles.rateTitle}>
-            Rate {ratePrompt.name}?
-            {ratePrompt.early ? " (early)" : ""}
+            {t("mobile.live.rateTitle", { name: ratePrompt.name })}
+            {ratePrompt.early ? t("mobile.live.rateEarly") : ""}
           </Text>
           <Text style={styles.rateBody}>
-            Chat {Math.floor(ratePrompt.duration_secs / 60)}+ min. Gift up to ★
-            {ratePrompt.max_gift} or skip.
+            {t("mobile.live.rateBody", {
+              m: Math.floor(ratePrompt.duration_secs / 60),
+              max: ratePrompt.max_gift,
+            })}
           </Text>
           <View style={styles.row}>
             {Array.from({ length: ratePrompt.max_gift }, (_, i) => i + 1).map(
@@ -511,7 +516,7 @@ export default function LiveScreen() {
               style={styles.btnGhost}
               onPress={() => submitRate(false)}
             >
-              <Text style={styles.btnText}>Skip</Text>
+              <Text style={styles.btnText}>{t("mobile.common.skip")}</Text>
             </Pressable>
           </View>
         </View>
@@ -537,14 +542,14 @@ export default function LiveScreen() {
         <View style={styles.overlay}>
           <Text style={styles.stageLabel}>
             {phase === "matched"
-              ? `${isFriendCall ? "Friend" : "Matched"} · ${partner}${conn ? ` · ${conn}` : ""}`
+              ? `${isFriendCall ? t("mobile.live.friend") : t("mobile.live.matched")} · ${partner}${conn ? ` · ${conn}` : ""}`
               : phase === "search"
                 ? alone
-                  ? "You're first in line…"
-                  : "Looking…"
+                  ? t("mobile.live.firstInLine")
+                  : t("mobile.live.looking")
                 : localStream
-                  ? "Preview"
-                  : "Idle"}
+                  ? t("mobile.live.preview")
+                  : t("mobile.live.idle")}
           </Text>
           {phase === "matched" ? (
             <View style={styles.starProg}>
@@ -558,31 +563,32 @@ export default function LiveScreen() {
               </View>
               <Text style={styles.starProgLabel}>
                 {starReady
-                  ? "★ review unlocks when chat ends"
-                  : `★ unlock ~${needMin} min · ${Math.floor(elapsedSecs / 60)}:${String(elapsedSecs % 60).padStart(2, "0")}`}
+                  ? t("mobile.live.starReady")
+                  : t("mobile.live.starUnlock", {
+                      n: needMin,
+                      time: `${Math.floor(elapsedSecs / 60)}:${String(elapsedSecs % 60).padStart(2, "0")}`,
+                    })}
               </Text>
             </View>
           ) : null}
           {!webrtcOk ? (
             <Text style={styles.stageHint}>
-              WebRTC needs a native build:{"\n"}
-              npx expo prebuild && npx expo run:android
+              {t("mobile.live.webrtcNeedNative")}
             </Text>
           ) : null}
         </View>
 
         {showAloneBanner ? (
           <View style={styles.aloneCard}>
-            <Text style={styles.aloneTitle}>Quiet pool</Text>
+            <Text style={styles.aloneTitle}>{t("friends.aloneInviteTitle")}</Text>
             <Text style={styles.aloneBody}>
-              Few people online. Share your friend code — they open live, you
-              Accept, then Call when Online.
+              {t("friends.aloneInviteBody")}
             </Text>
             {friendCode ? (
-              <Text style={styles.aloneCode}>Code {friendCode}</Text>
+              <Text style={styles.aloneCode}>{t("mobile.friends.yourCode")} {friendCode}</Text>
             ) : null}
             <Pressable style={styles.aloneBtn} onPress={shareInvite}>
-              <Text style={styles.btnText}>Share invite</Text>
+              <Text style={styles.btnText}>{t("mobile.friends.shareInvite")}</Text>
             </Pressable>
           </View>
         ) : null}
@@ -621,13 +627,13 @@ export default function LiveScreen() {
               style={styles.chatInput}
               value={chatDraft}
               onChangeText={setChatDraft}
-              placeholder="Message…"
+              placeholder={t("mobile.chat.placeholder")}
               placeholderTextColor="#6b7a90"
               onSubmitEditing={sendChat}
               returnKeyType="send"
             />
             <Pressable style={styles.chatSend} onPress={sendChat}>
-              <Text style={styles.btnText}>Send</Text>
+              <Text style={styles.btnText}>{t("mobile.common.send")}</Text>
             </Pressable>
           </View>
         </>
@@ -635,26 +641,26 @@ export default function LiveScreen() {
 
       <View style={styles.bar}>
         <Text style={styles.meta}>
-          ★ {stars} · online {online} · wait {waiting}
-          {friendCode ? ` · code ${friendCode}` : ""}
-          {!connected ? " · reconnecting" : ""}
+          {t("mobile.live.meta", { stars, online, wait: waiting })}
+          {friendCode ? t("mobile.live.metaCode", { code: friendCode }) : ""}
+          {!connected ? t("mobile.live.reconnecting") : ""}
         </Text>
         <View style={styles.row}>
           {phase === "idle" || phase === "error" ? (
             <Pressable style={styles.btn} onPress={start}>
-              <Text style={styles.btnText}>Start</Text>
+              <Text style={styles.btnText}>{t("btn.start")}</Text>
             </Pressable>
           ) : null}
           {phase === "search" || phase === "matched" ? (
             <>
               {!isFriendCall ? (
                 <Pressable style={styles.btnSecondary} onPress={next}>
-                  <Text style={styles.btnText}>Next</Text>
+                  <Text style={styles.btnText}>{t("btn.next")}</Text>
                 </Pressable>
               ) : null}
               <Pressable style={styles.btnGhost} onPress={stop}>
                 <Text style={styles.btnText}>
-                  {isFriendCall ? "Hang up" : "Stop"}
+                  {isFriendCall ? t("friends.hangup") : t("btn.stop")}
                 </Text>
               </Pressable>
             </>
@@ -662,30 +668,30 @@ export default function LiveScreen() {
         </View>
         <View style={styles.row}>
           <Pressable style={styles.btnGhost} onPress={toggleMic}>
-            <Text style={styles.btnText}>{micOn ? "Mic on" : "Mic off"}</Text>
+            <Text style={styles.btnText}>{micOn ? t("mobile.live.micOn") : t("mobile.live.micOff")}</Text>
           </Pressable>
           <Pressable style={styles.btnGhost} onPress={toggleCam}>
-            <Text style={styles.btnText}>{camOn ? "Cam on" : "Cam off"}</Text>
+            <Text style={styles.btnText}>{camOn ? t("mobile.live.camOn") : t("mobile.live.camOff")}</Text>
           </Pressable>
           <Pressable
             style={styles.btnGhost}
             onPress={() => mediaRef.current?.flipCamera()}
           >
-            <Text style={styles.btnText}>Flip</Text>
+            <Text style={styles.btnText}>{t("btn.flipCam")}</Text>
           </Pressable>
           {phase === "matched" ? (
             <Pressable style={styles.btnDanger} onPress={reportOrBlock}>
-              <Text style={styles.btnText}>Report</Text>
+              <Text style={styles.btnText}>{t("mobile.live.report")}</Text>
             </Pressable>
           ) : (
             <Pressable style={styles.btnGhost} onPress={shareInvite}>
-              <Text style={styles.btnText}>Invite</Text>
+              <Text style={styles.btnText}>{t("mobile.live.invite")}</Text>
             </Pressable>
           )}
         </View>
         <Pressable onPress={() => setShowLog((v) => !v)}>
           <Text style={styles.logToggle}>
-            {showLog ? "Hide debug log" : "Show debug log"}
+            {showLog ? t("mobile.live.hideLog") : t("mobile.live.showLog")}
           </Text>
         </Pressable>
       </View>

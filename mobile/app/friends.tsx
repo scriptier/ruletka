@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import {
   clearCallHistory,
-  kindLabel,
+  kindI18nKey,
   loadCallHistory,
   markMissedCallsRead,
   type CallHistoryEntry,
@@ -19,6 +19,7 @@ import {
 import { hubBase } from "../src/config";
 import type { FriendInfo } from "../src/hub/types";
 import { useHub } from "../src/hub/HubProvider";
+import { useT } from "../src/i18n";
 
 function FriendRow(props: {
   item: FriendInfo;
@@ -26,15 +27,16 @@ function FriendRow(props: {
   onRemove: () => void;
 }) {
   const { item, onCall, onRemove } = props;
+  const t = useT();
   return (
     <View style={styles.row}>
       <View style={styles.rowMain}>
         <Text style={styles.name}>
           {item.name || item.short_id || "friend"}
           {item.online ? (
-            <Text style={styles.online}> · online</Text>
+            <Text style={styles.online}> · {t("mobile.common.online")}</Text>
           ) : (
-            <Text style={styles.offline}> · offline</Text>
+            <Text style={styles.offline}> · {t("mobile.common.offline")}</Text>
           )}
         </Text>
         <Text style={styles.sub}>
@@ -44,20 +46,20 @@ function FriendRow(props: {
       </View>
       {item.online ? (
         <Pressable style={styles.callBtn} onPress={onCall}>
-          <Text style={styles.btnText}>Call</Text>
+          <Text style={styles.btnText}>{t("friends.call")}</Text>
         </Pressable>
       ) : (
         <Pressable style={styles.ghostBtn} onPress={onRemove}>
-          <Text style={styles.btnTextMuted}>Remove</Text>
+          <Text style={styles.btnTextMuted}>{t("mobile.friends.removeBtn")}</Text>
         </Pressable>
       )}
     </View>
   );
 }
 
-function formatWhen(t: number): string {
+function formatWhen(ts: number): string {
   try {
-    const d = new Date(t);
+    const d = new Date(ts);
     return d.toLocaleString(undefined, {
       month: "short",
       day: "numeric",
@@ -80,6 +82,7 @@ export default function FriendsScreen() {
     setOutboundCall,
     callHistoryTick,
   } = useHub();
+  const t = useT();
   const [code, setCode] = useState("");
   const [history, setHistory] = useState<CallHistoryEntry[]>([]);
 
@@ -91,23 +94,29 @@ export default function FriendsScreen() {
   function add() {
     const c = code.trim().toUpperCase();
     if (c.length < 4) {
-      Alert.alert("Code too short");
+      Alert.alert(t("mobile.friends.codeShort"));
       return;
     }
     try {
       hub.addFriend(c);
       setCode("");
-      Alert.alert("Request sent", `If ${c} is online or returns, they can Accept.`);
+      Alert.alert(t("mobile.friends.requestSentTitle"), t("mobile.friends.requestSent", { code: c }));
     } catch (e) {
-      Alert.alert("Not connected", String(e));
+      Alert.alert(t("mobile.friends.notConnected"), String(e));
     }
   }
 
   function shareMyCode() {
     const url = `${hubBase()}/live.html?friend=${encodeURIComponent(friendCode)}&ref=friend_invite`;
     Share.share({
-      message: `Add me on ruletka · code ${friendCode}\n${url}`,
-      title: "ruletka friend code",
+      message: t("friends.inviteLiveNow", {
+        brand: "ruletka",
+        code: friendCode,
+      }) + `\n${url}`,
+      title: t("friends.inviteLiveTitle", {
+        brand: "ruletka",
+        code: friendCode,
+      }),
     }).catch(() => {});
   }
 
@@ -119,7 +128,7 @@ export default function FriendsScreen() {
         name: f.name || ("short_id" in f ? f.short_id : undefined) || "Friend",
       });
     } catch (e) {
-      Alert.alert("Call failed", String(e));
+      Alert.alert(t("mobile.friends.callFailed"), String(e));
     }
   }
 
@@ -127,8 +136,8 @@ export default function FriendsScreen() {
     const online = friends.find((f) => f.user_id === h.user_id)?.online;
     if (!online) {
       Alert.alert(
-        "Offline",
-        `${h.name} is not online right now. Try again when they appear.`
+        t("mobile.history.offline"),
+        t("mobile.history.offlineBody", { name: h.name })
       );
       return;
     }
@@ -138,13 +147,13 @@ export default function FriendsScreen() {
   const listHeader = (
     <View style={styles.headerBlock}>
       <View style={styles.hero}>
-        <Text style={styles.heroLabel}>Your code</Text>
+        <Text style={styles.heroLabel}>{t("mobile.friends.yourCode")}</Text>
         <Text style={styles.heroCode}>{friendCode || "…"}</Text>
         <Pressable style={styles.shareBtn} onPress={shareMyCode}>
-          <Text style={styles.btnText}>Share invite</Text>
+          <Text style={styles.btnText}>{t("mobile.friends.shareInvite")}</Text>
         </Pressable>
         {!connected ? (
-          <Text style={styles.warn}>Offline — reconnecting…</Text>
+          <Text style={styles.warn}>{t("mobile.friends.offline")}</Text>
         ) : null}
       </View>
 
@@ -154,18 +163,18 @@ export default function FriendsScreen() {
           value={code}
           onChangeText={setCode}
           autoCapitalize="characters"
-          placeholder="Friend code"
+          placeholder={t("mobile.friends.codePlaceholder")}
           placeholderTextColor="#6b7a90"
           onSubmitEditing={add}
         />
         <Pressable style={styles.addBtn} onPress={add}>
-          <Text style={styles.btnText}>Add</Text>
+          <Text style={styles.btnText}>{t("mobile.friends.add")}</Text>
         </Pressable>
       </View>
 
       {incomingRequests.length > 0 ? (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Incoming requests</Text>
+          <Text style={styles.sectionTitle}>{t("mobile.friends.incoming")}</Text>
           {incomingRequests.map((r) => (
             <View key={r.user_id} style={styles.row}>
               <View style={styles.rowMain}>
@@ -176,13 +185,13 @@ export default function FriendsScreen() {
                 style={styles.callBtn}
                 onPress={() => hub.acceptFriend(r.user_id)}
               >
-                <Text style={styles.btnText}>Accept</Text>
+                <Text style={styles.btnText}>{t("friends.accept")}</Text>
               </Pressable>
               <Pressable
                 style={styles.ghostBtn}
                 onPress={() => hub.declineFriend(r.user_id)}
               >
-                <Text style={styles.btnTextMuted}>No</Text>
+                <Text style={styles.btnTextMuted}>{t("friends.declineReq")}</Text>
               </Pressable>
             </View>
           ))}
@@ -191,7 +200,7 @@ export default function FriendsScreen() {
 
       {outgoingRequests.length > 0 ? (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Waiting for accept</Text>
+          <Text style={styles.sectionTitle}>{t("mobile.friends.waiting")}</Text>
           {outgoingRequests.map((r) => (
             <View key={r.user_id} style={styles.row}>
               <View style={styles.rowMain}>
@@ -202,7 +211,7 @@ export default function FriendsScreen() {
                 style={styles.ghostBtn}
                 onPress={() => hub.declineFriend(r.user_id)}
               >
-                <Text style={styles.btnTextMuted}>Cancel</Text>
+                <Text style={styles.btnTextMuted}>{t("mobile.common.cancel")}</Text>
               </Pressable>
             </View>
           ))}
@@ -212,13 +221,13 @@ export default function FriendsScreen() {
       {history.length > 0 ? (
         <View style={styles.section}>
           <View style={styles.sectionHead}>
-            <Text style={styles.sectionTitle}>Call history</Text>
+            <Text style={styles.sectionTitle}>{t("friends.historyTitle")}</Text>
             <Pressable
               onPress={() => {
-                Alert.alert("Clear history?", undefined, [
-                  { text: "Cancel", style: "cancel" },
+                Alert.alert(t("mobile.history.clear"), undefined, [
+                  { text: t("mobile.common.cancel"), style: "cancel" },
                   {
-                    text: "Clear",
+                    text: t("mobile.friends.clear"),
                     style: "destructive",
                     onPress: async () => {
                       await clearCallHistory();
@@ -228,7 +237,7 @@ export default function FriendsScreen() {
                 ]);
               }}
             >
-              <Text style={styles.clearLink}>Clear</Text>
+              <Text style={styles.clearLink}>{t("mobile.friends.clear")}</Text>
             </Pressable>
           </View>
           {history.slice(0, 12).map((h) => {
@@ -238,8 +247,8 @@ export default function FriendsScreen() {
                 <View style={styles.rowMain}>
                   <Text style={styles.name}>{h.name}</Text>
                   <Text style={styles.sub}>
-                    {kindLabel(h.kind)} · {formatWhen(h.t)}
-                    {online ? " · online" : ""}
+                    {t(kindI18nKey(h.kind))} · {formatWhen(h.t)}
+                    {online ? ` · ${t("mobile.common.online")}` : ""}
                   </Text>
                 </View>
                 <Pressable
@@ -247,7 +256,7 @@ export default function FriendsScreen() {
                   onPress={() => callFromHistory(h)}
                 >
                   <Text style={online ? styles.btnText : styles.btnTextMuted}>
-                    Call back
+                    {t("mobile.history.callBack")}
                   </Text>
                 </Pressable>
               </View>
@@ -256,7 +265,7 @@ export default function FriendsScreen() {
         </View>
       ) : null}
 
-      <Text style={styles.sectionTitle}>Friends ({friends.length})</Text>
+      <Text style={styles.sectionTitle}>{t("mobile.friends.list", { n: friends.length })}</Text>
     </View>
   );
 
@@ -268,7 +277,7 @@ export default function FriendsScreen() {
         ListHeaderComponent={listHeader}
         ListEmptyComponent={
           <Text style={styles.empty}>
-            No friends yet. Share your code or add theirs.
+            {t("mobile.friends.empty")}
           </Text>
         }
         renderItem={({ item }) => (
@@ -276,10 +285,10 @@ export default function FriendsScreen() {
             item={item}
             onCall={() => call(item)}
             onRemove={() => {
-              Alert.alert("Remove friend?", item.name, [
-                { text: "Cancel", style: "cancel" },
+              Alert.alert(t("mobile.friends.remove"), item.name, [
+                { text: t("mobile.common.cancel"), style: "cancel" },
                 {
-                  text: "Remove",
+                  text: t("mobile.friends.removeBtn"),
                   style: "destructive",
                   onPress: () => hub.removeFriend(item.user_id),
                 },

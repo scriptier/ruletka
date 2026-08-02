@@ -97,6 +97,11 @@ export async function countUnreadMissed(): Promise<number> {
   }
 }
 
+/** i18n key for history kind (use with t()). */
+export function kindI18nKey(kind: CallHistoryKind): string {
+  return `mobile.history.kind.${kind}`;
+}
+
 export function kindLabel(kind: CallHistoryKind): string {
   switch (kind) {
     case "missed":

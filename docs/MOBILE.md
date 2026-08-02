@@ -75,7 +75,8 @@ Push for friend rings while killed is **post-first-submit** unless schedule allo
 
 ### i18n
 
-- [ ] Reuse packs under `ui/i18n/*.json` (or subset) for EN/RU + major langs
+- [x] Reuse packs under `ui/i18n/*.json` (synced to `mobile/src/i18n/packs/`)
+- [x] Mobile overlay EN/RU + Settings language picker (device default or force lang)
 
 ## Explicit non-goals (v1)
 

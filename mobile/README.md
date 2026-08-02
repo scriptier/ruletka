@@ -30,6 +30,7 @@ See monorepo docs:
 | Missed / no-answer call history | ✅ Friends tab |
 | Safety / legal links | ✅ Settings |
 | 30s outbound ring timeout | ✅ |
+| i18n (web packs + mobile overlay) | ✅ Settings → Language |
 
 ### First A/V call (device)
 

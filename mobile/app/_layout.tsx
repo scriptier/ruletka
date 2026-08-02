@@ -20,6 +20,7 @@ import {
   rulesAccepted,
   type LocalIdentity,
 } from "../src/identity/store";
+import { I18nProvider, useT } from "../src/i18n";
 
 export type AppContext = {
   identity: LocalIdentity;
@@ -37,6 +38,7 @@ export function useApp(): AppContext {
 }
 
 function CallBanners() {
+  const t = useT();
   const {
     incomingCall,
     outboundCall,
@@ -51,15 +53,15 @@ function CallBanners() {
 
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(clearToast, 4000);
-    return () => clearTimeout(t);
+    const timer = setTimeout(clearToast, 4000);
+    return () => clearTimeout(timer);
   }, [toast, clearToast]);
 
   // Outbound ring timeout (30s) — matches web no-answer path
   useEffect(() => {
     if (!outboundCall || incomingCall) return;
     const peer = outboundCall;
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       try {
         hub.callCancel(peer.user_id);
       } catch {
@@ -68,20 +70,14 @@ function CallBanners() {
       recordNoAnswer(peer);
       setOutboundCall(null);
     }, 30_000);
-    return () => clearTimeout(t);
-  }, [
-    outboundCall,
-    incomingCall,
-    hub,
-    recordNoAnswer,
-    setOutboundCall,
-  ]);
+    return () => clearTimeout(timer);
+  }, [outboundCall, incomingCall, hub, recordNoAnswer, setOutboundCall]);
 
   return (
     <>
       {!connected ? (
         <View style={bannerStyles.strip}>
-          <Text style={bannerStyles.stripText}>Reconnecting to hub…</Text>
+          <Text style={bannerStyles.stripText}>{t("mobile.reconnect")}</Text>
         </View>
       ) : null}
 
@@ -93,7 +89,9 @@ function CallBanners() {
 
       {incomingCall ? (
         <View style={bannerStyles.incoming}>
-          <Text style={bannerStyles.incomingTitle}>Incoming call</Text>
+          <Text style={bannerStyles.incomingTitle}>
+            {t("mobile.call.incoming")}
+          </Text>
           <Text style={bannerStyles.incomingBody}>
             {incomingCall.from_name || incomingCall.from_short || "Friend"}
           </Text>
@@ -109,7 +107,7 @@ function CallBanners() {
                 clearIncomingCall();
               }}
             >
-              <Text style={bannerStyles.btnText}>Decline</Text>
+              <Text style={bannerStyles.btnText}>{t("friends.decline")}</Text>
             </Pressable>
             <Pressable
               style={bannerStyles.accept}
@@ -122,7 +120,9 @@ function CallBanners() {
                 clearIncomingCall();
               }}
             >
-              <Text style={bannerStyles.btnText}>Answer</Text>
+              <Text style={bannerStyles.btnText}>
+                {t("mobile.call.answer")}
+              </Text>
             </Pressable>
           </View>
         </View>
@@ -130,7 +130,9 @@ function CallBanners() {
 
       {outboundCall && !incomingCall ? (
         <View style={bannerStyles.outgoing}>
-          <Text style={bannerStyles.incomingTitle}>Calling…</Text>
+          <Text style={bannerStyles.incomingTitle}>
+            {t("mobile.call.calling")}
+          </Text>
           <Text style={bannerStyles.incomingBody}>{outboundCall.name}</Text>
           <Pressable
             style={bannerStyles.decline}
@@ -143,7 +145,7 @@ function CallBanners() {
               setOutboundCall(null);
             }}
           >
-            <Text style={bannerStyles.btnText}>Cancel</Text>
+            <Text style={bannerStyles.btnText}>{t("mobile.call.cancel")}</Text>
           </Pressable>
         </View>
       ) : null}
@@ -166,6 +168,34 @@ function Shell({
       <CallBanners />
       {children}
     </HubProvider>
+  );
+}
+
+function StackNav() {
+  const t = useT();
+  return (
+    <Stack
+      screenOptions={{
+        headerStyle: { backgroundColor: "#0a0b0e" },
+        headerTintColor: "#e8eef7",
+        contentStyle: { backgroundColor: "#07080c" },
+      }}
+    >
+      <Stack.Screen name="index" options={{ title: "ruletka" }} />
+      <Stack.Screen name="rules" options={{ title: t("mobile.nav.rules") }} />
+      <Stack.Screen
+        name="live"
+        options={{ title: t("mobile.nav.live"), headerShown: false }}
+      />
+      <Stack.Screen
+        name="settings"
+        options={{ title: t("mobile.nav.settings") }}
+      />
+      <Stack.Screen
+        name="friends"
+        options={{ title: t("mobile.nav.friends") }}
+      />
+    </Stack>
   );
 }
 
@@ -199,27 +229,14 @@ export default function RootLayout() {
   };
 
   return (
-    <AppCtx.Provider value={value}>
-      <StatusBar style="light" />
-      <Shell identity={identity} rulesOk={rulesOk}>
-        <Stack
-          screenOptions={{
-            headerStyle: { backgroundColor: "#0a0b0e" },
-            headerTintColor: "#e8eef7",
-            contentStyle: { backgroundColor: "#07080c" },
-          }}
-        >
-          <Stack.Screen name="index" options={{ title: "ruletka" }} />
-          <Stack.Screen name="rules" options={{ title: "18+ rules" }} />
-          <Stack.Screen
-            name="live"
-            options={{ title: "Live", headerShown: false }}
-          />
-          <Stack.Screen name="settings" options={{ title: "Settings" }} />
-          <Stack.Screen name="friends" options={{ title: "Friends" }} />
-        </Stack>
-      </Shell>
-    </AppCtx.Provider>
+    <I18nProvider>
+      <AppCtx.Provider value={value}>
+        <StatusBar style="light" />
+        <Shell identity={identity} rulesOk={rulesOk}>
+          <StackNav />
+        </Shell>
+      </AppCtx.Provider>
+    </I18nProvider>
   );
 }
 
