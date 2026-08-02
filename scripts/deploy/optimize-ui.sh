@@ -66,7 +66,7 @@ before=$(du -sb "$UI" 2>/dev/null | awk '{print $1}')
 
 # Heavy critical path
 for f in live.js i18n.js webrtc.js hubs.js identity.js pwa-install.js analytics.js \
-         live-window.js invite-copy.js brand.js qr.js qrcode-generator.js home.css live-stage.css style.css; do
+         live-window.js invite-copy.js brand.js qr.js qrcode-generator.js home.css live-stage.css live-themes.css style.css; do
   path="$UI/$f"
   if [[ -f "$path" ]]; then
     case "$f" in

@@ -312,6 +312,7 @@ const THEME_FONT_HREF = {
     "https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500;600;700&family=Press+Start+2P&display=swap",
 };
 const _themeFontsLoaded = Object.create(null);
+let _themeCssLoaded = false;
 
 function ensureThemeFonts(theme) {
   const id = normalizeTheme(theme);
@@ -332,6 +333,22 @@ function ensureThemeFonts(theme) {
   } catch (_) {}
 }
 
+/** light/saloon/pink/pixel rules live in live-themes.css (deferred from first paint). */
+function ensureThemeCss(theme) {
+  const id = normalizeTheme(theme);
+  if (id === "dark" || id === "matrix") return; // base live-stage.css covers these
+  if (_themeCssLoaded) return;
+  _themeCssLoaded = true;
+  try {
+    if (document.querySelector('link[data-theme-css="1"]')) return;
+    const l = document.createElement("link");
+    l.rel = "stylesheet";
+    l.href = "live-themes.css?v=1";
+    l.setAttribute("data-theme-css", "1");
+    document.head.appendChild(l);
+  } catch (_) {}
+}
+
 function applyTheme(theme, { persist = true } = {}) {
   const id = normalizeTheme(theme);
   document.documentElement.setAttribute("data-theme", id);
@@ -339,6 +356,7 @@ function applyTheme(theme, { persist = true } = {}) {
   const meta = document.getElementById("meta-theme-color");
   if (meta) meta.setAttribute("content", THEME_META[id].color);
   applyThemeIcons(id);
+  ensureThemeCss(id);
   ensureThemeFonts(id);
   if (persist) savePrefs({ theme: id });
   syncThemeChoices();
@@ -8346,6 +8364,38 @@ function maybeShowPeopleOnlineNudge() {
 /** @type {"room"|"friend"|null} */
 let emptyShareQrMode = null;
 
+/** Lazy-load QR libs only when user opens a QR (saves ~56KB on first paint). */
+let _qrLoadPromise = null;
+function ensureRuletQr() {
+  if (typeof RuletQr !== "undefined" && typeof RuletQr.render === "function") {
+    return Promise.resolve(true);
+  }
+  if (_qrLoadPromise) return _qrLoadPromise;
+  _qrLoadPromise = new Promise((resolve) => {
+    const loadOne = (src) =>
+      new Promise((res, rej) => {
+        const s = document.createElement("script");
+        s.src = src;
+        s.async = true;
+        s.onload = () => res();
+        s.onerror = () => rej(new Error("load " + src));
+        document.head.appendChild(s);
+      });
+    loadOne("/qrcode-generator.js?v=2")
+      .then(() => loadOne("/qr.js?v=2"))
+      .then(() =>
+        resolve(
+          typeof RuletQr !== "undefined" && typeof RuletQr.render === "function"
+        )
+      )
+      .catch(() => {
+        _qrLoadPromise = null;
+        resolve(false);
+      });
+  });
+  return _qrLoadPromise;
+}
+
 function hideEmptyShareQr() {
   const qr = $("empty-share-qr");
   if (qr) {
@@ -8371,24 +8421,26 @@ function showEmptyShareQr(mode) {
   }
   const url = roomShareUrl();
   const alt = "Room QR";
-  // Local QR — no third-party image host (works offline once shell is cached)
-  if (typeof RuletQr !== "undefined" && RuletQr.render) {
-    RuletQr.render(qr, url, { size: 140, margin: 2, alt });
-  } else {
-    // Fallback if qr.js failed to load
-    const src =
-      "https://api.qrserver.com/v1/create-qr-code/?size=140x140&margin=6&data=" +
-      encodeURIComponent(url);
-    qr.innerHTML = `<img src="${src}" width="140" height="140" alt="${escapeAttr(
-      alt
-    )}" loading="lazy" />`;
-  }
   qr.hidden = false;
   emptyShareQrMode = mode;
   const btn = $("btn-empty-qr");
   if (btn) {
     btn.textContent = _t("remote.hideQr") || "Hide QR";
   }
+  // Local QR — loaded on demand (not on first paint)
+  ensureRuletQr().then((ok) => {
+    if (emptyShareQrMode !== mode || qr.hidden) return;
+    if (ok && typeof RuletQr !== "undefined" && RuletQr.render) {
+      RuletQr.render(qr, url, { size: 140, margin: 2, alt });
+    } else {
+      const src =
+        "https://api.qrserver.com/v1/create-qr-code/?size=140x140&margin=6&data=" +
+        encodeURIComponent(url);
+      qr.innerHTML = `<img src="${src}" width="140" height="140" alt="${escapeAttr(
+        alt
+      )}" loading="lazy" />`;
+    }
+  });
 }
 
 function toggleEmptyShareQr() {
@@ -18504,27 +18556,33 @@ function toggleEmptyAloneQr() {
   const url = friendInviteUrl();
   qr.hidden = false;
   qr.removeAttribute("hidden");
-  qr.innerHTML = "";
-  try {
-    if (typeof RuletQr !== "undefined" && RuletQr.render) {
-      RuletQr.render(qr, url, {
-        size: 148,
-        margin: 2,
-        alt: _t("friends.inviteQrAlt") || "Friend invite QR",
-      });
-    } else {
-      const src =
-        "https://api.qrserver.com/v1/create-qr-code/?size=148x148&margin=6&data=" +
-        encodeURIComponent(url);
-      qr.innerHTML = `<img src="${src}" width="148" height="148" alt="${escapeAttr(
-        _t("friends.inviteQrAlt") || "Friend invite QR"
-      )}" />`;
+  qr.innerHTML = `<p class="hint-inline muted">${escapeHtml(
+    _t("friends.qrLoading") || "Loading QR…"
+  )}</p>`;
+  ensureRuletQr().then((ok) => {
+    if (qr.hidden) return;
+    qr.innerHTML = "";
+    try {
+      if (ok && typeof RuletQr !== "undefined" && RuletQr.render) {
+        RuletQr.render(qr, url, {
+          size: 148,
+          margin: 2,
+          alt: _t("friends.inviteQrAlt") || "Friend invite QR",
+        });
+      } else {
+        const src =
+          "https://api.qrserver.com/v1/create-qr-code/?size=148x148&margin=6&data=" +
+          encodeURIComponent(url);
+        qr.innerHTML = `<img src="${src}" width="148" height="148" alt="${escapeAttr(
+          _t("friends.inviteQrAlt") || "Friend invite QR"
+        )}" loading="lazy" />`;
+      }
+    } catch (_) {
+      qr.innerHTML = `<p class="hint-inline mono" style="word-break:break-all">${escapeHtml(
+        url
+      )}</p>`;
     }
-  } catch (_) {
-    qr.innerHTML = `<p class="hint-inline mono" style="word-break:break-all">${escapeHtml(
-      url
-    )}</p>`;
-  }
+  });
 }
 
 function syncFriendsIdentityBanner(hasFriends, recoverableN) {
