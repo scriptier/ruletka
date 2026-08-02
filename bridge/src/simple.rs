@@ -223,6 +223,23 @@ pub struct DayMetrics {
     /// Total stars burned on gifts (cost sum).
     #[serde(default)]
     pub star_spent_total: u64,
+    /// Client growth funnel (POST /v1/funnel) — invite share/land/request/connected.
+    #[serde(default)]
+    pub funnel_invite_share: u64,
+    #[serde(default)]
+    pub funnel_invite_land: u64,
+    #[serde(default)]
+    pub funnel_invite_request: u64,
+    #[serde(default)]
+    pub funnel_invite_connected: u64,
+    #[serde(default)]
+    pub funnel_home_pack_copy: u64,
+    #[serde(default)]
+    pub funnel_home_pack_live: u64,
+    #[serde(default)]
+    pub funnel_friend_nudge_show: u64,
+    #[serde(default)]
+    pub funnel_friend_nudge_accept: u64,
 }
 
 pub struct SimpleHub {
@@ -2356,6 +2373,54 @@ impl SimpleHub {
         }
     }
 
+    /// Public growth funnel events from the UI (rate-limit at HTTP layer).
+    pub fn metrics_inc_funnel(&mut self, event: &str) -> bool {
+        self.metrics_roll_day();
+        let e = event.trim().to_ascii_lowercase().replace('-', "_");
+        match e.as_str() {
+            "funnel_invite_share" | "friend_invite_share" | "empty_alone_invite_share" => {
+                self.metrics.funnel_invite_share =
+                    self.metrics.funnel_invite_share.saturating_add(1);
+            }
+            "funnel_invite_land" | "friend_invite_deep_link" | "invite_landing_open" => {
+                self.metrics.funnel_invite_land =
+                    self.metrics.funnel_invite_land.saturating_add(1);
+            }
+            "funnel_invite_request" => {
+                self.metrics.funnel_invite_request =
+                    self.metrics.funnel_invite_request.saturating_add(1);
+            }
+            "funnel_invite_connected" => {
+                self.metrics.funnel_invite_connected =
+                    self.metrics.funnel_invite_connected.saturating_add(1);
+            }
+            "home_invite_pack_copy" => {
+                self.metrics.funnel_home_pack_copy =
+                    self.metrics.funnel_home_pack_copy.saturating_add(1);
+            }
+            "home_invite_pack_live" => {
+                self.metrics.funnel_home_pack_live =
+                    self.metrics.funnel_home_pack_live.saturating_add(1);
+            }
+            "friend_nudge_show" => {
+                self.metrics.funnel_friend_nudge_show =
+                    self.metrics.funnel_friend_nudge_show.saturating_add(1);
+            }
+            "friend_nudge_accept" => {
+                self.metrics.funnel_friend_nudge_accept =
+                    self.metrics.funnel_friend_nudge_accept.saturating_add(1);
+            }
+            _ => return false,
+        }
+        let total = self.metrics.funnel_invite_share
+            + self.metrics.funnel_invite_land
+            + self.metrics.funnel_home_pack_copy;
+        if total % 10 == 0 {
+            self.metrics_flush();
+        }
+        true
+    }
+
     fn metrics_inc_call_ring(&mut self) {
         self.metrics_roll_day();
         self.metrics.call_rings = self.metrics.call_rings.saturating_add(1);
@@ -2489,6 +2554,16 @@ impl SimpleHub {
                 "friend_calls": self.metrics.friend_calls,
                 "call_rings": self.metrics.call_rings,
                 "ring_to_call_pct": ring_to_call_pct,
+                "funnel": {
+                    "invite_share": self.metrics.funnel_invite_share,
+                    "invite_land": self.metrics.funnel_invite_land,
+                    "invite_request": self.metrics.funnel_invite_request,
+                    "invite_connected": self.metrics.funnel_invite_connected,
+                    "home_pack_copy": self.metrics.funnel_home_pack_copy,
+                    "home_pack_live": self.metrics.funnel_home_pack_live,
+                    "friend_nudge_show": self.metrics.funnel_friend_nudge_show,
+                    "friend_nudge_accept": self.metrics.funnel_friend_nudge_accept,
+                },
             },
             "stars_ledger": self.stars_ledger_snapshot(),
             "history": history,

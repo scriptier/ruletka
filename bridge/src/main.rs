@@ -303,6 +303,8 @@ struct AppState {
     mod_webhook_set: bool,
     /// Static UI root (`ui/`). Used for host-aware HTML branding.
     ui_dir: PathBuf,
+    /// Coarse global rate limit for POST /v1/funnel: (unix_minute, count).
+    funnel_rl: Arc<Mutex<(u64, u32)>>,
 }
 
 impl AppState {
@@ -507,6 +509,60 @@ async fn health_handler(State(state): State<AppState>) -> impl IntoResponse {
             "public_base": state.fed.public_base,
         }
     }))
+}
+
+/// Public growth funnel beacon (no auth). Rate-limited. Events land in DayMetrics.
+#[derive(serde::Deserialize)]
+struct FunnelBody {
+    #[serde(default)]
+    event: String,
+}
+
+async fn funnel_handler(
+    State(state): State<AppState>,
+    Json(body): Json<FunnelBody>,
+) -> impl IntoResponse {
+    let event = body.event.trim();
+    if event.is_empty() || event.len() > 64 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"ok": false, "error": "bad event"})),
+        )
+            .into_response();
+    }
+    // ~120 funnel posts per minute globally (small hub; enough for real traffic)
+    {
+        let minute = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() / 60)
+            .unwrap_or(0);
+        let mut rl = state.funnel_rl.lock().await;
+        if rl.0 != minute {
+            *rl = (minute, 0);
+        }
+        if rl.1 >= 120 {
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(serde_json::json!({"ok": false, "error": "rate limit"})),
+            )
+                .into_response();
+        }
+        rl.1 = rl.1.saturating_add(1);
+    }
+    let mut hub = state.hub.lock().await;
+    if hub.metrics_inc_funnel(event) {
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({"ok": true})),
+        )
+            .into_response()
+    } else {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"ok": false, "error": "unknown event"})),
+        )
+            .into_response()
+    }
 }
 
 async fn admin_metrics_handler(
@@ -1525,6 +1581,7 @@ async fn main() {
         admin_token,
         analytics,
         mod_webhook_set,
+        funnel_rl: Arc::new(Mutex::new((0u64, 0u32))),
         ui_dir: {
             if args.ui_dir.is_absolute() {
                 args.ui_dir.clone()
@@ -1571,6 +1628,7 @@ async fn main() {
         .route("/v1/admin/unban", post(admin_unban_handler))
         .route("/v1/admin/stars", post(admin_stars_handler))
         .route("/v1/seeder/request", post(seeder_request_handler))
+        .route("/v1/funnel", post(funnel_handler))
         .fallback(branded_ui)
         .layer(CorsLayer::permissive())
         .with_state(state);

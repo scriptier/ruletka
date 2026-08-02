@@ -526,6 +526,11 @@
           <span class="gl-value" id="gl-safety-v">—</span>
           <span class="gl-sub" id="gl-safety-s">reports · bans</span>
         </div>
+        <div class="glance-card" id="gl-funnel">
+          <span class="gl-label">Invite funnel today</span>
+          <span class="gl-value" id="gl-funnel-v" style="font-size:1rem">—</span>
+          <span class="gl-sub" id="gl-funnel-s">pack → share → land → request → connected</span>
+        </div>
       </div>
       <div class="glance-flags" id="glance-flags" aria-live="polite"></div>
       <div class="glance-north" id="glance-north" hidden>
@@ -1319,6 +1324,69 @@
         bans > 0 || reports >= 3 ? "warn" : reports === 0 ? "good" : null
       );
 
+      // Growth funnel (hub DayMetrics via POST /v1/funnel)
+      const fun =
+        (extras.funnel && typeof extras.funnel === "object" && extras.funnel) ||
+        {};
+      const pack =
+        Number(fun.home_pack_copy != null ? fun.home_pack_copy : today.funnel_home_pack_copy) ||
+        0;
+      const share =
+        Number(fun.invite_share != null ? fun.invite_share : today.funnel_invite_share) || 0;
+      const land =
+        Number(fun.invite_land != null ? fun.invite_land : today.funnel_invite_land) || 0;
+      const req =
+        Number(fun.invite_request != null ? fun.invite_request : today.funnel_invite_request) ||
+        0;
+      const conn =
+        Number(
+          fun.invite_connected != null
+            ? fun.invite_connected
+            : today.funnel_invite_connected
+        ) || 0;
+      const nudgeShow =
+        Number(
+          fun.friend_nudge_show != null
+            ? fun.friend_nudge_show
+            : today.funnel_friend_nudge_show
+        ) || 0;
+      const nudgeAcc =
+        Number(
+          fun.friend_nudge_accept != null
+            ? fun.friend_nudge_accept
+            : today.funnel_friend_nudge_accept
+        ) || 0;
+      if ($("gl-funnel-v"))
+        $("gl-funnel-v").textContent =
+          pack + " · " + share + " · " + land + " · " + req + " · " + conn;
+      if ($("gl-funnel-s"))
+        $("gl-funnel-s").textContent =
+          "pack " +
+          pack +
+          " → share " +
+          share +
+          " → land " +
+          land +
+          " → req " +
+          req +
+          " → connected " +
+          conn +
+          (nudgeShow
+            ? " · nudge " + nudgeAcc + "/" + nudgeShow
+            : "");
+      setGlanceTone(
+        "gl-funnel",
+        conn > 0 || req > 0
+          ? "good"
+          : share > 0 && land === 0
+            ? "warn"
+            : pack > 0 || share > 0
+              ? "warn"
+              : joins > 3
+                ? "bad"
+                : null
+      );
+
       // Flags / ops tips
       const flags = $("glance-flags");
       if (flags) {
@@ -1350,6 +1418,30 @@
           tips.push({
             t: "bad",
             m: "Friend funnel cold — 0 rings/calls (retention loop unused)",
+          });
+        }
+        if (share > 0 && land === 0) {
+          tips.push({
+            t: "warn",
+            m: "Invites shared but 0 lands — link not opened yet",
+          });
+        }
+        if (land > 0 && req === 0) {
+          tips.push({
+            t: "warn",
+            m: "Invite lands without friend requests",
+          });
+        }
+        if (pack > 0) {
+          tips.push({
+            t: "good",
+            m: "Homepage invite pack copied " + pack + "× today",
+          });
+        }
+        if (conn > 0) {
+          tips.push({
+            t: "good",
+            m: "Invite path connected " + conn + "× today",
           });
         }
         flags.innerHTML = tips
