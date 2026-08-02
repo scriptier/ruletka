@@ -46,6 +46,7 @@ function CallBanners() {
     toast,
     clearToast,
     connected,
+    recordNoAnswer,
   } = useHub();
 
   useEffect(() => {
@@ -53,6 +54,28 @@ function CallBanners() {
     const t = setTimeout(clearToast, 4000);
     return () => clearTimeout(t);
   }, [toast, clearToast]);
+
+  // Outbound ring timeout (30s) — matches web no-answer path
+  useEffect(() => {
+    if (!outboundCall || incomingCall) return;
+    const peer = outboundCall;
+    const t = setTimeout(() => {
+      try {
+        hub.callCancel(peer.user_id);
+      } catch {
+        /* ignore */
+      }
+      recordNoAnswer(peer);
+      setOutboundCall(null);
+    }, 30_000);
+    return () => clearTimeout(t);
+  }, [
+    outboundCall,
+    incomingCall,
+    hub,
+    recordNoAnswer,
+    setOutboundCall,
+  ]);
 
   return (
     <>

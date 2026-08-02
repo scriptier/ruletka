@@ -36,7 +36,7 @@ Push for friend rings while killed is **post-first-submit** unless schedule allo
 
 - [x] 18+ rules gate before camera
 - [x] Block + Report (hub `report_user` / `block_user`)
-- [ ] In-app safety / community links (existing legal pages)
+- [x] In-app safety / community links (existing legal pages)
 - [x] No claim that video is stored on our servers
 
 ### Strangers
@@ -57,16 +57,15 @@ Push for friend rings while killed is **post-first-submit** unless schedule allo
 - [x] Accept / decline
 - [x] Online presence (friends list)
 - [x] Call / answer / decline / cancel (in-app banners)
-- [ ] No-answer / missed call history UI
+- [x] No-answer / missed call history UI
 
 ### Stars
 
 - [x] Balance shown from `hello_ok` / spend updates
 - [x] Post-chat rate prompt (gift 1–max / skip)
 - [x] In-call spend gifts (heart → please_stay)
-- [ ] Mid-chat unlock progress UI (hub still enforces timing)
+- [x] Mid-chat ★ unlock progress bar (hub still enforces timing)
 - [x] Never import stars from profile file
-- [x] Mid-chat ★ unlock progress bar
 
 ### Account-less identity
 

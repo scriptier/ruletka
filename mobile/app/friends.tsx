@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -9,6 +9,13 @@ import {
   TextInput,
   View,
 } from "react-native";
+import {
+  clearCallHistory,
+  kindLabel,
+  loadCallHistory,
+  markMissedCallsRead,
+  type CallHistoryEntry,
+} from "../src/calls/history";
 import { hubBase } from "../src/config";
 import type { FriendInfo } from "../src/hub/types";
 import { useHub } from "../src/hub/HubProvider";
@@ -48,6 +55,20 @@ function FriendRow(props: {
   );
 }
 
+function formatWhen(t: number): string {
+  try {
+    const d = new Date(t);
+    return d.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "";
+  }
+}
+
 export default function FriendsScreen() {
   const {
     hub,
@@ -57,8 +78,15 @@ export default function FriendsScreen() {
     outgoingRequests,
     connected,
     setOutboundCall,
+    callHistoryTick,
   } = useHub();
   const [code, setCode] = useState("");
+  const [history, setHistory] = useState<CallHistoryEntry[]>([]);
+
+  useEffect(() => {
+    loadCallHistory().then(setHistory);
+    markMissedCallsRead().catch(() => {});
+  }, [callHistoryTick]);
 
   function add() {
     const c = code.trim().toUpperCase();
@@ -83,17 +111,32 @@ export default function FriendsScreen() {
     }).catch(() => {});
   }
 
-  function call(f: FriendInfo) {
+  function call(f: FriendInfo | { user_id: string; name?: string; short_id?: string }) {
     try {
       hub.callFriend(f.user_id);
-      setOutboundCall({ user_id: f.user_id, name: f.name || f.short_id });
+      setOutboundCall({
+        user_id: f.user_id,
+        name: f.name || ("short_id" in f ? f.short_id : undefined) || "Friend",
+      });
     } catch (e) {
       Alert.alert("Call failed", String(e));
     }
   }
 
-  return (
-    <View style={styles.root}>
+  function callFromHistory(h: CallHistoryEntry) {
+    const online = friends.find((f) => f.user_id === h.user_id)?.online;
+    if (!online) {
+      Alert.alert(
+        "Offline",
+        `${h.name} is not online right now. Try again when they appear.`
+      );
+      return;
+    }
+    call({ user_id: h.user_id, name: h.name });
+  }
+
+  const listHeader = (
+    <View style={styles.headerBlock}>
       <View style={styles.hero}>
         <Text style={styles.heroLabel}>Your code</Text>
         <Text style={styles.heroCode}>{friendCode || "…"}</Text>
@@ -166,12 +209,63 @@ export default function FriendsScreen() {
         </View>
       ) : null}
 
-      <Text style={styles.sectionTitle}>
-        Friends ({friends.length})
-      </Text>
+      {history.length > 0 ? (
+        <View style={styles.section}>
+          <View style={styles.sectionHead}>
+            <Text style={styles.sectionTitle}>Call history</Text>
+            <Pressable
+              onPress={() => {
+                Alert.alert("Clear history?", undefined, [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Clear",
+                    style: "destructive",
+                    onPress: async () => {
+                      await clearCallHistory();
+                      setHistory([]);
+                    },
+                  },
+                ]);
+              }}
+            >
+              <Text style={styles.clearLink}>Clear</Text>
+            </Pressable>
+          </View>
+          {history.slice(0, 12).map((h) => {
+            const online = friends.find((f) => f.user_id === h.user_id)?.online;
+            return (
+              <View key={h.id} style={styles.row}>
+                <View style={styles.rowMain}>
+                  <Text style={styles.name}>{h.name}</Text>
+                  <Text style={styles.sub}>
+                    {kindLabel(h.kind)} · {formatWhen(h.t)}
+                    {online ? " · online" : ""}
+                  </Text>
+                </View>
+                <Pressable
+                  style={online ? styles.callBtn : styles.ghostBtn}
+                  onPress={() => callFromHistory(h)}
+                >
+                  <Text style={online ? styles.btnText : styles.btnTextMuted}>
+                    Call back
+                  </Text>
+                </Pressable>
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
+
+      <Text style={styles.sectionTitle}>Friends ({friends.length})</Text>
+    </View>
+  );
+
+  return (
+    <View style={styles.root}>
       <FlatList
         data={friends}
         keyExtractor={(f) => f.user_id}
+        ListHeaderComponent={listHeader}
         ListEmptyComponent={
           <Text style={styles.empty}>
             No friends yet. Share your code or add theirs.
@@ -241,13 +335,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 12,
   },
+  headerBlock: { gap: 10, marginBottom: 4 },
   section: { gap: 6 },
+  sectionHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 8,
+  },
   sectionTitle: {
     color: "#c5d0e0",
     fontWeight: "700",
     fontSize: 14,
     marginTop: 8,
   },
+  clearLink: { color: "#9aa8bc", fontSize: 13, fontWeight: "600" },
   row: {
     flexDirection: "row",
     alignItems: "center",

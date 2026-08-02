@@ -8,6 +8,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import {
+  historyKindFromReason,
+  pushCallHistory,
+} from "../calls/history";
 import type { LocalIdentity } from "../identity/store";
 import { setHubBaseOverride } from "../config";
 import { pickHealthyHub } from "../hubs/directory";
@@ -61,6 +65,9 @@ type HubContextValue = {
   setOutboundCall: (c: OutboundCall | null) => void;
   toast: string;
   clearToast: () => void;
+  /** Bumps when local call history changes (Friends screen reloads). */
+  callHistoryTick: number;
+  recordNoAnswer: (peer: OutboundCall) => void;
 };
 
 const HubCtx = createContext<HubContextValue | null>(null);
@@ -90,10 +97,32 @@ export function HubProvider(props: {
   const [ratePrompt, setRatePrompt] = useState<RatePromptState | null>(null);
   const [lastError, setLastError] = useState("");
   const [toast, setToast] = useState("");
+  const [callHistoryTick, setCallHistoryTick] = useState(0);
+
+  const incomingRef = useRef<IncomingCall | null>(null);
+  const outboundRef = useRef<OutboundCall | null>(null);
+  incomingRef.current = incomingCall;
+  outboundRef.current = outboundCall;
 
   const clearToast = useCallback(() => setToast(""), []);
   const clearIncomingCall = useCallback(() => setIncomingCall(null), []);
   const clearRatePrompt = useCallback(() => setRatePrompt(null), []);
+
+  const bumpHistory = useCallback(() => {
+    setCallHistoryTick((n) => n + 1);
+  }, []);
+
+  const recordNoAnswer = useCallback(
+    (peer: OutboundCall) => {
+      if (!peer?.user_id) return;
+      pushCallHistory({
+        kind: "no_answer",
+        user_id: peer.user_id,
+        name: peer.name || "Friend",
+      }).then(bumpHistory);
+    },
+    [bumpHistory]
+  );
 
   const addMessageListener = useCallback((fn: (msg: ServerMsg) => void) => {
     listeners.current.add(fn);
@@ -196,13 +225,37 @@ export function HubProvider(props: {
           }
           case "call_ended": {
             const m = msg as { reason?: string };
+            const reason = m.reason || "";
+            const wasIn = incomingRef.current;
+            const wasOut = outboundRef.current;
             setIncomingCall(null);
             setOutboundCall(null);
-            if (m.reason) setToast(`Call ended · ${m.reason}`);
+            if (wasIn) {
+              const kind = historyKindFromReason(reason, "callee");
+              if (kind) {
+                pushCallHistory({
+                  kind,
+                  user_id: wasIn.from_user_id,
+                  name: wasIn.from_name || wasIn.from_short || "Friend",
+                  short_id: wasIn.from_short,
+                  friend_code: wasIn.from_code,
+                }).then(bumpHistory);
+              }
+            } else if (wasOut) {
+              const kind = historyKindFromReason(reason, "caller");
+              if (kind) {
+                pushCallHistory({
+                  kind,
+                  user_id: wasOut.user_id,
+                  name: wasOut.name || "Friend",
+                }).then(bumpHistory);
+              }
+            }
+            if (reason) setToast(`Call ended · ${reason}`);
             break;
           }
           case "matched": {
-            // Friend or stranger match — clear ring UI
+            // Friend or stranger match — clear ring UI (connected = not missed)
             setIncomingCall(null);
             setOutboundCall(null);
             break;
@@ -287,7 +340,7 @@ export function HubProvider(props: {
       closed = true;
       hub.disconnect();
     };
-  }, [identity.name, identity.user_id]);
+  }, [identity.name, identity.user_id, bumpHistory]);
 
   const value = useMemo<HubContextValue>(
     () => ({
@@ -309,6 +362,8 @@ export function HubProvider(props: {
       setOutboundCall,
       toast,
       clearToast,
+      callHistoryTick,
+      recordNoAnswer,
     }),
     [
       connected,
@@ -326,6 +381,8 @@ export function HubProvider(props: {
       clearIncomingCall,
       toast,
       clearToast,
+      callHistoryTick,
+      recordNoAnswer,
     ]
   );
 

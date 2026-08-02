@@ -3,6 +3,7 @@ import * as FileSystem from "expo-file-system";
 import { useEffect, useState } from "react";
 import {
   Alert,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -297,6 +298,34 @@ export default function SettingsScreen() {
         <Text style={styles.secondaryText}>Import backup…</Text>
       </Pressable>
 
+      <Text style={styles.section}>Safety & legal</Text>
+      <Text style={styles.hint}>
+        Open on the hub site (same policies as web). Required for store review.
+      </Text>
+      {(
+        [
+          ["Safety", "/safety.html"],
+          ["Community", "/community.html"],
+          ["Privacy", "/legal/privacy.html"],
+          ["Terms", "/legal/terms.html"],
+          ["EULA", "/legal/eula.html"],
+        ] as const
+      ).map(([label, path]) => (
+        <Pressable
+          key={path}
+          style={styles.linkRow}
+          onPress={() => {
+            const url = `${hubBase()}${path}`;
+            Linking.openURL(url).catch(() =>
+              Alert.alert("Could not open", url)
+            );
+          }}
+        >
+          <Text style={styles.linkText}>{label}</Text>
+          <Text style={styles.linkChevron}>↗</Text>
+        </Pressable>
+      ))}
+
       <Text style={styles.meta}>
         User {identity.user_id.slice(0, 12)}… · hub {hubBase()}
       </Text>
@@ -352,6 +381,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   secondaryText: { color: "#c5d0e0", fontWeight: "600" },
-  meta: { color: "#6b7a90", fontSize: 11, marginTop: 12 },
+  meta: { color: "#6b7a90", fontSize: 11, marginTop: 12, marginBottom: 24 },
   hint: { color: "#6b7a90", fontSize: 12, lineHeight: 18 },
+  linkRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+    backgroundColor: "rgba(255,255,255,0.03)",
+  },
+  linkText: { color: "#c5d0e0", fontWeight: "600", fontSize: 14 },
+  linkChevron: { color: "#6b7a90", fontSize: 14 },
 });

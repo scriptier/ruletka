@@ -27,6 +27,9 @@ See monorepo docs:
 | Hub directory failover | ✅ |
 | Mid-chat ★ progress | ✅ |
 | EAS / store checklist | ✅ `eas.json` + `docs/STORE.md` |
+| Missed / no-answer call history | ✅ Friends tab |
+| Safety / legal links | ✅ Settings |
+| 30s outbound ring timeout | ✅ |
 
 ### First A/V call (device)
 
@@ -78,10 +81,10 @@ mobile/
 
 ## Next milestones
 
-1. Wire `MediaSession` with `RTCPeerConnection` + getUserMedia  
-2. App ↔ web match with audio/video  
-3. Stranger UX polish (Phase 1)  
-4. EAS project id + internal distribution  
+1. Native device smoke: app ↔ web A/V + friend Call  
+2. `eas init` projectId + internal TestFlight / Play track  
+3. Store assets (1024 icon, screenshots, feature graphic)  
+4. Optional: i18n packs (EN/RU+), push for killed-app rings  
 
 ## License
 
