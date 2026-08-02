@@ -80,12 +80,22 @@ mobile/
   src/config.ts
 ```
 
+## i18n
+
+Packs are copied from `ui/i18n/*.json` into `src/i18n/packs/`:
+
+```bash
+./scripts/sync-i18n.sh   # after editing web strings
+```
+
+Mobile-only keys live in `src/i18n/mobile-overlay.ts` (EN + RU). Other langs use web packs and fall back to EN for `mobile.*` keys. Language: Settings → System or force EN/RU/DE/ES/…
+
 ## Next milestones
 
 1. Native device smoke: app ↔ web A/V + friend Call  
 2. `eas init` projectId + internal TestFlight / Play track  
 3. Store assets (1024 icon, screenshots, feature graphic)  
-4. Optional: i18n packs (EN/RU+), push for killed-app rings  
+4. Optional: push for killed-app rings  
 
 ## License
 
