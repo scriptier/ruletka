@@ -73,6 +73,8 @@ export ROULETTE_TURN_PASS=secret
 
 Browsers load ICE from **`GET /config.json`**.
 
+**Production (ruletka.vip):** self-hosted coturn on **3478** (not TURNS/443 — Caddy owns HTTPS). See `docs/OPS.md` § TURN / Hide IP.
+
 ## Friends, blocks, persistence
 
 - Friendships and **block list** are stored in `data/friends.json` and **survive bridge restarts**.

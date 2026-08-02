@@ -3131,6 +3131,79 @@ html.start-idle #btn-spin {
 .export-nudge-toast.is-backup-ok {
   border-color: rgba(80, 200, 140, 0.4);
 }
+
+/* Backup QR transfer modal (small encrypted exports only) */
+.backup-qr-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(1rem, env(safe-area-inset-top)) 1rem
+    max(1rem, env(safe-area-inset-bottom));
+}
+.backup-qr-modal[hidden] {
+  display: none !important;
+}
+.backup-qr-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(4px);
+}
+.backup-qr-card {
+  position: relative;
+  z-index: 1;
+  width: min(340px, calc(100vw - 1.5rem));
+  padding: 1rem 1.05rem 1.1rem;
+  border-radius: 16px;
+  background: rgba(16, 20, 30, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.backup-qr-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.backup-qr-head h3 {
+  margin: 0;
+  font-size: 1.02rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: #e8eef8;
+}
+.backup-qr-hint {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: rgba(190, 200, 215, 0.92);
+}
+.backup-qr-canvas {
+  display: flex;
+  justify-content: center;
+  padding: 0.55rem 0 0.15rem;
+}
+.backup-qr-canvas canvas,
+.backup-qr-canvas img {
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+.backup-qr-size {
+  margin: 0;
+  text-align: center;
+  font-size: 0.72rem;
+  color: rgba(160, 175, 195, 0.8);
+}
+.backup-qr-actions {
+  margin-top: 0.15rem;
+}
+
 .profile-pw-hint {
   margin: 0;
   font-size: 0.82rem;

@@ -13097,7 +13097,8 @@ function wireSettingsNav() {
     const imp = e.target?.closest?.(".btn-import-profile");
     if (!imp) return;
     e.preventDefault();
-    $("import-profile-file")?.click();
+    // Prefer clipboard backup (QR / paste transfer) when present; else file picker
+    tryImportFromClipboardOrFile();
   });
   $("import-profile-file")?.addEventListener("change", (e) => {
     const f = e.target?.files?.[0];
@@ -13766,15 +13767,190 @@ function clearImportBackupNudge() {
   } catch (_) {}
 }
 
-/** Soft toast after successful encrypted export. */
-function showBackupExportSuccessToast(encrypted) {
+/** Max payload length for optional QR transfer (reliable phone camera scan). */
+const BACKUP_QR_MAX_CHARS = 1800;
+
+/** Keep last export in memory for toast Share / QR (not written to disk). */
+let _lastBackupShare = null;
+
+function canShareBackupFile(file) {
   try {
-    if ($("backup-export-ok-toast")) return;
+    if (!navigator.share || !navigator.canShare) return false;
+    if (!file) return false;
+    return navigator.canShare({ files: [file] });
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Share a profile backup file via Web Share Level 2 (Files).
+ * Falls back to copying minified JSON when files are unsupported.
+ * @returns {Promise<"share"|"copy"|"cancel"|"fail"|"unsupported">}
+ */
+async function shareBackupFile(file, opts = {}) {
+  const title =
+    opts.title ||
+    _t("settings.exportShareTitle") ||
+    siteBrandName() + " backup";
+  const text =
+    opts.text ||
+    _t("settings.exportShareText") ||
+    "Encrypted profile backup — Import user + password on the other device. Stars stay on the hub.";
+  if (file && canShareBackupFile(file)) {
+    try {
+      await navigator.share({
+        files: [file],
+        title,
+        text,
+      });
+      setStatus(_t("settings.exportShared") || "Backup shared");
+      trackEvent("profile_export_share", { via: "files" });
+      return "share";
+    } catch (e) {
+      if (e && (e.name === "AbortError" || e.name === "NotAllowedError")) {
+        return "cancel";
+      }
+      // fall through to text share / copy
+    }
+  }
+  // Text share (no file) — some browsers only share url/text
+  if (opts.jsonText && navigator.share) {
+    try {
+      await navigator.share({ title, text: opts.jsonText });
+      setStatus(_t("settings.exportShared") || "Backup shared");
+      trackEvent("profile_export_share", { via: "text" });
+      return "share";
+    } catch (e) {
+      if (e && (e.name === "AbortError" || e.name === "NotAllowedError")) {
+        return "cancel";
+      }
+    }
+  }
+  if (opts.jsonText) {
+    const r = await copyToClipboard(opts.jsonText, "settings.exportCopied");
+    if (r === "copy") {
+      setStatus(
+        _t("settings.exportCopied") ||
+          "Backup text copied — paste into Import on the other device"
+      );
+      trackEvent("profile_export_share", { via: "copy" });
+    }
+    return r === "copy" ? "copy" : "fail";
+  }
+  return "unsupported";
+}
+
+/**
+ * QR modal for small backups — scan or copy on the other phone, then Import.
+ */
+function showBackupTransferQr(jsonText) {
+  if (!jsonText || jsonText.length > BACKUP_QR_MAX_CHARS) return;
+  let root = $("backup-qr-modal");
+  if (!root) {
+    root = document.createElement("div");
+    root.id = "backup-qr-modal";
+    root.className = "backup-qr-modal";
+    root.hidden = true;
+    root.innerHTML = `
+      <div class="backup-qr-scrim" data-bq-dismiss></div>
+      <div class="backup-qr-card" role="dialog" aria-modal="true" aria-labelledby="backup-qr-title">
+        <header class="backup-qr-head">
+          <h3 id="backup-qr-title"></h3>
+          <button type="button" class="profile-pw-close" data-bq-dismiss aria-label="Close">✕</button>
+        </header>
+        <p class="backup-qr-hint" id="backup-qr-hint"></p>
+        <div class="backup-qr-canvas" id="backup-qr-canvas"></div>
+        <p class="backup-qr-size" id="backup-qr-size"></p>
+        <div class="export-nudge-actions backup-qr-actions">
+          <button type="button" class="pill tight ghost" id="btn-backup-qr-copy"></button>
+          <button type="button" class="pill tight accent" data-bq-dismiss id="btn-backup-qr-done"></button>
+        </div>
+      </div>`;
+    document.body.appendChild(root);
+    root.addEventListener("click", (e) => {
+      if (e.target?.closest?.("[data-bq-dismiss]")) {
+        root.hidden = true;
+      }
+    });
+  }
+  const title = $("backup-qr-title");
+  const hint = $("backup-qr-hint");
+  const sizeEl = $("backup-qr-size");
+  const canvas = $("backup-qr-canvas");
+  const copyBtn = $("btn-backup-qr-copy");
+  const doneBtn = $("btn-backup-qr-done");
+  if (title) {
+    title.textContent =
+      _t("settings.exportQrTitle") || "Transfer backup via QR";
+  }
+  if (hint) {
+    hint.textContent =
+      _t("settings.exportQrHint") ||
+      "Scan with the other phone’s camera, copy the text, then Import user (clipboard). Keep the password.";
+  }
+  if (sizeEl) {
+    sizeEl.textContent =
+      (_t("settings.exportQrSize") || "{n} characters").replace(
+        "{n}",
+        String(jsonText.length)
+      );
+  }
+  if (copyBtn) {
+    copyBtn.textContent = _t("settings.exportCopyText") || "Copy text";
+    copyBtn.onclick = async () => {
+      await copyToClipboard(jsonText, "settings.exportCopied");
+      setStatus(
+        _t("settings.exportCopied") ||
+          "Backup text copied — paste into Import on the other device"
+      );
+      trackEvent("profile_export_qr_copy");
+    };
+  }
+  if (doneBtn) {
+    doneBtn.textContent = _t("friends.exportNudgeLater") || "OK";
+  }
+  if (canvas) {
+    canvas.innerHTML = "";
+    ensureRuletQr().then((ok) => {
+      if (root.hidden) return;
+      if (ok && typeof RuletQr !== "undefined" && RuletQr.render) {
+        RuletQr.render(canvas, jsonText, {
+          size: 220,
+          margin: 2,
+          alt: _t("settings.exportQrTitle") || "Backup QR",
+        });
+      } else {
+        const src =
+          "https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=4&data=" +
+          encodeURIComponent(jsonText);
+        canvas.innerHTML = `<img src="${src}" width="220" height="220" alt="QR" loading="lazy" />`;
+      }
+    });
+  }
+  root.hidden = false;
+  trackEvent("profile_export_qr_show", { n: jsonText.length });
+}
+
+/** Soft toast after successful export — Share / QR transfer for no-account migration. */
+function showBackupExportSuccessToast(encrypted, shareCtx) {
+  try {
+    const existing = $("backup-export-ok-toast");
+    if (existing) existing.remove();
     const toast = document.createElement("div");
     toast.id = "backup-export-ok-toast";
     toast.className = "export-nudge-toast is-backup-ok";
     toast.setAttribute("role", "status");
     toast.style.pointerEvents = "auto";
+    const canFile =
+      shareCtx?.file && canShareBackupFile(shareCtx.file);
+    const canQr =
+      shareCtx?.jsonText &&
+      shareCtx.jsonText.length > 0 &&
+      shareCtx.jsonText.length <= BACKUP_QR_MAX_CHARS;
+    const shareLabel =
+      _t("settings.exportShare") || "Share backup";
+    const qrLabel = _t("settings.exportShowQr") || "QR";
     toast.innerHTML = `
       <p class="export-nudge-title">${escapeHtml(
         encrypted
@@ -13786,7 +13962,21 @@ function showBackupExportSuccessToast(encrypted) {
           "No account on the server. Store the file and password safely — Import user restores friends on a new device. Stars stay on the hub."
       )}</p>
       <div class="export-nudge-actions">
-        <button type="button" class="pill tight accent" id="btn-backup-ok-dismiss">${escapeHtml(
+        ${
+          canFile || shareCtx?.jsonText
+            ? `<button type="button" class="pill tight accent" id="btn-backup-ok-share">${escapeHtml(
+                shareLabel
+              )}</button>`
+            : ""
+        }
+        ${
+          canQr
+            ? `<button type="button" class="pill tight ghost" id="btn-backup-ok-qr">${escapeHtml(
+                qrLabel
+              )}</button>`
+            : ""
+        }
+        <button type="button" class="pill tight ghost" id="btn-backup-ok-dismiss">${escapeHtml(
           _t("friends.exportNudgeLater") || "OK"
         )}</button>
       </div>`;
@@ -13795,8 +13985,24 @@ function showBackupExportSuccessToast(encrypted) {
       if (toast.parentNode) toast.remove();
     };
     $("btn-backup-ok-dismiss")?.addEventListener("click", dismiss);
-    setTimeout(dismiss, 12000);
-    trackEvent("profile_export_ok_toast", { enc: encrypted ? 1 : 0 });
+    $("btn-backup-ok-share")?.addEventListener("click", async () => {
+      trackEvent("profile_export_toast_share");
+      const r = await shareBackupFile(shareCtx?.file, {
+        jsonText: shareCtx?.jsonText,
+      });
+      if (r === "share" || r === "copy") dismiss();
+    });
+    $("btn-backup-ok-qr")?.addEventListener("click", () => {
+      trackEvent("profile_export_toast_qr");
+      dismiss();
+      showBackupTransferQr(shareCtx.jsonText);
+    });
+    setTimeout(dismiss, 16000);
+    trackEvent("profile_export_ok_toast", {
+      enc: encrypted ? 1 : 0,
+      share: canFile ? 1 : 0,
+      qr: canQr ? 1 : 0,
+    });
   } catch (_) {}
 }
 
@@ -13985,6 +14191,50 @@ function closeAllFriendMoreMenus() {
   });
 }
 
+/** True if parsed JSON looks like a plain or encrypted ruletka profile backup. */
+function looksLikeProfileBackup(obj) {
+  if (!obj || typeof obj !== "object") return false;
+  if (isEncryptedProfile(obj)) return true;
+  const fmt = String(obj.format || "");
+  if (fmt.startsWith("ruletka-profile")) return true;
+  const uid = obj.identity?.user_id || obj.user_id;
+  return !!(uid && String(uid).length >= 8);
+}
+
+/**
+ * Import from clipboard if it holds a backup; otherwise open file picker.
+ * Enables QR → scan → copy → Import and Share-text → paste flows.
+ */
+async function tryImportFromClipboardOrFile() {
+  try {
+    if (navigator.clipboard?.readText) {
+      const text = (await navigator.clipboard.readText()).trim();
+      if (text && text.length > 40 && (text[0] === "{" || text[0] === "[")) {
+        let parsed;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          parsed = null;
+        }
+        if (parsed && looksLikeProfileBackup(parsed)) {
+          const ok = confirm(
+            _t("settings.importFromClipboard") ||
+              "Clipboard has a profile backup. Import it now?"
+          );
+          if (ok) {
+            trackEvent("profile_import_clipboard", { n: text.length });
+            await importProfileParsed(parsed);
+            return;
+          }
+        }
+      }
+    }
+  } catch (_) {
+    // permission denied / insecure context — fall through to file
+  }
+  $("import-profile-file")?.click();
+}
+
 /** @returns {Promise<boolean>} true if a file was downloaded */
 async function exportProfileFile() {
   try {
@@ -14008,19 +14258,36 @@ async function exportProfileFile() {
       encrypted = true;
     }
 
-    const blob = new Blob([JSON.stringify(payload, null, 2)], {
-      type: "application/json",
-    });
-    const a = document.createElement("a");
+    // Pretty for download; compact for share/QR size
+    const pretty = JSON.stringify(payload, null, 2);
+    const compact = JSON.stringify(payload);
+    const blob = new Blob([pretty], { type: "application/json" });
     const stamp = new Date().toISOString().slice(0, 10);
-    a.href = URL.createObjectURL(blob);
-    a.download = encrypted
+    const filename = encrypted
       ? `ruletka-profile-${stamp}.enc.json`
       : `ruletka-profile-${stamp}.json`;
+    const file =
+      typeof File !== "undefined"
+        ? new File([blob], filename, { type: "application/json" })
+        : null;
+
+    // Always download a local copy first
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+
+    _lastBackupShare = {
+      file: file || blob,
+      filename,
+      jsonText: compact,
+      encrypted,
+      at: Date.now(),
+    };
+
     markExportNudgeDone();
     setStatus(
       (encrypted
@@ -14037,12 +14304,28 @@ async function exportProfileFile() {
         ? _t("settings.exportDoneEnc") || "Encrypted profile exported"
         : _t("settings.exportDone")
     );
-    // Soft success toast (retention) — no signup pitch
+
+    // Soft success toast with Share / optional QR (no signup pitch)
     try {
-      showBackupExportSuccessToast(encrypted);
+      showBackupExportSuccessToast(encrypted, _lastBackupShare);
     } catch (_) {}
+
+    // Auto-open native share when the browser supports file sharing (mobile)
     try {
-      trackEvent("profile_export", { encrypted: encrypted ? 1 : 0 });
+      if (file && canShareBackupFile(file)) {
+        // Brief delay so download + toast paint first
+        setTimeout(() => {
+          shareBackupFile(file, { jsonText: compact }).catch(() => {});
+        }, 400);
+      }
+    } catch (_) {}
+
+    try {
+      trackEvent("profile_export", {
+        encrypted: encrypted ? 1 : 0,
+        bytes: compact.length,
+        qr_ok: compact.length <= BACKUP_QR_MAX_CHARS ? 1 : 0,
+      });
     } catch (_) {}
     return true;
   } catch (e) {
@@ -14062,7 +14345,15 @@ async function importProfileFile(file) {
     setStatus(_t("settings.importBad") || "Invalid profile file");
     return;
   }
+  await importProfileParsed(raw);
+}
 
+/** Decrypt (if needed) and apply a parsed backup object. */
+async function importProfileParsed(raw) {
+  if (!raw || typeof raw !== "object") {
+    setStatus(_t("settings.importBad") || "Invalid profile file");
+    return;
+  }
   let data = raw;
   if (isEncryptedProfile(raw)) {
     // Retry loop until unlock or cancel

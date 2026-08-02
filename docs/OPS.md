@@ -13,13 +13,26 @@ Short checklist for running a public hub without full-time moderators.
 | `/opt/ruletka/data/metrics.jsonl` | Daily hub counters |
 | `/opt/ruletka/backups/` | Rotating tarballs from `backup-ruletka-data.sh` |
 | `/opt/ruletka/data/admin.env` | `ROULETTE_ADMIN_TOKEN=…` |
-| `/opt/ruletka/data/turn.env` | coturn secret |
+| `/opt/ruletka/data/turn.env` | coturn secret (`ROULETTE_TURN_SECRET`) |
 | `/opt/ruletka/data/analytics.env` | optional Metrica/GA public ids |
 | `/opt/ruletka/data/mod.env` | optional `ROULETTE_MOD_WEBHOOK_URL=…` |
 | `/opt/ruletka/data/federation_peers.json` | live claim peers (admin UI) |
 | `/opt/ruletka/data/directory_hubs.json` | client failover directory |
 
 Admin UI: `https://your-hub/admin.html` (token from `admin.env`).
+
+## TURN / Hide IP (coturn)
+
+Prod coturn listens on **`turn:ruletka.vip:3478`** (UDP/TCP) with time-limited credentials from `turn.env`. Relay ports **49160–49300**. Config: `scripts/deploy/coturn.conf` + `setup-turn.sh`.
+
+| Mode | Behavior |
+|------|----------|
+| Default WebRTC | STUN + TURN candidates (P2P preferred) |
+| **Hide my IP** | Client `iceTransportPolicy: "relay"` — media only via TURN |
+
+**TURNS (`turns:` over TLS/443)** is **not** enabled. Caddy already owns **443** for HTTPS; putting coturn TLS on the same port needs either a second IP, `stream` multiplexing, or moving HTTPS. UDP/TCP 3478 covers most networks; if a carrier blocks 3478, document workarounds rather than fighting Caddy for 443 unless we add a dedicated IP.
+
+Client A/V on relay uses matched higher jitter targets (see `webrtc.js` hide-IP path).
 
 ## Backups (friends + star ledger)
 
