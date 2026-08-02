@@ -105,12 +105,18 @@ npm run build:friends              # contingency (no stranger Start)
 
 WebRTC: `@config-plugins/react-native-webrtc` + `expo-build-properties` (minSdk 24) are wired in `app.config.js`.
 
-## Next milestones
+## Preflight
 
-1. Operator: `eas login` + `eas init` + device smoke ([`docs/DEVICE_SMOKE.md`](../docs/DEVICE_SMOKE.md))  
-2. Capture store screenshots on device  
-3. Internal track / TestFlight → production submit  
-4. Optional: push for killed-app rings  
+```bash
+npm run preflight   # tsc, assets, hub health, eas status
+```
+
+## Next milestones (operator)
+
+1. `eas login` **or** `export EXPO_TOKEN=…` — see [`docs/OPERATOR_NEXT.md`](../docs/OPERATOR_NEXT.md)  
+2. `eas init` + device smoke ([`docs/DEVICE_SMOKE.md`](../docs/DEVICE_SMOKE.md))  
+3. Store screenshots → internal track → production submit  
+4. Optional: `expo-notifications` + `ROULETTE_PUSH_WEBHOOK_URL` for OS rings  
 
 ## License
 

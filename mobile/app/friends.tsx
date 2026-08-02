@@ -45,15 +45,17 @@ function FriendRow(props: {
           {item.stars ? ` · ★${item.stars}` : ""}
         </Text>
       </View>
-      {item.online ? (
-        <Pressable style={styles.callBtn} onPress={onCall}>
-          <Text style={styles.btnText}>{t("friends.call")}</Text>
-        </Pressable>
-      ) : (
-        <Pressable style={styles.ghostBtn} onPress={onRemove}>
-          <Text style={styles.btnTextMuted}>{t("mobile.friends.removeBtn")}</Text>
-        </Pressable>
-      )}
+      <Pressable
+        style={item.online ? styles.callBtn : styles.ghostBtn}
+        onPress={onCall}
+      >
+        <Text style={item.online ? styles.btnText : styles.btnTextMuted}>
+          {item.online ? t("friends.call") : t("mobile.history.ringAnyway")}
+        </Text>
+      </Pressable>
+      <Pressable style={styles.ghostBtn} onPress={onRemove}>
+        <Text style={styles.btnTextMuted}>{t("mobile.friends.removeBtn")}</Text>
+      </Pressable>
     </View>
   );
 }

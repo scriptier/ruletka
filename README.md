@@ -15,7 +15,7 @@
 |------|--|
 | **Self-host (Docker / VPS)** | [`docs/SELF_HOST.md`](docs/SELF_HOST.md) |
 | Island helpers (PC double-click) | [`docs/HELPERS.md`](docs/HELPERS.md) |
-| Mobile App Store / Play | [`docs/MOBILE.md`](docs/MOBILE.md) · [`docs/STORE.md`](docs/STORE.md) |
+| Mobile App Store / Play | [`docs/MOBILE.md`](docs/MOBILE.md) · [`docs/STORE.md`](docs/STORE.md) · [`docs/OPERATOR_NEXT.md`](docs/OPERATOR_NEXT.md) |
 | Signaling protocol | [`docs/PROTOCOL.md`](docs/PROTOCOL.md) |
 | Hub directory policy | [`docs/HUB_DIRECTORY.md`](docs/HUB_DIRECTORY.md) |
 | Architecture | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
@@ -39,7 +39,7 @@
 | Federation between operators | `nextface-fed/1` allowlisted peers |
 | Docker self-host | `Dockerfile` + `docker-compose.yml` |
 | Island helpers (double-click) | `ui/download/ruletka-helper-*.zip` — see `/contribute.html` |
-| Mobile (Expo / stores) | `mobile/` — see [`docs/MOBILE.md`](docs/MOBILE.md) |
+| Mobile (Expo / stores) | `mobile/` — full v1 client; store handoff [`docs/OPERATOR_NEXT.md`](docs/OPERATOR_NEXT.md) |
 | Freenet contracts (research) | `contracts/`, `agent/` |
 
 ## Quick start

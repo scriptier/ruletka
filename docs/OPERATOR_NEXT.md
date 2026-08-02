@@ -4,11 +4,13 @@ Code for **web + mobile** is on `main` and the hub is deployed. Remaining work n
 
 ## 0. Machine
 
-- Node **20+** (this repo now has nvm Node 20 available: `source ~/.nvm/nvm.sh && nvm use 20`)
+- Node **20+** (`source ~/.nvm/nvm.sh && nvm use 20` if you use nvm)
 - Xcode (iOS) and/or Android Studio
 - Expo account: https://expo.dev/signup
 
 ## 1. EAS project + first native build
+
+### Interactive login (normal)
 
 ```bash
 source ~/.nvm/nvm.sh && nvm use 20
@@ -21,6 +23,22 @@ npm run preflight         # should show projectId OK
 npx eas build --profile development --platform android
 # install APK → work through docs/DEVICE_SMOKE.md
 ```
+
+### Non-interactive (CI / agent) via access token
+
+1. Expo dashboard → **Access tokens** → create token with build rights  
+2. Export and run (token is a secret — never commit):
+
+```bash
+export EXPO_TOKEN=xxxxxxxx   # or EAS_ACCESS_TOKEN
+cd mobile
+npx eas-cli whoami           # should print your account
+npx eas init --id <project-uuid>   # if project already created on expo.dev
+# or: npx eas init             # may still need one interactive confirm
+npx eas build --profile development --platform android --non-interactive
+```
+
+Agents/automation **cannot** complete `eas login` without `EXPO_TOKEN`.
 
 ## 2. App Links (after first signing cert)
 
