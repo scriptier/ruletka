@@ -3039,17 +3039,29 @@ function triggerGiftImpact(overlay, kind, opts = {}) {
     }
   }
 
-  // Extra spark bursts for fireworks combo + canvas cinematic
+  // Premium fireworks — multi-wave canvas cinematic (TikTok-tier without Lottie)
   if (k === "fireworks") {
     try {
-      playFireworksCanvasBurst(overlay, { mega: mega || combo >= 2, combo });
+      playFireworksCanvasBurst(overlay, {
+        mega: mega || combo >= 2,
+        combo,
+        waves: mega ? 3 : combo >= 2 ? 2 : 1,
+      });
     } catch (_) {}
-    if (combo >= 2) {
-      overlay.classList.remove("fx-fw-combo-pop");
-      void overlay.offsetWidth;
-      overlay.classList.add("fx-fw-combo-pop");
-      setTimeout(() => overlay.classList.remove("fx-fw-combo-pop"), 1200);
-    }
+    overlay.classList.remove("fx-fw-combo-pop", "fx-fw-mega-flash");
+    void overlay.offsetWidth;
+    overlay.classList.add("fx-fw-combo-pop");
+    if (mega || combo >= 3) overlay.classList.add("fx-fw-mega-flash");
+    setTimeout(
+      () => overlay.classList.remove("fx-fw-combo-pop", "fx-fw-mega-flash"),
+      mega ? 1800 : 1200
+    );
+  }
+  // Confetti also gets a short canvas glitter wave
+  if (k === "confetti" && (combo >= 2 || mega)) {
+    try {
+      playConfettiCanvasBurst(overlay, { mega, combo });
+    } catch (_) {}
   }
 }
 
@@ -3165,41 +3177,43 @@ function ensureHeartsFx(overlay) {
 function ensureFireworks(overlay) {
   const layer = overlay?.querySelector?.(".fx-fireworks-layer");
   if (!layer) return;
-  if (layer.dataset.ready === "fw-v3") return;
+  if (layer.dataset.ready === "fw-v4") return;
   const colors = [
     "#ff5a7a", "#ffd14a", "#5ad48a", "#4db7ff", "#a78bfa",
-    "#ff8a3d", "#fff", "#ff6bcb", "#fde68a",
+    "#ff8a3d", "#fff", "#ff6bcb", "#fde68a", "#fbbf24",
   ];
   let html = "";
-  for (let b = 0; b < 11; b++) {
-    const cx = 8 + ((b * 23 + (b % 3) * 11) % 84);
-    const cy = 14 + ((b * 19) % 58);
-    const delay = (b * 0.42).toFixed(2);
-    const scale = (0.85 + (b % 4) * 0.2).toFixed(2);
+  for (let b = 0; b < 14; b++) {
+    const cx = 6 + ((b * 21 + (b % 4) * 9) % 88);
+    const cy = 10 + ((b * 17) % 62);
+    const delay = (b * 0.32).toFixed(2);
+    const scale = (0.9 + (b % 5) * 0.18).toFixed(2);
     html += `<span class="fx-fw-burst" style="--cx:${cx}%;--cy:${cy}%;--delay:${delay}s;--bscale:${scale}" aria-hidden="true">`;
-    const sparks = 18 + (b % 3) * 4;
+    const sparks = 22 + (b % 4) * 4;
     for (let p = 0; p < sparks; p++) {
-      const ang = (p / sparks) * 360 + (b % 2) * 8;
+      const ang = (p / sparks) * 360 + (b % 2) * 6;
       const col = colors[(b + p) % colors.length];
-      const dist = 48 + (p % 5) * 10;
+      const dist = 52 + (p % 6) * 11;
       html += `<span class="fx-fw-spark" style="--ang:${ang}deg;--color:${col};--dist:${dist}px"></span>`;
     }
     html += `<span class="fx-fw-core" style="--color:${colors[b % colors.length]}"></span>`;
     html += `</span>`;
   }
   html += `<span class="fx-fw-emoji" style="--left:50%;--delay:0.05s" aria-hidden="true">🎆</span>`;
-  html += `<span class="fx-fw-emoji" style="--left:22%;--delay:0.75s" aria-hidden="true">✨</span>`;
-  html += `<span class="fx-fw-emoji" style="--left:78%;--delay:1.2s" aria-hidden="true">🎇</span>`;
-  html += `<span class="fx-fw-emoji" style="--left:40%;--delay:1.85s" aria-hidden="true">💥</span>`;
+  html += `<span class="fx-fw-emoji" style="--left:18%;--delay:0.55s" aria-hidden="true">✨</span>`;
+  html += `<span class="fx-fw-emoji" style="--left:82%;--delay:0.95s" aria-hidden="true">🎇</span>`;
+  html += `<span class="fx-fw-emoji" style="--left:36%;--delay:1.35s" aria-hidden="true">💥</span>`;
+  html += `<span class="fx-fw-emoji" style="--left:64%;--delay:1.7s" aria-hidden="true">🌟</span>`;
   html += `<canvas class="fx-fw-canvas" aria-hidden="true"></canvas>`;
   layer.innerHTML = html;
-  layer.dataset.ready = "fw-v3";
+  layer.dataset.ready = "fw-v4";
 }
 
 /**
- * One-shot canvas fireworks burst (no external assets).
+ * Multi-wave canvas fireworks: rockets rise → shell burst → gold rain.
+ * No external Lottie/WebM — pure canvas for low asset cost.
  * @param {HTMLElement} overlay
- * @param {{ mega?: boolean, combo?: number }} [opts]
+ * @param {{ mega?: boolean, combo?: number, waves?: number }} [opts]
  */
 function playFireworksCanvasBurst(overlay, opts = {}) {
   if (!overlay) return;
@@ -3218,84 +3232,188 @@ function playFireworksCanvasBurst(overlay, opts = {}) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const mega = !!opts.mega || (Number(opts.combo) || 1) >= 2;
+  const combo = Math.max(1, Number(opts.combo) || 1);
+  const mega = !!opts.mega || combo >= 2;
+  const waves = Math.max(1, Math.min(4, Number(opts.waves) || (mega ? 2 : 1)));
   const colors = [
     "#ff5a7a", "#ffd14a", "#5ad48a", "#4db7ff", "#a78bfa",
     "#ff8a3d", "#ffffff", "#ff6bcb", "#fde68a", "#60a5fa",
+    "#fbbf24", "#fb7185",
   ];
+  /** @type {Array<object>} */
   const particles = [];
-  const bursts = mega ? 5 : 3;
-  for (let b = 0; b < bursts; b++) {
-    const cx = w * (0.18 + Math.random() * 0.64);
-    const cy = h * (0.18 + Math.random() * 0.45);
-    const n = mega ? 42 + (b % 3) * 10 : 28 + (b % 3) * 8;
-    const col = colors[(b * 3) % colors.length];
+
+  function spawnShell(cx, cy, col, n, power) {
     for (let i = 0; i < n; i++) {
-      const ang = (Math.PI * 2 * i) / n + Math.random() * 0.2;
-      const spd = (mega ? 2.2 : 1.6) + Math.random() * (mega ? 3.8 : 2.8);
+      const ang = (Math.PI * 2 * i) / n + Math.random() * 0.25;
+      const spd = power * (0.75 + Math.random() * 0.9);
       particles.push({
         x: cx,
         y: cy,
         vx: Math.cos(ang) * spd,
         vy: Math.sin(ang) * spd,
         life: 1,
-        decay: 0.012 + Math.random() * 0.018,
-        r: 1.2 + Math.random() * 2.4,
-        col: Math.random() > 0.85 ? "#fff" : col,
-        trail: Math.random() > 0.55,
+        decay: 0.01 + Math.random() * 0.016,
+        r: 1.1 + Math.random() * 2.6,
+        col: Math.random() > 0.82 ? "#fff" : col,
+        trail: Math.random() > 0.4,
+        kind: "spark",
       });
     }
-    // bright core flash
+    // white core
     particles.push({
       x: cx,
       y: cy,
       vx: 0,
       vy: 0,
       life: 1,
-      decay: 0.04,
-      r: mega ? 10 : 7,
+      decay: 0.05,
+      r: mega ? 14 : 9,
       col: "#fff",
       trail: false,
-      core: true,
+      kind: "core",
+    });
+    // gold rain
+    const rain = mega ? 18 : 10;
+    for (let i = 0; i < rain; i++) {
+      particles.push({
+        x: cx + (Math.random() - 0.5) * 20,
+        y: cy,
+        vx: (Math.random() - 0.5) * 0.8,
+        vy: 0.4 + Math.random() * 1.2,
+        life: 1,
+        decay: 0.008 + Math.random() * 0.01,
+        r: 0.8 + Math.random() * 1.4,
+        col: Math.random() > 0.5 ? "#fde68a" : "#ffd14a",
+        trail: true,
+        kind: "rain",
+      });
+    }
+  }
+
+  function launchRocket(delayMs, targetX, targetY, col) {
+    const x0 = targetX + (Math.random() - 0.5) * w * 0.08;
+    const y0 = h + 8;
+    particles.push({
+      x: x0,
+      y: y0,
+      vx: (targetX - x0) * 0.012,
+      vy: -(2.8 + Math.random() * 1.4) * (mega ? 1.15 : 1),
+      life: 1,
+      decay: 0.004,
+      r: 2.2,
+      col: "#fff7cc",
+      trail: true,
+      kind: "rocket",
+      explodeAt: performance.now() + delayMs + 280 + Math.random() * 180,
+      shellCol: col,
+      shellN: mega ? 48 + Math.floor(Math.random() * 16) : 32 + Math.floor(Math.random() * 12),
+      shellPower: mega ? 3.6 : 2.6,
+      tx: targetX,
+      ty: targetY,
     });
   }
+
+  // Schedule waves of rockets
+  const shellsPerWave = mega ? 4 : 3;
+  for (let wave = 0; wave < waves; wave++) {
+    for (let s = 0; s < shellsPerWave; s++) {
+      const cx = w * (0.14 + Math.random() * 0.72);
+      const cy = h * (0.12 + Math.random() * 0.42);
+      const col = colors[(wave * 3 + s * 2) % colors.length];
+      launchRocket(wave * 380 + s * 90, cx, cy, col);
+    }
+  }
+
   let raf = 0;
   const t0 = performance.now();
-  const maxMs = mega ? 1600 : 1200;
+  const maxMs = mega ? 2400 + (waves - 1) * 350 : 1600 + (waves - 1) * 280;
+  const flash = { a: mega ? 0.55 : 0.35 };
+
   const tick = (now) => {
     const elapsed = now - t0;
     ctx.clearRect(0, 0, w, h);
-    // soft vignette glow
-    const g = ctx.createRadialGradient(w / 2, h * 0.4, 10, w / 2, h * 0.4, w * 0.55);
-    g.addColorStop(0, "rgba(255,180,60,0.08)");
-    g.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, w, h);
+
+    // Ambient warm glow + initial flash
+    if (flash.a > 0.01) {
+      ctx.globalAlpha = flash.a;
+      const fg = ctx.createRadialGradient(w / 2, h * 0.35, 4, w / 2, h * 0.35, w * 0.7);
+      fg.addColorStop(0, "rgba(255,230,160,0.9)");
+      fg.addColorStop(0.45, "rgba(255,120,60,0.25)");
+      fg.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = fg;
+      ctx.fillRect(0, 0, w, h);
+      flash.a *= 0.9;
+      ctx.globalAlpha = 1;
+    }
+
     let alive = 0;
     for (const p of particles) {
       if (p.life <= 0) continue;
+
+      // Rocket reaches apex → explode into shell
+      if (p.kind === "rocket" && (now >= p.explodeAt || p.y <= p.ty)) {
+        spawnShell(p.x, p.y, p.shellCol, p.shellN, p.shellPower);
+        flash.a = Math.max(flash.a, mega ? 0.4 : 0.22);
+        p.life = 0;
+        continue;
+      }
+
       alive++;
       p.x += p.vx;
       p.y += p.vy;
-      p.vy += 0.035; // gravity
-      p.vx *= 0.99;
+      if (p.kind === "rocket") {
+        p.vy += 0.012;
+        // smoke puffs
+        if (Math.random() > 0.55) {
+          particles.push({
+            x: p.x + (Math.random() - 0.5) * 3,
+            y: p.y + 4,
+            vx: (Math.random() - 0.5) * 0.3,
+            vy: 0.4,
+            life: 0.55,
+            decay: 0.04,
+            r: 1.5 + Math.random(),
+            col: "rgba(255,220,160,0.5)",
+            trail: false,
+            kind: "smoke",
+          });
+        }
+      } else if (p.kind === "rain") {
+        p.vy += 0.06;
+        p.vx *= 0.985;
+      } else if (p.kind !== "core" && p.kind !== "smoke") {
+        p.vy += 0.038;
+        p.vx *= 0.988;
+      }
       p.life -= p.decay;
-      ctx.globalAlpha = Math.max(0, p.life);
+      if (p.life <= 0) continue;
+
+      ctx.globalAlpha = Math.max(0, Math.min(1, p.life));
       if (p.trail) {
         ctx.strokeStyle = p.col;
-        ctx.lineWidth = Math.max(0.6, p.r * 0.45);
+        ctx.lineWidth = Math.max(0.5, p.r * (p.kind === "rocket" ? 0.9 : 0.4));
+        ctx.lineCap = "round";
         ctx.beginPath();
-        ctx.moveTo(p.x - p.vx * 2.2, p.y - p.vy * 2.2);
+        const tl = p.kind === "rocket" ? 5 : 2.4;
+        ctx.moveTo(p.x - p.vx * tl, p.y - p.vy * tl);
         ctx.lineTo(p.x, p.y);
         ctx.stroke();
       }
       ctx.fillStyle = p.col;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, p.core ? p.r * p.life : p.r, 0, Math.PI * 2);
+      const rr = p.kind === "core" ? p.r * p.life : p.r * (0.6 + 0.4 * p.life);
+      ctx.arc(p.x, p.y, Math.max(0.4, rr), 0, Math.PI * 2);
       ctx.fill();
     }
+    // prune dead occasionally to keep array small
+    if (particles.length > 900) {
+      for (let i = particles.length - 1; i >= 0; i--) {
+        if (particles[i].life <= 0) particles.splice(i, 1);
+      }
+    }
     ctx.globalAlpha = 1;
-    if (alive > 0 && elapsed < maxMs) {
+    if ((alive > 0 || flash.a > 0.02) && elapsed < maxMs) {
       raf = requestAnimationFrame(tick);
     } else {
       ctx.clearRect(0, 0, w, h);
@@ -3304,6 +3422,86 @@ function playFireworksCanvasBurst(overlay, opts = {}) {
   };
   cancelAnimationFrame(canvas._fwRaf || 0);
   canvas._fwRaf = requestAnimationFrame(tick);
+  try {
+    trackEvent("gift_fx_fireworks", { mega: mega ? 1 : 0, combo, waves });
+  } catch (_) {}
+}
+
+/**
+ * Short confetti glitter on canvas for combo confetti gifts.
+ * @param {HTMLElement} overlay
+ * @param {{ mega?: boolean, combo?: number }} [opts]
+ */
+function playConfettiCanvasBurst(overlay, opts = {}) {
+  if (!overlay) return;
+  ensureConfetti(overlay);
+  const layer = overlay.querySelector(".fx-confetti-layer");
+  if (!layer) return;
+  let canvas = layer.querySelector(".fx-confetti-canvas");
+  if (!canvas) {
+    canvas = document.createElement("canvas");
+    canvas.className = "fx-confetti-canvas";
+    canvas.setAttribute("aria-hidden", "true");
+    layer.appendChild(canvas);
+  }
+  const rect = overlay.getBoundingClientRect();
+  const w = Math.max(100, Math.floor(rect.width) || 280);
+  const h = Math.max(100, Math.floor(rect.height) || 280);
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = Math.floor(w * dpr);
+  canvas.height = Math.floor(h * dpr);
+  canvas.style.cssText = "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5";
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const mega = !!opts.mega;
+  const colors = ["#ff5a7a", "#ffd14a", "#5ad48a", "#4db7ff", "#a78bfa", "#fff", "#f472b6"];
+  const bits = [];
+  const n = mega ? 80 : 55;
+  for (let i = 0; i < n; i++) {
+    bits.push({
+      x: Math.random() * w,
+      y: -10 - Math.random() * h * 0.3,
+      vx: (Math.random() - 0.5) * 3,
+      vy: 1.5 + Math.random() * 3.5,
+      rot: Math.random() * Math.PI,
+      vr: (Math.random() - 0.5) * 0.25,
+      w: 4 + Math.random() * 7,
+      h: 3 + Math.random() * 5,
+      col: colors[i % colors.length],
+      life: 1,
+      decay: 0.008 + Math.random() * 0.01,
+    });
+  }
+  const t0 = performance.now();
+  const tick = (now) => {
+    ctx.clearRect(0, 0, w, h);
+    let alive = 0;
+    for (const b of bits) {
+      if (b.life <= 0) continue;
+      alive++;
+      b.x += b.vx;
+      b.y += b.vy;
+      b.vy += 0.04;
+      b.rot += b.vr;
+      b.life -= b.decay;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, b.life);
+      ctx.translate(b.x, b.y);
+      ctx.rotate(b.rot);
+      ctx.fillStyle = b.col;
+      ctx.fillRect(-b.w / 2, -b.h / 2, b.w, b.h);
+      ctx.restore();
+    }
+    if (alive > 0 && now - t0 < 1400) {
+      canvas._cfRaf = requestAnimationFrame(tick);
+    } else {
+      ctx.clearRect(0, 0, w, h);
+      cancelAnimationFrame(canvas._cfRaf || 0);
+    }
+  };
+  cancelAnimationFrame(canvas._cfRaf || 0);
+  canvas._cfRaf = requestAnimationFrame(tick);
 }
 
 /** Falling confetti with tumble — denser burst. */
@@ -3350,6 +3548,7 @@ function playGiftCelebrate(kind, combo = 1) {
   const el = $("gift-celebrate");
   if (!el) return;
   const n = Math.max(1, Math.min(99, Number(combo) || 1));
+  const mega = kind === "fireworks" || n >= 3;
   const icon =
     kind === "flowers"
       ? "🌸"
@@ -3385,18 +3584,29 @@ function playGiftCelebrate(kind, combo = 1) {
   const xLabel = n >= 5 ? "MAX" : `×${n}`;
   el.innerHTML = `<span class="gift-celebrate-ico">${icon}</span><span class="gift-celebrate-name">${name}</span><span class="gift-celebrate-x${
     n >= 2 ? " is-hot" : ""
-  }">${xLabel}</span>`;
+  }${mega ? " is-mega" : ""}">${xLabel}</span>`;
   el.hidden = false;
   el.removeAttribute("hidden");
-  el.classList.remove("is-pop", "is-combo");
+  el.classList.remove("is-pop", "is-combo", "is-mega-gift");
   el.classList.toggle("is-combo", n >= 2);
+  el.classList.toggle("is-mega-gift", mega);
   void el.offsetWidth;
   el.classList.add("is-pop");
+  // Full-viewport flash for premium fireworks receive
+  if (kind === "fireworks") {
+    try {
+      document.documentElement.classList.add("gift-fw-flash");
+      setTimeout(
+        () => document.documentElement.classList.remove("gift-fw-flash"),
+        mega ? 900 : 600
+      );
+    } catch (_) {}
+  }
   setTimeout(() => {
-    el.classList.remove("is-pop", "is-combo");
+    el.classList.remove("is-pop", "is-combo", "is-mega-gift");
     el.hidden = true;
     el.setAttribute("hidden", "");
-  }, n >= 2 ? 1850 : 1650);
+  }, mega ? 2200 : n >= 2 ? 1850 : 1650);
 }
 
 /** Short WebAudio “whoosh / pop” — no external files. */
@@ -3416,7 +3626,7 @@ function playGiftSound(kind) {
           : kind === "confetti"
             ? [880, 1100, 1320, 990, 1480]
             : kind === "fireworks"
-              ? [220, 440, 880, 1320, 1760]
+              ? [90, 160, 320, 640, 980, 1400, 1800]
               : kind === "heart"
                 ? [520, 660, 784, 988]
                 : kind === "please_stay"
