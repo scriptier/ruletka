@@ -12,7 +12,8 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { hubBase } from "../src/config";
+import Constants from "expo-constants";
+import { hubBase, isFriendsOnly } from "../src/config";
 import { useHub } from "../src/hub/HubProvider";
 import {
   LANG_LABELS,
@@ -392,11 +393,28 @@ export default function SettingsScreen() {
         </Pressable>
       ))}
 
+      <Text style={styles.section}>{t("mobile.settings.about")}</Text>
       <Text style={styles.meta}>
         {t("mobile.settings.userMeta", {
           id: identity.user_id.slice(0, 12),
           hub: hubBase(),
         })}
+        {"\n"}
+        v{Constants.expoConfig?.version || "0.1.0"}
+        {Constants.expoConfig?.ios?.buildNumber
+          ? ` · ios ${Constants.expoConfig.ios.buildNumber}`
+          : ""}
+        {Constants.expoConfig?.android?.versionCode
+          ? ` · android ${Constants.expoConfig.android.versionCode}`
+          : ""}
+        {isFriendsOnly() ? " · friends-only" : ""}
+        {connected ? " · hub online" : " · hub offline"}
+        {"\n"}
+        projectId:{" "}
+        {String(
+          (Constants.expoConfig?.extra as { eas?: { projectId?: string } })
+            ?.eas?.projectId || "not set — run eas init"
+        )}
       </Text>
     </ScrollView>
   );

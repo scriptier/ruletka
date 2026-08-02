@@ -327,11 +327,33 @@ export function HubProvider(props: {
             } else if (m.message) setToast(m.message);
             break;
           }
+          case "push_registered": {
+            const m = msg as { ok?: boolean; message?: string };
+            if (m.ok) {
+              setToast(
+                m.message === "cleared"
+                  ? "Call alerts cleared"
+                  : "Call alerts registered on hub"
+              );
+            } else if (m.message) {
+              setToast(m.message);
+            }
+            break;
+          }
           case "error": {
             const m = msg as { message?: string };
             if (m.message) {
               setLastError(m.message);
               setToast(m.message);
+              // Stop "Calling…" UI when friend is offline / busy / notified
+              const low = m.message.toLowerCase();
+              if (
+                low.includes("offline") ||
+                low.includes("busy") ||
+                low.includes("notification")
+              ) {
+                setOutboundCall(null);
+              }
             }
             break;
           }

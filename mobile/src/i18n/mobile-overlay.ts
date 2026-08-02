@@ -60,6 +60,9 @@ export const MOBILE_EN: Overlay = {
   "mobile.history.offline": "Offline",
   "mobile.history.offlineBody":
     "{name} is not online right now. Try again when they appear.",
+  "mobile.history.offlineRingHint":
+    "{name} is offline. Ring anyway? If they registered call alerts, the hub can notify them.",
+  "mobile.history.ringAnyway": "Ring anyway",
   "mobile.history.kind.missed": "Missed call",
   "mobile.history.kind.no_answer": "No answer",
   "mobile.history.kind.declined": "Declined",
@@ -94,6 +97,7 @@ export const MOBILE_EN: Overlay = {
   "mobile.settings.importPw": "Import password if encrypted",
   "mobile.settings.exportBtn": "Export backup…",
   "mobile.settings.importBtn": "Import backup…",
+  "mobile.settings.about": "About",
   "mobile.settings.legal": "Safety & legal",
   "mobile.settings.legalHint":
     "Open on the hub site (same policies as web). Required for store review.",
@@ -182,6 +186,9 @@ export const MOBILE_RU: Overlay = {
   "mobile.history.offline": "Не в сети",
   "mobile.history.offlineBody":
     "{name} сейчас не в сети. Попробуйте, когда появится.",
+  "mobile.history.offlineRingHint":
+    "{name} офлайн. Всё равно позвонить? Если есть push — хаб уведомит.",
+  "mobile.history.ringAnyway": "Всё равно",
   "mobile.history.kind.missed": "Пропущенный",
   "mobile.history.kind.no_answer": "Нет ответа",
   "mobile.history.kind.declined": "Отклонён",
@@ -216,6 +223,7 @@ export const MOBILE_RU: Overlay = {
   "mobile.settings.importPw": "Пароль импорта, если шифр.",
   "mobile.settings.exportBtn": "Экспорт…",
   "mobile.settings.importBtn": "Импорт…",
+  "mobile.settings.about": "О приложении",
   "mobile.settings.legal": "Безопасность и право",
   "mobile.settings.legalHint":
     "Страницы хаба (как на сайте). Нужны для сторов.",

@@ -14,8 +14,10 @@ Code for **web + mobile** is on `main` and the hub is deployed. Remaining work n
 source ~/.nvm/nvm.sh && nvm use 20
 cd mobile
 npm install
+npm run preflight         # tsc, assets, hub, eas login status
 npx eas-cli login          # interactive browser/device
 npx eas init              # writes projectId into app.json
+npm run preflight         # should show projectId OK
 npx eas build --profile development --platform android
 # install APK → work through docs/DEVICE_SMOKE.md
 ```

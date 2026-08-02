@@ -136,9 +136,17 @@ export default function FriendsScreen() {
   function callFromHistory(h: CallHistoryEntry) {
     const online = friends.find((f) => f.user_id === h.user_id)?.online;
     if (!online) {
+      // Still try — hub may deliver offline ring via push token
       Alert.alert(
         t("mobile.history.offline"),
-        t("mobile.history.offlineBody", { name: h.name })
+        t("mobile.history.offlineRingHint", { name: h.name }),
+        [
+          { text: t("mobile.common.cancel"), style: "cancel" },
+          {
+            text: t("mobile.history.ringAnyway"),
+            onPress: () => call({ user_id: h.user_id, name: h.name }),
+          },
+        ]
       );
       return;
     }
