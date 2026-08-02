@@ -6980,13 +6980,17 @@ function siteBrandName() {
 async function shareOrCopy(url, title, okShareKey, okCopyKey, opts) {
   const preferShare = !opts || opts.preferShare !== false;
   const brand = siteBrandName();
+  const text = (opts && opts.text) || title || url;
+  const copyPayload =
+    (opts && opts.copyText) ||
+    (text && url && text.indexOf(url) === -1 ? text + "\n" + url : text || url);
   if (preferShare) {
     try {
       if (navigator.share) {
         await navigator.share({
           title: title || brand,
           url,
-          text: title || url,
+          text: text || title || url,
         });
         setStatus(_t(okShareKey || "room.shared"));
         log(_t(okShareKey || "room.shared") + ": " + url);
@@ -6998,7 +7002,7 @@ async function shareOrCopy(url, title, okShareKey, okCopyKey, opts) {
         return "cancel";
     }
   }
-  const r = await copyToClipboard(url, okCopyKey);
+  const r = await copyToClipboard(copyPayload, okCopyKey);
   trackEvent("share", { via: "copy", key: okCopyKey || "room.copied" });
   return r;
 }
@@ -18401,21 +18405,53 @@ async function shareFriendInvite({ preferShare = true, liveNow = false } = {}) {
   const url = friendInviteUrl();
   const brand = siteBrandName();
   const code = myFriendCode;
+  const isLive = !!(liveNow || inQueue || wantSearch || matched);
   let title =
     _t("friends.inviteLiveTitle", { code, brand }) ||
     `${brand} · my code ${code}`;
-  if (liveNow || inQueue || wantSearch || matched) {
+  if (isLive) {
     title =
       _t("friends.inviteLiveNow", { code, brand }) ||
       `I'm on ${brand} live now — add me with code ${code} then Call when Online`;
   }
+  // Full paste pack (Telegram-friendly) via shared invite-copy helper
+  let packText = title;
+  let shareLine = title;
+  try {
+    if (typeof RuletInviteCopy !== "undefined" && RuletInviteCopy.buildPack) {
+      const t = (k, fb) => {
+        const v = _t(k);
+        return v && v !== k ? v : fb;
+      };
+      const pack = RuletInviteCopy.buildPack({
+        brand,
+        url,
+        code,
+        liveNow: isLive,
+        t,
+      });
+      packText = pack.full || pack.body || title;
+      shareLine =
+        RuletInviteCopy.buildShareLine({
+          brand,
+          url,
+          code,
+          liveNow: isLive,
+          t,
+        }) || title;
+      title = pack.title || title;
+    }
+  } catch (_) {}
   trackEvent("friend_invite_share", {
     preferShare: preferShare ? 1 : 0,
-    liveNow: liveNow || inQueue || wantSearch ? 1 : 0,
+    liveNow: isLive ? 1 : 0,
+    pack: 1,
   });
   markInviteFunnelShare(preferShare ? "native_or_copy" : "copy");
   await shareOrCopy(url, title, "friends.inviteShared", "friends.inviteCopied", {
     preferShare,
+    text: shareLine,
+    copyText: packText,
   });
 }
 

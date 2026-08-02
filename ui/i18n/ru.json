@@ -1403,5 +1403,17 @@
   "remote.windowChipNext": "Вечерний live · {start}–{end} по местному",
   "settings.blurFirstHintStarter": "Ещё {n} незнакомцев с блюром, пока не снимите · потом 2 с",
   "safety.blurStarterTip": "Незнакомцы сначала в блюре. Нажмите «Блюр», чтобы показать, когда будете готовы.",
-  "log.blurStarter": "партнёр в блюре, пока не снимете (старт)"
+  "log.blurStarter": "партнёр в блюре, пока не снимете (старт)",
+  "home.invitePackTitle": "Готовый текст для друга",
+  "home.invitePackSub": "Скопируй → вставь в Telegram / чат",
+  "home.invitePackCopy": "Скопировать текст",
+  "home.invitePackCopied": "Скопировано ✓",
+  "home.invitePackLive": "Открыть live · мой код",
+  "invite.packTitle": "Заходи на {brand} вечером",
+  "invite.packLiveTitle": "Я в live на {brand} — добавь меня",
+  "invite.packBody": "Давай вместе на {brand} в вечерний live ({range}), чтобы не ждать в одиночку.\n\nОткрой: {url}\n\nСлучайный видеочат или звонок друзьям · без аккаунта · видео P2P.",
+  "invite.packBodyCode": "Давай вместе на {brand} в вечерний live ({range}).\n\n1) Открой: {url}\n2) Добавь мой код: {code}\n3) Accept → звонок, когда оба Online\n\nВидео peer-to-peer · без аккаунта · есть Блок/Жалоба.",
+  "invite.packLiveBody": "Я сейчас на {brand} (peer-to-peer видео, без аккаунта).\n\n1) Открой: {url}\n2) Добавь код: {code}\n3) Я приму → звонок Online\n\nОкно: {range}",
+  "invite.packOnlineBody": "Сейчас {n} онлайн на {brand} — случайный чат или звонок другу.\n\nОткрой: {url}\nБез аккаунта · видео браузер к браузеру.",
+  "invite.shareLineCode": "{brand}: добавь {code} и звони · {url}"
 }

@@ -42,9 +42,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="home.css?v=91" />
+  <link rel="stylesheet" href="home.css?v=92" />
   <script src="brand.js?v=2"></script>
   <script src="live-window.js?v=1"></script>
+  <script src="invite-copy.js?v=1"></script>
   <script src="analytics.js?v=1" defer></script>
   <script src="pwa-install.js?v=7" defer></script>
   <script type="application/ld+json">
@@ -214,6 +215,28 @@
           <p class="home-quiet-cta" id="home-quiet-cta" hidden data-i18n="home.quietCta">
             Nobody waiting — share Invite friends so two of you land together.
           </p>
+          <!-- Ready-to-paste invite pack (Telegram / chat) -->
+          <div class="home-invite-pack" id="home-invite-pack">
+            <div class="home-invite-pack-head">
+              <strong data-i18n="home.invitePackTitle">Ready text for a friend</strong>
+              <span class="home-invite-pack-sub" data-i18n="home.invitePackSub">Copy → paste in Telegram / chat</span>
+            </div>
+            <textarea
+              id="home-invite-pack-text"
+              class="home-invite-pack-text"
+              readonly
+              rows="5"
+              aria-label="Invite message"
+            ></textarea>
+            <div class="home-invite-pack-actions">
+              <button type="button" class="home-invite-pack-btn accent" id="btn-copy-invite-pack" data-i18n="home.invitePackCopy">
+                Copy text
+              </button>
+              <button type="button" class="home-invite-pack-btn" id="btn-open-live-invite" data-i18n="home.invitePackLive">
+                Open live · my code
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -363,6 +386,18 @@
           "home.inviteText": "Join me on {brand} tonight ({range}) — random video chat, or add me as a friend and Call.",
           "home.inviteTextLive": "{n} online now on {brand}. Open live — match or Call friends.",
           "home.inviteTextWindow": "I’m going on {brand} during tonight live ({range}). Join so we’re not alone — random chat or Call as friends.",
+          "home.invitePackTitle": "Ready text for a friend",
+          "home.invitePackSub": "Copy → paste in Telegram / chat",
+          "home.invitePackCopy": "Copy text",
+          "home.invitePackCopied": "Copied ✓",
+          "home.invitePackLive": "Open live · my code",
+          "invite.packTitle": "Join me on {brand} tonight",
+          "invite.packLiveTitle": "I’m live on {brand} — add me",
+          "invite.packBody": "Let’s try {brand} during tonight live ({range}) so we’re not alone.\n\nOpen: {url}\n\nRandom video chat or Call friends · no account · P2P video.",
+          "invite.packBodyCode": "Let’s try {brand} together during tonight live ({range}).\n\n1) Open: {url}\n2) Add my friend code: {code}\n3) Accept → Call when both Online\n\nPeer-to-peer video · no account · Block/Report built in.",
+          "invite.packLiveBody": "I’m on {brand} right now (peer-to-peer video, no account).\n\n1) Open: {url}\n2) Add my code: {code}\n3) I Accept → Call when Online\n\nTonight window: {range}",
+          "invite.packOnlineBody": "{n} people online on {brand} now — random video chat or friends Call.\n\nOpen: {url}\nNo account · video stays browser-to-browser.",
+          "invite.shareLineCode": "{brand}: add me {code} then Call · {url}",
           "home.joinNow": "Join now →",
           "home.nowOnline": "Online now",
           "home.nowWaiting": "Waiting",
@@ -421,6 +456,18 @@
           "home.inviteText": "Заходи на {brand} вечером ({range}) — случайный видеочат или друзья и звонок.",
           "home.inviteTextLive": "Сейчас {n} онлайн на {brand}. Открой live — матч или звонок другу.",
           "home.inviteTextWindow": "Буду на {brand} в вечерний live ({range}). Заходи, чтобы не ждать вдвоём — чат или звонок друзьям.",
+          "home.invitePackTitle": "Готовый текст для друга",
+          "home.invitePackSub": "Скопируй → вставь в Telegram / чат",
+          "home.invitePackCopy": "Скопировать текст",
+          "home.invitePackCopied": "Скопировано ✓",
+          "home.invitePackLive": "Открыть live · мой код",
+          "invite.packTitle": "Заходи на {brand} вечером",
+          "invite.packLiveTitle": "Я в live на {brand} — добавь меня",
+          "invite.packBody": "Давай вместе на {brand} в вечерний live ({range}), чтобы не ждать в одиночку.\n\nОткрой: {url}\n\nСлучайный видеочат или звонок друзьям · без аккаунта · видео P2P.",
+          "invite.packBodyCode": "Давай вместе на {brand} в вечерний live ({range}).\n\n1) Открой: {url}\n2) Добавь мой код: {code}\n3) Accept → звонок, когда оба Online\n\nВидео peer-to-peer · без аккаунта · есть Блок/Жалоба.",
+          "invite.packLiveBody": "Я сейчас на {brand} (peer-to-peer видео, без аккаунта).\n\n1) Открой: {url}\n2) Добавь код: {code}\n3) Я приму → звонок Online\n\nОкно: {range}",
+          "invite.packOnlineBody": "Сейчас {n} онлайн на {brand} — случайный чат или звонок другу.\n\nОткрой: {url}\nБез аккаунта · видео браузер к браузеру.",
+          "invite.shareLineCode": "{brand}: добавь {code} и звони · {url}",
           "home.joinNow": "Зайти →",
           "home.nowOnline": "Сейчас онлайн",
           "home.nowWaiting": "В очереди",
@@ -662,6 +709,9 @@
             if (inviteHint) inviteHint.hidden = !hasPeople;
             var dict = packCache[getLang()] || STR[getLang()] || STR.en;
             updateHomeLiveWindow(dict, { hasPeople: hasPeople, online: online });
+            try {
+              refreshInvitePack();
+            } catch (_) {}
             var inviteBtn = document.getElementById("btn-home-invite");
             if (inviteBtn) {
               // Quiet pool OR outside evening window → push invite harder
@@ -901,6 +951,103 @@
           } catch (_) {
             doHomeShare(inviteBtn, "invite");
           }
+        });
+      }
+
+      // Ready-to-paste invite pack (homepage share card)
+      function refreshInvitePack() {
+        var ta = document.getElementById("home-invite-pack-text");
+        if (!ta) return;
+        var dict = packCache[getLang()] || STR[getLang()] || STR.en;
+        var brand =
+          (window.RuletBrand && RuletBrand.name && RuletBrand.name()) ||
+          "ruletka.vip";
+        var lq = homeLangQs();
+        var url =
+          location.origin +
+          "/live.html?" +
+          (lq ? lq + "&" : "") +
+          "ref=invite";
+        var n = homeOnlineCount();
+        var t = function (k, fb) {
+          return (dict && dict[k]) || fb;
+        };
+        if (window.RuletInviteCopy && RuletInviteCopy.buildPack) {
+          var pack = RuletInviteCopy.buildPack({
+            brand: brand,
+            url: url,
+            online: n,
+            liveNow: false,
+            t: t,
+          });
+          ta.value = pack.full || pack.body || "";
+        } else {
+          var range = "18:00–23:00";
+          try {
+            if (window.RuletLiveWindow)
+              range = RuletLiveWindow.getState().rangeLabel;
+          } catch (_) {}
+          ta.value = t(
+            "invite.packBody",
+            "Join me on " + brand + " tonight (" + range + "):\n" + url
+          )
+            .replace(/\{brand\}/g, brand)
+            .replace(/\{url\}/g, url)
+            .replace(/\{range\}/g, range);
+        }
+      }
+      function copyInvitePack() {
+        var ta = document.getElementById("home-invite-pack-text");
+        var btn = document.getElementById("btn-copy-invite-pack");
+        if (!ta) return;
+        var text = ta.value || "";
+        var dict = packCache[getLang()] || STR[getLang()] || STR.en;
+        var ok = (dict && dict["home.invitePackCopied"]) || "Copied ✓";
+        var done = function () {
+          if (!btn) return;
+          var prev = btn.textContent;
+          btn.textContent = ok;
+          setTimeout(function () {
+            btn.textContent =
+              (dict && dict["home.invitePackCopy"]) || prev || "Copy text";
+          }, 1600);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done).catch(function () {
+            ta.select();
+            try {
+              document.execCommand("copy");
+            } catch (_) {}
+            done();
+          });
+        } else {
+          ta.select();
+          try {
+            document.execCommand("copy");
+          } catch (_) {}
+          done();
+        }
+        try {
+          if (typeof RuletTrack === "function")
+            RuletTrack("home_invite_pack_copy", {});
+        } catch (_) {}
+      }
+      refreshInvitePack();
+      setInterval(refreshInvitePack, 60000);
+      var copyPackBtn = document.getElementById("btn-copy-invite-pack");
+      if (copyPackBtn)
+        copyPackBtn.addEventListener("click", copyInvitePack);
+      var openLiveInvite = document.getElementById("btn-open-live-invite");
+      if (openLiveInvite) {
+        openLiveInvite.addEventListener("click", function () {
+          var qs = "invite=1";
+          var lq = homeLangQs();
+          if (lq) qs += "&" + lq;
+          try {
+            if (typeof RuletTrack === "function")
+              RuletTrack("home_invite_pack_live", {});
+          } catch (_) {}
+          location.href = "/live.html?" + qs;
         });
       }
     })();

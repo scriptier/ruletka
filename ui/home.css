@@ -1329,6 +1329,87 @@ body.has-live-people .home-cta {
   line-height: 1.4;
   color: #ffb4a8;
 }
+/* Ready-to-paste invite pack */
+.home-invite-pack {
+  margin-top: 0.85rem;
+  padding: 0.85rem 0.9rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(12, 16, 24, 0.55);
+  max-width: 34rem;
+}
+.home-invite-pack-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.home-invite-pack-head strong {
+  font-size: 0.88rem;
+  font-weight: 750;
+  color: #e8eef7;
+}
+.home-invite-pack-sub {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: rgba(160, 180, 210, 0.85);
+}
+.home-invite-pack-text {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 6.5rem;
+  margin: 0;
+  padding: 0.65rem 0.75rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.35);
+  color: #dce6f5;
+  font: inherit;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  resize: vertical;
+}
+.home-invite-pack-text:focus {
+  outline: 2px solid rgba(255, 180, 80, 0.35);
+  outline-offset: 1px;
+}
+.home-invite-pack-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+}
+.home-invite-pack-btn {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: #eef2f7;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 0.55rem 0.95rem;
+  border-radius: 999px;
+  cursor: pointer;
+  min-height: 2.4rem;
+}
+.home-invite-pack-btn.accent {
+  border: none;
+  background: linear-gradient(135deg, #ff2d55, #ff5c3a);
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(255, 45, 85, 0.3);
+}
+.home-invite-pack-btn:hover {
+  filter: brightness(1.06);
+}
+.home-invite-pack-btn:active {
+  transform: scale(0.98);
+}
+body.is-quiet-pool .home-invite-pack {
+  border-color: rgba(255, 140, 100, 0.28);
+  box-shadow: 0 0 0 1px rgba(255, 100, 80, 0.08);
+}
 .home-invite-hint {
   margin: 0.25rem 0 0;
 }
