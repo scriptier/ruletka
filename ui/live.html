@@ -54,9 +54,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </noscript>
   <!-- Critical CSS: preload then apply (faster first paint on mobile) -->
-  <link rel="preload" href="live-stage.css?v=269" as="style" />
+  <link rel="preload" href="live-stage.css?v=270" as="style" />
   <link rel="stylesheet" href="style.css?v=158" />
-  <link rel="stylesheet" href="live-stage.css?v=269" />
+  <link rel="stylesheet" href="live-stage.css?v=270" />
   <script src="brand.js?v=2"></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -1384,10 +1384,13 @@
           <span id="sec-identity" hidden></span>
         </button>
 
-        <!-- Account: identity export/import — bottom of main settings -->
-        <p class="settings-section-label" data-i18n="settings.secAccount">Your account</p>
+        <!-- Identity: export/import only — no server registration -->
+        <p class="settings-section-label" data-i18n="settings.secAccount">Your identity</p>
         <p class="hint-inline" data-i18n="settings.accountHint">
-          Your user lives in this browser. Export a password-protected backup to keep friends when you switch phones or clear data.
+          No signup. Your user lives in this browser only. Export a password-protected backup to keep friends when you switch phones or clear data — Import restores them.
+        </p>
+        <p class="hint-inline settings-no-account-pill" data-i18n="settings.noAccountPill">
+          No email · No password account · Export = your key
         </p>
         <div class="settings-group settings-account-group">
           <div class="settings-row settings-row-multi static" aria-live="polite">
@@ -2147,8 +2150,8 @@
   <script src="i18n.js?v=195" defer></script>
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=156" defer></script>
-  <script src="webrtc.js?v=160" defer></script>
-  <script src="live.js?v=275" defer></script>
+  <script src="webrtc.js?v=161" defer></script>
+  <script src="live.js?v=276" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

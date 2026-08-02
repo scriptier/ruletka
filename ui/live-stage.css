@@ -3074,6 +3074,63 @@ html.start-idle #btn-spin {
   background: rgba(255, 255, 255, 0.12);
   color: #fff;
 }
+.profile-pw-no-account {
+  margin: 0 0 0.65rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 0.45rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: rgba(200, 220, 255, 0.9);
+  background: rgba(80, 120, 200, 0.12);
+  border: 1px solid rgba(120, 160, 220, 0.25);
+}
+.profile-pw-no-account[hidden] {
+  display: none !important;
+}
+.profile-pw-strength {
+  margin: 0.15rem 0 0.55rem;
+}
+.profile-pw-strength[hidden] {
+  display: none !important;
+}
+.profile-pw-strength-track {
+  height: 0.28rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+.profile-pw-strength-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: #f87171;
+  transition: width 0.2s ease, background 0.2s ease;
+}
+.profile-pw-strength-fill[data-score="1"] { background: #f87171; }
+.profile-pw-strength-fill[data-score="2"] { background: #fbbf24; }
+.profile-pw-strength-fill[data-score="3"] { background: #a3e635; }
+.profile-pw-strength-fill[data-score="4"] { background: #34d399; }
+.profile-pw-strength-label {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.72rem;
+  opacity: 0.8;
+}
+.settings-no-account-pill {
+  margin: -0.15rem 0 0.65rem !important;
+  padding: 0.35rem 0.55rem;
+  border-radius: 0.45rem;
+  font-size: 0.75rem !important;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: rgba(180, 220, 255, 0.95) !important;
+  background: rgba(60, 100, 180, 0.15);
+  border: 1px solid rgba(100, 150, 220, 0.28);
+}
+.export-nudge-toast.is-backup-ok {
+  border-color: rgba(80, 200, 140, 0.4);
+}
 .profile-pw-hint {
   margin: 0;
   font-size: 0.82rem;

@@ -413,11 +413,43 @@ function lowLatencyAudioConstraints(extra = {}) {
 }
 
 /**
- * Playout target ms: lower when low-latency mode is on.
- * @param {string} [tier]
+ * True when media should prefer matched (slightly higher) jitter targets:
+ * Hide-IP relay-only pref, or last known path is TURN.
  */
-function playoutTargetForTier(tier) {
+function isRelayMediaMode() {
+  try {
+    if (typeof hideIpRelayOnlyEnabled === "function" && hideIpRelayOnlyEnabled()) {
+      return true;
+    }
+    const p = JSON.parse(
+      localStorage.getItem("freenet-roulette-media-prefs-v1") || "{}"
+    );
+    if (p.hideIpRelayOnly) return true;
+  } catch (_) {}
+  return false;
+}
+
+/**
+ * Playout target ms — same value applied to audio *and* video for lipsync.
+ * On TURN/relay (Hide IP), use a slightly higher matched target so browsers
+ * don't underrun and grow A/V buffers unevenly.
+ * @param {string} [tier]
+ * @param {{ relay?: boolean }} [opts]
+ */
+function playoutTargetForTier(tier, opts = {}) {
   const low = isLowLatencyAudioEnabled();
+  const relay = opts.relay === true || isRelayMediaMode();
+  if (relay) {
+    // Matched higher floor: hide-IP / TURN path — sync > absolute min delay
+    if (low) {
+      if (tier === "min" || tier === "low") return 95;
+      if (tier === "mid") return 72;
+      return 58;
+    }
+    if (tier === "min" || tier === "low") return 110;
+    if (tier === "mid") return 85;
+    return 70;
+  }
   if (low) {
     if (tier === "min" || tier === "low") return 55;
     if (tier === "mid") return 40;
@@ -588,7 +620,10 @@ class RouletteWebRtc {
     this._lastTs = 0;
     this._lossEma = 0;
     this._rttEma = 0;
-    this._adaptTimer = setInterval(() => this._adaptOnce(), 2500);
+    this._relayPath = isRelayMediaMode();
+    // Relay (Hide IP) needs tighter adapt loop — jitter drifts faster
+    const period = this._relayPath ? 1800 : 2500;
+    this._adaptTimer = setInterval(() => this._adaptOnce(), period);
   }
 
   _stopAdaptiveQuality() {
@@ -611,6 +646,9 @@ class RouletteWebRtc {
       let videoJitter = 0;
       let audioJitterN = 0;
       let videoJitterN = 0;
+      /** @type {Map<string, any>} */
+      const byId = new Map();
+      report.forEach((r) => byId.set(r.id, r));
 
       report.forEach((r) => {
         if (r.type === "candidate-pair" && (r.state === "succeeded" || r.nominated)) {
@@ -618,6 +656,14 @@ class RouletteWebRtc {
             rtt += r.currentRoundTripTime * 1000;
             rttN++;
           }
+          // Detect TURN relay path for playout / quality policy
+          try {
+            const local = byId.get(r.localCandidateId);
+            const remote = byId.get(r.remoteCandidateId);
+            const lt = String(local?.candidateType || local?.type || "").toLowerCase();
+            const rt = String(remote?.candidateType || remote?.type || "").toLowerCase();
+            if (lt === "relay" || rt === "relay") this._relayPath = true;
+          } catch (_) {}
         }
         if (r.type === "outbound-rtp" && !r.isRemote && r.kind === "video") {
           if (typeof r.packetsSent === "number" && typeof r.packetsLost === "number") {
@@ -640,8 +686,9 @@ class RouletteWebRtc {
           if (typeof r.jitter === "number") {
             videoJitter += r.jitter;
             videoJitterN++;
-            // jitter in seconds
-            if (r.jitter > 0.04) {
+            // jitter in seconds — relay paths often sit higher
+            const jLim = this._relayPath || isRelayMediaMode() ? 0.055 : 0.04;
+            if (r.jitter > jLim) {
               loss += 0.02;
               lossN++;
             }
@@ -651,7 +698,8 @@ class RouletteWebRtc {
           if (typeof r.jitter === "number") {
             audioJitter += r.jitter;
             audioJitterN++;
-            if (r.jitter > 0.05) {
+            const jLim = this._relayPath || isRelayMediaMode() ? 0.065 : 0.05;
+            if (r.jitter > jLim) {
               loss += 0.015;
               lossN++;
             }
@@ -665,19 +713,40 @@ class RouletteWebRtc {
       let next = this._qualityTier || "high";
       const rttMs = this._rttEma;
       const lossP = this._lossEma;
+      const relay = !!(this._relayPath || isRelayMediaMode());
 
-      if (lossP > 0.12 || rttMs > 450) next = "min";
-      else if (lossP > 0.06 || rttMs > 280) next = "low";
-      else if (lossP > 0.03 || rttMs > 180) next = "mid";
-      else if (lossP < 0.015 && rttMs < 120) next = "high";
+      // Relay (Hide IP): slightly earlier quality step-down — freerzes hurt lipsync more than mild res drop
+      if (relay) {
+        if (lossP > 0.1 || rttMs > 380) next = "min";
+        else if (lossP > 0.05 || rttMs > 240) next = "low";
+        else if (lossP > 0.025 || rttMs > 160) next = "mid";
+        else if (lossP < 0.012 && rttMs < 110) next = "high";
+      } else {
+        if (lossP > 0.12 || rttMs > 450) next = "min";
+        else if (lossP > 0.06 || rttMs > 280) next = "low";
+        else if (lossP > 0.03 || rttMs > 180) next = "mid";
+        else if (lossP < 0.015 && rttMs < 120) next = "high";
+      }
 
       if (next !== this._qualityTier) {
         await this.applyQualityTier(next);
       }
 
-      // Re-assert low playout targets: browsers sometimes grow the audio buffer
-      // after packet loss bursts, leaving speech lagging the picture even at ~50ms RTT.
-      applyLowLatencyPlayout(this.pc, playoutTargetForTier(next));
+      // Matched A/V playout target (same ms for both) — critical for relay lipsync
+      let target = playoutTargetForTier(next, { relay });
+
+      // If measured audio lags video (or reverse), raise *both* targets together
+      try {
+        const lag = await this.estimateAvPlayoutLag();
+        if (lag && lag.lagMs != null && Math.abs(lag.lagMs) > 55) {
+          // Pull the leading media up toward the lagging one via higher shared buffer
+          const bump = Math.min(45, Math.abs(lag.lagMs) * 0.35);
+          target = Math.min(140, target + bump);
+        }
+      } catch (_) {}
+
+      applyLowLatencyPlayout(this.pc, target);
+      this._lastPlayoutTarget = target;
     } catch (_) {}
   }
 
@@ -1067,6 +1136,7 @@ if (typeof window !== "undefined") {
   window.applyIceDirectPreference = applyIceDirectPreference;
   window.preferDirectOnlyEnabled = preferDirectOnlyEnabled;
   window.hideIpRelayOnlyEnabled = hideIpRelayOnlyEnabled;
+  window.isRelayMediaMode = isRelayMediaMode;
   window.QUALITY_TIERS = QUALITY_TIERS;
   window.applyLowLatencyPlayout = applyLowLatencyPlayout;
   window.lowLatencyAudioConstraints = lowLatencyAudioConstraints;

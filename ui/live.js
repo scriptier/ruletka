@@ -13137,7 +13137,9 @@ const PROFILE_FORMAT = "ruletka-profile/1";
 const PROFILE_FORMAT_ENC = "ruletka-profile/2-enc";
 /** PBKDF2 iterations — high enough for offline password protection in-browser. */
 const PROFILE_KDF_ITERS = 310000;
-const PROFILE_MIN_PASSWORD = 6;
+const PROFILE_MIN_PASSWORD = 8;
+/** One-shot: no-account backup education on first visit */
+const NO_ACCOUNT_TIP_KEY = "ruletka-no-account-tip-v1";
 
 /** Keys that must never be written to or read from a profile file (anti star double-spend). */
 const PROFILE_STAR_DENY =
@@ -13268,10 +13270,17 @@ function openProfilePasswordModal(opts = {}) {
             <button type="button" class="profile-pw-close" data-pw-dismiss aria-label="Close">✕</button>
           </header>
           <p class="profile-pw-hint" id="profile-pw-hint"></p>
+          <p class="profile-pw-no-account" id="profile-pw-no-account" hidden></p>
           <label class="profile-pw-label" for="profile-pw-input">
             <span id="profile-pw-label-text"></span>
             <input type="password" id="profile-pw-input" class="profile-pw-input" autocomplete="new-password" spellcheck="false" />
           </label>
+          <div class="profile-pw-strength" id="profile-pw-strength" hidden>
+            <div class="profile-pw-strength-track" aria-hidden="true">
+              <span class="profile-pw-strength-fill" id="profile-pw-strength-fill"></span>
+            </div>
+            <span class="profile-pw-strength-label" id="profile-pw-strength-label"></span>
+          </div>
           <label class="profile-pw-label" id="profile-pw-confirm-wrap" for="profile-pw-confirm" hidden>
             <span id="profile-pw-confirm-label"></span>
             <input type="password" id="profile-pw-confirm" class="profile-pw-input" autocomplete="new-password" spellcheck="false" />
@@ -13309,6 +13318,44 @@ function openProfilePasswordModal(opts = {}) {
       }
     };
 
+    const noAcct = $("profile-pw-no-account");
+    const strengthWrap = $("profile-pw-strength");
+    const strengthFill = $("profile-pw-strength-fill");
+    const strengthLabel = $("profile-pw-strength-label");
+
+    const scorePassword = (pw) => {
+      const s = String(pw || "");
+      let score = 0;
+      if (s.length >= 8) score++;
+      if (s.length >= 12) score++;
+      if (/[a-z]/.test(s) && /[A-Z]/.test(s)) score++;
+      if (/\d/.test(s)) score++;
+      if (/[^A-Za-z0-9]/.test(s)) score++;
+      return Math.min(4, score);
+    };
+    const updateStrength = () => {
+      if (!strengthWrap || mode !== "export") return;
+      const s = String(input?.value || "");
+      if (!s) {
+        strengthWrap.hidden = true;
+        return;
+      }
+      strengthWrap.hidden = false;
+      const sc = scorePassword(s);
+      const labels = [
+        _t("settings.exportPwWeak") || "Too weak",
+        _t("settings.exportPwFair") || "Fair",
+        _t("settings.exportPwOk") || "OK",
+        _t("settings.exportPwStrong") || "Strong",
+        _t("settings.exportPwStrong") || "Strong",
+      ];
+      if (strengthFill) {
+        strengthFill.style.width = `${(sc / 4) * 100}%`;
+        strengthFill.dataset.score = String(sc);
+      }
+      if (strengthLabel) strengthLabel.textContent = labels[sc] || "";
+    };
+
     if (mode === "export") {
       if (title)
         title.textContent =
@@ -13317,6 +13364,12 @@ function openProfilePasswordModal(opts = {}) {
         hint.textContent =
           _t("settings.exportPwHint") ||
           "You’ll need this password to import on another phone or browser. We never store it.";
+      if (noAcct) {
+        noAcct.hidden = false;
+        noAcct.textContent =
+          _t("settings.exportNoAccountNote") ||
+          "No signup — this file is your only way to keep friends on a new phone.";
+      }
       if (labelText)
         labelText.textContent = _t("settings.exportPwLabel") || "Password";
       if (confirmLabel)
@@ -13332,6 +13385,8 @@ function openProfilePasswordModal(opts = {}) {
           _t("settings.exportPlainLink") ||
           "Export without password (not recommended)";
       }
+      if (strengthWrap) strengthWrap.hidden = true;
+      input?.addEventListener("input", updateStrength);
     } else {
       if (title)
         title.textContent =
@@ -13340,12 +13395,19 @@ function openProfilePasswordModal(opts = {}) {
         hint.textContent =
           _t("settings.importPwHint") ||
           "This file is encrypted. Type the password you set when exporting.";
+      if (noAcct) {
+        noAcct.hidden = false;
+        noAcct.textContent =
+          _t("settings.importNoAccountNote") ||
+          "Import restores your identity + friends on this device. No password account on the server.";
+      }
       if (labelText)
         labelText.textContent = _t("settings.importPwLabel") || "Password";
       if (confirmWrap) confirmWrap.hidden = true;
       if (submit)
         submit.textContent = _t("settings.importPwSubmit") || "Unlock & import";
       if (plainBtn) plainBtn.hidden = true;
+      if (strengthWrap) strengthWrap.hidden = true;
     }
     if (cancel) cancel.textContent = _t("settings.exportPwCancel") || "Cancel";
     showErr("");
@@ -13384,6 +13446,21 @@ function openProfilePasswordModal(opts = {}) {
           showErr(
             _t("settings.exportPwShort", { n: PROFILE_MIN_PASSWORD }) ||
               `Password must be at least ${PROFILE_MIN_PASSWORD} characters`
+          );
+          input?.focus();
+          return;
+        }
+        // Soft strength gate: require at least "fair" (score ≥ 2)
+        const sc =
+          (pw.length >= 8 ? 1 : 0) +
+          (pw.length >= 12 ? 1 : 0) +
+          (/[a-z]/.test(pw) && /[A-Z]/.test(pw) ? 1 : 0) +
+          (/\d/.test(pw) ? 1 : 0) +
+          (/[^A-Za-z0-9]/.test(pw) ? 1 : 0);
+        if (sc < 2) {
+          showErr(
+            _t("settings.exportPwTooWeak") ||
+              "Use a longer password or mix letters and numbers"
           );
           input?.focus();
           return;
@@ -13689,6 +13766,103 @@ function clearImportBackupNudge() {
   } catch (_) {}
 }
 
+/** Soft toast after successful encrypted export. */
+function showBackupExportSuccessToast(encrypted) {
+  try {
+    if ($("backup-export-ok-toast")) return;
+    const toast = document.createElement("div");
+    toast.id = "backup-export-ok-toast";
+    toast.className = "export-nudge-toast is-backup-ok";
+    toast.setAttribute("role", "status");
+    toast.style.pointerEvents = "auto";
+    toast.innerHTML = `
+      <p class="export-nudge-title">${escapeHtml(
+        encrypted
+          ? _t("settings.exportDoneEnc") || "Encrypted backup saved"
+          : _t("settings.exportDone") || "Backup saved"
+      )}</p>
+      <p class="export-nudge-body">${escapeHtml(
+        _t("settings.exportDoneBody") ||
+          "No account on the server. Store the file and password safely — Import user restores friends on a new device. Stars stay on the hub."
+      )}</p>
+      <div class="export-nudge-actions">
+        <button type="button" class="pill tight accent" id="btn-backup-ok-dismiss">${escapeHtml(
+          _t("friends.exportNudgeLater") || "OK"
+        )}</button>
+      </div>`;
+    document.body.appendChild(toast);
+    const dismiss = () => {
+      if (toast.parentNode) toast.remove();
+    };
+    $("btn-backup-ok-dismiss")?.addEventListener("click", dismiss);
+    setTimeout(dismiss, 12000);
+    trackEvent("profile_export_ok_toast", { enc: encrypted ? 1 : 0 });
+  } catch (_) {}
+}
+
+/**
+ * First-session education: no registration — export is your account.
+ * Once after rules accepted, not during a live call.
+ */
+function maybeShowNoAccountBackupTip() {
+  try {
+    if (localStorage.getItem(NO_ACCOUNT_TIP_KEY) === "1") return;
+    if (exportNudgeDone() && localStorage.getItem(EXPORT_NUDGE_KEY) === "1") {
+      localStorage.setItem(NO_ACCOUNT_TIP_KEY, "1");
+      return;
+    }
+  } catch {
+    return;
+  }
+  if (matched || inFriendCall) return;
+  if ($("no-account-tip") || $("export-nudge-toast") || $("import-backup-nudge")) {
+    return;
+  }
+  // Wait until user has engaged a bit (rules accepted)
+  try {
+    if (typeof rulesAccepted === "function" && !rulesAccepted()) return;
+  } catch (_) {}
+  const toast = document.createElement("div");
+  toast.id = "no-account-tip";
+  toast.className = "export-nudge-toast is-backup-nudge";
+  toast.setAttribute("role", "status");
+  toast.style.pointerEvents = "auto";
+  toast.innerHTML = `
+    <p class="export-nudge-title">${escapeHtml(
+      _t("settings.noAccountTitle") || "No signup — backup your user"
+    )}</p>
+    <p class="export-nudge-body">${escapeHtml(
+      _t("settings.noAccountBody") ||
+        "Friends live under this browser identity. Export a password-protected backup so you keep them on a new phone. No email or password account on the server."
+    )}</p>
+    <div class="export-nudge-actions">
+      <button type="button" class="pill tight ghost" id="btn-no-acct-later">${escapeHtml(
+        _t("friends.exportNudgeLater") || "Later"
+      )}</button>
+      <button type="button" class="pill tight accent" id="btn-no-acct-export">${escapeHtml(
+        _t("settings.exportUser") || "Export user"
+      )}</button>
+    </div>`;
+  document.body.appendChild(toast);
+  const dismiss = (permanent) => {
+    try {
+      if (permanent) localStorage.setItem(NO_ACCOUNT_TIP_KEY, "1");
+    } catch (_) {}
+    if (toast.parentNode) toast.remove();
+  };
+  $("btn-no-acct-later")?.addEventListener("click", () => {
+    trackEvent("no_account_tip_later");
+    dismiss(true);
+  });
+  $("btn-no-acct-export")?.addEventListener("click", async () => {
+    trackEvent("no_account_tip_export");
+    dismiss(true);
+    await exportProfileFile();
+  });
+  setTimeout(() => dismiss(false), 22000);
+  trackEvent("no_account_tip_show");
+}
+
 /** Soft one-shot after successful profile import (shown post-reload). */
 function maybeShowImportBackupNudge() {
   try {
@@ -13853,6 +14027,9 @@ async function exportProfileFile() {
         ? _t("settings.exportDoneEnc") || "Encrypted profile exported"
         : _t("settings.exportDone") || "Profile exported") +
         " · " +
+        (_t("settings.exportDoneNext") ||
+          "Keep the file + password to import on a new phone.") +
+        " · " +
         (_t("settings.exportStarsNote") || "Stars are not in this file (hub-only).")
     );
     log(
@@ -13860,6 +14037,10 @@ async function exportProfileFile() {
         ? _t("settings.exportDoneEnc") || "Encrypted profile exported"
         : _t("settings.exportDone")
     );
+    // Soft success toast (retention) — no signup pitch
+    try {
+      showBackupExportSuccessToast(encrypted);
+    } catch (_) {}
     try {
       trackEvent("profile_export", { encrypted: encrypted ? 1 : 0 });
     } catch (_) {}
@@ -19513,6 +19694,12 @@ $("chk-hide-ip")?.addEventListener("change", (e) => {
       ? "hide IP (TURN relay only)"
       : "hide IP off (direct allowed)"
   );
+  if (on) {
+    setStatus(
+      _t("settings.hideIpAvHint") ||
+        "Hide IP on — next call uses TURN. A/V sync is tuned for relay (slightly higher buffer, matched audio+video)."
+    );
+  }
 });
 function wireLowLatencyAudioToggle(id) {
   $(id)?.addEventListener("change", (e) => {
@@ -20009,6 +20196,14 @@ setTimeout(() => {
     maybeShowImportBackupNudge();
   } catch (_) {}
 }, 900);
+// No-signup education: export is your account (once, after rules)
+setTimeout(() => {
+  try {
+    if (typeof rulesAccepted === "function" && rulesAccepted()) {
+      maybeShowNoAccountBackupTip();
+    }
+  } catch (_) {}
+}, 4500);
 // Background: warm hub directory so failover is ready if this seed dies
 if (typeof RuletHub !== "undefined" && RuletHub.loadDirectory) {
   RuletHub.loadDirectory(false).catch(() => {});
