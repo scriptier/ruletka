@@ -2104,16 +2104,57 @@ function markFirstSessionGuideDone() {
 }
 
 /**
- * One-shot quick guide — disabled (no popup spam). Stars sheet + empty card cover this.
+ * First-session help lives on the empty card (not a popup).
+ * Call after rules / when empty UI refreshes.
  */
 function maybeShowFirstSessionGuide() {
   try {
-    if (!SOFT_POPUPS_ENABLED) {
-      markFirstSessionGuideDone();
-      markStarsIntroTipDone();
-      return;
-    }
+    updateFirstRunEmptyHint();
   } catch (_) {}
+}
+
+/**
+ * Inline first-run steps under empty title (Week-6 cold-start).
+ * Hidden after first Start so it never nags return visitors.
+ */
+function updateFirstRunEmptyHint() {
+  const hint = $("empty-first-hint");
+  const camWhy = $("empty-cam-why");
+  const startBtn = $("btn-start-match");
+  const empty = $("remote-empty");
+  const emptyOpen =
+    !!empty &&
+    !empty.classList.contains("hidden") &&
+    !matched &&
+    !inFriendCall &&
+    !trioBrowse;
+  const firstRun =
+    rulesAccepted() && !firstSessionGuideDone() && emptyOpen && !inQueue && !wantSearch;
+  if (hint) {
+    hint.hidden = !firstRun;
+    if (firstRun) hint.removeAttribute("hidden");
+    else hint.setAttribute("hidden", "");
+  }
+  if (camWhy) {
+    camWhy.hidden = !firstRun;
+    if (firstRun) camWhy.removeAttribute("hidden");
+    else camWhy.setAttribute("hidden", "");
+  }
+  if (startBtn) {
+    startBtn.classList.toggle("is-first-run", !!firstRun);
+    if (firstRun) {
+      const label =
+        _t("btn.startFirst") || _t("btn.start") || "Start chatting";
+      // Keep data-i18n span-free button text for first-run emphasis
+      if (!startBtn.dataset.firstRunLabel) {
+        startBtn.dataset.firstRunLabel = "1";
+        startBtn.textContent = label;
+      }
+    } else if (startBtn.dataset.firstRunLabel) {
+      delete startBtn.dataset.firstRunLabel;
+      startBtn.textContent = _t("btn.start") || "Start";
+    }
+  }
 }
 
 /**
@@ -7118,16 +7159,40 @@ function acceptRulesAndEnter() {
   try {
     trackEvent("rules_accept");
   } catch (_) {}
+  // Warm media after Accept (user gesture) so Start is faster
   startSession({ forceMedia: true });
   // User gesture — start partner empty brand loop
   showPartnerEmptyWithBrand({ searching: false });
+  // Point at the main action immediately
+  setStatus(
+    _t("status.afterRules") ||
+      "Tap Start to meet someone — allow camera when asked"
+  );
+  try {
+    showStartButton(true);
+    const btn = $("btn-start-match");
+    btn?.classList.add("is-pulse-start");
+    setTimeout(() => btn?.classList.remove("is-pulse-start"), 4800);
+    setTimeout(() => {
+      try {
+        btn?.focus?.({ preventScroll: true });
+      } catch (_) {
+        try {
+          btn?.focus?.();
+        } catch (_) {}
+      }
+    }, 120);
+  } catch (_) {}
+  try {
+    updateFirstRunEmptyHint();
+  } catch (_) {}
   // Room invite deep-link: join as soon as gate is done
   setTimeout(() => maybeAutoJoinRoomInvite(), 350);
   setTimeout(() => {
     try {
       maybeShowFirstSessionGuide();
     } catch (_) {}
-  }, 900);
+  }, 400);
 }
 
 function wireRulesGate() {
@@ -7264,6 +7329,9 @@ function setRemoteEmpty(show, opts) {
     showStartButton(false);
   }
   updateEmptyShareVisibility();
+  try {
+    updateFirstRunEmptyHint();
+  } catch (_) {}
 }
 
 /**
@@ -7501,6 +7569,9 @@ function updateEmptyShareVisibility() {
   updateEmptyAloneActions();
   updateEmptyIdleInvite();
   updateEmptyRecentStrip();
+  try {
+    updateFirstRunEmptyHint();
+  } catch (_) {}
 }
 
 /**
@@ -8240,13 +8311,24 @@ function startMatchFromIdle() {
     showRulesGate();
     return;
   }
+  // First Start completes cold-start path
+  let wasFirst = false;
+  try {
+    wasFirst = !firstSessionGuideDone();
+    markFirstSessionGuideDone();
+    updateFirstRunEmptyHint();
+  } catch (_) {}
   aloneInviteToastShown = false;
   try {
     $("alone-invite-toast")?.remove?.();
     $("people-online-nudge")?.remove?.();
   } catch (_) {}
-  trackEvent("start_match");
+  trackEvent("start_match", { first: wasFirst ? 1 : 0 });
   maybeShowCellularDataTip();
+  setStatus(
+    _t("status.startingCam") ||
+      "Starting camera… then looking for a partner"
+  );
   startSession({ forceMedia: true });
   showStartButton(false);
   // Brand loop behind “Looking for a partner…” (user gesture from Start click)

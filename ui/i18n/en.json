@@ -835,11 +835,11 @@
   "room.set": "room: {room}",
   "room.shareTitle": "Share room link",
   "room.shared": "room link shared",
-  "rules.accept": "Accept",
+  "rules.accept": "Accept & continue",
   "rules.age": "You must be 18+ to use ruletka.vip.",
   "rules.ageConfirm": "I am 18 or older",
-  "rules.ageGateKicker": "18+ only · adult video chat",
-  "rules.ageGateSub": "You must be at least 18 years old to use ruletka. No minors — ever.",
+  "rules.ageGateKicker": "18+ only · peer-to-peer video chat",
+  "rules.ageGateSub": "You must be at least 18. Next: quick rules, then Start — camera only for live chat (peer-to-peer).",
   "rules.ageGateTitle": "Are you 18 or older?",
   "rules.ageNo": "No",
   "rules.ageYes": "Yes, I'm 18 or older",
@@ -1382,5 +1382,12 @@
   "friends.onlineMissedDuringCall": "{n} (missed call) is online — Call after this chat",
   "friends.redialMissed": "Call back now",
   "friends.onlineMissedNotifTitle": "Missed call — they’re online",
-  "friends.onlineMissedNotifBody": "{n} is online — tap to Call back"
+  "friends.onlineMissedNotifBody": "{n} is online — tap to Call back",
+  "remote.firstHint1": "Tap Start — allow camera & mic (stays peer-to-peer)",
+  "remote.firstHint2": "Meet someone · Next anytime · Block/Report if needed",
+  "remote.firstHint3": "Quiet pool? Share invite so a friend can Call you",
+  "remote.camWhy": "Camera is only used for live chat — video goes browser-to-browser, not uploaded to us.",
+  "btn.startFirst": "Start chatting",
+  "status.afterRules": "Tap Start to meet someone — allow camera when asked",
+  "status.startingCam": "Starting camera… then looking for a partner"
 }

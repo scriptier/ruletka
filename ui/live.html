@@ -54,7 +54,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&family=Pixelify+Sans:wght@400;500;600;700&family=Press+Start+2P&display=swap" rel="stylesheet" />
   </noscript>
   <link rel="stylesheet" href="style.css?v=157" />
-  <link rel="stylesheet" href="live-stage.css?v=259" />
+  <link rel="stylesheet" href="live-stage.css?v=260" />
   <script src="brand.js?v=2"></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -360,9 +360,18 @@
             <div class="empty-title" data-i18n="remote.emptyTitle">Tap Start to begin</div>
             <!-- empty-sub kept for connecting status only — alone-tips disabled -->
             <div class="empty-sub" id="remote-empty-sub" hidden></div>
+            <!-- Week-6 cold-start: one-screen path (not a soft-popup nag) -->
+            <ol class="empty-first-hint" id="empty-first-hint" hidden>
+              <li data-i18n="remote.firstHint1">Tap Start — allow camera &amp; mic (stays peer-to-peer)</li>
+              <li data-i18n="remote.firstHint2">Meet someone · Next anytime · Block/Report if needed</li>
+              <li data-i18n="remote.firstHint3">Quiet pool? Share invite so a friend can Call you</li>
+            </ol>
             <button type="button" class="start-match-btn" id="btn-start-match" data-i18n="btn.start">
               Start
             </button>
+            <p class="empty-cam-why" id="empty-cam-why" hidden data-i18n="remote.camWhy">
+              Camera is only used for live chat — video goes browser-to-browser, not uploaded to us.
+            </p>
             <!-- Idle growth: always show your code under Start (share anytime) -->
             <div class="empty-idle-invite" id="empty-idle-invite" hidden>
               <span class="empty-idle-lbl" data-i18n="friends.yourCode">Your code</span>
@@ -1164,9 +1173,9 @@
       <div class="age-gate-visual" aria-hidden="true">
         <img class="age-gate-logo" src="/brand/logo-mark.png" width="96" height="96" alt="" />
       </div>
-      <p class="age-gate-kicker" data-i18n="rules.ageGateKicker">18+ only · adult video chat</p>
+      <p class="age-gate-kicker" data-i18n="rules.ageGateKicker">18+ only · peer-to-peer video chat</p>
       <h1 id="age-gate-title" class="age-gate-title" data-i18n="rules.ageGateTitle">Are you 18 or older?</h1>
-      <p class="age-gate-sub" data-i18n="rules.ageGateSub">You must be at least 18 years old to use ruletka. No minors — ever.</p>
+      <p class="age-gate-sub" data-i18n="rules.ageGateSub">You must be at least 18. Next: quick rules, then Start — camera only for live chat (peer-to-peer).</p>
       <div class="age-gate-actions">
         <button type="button" class="age-gate-btn primary" id="btn-age-yes" data-i18n="rules.ageYes">
           Yes, I'm 18 or older
@@ -1200,7 +1209,7 @@
       </div>
       <div class="agree-sheet-actions">
         <button type="button" class="age-gate-btn primary" id="btn-rules-accept" data-i18n="rules.accept">
-          Accept
+          Accept &amp; continue
         </button>
         <button type="button" class="age-gate-btn ghost" id="btn-agree-cancel" data-i18n="rules.cancel">
           Cancel
@@ -2082,11 +2091,11 @@
   <script src="pwa-install.js?v=7" defer></script>
   <script src="qrcode-generator.js?v=1"></script>
   <script src="qr.js?v=1"></script>
-  <script src="i18n.js?v=191"></script>
+  <script src="i18n.js?v=192"></script>
   <script src="identity.js?v=156"></script>
   <script src="hubs.js?v=156"></script>
   <script src="webrtc.js?v=158"></script>
-  <script src="live.js?v=259"></script>
+  <script src="live.js?v=260"></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

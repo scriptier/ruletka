@@ -4109,7 +4109,7 @@ html[data-theme="saloon"] .weak-conn-tip {
   border-color: rgba(255, 100, 130, 0.35);
 }
 
-/* First-session quick guide */
+/* First-session quick guide (legacy toast class — unused; empty-card hint used) */
 .first-session-guide {
   pointer-events: auto;
   z-index: 54;
@@ -4140,6 +4140,84 @@ html[data-theme="saloon"] .weak-conn-tip {
   line-height: 1.4;
   color: rgba(220, 230, 245, 0.95);
   font-weight: 550;
+}
+
+/* Week-6 cold-start: steps on empty card (not a popup) */
+.empty-first-hint {
+  list-style: none;
+  margin: 0.35rem auto 0.55rem;
+  padding: 0;
+  max-width: min(20rem, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  text-align: left;
+  counter-reset: first-step;
+}
+.empty-first-hint[hidden] {
+  display: none !important;
+}
+.empty-first-hint li {
+  counter-increment: first-step;
+  position: relative;
+  margin: 0;
+  padding: 0.4rem 0.55rem 0.4rem 1.85rem;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 210, 80, 0.18);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  font-weight: 600;
+  color: rgba(235, 240, 250, 0.95);
+}
+.empty-first-hint li::before {
+  content: counter(first-step);
+  position: absolute;
+  left: 0.4rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ffb020, #ff6b3a);
+  color: #1a1008;
+  font-size: 0.68rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.empty-cam-why {
+  margin: 0.35rem auto 0;
+  max-width: min(20rem, 100%);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  font-weight: 550;
+  color: rgba(180, 200, 220, 0.88);
+  text-align: center;
+}
+.empty-cam-why[hidden] {
+  display: none !important;
+}
+.start-match-btn.is-first-run,
+.start-match-btn.is-pulse-start {
+  min-height: 3.1rem;
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  box-shadow:
+    0 10px 32px rgba(255, 45, 85, 0.45),
+    0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+}
+.start-match-btn.is-pulse-start {
+  animation: start-pulse 1.4s ease-in-out 3;
+}
+@keyframes start-pulse {
+  0%, 100% { transform: scale(1); filter: brightness(1); }
+  50% { transform: scale(1.03); filter: brightness(1.08); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .start-match-btn.is-pulse-start { animation: none; }
 }
 
 /* ICE media path badge (Direct P2P vs TURN) + weak-link hint */

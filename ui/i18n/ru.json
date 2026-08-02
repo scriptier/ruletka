@@ -833,11 +833,11 @@
   "room.set": "комната: {room}",
   "room.shareTitle": "Поделиться комнатой",
   "room.shared": "ссылка отправлена",
-  "rules.accept": "Принять",
+  "rules.accept": "Принять и продолжить",
   "rules.age": "Вам должно быть 18+ для ruletka.vip.",
   "rules.ageConfirm": "Мне есть 18 лет",
-  "rules.ageGateKicker": "Только 18+ · взрослый видеочат",
-  "rules.ageGateSub": "Вам должно быть не менее 18 лет. Никаких несовершеннолетних.",
+  "rules.ageGateKicker": "18+ · peer-to-peer видеочат",
+  "rules.ageGateSub": "Нужно 18+. Дальше коротко правила, затем Старт — камера только для чата (peer-to-peer).",
   "rules.ageGateTitle": "Вам есть 18 лет?",
   "rules.ageNo": "Нет",
   "rules.ageYes": "Да, мне 18 или больше",
@@ -1382,5 +1382,12 @@
   "friends.onlineMissedDuringCall": "{n} (пропущенный) онлайн — после чата",
   "friends.redialMissed": "Перезвонить",
   "friends.onlineMissedNotifTitle": "Пропущенный — они онлайн",
-  "friends.onlineMissedNotifBody": "{n} онлайн — нажмите, чтобы перезвонить"
+  "friends.onlineMissedNotifBody": "{n} онлайн — нажмите, чтобы перезвонить",
+  "remote.firstHint1": "Старт — разрешите камеру и микрофон (peer-to-peer)",
+  "remote.firstHint2": "Знакомство · Далее в любой момент · Блок/Жалоба",
+  "remote.firstHint3": "Тихо? Поделитесь приглашением — друг может позвонить",
+  "remote.camWhy": "Камера только для live-чата — видео идёт браузер к браузеру, не на наш сервер.",
+  "btn.startFirst": "Начать чат",
+  "status.afterRules": "Нажмите Старт — разрешите камеру, когда спросит браузер",
+  "status.startingCam": "Запуск камеры… затем поиск партнёра"
 }
