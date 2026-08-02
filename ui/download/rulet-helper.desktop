@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=ruletka network helper
+GenericName=P2P video chat hub
+Comment=Run a local ruletka mini-hub with HTTPS tunnel (open source)
+# Install: copy this file + rulet-helper.sh to a folder, then:
+#   chmod +x rulet-helper.sh
+#   desktop-file-install --dir=$HOME/.local/share/applications rulet-helper.desktop
+# Or set Exec= to the absolute path of the .sh after download.
+Exec=bash -c 'cd "$(dirname %k)" 2>/dev/null || cd "$HOME/Downloads"; exec ./rulet-helper.sh'
+Icon=applications-internet
+Terminal=true
+Categories=Network;Chat;
+Keywords=ruletka;webrtc;p2p;video;
+StartupNotify=true

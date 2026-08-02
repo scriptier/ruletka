@@ -1,7 +1,19 @@
 # Helper downloads
 
-Shell/PowerShell helpers (`rulet-helper*`) live in this folder and are part of the source tree.
-On first run they pull chat UI from the seed (including `safety.html`, legal pages, brand icons, and i18n packs).
+Launchers + scripts for a **personal mini-hub** (bridge + free HTTPS tunnel).  
+On first run they pull chat UI from the seed and the `roulette-bridge` binary.
+
+## Double-click (recommended)
+
+| OS | Double-click | Notes |
+|----|--------------|--------|
+| **Windows** | `rulet-helper.bat` | Keep `rulet-helper.ps1` in the **same folder**. Bypasses PowerShell execution policy for this run. Console stays open. |
+| **macOS** | `rulet-helper-mac.command` | Keep `rulet-helper-mac.sh` beside it. First time: right-click → **Open** if Gatekeeper blocks. |
+| **Linux** | run `rulet-helper.sh` or install `rulet-helper.desktop` | `.desktop` needs `Terminal=true` and a terminal app. |
+
+After start, the helper **opens your browser** to local live chat and copies the public URL when the tunnel is ready.
+
+`RULETKA_NO_BROWSER=1` skips auto-open.
 
 **Prebuilt `roulette-bridge-*` binaries are not committed** (see root `.gitignore`).  
 Build or CI-attach them; always publish **`SHA256SUMS`** next to downloads.
@@ -55,5 +67,15 @@ git push origin v0.1.0
 | Windows Authenticode | Not automated (needs cert) |
 
 Until Apple/Microsoft signing is set up, first-run OS warnings are expected. Users who trust your site/GitHub release can allow the binary after checksum verification.
+
+### Why not a single “official” .exe / .app yet?
+
+A polished single binary would need:
+
+1. **Windows Authenticode** (paid cert) so SmartScreen does not scare first-time users  
+2. **Apple Developer ID + notarization** for double-click without right-click Open  
+3. Embedding or downloading `cloudflared` + bridge inside a signed wrapper  
+
+The `.bat` / `.command` path is intentional: **no install**, no admin, works today. A future signed `RuletkaHelper.exe` can wrap the same logic.
 
 Production deploy (`scripts/deploy/push.sh`) stages whatever binaries are present into `/download/` on the server, including `SHA256SUMS` when available.

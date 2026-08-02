@@ -1,8 +1,11 @@
 # ruletka network helper (Windows, open source)
 # Full mini-hub + tunnel. Island chat on YOUR URL. No control of seed site.
-#   powershell -ExecutionPolicy Bypass -File .\rulet-helper.ps1
+#
+# Double-click:  rulet-helper.bat  (recommended)
+# Or:  powershell -ExecutionPolicy Bypass -File .\rulet-helper.ps1
 
 $ErrorActionPreference = "Stop"
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 $BaseUrl = if ($env:RULETKA_BASE) { $env:RULETKA_BASE } else { "https://ruletka.vip" }
 $Dir = if ($env:RULETKA_HELPER_DIR) { $env:RULETKA_HELPER_DIR } else { Join-Path $env:USERPROFILE ".ruletka-helper" }
 $Port = if ($env:RULETKA_HELPER_PORT) { [int]$env:RULETKA_HELPER_PORT } else { 8791 }
@@ -10,13 +13,15 @@ $Bin = Join-Path $Dir "roulette-bridge.exe"
 $Cf = Join-Path $Dir "cloudflared.exe"
 $InstanceId = if ($env:ROULETTE_INSTANCE_ID) { $env:ROULETTE_INSTANCE_ID } else { "helper-win-$env:COMPUTERNAME-$PID" }
 $UiDir = Join-Path $Dir "ui"
+$OpenBrowser = $env:RULETKA_NO_BROWSER -ne "1"
 
 Write-Host ""
 Write-Host "  ruletka · network helper (Windows)"
 Write-Host "  ──────────────────────────────────"
 Write-Host "  Independent mini hub on your PC."
 Write-Host "  Chat can use YOUR public URL if the seed site is down."
-Write-Host "  Stop anytime: Ctrl+C"
+Write-Host "  Data folder: $Dir"
+Write-Host "  Stop anytime: Ctrl+C  (or close this window)"
 Write-Host ""
 
 New-Item -ItemType Directory -Force -Path (Join-Path $UiDir "brand") | Out-Null
@@ -150,22 +155,39 @@ if ($public) {
   Set-Content -Path (Join-Path $UiDir "hubs.json") -Value $hubs -Encoding UTF8
 }
 
+$localLive = "http://127.0.0.1:$Port/live.html"
+$publicLive = if ($public) { "$public/live.html" } else { $null }
+
 Write-Host ""
 Write-Host "  ✓ Helper hub is running"
-Write-Host "  Local:  http://127.0.0.1:$Port/live.html"
-if ($public) {
-  Write-Host "  Public: $public/live.html"
-  Write-Host "  Share that URL for island chat on your hub."
+Write-Host "  Local:  $localLive"
+if ($publicLive) {
+  Write-Host "  Public: $publicLive"
+  Write-Host "  Share the Public URL for island chat on your hub."
+  try {
+    Set-Clipboard -Value $publicLive
+    Write-Host "  (Public URL copied to clipboard)"
+  } catch {}
   try {
     $body = @{ public_base = $public; instance_id = $InstanceId; note = "helper-windows" } | ConvertTo-Json
     Invoke-WebRequest -Uri "$BaseUrl/v1/seeder/request" -Method POST -Body $body -ContentType "application/json" -UseBasicParsing | Out-Null
   } catch {}
 } else {
   Write-Host "  Public tunnel not ready yet — see $tunnelLog"
+  Write-Host "  You can still use Local on this PC."
 }
 Write-Host ""
-Write-Host "  Open source · LGPL-2.1 · Press Ctrl+C to stop."
+Write-Host "  Open source · LGPL-2.1 · Close this window or Ctrl+C to stop."
 Write-Host ""
+
+if ($OpenBrowser) {
+  try {
+    Start-Process $localLive | Out-Null
+    Write-Host "  Opened browser → local live chat"
+  } catch {
+    Write-Host "  Open in browser: $localLive"
+  }
+}
 
 try {
   while (-not $script:bridge.HasExited) {

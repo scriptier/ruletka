@@ -36,6 +36,8 @@ if [[ "$BUILD" == "1" ]]; then
   # macOS binaries only if already present from prior builds / CI
 fi
 
+chmod +x "$OUT/rulet-helper.sh" "$OUT/rulet-helper-mac.sh" "$OUT/rulet-helper-mac.command" 2>/dev/null || true
+
 echo "Writing SHA256SUMS…"
 (
   cd "$OUT"
@@ -48,7 +50,10 @@ echo "Writing SHA256SUMS…"
     roulette-bridge-macos-amd64 \
     rulet-helper.sh \
     rulet-helper-mac.sh \
-    rulet-helper.ps1
+    rulet-helper-mac.command \
+    rulet-helper.ps1 \
+    rulet-helper.bat \
+    rulet-helper.desktop
   do
     [[ -f "$f" ]] && files+=("$f")
   done

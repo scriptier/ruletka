@@ -25,7 +25,14 @@ jobs:
           mkdir -p dist
           cp target/release/roulette-bridge dist/roulette-bridge-linux-amd64
           chmod +x dist/roulette-bridge-linux-amd64
-          cp ui/download/rulet-helper.sh ui/download/rulet-helper-mac.sh ui/download/rulet-helper.ps1 dist/
+          cp ui/download/rulet-helper.sh \
+            ui/download/rulet-helper-mac.sh \
+            ui/download/rulet-helper-mac.command \
+            ui/download/rulet-helper.ps1 \
+            ui/download/rulet-helper.bat \
+            ui/download/rulet-helper.desktop \
+            dist/
+          chmod +x dist/rulet-helper.sh dist/rulet-helper-mac.sh dist/rulet-helper-mac.command 2>/dev/null || true
       - name: Checksums
         run: |
           cd dist

@@ -195,14 +195,20 @@ if [[ -n "$PUBLIC" ]]; then
 JSON
 fi
 
+LOCAL_LIVE="http://127.0.0.1:${PORT}/live.html"
 echo ""
 echo "  ✓ Helper hub is running (independent match pool)"
-echo "  Local:  http://127.0.0.1:${PORT}/live.html"
+echo "  Local:  $LOCAL_LIVE"
 if [[ -n "$PUBLIC" ]]; then
   echo "  Public: $PUBLIC/live.html"
   echo ""
   echo "  Share that Public URL — friends can chat on YOUR hub"
   echo "  even if the seed site is offline."
+  if command -v xclip >/dev/null 2>&1; then
+    printf '%s' "$PUBLIC/live.html" | xclip -selection clipboard 2>/dev/null && echo "  (Public URL copied to clipboard)"
+  elif command -v wl-copy >/dev/null 2>&1; then
+    printf '%s' "$PUBLIC/live.html" | wl-copy 2>/dev/null && echo "  (Public URL copied to clipboard)"
+  fi
   echo ""
   echo "  Optional: ask operators to federate your node into a shared pool"
   echo "  (shared token + allowlist). You still won't control the seed site."
@@ -217,5 +223,12 @@ echo ""
 echo "  Open source · LGPL-2.1 · docs/DECENTRALIZATION.md"
 echo "  Press Ctrl+C to stop."
 echo ""
+
+if [[ "${RULETKA_NO_BROWSER:-0}" != "1" ]]; then
+  if command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$LOCAL_LIVE" >/dev/null 2>&1 || true
+    echo "  Opened browser → local live chat"
+  fi
+fi
 
 wait "$BRIDGE_PID" 2>/dev/null || true

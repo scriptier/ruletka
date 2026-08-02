@@ -47,7 +47,10 @@ for f in \
   roulette-bridge-macos-amd64 \
   rulet-helper.sh \
   rulet-helper-mac.sh \
+  rulet-helper-mac.command \
   rulet-helper.ps1 \
+  rulet-helper.bat \
+  rulet-helper.desktop \
   SHA256SUMS \
   SHA256SUMS.asc \
   RELEASE.txt \
@@ -67,7 +70,9 @@ done
 [[ -f target/x86_64-apple-darwin/release/roulette-bridge ]] && \
   cp -a target/x86_64-apple-darwin/release/roulette-bridge \
     "$STAGE/ui/download/roulette-bridge-macos-amd64"
-chmod +x "$STAGE/ui/download/"roulette-bridge-* "$STAGE/ui/download/"rulet-helper*.sh 2>/dev/null || true
+chmod +x "$STAGE/ui/download/"roulette-bridge-* \
+  "$STAGE/ui/download/"rulet-helper*.sh \
+  "$STAGE/ui/download/"rulet-helper*.command 2>/dev/null || true
 # Always recompute checksums for what we actually ship (linux binary is freshly built)
 (
   cd "$STAGE/ui/download"
@@ -79,7 +84,10 @@ chmod +x "$STAGE/ui/download/"roulette-bridge-* "$STAGE/ui/download/"rulet-helpe
     roulette-bridge-macos-amd64 \
     rulet-helper.sh \
     rulet-helper-mac.sh \
-    rulet-helper.ps1
+    rulet-helper-mac.command \
+    rulet-helper.ps1 \
+    rulet-helper.bat \
+    rulet-helper.desktop
   do
     [[ -f "$f" ]] && files+=("$f")
   done

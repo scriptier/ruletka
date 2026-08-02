@@ -170,12 +170,16 @@ if [[ -n "$PUBLIC" ]]; then
 JSON
 fi
 
+LOCAL_LIVE="http://127.0.0.1:${PORT}/live.html"
 echo ""
 echo "  ✓ Helper hub is running"
-echo "  Local:  http://127.0.0.1:${PORT}/live.html"
+echo "  Local:  $LOCAL_LIVE"
 if [[ -n "$PUBLIC" ]]; then
   echo "  Public: $PUBLIC/live.html"
   echo "  Share that URL for island chat on your hub."
+  if command -v pbcopy >/dev/null 2>&1; then
+    printf '%s' "$PUBLIC/live.html" | pbcopy && echo "  (Public URL copied to clipboard)"
+  fi
   curl -fsS -X POST "$BASE_URL/v1/seeder/request" \
     -H 'Content-Type: application/json' \
     -d "{\"public_base\":\"$PUBLIC\",\"instance_id\":\"$INSTANCE_ID\",\"note\":\"helper-mac\"}" \
@@ -186,5 +190,10 @@ fi
 echo ""
 echo "  Open source · LGPL-2.1 · Press Ctrl+C to stop."
 echo ""
+
+if [[ "${RULETKA_NO_BROWSER:-0}" != "1" ]]; then
+  open "$LOCAL_LIVE" 2>/dev/null || true
+  echo "  Opened browser → local live chat"
+fi
 
 wait "$BRIDGE_PID" 2>/dev/null || true
