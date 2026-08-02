@@ -15,6 +15,7 @@ import type {
   FriendInfo,
   ServerCallIncoming,
   ServerMsg,
+  ServerRatePrompt,
 } from "./types";
 
 export type IncomingCall = {
@@ -30,16 +31,27 @@ export type OutboundCall = {
   name: string;
 };
 
+export type RatePromptState = {
+  user_id: string;
+  name: string;
+  duration_secs: number;
+  max_gift: number;
+  early: boolean;
+};
+
 type HubContextValue = {
   hub: HubClient;
   connected: boolean;
   friendCode: string;
   stars: number;
+  setStars: (n: number) => void;
   friends: FriendInfo[];
   incomingRequests: FriendInfo[];
   outgoingRequests: FriendInfo[];
   incomingCall: IncomingCall | null;
   outboundCall: OutboundCall | null;
+  ratePrompt: RatePromptState | null;
+  clearRatePrompt: () => void;
   lastError: string;
   /** Subscribe to all hub messages (live screen uses this for match/signal). */
   addMessageListener: (fn: (msg: ServerMsg) => void) => () => void;
@@ -73,11 +85,13 @@ export function HubProvider(props: {
   const [outgoingRequests, setOutgoingRequests] = useState<FriendInfo[]>([]);
   const [incomingCall, setIncomingCall] = useState<IncomingCall | null>(null);
   const [outboundCall, setOutboundCall] = useState<OutboundCall | null>(null);
+  const [ratePrompt, setRatePrompt] = useState<RatePromptState | null>(null);
   const [lastError, setLastError] = useState("");
   const [toast, setToast] = useState("");
 
   const clearToast = useCallback(() => setToast(""), []);
   const clearIncomingCall = useCallback(() => setIncomingCall(null), []);
+  const clearRatePrompt = useCallback(() => setRatePrompt(null), []);
 
   const addMessageListener = useCallback((fn: (msg: ServerMsg) => void) => {
     listeners.current.add(fn);
@@ -168,6 +182,51 @@ export function HubProvider(props: {
             setOutboundCall(null);
             break;
           }
+          case "rate_prompt": {
+            const m = msg as ServerRatePrompt;
+            setRatePrompt({
+              user_id: m.user_id,
+              name: m.name || "Partner",
+              duration_secs: Number(m.duration_secs || 0),
+              max_gift: Math.max(1, Math.min(3, Number(m.max_gift || 1))),
+              early: !!m.early,
+            });
+            break;
+          }
+          case "rate_result": {
+            const m = msg as {
+              ok?: boolean;
+              star?: boolean;
+              amount?: number;
+              message?: string;
+            };
+            // rate_result.stars is the *target* balance — do not overwrite ours
+            if (m.message) setToast(m.message);
+            else if (m.ok && m.star)
+              setToast(`Gifted ★${m.amount || 1}`);
+            else if (m.ok) setToast("Review saved");
+            setRatePrompt(null);
+            break;
+          }
+          case "star_effect": {
+            const m = msg as {
+              ok?: boolean;
+              effect?: string;
+              cost?: number;
+              spender_stars?: number;
+              message?: string;
+              from_name?: string;
+            };
+            if (m.spender_stars != null) setStars(Number(m.spender_stars));
+            if (m.ok && m.effect) {
+              setToast(
+                m.from_name
+                  ? `${m.from_name}: ${m.effect}${m.cost ? ` (−${m.cost}★)` : ""}`
+                  : `Gift ${m.effect}${m.cost ? ` (−${m.cost}★)` : ""}`
+              );
+            } else if (m.message) setToast(m.message);
+            break;
+          }
           case "error": {
             const m = msg as { message?: string };
             if (m.message) {
@@ -198,11 +257,14 @@ export function HubProvider(props: {
       connected,
       friendCode,
       stars,
+      setStars,
       friends,
       incomingRequests,
       outgoingRequests,
       incomingCall,
       outboundCall,
+      ratePrompt,
+      clearRatePrompt,
       lastError,
       addMessageListener,
       clearIncomingCall,
@@ -219,6 +281,8 @@ export function HubProvider(props: {
       outgoingRequests,
       incomingCall,
       outboundCall,
+      ratePrompt,
+      clearRatePrompt,
       lastError,
       addMessageListener,
       clearIncomingCall,

@@ -51,6 +51,18 @@ export type ClientCallRespond = {
 };
 export type ClientCallCancel = { type: "call_cancel"; user_id: string };
 export type ClientHangupFriend = { type: "hangup_friend" };
+export type ClientRatePartner = {
+  type: "rate_partner";
+  user_id: string;
+  star: boolean;
+  amount?: number;
+};
+export type ClientSpendStars = {
+  type: "spend_stars";
+  to_user_id: string;
+  effect: string;
+  op_id?: string;
+};
 
 export type ClientMsg =
   | ClientHello
@@ -71,6 +83,8 @@ export type ClientMsg =
   | ClientCallRespond
   | ClientCallCancel
   | ClientHangupFriend
+  | ClientRatePartner
+  | ClientSpendStars
   | { type: string; [k: string]: unknown };
 
 export type FriendInfo = {
@@ -180,6 +194,42 @@ export type ServerChat = {
 
 export type ServerError = { type: "error"; message: string };
 
+export type ServerRatePrompt = {
+  type: "rate_prompt";
+  user_id: string;
+  name: string;
+  duration_secs: number;
+  max_gift?: number;
+  early?: boolean;
+  min_secs?: number;
+};
+
+export type ServerRateResult = {
+  type: "rate_result";
+  ok: boolean;
+  user_id: string;
+  star: boolean;
+  amount?: number;
+  stars: number;
+  trust?: number;
+  message?: string;
+};
+
+export type ServerStarEffect = {
+  type: "star_effect";
+  ok: boolean;
+  user_id: string;
+  effect: string;
+  until: number;
+  level?: number;
+  cost: number;
+  spender_stars?: number;
+  target_stars?: number;
+  message?: string;
+  from_user_id?: string;
+  from_name?: string;
+};
+
 export type ServerMsg =
   | ServerHelloOk
   | ServerStatus
@@ -190,6 +240,9 @@ export type ServerMsg =
   | ServerCallIncoming
   | ServerCallEnded
   | ServerChat
+  | ServerRatePrompt
+  | ServerRateResult
+  | ServerStarEffect
   | ServerError
   | { type: string; [k: string]: unknown };
 

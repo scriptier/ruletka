@@ -61,16 +61,16 @@ Push for friend rings while killed is **post-first-submit** unless schedule allo
 
 ### Stars
 
-- [x] Balance shown from `hello_ok` (read-only)
-- [ ] Mid-chat unlock timing (early ramp + 15m)
-- [ ] Post-chat gift
-- [ ] Spend at least Heart + one mid-tier gift
-- [ ] Never import stars from profile file
+- [x] Balance shown from `hello_ok` / spend updates
+- [x] Post-chat rate prompt (gift 1–max / skip)
+- [x] In-call spend gifts (heart → please_stay)
+- [ ] Mid-chat unlock progress UI (hub still enforces timing)
+- [x] Never import stars from profile file
 
 ### Account-less identity
 
 - [x] Stable device `user_id` (SecureStore)
-- [ ] Encrypted export / import (web-compatible)
+- [x] Encrypted export / import (web-compatible envelope)
 - [ ] Hub failover via directory
 
 ### i18n

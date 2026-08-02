@@ -15,6 +15,7 @@ import { useHub } from "../src/hub/HubProvider";
 import type { MatchPeer, ServerMatched, ServerMsg } from "../src/hub/types";
 import { MediaSession, type MediaStreamLike } from "../src/media/MediaSession";
 import { loadMatchPrefs } from "../src/prefs/store";
+import { GIFTS } from "../src/stars/gifts";
 
 type Phase = "idle" | "search" | "matched" | "error";
 
@@ -77,7 +78,15 @@ function pickPeer(msg: ServerMatched): {
 }
 
 export default function LiveScreen() {
-  const { hub, friendCode, stars, addMessageListener, connected } = useHub();
+  const {
+    hub,
+    friendCode,
+    stars,
+    addMessageListener,
+    connected,
+    ratePrompt,
+    clearRatePrompt,
+  } = useHub();
   const mediaRef = useRef<MediaSession | null>(null);
   const remotePeerId = useRef<string>("");
   const partnerUserId = useRef<string>("");
@@ -413,11 +422,68 @@ export default function LiveScreen() {
     }
   }
 
+  function spend(effect: string, cost: number) {
+    const uid = partnerUserId.current;
+    if (!uid || phase !== "matched") return;
+    if (stars < cost) {
+      Alert.alert("Need more ★", `This gift costs ${cost}★ (you have ${stars}).`);
+      return;
+    }
+    try {
+      hub.spendStars(uid, effect);
+      push(`→ spend ${effect} (−${cost}★)`);
+    } catch (e) {
+      push(String(e));
+    }
+  }
+
+  function submitRate(star: boolean, amount = 1) {
+    if (!ratePrompt) return;
+    try {
+      hub.ratePartner(ratePrompt.user_id, star, amount);
+      clearRatePrompt();
+    } catch (e) {
+      push(String(e));
+    }
+  }
+
   const showAloneBanner = phase === "search" && alone;
   const isFriendCall = matchMode === "friend";
 
   return (
     <View style={styles.root}>
+      {ratePrompt ? (
+        <View style={styles.rateCard}>
+          <Text style={styles.rateTitle}>
+            Rate {ratePrompt.name}?
+            {ratePrompt.early ? " (early)" : ""}
+          </Text>
+          <Text style={styles.rateBody}>
+            Chat {Math.floor(ratePrompt.duration_secs / 60)}+ min. Gift up to ★
+            {ratePrompt.max_gift} or skip.
+          </Text>
+          <View style={styles.row}>
+            {Array.from({ length: ratePrompt.max_gift }, (_, i) => i + 1).map(
+              (n) => (
+                <Pressable
+                  key={n}
+                  style={styles.rateGift}
+                  onPress={() => submitRate(true, n)}
+                >
+                  <Text style={styles.btnText}>★{n}</Text>
+                </Pressable>
+              )
+            )}
+            <Pressable
+              style={styles.btnGhost}
+              onPress={() => submitRate(false)}
+            >
+              <Text style={styles.btnText}>Skip</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+
       <View style={styles.stage}>
         <VideoView
           stream={remoteStream || localStream}
@@ -484,20 +550,37 @@ export default function LiveScreen() {
       </View>
 
       {phase === "matched" ? (
-        <View style={styles.chatRow}>
-          <TextInput
-            style={styles.chatInput}
-            value={chatDraft}
-            onChangeText={setChatDraft}
-            placeholder="Message…"
-            placeholderTextColor="#6b7a90"
-            onSubmitEditing={sendChat}
-            returnKeyType="send"
-          />
-          <Pressable style={styles.chatSend} onPress={sendChat}>
-            <Text style={styles.btnText}>Send</Text>
-          </Pressable>
-        </View>
+        <>
+          <View style={styles.giftsRow}>
+            {GIFTS.map((g) => (
+              <Pressable
+                key={g.id}
+                style={[
+                  styles.giftChip,
+                  stars < g.cost && styles.giftChipDisabled,
+                ]}
+                onPress={() => spend(g.id, g.cost)}
+              >
+                <Text style={styles.giftEmoji}>{g.emoji}</Text>
+                <Text style={styles.giftCost}>{g.cost}★</Text>
+              </Pressable>
+            ))}
+          </View>
+          <View style={styles.chatRow}>
+            <TextInput
+              style={styles.chatInput}
+              value={chatDraft}
+              onChangeText={setChatDraft}
+              placeholder="Message…"
+              placeholderTextColor="#6b7a90"
+              onSubmitEditing={sendChat}
+              returnKeyType="send"
+            />
+            <Pressable style={styles.chatSend} onPress={sendChat}>
+              <Text style={styles.btnText}>Send</Text>
+            </Pressable>
+          </View>
+        </>
       ) : null}
 
       <View style={styles.bar}>
@@ -650,6 +733,44 @@ const styles = StyleSheet.create({
     textShadowRadius: 3,
   },
   chatFrom: { fontWeight: "700", color: "#9ec5ff" },
+  giftsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingBottom: 4,
+  },
+  giftChip: {
+    alignItems: "center",
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    minWidth: 44,
+  },
+  giftChipDisabled: { opacity: 0.4 },
+  giftEmoji: { fontSize: 16 },
+  giftCost: { color: "#9aa8bc", fontSize: 10, fontWeight: "700" },
+  rateCard: {
+    marginHorizontal: 12,
+    marginTop: 8,
+    padding: 14,
+    borderRadius: 14,
+    backgroundColor: "rgba(40,32,12,0.98)",
+    borderWidth: 1,
+    borderColor: "rgba(255,200,80,0.4)",
+    gap: 8,
+    zIndex: 50,
+  },
+  rateTitle: { color: "#ffe9a0", fontWeight: "800", fontSize: 16 },
+  rateBody: { color: "#c8d4e4", fontSize: 13, lineHeight: 18 },
+  rateGift: {
+    flex: 1,
+    backgroundColor: "rgba(255,200,80,0.25)",
+    paddingVertical: 12,
+    borderRadius: 999,
+    alignItems: "center",
+  },
   chatRow: {
     flexDirection: "row",
     gap: 8,

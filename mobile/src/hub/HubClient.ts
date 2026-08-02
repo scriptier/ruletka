@@ -207,6 +207,27 @@ export class HubClient {
     this.send({ type: "hangup_friend" });
   }
 
+  ratePartner(user_id: string, star: boolean, amount = 1): void {
+    this.send({
+      type: "rate_partner",
+      user_id,
+      star,
+      amount: star ? Math.max(1, Math.min(3, amount)) : 0,
+    });
+  }
+
+  spendStars(to_user_id: string, effect: string, op_id?: string): void {
+    this.send({
+      type: "spend_stars",
+      to_user_id,
+      effect,
+      op_id:
+        op_id ||
+        `op-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+    });
+  }
+
+
   private startPing() {
     this.stopPing();
     this.pingTimer = setInterval(() => {

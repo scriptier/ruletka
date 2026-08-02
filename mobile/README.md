@@ -21,7 +21,8 @@ See monorepo docs:
 | Report + Block | ✅ |
 | Friends list + Call | ✅ Phase 2 |
 | Incoming/outbound call banners | ✅ |
-| Stars gift / spend UI | ⏳ Phase 3 |
+| Stars rate prompt + in-call gifts | ✅ Phase 3 |
+| Profile export/import (web-compatible) | ✅ |
 
 ### First A/V call (device)
 
