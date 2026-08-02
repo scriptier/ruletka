@@ -13,6 +13,7 @@ Please read the [Code of Conduct](CODE_OF_CONDUCT.md). Security issues: [SECURIT
 | `docs/` | Architecture, self-host, protocol, federation |
 | `common/`, `contracts/`, `agent/` | Freenet research path (optional) |
 | `Dockerfile`, `docker-compose.yml` | One-command local hub |
+| `mobile/` | Expo / React Native store apps (see `docs/MOBILE.md`) |
 
 ## Dev loop
 

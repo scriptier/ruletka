@@ -44,3 +44,4 @@ phone-qr.png
 
 # Node (if any tools added later)
 node_modules/
+mobile/node_modules/

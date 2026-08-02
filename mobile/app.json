@@ -1,0 +1,52 @@
+{
+  "expo": {
+    "name": "ruletka",
+    "slug": "ruletka",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "ruletka",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": false,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#07080c"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "vip.ruletka.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "ruletka needs the camera for peer-to-peer video chat. Video goes device-to-device and is not uploaded to our servers.",
+        "NSMicrophoneUsageDescription": "ruletka needs the microphone for peer-to-peer video chat.",
+        "NSPhotoLibraryUsageDescription": "Optional: choose a profile picture stored only on this device."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#07080c"
+      },
+      "package": "vip.ruletka.app",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.INTERNET"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "hubBase": "https://ruletka.vip",
+      "eas": {
+        "projectId": "replace-with-eas-project-id"
+      }
+    }
+  }
+}
