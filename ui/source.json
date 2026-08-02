@@ -4,10 +4,15 @@
   "homepage": "https://ruletka.vip",
   "repository": "https://github.com/scriptier/ruletka",
   "issues": "https://github.com/scriptier/ruletka/issues",
+  "security": "https://github.com/scriptier/ruletka/blob/main/SECURITY.md",
   "docs": {
-    "decentralization": "/docs not served — see repository docs/DECENTRALIZATION.md",
-    "directory": "/v1/directory",
+    "self_host": "https://github.com/scriptier/ruletka/blob/main/docs/SELF_HOST.md",
+    "protocol": "https://github.com/scriptier/ruletka/blob/main/docs/PROTOCOL.md",
+    "hub_directory": "https://github.com/scriptier/ruletka/blob/main/docs/HUB_DIRECTORY.md",
+    "decentralization": "https://github.com/scriptier/ruletka/blob/main/docs/DECENTRALIZATION.md",
+    "directory_api": "/v1/directory",
     "hubs": "/hubs.json"
   },
-  "notes": "Seed hub is ruletka.vip. Software is open source — run your own hub under any domain."
+  "docker": "docker compose up --build",
+  "notes": "Seed hub is ruletka.vip. Software is open source (LGPL-2.1) — run your own hub under any domain. Do not imply official operation of ruletka.vip without permission."
 }

@@ -1488,5 +1488,11 @@
   "swipe.hint": "Atlamak için sola veya sağa kaydırın",
   "swipe.next": "Sonraki",
   "trio.iceRestart": "Eşlere yeniden bağlanılıyor…",
-  "trio.peerRetry": "Üçüncü kişi bağlantısı yeniden deneniyor…"
+  "trio.peerRetry": "Üçüncü kişi bağlantısı yeniden deneniyor…",
+  "home.openSelfHost": "Kendi hub (Docker)",
+  "home.openSourceJson": "source.json",
+  "settings.selfHost": "Kendi hub'ını çalıştır",
+  "settings.selfHostSub": "Docker Compose · any domain · 15 minutes",
+  "settings.contribute": "Katkıda bulun",
+  "settings.contributeSub": "PRs · protocol · hub directory"
 }

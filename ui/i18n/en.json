@@ -264,6 +264,8 @@
   "home.openHelper": "Run a helper",
   "home.openHubs": "hubs.json",
   "home.openOps": "For operators",
+  "home.openSelfHost": "Self-host (Docker)",
+  "home.openSourceJson": "source.json",
   "home.openSrc": "GitHub",
   "home.openTitle": "Open source & multi-hub",
   "home.p1d": "Spin, match, next — skip anytime",
@@ -1488,5 +1490,9 @@
   "invite.packOnlineBody": "{n} people online on {brand} now — random video chat or friends Call.\n\nOpen: {url}\nNo account · video stays browser-to-browser.",
   "invite.shareLineCode": "{brand}: add me {code} then Call · {url}",
   "settings.exportDoneEnc": "Encrypted profile exported",
-  "settings.exportEncrypting": "Encrypting…"
+  "settings.exportEncrypting": "Encrypting…",
+  "settings.selfHost": "Self-host a hub",
+  "settings.selfHostSub": "Docker Compose · any domain · 15 minutes",
+  "settings.contribute": "Contribute",
+  "settings.contributeSub": "PRs · protocol · hub directory"
 }

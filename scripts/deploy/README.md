@@ -1,91 +1,46 @@
-# Deploy ruletka.vip to DigitalOcean
+# Deploy the seed hub (operators)
 
-## 1. DNS (GoDaddy) — you already did this
+For **community self-host**, prefer [`docs/SELF_HOST.md`](../../docs/SELF_HOST.md) (Docker / any VPS). This folder is the **seed-site** automation used for ruletka.vip-style deploys.
 
-| Type | Name | Data |
-|------|------|------|
-| A | `@` | droplet IP `209.38.204.153` |
-| CNAME | `www` | `ruletka.vip.` |
+## What `push.sh` does
 
-## 2. Add deploy SSH key to the droplet
-
-Public key (from this machine):
-
-```
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC3yZTxLJ31qflb5H4SiCU5oE3+La0Isl5Lps4vcWr4U ruletka-deploy@Drakosik
-```
-
-**Easiest:** DigitalOcean → Droplet → **Access** → **Launch Droplet Console**, then paste:
-
-```bash
-mkdir -p /root/.ssh && chmod 700 /root/.ssh
-echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC3yZTxLJ31qflb5H4SiCU5oE3+La0Isl5Lps4vcWr4U ruletka-deploy@Drakosik' >> /root/.ssh/authorized_keys
-chmod 600 /root/.ssh/authorized_keys
-```
-
-Or: DO **Settings → Security → SSH keys** → add key → recreate droplet with that key (if you prefer).
-
-## 3. Deploy from this repo
+1. `cargo build -p freenet-roulette-bridge --release`
+2. Stage `bin/`, `ui/` (minified), `deploy/` scripts
+3. rsync **only** those trees to the server (never wipes `data/` or `backups/`)
+4. Runs `install-on-server.sh` (Caddy, systemd, coturn setup if present)
 
 ```bash
 ./scripts/deploy/push.sh
+# optional:
+# HOST=root@your.server SSH_KEY=~/.ssh/your_key ./scripts/deploy/push.sh
 ```
 
-This will:
+## Server layout
 
-- build `roulette-bridge` release  
-- upload binary + `ui/` to `/opt/ruletka`  
-- install **Caddy** (HTTPS for `ruletka.vip`)  
-- install **systemd** service (bridge on `127.0.0.1:8790`)  
-- open firewall ports 22/80/443  
+| Path | Purpose |
+|------|---------|
+| `/opt/ruletka/bin/roulette-bridge` | Bridge binary |
+| `/opt/ruletka/ui/` | Static UI |
+| `/opt/ruletka/data/` | friends, star ledger, `*.env` secrets |
+| `/opt/ruletka/backups/` | Rotating data tarballs |
+| `/opt/ruletka/deploy/` | Install scripts copied from this repo |
 
-## 4. Verify
+See [`docs/OPS.md`](../../docs/OPS.md) for backups, TURN, stars, admin.
 
-- https://ruletka.vip/  
-- https://ruletka.vip/live.html  
-- https://ruletka.vip/health  
-- https://ruletka.vip/config.json  (ICE / TURN; credentials are short-lived)
+## First-time server
 
-### Self-hosted TURN (coturn)
+1. Provision a Linux VPS with Docker **or** bare metal + SSH as root/sudo.
+2. Install your **own** SSH public key on the host (`~/.ssh/authorized_keys`). Do not commit private keys.
+3. Point DNS A/AAAA at the host; use the sample `Caddyfile` (edit domain).
+4. Run `push.sh` from a machine with Rust + SSH access.
+5. Create secrets once on the server (`admin.env`, `turn.env`) — install scripts create them if missing; later deploys preserve them.
 
-`install-on-server.sh` runs `deploy/setup-turn.sh` when present. Manual re-run:
+## TURN
 
-```bash
-ssh root@YOUR_DROPLET 'bash /opt/ruletka/deploy/setup-turn.sh'
-```
+`setup-turn.sh` + `coturn.conf` install coturn on **3478** (UDP/TCP). TURNS/443 is optional and conflicts with Caddy HTTPS on the same port unless you plan multi-IP or stream mux.
 
-- Secret: `/opt/ruletka/data/turn.env` (not in git)  
-- coturn config: `/etc/turnserver.conf`  
-- Ports: `3478` UDP/TCP + relay `49160–49300`  
-- Bridge env: `ROULETTE_OPEN_TURN=false`, `ROULETTE_TURN=turn:ruletka.vip:3478?...`, `EnvironmentFile=turn.env` 
+## Safety
 
-## Layout on server
-
-```
-/opt/ruletka/bin/roulette-bridge
-/opt/ruletka/ui/                 # homepage + live
-/opt/ruletka/data/friends.json
-/opt/ruletka/data/star_ledger.jsonl   # star balances (authoritative)
-/opt/ruletka/backups/                 # from backup-ruletka-data.sh
-/opt/ruletka/deploy/backup-ruletka-data.sh
-/etc/caddy/Caddyfile
-/etc/systemd/system/roulette-bridge.service
-```
-
-## Data backup
-
-Always snapshot **friends + star ledger** together:
-
-```bash
-ssh root@YOUR_DROPLET 'bash /opt/ruletka/deploy/backup-ruletka-data.sh'
-```
-
-See `docs/OPS.md` (Backups section).
-
-## Updates
-
-After code changes:
-
-```bash
-./scripts/deploy/push.sh
-```
+- Never put production tokens in git.
+- `push.sh` must **not** rsync-delete the whole `/opt/ruletka` tree (data + backups).
+- After deploy: hard-refresh live once; check `/health` and `/config.json`.

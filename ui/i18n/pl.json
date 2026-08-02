@@ -1488,5 +1488,11 @@
   "swipe.hint": "Przesuń w lewo lub w prawo, aby pominąć",
   "swipe.next": "Następny",
   "trio.iceRestart": "Ponowne łączenie partnera…",
-  "trio.peerRetry": "Ponawiam próbę połączenia z trzecią osobą…"
+  "trio.peerRetry": "Ponawiam próbę połączenia z trzecią osobą…",
+  "home.openSelfHost": "Własny hub (Docker)",
+  "home.openSourceJson": "source.json",
+  "settings.selfHost": "Własny hub",
+  "settings.selfHostSub": "Docker Compose · any domain · 15 minutes",
+  "settings.contribute": "Współtwórz",
+  "settings.contributeSub": "PRs · protocol · hub directory"
 }

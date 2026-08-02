@@ -1,0 +1,30 @@
+name: Self-host / directory
+description: Running your own hub or requesting directory listing
+title: "[self-host] "
+labels: ["self-host"]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What do you need?
+      options:
+        - Help running Docker / binary
+        - HTTPS / reverse proxy
+        - TURN / Hide IP
+        - Request hubs.json / directory listing
+        - Federation with another operator
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: Public hub URL (if any)
+      placeholder: "https://…"
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      placeholder: "Logs, compose file snippet (redact secrets), health JSON…"
+    validations:
+      required: true

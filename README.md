@@ -1,5 +1,8 @@
 # ruletka — open peer-to-peer video roulette
 
+[![CI](https://github.com/scriptier/ruletka/actions/workflows/ci.yml/badge.svg)](https://github.com/scriptier/ruletka/actions/workflows/ci.yml)
+[![License: LGPL-2.1-only](https://img.shields.io/badge/License-LGPL%202.1--only-blue.svg)](LICENSE)
+
 **Open source** stranger (and friends) video chat.
 
 - **Media is always WebRTC peer-to-peer** (not uploaded to a media server).
@@ -10,39 +13,52 @@
 
 | Docs | |
 |------|--|
+| **Self-host (Docker / VPS)** | [`docs/SELF_HOST.md`](docs/SELF_HOST.md) |
+| Signaling protocol | [`docs/PROTOCOL.md`](docs/PROTOCOL.md) |
+| Hub directory policy | [`docs/HUB_DIRECTORY.md`](docs/HUB_DIRECTORY.md) |
 | Architecture | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
 | Decentralization | [`docs/DECENTRALIZATION.md`](docs/DECENTRALIZATION.md) |
 | Federation | [`docs/INTEROP.md`](docs/INTEROP.md) |
 | Operator ops | [`docs/OPS.md`](docs/OPS.md) |
 | Security | [`SECURITY.md`](SECURITY.md) |
 | Contributing | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
+| Code of Conduct | [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) |
 
 ## Status
 
 | Piece | Status |
 |-------|--------|
 | Simple match bridge | `bridge/` — default product path |
-| Live UI (EN/RU + packs) | `ui/live.html`, `ui/i18n/` |
+| Live UI (multi-language packs) | `ui/live.html`, `ui/i18n/` |
 | Safety / community | `ui/safety.html`, `ui/legal/` |
 | Public hub directory | `ui/hubs.json` + `GET /v1/directory` |
 | Client multi-hub failover | `ui/hubs.js` |
 | Network helpers (Win/Mac/Linux) | `ui/download/rulet-helper*` — full island hub |
 | Federation between operators | `nextface-fed/1` allowlisted peers |
+| Docker self-host | `Dockerfile` + `docker-compose.yml` |
 | Freenet contracts (research) | `contracts/`, `agent/` |
 
 ## Quick start
 
-```bash
-# Tests
-cargo test
+### Docker (recommended for first try)
 
-# Run a hub locally
+```bash
+git clone https://github.com/scriptier/ruletka.git
+cd ruletka
+docker compose up --build
+# → http://127.0.0.1:8790/live.html  (two tabs to match)
+```
+
+### Cargo
+
+```bash
+cargo test --workspace --exclude freenet-roulette-lobby --exclude freenet-roulette-session
 ./scripts/run-bridge.sh
 # → http://127.0.0.1:8790/          homepage
 # → http://127.0.0.1:8790/live.html chat
 ```
 
-Two browser tabs → Next on both → match. Video stays P2P.
+Two browser tabs → Start / Next on both → match. Video stays P2P.
 
 ### Environment
 
@@ -62,36 +78,25 @@ export ROULETTE_DIRECTORY_HUBS=https://ruletka.vip,https://friend.example.com
 ./scripts/run-federated-pair.sh
 ```
 
-### Deploy
+### Production deploy (operators)
 
-```bash
-./scripts/deploy/push.sh   # needs SSH + droplet setup; see scripts/deploy/README.md
-```
+Generic self-host: [`docs/SELF_HOST.md`](docs/SELF_HOST.md).  
+Seed-site automation: `./scripts/deploy/push.sh` (see `scripts/deploy/README.md`) — never commits secrets; only syncs `bin/`, `ui/`, `deploy/`.
 
 ## Open source & brand
 
 - **Software** is free under LGPL-2.1-only — run forks, private hubs, community meshes.
 - **Brand** “ruletka.vip” and production secrets are separate; do not imply you operate the seed site without permission.
-- Prebuilt helper binaries are **not** in git (build or attach to releases). Scripts live under `ui/download/`.
+- Prebuilt helper binaries are **not** in git (build or attach to GitHub Releases). Scripts live under `ui/download/`.
+- Machine-readable seed metadata: [`ui/source.json`](ui/source.json) (also at `https://ruletka.vip/source.json`).
 
-## Publishing / clone
-
-Public repository (intended): **https://github.com/scriptier/ruletka**
+## Clone
 
 ```bash
 git clone https://github.com/scriptier/ruletka.git
 cd ruletka
-cargo build -p freenet-roulette-bridge --release
-./scripts/run-bridge.sh
-```
-
-Maintainers (push):
-
-```bash
-# SSH key must be on the GitHub account (scriptier)
-export GIT_SSH_COMMAND='ssh -i ~/.ssh/github_ed25519 -o IdentitiesOnly=yes'
-gh auth login   # once
-gh repo create scriptier/ruletka --public --source=. --remote=origin --push
+docker compose up --build
+# or: cargo build -p freenet-roulette-bridge --release && ./scripts/run-bridge.sh
 ```
 
 CI: `.github/workflows/ci.yml` runs `cargo test` + UI sanity on push.
@@ -101,3 +106,4 @@ CI: `.github/workflows/ci.yml` runs `cargo test` + UI sanity on push.
 - A hub still sees **signaling + chat text** for its users.
 - Partners can **record** video on their device.
 - Full matchmaking with **zero** servers is the Freenet research path, not the default.
+- Stars / friends are **per hub** — not a global account system.

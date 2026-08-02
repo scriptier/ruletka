@@ -1488,5 +1488,11 @@
   "swipe.hint": "向左或向右滑动可跳过",
   "swipe.next": "下一个",
   "trio.iceRestart": "正在重新连接对等...",
-  "trio.peerRetry": "正在重试第三人称连接..."
+  "trio.peerRetry": "正在重试第三人称连接...",
+  "home.openSelfHost": "自建节点 (Docker)",
+  "home.openSourceJson": "source.json",
+  "settings.selfHost": "自建中心",
+  "settings.selfHostSub": "Docker Compose · any domain · 15 minutes",
+  "settings.contribute": "参与贡献",
+  "settings.contributeSub": "PRs · protocol · hub directory"
 }

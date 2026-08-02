@@ -1,0 +1,47 @@
+name: Bug report
+description: Something broken in bridge, UI, or self-host
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping. Media is P2P — note whether the issue is matchmaking, signaling, or WebRTC.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - bridge / matchmaking
+        - live UI
+        - WebRTC / ICE / TURN
+        - friends / calls
+        - stars
+        - deploy / self-host / Docker
+        - docs
+        - other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      placeholder: "git rev-parse --short HEAD or release tag"
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. docker compose up …"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs actual
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      placeholder: "Browser, OS, Docker vs cargo, HTTPS?, TURN?"

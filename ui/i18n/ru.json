@@ -1488,5 +1488,11 @@
   "invite.packOnlineBody": "Сейчас {n} онлайн на {brand} — случайный чат или звонок другу.\n\nОткрой: {url}\nБез аккаунта · видео браузер к браузеру.",
   "invite.shareLineCode": "{brand}: добавь {code} и звони · {url}",
   "settings.exportDoneEnc": "Зашифрованный профиль экспортирован",
-  "settings.exportEncrypting": "Шифрование…"
+  "settings.exportEncrypting": "Шифрование…",
+  "home.openSelfHost": "Свой хаб (Docker)",
+  "home.openSourceJson": "source.json",
+  "settings.selfHost": "Свой хаб",
+  "settings.selfHostSub": "Docker Compose · любой домен · 15 минут",
+  "settings.contribute": "Участие в разработке",
+  "settings.contributeSub": "PR · протокол · каталог хабов"
 }

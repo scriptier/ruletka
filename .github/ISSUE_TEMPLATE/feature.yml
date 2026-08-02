@@ -1,0 +1,26 @@
+name: Feature idea
+description: Product or protocol enhancement
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      placeholder: What user or operator pain does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+    validations:
+      required: true
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints you accept
+      options:
+        - label: Media stays P2P (no SFU required for v1)
+        - label: No fake anonymity claims
+        - label: Federation stays allowlisted / opt-in

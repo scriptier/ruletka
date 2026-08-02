@@ -323,12 +323,14 @@
       </p>
       <p class="home-open-links">
         <a class="chip-link chip-link-primary" href="https://github.com/scriptier/ruletka" target="_blank" rel="noopener" data-i18n="home.openSrc">GitHub</a>
+        <a class="chip-link chip-link-primary" href="https://github.com/scriptier/ruletka/blob/main/docs/SELF_HOST.md" target="_blank" rel="noopener" data-i18n="home.openSelfHost">Self-host (Docker)</a>
         <a class="chip-link chip-link-primary" href="/contribute.html" data-i18n="home.openHelper">Run a helper</a>
       </p>
       <p class="home-open-ops">
         <span class="home-open-ops-lbl" data-i18n="home.openOps">For operators</span>
         <a class="chip-link chip-link-muted" href="/v1/directory" data-i18n="home.openDir">Hub directory API</a>
         <a class="chip-link chip-link-muted" href="/hubs.json" data-i18n="home.openHubs">hubs.json</a>
+        <a class="chip-link chip-link-muted" href="/source.json" data-i18n="home.openSourceJson">source.json</a>
       </p>
     </section>
 
@@ -353,6 +355,8 @@
       <a href="#stars" class="foot-link" data-i18n="home.starsFoot">Stars reputation</a>
       <a href="#why" class="foot-link" data-i18n="home.diffTitle">How we’re different</a>
       <a href="#open" class="foot-link" data-i18n="home.openTitle">Open source</a>
+      <a href="https://github.com/scriptier/ruletka" class="foot-link" target="_blank" rel="noopener" data-i18n="home.openSrc">GitHub</a>
+      <a href="https://github.com/scriptier/ruletka/blob/main/docs/SELF_HOST.md" class="foot-link" target="_blank" rel="noopener" data-i18n="home.openSelfHost">Self-host</a>
       <a href="/contribute.html" class="foot-link" data-i18n="home.openHelper">Run a helper</a>
       <a href="/safety.html" class="foot-link" data-i18n="home.safety">Safety</a>
       <a href="/legal/" class="foot-link" data-keep-lang data-i18n="home.legal">Legal</a>
@@ -423,8 +427,10 @@
           "home.openBody":
             "This software is <strong>open source</strong> (LGPL-2.1). Anyone can run their own hub. This site is a public seed — not the only network. If a hub goes down, the live app can try other hubs from a public directory. Helpers run a full chat node you can share.",
           "home.openSrc": "GitHub",
+          "home.openSelfHost": "Self-host (Docker)",
           "home.openDir": "Hub directory API",
           "home.openHubs": "hubs.json",
+          "home.openSourceJson": "source.json",
           "home.openHelper": "Run a helper",
           "home.openOps": "For operators",
           "home.legal": "Legal",
@@ -490,8 +496,10 @@
           "home.openBody":
             "Софт <strong>открытый</strong> (LGPL-2.1). Любой может поднять свой хаб. Этот сайт — публичное семя, не единственная сеть. Если хаб упал, live-клиент может взять другой из каталога. Helper — полноценная нода, которой можно делиться.",
           "home.openSrc": "GitHub",
+          "home.openSelfHost": "Свой хаб (Docker)",
           "home.openDir": "API каталога хабов",
           "home.openHubs": "hubs.json",
+          "home.openSourceJson": "source.json",
           "home.openHelper": "Запустить helper",
           "home.openOps": "Для операторов",
           "home.legal": "Правовое",
@@ -587,7 +595,7 @@
             online: 0,
           });
         } catch (_) {}
-        fetch("/i18n/" + lang + ".json?v=66", { cache: "force-cache" })
+        fetch("/i18n/" + lang + ".json?v=67", { cache: "force-cache" })
           .then(function (r) {
             if (!r.ok) throw new Error("pack");
             return r.json();

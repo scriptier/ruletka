@@ -1,0 +1,38 @@
+# Local / small VPS hub — no Freenet required.
+#
+#   docker compose up --build
+#   open http://127.0.0.1:8790/live.html  (two tabs to match)
+#
+# Production: put Caddy/nginx TLS in front; set ROULETTE_PUBLIC_BASE;
+# prefer self-hosted TURN (see docs/SELF_HOST.md).
+
+services:
+  hub:
+    build: .
+    image: ruletka-hub:local
+    ports:
+      - "${HUB_PORT:-8790}:8790"
+    volumes:
+      - hub-data:/opt/ruletka/data
+    environment:
+      RUST_LOG: ${RUST_LOG:-info}
+      ROULETTE_LISTEN: 0.0.0.0:8790
+      # Demo TURN when unset (fine for LAN). For public mobile: self-host coturn.
+      ROULETTE_OPEN_TURN: ${ROULETTE_OPEN_TURN:-true}
+      # ROULETTE_PUBLIC_BASE: https://your-hub.example.com
+      # ROULETTE_INSTANCE_ID: my-hub
+      # ROULETTE_ADMIN_TOKEN: change-me
+      # ROULETTE_TURN: turn:your-hub.example.com:3478
+      # ROULETTE_TURN_SECRET: change-me
+      # ROULETTE_OPEN_TURN: "false"
+      # ROULETTE_DIRECTORY_HUBS: https://ruletka.vip
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "roulette-bridge", "--help"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  hub-data:

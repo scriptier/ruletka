@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/scriptier/ruletka/blob/main/SECURITY.md
+    about: Private report preferred — do not file public issues for exploitable flaws.
+  - name: Self-host guide
+    url: https://github.com/scriptier/ruletka/blob/main/docs/SELF_HOST.md
+    about: Docker / VPS hub setup before opening a bug.

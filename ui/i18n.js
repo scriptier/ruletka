@@ -693,6 +693,10 @@
       "prefs.tag.langs": "Languages",
       "prefs.tag.anime": "Anime",
       "settings.source": "Source code (GitHub)",
+      "settings.selfHost": "Self-host a hub",
+      "settings.selfHostSub": "Docker Compose · any domain · 15 minutes",
+      "settings.contribute": "Contribute",
+      "settings.contributeSub": "PRs · protocol · hub directory",
       "settings.decentralDocs": "Multi-hub & decentralization",
       "settings.license": "License · LGPL-2.1",
       "hub.explain":
@@ -1458,6 +1462,10 @@
       "prefs.tag.langs": "Языки",
       "prefs.tag.anime": "Аниме",
       "settings.source": "Исходный код (GitHub)",
+      "settings.selfHost": "Свой хаб",
+      "settings.selfHostSub": "Docker Compose · любой домен · 15 минут",
+      "settings.contribute": "Участие в разработке",
+      "settings.contributeSub": "PR · протокол · каталог хабов",
       "settings.decentralDocs": "Мульти-хаб и децентрализация",
       "settings.license": "Лицензия · LGPL-2.1",
       "hub.explain":
@@ -1740,7 +1748,7 @@
     if (!BUNDLED.has(c) && STR[c]) return Promise.resolve(STR[c]);
     if (loading[c]) return loading[c];
     // Always fetch /i18n/{code}.json and merge over built-ins (en/ru too)
-    loading[c] = fetch(`/i18n/${c}.json?v=66`, { cache: "force-cache" })
+    loading[c] = fetch(`/i18n/${c}.json?v=67`, { cache: "force-cache" })
       .then((r) => {
         if (!r.ok) throw new Error("lang pack " + c);
         return r.json();
