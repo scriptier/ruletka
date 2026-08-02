@@ -8,7 +8,10 @@ Short checklist for running a public hub without full-time moderators.
 |------|---------|
 | `/opt/ruletka/bin/roulette-bridge` | Bridge binary |
 | `/opt/ruletka/ui/` | Static UI |
-| `/opt/ruletka/data/friends.json` | Friends, blocks, report tallies, match bans |
+| `/opt/ruletka/data/friends.json` | Friends, blocks, report tallies, match bans, star cache |
+| `/opt/ruletka/data/star_ledger.jsonl` | **Authoritative** star balances (append-only mint/spend log) |
+| `/opt/ruletka/data/metrics.jsonl` | Daily hub counters |
+| `/opt/ruletka/backups/` | Rotating tarballs from `backup-ruletka-data.sh` |
 | `/opt/ruletka/data/admin.env` | `ROULETTE_ADMIN_TOKEN=…` |
 | `/opt/ruletka/data/turn.env` | coturn secret |
 | `/opt/ruletka/data/analytics.env` | optional Metrica/GA public ids |
@@ -17,6 +20,59 @@ Short checklist for running a public hub without full-time moderators.
 | `/opt/ruletka/data/directory_hubs.json` | client failover directory |
 
 Admin UI: `https://your-hub/admin.html` (token from `admin.env`).
+
+## Backups (friends + star ledger)
+
+**Always backup and restore `friends.json` and `star_ledger.jsonl` together.**
+
+- `star_ledger.jsonl` is the source of truth for ★ balances (hash-chained events).
+- `friends.json` holds friendships, bans, edges, and a **cache** of star counts.
+- Restoring an old `friends.json` alone cannot safely mint stars after the ledger exists
+  (ledger wins on boot) — but you still lose audit history and risk operator confusion.
+- Admin star grants must go through **Admin → Grant ★** (ledger `adjust`), not hand-edits.
+
+### Manual backup / restore
+
+```bash
+# On the droplet
+sudo bash /opt/ruletka/deploy/backup-ruletka-data.sh          # create tarball
+sudo bash /opt/ruletka/deploy/backup-ruletka-data.sh list
+sudo bash /opt/ruletka/deploy/backup-ruletka-data.sh restore \
+  /opt/ruletka/backups/ruletka-data-YYYYMMDDTHHMMSSZ.tgz
+```
+
+Archives land in `/opt/ruletka/backups/ruletka-data-*.tgz` (default keep **14**).  
+Env: `ROULETKA_DATA_DIR`, `ROULETKA_BACKUP_DIR`, `ROULETKA_KEEP`.
+
+### Daily cron (recommended)
+
+Prefer `/etc/cron.d` (survives empty root crontabs):
+
+```bash
+# /etc/cron.d/ruletka-backup — 03:15 UTC
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+15 3 * * * root /opt/ruletka/deploy/backup-ruletka-data.sh backup >>/var/log/ruletka-backup.log 2>&1
+```
+
+Or root crontab:
+
+```bash
+15 3 * * * /opt/ruletka/deploy/backup-ruletka-data.sh backup >>/var/log/ruletka-backup.log 2>&1
+```
+
+**Do not enable both** (would double-run at 03:15). Prod uses `cron.d`.
+
+After restore the script stops `roulette-bridge`, writes files, then starts it again.
+
+### Service worker / UI cache
+
+`ui/sw.js` uses a small offline shell (`rulet-shell-vN`). **Live stack**
+(`live.html`, `live.js`, `webrtc.js`, …) is **network-only** so deploys are not
+stuck on old gift/star logic. Clients poll for SW updates ~15 min and show an
+**Update available → Reload** banner (no mid-call forced reload).
+
+When changing the SW shell list, bump `CACHE` in `sw.js`.
 
 ## Auto-moderation (no admin required)
 

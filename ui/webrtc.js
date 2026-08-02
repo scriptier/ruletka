@@ -279,6 +279,99 @@ const QUALITY_TIERS = {
 /** Reliable ordered chat channel label (must match both peers). */
 const CHAT_DC_LABEL = "ruletka-chat";
 
+/**
+ * Keep A/V lipsync tight. RTT "good" only measures network — browsers still
+ * buffer audio more than video by default, so speech can lag the picture.
+ * Apply the same low jitter target to audio + video receivers.
+ * @param {RTCPeerConnection | null | undefined} pc
+ * @param {number} [targetMs]
+ */
+function applyLowLatencyPlayout(pc, targetMs = 40) {
+  if (!pc || typeof pc.getReceivers !== "function") return;
+  const ms = Math.max(0, Math.min(200, Number(targetMs) || 40));
+  for (const receiver of pc.getReceivers()) {
+    try {
+      // Spec: DOMHighResTimeStamp in milliseconds
+      if ("jitterBufferTarget" in receiver) {
+        receiver.jitterBufferTarget = ms;
+      }
+    } catch (_) {}
+    try {
+      // Older Chromium experimental (seconds)
+      if ("playoutDelayHint" in receiver) {
+        receiver.playoutDelayHint = ms / 1000;
+      }
+    } catch (_) {}
+    try {
+      const t = receiver.track;
+      if (t && t.kind === "audio" && "contentHint" in t) {
+        t.contentHint = "speech";
+      }
+    } catch (_) {}
+  }
+}
+
+/**
+ * Prefer slightly lower-latency capture constraints when supported.
+ * AEC/NS/AGC improve calls but can add 20–80ms of algorithmic audio delay
+ * that is not always reflected in video timestamps → sound lags picture.
+ * @returns {MediaTrackConstraints}
+ */
+/**
+ * Whether the user opted into low-latency mic processing (less A/V lag).
+ * Reads localStorage directly so webrtc.js works without live.js prefs helpers.
+ */
+function isLowLatencyAudioEnabled() {
+  try {
+    const p = JSON.parse(
+      localStorage.getItem("freenet-roulette-media-prefs-v1") || "{}"
+    );
+    // Default ON — lipsync was a frequent complaint; toggle can disable
+    if (p.lowLatencyAudio === false || p.lowLatencyAudio === 0) return false;
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Prefer slightly lower-latency capture constraints when supported.
+ * AEC/NS/AGC improve calls but can add 20–80ms of algorithmic audio delay
+ * that is not always reflected in video timestamps → sound lags picture.
+ * @returns {MediaTrackConstraints}
+ */
+function lowLatencyAudioConstraints(extra = {}) {
+  const low = isLowLatencyAudioEnabled();
+  return {
+    echoCancellation: true, // keep echo control always
+    // NS/AGC add delay; off in low-latency mode
+    noiseSuppression: !low,
+    autoGainControl: !low,
+    channelCount: 1,
+    latency: low
+      ? { ideal: 0.005, max: 0.025 }
+      : { ideal: 0.02, max: 0.08 },
+    sampleRate: { ideal: 48000 },
+    ...extra,
+  };
+}
+
+/**
+ * Playout target ms: lower when low-latency mode is on.
+ * @param {string} [tier]
+ */
+function playoutTargetForTier(tier) {
+  const low = isLowLatencyAudioEnabled();
+  if (low) {
+    if (tier === "min" || tier === "low") return 55;
+    if (tier === "mid") return 40;
+    return 28;
+  }
+  if (tier === "min" || tier === "low") return 80;
+  if (tier === "mid") return 55;
+  return 40;
+}
+
 class RouletteWebRtc {
   /**
    * @param {WebRtcHooks} hooks
@@ -343,15 +436,10 @@ class RouletteWebRtc {
       constraints.video = false;
     }
     if (audio) {
-      const baseAudio = {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-        channelCount: 1,
-      };
-      constraints.audio = audioDeviceId
-        ? { ...baseAudio, deviceId: { ideal: audioDeviceId } }
-        : baseAudio;
+      const baseAudio = lowLatencyAudioConstraints(
+        audioDeviceId ? { deviceId: { ideal: audioDeviceId } } : {}
+      );
+      constraints.audio = baseAudio;
     } else {
       constraints.audio = false;
     }
@@ -431,8 +519,8 @@ class RouletteWebRtc {
           degradationPreference: "balanced",
         });
       } else if (sender.track.kind === "audio") {
-        // ~40 kbps is plenty for speech with Opus
-        await applySenderEncoding(sender, { maxBitrate: 48_000 });
+        // ~32 kbps speech Opus — lower encode buffering than music-rate bitrates
+        await applySenderEncoding(sender, { maxBitrate: 32_000 });
       }
     }
     this.hooks.onQualityTier?.(this._qualityTier, t);
@@ -463,6 +551,10 @@ class RouletteWebRtc {
       let bytes = 0;
       let rttN = 0;
       let lossN = 0;
+      let audioJitter = 0;
+      let videoJitter = 0;
+      let audioJitterN = 0;
+      let videoJitterN = 0;
 
       report.forEach((r) => {
         if (r.type === "candidate-pair" && (r.state === "succeeded" || r.nominated)) {
@@ -490,9 +582,21 @@ class RouletteWebRtc {
             }
           }
           if (typeof r.jitter === "number") {
+            videoJitter += r.jitter;
+            videoJitterN++;
             // jitter in seconds
             if (r.jitter > 0.04) {
               loss += 0.02;
+              lossN++;
+            }
+          }
+        }
+        if (r.type === "inbound-rtp" && !r.isRemote && (r.kind === "audio" || r.mediaType === "audio")) {
+          if (typeof r.jitter === "number") {
+            audioJitter += r.jitter;
+            audioJitterN++;
+            if (r.jitter > 0.05) {
+              loss += 0.015;
               lossN++;
             }
           }
@@ -514,7 +618,61 @@ class RouletteWebRtc {
       if (next !== this._qualityTier) {
         await this.applyQualityTier(next);
       }
+
+      // Re-assert low playout targets: browsers sometimes grow the audio buffer
+      // after packet loss bursts, leaving speech lagging the picture even at ~50ms RTT.
+      applyLowLatencyPlayout(this.pc, playoutTargetForTier(next));
     } catch (_) {}
+  }
+
+  /**
+   * Soft ICE restart (offerer creates a new offer). Safe no-op if not connected.
+   * Used by find-3rd recovery when a peer path fails without tearing the teammate link.
+   */
+  async softIceRestart() {
+    if (!this.pc) return false;
+    try {
+      if (this.isOfferer) {
+        await this._tryIceRestart();
+        return true;
+      }
+      // Answerer: restartIce() if available (Chromium) so offerer can renegotiate
+      if (typeof this.pc.restartIce === "function") {
+        this.pc.restartIce();
+        return true;
+      }
+    } catch (e) {
+      console.warn("[webrtc] softIceRestart", e);
+    }
+    return false;
+  }
+
+  /**
+   * Estimate receive jitter-buffer delay (ms) for audio and video from getStats.
+   * @returns {Promise<{ audioMs: number|null, videoMs: number|null, lagMs: number|null }>}
+   */
+  async estimateAvPlayoutLag() {
+    const out = { audioMs: null, videoMs: null, lagMs: null };
+    if (!this.pc) return out;
+    try {
+      const report = await this.pc.getStats();
+      report.forEach((r) => {
+        if (r.type !== "inbound-rtp" || r.isRemote) return;
+        const emitted = Number(r.jitterBufferEmittedCount) || 0;
+        const delay = Number(r.jitterBufferDelay);
+        if (!(emitted > 0) || !Number.isFinite(delay)) return;
+        // delay is in seconds cumulative
+        const ms = (delay / emitted) * 1000;
+        if (r.kind === "audio" || r.mediaType === "audio") out.audioMs = ms;
+        if (r.kind === "video" || r.mediaType === "video") out.videoMs = ms;
+      });
+      if (out.audioMs != null && out.videoMs != null) {
+        out.lagMs = out.audioMs - out.videoMs; // + = audio behind video
+      } else if (out.audioMs != null) {
+        out.lagMs = out.audioMs > 80 ? out.audioMs - 40 : 0;
+      }
+    } catch (_) {}
+    return out;
   }
 
   /**
@@ -609,6 +767,7 @@ class RouletteWebRtc {
       this.hooks.onConnectionState?.(this.pc.connectionState);
       if (this.pc.connectionState === "connected") {
         this._startAdaptiveQuality();
+        applyLowLatencyPlayout(this.pc);
       }
       if (
         this.pc.connectionState === "failed" ||
@@ -632,6 +791,7 @@ class RouletteWebRtc {
         this.hooks.onConnectionState?.(this.pc.connectionState);
       } else if (ice === "connected" || ice === "completed") {
         this._startAdaptiveQuality();
+        applyLowLatencyPlayout(this.pc);
       }
     };
     this.pc.ontrack = (ev) => {
@@ -639,9 +799,14 @@ class RouletteWebRtc {
       // Avoid duplicate track ids when renegotiating
       const exists = this.remoteStream.getTracks().some((t) => t.id === ev.track.id);
       if (!exists) this.remoteStream.addTrack(ev.track);
+      // Keep audio+video on one MediaStream so the <video> element lipsyncs them
+      applyLowLatencyPlayout(this.pc);
       if (this._videoEl) {
         try {
-          this._videoEl.srcObject = this.remoteStream;
+          // Only reassign if needed — thrashing srcObject can desync A/V briefly
+          if (this._videoEl.srcObject !== this.remoteStream) {
+            this._videoEl.srcObject = this.remoteStream;
+          }
           const p = this._videoEl.play?.();
           if (p && typeof p.catch === "function") p.catch(() => {});
         } catch (_) {}
@@ -795,4 +960,8 @@ if (typeof window !== "undefined") {
   window.applyIceDirectPreference = applyIceDirectPreference;
   window.preferDirectOnlyEnabled = preferDirectOnlyEnabled;
   window.QUALITY_TIERS = QUALITY_TIERS;
+  window.applyLowLatencyPlayout = applyLowLatencyPlayout;
+  window.lowLatencyAudioConstraints = lowLatencyAudioConstraints;
+  window.isLowLatencyAudioEnabled = isLowLatencyAudioEnabled;
+  window.playoutTargetForTier = playoutTargetForTier;
 }

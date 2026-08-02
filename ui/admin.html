@@ -115,6 +115,240 @@
       background: rgba(60, 20, 36, 0.5);
     }
     button:hover { filter: brightness(1.08); }
+    /* Today at a glance — operator dashboard */
+    .glance {
+      display: none;
+      margin-bottom: 1.35rem;
+      padding: 1rem 1.05rem 1.1rem;
+      border-radius: 16px;
+      border: 1px solid rgba(91, 157, 255, 0.22);
+      background:
+        linear-gradient(155deg, rgba(91, 157, 255, 0.1) 0%, rgba(14, 18, 28, 0.85) 45%, rgba(20, 14, 24, 0.75) 100%);
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.28);
+    }
+    .glance.is-on { display: block; }
+    .glance-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.4rem 1rem;
+      margin-bottom: 0.75rem;
+    }
+    .glance-head h2 {
+      margin: 0;
+      font-size: 1rem;
+      font-weight: 750;
+      letter-spacing: -0.02em;
+    }
+    .glance-updated {
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+    .glance-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.55rem;
+    }
+    @media (min-width: 720px) {
+      .glance-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    }
+    .glance-card {
+      padding: 0.7rem 0.75rem 0.75rem;
+      border-radius: 12px;
+      background: rgba(0, 0, 0, 0.28);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      min-height: 4.6rem;
+    }
+    .glance-card .gl-label {
+      display: block;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 0.28rem;
+    }
+    .glance-card .gl-value {
+      display: block;
+      font-size: 1.35rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+      color: #fff;
+    }
+    .glance-card .gl-sub {
+      display: block;
+      margin-top: 0.28rem;
+      font-size: 0.72rem;
+      color: var(--muted);
+      line-height: 1.3;
+    }
+    .glance-card.is-good {
+      border-color: rgba(61, 214, 140, 0.35);
+      box-shadow: inset 0 0 0 1px rgba(61, 214, 140, 0.08);
+    }
+    .glance-card.is-good .gl-value { color: #6ee7b7; }
+    .glance-card.is-warn {
+      border-color: rgba(245, 165, 36, 0.4);
+      box-shadow: inset 0 0 0 1px rgba(245, 165, 36, 0.1);
+    }
+    .glance-card.is-warn .gl-value { color: #ffd28a; }
+    .glance-card.is-bad {
+      border-color: rgba(255, 45, 85, 0.4);
+      box-shadow: inset 0 0 0 1px rgba(255, 45, 85, 0.1);
+    }
+    .glance-card.is-bad .gl-value { color: #ff8fab; }
+    .glance-flags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      margin-top: 0.75rem;
+    }
+    .glance-flag {
+      font-size: 0.72rem;
+      font-weight: 650;
+      padding: 0.28rem 0.55rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--muted);
+    }
+    .glance-flag.is-good {
+      color: #6ee7b7;
+      border-color: rgba(61, 214, 140, 0.35);
+      background: rgba(61, 214, 140, 0.1);
+    }
+    .glance-flag.is-warn {
+      color: #ffd28a;
+      border-color: rgba(245, 165, 36, 0.4);
+      background: rgba(245, 165, 36, 0.1);
+    }
+    .glance-north {
+      margin-top: 0.85rem;
+      padding: 0.75rem 0.9rem;
+      border-radius: 12px;
+      background: rgba(90, 140, 255, 0.08);
+      border: 1px solid rgba(90, 140, 255, 0.22);
+      font-size: 0.86rem;
+      line-height: 1.45;
+      color: #c8d4ef;
+    }
+    .glance-north strong {
+      display: block;
+      color: #9eb8ff;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 0.25rem;
+    }
+    .glance-north.is-good {
+      background: rgba(46, 180, 120, 0.1);
+      border-color: rgba(80, 200, 140, 0.28);
+    }
+    .glance-north.is-good strong { color: #6ee7b7; }
+    .glance-north.is-bad {
+      background: rgba(255, 80, 100, 0.08);
+      border-color: rgba(255, 100, 120, 0.28);
+    }
+    .glance-north.is-bad strong { color: #ff8fab; }
+    .glance-flag.is-bad {
+      color: #ff8fab;
+      border-color: rgba(255, 45, 85, 0.4);
+      background: rgba(255, 45, 85, 0.1);
+    }
+    .glance-trends {
+      margin-top: 0.9rem;
+      padding: 0.75rem 0.9rem;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.03);
+    }
+    .glance-trends[hidden] { display: none !important; }
+    .glance-trends-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.35rem 0.75rem;
+      margin-bottom: 0.55rem;
+    }
+    .glance-trends-head strong {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #9eb8ff;
+    }
+    .glance-trends-legend {
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+    .trend-row {
+      display: grid;
+      grid-template-columns: 5.5rem 1fr 2.75rem;
+      gap: 0.45rem;
+      align-items: center;
+      margin: 0.28rem 0;
+    }
+    .trend-label {
+      font-size: 0.72rem;
+      font-weight: 650;
+      color: var(--muted);
+    }
+    .trend-bars {
+      display: flex;
+      align-items: flex-end;
+      gap: 3px;
+      height: 28px;
+    }
+    .trend-bar {
+      flex: 1;
+      min-width: 6px;
+      max-width: 18px;
+      border-radius: 3px 3px 1px 1px;
+      background: rgba(126, 182, 255, 0.55);
+      min-height: 2px;
+    }
+    .trend-bar.is-alone { background: rgba(255, 160, 90, 0.65); }
+    .trend-bar.is-alone.is-hot { background: rgba(255, 90, 110, 0.75); }
+    .trend-bar.is-friend { background: rgba(80, 200, 140, 0.65); }
+    .trend-bar.is-rings { background: rgba(180, 140, 255, 0.6); }
+    .trend-bar.is-zero { opacity: 0.25; }
+    .trend-val {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--text);
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    .glance-checklist {
+      margin-top: 0.85rem;
+      padding: 0.75rem 0.9rem;
+      border-radius: 12px;
+      border: 1px dashed rgba(255, 255, 255, 0.12);
+      background: rgba(0, 0, 0, 0.18);
+      font-size: 0.82rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .glance-checklist strong {
+      display: block;
+      color: #c8d4ef;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.4rem;
+    }
+    .glance-checklist ol {
+      margin: 0;
+      padding-left: 1.15rem;
+    }
+    .glance-checklist li { margin: 0.2rem 0; }
+    .glance-checklist code {
+      font-size: 0.78em;
+      color: #9ee6c0;
+    }
+
     .stats {
       display: flex;
       flex-wrap: wrap;
@@ -245,6 +479,98 @@
       <div class="stat">Seeders <strong id="st-seeders">0</strong></div>
     </div>
 
+    <!-- Operator dashboard: key signals in one place -->
+    <section class="glance" id="glance" aria-label="Today at a glance">
+      <div class="glance-head">
+        <h2>Today at a glance</h2>
+        <span class="glance-updated" id="glance-updated">Sign in to load</span>
+      </div>
+      <div class="glance-grid">
+        <div class="glance-card" id="gl-live">
+          <span class="gl-label">Live now</span>
+          <span class="gl-value" id="gl-live-v">—</span>
+          <span class="gl-sub" id="gl-live-s">online · waiting</span>
+        </div>
+        <div class="glance-card" id="gl-alone">
+          <span class="gl-label">Alone pool</span>
+          <span class="gl-value" id="gl-alone-v">—</span>
+          <span class="gl-sub" id="gl-alone-s">joins into empty queue</span>
+        </div>
+        <div class="glance-card" id="gl-match">
+          <span class="gl-label">Matches today</span>
+          <span class="gl-value" id="gl-match-v">—</span>
+          <span class="gl-sub" id="gl-match-s">avg wait · avg length</span>
+        </div>
+        <div class="glance-card" id="gl-friends">
+          <span class="gl-label">Friend calls</span>
+          <span class="gl-value" id="gl-friends-v">—</span>
+          <span class="gl-sub" id="gl-friends-s">rings → answered</span>
+        </div>
+        <div class="glance-card" id="gl-spend">
+          <span class="gl-label">★ spends</span>
+          <span class="gl-value" id="gl-spend-v">—</span>
+          <span class="gl-sub" id="gl-spend-s">ok / fail · burned</span>
+        </div>
+        <div class="glance-card" id="gl-mint">
+          <span class="gl-label">★ mints (1h + gifts)</span>
+          <span class="gl-value" id="gl-mint-v">—</span>
+          <span class="gl-sub" id="gl-mint-s">hour awards · post-chat gifts</span>
+        </div>
+        <div class="glance-card" id="gl-ledger">
+          <span class="gl-label">Ledger tip</span>
+          <span class="gl-value" id="gl-ledger-v" style="font-size:1.05rem">—</span>
+          <span class="gl-sub" id="gl-ledger-s">seq · users · total ★</span>
+        </div>
+        <div class="glance-card" id="gl-safety">
+          <span class="gl-label">Safety</span>
+          <span class="gl-value" id="gl-safety-v">—</span>
+          <span class="gl-sub" id="gl-safety-s">reports · bans</span>
+        </div>
+      </div>
+      <div class="glance-flags" id="glance-flags" aria-live="polite"></div>
+      <div class="glance-north" id="glance-north" hidden>
+        <strong>North star (this week)</strong>
+        <span id="glance-north-text">—</span>
+      </div>
+      <!-- Week-5: 7-day sparkline trends (no heavy charts) -->
+      <div class="glance-trends" id="glance-trends" hidden>
+        <div class="glance-trends-head">
+          <strong>Last 7 days</strong>
+          <span class="glance-trends-legend">Alone % · matches · friend calls · rings</span>
+        </div>
+        <div class="trend-row" id="trend-alone">
+          <span class="trend-label">Alone %</span>
+          <div class="trend-bars" id="trend-alone-bars" aria-hidden="true"></div>
+          <span class="trend-val" id="trend-alone-val">—</span>
+        </div>
+        <div class="trend-row" id="trend-match">
+          <span class="trend-label">Matches</span>
+          <div class="trend-bars" id="trend-match-bars" aria-hidden="true"></div>
+          <span class="trend-val" id="trend-match-val">—</span>
+        </div>
+        <div class="trend-row" id="trend-friend">
+          <span class="trend-label">Friend calls</span>
+          <div class="trend-bars" id="trend-friend-bars" aria-hidden="true"></div>
+          <span class="trend-val" id="trend-friend-val">—</span>
+        </div>
+        <div class="trend-row" id="trend-rings">
+          <span class="trend-label">Rings</span>
+          <div class="trend-bars" id="trend-rings-bars" aria-hidden="true"></div>
+          <span class="trend-val" id="trend-rings-val">—</span>
+        </div>
+      </div>
+      <div class="glance-checklist" id="glance-checklist">
+        <strong>Operator checklist (liquidity)</strong>
+        <ol>
+          <li>Fixed evening slot with 1–2 real people online together</li>
+          <li>Share a real <code>?friend=CODE</code> invite → Accept → Call</li>
+          <li>Watch alone % (red ≥60%) and friend rings → calls</li>
+          <li>After Accept, enable call alerts on both devices</li>
+          <li>Kill polish until friend_calls &gt; 0 or alone % drops</li>
+        </ol>
+      </div>
+    </section>
+
     <h2>Daily metrics (UTC)</h2>
     <p class="hint">
       Server-side counters · <code>data/metrics.jsonl</code> · also
@@ -272,6 +598,8 @@
       <div class="stat">★ spend fail <strong id="mt-star-fail">0</strong></div>
       <div class="stat">🔒 bars <strong id="mt-star-bars">0</strong></div>
       <div class="stat">🌸 flowers <strong id="mt-star-flowers">0</strong></div>
+      <div class="stat">🎈 balloons <strong id="mt-star-balloons">0</strong></div>
+      <div class="stat">🎊 confetti <strong id="mt-star-confetti">0</strong></div>
       <div class="stat">★ burned <strong id="mt-star-burned">0</strong></div>
     </div>
     <p class="hint" id="metrics-funnel-note" hidden style="margin-top:-0.35rem">
@@ -298,6 +626,48 @@
         </thead>
         <tbody id="metrics-body"></tbody>
       </table>
+    </div>
+
+    <h2>Stars ledger</h2>
+    <p class="hint">
+      Append-only <code>data/star_ledger.jsonl</code> · daily natural mint cap · admin grants write
+      <code>adjust</code> events (never edit balances by hand).
+    </p>
+    <div class="stats" id="ledger-stats" hidden>
+      <div class="stat">Seq <strong id="lg-seq">0</strong></div>
+      <div class="stat">Users ★ <strong id="lg-users">0</strong></div>
+      <div class="stat">Total ★ <strong id="lg-total">0</strong></div>
+      <div class="stat">Day mint cap <strong id="lg-cap">40</strong></div>
+      <div class="stat">Tip <strong id="lg-tip" style="font-size:0.72rem;word-break:break-all">—</strong></div>
+    </div>
+    <div class="card" style="margin-bottom:1rem">
+      <div class="empty" id="ledger-empty">Sign in to load ledger</div>
+      <table id="ledger-table" hidden>
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Name</th>
+            <th>★</th>
+          </tr>
+        </thead>
+        <tbody id="ledger-body"></tbody>
+      </table>
+      <div class="auth" style="margin-top:0.85rem;padding:0;border:none;background:transparent">
+        <label>
+          Grant stars (ledger)
+          <input id="grant-uid" type="text" placeholder="user_id" autocomplete="off" />
+        </label>
+        <label>
+          Amount
+          <input id="grant-amt" type="number" min="1" max="10000" value="10" style="width:5rem" />
+        </label>
+        <label>
+          Reason
+          <input id="grant-reason" type="text" placeholder="courtier / promo" autocomplete="off" />
+        </label>
+        <button type="button" class="primary" id="btn-grant-stars">Grant ★</button>
+      </div>
+      <p class="hint" id="grant-result" hidden style="margin:0.5rem 0 0"></p>
     </div>
 
     <h2>Ops checklist</h2>
@@ -814,6 +1184,327 @@
       return escapeHtml(s).replace(/'/g, "&#39;");
     }
 
+    function setGlanceTone(id, tone) {
+      const el = $(id);
+      if (!el) return;
+      el.classList.remove("is-good", "is-warn", "is-bad");
+      if (tone) el.classList.add("is-" + tone);
+    }
+
+    function fmtDur(sec) {
+      const s = Math.max(0, Number(sec) || 0);
+      if (!s) return "—";
+      if (s >= 60) return Math.floor(s / 60) + "m " + (s % 60) + "s";
+      return s + "s";
+    }
+
+    /**
+     * Compact operator dashboard — key health signals from live + today metrics + ledger.
+     * @param {{ online?: number, waiting?: number, reports?: number, bans?: number, metrics?: object }} data
+     */
+    function renderGlance(data) {
+      const box = $("glance");
+      if (!box) return;
+      const metrics = (data && data.metrics) || {};
+      const today = metrics.today || {};
+      const extras = metrics.today_extras || {};
+      const led = metrics.stars_ledger || {};
+      const online = Number(data.online) || 0;
+      const waiting = Number(data.waiting) || 0;
+      const reports = Number(data.reports) || 0;
+      const bans = Number(data.bans) || 0;
+      const joins = Number(today.queue_joins) || 0;
+      const alone = Number(today.alone_joins) || 0;
+      const alonePct =
+        extras.alone_pct != null
+          ? Number(extras.alone_pct)
+          : joins > 0
+            ? Math.round((alone / joins) * 1000) / 10
+            : 0;
+      const matches = Number(today.matches) || 0;
+      const avgWait = Number(extras.avg_wait_sec) || 0;
+      const avgMatch = Number(extras.avg_match_sec) || 0;
+      const rings = Number(extras.call_rings != null ? extras.call_rings : today.call_rings) || 0;
+      const fcalls =
+        Number(extras.friend_calls != null ? extras.friend_calls : today.friend_calls) || 0;
+      const ringPct =
+        extras.ring_to_call_pct != null
+          ? Number(extras.ring_to_call_pct)
+          : rings > 0
+            ? Math.round((fcalls / rings) * 1000) / 10
+            : 0;
+      const spendOk = Number(today.star_spend_ok) || 0;
+      const spendFail = Number(today.star_spend_fail) || 0;
+      const burned = Number(today.star_spent_total) || 0;
+      const hourA = Number(today.star_hour_awards) || 0;
+      const gifts = Number(today.star_gifts) || 0;
+      const seq = Number(led.seq) || 0;
+      const usersStars = Number(led.users_with_stars) || 0;
+      const totalStars = Number(led.total_stars) || 0;
+      const tip = String(led.tip_hash || "");
+
+      box.classList.add("is-on");
+      if ($("glance-updated")) {
+        const day = today.day || "today";
+        $("glance-updated").textContent =
+          day + " · refreshed " + new Date().toLocaleTimeString();
+      }
+
+      if ($("gl-live-v")) $("gl-live-v").textContent = online + " / " + waiting;
+      if ($("gl-live-s"))
+        $("gl-live-s").textContent =
+          online + " online · " + waiting + " waiting" +
+          (waiting > 0 && online === 0 ? " · queue without live peers?" : "");
+      setGlanceTone(
+        "gl-live",
+        online >= 2 ? "good" : online === 1 || waiting > 0 ? "warn" : null
+      );
+
+      if ($("gl-alone-v")) $("gl-alone-v").textContent = alonePct + "%";
+      if ($("gl-alone-s"))
+        $("gl-alone-s").textContent =
+          alone + " alone / " + joins + " joins · empty-queue starts";
+      setGlanceTone(
+        "gl-alone",
+        alonePct >= 60 ? "bad" : alonePct >= 35 ? "warn" : joins > 0 ? "good" : null
+      );
+
+      if ($("gl-match-v")) $("gl-match-v").textContent = String(matches);
+      if ($("gl-match-s"))
+        $("gl-match-s").textContent =
+          "wait " + fmtDur(avgWait) + " · length " + fmtDur(avgMatch);
+      setGlanceTone("gl-match", matches > 0 ? "good" : joins > 5 ? "warn" : null);
+
+      if ($("gl-friends-v"))
+        $("gl-friends-v").textContent = fcalls + (rings ? " / " + rings : "");
+      if ($("gl-friends-s"))
+        $("gl-friends-s").textContent =
+          ringPct + "% ring→call · " + fcalls + " answered";
+      setGlanceTone(
+        "gl-friends",
+        rings > 0 && ringPct >= 40 ? "good" : rings > 3 && ringPct < 20 ? "warn" : null
+      );
+
+      if ($("gl-spend-v")) $("gl-spend-v").textContent = spendOk + " / " + spendFail;
+      if ($("gl-spend-s"))
+        $("gl-spend-s").textContent =
+          "ok / fail · " + burned + "★ burned on gifts";
+      setGlanceTone(
+        "gl-spend",
+        spendFail > spendOk && spendFail > 2
+          ? "bad"
+          : spendOk > 0
+            ? "good"
+            : null
+      );
+
+      if ($("gl-mint-v")) $("gl-mint-v").textContent = hourA + gifts;
+      if ($("gl-mint-s"))
+        $("gl-mint-s").textContent = hourA + " hour awards · " + gifts + " rate gifts";
+
+      if ($("gl-ledger-v"))
+        $("gl-ledger-v").textContent = seq ? "#" + seq : "—";
+      if ($("gl-ledger-s"))
+        $("gl-ledger-s").textContent =
+          usersStars + " users · " + totalStars + "★ total" +
+          (tip ? " · " + tip.slice(0, 10) + "…" : "");
+      setGlanceTone("gl-ledger", seq > 0 ? "good" : "warn");
+
+      if ($("gl-safety-v")) $("gl-safety-v").textContent = reports + " / " + bans;
+      if ($("gl-safety-s"))
+        $("gl-safety-s").textContent =
+          reports + " open reports · " + bans + " active bans";
+      setGlanceTone(
+        "gl-safety",
+        bans > 0 || reports >= 3 ? "warn" : reports === 0 ? "good" : null
+      );
+
+      // Flags / ops tips
+      const flags = $("glance-flags");
+      if (flags) {
+        const tips = [];
+        if (alonePct >= 50 && joins >= 3) {
+          tips.push({
+            t: "warn",
+            m: "High alone % — push invite / friend share",
+          });
+        }
+        if (online === 0 && waiting === 0) {
+          tips.push({ t: null, m: "Quiet hub right now" });
+        }
+        if (online >= 2 && waiting === 0 && matches === 0 && joins > 0) {
+          tips.push({ t: "warn", m: "People online but no matches yet today" });
+        }
+        if (spendFail > 5 && spendFail >= spendOk) {
+          tips.push({ t: "bad", m: "Many ★ spend fails — check balances / session rules" });
+        }
+        if (seq > 0 && tip) {
+          tips.push({ t: "good", m: "Ledger healthy · tip " + tip.slice(0, 12) });
+        } else if (!seq) {
+          tips.push({ t: "warn", m: "Ledger empty or not loaded" });
+        }
+        if (fcalls > 0) {
+          tips.push({ t: "good", m: "Friend calls working (" + fcalls + " today)" });
+        }
+        if (rings === 0 && fcalls === 0 && joins >= 3) {
+          tips.push({
+            t: "bad",
+            m: "Friend funnel cold — 0 rings/calls (retention loop unused)",
+          });
+        }
+        flags.innerHTML = tips
+          .map(
+            (x) =>
+              `<span class="glance-flag${x.t ? " is-" + x.t : ""}">${escapeHtml(
+                x.m
+              )}</span>`
+          )
+          .join("");
+      }
+
+      // Week-1 north star strip
+      const north = $("glance-north");
+      const northText = $("glance-north-text");
+      if (north && northText) {
+        north.hidden = false;
+        north.classList.remove("is-good", "is-bad");
+        const sessions = matches + fcalls;
+        let msg =
+          sessions +
+          " real sessions today (matches " +
+          matches +
+          " + friend calls " +
+          fcalls +
+          "). Alone " +
+          alonePct +
+          "% · rings " +
+          rings +
+          ".";
+        if (sessions === 0 && joins > 0) {
+          north.classList.add("is-bad");
+          msg +=
+            " Goal: get ≥1 match or friend call. Push invite while alone % is high.";
+        } else if (alonePct >= 50 && fcalls === 0) {
+          north.classList.add("is-bad");
+          msg +=
+            " Kill polish until friend_calls > 0 or alone % drops.";
+        } else if (rings > 0 && fcalls === 0) {
+          north.classList.add("is-bad");
+          msg +=
+            " Rings without answers — check Accept UI / background alerts.";
+        } else if (fcalls > 0) {
+          north.classList.add("is-good");
+          msg += " Friend return path alive — keep notif opt-in + Call back.";
+        } else if (sessions >= 3 && alonePct < 50) {
+          north.classList.add("is-good");
+          msg += " Liquidity improving — keep invite + busy windows.";
+        } else {
+          msg += " Target: lower alone %, raise friend rings/calls.";
+        }
+        northText.textContent = msg;
+      }
+
+      // 7-day trends from history + today
+      try {
+        renderGlanceTrends(metrics);
+      } catch (_) {}
+    }
+
+    /**
+     * Compact CSS bar trends for last ≤7 days (ops, not a chart library).
+     * @param {object} metrics
+     */
+    function renderGlanceTrends(metrics) {
+      const box = $("glance-trends");
+      if (!box) return;
+      const today = (metrics && metrics.today) || {};
+      const hist = Array.isArray(metrics && metrics.history)
+        ? metrics.history.slice()
+        : [];
+      // history is oldest→newest or newest→oldest; normalize by day string
+      const byDay = new Map();
+      for (const r of hist) {
+        if (r && r.day) byDay.set(String(r.day), r);
+      }
+      if (today && today.day) byDay.set(String(today.day), { ...byDay.get(String(today.day)), ...today });
+      const days = [...byDay.keys()].sort();
+      const last = days.slice(-7);
+      if (!last.length) {
+        box.hidden = true;
+        return;
+      }
+      box.hidden = false;
+
+      const rows = last.map((d) => {
+        const r = byDay.get(d) || {};
+        const joins = Number(r.queue_joins) || 0;
+        const alone = Number(r.alone_joins) || 0;
+        const alonePct = joins > 0 ? (alone / joins) * 100 : 0;
+        return {
+          day: d,
+          alonePct,
+          matches: Number(r.matches) || 0,
+          friend_calls: Number(r.friend_calls) || 0,
+          call_rings: Number(r.call_rings) || 0,
+        };
+      });
+
+      function paint(barsId, valId, values, kind, fmt) {
+        const bars = $(barsId);
+        const valEl = $(valId);
+        if (!bars) return;
+        const max = Math.max(1, ...values);
+        bars.innerHTML = values
+          .map((v, i) => {
+            const h = Math.max(2, Math.round((v / max) * 26));
+            let cls = "trend-bar";
+            if (kind === "alone") {
+              cls += " is-alone" + (v >= 60 ? " is-hot" : "");
+            } else if (kind === "friend") cls += " is-friend";
+            else if (kind === "rings") cls += " is-rings";
+            if (v === 0) cls += " is-zero";
+            const day = rows[i]?.day || "";
+            return `<span class="${cls}" style="height:${h}px" title="${escapeHtml(
+              day + ": " + (fmt ? fmt(v) : String(v))
+            )}"></span>`;
+          })
+          .join("");
+        if (valEl) {
+          const lastV = values[values.length - 1] ?? 0;
+          valEl.textContent = fmt ? fmt(lastV) : String(lastV);
+        }
+      }
+
+      paint(
+        "trend-alone-bars",
+        "trend-alone-val",
+        rows.map((r) => r.alonePct),
+        "alone",
+        (v) => Math.round(v) + "%"
+      );
+      paint(
+        "trend-match-bars",
+        "trend-match-val",
+        rows.map((r) => r.matches),
+        "match",
+        null
+      );
+      paint(
+        "trend-friend-bars",
+        "trend-friend-val",
+        rows.map((r) => r.friend_calls),
+        "friend",
+        null
+      );
+      paint(
+        "trend-rings-bars",
+        "trend-rings-val",
+        rows.map((r) => r.call_rings),
+        "rings",
+        null
+      );
+    }
+
     function renderMetrics(metrics) {
       const today = (metrics && metrics.today) || {};
       const hist = (metrics && metrics.history) || [];
@@ -902,6 +1593,10 @@
           $("mt-star-bars").textContent = today.star_spend_bars ?? 0;
         if ($("mt-star-flowers"))
           $("mt-star-flowers").textContent = today.star_spend_flowers ?? 0;
+        if ($("mt-star-balloons"))
+          $("mt-star-balloons").textContent = today.star_spend_balloons ?? 0;
+        if ($("mt-star-confetti"))
+          $("mt-star-confetti").textContent = today.star_spend_confetti ?? 0;
         if ($("mt-star-burned"))
           $("mt-star-burned").textContent = today.star_spent_total ?? 0;
         const note = $("metrics-funnel-note");
@@ -944,6 +1639,98 @@
         </tr>`;
         })
         .join("");
+      renderStarsLedger((metrics && metrics.stars_ledger) || null);
+    }
+
+    function renderStarsLedger(led) {
+      const stats = $("ledger-stats");
+      const empty = $("ledger-empty");
+      const table = $("ledger-table");
+      const body = $("ledger-body");
+      if (!led) {
+        if (stats) stats.hidden = true;
+        if (empty) {
+          empty.hidden = false;
+          empty.textContent = "No ledger data";
+        }
+        if (table) table.hidden = true;
+        return;
+      }
+      if (stats) stats.hidden = false;
+      if ($("lg-seq")) $("lg-seq").textContent = led.seq ?? 0;
+      if ($("lg-users")) $("lg-users").textContent = led.users_with_stars ?? 0;
+      if ($("lg-total")) $("lg-total").textContent = led.total_stars ?? 0;
+      if ($("lg-cap")) $("lg-cap").textContent = led.daily_mint_cap ?? 40;
+      if ($("lg-tip")) {
+        const tip = String(led.tip_hash || "");
+        $("lg-tip").textContent = tip ? tip.slice(0, 16) + "…" : "—";
+        $("lg-tip").title = tip;
+      }
+      const top = Array.isArray(led.top) ? led.top : [];
+      if (!body) return;
+      if (!top.length) {
+        if (empty) {
+          empty.hidden = false;
+          empty.textContent = "No balances yet";
+        }
+        if (table) table.hidden = true;
+        body.innerHTML = "";
+        return;
+      }
+      if (empty) empty.hidden = true;
+      if (table) table.hidden = false;
+      body.innerHTML = top
+        .map((r) => {
+          const uid = r.user_id || "";
+          return `<tr>
+          <td class="uid" title="${escapeAttr(uid)}">${escapeHtml(
+            shortId(uid)
+          )}</td>
+          <td>${escapeHtml(r.name || "—")}</td>
+          <td><strong>★ ${r.stars ?? 0}</strong>
+            <button type="button" data-grant-fill="${escapeAttr(
+              uid
+            )}" style="margin-left:0.35rem;font-size:0.72rem">Grant…</button>
+          </td>
+        </tr>`;
+        })
+        .join("");
+      body.querySelectorAll("[data-grant-fill]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const uid = btn.getAttribute("data-grant-fill") || "";
+          if ($("grant-uid")) $("grant-uid").value = uid;
+          $("grant-uid")?.focus?.();
+        });
+      });
+    }
+
+    async function grantStars() {
+      showErr("");
+      const uid = ($("grant-uid")?.value || "").trim();
+      const amount = Math.max(0, Number($("grant-amt")?.value) || 0);
+      const reason = ($("grant-reason")?.value || "").trim();
+      const out = $("grant-result");
+      if (!uid || amount < 1) {
+        showErr("user_id and amount required");
+        return;
+      }
+      if (!confirm(`Grant ★ ${amount} to ${uid}?`)) return;
+      try {
+        const data = await api("/v1/admin/stars", {
+          method: "POST",
+          body: JSON.stringify({ user_id: uid, amount, reason }),
+        });
+        if (out) {
+          out.hidden = false;
+          out.textContent = data.ok
+            ? `OK · balance ★ ${data.stars}`
+            : data.error || "failed";
+        }
+        if (data.ledger) renderStarsLedger(data.ledger);
+        else await refresh();
+      } catch (e) {
+        showErr(e.message || String(e));
+      }
     }
 
     async function refresh() {
@@ -967,6 +1754,13 @@
         renderTargets(data.targets || []);
         renderSeeders(data.seeders || []);
         renderMetrics(data.metrics || {});
+        renderGlance({
+          online: data.online ?? 0,
+          waiting: data.waiting ?? 0,
+          reports: (data.reports || []).length,
+          bans: (data.bans || []).length,
+          metrics: data.metrics || {},
+        });
         await loadMesh();
       } catch (e) {
         showErr(e.message || String(e));
@@ -1034,6 +1828,7 @@
     $("btn-ban").addEventListener("click", () => {
       ban($("ban-uid").value.trim(), $("ban-days").value);
     });
+    $("btn-grant-stars")?.addEventListener("click", () => grantStars());
     $("token").addEventListener("keydown", (e) => {
       if (e.key === "Enter") refresh();
     });

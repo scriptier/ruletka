@@ -13,6 +13,7 @@ mod friends_store;
 mod limits;
 mod protocol;
 mod simple;
+mod star_ledger;
 
 use axum::{
     body::Body,
@@ -808,6 +809,14 @@ struct AdminUnbanBody {
     user_id: String,
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct AdminStarsBody {
+    user_id: String,
+    amount: u64,
+    #[serde(default)]
+    reason: String,
+}
+
 async fn admin_ban_handler(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -839,6 +848,37 @@ async fn admin_unban_handler(
     let mut hub = state.hub.lock().await;
     let ok = hub.admin_unban(&body.user_id);
     Json(serde_json::json!({"ok": ok})).into_response()
+}
+
+/// Grant stars via append-only ledger (`adjust` / admin:reason). Bypasses daily mint cap.
+async fn admin_stars_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<AdminStarsBody>,
+) -> impl IntoResponse {
+    if !admin_token_ok(&state, &headers) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"ok": false, "error": "unauthorized"})),
+        )
+            .into_response();
+    }
+    let mut hub = state.hub.lock().await;
+    match hub.admin_grant_stars(&body.user_id, body.amount, &body.reason) {
+        Ok(bal) => Json(serde_json::json!({
+            "ok": true,
+            "user_id": body.user_id.trim(),
+            "amount": body.amount,
+            "stars": bal,
+            "ledger": hub.stars_ledger_snapshot(),
+        }))
+        .into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"ok": false, "error": e})),
+        )
+            .into_response(),
+    }
 }
 
 /// Federation + public directory status for operators.
@@ -1529,6 +1569,7 @@ async fn main() {
         )
         .route("/v1/admin/ban", post(admin_ban_handler))
         .route("/v1/admin/unban", post(admin_unban_handler))
+        .route("/v1/admin/stars", post(admin_stars_handler))
         .route("/v1/seeder/request", post(seeder_request_handler))
         .fallback(branded_ui)
         .layer(CorsLayer::permissive())

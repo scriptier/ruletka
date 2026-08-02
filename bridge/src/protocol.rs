@@ -89,6 +89,10 @@ pub enum ClientMsg {
         user_id: String,
         accept: bool,
     },
+    /// Caller cancels while still ringing (before answer).
+    CallCancel {
+        user_id: String,
+    },
     /// End friend call and/or leave party.
     HangupFriend,
     /// While in a friend call: form a party of 2 and join the stranger queue together.
@@ -126,19 +130,28 @@ pub enum ClientMsg {
     FriendChatHistory {
         with_user_id: String,
     },
-    /// After a long enough chat (≥15 min), rate partner: star or skip.
+    /// After a long enough chat (≥15 min), rate partner: gift stars or skip.
     /// Same pair can only rate once (star or not).
+    /// amount: 1–3 when star=true (capped by giver tier: normal 1, 100+ →2, 250+ →3).
     RatePartner {
         user_id: String,
-        /// true = give a star, false = no star (still consumes the one-time review)
+        /// true = give star(s), false = no star (still consumes the one-time review)
         star: bool,
+        /// How many stars to gift (1–3). 0 or missing → 1 when star=true.
+        #[serde(default)]
+        amount: u64,
     },
     /// Spend reputation stars on a live effect for another user (no money).
-    /// effect: "bars" (jail fence 30s) — "flowers" reserved later.
+    /// effect: "heart"(1★) | "bars"|"flowers"|"balloons"|"confetti"(5★)
+    /// | "fireworks"(15★) | "please_stay"(30★, 15s no-Next, once/month per pair).
+    /// op_id: optional client idempotency key — same op_id is applied at most once (anti double-spend on retry).
     SpendStars {
         to_user_id: String,
         #[serde(default)]
         effect: String,
+        /// Client-generated unique id for this spend attempt (uuid recommended).
+        #[serde(default)]
+        op_id: String,
     },
 }
 
@@ -341,13 +354,19 @@ pub enum ServerMsg {
         user_id: String,
         name: String,
         duration_secs: u64,
+        /// Max stars this user may gift (1 normal · 2 if 100+ · 3 if 250+).
+        #[serde(default = "default_rate_max_gift")]
+        max_gift: u64,
     },
     /// Result of RatePartner.
     RateResult {
         ok: bool,
         user_id: String,
-        /// Whether a star was awarded (false if skipped or rejected).
+        /// Whether star(s) were awarded (false if skipped or rejected).
         star: bool,
+        /// How many stars were awarded this action (0 if skip).
+        #[serde(default)]
+        amount: u64,
         /// Target's new total stars (0 if not awarded).
         stars: u64,
         #[serde(default)]
@@ -378,8 +397,32 @@ pub enum ServerMsg {
         #[serde(default)]
         from_name: String,
     },
+    /// Feedback after report_user (weight / progress toward auto-ban).
+    ReportResult {
+        ok: bool,
+        #[serde(default)]
+        auto_banned: bool,
+        /// Reporter's tier weight (1 / 2 / 3)
+        #[serde(default)]
+        reporter_weight: u32,
+        /// Weight applied after peer dampening (0 if seniors block each other)
+        #[serde(default)]
+        applied_weight: u32,
+        /// Total weighted score on target after this report
+        #[serde(default)]
+        report_score: u32,
+        /// Score needed for auto match-ban
+        #[serde(default)]
+        threshold: u32,
+        #[serde(default)]
+        message: String,
+    },
 }
 
 fn default_mode() -> String {
     "solo".into()
+}
+
+fn default_rate_max_gift() -> u64 {
+    1
 }

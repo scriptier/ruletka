@@ -42,10 +42,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="home.css?v=81" />
+  <link rel="stylesheet" href="home.css?v=90" />
   <script src="brand.js?v=2"></script>
   <script src="analytics.js?v=1" defer></script>
-  <script src="pwa-install.js?v=6" defer></script>
+  <script src="pwa-install.js?v=7" defer></script>
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -198,9 +198,18 @@
             <a href="/live.html" id="home-join-now" data-i18n="home.joinNow">Join now →</a>
           </span>
         </div>
-        <p class="home-invite-hint" id="home-invite-hint" data-i18n="home.inviteHint">
-          Quiet right now? Invite a friend — Call works when both of you are online.
-        </p>
+        <!-- Week-1 liquidity: busy window + bring-a-friend -->
+        <div class="home-liquidity" id="home-liquidity" role="status">
+          <p class="home-busy-hours" id="home-busy-hours" data-i18n="home.busyHours">
+            Best odds: evenings (18:00–23:00 your local time) — bring a friend online at the same time.
+          </p>
+          <p class="home-invite-hint" id="home-invite-hint" data-i18n="home.inviteHint">
+            Quiet right now? Invite a friend — Call works when both of you are online.
+          </p>
+          <p class="home-quiet-cta" id="home-quiet-cta" hidden data-i18n="home.quietCta">
+            Nobody waiting — share Invite friends so two of you land together.
+          </p>
+        </div>
       </div>
     </section>
 
@@ -255,6 +264,17 @@
           <span data-i18n="home.p4d">Report, block, blur-first, on-device AI skip — multi-report auto-restricts</span>
         </div>
       </li>
+      <li class="home-point-stars" id="stars">
+        <span class="pt-ico pt-ico-stars" aria-hidden="true">
+          <svg class="pt-svg" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+            <path d="M12 2.5l2.6 6.3 6.9.6-5.2 4.5 1.6 6.7L12 16.9 6.1 20.6l1.6-6.7L2.5 9.4l6.9-.6L12 2.5z"/>
+          </svg>
+        </span>
+        <div>
+          <strong data-i18n="home.p5t">Stars</strong>
+          <span data-i18n="home.p5d">Reputation from real chats — not money, never for sale</span>
+        </div>
+      </li>
     </ul>
 
     <section class="home-diff" id="why">
@@ -302,6 +322,7 @@
   <footer class="home-foot">
     <span data-i18n="home.foot">18+ · Be respectful · Use Block if needed</span>
     <span class="foot-links">
+      <a href="#stars" class="foot-link" data-i18n="home.starsFoot">Stars reputation</a>
       <a href="#why" class="foot-link" data-i18n="home.diffTitle">How we’re different</a>
       <a href="#open" class="foot-link" data-i18n="home.openTitle">Open source</a>
       <a href="/contribute.html" class="foot-link" data-i18n="home.openHelper">Run a helper</a>
@@ -325,9 +346,12 @@
           "home.share": "Share site",
           "home.shareOk": "Link copied",
           "home.invite": "Invite friends",
-          "home.inviteHint": "Quiet right now? Invite a friend — Call works when both of you are online.",
-          "home.inviteText": "Join me on {brand} — random P2P video chat, or call friends when online.",
-          "home.inviteTextLive": "{n} online now on {brand}. Open live and match or call friends.",
+          "home.inviteHint": "Quiet right now? Invite a friend — open live, share your code, they Accept, then Call.",
+          "home.busyHours": "Best odds: evenings (18:00–23:00 local) — bring a friend online at the same time.",
+          "home.quietCta": "Nobody waiting — use Invite friends so two of you land together.",
+          "home.busyNow": "People online now — Start chatting is the fastest path.",
+          "home.inviteText": "Join me on {brand} — random video chat, or add me as a friend and Call when online.",
+          "home.inviteTextLive": "{n} online now on {brand}. Open live — match or Call friends.",
           "home.joinNow": "Join now →",
           "home.nowOnline": "Online now",
           "home.nowWaiting": "Waiting",
@@ -343,6 +367,9 @@
           "home.p3d": "Share a code, accept requests, call when online",
           "home.p4t": "Safety tools",
           "home.p4d": "Report, block, blur-first, on-device AI skip — multi-report auto-restricts",
+          "home.p5t": "Stars",
+          "home.p5d": "Reputation from real chats — not money, never for sale",
+          "home.starsFoot": "Stars",
           "home.diffTitle": "How we’re different",
           "home.diffBody":
             "Most chat roulettes route your video through their servers and push accounts or ads. On <strong>ruletka.vip</strong>, video goes browser to browser (peer-to-peer) — no signup. Friends, block, report, and on-device safety tools are built in.",
@@ -364,15 +391,18 @@
         },
         ru: {
           "home.eyebrow": "Peer-to-peer чат-рулетка",
-          "home.title": "Познакомьтесь с кем-то новым.<br />Лицом к лицу.",
+          "home.title": "Встреть кого-то нового.<br />Лицом к лицу.",
           "home.lead":
-            "Случайный видеочат с незнакомцами — или звонки друзьям, когда они онлайн. Медиа идёт между браузерами. Без аккаунта.",
+            "Случайный видеочат с незнакомцами — или звонок другу, если он онлайн. Видео идёт напрямую, браузер к браузеру. Без аккаунта.",
           "home.cta": "Начать чат",
           "home.share": "Поделиться",
           "home.shareOk": "Ссылка скопирована",
           "home.invite": "Пригласить друзей",
-          "home.inviteHint": "Тихо? Пригласите друга — звонок работает, когда вы оба онлайн.",
-          "home.inviteText": "Заходи на {brand} — случайный P2P-видеочат или звонки друзьям.",
+          "home.inviteHint": "Тихо? Пригласите друга — в live поделитесь кодом, они Accept, потом звонок.",
+          "home.busyHours": "Лучше вечером (18:00–23:00 по местному) — зайдите с другом в одно время.",
+          "home.quietCta": "Никого в очереди — нажмите «Пригласить друзей», чтобы зайти вдвоём.",
+          "home.busyNow": "Кто-то уже онлайн — быстрее всего «Начать чат».",
+          "home.inviteText": "Заходи на {brand} — случайный видеочат или добавь меня в друзья и позвони.",
           "home.inviteTextLive": "Сейчас {n} онлайн на {brand}. Открой live — матч или звонок другу.",
           "home.joinNow": "Зайти →",
           "home.nowOnline": "Сейчас онлайн",
@@ -389,6 +419,9 @@
           "home.p3d": "Код, подтверждение запроса, звонок онлайн",
           "home.p4t": "Безопасность",
           "home.p4d": "Жалоба, блок, блюр, ИИ на устройстве — несколько жалоб ограничивают матчинг",
+          "home.p5t": "Звёзды",
+          "home.p5d": "Репутация за живые чаты — не деньги и не продаётся",
+          "home.starsFoot": "Звёзды",
           "home.openTitle": "Open source и мульти-хаб",
           "home.openBody":
             "Софт <strong>открытый</strong> (LGPL-2.1). Любой может поднять свой хаб. Этот сайт — публичное семя, не единственная сеть. Если хаб упал, live-клиент может взять другой из каталога. Helper — полноценная нода, которой можно делиться.",
@@ -466,7 +499,7 @@
         }
         // Flash bundled RU/EN or English while pack loads
         applyDict(lang, STR[lang] || STR.en || {});
-        fetch("/i18n/" + lang + ".json?v=23", { cache: "force-cache" })
+        fetch("/i18n/" + lang + ".json?v=25", { cache: "force-cache" })
           .then(function (r) {
             if (!r.ok) throw new Error("pack");
             return r.json();
@@ -512,15 +545,36 @@
             var hasPeople = online > 0 || waiting > 0;
             wrap.classList.toggle("has-people", hasPeople);
             document.body.classList.toggle("has-live-people", hasPeople);
+            document.body.classList.toggle("is-quiet-pool", !hasPeople);
             wrap.hidden = false;
             var joinPill = document.getElementById("home-join-pill");
             if (joinPill) joinPill.hidden = !hasPeople;
+            var quietCta = document.getElementById("home-quiet-cta");
+            if (quietCta) quietCta.hidden = hasPeople;
+            var inviteHint = document.getElementById("home-invite-hint");
+            if (inviteHint) inviteHint.hidden = !hasPeople;
+            var busyEl = document.getElementById("home-busy-hours");
+            var dict = packCache[getLang()] || STR[getLang()] || STR.en;
+            if (busyEl) {
+              if (hasPeople && online > 0) {
+                busyEl.textContent =
+                  (dict && dict["home.busyNow"]) ||
+                  "People online now — Start chatting is the fastest path.";
+                busyEl.classList.add("is-live");
+              } else {
+                busyEl.textContent =
+                  (dict && dict["home.busyHours"]) ||
+                  "Best odds: evenings (18:00–23:00 local) — bring a friend online at the same time.";
+                busyEl.classList.remove("is-live");
+              }
+            }
+            var inviteBtn = document.getElementById("btn-home-invite");
+            if (inviteBtn) {
+              inviteBtn.classList.toggle("is-priority", !hasPeople);
+            }
             var cta = document.getElementById("btn-enter");
             if (cta && hasPeople && online > 0) {
-              var dict = packCache[getLang()] || STR[getLang()] || STR.en;
               var base = (dict && dict["home.cta"]) || "Start chatting";
-              var label = cta.querySelector("[data-i18n='home.cta']") || cta;
-              // Keep i18n span text as base; append live count via data attr for CSS/title
               cta.title = base + " · " + online + " online";
               cta.setAttribute("data-online", String(online));
             }
@@ -532,9 +586,14 @@
             wrap.classList.add("is-offline");
             wrap.classList.remove("has-people");
             document.body.classList.remove("has-live-people");
+            document.body.classList.add("is-quiet-pool");
             wrap.hidden = false;
             var joinPill = document.getElementById("home-join-pill");
             if (joinPill) joinPill.hidden = true;
+            var quietCta = document.getElementById("home-quiet-cta");
+            if (quietCta) quietCta.hidden = false;
+            var inviteHint = document.getElementById("home-invite-hint");
+            if (inviteHint) inviteHint.hidden = true;
             var offline = wrap.querySelector(".stat-offline");
             if (!offline) {
               offline = document.createElement("span");
@@ -622,19 +681,28 @@
         }
       })();
 
-      // Share / invite (native share sheet or clipboard) — richer text when people online
+      // Share site (clipboard/native) · Invite friends → live to share your real friend code
       function homeOnlineCount() {
         var onlineEl = document.getElementById("home-stat-online");
         return onlineEl
           ? parseInt(String(onlineEl.textContent || "0").replace(/\D/g, ""), 10) || 0
           : 0;
       }
+      function homeLangQs() {
+        try {
+          var lang = getLang();
+          return lang && lang !== "en" ? "lang=" + encodeURIComponent(lang) : "";
+        } catch (_) {
+          return "";
+        }
+      }
       function doHomeShare(btn, mode) {
         if (!btn) return;
-        var url =
-          location.origin +
-          "/live.html?ref=" +
-          (mode === "invite" ? "invite" : "share");
+        // Site share → live with ref; invite uses dedicated path (see inviteBtn)
+        var qs = "ref=" + (mode === "invite" ? "invite" : "share");
+        var lq = homeLangQs();
+        if (lq) qs += "&" + lq;
+        var url = location.origin + "/live.html?" + qs;
         var brand =
           (window.RuletBrand && RuletBrand.name && RuletBrand.name()) ||
           "ruletka.vip";
@@ -653,15 +721,12 @@
         } else {
           text = (
             (dict && dict["home.inviteText"]) ||
-            "Join me on {brand} — random P2P video chat, or call friends when online."
+            "Join me on {brand} — random video chat, or Call me as a friend when online."
           ).replace(/\{brand\}/g, brand);
         }
         var done = function () {
           var prev = btn.textContent;
-          var key =
-            mode === "invite"
-              ? "home.invite"
-              : "home.share";
+          var key = mode === "invite" ? "home.invite" : "home.share";
           btn.textContent = okLabel;
           setTimeout(function () {
             btn.textContent = (dict && dict[key]) || prev || "Share";
@@ -695,10 +760,18 @@
           doHomeShare(shareBtn, "share");
         });
       }
+      // Invite friends → open live Friends panel so you share a real ?friend=CODE link
       var inviteBtn = document.getElementById("btn-home-invite");
       if (inviteBtn) {
         inviteBtn.addEventListener("click", function () {
-          doHomeShare(inviteBtn, "invite");
+          var qs = "invite=1";
+          var lq = homeLangQs();
+          if (lq) qs += "&" + lq;
+          try {
+            location.href = "/live.html?" + qs;
+          } catch (_) {
+            doHomeShare(inviteBtn, "invite");
+          }
         });
       }
     })();

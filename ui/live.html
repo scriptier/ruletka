@@ -46,22 +46,22 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
     rel="stylesheet"
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&family=Rye&family=Source+Serif+4:opsz,wght@8..60,400;600;700&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&family=Rye&family=Source+Serif+4:opsz,wght@8..60,400;600;700&family=Pixelify+Sans:wght@400;500;600;700&family=Press+Start+2P&display=swap"
     media="print"
     onload="this.media='all'"
   />
   <noscript>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&family=Pixelify+Sans:wght@400;500;600;700&family=Press+Start+2P&display=swap" rel="stylesheet" />
   </noscript>
   <link rel="stylesheet" href="style.css?v=157" />
-  <link rel="stylesheet" href="live-stage.css?v=199" />
+  <link rel="stylesheet" href="live-stage.css?v=259" />
   <script src="brand.js?v=2"></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
     (function () {
       try {
         var p = JSON.parse(localStorage.getItem("freenet-roulette-media-prefs-v1") || "{}");
-        var ok = { dark: 1, light: 1, saloon: 1, matrix: 1, pink: 1 };
+        var ok = { dark: 1, light: 1, saloon: 1, matrix: 1, pink: 1, pixel: 1 };
         var t = ok[p.theme] ? p.theme : "dark";
         document.documentElement.setAttribute("data-theme", t);
         if (t === "light" || t === "pink") document.documentElement.style.colorScheme = "light";
@@ -284,6 +284,45 @@
           <div class="fx-flowers-ring" aria-hidden="true"></div>
           <span class="fx-flowers-timer" id="remote-fx-flowers-timer"></span>
         </div>
+        <div class="fx-overlay fx-balloons" id="remote-fx-balloons" hidden aria-hidden="true">
+          <div class="fx-balloons-layer" aria-hidden="true"></div>
+          <span class="fx-balloons-timer" id="remote-fx-balloons-timer"></span>
+        </div>
+        <div class="fx-overlay fx-confetti" id="remote-fx-confetti" hidden aria-hidden="true">
+          <div class="fx-confetti-layer" aria-hidden="true"></div>
+          <span class="fx-confetti-timer" id="remote-fx-confetti-timer"></span>
+        </div>
+        <div class="fx-overlay fx-heart" id="remote-fx-heart" hidden aria-hidden="true">
+          <div class="fx-heart-layer" aria-hidden="true"></div>
+          <span class="fx-heart-timer" id="remote-fx-heart-timer"></span>
+        </div>
+        <div class="fx-overlay fx-fireworks" id="remote-fx-fireworks" hidden aria-hidden="true">
+          <div class="fx-fireworks-layer" aria-hidden="true"></div>
+          <span class="fx-fireworks-timer" id="remote-fx-fireworks-timer"></span>
+        </div>
+        <div class="fx-overlay fx-please-stay" id="remote-fx-please_stay" hidden aria-hidden="true">
+          <div class="fx-please-stay-ring" aria-hidden="true"></div>
+          <div class="fx-please-stay-pulse" aria-hidden="true"></div>
+          <span class="fx-please-stay-label" data-i18n="stars.pleaseStayLabel">Please stay</span>
+          <span class="fx-please-stay-timer" id="remote-fx-please_stay-timer"></span>
+        </div>
+        <!-- Quick gift strip (long-press partner video) -->
+        <div class="gift-strip" id="gift-strip" hidden role="toolbar" aria-label="Send a star gift">
+          <button type="button" class="gift-strip-btn" data-gift="heart" title="Heart · 1★">💖</button>
+          <button type="button" class="gift-strip-btn" data-gift="bars" title="Behind bars · 5★">🔒</button>
+          <button type="button" class="gift-strip-btn" data-gift="flowers" title="Flowers · 5★">🌸</button>
+          <button type="button" class="gift-strip-btn" data-gift="balloons" title="Balloons · 5★">🎈</button>
+          <button type="button" class="gift-strip-btn" data-gift="confetti" title="Confetti · 5★">🎊</button>
+          <button type="button" class="gift-strip-btn" data-gift="fireworks" title="Fireworks · 15★">🎆</button>
+          <button type="button" class="gift-strip-btn gift-strip-stay" data-gift="please_stay" title="Please stay · 30★ · 15s">🙏</button>
+          <button type="button" class="gift-strip-btn gift-strip-more" id="gift-strip-more" title="More">⋯</button>
+        </div>
+        <!-- Swipe left/right to skip (Next) -->
+        <div class="swipe-skip-hint" id="swipe-skip-hint" hidden aria-hidden="true">
+          <span class="swipe-skip-arrow swipe-skip-left" aria-hidden="true">‹</span>
+          <span class="swipe-skip-label" data-i18n="swipe.next">Next</span>
+          <span class="swipe-skip-arrow swipe-skip-right" aria-hidden="true">›</span>
+        </div>
         <!-- Mobile portrait trio: your cam inset on first partner -->
         <div class="local-in-partner-pip" id="local-in-partner-pip" hidden>
           <video id="local-pip-mirror" class="local-pip-vid" autoplay playsinline playsInline webkit-playsinline muted></video>
@@ -324,21 +363,56 @@
             <button type="button" class="start-match-btn" id="btn-start-match" data-i18n="btn.start">
               Start
             </button>
-            <!-- Alone CTAs kept in DOM but hidden by default (cleaner search UI) -->
+            <!-- Idle growth: always show your code under Start (share anytime) -->
+            <div class="empty-idle-invite" id="empty-idle-invite" hidden>
+              <span class="empty-idle-lbl" data-i18n="friends.yourCode">Your code</span>
+              <button type="button" class="empty-idle-code" id="btn-empty-idle-code" title="Copy code">—</button>
+              <button type="button" class="empty-idle-share" id="btn-empty-idle-share" data-i18n="friends.shareInviteShort">Share</button>
+            </div>
+            <!-- Alone / quiet pool: one dominant Share (Week-1 liquidity) -->
             <div class="empty-alone-actions" id="empty-alone-actions" hidden>
-              <button type="button" class="empty-alone-btn accent" id="btn-empty-invite-share" data-i18n="friends.inviteNow">
-                Invite friend
+              <p class="empty-alone-lead" data-i18n="friends.aloneInviteLead">
+                Pool is quiet — a friend online fills it faster than waiting.
+              </p>
+              <p class="empty-alone-steps" data-i18n="friends.aloneInviteSteps">
+                They open live → add your code → you Accept → Call
+              </p>
+              <!-- Online friends: one-tap Call (preferred over cold invite) -->
+              <div class="empty-alone-call-row" id="empty-alone-call-row" hidden></div>
+              <button type="button" class="empty-alone-btn accent empty-alone-primary" id="btn-empty-invite-share">
+                Share invite · I’m live
               </button>
-              <button type="button" class="empty-alone-btn ghost" id="btn-empty-copy-code" data-i18n="friends.copyCode">
-                Copy code
-              </button>
-              <button type="button" class="empty-alone-btn ghost" id="btn-empty-open-friends" data-i18n="friends.open">
-                Friends
-              </button>
+              <!-- Code wrap kept for JS copy fallback (hidden UI) -->
+              <div class="empty-alone-code-wrap" id="empty-alone-code-wrap" hidden>
+                <span class="empty-alone-code-lbl" data-i18n="friends.yourCode">Your code</span>
+                <button type="button" class="empty-alone-code" id="btn-empty-alone-code" title="Copy code">
+                  —
+                </button>
+              </div>
+              <div class="empty-alone-qr" id="empty-alone-qr" hidden></div>
+              <details class="empty-alone-more" id="empty-alone-more">
+                <summary data-i18n="friends.aloneMore">More options</summary>
+                <div class="empty-alone-row">
+                  <button type="button" class="empty-alone-btn ghost" id="btn-empty-copy-code" data-i18n="friends.copyCode">
+                    Copy code
+                  </button>
+                  <button type="button" class="empty-alone-btn ghost" id="btn-empty-qr-invite" data-i18n="friends.showQr">
+                    QR
+                  </button>
+                  <button type="button" class="empty-alone-btn ghost" id="btn-empty-open-friends" data-i18n="friends.open">
+                    Friends
+                  </button>
+                </div>
+              </details>
+            </div>
+            <!-- Recent partners: Call back / Add without opening Friends -->
+            <div class="empty-recent-strip" id="empty-recent-strip" hidden>
+              <div class="empty-recent-label" data-i18n="friends.recentStrip">Recent — tap to call back</div>
+              <div class="empty-recent-row" id="empty-recent-row"></div>
             </div>
             <!-- Friends online strip while idle (still available; hidden when empty) -->
             <div class="friends-online-strip" id="friends-online-strip" hidden>
-              <div class="friends-online-label" data-i18n="friends.onlineStrip">Friends online</div>
+              <div class="friends-online-label" data-i18n="friends.onlineStrip">Friends online — tap to call</div>
               <div class="friends-online-row" id="friends-online-row"></div>
             </div>
             <!-- Mobile alone-pool: friend invite (rooms share only if rooms enabled) -->
@@ -348,24 +422,28 @@
             </div>
           </div>
         </div>
-        <div class="tile-tag" id="remote-tile-tag" hidden>
-          <!-- Stars sit left of avatar (browser layout) -->
-          <button type="button" class="stars-badge stars-badge-inline is-clickable" id="remote-stars-badge" hidden
-            aria-label="Partner stars — open Stars guide">
-            <span class="stars-icon" aria-hidden="true">★</span>
-            <span class="stars-count" id="remote-stars-count">0</span>
-          </button>
-          <span class="tile-avatar" id="remote-avatar" hidden><img id="remote-avatar-img" alt="" /></span>
-          <span class="name-on-tile" id="remote-tag"></span>
-          <span class="match-timer" id="match-timer" hidden title="Time with partner">0:00</span>
-          <!-- Human path + quality (Good / OK / Weak) during live call -->
-          <span class="conn-chip" id="conn-chip" hidden title="Connection quality"></span>
-          <span class="quality" id="call-quality" hidden title="RTT · bitrate · loss"></span>
+        <div class="tile-tag tile-tag-remote" id="remote-tile-tag" hidden>
+          <!-- Identity stack: avatar above flag+name (matches local tile) -->
+          <div class="tile-remote-id">
+            <span class="tile-avatar tile-avatar-remote" id="remote-avatar" hidden><img id="remote-avatar-img" alt="" /></span>
+            <span class="name-on-tile name-on-tile-stack" id="remote-tag"></span>
+            <span class="flair-chip" id="remote-flair-chip" hidden title="Flair" aria-hidden="true"></span>
+          </div>
+          <div class="tile-remote-meta">
+            <span class="match-timer" id="match-timer" hidden title="Time with partner">0:00</span>
+            <!-- Human path + quality (Good / OK / Weak) during live call -->
+            <span class="conn-chip" id="conn-chip" hidden title="Connection quality"></span>
+            <span class="quality" id="call-quality" hidden title="RTT · bitrate · loss"></span>
+            <span class="av-lag-chip" id="av-lag-chip" hidden title="Audio vs video playout lag">A/V</span>
+          </div>
         </div>
-        <!-- PiP + Fullscreen — top-right of partner camera -->
-        <button type="button" class="tile-corner-btn tile-pip-btn" id="btn-pip-remote" data-i18n-title="btn.pipTitle" title="Picture-in-picture" aria-label="Picture-in-picture" hidden>
-          <svg class="icon" aria-hidden="true"><use href="#i-pip"/></svg>
+        <!-- Partner ★ — top-right of conversationalist window -->
+        <button type="button" class="stars-badge stars-badge-remote is-clickable" id="remote-stars-badge" hidden
+          aria-label="Partner stars — open Stars guide">
+          <span class="stars-icon" aria-hidden="true">★</span>
+          <span class="stars-count" id="remote-stars-count">0</span>
         </button>
+        <!-- Fullscreen — bottom-right of conversationalist window -->
         <button type="button" class="tile-corner-btn tile-fs-btn" id="btn-fs-remote" data-i18n-title="btn.fullTitle" title="Fullscreen (F)" aria-label="Fullscreen">
           <svg class="icon" aria-hidden="true"><use href="#i-expand"/></svg>
         </button>
@@ -508,6 +586,30 @@
           <div class="fx-flowers-ring" aria-hidden="true"></div>
           <span class="fx-flowers-timer" id="local-fx-flowers-timer"></span>
         </div>
+        <div class="fx-overlay fx-balloons" id="local-fx-balloons" hidden aria-hidden="true">
+          <div class="fx-balloons-layer" aria-hidden="true"></div>
+          <span class="fx-balloons-timer" id="local-fx-balloons-timer"></span>
+        </div>
+        <div class="fx-overlay fx-confetti" id="local-fx-confetti" hidden aria-hidden="true">
+          <div class="fx-confetti-layer" aria-hidden="true"></div>
+          <span class="fx-confetti-timer" id="local-fx-confetti-timer"></span>
+        </div>
+        <div class="fx-overlay fx-heart" id="local-fx-heart" hidden aria-hidden="true">
+          <div class="fx-heart-layer" aria-hidden="true"></div>
+          <span class="fx-heart-timer" id="local-fx-heart-timer"></span>
+        </div>
+        <div class="fx-overlay fx-fireworks" id="local-fx-fireworks" hidden aria-hidden="true">
+          <div class="fx-fireworks-layer" aria-hidden="true"></div>
+          <span class="fx-fireworks-timer" id="local-fx-fireworks-timer"></span>
+        </div>
+        <div class="fx-overlay fx-please-stay" id="local-fx-please_stay" hidden aria-hidden="true">
+          <div class="fx-please-stay-ring" aria-hidden="true"></div>
+          <div class="fx-please-stay-pulse" aria-hidden="true"></div>
+          <span class="fx-please-stay-label" data-i18n="stars.pleaseStayOnYouLabel">Stay a moment</span>
+          <span class="fx-please-stay-timer" id="local-fx-please_stay-timer"></span>
+        </div>
+        <!-- Full-screen gift celebration burst (receive) -->
+        <div class="gift-celebrate" id="gift-celebrate" hidden aria-hidden="true"></div>
         <!-- Friend PiP while browsing together (party) so main remote can show stranger(s) -->
         <div class="friend-pip" id="friend-pip-wrap" hidden>
           <video id="friend-pip" class="friend-pip-vid" autoplay playsinline playsInline webkit-playsinline></video>
@@ -524,18 +626,21 @@
             Enable camera
           </button>
         </div>
-        <!-- Local identity: flag + name top-left (stacked); avatar top-right -->
-        <div class="tile-tag tile-tag-local-name" id="local-name-tag">
-          <span class="name-on-tile name-on-tile-stack" id="local-name">anon</span>
+        <!-- Local identity: avatar + flag/name stacked top-left; ★ top-right -->
+        <div class="tile-local-id" id="local-id-stack">
+          <span class="tile-avatar tile-avatar-local" id="local-avatar" hidden>
+            <img id="local-avatar-img" alt="" />
+          </span>
+          <div class="tile-tag tile-tag-local-name" id="local-name-tag">
+            <span class="name-on-tile name-on-tile-stack" id="local-name">anon</span>
+            <span class="flair-chip" id="local-flair-chip" hidden title="Flair" aria-hidden="true"></span>
+          </div>
         </div>
         <button type="button" class="stars-badge stars-badge-local is-clickable" id="local-stars-badge"
           aria-label="Your stars — open Stars guide">
           <span class="stars-icon" aria-hidden="true">★</span>
           <span class="stars-count" id="local-stars-count">0</span>
         </button>
-        <span class="tile-avatar tile-avatar-local" id="local-avatar" hidden>
-          <img id="local-avatar-img" alt="" />
-        </span>
         <aside class="side-rail side-rail-right">
           <!-- Cam on/off fully removed — use Hide (self-blur) for privacy; camera stays on for preview -->
           <button type="button" class="side-btn" id="btn-flip-cam" data-i18n-title="btn.flipCamTitle" title="Flip video left / right (C)" aria-label="Flip video" aria-pressed="false">
@@ -619,13 +724,13 @@
       </header>
       <ul class="keys-help-list">
         <li><kbd>Space</kbd> <span data-i18n="keys.next">Next partner</span></li>
+        <li><span data-i18n="keys.swipe">Swipe left or right on partner video to skip</span></li>
         <li><kbd>S</kbd> <span data-i18n="keys.stop">Stop (leave queue / idle)</span></li>
         <li><kbd>M</kbd> <span data-i18n="keys.mic">Mute mic</span></li>
         <li><kbd>C</kbd> <span data-i18n="keys.flip">Flip local video left / right</span></li>
         <li><kbd>P</kbd> <span data-i18n="keys.partner">Mute partner</span></li>
         <li><kbd>B</kbd> <span data-i18n="keys.blur">Blur partner</span></li>
         <li><kbd>F</kbd> <span data-i18n="keys.full">Fullscreen partner</span></li>
-        <li><kbd>I</kbd> <span data-i18n="keys.pip">Picture-in-picture</span></li>
         <li><kbd>?</kbd> <span data-i18n="keys.this">This help</span></li>
         <li><kbd>Esc</kbd> <span data-i18n="keys.esc">Close menus</span></li>
       </ul>
@@ -752,6 +857,13 @@
         <p class="hint-inline" data-i18n="friends.mutualHint">
           Only friends can Call. Requests need Accept on both sides — then Call when they are Online.
         </p>
+        <label class="settings-toggle friends-notif-opt" style="margin:0.35rem 0 0.55rem">
+          <span class="settings-toggle-copy">
+            <span class="settings-row-title" data-i18n="friends.notifOnline">Alerts for calls & friends online</span>
+            <span class="settings-row-sub" data-i18n="friends.notifOnlineHint">Optional · when this tab is in the background (incoming Call + friend online)</span>
+          </span>
+          <input type="checkbox" id="chk-friend-online-notif" />
+        </label>
         <details class="friends-how-codes">
           <summary data-i18n="friends.codesHelp">How friend codes work</summary>
           <p class="hint-inline" data-i18n="friends.howCodes">
@@ -814,114 +926,174 @@
   <!-- Incoming call toast is created only when someone rings (see live.js) -->
 
   <!-- Partner actions: click partner video (not fullscreen) -->
-  <!-- Stars guide + spend (opens like Settings when you click ★) -->
+  <!-- Stars guide + spend (opens from ★ badge) -->
   <aside class="sheet settings-app stars-sheet" id="stars-sheet" hidden role="dialog" aria-modal="true" aria-labelledby="stars-sheet-title">
-    <header class="settings-header">
-      <button type="button" class="sheet-nav-btn" id="btn-stars-sheet-back" aria-label="Close">‹</button>
+    <header class="settings-header stars-sheet-header">
+      <span class="sheet-nav-spacer" aria-hidden="true"></span>
       <h3 id="stars-sheet-title" data-i18n="stars.sheetTitle">Stars</h3>
-      <span class="sheet-nav-spacer"></span>
+      <button type="button" class="sheet-nav-btn stars-sheet-close" id="btn-stars-sheet-back" aria-label="Close">×</button>
     </header>
+    <nav class="stars-tabs" id="stars-tabs" role="tablist" aria-label="Stars sections">
+      <button type="button" class="stars-tab is-active" role="tab" id="stars-tab-overview" data-stars-tab="overview" aria-selected="true" data-i18n="stars.tabOverview">Overview</button>
+      <button type="button" class="stars-tab" role="tab" id="stars-tab-gifts" data-stars-tab="gifts" aria-selected="false" data-i18n="stars.tabGifts">Gifts</button>
+      <button type="button" class="stars-tab" role="tab" id="stars-tab-power" data-stars-tab="power" aria-selected="false" data-i18n="stars.tabPower">Power</button>
+    </nav>
     <div class="sheet-body settings-body">
-      <div class="stars-sheet-hero">
-        <span class="stars-sheet-hero-ico" aria-hidden="true">★</span>
-        <div class="stars-sheet-hero-text">
-          <div class="stars-sheet-balance" id="stars-sheet-balance">0</div>
-          <div class="stars-sheet-balance-sub" data-i18n="stars.yours">Your stars</div>
+      <div class="stars-sheet-hero" id="stars-sheet-hero">
+        <div class="stars-hero-top">
+          <span class="stars-sheet-hero-ico" aria-hidden="true">★</span>
+          <div class="stars-hero-nums">
+            <div class="stars-sheet-balance" id="stars-sheet-balance">0</div>
+            <span class="stars-tier-chip" id="stars-tier-chip" data-tier="0">×1</span>
+          </div>
+        </div>
+        <div class="stars-hero-meta">
+          <span class="stars-sheet-balance-sub" data-i18n="stars.yours">Your balance</span>
+          <span class="stars-meta-dot" aria-hidden="true">·</span>
+          <span class="stars-tier-name" id="stars-tier-name" data-i18n="stars.tierNormal">Normal reporter</span>
+        </div>
+        <p class="stars-unlock-line" id="stars-unlock-line"></p>
+      </div>
+      <p class="stars-live-line" id="stars-live-line" hidden></p>
+
+      <div class="stars-panel is-active" id="stars-panel-overview" role="tabpanel" data-stars-panel="overview">
+        <div class="stars-progress-wrap" id="stars-progress-wrap">
+          <div class="stars-progress-head">
+            <span class="stars-progress-label" id="stars-progress-label" data-i18n="stars.progressLabel">Trusted reporter</span>
+            <span class="stars-progress-count" id="stars-progress-count">0 / 100</span>
+          </div>
+          <div class="stars-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="250" aria-valuenow="0" id="stars-progress-bar">
+            <div class="stars-progress-fill" id="stars-progress-fill"></div>
+            <span class="stars-progress-mark m-100" title="100★" aria-hidden="true"></span>
+            <span class="stars-progress-mark m-250" title="250★" aria-hidden="true"></span>
+          </div>
+          <div class="stars-progress-marks-lbl" aria-hidden="true">
+            <span>0</span><span>100</span><span>250</span>
+          </div>
+          <p class="stars-progress-hint" id="stars-progress-hint" data-i18n="stars.progressHint">
+            Collect 100★ so your reports count double.
+          </p>
+        </div>
+        <p class="settings-section-label" data-i18n="stars.earnTitle">Earn</p>
+        <div class="settings-group stars-sheet-group stars-earn-group">
+          <div class="stars-earn-row">
+            <span class="stars-earn-ico" aria-hidden="true">⏱</span>
+            <span class="stars-earn-copy">
+              <strong data-i18n="stars.earnHourTitle">Full hour together</strong>
+              <span data-i18n="stars.earnHourBodyShort">Both get +1★ at 60 minutes</span>
+            </span>
+          </div>
+          <div class="stars-earn-row">
+            <span class="stars-earn-ico" aria-hidden="true">🎁</span>
+            <span class="stars-earn-copy">
+              <strong data-i18n="stars.earnStep1Title">Gift after 15+ minutes</strong>
+              <span data-i18n="stars.earnStep1BodyShort">Optional stars once per person</span>
+            </span>
+          </div>
+          <div class="stars-earn-row">
+            <span class="stars-earn-ico" aria-hidden="true">👑</span>
+            <span class="stars-earn-copy">
+              <strong data-i18n="stars.earnSeniorTalkTitle">Talk to a senior</strong>
+              <span data-i18n="stars.earnSeniorTalkBody">Normals +3★ · trusted +2★/hour with 250+</span>
+            </span>
+          </div>
+        </div>
+        <details class="stars-about-details" id="stars-about-details">
+          <summary class="stars-about-summary">
+            <span data-i18n="stars.aboutTitle">How stars work</span>
+          </summary>
+          <div class="stars-about-panel">
+            <p class="stars-about-lead" data-i18n="stars.sheetIntro">
+              Free reputation, not money. Earn from long chats, spend on gifts, unlock stronger reports at 100★ and 250★.
+            </p>
+            <ul class="stars-about-list">
+              <li data-i18n="stars.aboutEarn">Earn: +1★ each after 1 hour. Talk to a senior (250+): normals get +3★ (15+ min), trusted get +2★ (1 hour). Gift once after 15+ min — up to 2★ at 100+, up to 3★ at 250+.</li>
+              <li data-i18n="stars.aboutSpend">Spend: Heart 1★ · Bars/Flowers/Balloons/Confetti 5★ · Fireworks 15★ · Please stay 30★ (they can’t Next for 15s, once/month per person).</li>
+              <li data-i18n="stars.aboutTrust">Trust: 100+★ reports ×2, 250+★ ×3. High-rep users are harder to ban — seniors cannot auto-ban each other.</li>
+              <li data-i18n="stars.aboutHub">Safe: stars stay on the server for your account — profile export never includes them.</li>
+            </ul>
+          </div>
+        </details>
+      </div>
+
+      <div class="stars-panel" id="stars-panel-gifts" role="tabpanel" data-stars-panel="gifts" hidden>
+        <p class="settings-section-label" data-i18n="stars.spendTitle">Spend</p>
+        <div class="settings-group stars-sheet-group stars-gifts-group" id="stars-sheet-gifts">
+          <p class="hint-inline stars-gift-hint" id="stars-sheet-gift-hint" data-i18n="stars.spendIdleHint">
+            Start a live chat to unlock gifts below.
+          </p>
+          <div class="stars-gift-grid stars-gift-grid-3">
+            <button type="button" class="stars-gift-card stars-gift-cheap" id="btn-stars-sheet-heart" data-effect="heart">
+              <span class="stars-gift-emoji" aria-hidden="true">💖</span>
+              <span class="stars-gift-name" data-i18n="stars.giftHeartName">Heart</span>
+              <span class="stars-gift-meta"><span class="stars-gift-cost">1★</span> · 8s</span>
+            </button>
+            <button type="button" class="stars-gift-card" id="btn-stars-sheet-bars" data-effect="bars">
+              <span class="stars-gift-emoji" aria-hidden="true">🔒</span>
+              <span class="stars-gift-name" data-i18n="stars.giftBarsName">Behind bars</span>
+              <span class="stars-gift-meta"><span class="stars-gift-cost">5★</span> · 15s</span>
+            </button>
+            <button type="button" class="stars-gift-card" id="btn-stars-sheet-flowers" data-effect="flowers">
+              <span class="stars-gift-emoji" aria-hidden="true">🌸</span>
+              <span class="stars-gift-name" data-i18n="stars.giftFlowersName">Flowers</span>
+              <span class="stars-gift-meta"><span class="stars-gift-cost">5★</span> · 15s</span>
+            </button>
+            <button type="button" class="stars-gift-card" id="btn-stars-sheet-balloons" data-effect="balloons">
+              <span class="stars-gift-emoji" aria-hidden="true">🎈</span>
+              <span class="stars-gift-name" data-i18n="stars.giftBalloonsName">Balloons</span>
+              <span class="stars-gift-meta"><span class="stars-gift-cost">5★</span> · 15s</span>
+            </button>
+            <button type="button" class="stars-gift-card" id="btn-stars-sheet-confetti" data-effect="confetti">
+              <span class="stars-gift-emoji" aria-hidden="true">🎊</span>
+              <span class="stars-gift-name" data-i18n="stars.giftConfettiName">Confetti</span>
+              <span class="stars-gift-meta"><span class="stars-gift-cost">5★</span> · 15s</span>
+            </button>
+            <button type="button" class="stars-gift-card stars-gift-premium" id="btn-stars-sheet-fireworks" data-effect="fireworks">
+              <span class="stars-gift-emoji" aria-hidden="true">🎆</span>
+              <span class="stars-gift-name" data-i18n="stars.giftFireworksName">Fireworks</span>
+              <span class="stars-gift-meta"><span class="stars-gift-cost">15★</span> · 20s</span>
+            </button>
+            <button type="button" class="stars-gift-card stars-gift-premium stars-gift-stay" id="btn-stars-sheet-please-stay" data-effect="please_stay">
+              <span class="stars-gift-emoji" aria-hidden="true">🙏</span>
+              <span class="stars-gift-name" data-i18n="stars.giftPleaseStayName">Please stay</span>
+              <span class="stars-gift-meta"><span class="stars-gift-cost">30★</span> · 15s</span>
+              <span class="stars-gift-note" data-i18n="stars.giftPleaseStayNote">They can’t Next · 1× / month</span>
+            </button>
+          </div>
         </div>
       </div>
-      <div class="stars-progress-wrap" id="stars-progress-wrap">
-        <div class="stars-progress-head">
-          <span class="stars-progress-label" id="stars-progress-label" data-i18n="stars.progressLabel">Trusted reporter</span>
-          <span class="stars-progress-count" id="stars-progress-count">0 / 100</span>
+
+      <div class="stars-panel" id="stars-panel-power" role="tabpanel" data-stars-panel="power" hidden>
+        <p class="settings-section-label" data-i18n="stars.trustTitle">Report power</p>
+        <div class="stars-ladder" id="stars-ladder" role="list">
+          <div class="stars-ladder-step" data-tier="1" role="listitem">
+            <span class="stars-ladder-dot" aria-hidden="true">1</span>
+            <span class="stars-ladder-copy">
+              <strong data-i18n="stars.ladderNormalTitle">0–99★ · ×1</strong>
+              <span data-i18n="stars.ladderNormalBody">Standard report weight</span>
+            </span>
+          </div>
+          <div class="stars-ladder-step" data-tier="2" role="listitem">
+            <span class="stars-ladder-dot" aria-hidden="true">2</span>
+            <span class="stars-ladder-copy">
+              <strong data-i18n="stars.ladderTrustedTitle">100★ · ×2 trusted</strong>
+              <span data-i18n="stars.ladderTrustedBody">Stronger reports · gift up to 2★ after chats</span>
+            </span>
+          </div>
+          <div class="stars-ladder-step" data-tier="3" role="listitem">
+            <span class="stars-ladder-dot" aria-hidden="true">3</span>
+            <span class="stars-ladder-copy">
+              <strong data-i18n="stars.ladderSeniorTitle">250★ · ×3 senior</strong>
+              <span data-i18n="stars.ladderSeniorBody">Strongest reports · gift up to 3★ · seniors can’t auto-ban each other</span>
+            </span>
+          </div>
         </div>
-        <div class="stars-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="stars-progress-bar">
-          <div class="stars-progress-fill" id="stars-progress-fill"></div>
-        </div>
-        <p class="stars-progress-hint" id="stars-progress-hint" data-i18n="stars.progressHint">
-          Reach 100 stars so your reports count double.
+        <p class="stars-ladder-note" id="stars-sheet-trust-body" data-i18n="stars.trustStepBody">
+          At 100★ reports ×2; at 250★ ×3. High-rep targets are shielded. One report per person.
         </p>
-      </div>
-      <p class="hint-inline" data-i18n="stars.sheetIntro">
-        Stars are free reputation — not money. Earn them from long chats, spend them on fun gifts, and unlock stronger reports at 100+.
-      </p>
-      <p class="hint-inline stars-hub-only-note" data-i18n="stars.hubOnlyNote">
-        Stars live only on the hub for your user id. Export/import never includes star balances — they cannot be forged or double-spent via a profile file.
-      </p>
-
-      <p class="settings-section-label" data-i18n="stars.earnTitle">How to earn</p>
-      <div class="settings-group">
-        <div class="settings-row settings-row-multi static">
-          <span class="row-left">
-            <span class="row-ico" aria-hidden="true">①</span>
-            <span class="settings-row-copy">
-              <span class="settings-row-title" data-i18n="stars.earnHourTitle">Chat 1 hour together</span>
-              <span class="settings-row-sub" data-i18n="stars.earnHourBody">Both of you automatically get +1 star when a call lasts a full hour.</span>
-            </span>
-          </span>
-        </div>
-        <div class="settings-row settings-row-multi static">
-          <span class="row-left">
-            <span class="row-ico" aria-hidden="true">②</span>
-            <span class="settings-row-copy">
-              <span class="settings-row-title" data-i18n="stars.earnStep1Title">Gift after 15+ minutes</span>
-              <span class="settings-row-sub" data-i18n="stars.earnStep1Body">After a long enough call ends, you may gift one extra star to them (or skip) — once per person.</span>
-            </span>
-          </span>
-        </div>
-        <div class="settings-row settings-row-multi static">
-          <span class="row-left">
-            <span class="row-ico" aria-hidden="true">③</span>
-            <span class="settings-row-copy">
-              <span class="settings-row-title" data-i18n="stars.earnStep3Title">Badge on camera</span>
-              <span class="settings-row-sub" data-i18n="stars.earnStep3Body">Your total shows as ★ on cam so others see your reputation.</span>
-            </span>
-          </span>
-        </div>
-      </div>
-
-      <p class="settings-section-label" data-i18n="stars.spendTitle">How to spend</p>
-      <div class="settings-group" id="stars-sheet-gifts">
-        <p class="hint-inline" id="stars-sheet-gift-hint" data-i18n="stars.spendIdleHint">
-          Join a live chat, then use gifts below on your conversationalist.
-        </p>
-        <button type="button" class="settings-row star-gift-row" id="btn-stars-sheet-bars" data-effect="bars">
-          <span class="row-left">
-            <span class="row-ico" aria-hidden="true">🔒</span>
-            <span class="settings-row-copy">
-              <span class="settings-row-title" data-i18n="stars.barsBtn">Behind bars · 5★ · 30s</span>
-              <span class="settings-row-sub" data-i18n="stars.barsSub">Chain fence over their video (extendable)</span>
-            </span>
-          </span>
-          <span class="chev">›</span>
-        </button>
-        <button type="button" class="settings-row star-gift-row" id="btn-stars-sheet-flowers" data-effect="flowers">
-          <span class="row-left">
-            <span class="row-ico" aria-hidden="true">🌸</span>
-            <span class="settings-row-copy">
-              <span class="settings-row-title" data-i18n="stars.flowersBtn">Flowers · 5★ · 30s</span>
-              <span class="settings-row-sub" data-i18n="stars.flowersSub">Petals around their window (extendable)</span>
-            </span>
-          </span>
-          <span class="chev">›</span>
-        </button>
-      </div>
-
-      <p class="settings-section-label" data-i18n="stars.trustTitle">Trusted reporter</p>
-      <div class="settings-group">
-        <div class="settings-row settings-row-multi static">
-          <span class="row-left">
-            <span class="row-ico" aria-hidden="true">🛡</span>
-            <span class="settings-row-copy">
-              <span class="settings-row-title" data-i18n="stars.trustStepTitle">100+ stars</span>
-              <span class="settings-row-sub" id="stars-sheet-trust-body" data-i18n="stars.trustStepBody">Your reports count as weight 2 toward auto match-bans (normal = 1). Still one unique report per person.</span>
-            </span>
-          </span>
-        </div>
+        <span id="stars-sheet-trust-title" hidden></span>
       </div>
     </div>
-    <footer class="settings-footer">
-      <button type="button" class="settings-done-btn" id="btn-stars-sheet-done" data-i18n="settings.done">Done</button>
-    </footer>
   </aside>
 
   <div class="partner-menu-backdrop" id="partner-menu-backdrop" hidden></div>
@@ -944,11 +1116,19 @@
       </button>
       <button type="button" class="partner-menu-btn star-gift" id="btn-partner-bars">
         <span class="pm-ico" aria-hidden="true">🔒</span>
-        <span id="btn-partner-bars-label" data-i18n="stars.barsBtn">Behind bars · 5★ · 30s</span>
+        <span id="btn-partner-bars-label" data-i18n="stars.barsBtn">Behind bars · 5★ · 15s</span>
       </button>
       <button type="button" class="partner-menu-btn star-gift" id="btn-partner-flowers">
         <span class="pm-ico" aria-hidden="true">🌸</span>
-        <span id="btn-partner-flowers-label" data-i18n="stars.flowersBtn">Flowers · 5★ · 30s</span>
+        <span id="btn-partner-flowers-label" data-i18n="stars.flowersBtn">Flowers · 5★ · 15s</span>
+      </button>
+      <button type="button" class="partner-menu-btn star-gift" id="btn-partner-balloons">
+        <span class="pm-ico" aria-hidden="true">🎈</span>
+        <span id="btn-partner-balloons-label" data-i18n="stars.balloonsBtn">Balloons · 5★ · 15s</span>
+      </button>
+      <button type="button" class="partner-menu-btn star-gift" id="btn-partner-confetti">
+        <span class="pm-ico" aria-hidden="true">🎊</span>
+        <span id="btn-partner-confetti-label" data-i18n="stars.confettiBtn">Confetti · 5★ · 15s</span>
       </button>
       <button type="button" class="partner-menu-btn danger" id="btn-partner-report">
         <span class="pm-ico" aria-hidden="true"><svg class="icon"><use href="#i-flag"/></svg></span>
@@ -965,7 +1145,7 @@
     <div class="partner-menu-actions" id="partner-menu-report" hidden>
       <p class="partner-menu-hint" data-i18n="partnerMenu.reportHint">Pick a reason → we block them for you, skip, and you will not match them again. Multiple independent reports can restrict their matchmaking.</p>
       <p class="partner-menu-hint partner-menu-trusted" id="partner-menu-trusted-hint" hidden data-i18n="stars.trustedReporterHint">
-        You have 100+ stars — your report carries stronger weight (counts as 2).
+        You have 100+★ — your report carries stronger weight (counts as 2).
       </p>
       <button type="button" class="partner-menu-btn" data-report-reason="underage" data-i18n="partnerMenu.rUnderage">Underage concern</button>
       <button type="button" class="partner-menu-btn" data-report-reason="explicit" data-i18n="partnerMenu.rExplicit">Explicit content</button>
@@ -1158,7 +1338,7 @@
         <!-- Account: identity export/import — bottom of main settings -->
         <p class="settings-section-label" data-i18n="settings.secAccount">Your account</p>
         <p class="hint-inline" data-i18n="settings.accountHint">
-          No password — your user lives in this browser. Export a file to keep friends when you switch phones or clear data.
+          Your user lives in this browser. Export a password-protected backup to keep friends when you switch phones or clear data.
         </p>
         <div class="settings-group settings-account-group">
           <div class="settings-row settings-row-multi static" aria-live="polite">
@@ -1194,7 +1374,7 @@
               <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-share"/></svg></span>
               <span class="settings-row-copy">
                 <span class="settings-row-title" data-i18n="settings.exportUser">Export user</span>
-                <span class="settings-row-sub" data-i18n="settings.exportUserSub">Download profile JSON (identity + friends backup)</span>
+                <span class="settings-row-sub" data-i18n="settings.exportUserSub">Encrypted backup (identity + friends) — set a password</span>
               </span>
             </span>
             <span class="chev">↓</span>
@@ -1204,12 +1384,12 @@
               <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-file"/></svg></span>
               <span class="settings-row-copy">
                 <span class="settings-row-title" data-i18n="settings.importUser">Import user</span>
-                <span class="settings-row-sub" data-i18n="settings.importUserSub">Restore a profile file on this device</span>
+                <span class="settings-row-sub" data-i18n="settings.importUserSub">Restore backup — password if encrypted</span>
               </span>
             </span>
             <span class="chev">↑</span>
           </button>
-          <input type="file" id="import-profile-file" accept="application/json,.json" hidden />
+          <input type="file" id="import-profile-file" accept="application/json,.json,.enc.json" hidden />
         </div>
 
         <!-- Hidden selects still used by device code -->
@@ -1268,6 +1448,16 @@
             <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-volume"/></svg></span><span data-i18n="settings.partnerVol">Partner volume</span></span>
             <input id="remote-vol-sheet" type="range" min="0" max="100" value="100" />
           </div>
+          <label class="settings-toggle-row">
+            <span class="toggle-copy">
+              <span class="toggle-title" data-i18n="settings.lowLatencyAudio">Low-latency audio</span>
+              <span class="toggle-hint" data-i18n="settings.lowLatencyAudioHint">Tighter lipsync — less mic processing. If you hear echo, turn this off.</span>
+            </span>
+            <span class="toggle-switch">
+              <input type="checkbox" id="chk-low-latency-audio" checked />
+              <span class="toggle-ui" aria-hidden="true"></span>
+            </span>
+          </label>
         </div>
         <div class="settings-row-actions settings-row-actions-loose">
           <button type="button" class="settings-mini-btn" id="btn-refresh-devices" data-i18n="settings.refresh">Refresh devices</button>
@@ -1414,7 +1604,7 @@
               <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-share"/></svg></span>
               <span class="settings-row-copy">
                 <span class="settings-row-title" data-i18n="settings.exportUser">Export user</span>
-                <span class="settings-row-sub" data-i18n="settings.exportUserSub">Download profile JSON (identity + friends backup)</span>
+                <span class="settings-row-sub" data-i18n="settings.exportUserSub">Encrypted backup (identity + friends) — set a password</span>
               </span>
             </span>
             <span class="chev">↓</span>
@@ -1424,7 +1614,7 @@
               <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-file"/></svg></span>
               <span class="settings-row-copy">
                 <span class="settings-row-title" data-i18n="settings.importUser">Import user</span>
-                <span class="settings-row-sub" data-i18n="settings.importUserSub">Restore a profile file on this device</span>
+                <span class="settings-row-sub" data-i18n="settings.importUserSub">Restore backup — password if encrypted</span>
               </span>
             </span>
             <span class="chev">↑</span>
@@ -1644,6 +1834,16 @@
             <span class="toggle-ui" aria-hidden="true"></span>
           </span>
         </label>
+        <label class="settings-toggle-row">
+          <span class="toggle-copy">
+            <span class="toggle-title" data-i18n="settings.lowLatencyAudio">Low-latency audio</span>
+            <span class="toggle-hint" data-i18n="settings.lowLatencyAudioHint">Tighter lipsync — less mic processing. If you hear echo, turn this off.</span>
+          </span>
+          <span class="toggle-switch">
+            <input type="checkbox" id="chk-low-latency-audio-conn" checked />
+            <span class="toggle-ui" aria-hidden="true"></span>
+          </span>
+        </label>
         <div class="settings-row-actions settings-row-actions-loose">
           <button type="button" class="settings-mini-btn" id="btn-conn-refresh" data-i18n="settings.connRefresh">Refresh</button>
           <button type="button" class="settings-mini-btn" id="btn-reset-path-stats" data-i18n="settings.connDirectReset">Reset Direct stats</button>
@@ -1794,6 +1994,16 @@
             </span>
             <span class="choice-check" data-check-theme="pink">✓</span>
           </button>
+          <button type="button" class="theme-card theme-pick settings-choice" data-theme-pick="pixel">
+            <span class="theme-card-preview theme-swatch-pixel" aria-hidden="true">
+              <span class="theme-card-ui"></span>
+            </span>
+            <span class="theme-card-body">
+              <span class="theme-pick-title" data-i18n="settings.themePixel">Pixel</span>
+              <span class="theme-pick-sub" data-i18n="settings.themePixelSub">8-bit · retro arcade</span>
+            </span>
+            <span class="choice-check" data-check-theme="pixel">✓</span>
+          </button>
         </div>
       </div>
     </div>
@@ -1806,6 +2016,21 @@
         <span class="sheet-nav-spacer"></span>
       </header>
       <div class="sheet-body settings-body">
+        <p class="settings-section-label" data-i18n="settings.camFacing">Lens</p>
+        <div class="cam-facing-row" id="cam-facing-row" role="group" aria-label="Camera lens">
+          <button type="button" class="cam-facing-btn" id="btn-cam-front" data-facing="user">
+            <span class="cam-facing-ico" aria-hidden="true">☺</span>
+            <span data-i18n="settings.camFront">Front</span>
+          </button>
+          <button type="button" class="cam-facing-btn" id="btn-cam-rear" data-facing="environment">
+            <span class="cam-facing-ico" aria-hidden="true">📷</span>
+            <span data-i18n="settings.camRear">Rear</span>
+          </button>
+        </div>
+        <p class="hint-inline" data-i18n="settings.camFacingHint">
+          On phones, Front / Rear is the reliable way to switch. Device list below if you have multiple cameras.
+        </p>
+        <p class="settings-section-label" data-i18n="settings.camera">Camera</p>
         <div class="settings-group" id="settings-camera-list"></div>
       </div>
     </div>
@@ -1854,14 +2079,14 @@
 
   <!-- cache-bust so browsers always get auto-connect / auto-media fixes -->
   <script src="analytics.js?v=2" defer></script>
-  <script src="pwa-install.js?v=6" defer></script>
+  <script src="pwa-install.js?v=7" defer></script>
   <script src="qrcode-generator.js?v=1"></script>
   <script src="qr.js?v=1"></script>
-  <script src="i18n.js?v=161"></script>
+  <script src="i18n.js?v=191"></script>
   <script src="identity.js?v=156"></script>
   <script src="hubs.js?v=156"></script>
-  <script src="webrtc.js?v=156"></script>
-  <script src="live.js?v=199"></script>
+  <script src="webrtc.js?v=158"></script>
+  <script src="live.js?v=259"></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

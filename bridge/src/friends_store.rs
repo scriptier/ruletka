@@ -56,6 +56,12 @@ pub struct FriendsFile {
     /// Format: hour|{sorted_uid_pair}|{match_start_unix}
     #[serde(default)]
     pub hour_star_sessions: HashSet<String>,
+    /// user_id → unix when they may Next again (Please stay lock).
+    #[serde(default)]
+    pub no_skip_until: HashMap<String, u64>,
+    /// spender|target → last please_stay spend unix (once per ~30 days per pair).
+    #[serde(default)]
+    pub please_stay_last: HashMap<String, u64>,
 }
 
 /// Cosmetic effect bought with stars (no money). Survives logout until `until`.

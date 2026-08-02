@@ -71,6 +71,120 @@ function trackEvent(name, params) {
     if (typeof RuletTrack === "function") RuletTrack(name, params || {});
   } catch (_) {}
 }
+
+/**
+ * Week-1 growth funnel: share → land with ?friend= → request → match / friend call.
+ * Session-scoped so a single visit can be attributed end-to-end.
+ */
+const INVITE_FUNNEL_KEY = "ruletka-invite-funnel-v1";
+
+function readInviteFunnel() {
+  try {
+    const raw = sessionStorage.getItem(INVITE_FUNNEL_KEY);
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    return o && typeof o === "object" ? o : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeInviteFunnel(patch) {
+  try {
+    const prev = readInviteFunnel() || {};
+    const next = { ...prev, ...patch, t: Date.now() };
+    sessionStorage.setItem(INVITE_FUNNEL_KEY, JSON.stringify(next));
+    return next;
+  } catch {
+    return null;
+  }
+}
+
+/** Mark that *this* user shared an invite (outbound). */
+function markInviteFunnelShare(via) {
+  const f = writeInviteFunnel({
+    role: "sharer",
+    stage: "shared",
+    via: via || "share",
+  });
+  trackEvent("funnel_invite_share", {
+    via: via || "share",
+    live: inQueue || wantSearch || matched ? 1 : 0,
+  });
+  return f;
+}
+
+/**
+ * Capture inbound deep-link / ref on first paint (before URL clean).
+ * Call early from boot. Idempotent for the session.
+ */
+function captureInviteFunnelLanding() {
+  try {
+    const existing = readInviteFunnel();
+    if (existing && (existing.stage === "landed" || existing.stage === "request_sent" || existing.stage === "connected" || existing.role === "sharer")) {
+      // Still refresh code from URL if present
+      const q0 = new URLSearchParams(location.search);
+      const f0 = q0.get("friend");
+      if (f0 && !existing.code) {
+        writeInviteFunnel({ ...existing, code: String(f0).slice(0, 16) });
+      }
+      return;
+    }
+    const q = new URLSearchParams(location.search);
+    const friend = q.get("friend");
+    const ref = q.get("ref") || "";
+    if (friend) {
+      writeInviteFunnel({
+        role: "invitee",
+        stage: "landed",
+        ref: ref || "friend_invite",
+        code: String(friend).slice(0, 16),
+      });
+      trackEvent("funnel_invite_land", {
+        has_friend: 1,
+        ref: ref || "friend_invite",
+      });
+      return;
+    }
+    if (ref === "friend_invite" || ref === "invite" || q.get("invite") === "1") {
+      writeInviteFunnel({
+        role: ref === "friend_invite" ? "invitee" : "opener",
+        stage: "landed",
+        ref: ref || "invite",
+      });
+      trackEvent("funnel_invite_land", { has_friend: 0, ref: ref || "invite" });
+    }
+  } catch (_) {}
+}
+
+/** Advance funnel when friend request is sent from deep link. */
+function markInviteFunnelRequestSent(code) {
+  const prev = readInviteFunnel() || {};
+  writeInviteFunnel({
+    ...prev,
+    role: prev.role || "invitee",
+    stage: "request_sent",
+    code: code || prev.code || "",
+  });
+  trackEvent("funnel_invite_request", { code: (code || "").slice(0, 12) });
+}
+
+/**
+ * Fire once when a real call connects while this session has invite context.
+ * @param {"stranger"|"friend"} kind
+ */
+function markInviteFunnelConnected(kind) {
+  try {
+    const f = readInviteFunnel();
+    if (!f || f.stage === "connected") return;
+    writeInviteFunnel({ ...f, stage: "connected", kind: kind || "stranger" });
+    trackEvent("funnel_invite_connected", {
+      kind: kind || "stranger",
+      role: f.role || "",
+      via: f.via || f.ref || "",
+    });
+  } catch (_) {}
+}
 const _phase =
   NextfaceI18n?.phaseLabel?.bind(NextfaceI18n) || ((p) => p);
 const _srv =
@@ -110,14 +224,15 @@ function savePrefs(partial) {
   localStorage.setItem(PREFS_KEY, JSON.stringify({ ...loadPrefs(), ...partial }));
 }
 
-/** @typedef {"dark"|"light"|"saloon"|"matrix"|"pink"} UiTheme */
-const THEME_IDS = ["dark", "light", "saloon", "matrix", "pink"];
+/** @typedef {"dark"|"light"|"saloon"|"matrix"|"pink"|"pixel"} UiTheme */
+const THEME_IDS = ["dark", "light", "saloon", "matrix", "pink", "pixel"];
 const THEME_META = {
   dark: { color: "#0a0b0e", labelKey: "settings.themeDark", fallback: "Dark" },
   light: { color: "#faf7f5", labelKey: "settings.themeLight", fallback: "Light" },
   saloon: { color: "#1a1008", labelKey: "settings.themeSaloon", fallback: "Saloon" },
   matrix: { color: "#020402", labelKey: "settings.themeMatrix", fallback: "Matrix" },
   pink: { color: "#fff0f5", labelKey: "settings.themePink", fallback: "Pink" },
+  pixel: { color: "#0f0f1b", labelKey: "settings.themePixel", fallback: "Pixel" },
 };
 const LIGHT_THEMES = new Set(["light", "pink"]);
 /** Default chrome icons → saloon western set */
@@ -213,7 +328,9 @@ function applyTheme(theme, { persist = true } = {}) {
             ? "#i-matrix"
             : id === "pink"
               ? "#i-heart"
-              : "#i-moon";
+              : id === "pixel"
+                ? "#i-star"
+                : "#i-moon";
     rowIco.setAttribute("href", ico);
   }
 }
@@ -302,14 +419,55 @@ let myStars = 0;
 let partnerStars = 0;
 /** Min chat length for star review (must match bridge STAR_MIN_SECS). */
 const STAR_MIN_SECS = 15 * 60;
-/** Star-gift costs (must match bridge EFFECT_COST / DURATION). */
+/** Mid-tier gift cost / duration (must match bridge defaults). */
 const STAR_EFFECT_COST = 5;
-const STAR_EFFECT_SECS = 30;
+const STAR_EFFECT_SECS = 15;
+/** Per-kind gift pricing (must match bridge effect_cost_duration). */
+const STAR_GIFT_COSTS = {
+  heart: 1,
+  bars: 5,
+  flowers: 5,
+  balloons: 5,
+  confetti: 5,
+  fireworks: 15,
+  please_stay: 30,
+};
+const STAR_GIFT_SECS = {
+  heart: 8,
+  bars: 15,
+  flowers: 15,
+  balloons: 15,
+  confetti: 15,
+  fireworks: 20,
+  please_stay: 15,
+};
+/** When > unix now, local user cannot press Next (server also enforces). */
+let selfNoSkipUntil = 0;
+function giftCost(kind) {
+  return STAR_GIFT_COSTS[String(kind || "").toLowerCase()] ?? STAR_EFFECT_COST;
+}
+function giftSecs(kind) {
+  return STAR_GIFT_SECS[String(kind || "").toLowerCase()] ?? STAR_EFFECT_SECS;
+}
+/** localStorage keys for one-shot “almost tier” nudges */
+const STARS_NUDGE_90_KEY = "ruletka-stars-nudge-90-v1";
+const STARS_NUDGE_240_KEY = "ruletka-stars-nudge-240-v1";
+/** Min ms between gift spends (client anti-spam). */
+const GIFT_RATE_LIMIT_MS = 10_000;
+/** @type {number} last successful gift send time */
+let lastGiftSpendAt = 0;
 /** @type {{ kind: string, until: number } | null} effect on partner */
 let partnerFx = null;
 /** @type {{ kind: string, until: number } | null} effect on self (e.g. bars after logout) */
 let selfFx = null;
 let fxTickTimer = 0;
+/** Long-press timer for partner gift strip */
+let giftStripLongPressTimer = 0;
+let giftStripSuppressClick = false;
+/** Partner swipe-to-skip state */
+let partnerSwipe = null;
+/** After a committed swipe, ignore the synthetic click */
+let swipeSkipSuppressClick = false;
 /** Last lobby waiting count for pool hint */
 let lastWaitingCount = 0;
 const RULES_KEY = "nextface-rules-v1";
@@ -840,6 +998,20 @@ function setTileAvatar(which, dataUrl) {
     img.removeAttribute("src");
     wrap.hidden = true;
   }
+  if (which === "remote") syncRemoteTileTagVisibility();
+}
+
+/** Show partner identity strip when name and/or avatar is present. */
+function syncRemoteTileTagVisibility() {
+  const wrap = $("remote-tile-tag");
+  const tag = $("remote-tag");
+  const av = $("remote-avatar");
+  if (!wrap) return;
+  const hasName = !!(tag && String(tag.textContent || "").trim());
+  const hasAv = !!(av && !av.hidden);
+  wrap.hidden = !(hasName || hasAv);
+  if (hasName || hasAv) wrap.removeAttribute("hidden");
+  else wrap.setAttribute("hidden", "");
 }
 
 function looksLikeImageFile(file) {
@@ -1551,6 +1723,10 @@ function pruneOldMatchChats({ aggressive = false } = {}) {
  */
 function maybeShowChatCleanupTip() {
   try {
+    if (!SOFT_POPUPS_ENABLED) {
+      markChatCleanupTipDone();
+      return;
+    }
     if (chatCleanupTipDone()) return;
     if ($("chat-cleanup-tip") || $("match-path-summary-toast")) return;
     const bytes = chatStorageApproxBytes();
@@ -1752,10 +1928,24 @@ function endActiveMatchChat() {
 }
 
 /**
- * Soft post-match “Add friend?” after a real stranger call ends (Next/Stop).
- * Only if: had partner code, not already friends, match lasted ≥25s, once per partner/session.
+ * Unsolicited bottom-sheet toasts (invite nags, path tips, onboarding cards, etc.).
+ * Off by default — invite lives on the empty card; feedback uses the status line.
+ * Keep only action-required dialogs: star review, friend request / call.
+ */
+const SOFT_POPUPS_ENABLED = false;
+
+/**
+ * Post-match “Add friend?” after a real stranger call ends (Next/Stop).
+ * Retention-critical (Week-2) — always shown as a real toast, not gated by SOFT_POPUPS.
+ * Only if: partner code, not already friends, match ≥8s, once per partner/session.
  */
 const friendNudgeShown = new Set();
+/** Pending schedule so star-review can trigger the same nudge without double timers. */
+let postMatchFriendNudgeTimer = 0;
+/** Snapshot for delayed nudge (meta cleared after stop). */
+let postMatchFriendSnap = null;
+/** Min match seconds before post-match friend CTA (lowered for Week-2 funnel). */
+const POST_MATCH_FRIEND_MIN_SEC = 8;
 
 /** Last call duration in seconds (survives stopMatchTimer zeroing the clock). */
 let lastMatchDurationSec = 0;
@@ -1825,47 +2015,24 @@ function maybeShowMatchPathSummary(reason) {
       sec: s.sec,
       reason: reason || "",
     });
-    // Toast only when long enough and not fighting friend-add dialog
-    if (s.sec < 8) return;
-    if ($("post-match-friend-nudge") || $("stop-invite-nudge") || $("path-stats-tip"))
-      return;
-    const id = "match-path-summary-toast";
-    const existing = $(id);
-    if (existing) existing.remove();
-    const toast = document.createElement("div");
-    toast.id = id;
-    toast.className = "friend-soft-toast match-path-summary-toast";
-    toast.setAttribute("role", "status");
-    toast.innerHTML = `
-      <strong>${escapeHtml(_t("conn.matchSummaryTitle") || "Last call")}</strong>
-      <span>${escapeHtml(bits.join(" · "))}</span>`;
-    document.body.appendChild(toast);
-    setTimeout(() => {
-      if (toast.parentNode) toast.remove();
-    }, 5500);
+    // No popup — status line is enough
   } catch (_) {}
 }
 
 /**
- * Soft toast for star earn/give feedback.
+ * Star earn/give feedback → status line only (no bottom popup).
  * @param {"earned"|"given"|"gift"} kind
- * @param {{ name?: string, n?: number }} [extra]
+ * @param {{ name?: string, n?: number, title?: string, body?: string }} [extra]
  */
 function showStarFeedbackToast(kind, extra = {}) {
   try {
-    const id = "star-feedback-toast";
-    $(id)?.remove?.();
-    const toast = document.createElement("div");
-    toast.id = id;
-    toast.className = "friend-soft-toast star-feedback-toast";
-    toast.setAttribute("role", "status");
     let title = "★";
     let body = "";
     if (kind === "earned") {
       title = _t("stars.earnedTitle") || "You received a star ★";
       body =
         _t("stars.earnedBody", { n: extra.n ?? myStars }) ||
-        `Balance: ★ ${extra.n ?? myStars}. Tap ★ to open the Stars guide.`;
+        `Balance: ★ ${extra.n ?? myStars}`;
     } else if (kind === "given") {
       title = _t("stars.givenTitle") || "Star sent ★";
       body =
@@ -1875,13 +2042,8 @@ function showStarFeedbackToast(kind, extra = {}) {
       title = extra.title || "Gift";
       body = extra.body || "";
     }
-    toast.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${escapeHtml(
-      body
-    )}</span>`;
-    document.body.appendChild(toast);
-    setTimeout(() => {
-      if (toast.parentNode) toast.remove();
-    }, 5200);
+    const line = body ? `${title} · ${body}` : title;
+    setStatus(line);
   } catch (_) {}
 }
 
@@ -1910,46 +2072,47 @@ function markStarsIntroTipDone() {
   } catch (_) {}
 }
 
-/** One-shot: after first match, nudge user to open Stars sheet. */
+/** One-shot: after first match — no popup (stars sheet is always on the ★ badge). */
 function maybeShowStarsIntroTip() {
   try {
+    if (!SOFT_POPUPS_ENABLED) {
+      markStarsIntroTipDone();
+      markFirstSessionGuideDone();
+      return;
+    }
+    if (!firstSessionGuideDone()) {
+      maybeShowFirstSessionGuide();
+      return;
+    }
     if (starsIntroTipDone()) return;
-    if ($("stars-intro-tip") || $("star-feedback-toast")) return;
     markStarsIntroTipDone();
-    const toast = document.createElement("div");
-    toast.id = "stars-intro-tip";
-    toast.className = "friend-soft-toast stars-intro-tip";
-    toast.setAttribute("role", "status");
-    toast.style.pointerEvents = "auto";
-    toast.innerHTML = `
-      <strong>${escapeHtml(_t("stars.introTitle") || "Stars on your cam")}</strong>
-      <span>${escapeHtml(
-        _t("stars.introBody") ||
-          "Tap the ★ badge anytime for the guide — earn from long chats, spend on gifts, unlock stronger reports at 100+."
-      )}</span>
-      <div class="export-nudge-actions" style="margin-top:0.45rem">
-        <button type="button" class="pill tight ghost" id="btn-stars-intro-later">${escapeHtml(
-          _t("friends.exportNudgeLater") || "Later"
-        )}</button>
-        <button type="button" class="pill tight accent" id="btn-stars-intro-open">${escapeHtml(
-          _t("stars.openGuide") || "Open Stars"
-        )}</button>
-      </div>`;
-    document.body.appendChild(toast);
-    trackEvent("stars_intro_tip_show");
-    const dismiss = () => {
-      if (toast.parentNode) toast.remove();
-    };
-    $("btn-stars-intro-later")?.addEventListener("click", () => {
-      trackEvent("stars_intro_tip_later");
-      dismiss();
-    });
-    $("btn-stars-intro-open")?.addEventListener("click", () => {
-      trackEvent("stars_intro_tip_open");
-      dismiss();
-      openStarsSheet($("local-stars-badge"));
-    });
-    setTimeout(dismiss, 14000);
+  } catch (_) {}
+}
+
+const FIRST_SESSION_GUIDE_KEY = "ruletka-first-session-guide-v1";
+function firstSessionGuideDone() {
+  try {
+    return localStorage.getItem(FIRST_SESSION_GUIDE_KEY) === "1";
+  } catch {
+    return true;
+  }
+}
+function markFirstSessionGuideDone() {
+  try {
+    localStorage.setItem(FIRST_SESSION_GUIDE_KEY, "1");
+  } catch (_) {}
+}
+
+/**
+ * One-shot quick guide — disabled (no popup spam). Stars sheet + empty card cover this.
+ */
+function maybeShowFirstSessionGuide() {
+  try {
+    if (!SOFT_POPUPS_ENABLED) {
+      markFirstSessionGuideDone();
+      markStarsIntroTipDone();
+      return;
+    }
   } catch (_) {}
 }
 
@@ -1958,11 +2121,75 @@ function maybeShowStarsIntroTip() {
  * @param {"local"|"remote"} which
  * @param {number} count
  */
+/** Apply tier ring classes to avatar only (name/flag stay plain — no gold border). */
+function applyStarsTierFrames(which, n) {
+  const w = reportWeightForStars(n);
+  const tierClass =
+    w >= 3 ? "tier-senior" : w >= 2 ? "tier-trusted" : "tier-normal";
+  // Name chips no longer get tier glow — user asked for clean flag+name.
+  // Avatars keep a subtle tier ring when photo is set.
+  const targets =
+    which === "local" ? ["local-avatar"] : ["remote-avatar"];
+  // Clear any leftover classes on name chips from older deploys
+  const clearIds =
+    which === "local"
+      ? ["local-name-tag", "local-name", "local-avatar"]
+      : ["remote-tile-tag", "remote-tag", "remote-avatar"];
+  clearIds.forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    el.classList.remove("tier-normal", "tier-trusted", "tier-senior", "has-star-tier");
+  });
+  targets.forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    if (n > 0 || which === "local") {
+      el.classList.add("has-star-tier", tierClass);
+    }
+  });
+}
+
+/** One-shot nudge when close to Trusted (90–99) or Senior (240–249). */
+function maybeStarsAlmostThereNudge(n) {
+  try {
+    if (n >= 90 && n < STARS_TRUSTED_GOAL) {
+      if (!localStorage.getItem(STARS_NUDGE_90_KEY)) {
+        localStorage.setItem(STARS_NUDGE_90_KEY, "1");
+        const left = STARS_TRUSTED_GOAL - n;
+        showStarFeedbackToast("gift", {
+          title: _t("stars.almostTrustedTitle") || "Almost trusted ★",
+          body:
+            _t("stars.almostTrustedBody", { n: left }) ||
+            `${left} more ★ to Trusted reporter (reports ×2). Keep chatting!`,
+        });
+        trackEvent("stars_almost_there", { tier: "trusted", have: n, left });
+      }
+    }
+    if (n >= 240 && n < STARS_SENIOR_GOAL) {
+      if (!localStorage.getItem(STARS_NUDGE_240_KEY)) {
+        localStorage.setItem(STARS_NUDGE_240_KEY, "1");
+        const left = STARS_SENIOR_GOAL - n;
+        showStarFeedbackToast("gift", {
+          title: _t("stars.almostSeniorTitle") || "Almost senior ★",
+          body:
+            _t("stars.almostSeniorBody", { n: left }) ||
+            `${left} more ★ to Senior reporter (reports ×3).`,
+        });
+        trackEvent("stars_almost_there", { tier: "senior", have: n, left });
+      }
+    }
+    // Reset nudges if they somehow drop below (edge case / account switch)
+    if (n < 90) localStorage.removeItem(STARS_NUDGE_90_KEY);
+    if (n < 240) localStorage.removeItem(STARS_NUDGE_240_KEY);
+  } catch (_) {}
+}
+
 function setStarsBadge(which, count) {
   const n = Math.max(0, Math.floor(Number(count) || 0));
   const badge = $(which === "local" ? "local-stars-badge" : "remote-stars-badge");
   const el = $(which === "local" ? "local-stars-count" : "remote-stars-count");
   if (el) el.textContent = String(n);
+  const prevLocal = which === "local" ? myStars : partnerStars;
   if (which === "local") myStars = n;
   if (which === "remote") partnerStars = n;
   if (badge) {
@@ -1975,17 +2202,51 @@ function setStarsBadge(which, count) {
     else badge.setAttribute("hidden", "");
     badge.classList.add("is-clickable");
     badge.classList.toggle("is-live-chat", live);
+    // Visual evolution by reputation tier (matches report weight goals)
+    const w = reportWeightForStars(n);
+    badge.classList.remove("tier-normal", "tier-trusted", "tier-senior");
+    badge.classList.add(
+      w >= 3 ? "tier-senior" : w >= 2 ? "tier-trusted" : "tier-normal"
+    );
+    badge.dataset.tier = String(w);
+    badge.dataset.stars = String(n);
+    const ico = badge.querySelector(".stars-icon");
+    if (ico) {
+      // Same glyph; CSS beefs up trusted/senior (glow, size, gold)
+      ico.textContent = "★";
+      ico.setAttribute(
+        "title",
+        w >= 3
+          ? _t("stars.tierSenior") || "Senior"
+          : w >= 2
+            ? _t("stars.tierTrusted") || "Trusted"
+            : _t("stars.tierNormal") || "Normal"
+      );
+    }
+    const tierBit =
+      w >= 3
+        ? _t("stars.tierSenior") || "Senior · ×3"
+        : w >= 2
+          ? _t("stars.tierTrusted") || "Trusted · ×2"
+          : "";
     const label =
       which === "local"
         ? (_t("stars.yours") || "Your stars") + ` · ★ ${n}`
         : (_t("stars.tipTheirsTitle") || "Reputation") + ` · ★ ${n}`;
     badge.setAttribute(
       "aria-label",
-      label +
+      (tierBit ? tierBit + ". " : "") +
+        label +
         ". " +
         (_t("stars.badgeClick") || "Click for Stars guide and gifts")
     );
-    badge.title = _t("stars.badgeClick") || "Click for Stars guide and gifts";
+    badge.title =
+      (tierBit ? tierBit + " · " : "") +
+      (_t("stars.badgeClick") || "Click for Stars guide and gifts");
+  }
+  applyStarsTierFrames(which, n);
+  if (which === "local" && n !== prevLocal) {
+    maybeStarsAlmostThereNudge(n);
   }
   if (starsSheetIsOpen()) syncStarsSheetUi();
 }
@@ -2000,88 +2261,291 @@ function closeStarGiftPop() {
   closeStarsSheet();
 }
 
-/** Stars needed for trusted reporter weight (must match bridge TRUSTED_REPORTER_STARS). */
-const STARS_TRUSTED_GOAL = 100;
+/** Stars needed for report weight tiers (must match bridge). */
+const STARS_TRUSTED_GOAL = 100; // weight ×2
+const STARS_SENIOR_GOAL = 250; // weight ×3 — bans faster
+
+/** Report weight for current stars (mirrors bridge report_weight_for). */
+function reportWeightForStars(stars) {
+  const n = Math.max(0, Number(stars) || 0);
+  if (n >= STARS_SENIOR_GOAL) return 3;
+  if (n >= STARS_TRUSTED_GOAL) return 2;
+  return 1;
+}
 
 function syncStarsSheetUi() {
   const n = Math.max(0, Number(myStars) || 0);
+  const w = reportWeightForStars(n);
+  const isSenior = n >= STARS_SENIOR_GOAL;
+  const isTrusted = n >= STARS_TRUSTED_GOAL;
+  const live = !!(matched || inFriendCall);
+  const hasPartner = !!(primaryPartnerUserId || lastMatchMeta?.user_id);
+
   const bal = $("stars-sheet-balance");
   if (bal) bal.textContent = String(n);
-  // Progress toward trusted reporter
-  const goal = STARS_TRUSTED_GOAL;
-  const pct = Math.min(100, Math.round((n / goal) * 1000) / 10);
+
+  // Hero tier chip + name
+  const chip = $("stars-tier-chip");
+  if (chip) {
+    chip.textContent = `×${w}`;
+    chip.dataset.tier = String(w);
+    chip.classList.toggle("is-trusted", w === 2);
+    chip.classList.toggle("is-senior", w >= 3);
+  }
+  const tierName = $("stars-tier-name");
+  if (tierName) {
+    tierName.textContent = isSenior
+      ? _t("stars.tierSenior") || "Senior reporter"
+      : isTrusted
+        ? _t("stars.tierTrusted") || "Trusted reporter"
+        : _t("stars.tierNormal") || "Normal reporter";
+  }
+  const hero = $("stars-sheet-hero");
+  if (hero) {
+    hero.classList.toggle("is-normal", !isTrusted && !isSenior);
+    hero.classList.toggle("is-trusted", isTrusted && !isSenior);
+    hero.classList.toggle("is-senior", isSenior);
+  }
+  // One-line “what this tier unlocks”
+  const unlock = $("stars-unlock-line");
+  if (unlock) {
+    if (isSenior) {
+      unlock.textContent =
+        _t("stars.unlockSenior") ||
+        "Senior · reports ×3 · gift up to 3★ after long chats";
+    } else if (isTrusted) {
+      unlock.textContent =
+        _t("stars.unlockTrusted") ||
+        "Trusted · reports ×2 · gift up to 2★ after long chats · 250★ → senior";
+    } else {
+      unlock.textContent =
+        _t("stars.unlockNormal") ||
+        "Earn from long chats · 100★ → trusted · 250★ → senior";
+    }
+  }
+
+  // Overall progress 0→250 with marks at 100 and 250
   const fill = $("stars-progress-fill");
   const countEl = $("stars-progress-count");
   const bar = $("stars-progress-bar");
   const hintProg = $("stars-progress-hint");
   const wrap = $("stars-progress-wrap");
-  if (fill) fill.style.width = pct + "%";
+  const label = $("stars-progress-label");
+  const pctOverall = Math.min(
+    100,
+    Math.round((n / STARS_SENIOR_GOAL) * 1000) / 10
+  );
+  if (fill) fill.style.width = pctOverall + "%";
   if (countEl) {
-    countEl.textContent =
-      n >= goal
-        ? _t("stars.progressDone", { n }) || `★ ${n} · trusted`
-        : `${n} / ${goal}`;
-  }
-  if (bar) {
-    bar.setAttribute("aria-valuenow", String(Math.min(n, goal)));
-    bar.setAttribute("aria-valuemax", String(goal));
-  }
-  if (wrap) wrap.classList.toggle("is-trusted", n >= goal);
-  if (hintProg) {
-    if (n >= goal) {
-      hintProg.textContent =
-        _t("stars.progressTrusted") ||
-        "You’re a trusted reporter — your reports count double.";
+    if (isSenior) {
+      countEl.textContent =
+        _t("stars.progressDoneSenior", { n }) || `★ ${n} · max`;
+    } else if (isTrusted) {
+      countEl.textContent = `${n} / ${STARS_SENIOR_GOAL}`;
     } else {
-      const left = goal - n;
-      hintProg.textContent =
-        _t("stars.progressHintLeft", { n: left }) ||
-        `${left} more star${left === 1 ? "" : "s"} to trusted reporter (reports count double).`;
+      countEl.textContent = `${n} / ${STARS_TRUSTED_GOAL}`;
     }
   }
-  const live = !!(matched || inFriendCall);
-  const canGift =
-    live && !!(primaryPartnerUserId || lastMatchMeta?.user_id) && n >= STAR_EFFECT_COST;
+  // Senior: compact “maxed” progress chrome
+  if (wrap) {
+    wrap.classList.toggle("is-maxed", isSenior);
+  }
+  if (bar) {
+    bar.setAttribute("aria-valuenow", String(Math.min(n, STARS_SENIOR_GOAL)));
+    bar.setAttribute("aria-valuemax", String(STARS_SENIOR_GOAL));
+  }
+  if (wrap) {
+    wrap.classList.toggle("is-trusted", isTrusted && !isSenior);
+    wrap.classList.toggle("is-senior", isSenior);
+  }
+  if (label) {
+    label.textContent = isSenior
+      ? _t("stars.progressLabelSenior") || "Senior reporter"
+      : isTrusted
+        ? _t("stars.progressLabelNext") || "Next: senior reporter"
+        : _t("stars.progressLabel") || "Trusted reporter";
+  }
+  if (hintProg) {
+    if (isSenior) {
+      hintProg.textContent =
+        _t("stars.progressSenior") ||
+        "Senior reporter — reports ×3. Other seniors can’t auto-ban you.";
+    } else if (isTrusted) {
+      const left = STARS_SENIOR_GOAL - n;
+      hintProg.textContent =
+        _t("stars.progressHintSeniorLeft", { n: left }) ||
+        `Trusted (×2). ${left} more ★ to senior (×3).`;
+    } else {
+      const left = STARS_TRUSTED_GOAL - n;
+      hintProg.textContent =
+        _t("stars.progressHintLeft", { n: left }) ||
+        `${left} more ★ to trusted reporter (reports ×2).`;
+    }
+  }
+
+  // Ladder highlight current tier
+  document.querySelectorAll("#stars-ladder .stars-ladder-step").forEach((el) => {
+    const t = Number(el.getAttribute("data-tier") || 0);
+    el.classList.toggle("is-current", t === w);
+    el.classList.toggle("is-done", t < w);
+  });
+
+  // Trust body note
+  const trust = $("stars-sheet-trust-body");
+  if (trust) {
+    if (isSenior) {
+      trust.textContent =
+        _t("stars.trustYouAreSenior") ||
+        "You have 250+★ — senior (×3). Other seniors cannot auto-ban you via reports alone.";
+    } else if (isTrusted) {
+      trust.textContent =
+        _t("stars.trustYouAre") ||
+        "You have 100+★ — trusted (×2). You’re harder to ban. Reach 250★ for ×3.";
+    } else {
+      trust.textContent =
+        _t("stars.trustStepBody") ||
+        "At 100★ reports ×2; at 250★ ×3. High-rep targets are shielded. One report per person.";
+    }
+  }
+
+  // Live partner line
+  const liveLine = $("stars-live-line");
+  if (liveLine) {
+    if (live && hasPartner) {
+      const name =
+        (lastMatchMeta?.name || "").trim() ||
+        _t("partnerMenu.title") ||
+        "Partner";
+      const ps = Math.max(0, Number(partnerStars) || 0);
+      liveLine.hidden = false;
+      liveLine.removeAttribute("hidden");
+      liveLine.textContent =
+        _t("stars.liveWithPartner", { name, n: ps }) ||
+        `Live with ${name} · they have ★ ${ps}`;
+    } else {
+      liveLine.hidden = true;
+      liveLine.setAttribute("hidden", "");
+      liveLine.textContent = "";
+    }
+  }
+
+  // Gifts — enable each card by its own cost
+  const minCost = 1;
   const hint = $("stars-sheet-gift-hint");
   if (hint) {
     if (!live) {
       hint.textContent =
         _t("stars.spendIdleHint") ||
-        "Join a live chat, then use gifts below on your conversationalist.";
-      hint.hidden = false;
-    } else if (n < STAR_EFFECT_COST) {
+        "Start a live chat to unlock gifts below.";
+    } else if (!hasPartner) {
       hint.textContent =
-        _t("stars.needStars", { n: STAR_EFFECT_COST, have: n }) ||
-        `Need ${STAR_EFFECT_COST} stars (you have ${n})`;
-      hint.hidden = false;
+        _t("stars.noPartner") || "No one to gift right now";
+    } else if (n < minCost) {
+      hint.textContent =
+        _t("stars.needStars", { n: minCost, have: n }) ||
+        `Need ${minCost}★ (you have ${n})`;
     } else {
       hint.textContent =
         _t("stars.spendLiveHint") ||
-        "Tap a gift to spend stars on the person you’re chatting with.";
-      hint.hidden = false;
+        "Tap a gift to send it to the person you’re chatting with.";
     }
+    hint.hidden = false;
   }
-  ["btn-stars-sheet-bars", "btn-stars-sheet-flowers"].forEach((id) => {
-    const b = $(id);
-    if (!b) return;
-    b.disabled = !canGift;
-    b.classList.toggle("is-disabled", !canGift);
+  const giftsBox = $("stars-sheet-gifts");
+  if (giftsBox) giftsBox.classList.toggle("is-live", !!(live && hasPartner));
+  document.querySelectorAll("#stars-sheet-gifts [data-effect]").forEach((b) => {
+    const kind = b.getAttribute("data-effect") || "";
+    const cost = giftCost(kind);
+    const ok = live && hasPartner && n >= cost;
+    b.disabled = !ok;
+    b.classList.toggle("is-disabled", !ok);
+    b.setAttribute("aria-disabled", ok ? "false" : "true");
   });
-  const trust = $("stars-sheet-trust-body");
-  if (trust) {
-    trust.textContent =
-      n >= goal
-        ? _t("stars.trustYouAre") ||
-          "You have 100+ stars — your reports already count double."
-        : _t("stars.trustStepBody") ||
-          "Your reports count as weight 2 toward auto match-bans (normal = 1). Still one unique report per person.";
-  }
 }
 
 /**
  * Open Stars guide sheet (settings-style). Always available on ★ click.
  * @param {HTMLElement | null} [_anchor]
  */
+/** Compact glass Stars popover sizing (wider, shorter than Settings). */
+function starsFlyoutMaxHeight() {
+  const vh = window.innerHeight || 640;
+  return Math.min(vh * 0.78, 640);
+}
+
+function positionStarsSheet(sheet) {
+  if (!sheet) return;
+  const maxH = starsFlyoutMaxHeight();
+  const anchor = $("local-stars-badge") || $("btn-settings");
+  try {
+    positionDockFlyout(sheet, anchor, {
+      align: "end",
+      maxWidth: 448,
+      maxHeight: maxH,
+      fixedHeight: false,
+    });
+  } catch (_) {
+    sheet.style.right = "0.75rem";
+    sheet.style.bottom = "4.5rem";
+    sheet.style.width = "min(448px, calc(100vw - 1rem))";
+  }
+  // Measure natural content height, then clamp so .settings-body can scroll
+  // (height:auto + max-height alone clips without enabling child scroll).
+  sheet.style.maxHeight = `${maxH}px`;
+  sheet.style.height = "auto";
+  void sheet.offsetHeight;
+  const natural = Math.ceil(sheet.scrollHeight || 0);
+  const h = Math.max(220, Math.min(natural || maxH, maxH));
+  sheet.style.height = `${h}px`;
+}
+
+/** Switch Stars sheet tab: overview | gifts | power */
+function setStarsSheetTab(tab) {
+  const t = ["overview", "gifts", "power"].includes(tab) ? tab : "overview";
+  const sheet = $("stars-sheet");
+  if (sheet) sheet.dataset.activeTab = t;
+  const root = sheet || document;
+  root.querySelectorAll(".stars-tab").forEach((btn) => {
+    const on = btn.getAttribute("data-stars-tab") === t;
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+    btn.tabIndex = on ? 0 : -1;
+  });
+  root.querySelectorAll(".stars-panel").forEach((panel) => {
+    const on = panel.getAttribute("data-stars-panel") === t;
+    panel.classList.toggle("is-active", on);
+    if (on) {
+      panel.hidden = false;
+      panel.removeAttribute("hidden");
+      panel.style.removeProperty("display");
+    } else {
+      panel.hidden = true;
+      panel.setAttribute("hidden", "");
+      panel.style.display = "none";
+    }
+  });
+  if (sheet?.classList.contains("is-open")) {
+    // Re-measure height after panel swap
+    requestAnimationFrame(() => {
+      try {
+        positionStarsSheet(sheet);
+      } catch (_) {}
+    });
+  }
+}
+
+function wireStarsSheetTabs() {
+  const nav = $("stars-tabs");
+  if (!nav || nav.dataset.wired) return;
+  nav.dataset.wired = "1";
+  nav.addEventListener("click", (e) => {
+    const btn = e.target?.closest?.("[data-stars-tab]");
+    if (!btn) return;
+    setStarsSheetTab(btn.getAttribute("data-stars-tab") || "overview");
+    trackEvent("stars_tab", { tab: btn.getAttribute("data-stars-tab") || "" });
+  });
+}
+
 function openStarsSheet(_anchor) {
   try {
     closePartnerMenu();
@@ -2091,28 +2555,17 @@ function openStarsSheet(_anchor) {
   const sheet = $("stars-sheet");
   const bd = $("sheet-backdrop");
   if (!sheet) return;
+  wireStarsSheetTabs();
   try {
     NextfaceI18n?.applyI18n?.(sheet);
   } catch (_) {}
   syncStarsSheetUi();
+  // Live chat → Gifts first; otherwise Overview
+  const live = !!(matched || inFriendCall);
+  setStarsSheetTab(live ? "gifts" : "overview");
   sheet.hidden = false;
   sheet.removeAttribute("hidden");
-  // Pin like Settings near the gear, or near local star badge
-  const anchor = $("local-stars-badge") || $("btn-settings");
-  try {
-    positionDockFlyout(sheet, anchor, {
-      align: "end",
-      maxWidth: 400,
-      maxHeight: typeof settingsFlyoutMaxHeight === "function"
-        ? settingsFlyoutMaxHeight()
-        : Math.min(window.innerHeight * 0.88, 720),
-      fixedHeight: true,
-    });
-  } catch (_) {
-    sheet.style.right = "0.75rem";
-    sheet.style.bottom = "4.5rem";
-    sheet.style.width = "min(400px, calc(100vw - 1rem))";
-  }
+  positionStarsSheet(sheet);
   void sheet.offsetWidth;
   sheet.classList.add("is-open");
   if (bd) {
@@ -2121,7 +2574,11 @@ function openStarsSheet(_anchor) {
     bd.classList.add("is-open");
   }
   bindSheetFocusTrap?.(sheet);
-  trackEvent("stars_sheet_open", { stars: myStars || 0, live: matched || inFriendCall ? 1 : 0 });
+  trackEvent("stars_sheet_open", {
+    stars: myStars || 0,
+    live: live ? 1 : 0,
+    tab: live ? "gifts" : "overview",
+  });
 }
 
 function closeStarsSheet() {
@@ -2167,24 +2624,18 @@ function wireStarBadgeInteractions() {
     badge.addEventListener("click", (e) => onBadgeActivate(which, e));
   });
   $("btn-stars-sheet-back")?.addEventListener("click", () => closeStarsSheet());
-  $("btn-stars-sheet-done")?.addEventListener("click", () => closeStarsSheet());
-  $("btn-stars-sheet-bars")?.addEventListener("click", (e) => {
+  // Gift cards (any data-effect)
+  $("stars-sheet-gifts")?.addEventListener("click", (e) => {
+    const btn = e.target?.closest?.("[data-effect]");
+    if (!btn || btn.disabled) return;
     e.stopPropagation();
     if (!matched && !inFriendCall) {
       setStatus(_t("stars.needLive") || "Only during a live chat");
       return;
     }
+    const kind = btn.getAttribute("data-effect") || "";
     closeStarsSheet();
-    spendBarsOnPartner();
-  });
-  $("btn-stars-sheet-flowers")?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    if (!matched && !inFriendCall) {
-      setStatus(_t("stars.needLive") || "Only during a live chat");
-      return;
-    }
-    closeStarsSheet();
-    spendFlowersOnPartner();
+    spendEffectOnPartner(kind);
   });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && starsSheetIsOpen()) closeStarsSheet();
@@ -2213,27 +2664,75 @@ function unixNowSec() {
 /**
  * Apply or clear a star gift overlay on a tile.
  * @param {"local"|"remote"} which
- * @param {string} kind "bars" | "flowers" | ""
+ * @param {string} kind gift kind or ""
  * @param {number} until unix seconds
  */
+/** Dedupe TikTok-style impact so the 1s FX ticker doesn't re-fire every tick. */
+const _giftImpactKey = { local: "", remote: "" };
+
 function setFxOverlay(which, kind, until) {
   const k = String(kind || "").toLowerCase();
   const u = Math.max(0, Number(until) || 0);
   const now = unixNowSec();
-  const activeBars = k === "bars" && u > now;
-  const activeFlowers = k === "flowers" && u > now;
-  const active = activeBars || activeFlowers;
+  const isStay = k === "please_stay" || k === "stay" || k === "dont_skip";
+  const cosmeticKinds = [
+    "bars",
+    "flowers",
+    "balloons",
+    "confetti",
+    "heart",
+    "fireworks",
+  ];
+  const active =
+    !!k && u > now && (cosmeticKinds.includes(k) || isStay);
 
-  const bars = $(which === "local" ? "local-fx-bars" : "remote-fx-bars");
-  const flowers = $(
-    which === "local" ? "local-fx-flowers" : "remote-fx-flowers"
-  );
-  const barsTimer = $(
-    which === "local" ? "local-fx-bars-timer" : "remote-fx-bars-timer"
-  );
-  const flowersTimer = $(
-    which === "local" ? "local-fx-flowers-timer" : "remote-fx-flowers-timer"
-  );
+  const pick = (base) =>
+    $(which === "local" ? `local-fx-${base}` : `remote-fx-${base}`);
+  const pickT = (base) =>
+    $(which === "local" ? `local-fx-${base}-timer` : `remote-fx-${base}-timer`);
+
+  // Please stay is independent of cosmetic gifts (can layer).
+  if (isStay) {
+    const el = pick("please_stay");
+    const timerEl = pickT("please_stay");
+    if (which === "local") {
+      selfNoSkipUntil = active ? u : 0;
+      updateNextSkipLockUi();
+    }
+    if (active && el) {
+      el.hidden = false;
+      el.removeAttribute("hidden");
+      el.dataset.until = String(u);
+      if (timerEl) {
+        const left = Math.max(0, u - now);
+        timerEl.textContent =
+          _t("stars.pleaseStayTimer", { s: left }) || `🙏 ${left}s`;
+      }
+      const stayKey = `please_stay:${u}`;
+      if (_giftImpactKey[which + "_stay"] !== stayKey) {
+        _giftImpactKey[which + "_stay"] = stayKey;
+        triggerGiftImpact(el, "please_stay");
+      }
+      ensureFxTicker();
+    } else {
+      if (el) {
+        el.hidden = true;
+        el.setAttribute("hidden", "");
+        delete el.dataset.until;
+      }
+      if (timerEl) timerEl.textContent = "";
+      _giftImpactKey[which + "_stay"] = "";
+      if (which === "local" && !active) {
+        selfNoSkipUntil = 0;
+        updateNextSkipLockUi();
+      }
+    }
+    return;
+  }
+
+  const kinds = cosmeticKinds;
+  const els = Object.fromEntries(kinds.map((x) => [x, pick(x)]));
+  const timers = Object.fromEntries(kinds.map((x) => [x, pickT(x)]));
 
   if (which === "local") {
     selfFx = active ? { kind: k, until: u } : null;
@@ -2252,59 +2751,1016 @@ function setFxOverlay(which, kind, until) {
     if (!el) return;
     el.hidden = false;
     el.removeAttribute("hidden");
-    // Petals for flowers
-    if (el.classList.contains("fx-flowers")) {
-      ensureFlowerPetals(el);
-    }
+    if (el.classList.contains("fx-flowers")) ensureFlowerPetals(el);
+    if (el.classList.contains("fx-balloons")) ensureBalloons(el);
+    if (el.classList.contains("fx-confetti")) ensureConfetti(el);
+    if (el.classList.contains("fx-heart")) ensureHeartsFx(el);
+    if (el.classList.contains("fx-fireworks")) ensureFireworks(el);
     if (timerEl) {
-      const left = Math.max(0, u - now);
+      const cost = giftCost(k);
+      const secs = giftSecs(k);
       timerEl.textContent =
         label +
-        (which === "remote" && myStars >= STAR_EFFECT_COST
-          ? ` · +${STAR_EFFECT_SECS}s = ${STAR_EFFECT_COST}★`
+        (which === "remote" && myStars >= cost && k !== "please_stay"
+          ? ` · +${secs}s = ${cost}★`
           : "");
     }
   };
 
-  if (activeBars) {
-    hide(flowers, flowersTimer);
-    show(
-      bars,
-      barsTimer,
-      _t("stars.barsTimer", { s: Math.max(0, u - now) }) ||
-        `🔒 ${Math.max(0, u - now)}s`
-    );
-  } else if (activeFlowers) {
-    hide(bars, barsTimer);
-    show(
-      flowers,
-      flowersTimer,
-      _t("stars.flowersTimer", { s: Math.max(0, u - now) }) ||
-        `🌸 ${Math.max(0, u - now)}s`
-    );
+  const hideAll = () => {
+    kinds.forEach((x) => hide(els[x], timers[x]));
+  };
+
+  const left = Math.max(0, u - now);
+  const timerKey = {
+    bars: "stars.barsTimer",
+    flowers: "stars.flowersTimer",
+    balloons: "stars.balloonsTimer",
+    confetti: "stars.confettiTimer",
+    heart: "stars.heartTimer",
+    fireworks: "stars.fireworksTimer",
+  };
+  const timerFb = {
+    bars: `🔒 ${left}s`,
+    flowers: `🌸 ${left}s`,
+    balloons: `🎈 ${left}s`,
+    confetti: `🎊 ${left}s`,
+    heart: `💖 ${left}s`,
+    fireworks: `🎆 ${left}s`,
+  };
+
+  hideAll();
+  if (active && els[k]) {
+    show(els[k], timers[k], _t(timerKey[k], { s: left }) || timerFb[k]);
+    // TikTok-style impact only when this gift instance first appears
+    const impactKey = `${k}:${u}`;
+    if (_giftImpactKey[which] !== impactKey) {
+      _giftImpactKey[which] = impactKey;
+      const combo = nextGiftCombo(which, k);
+      triggerGiftImpact(els[k], k, { combo });
+      // Remember combo for receive celebration on local side
+      try {
+        els[k].dataset.giftCombo = String(combo);
+      } catch (_) {}
+    }
+    ensureFxTicker();
   } else {
-    hide(bars, barsTimer);
-    hide(flowers, flowersTimer);
+    _giftImpactKey[which] = "";
   }
-  if (active) ensureFxTicker();
 }
 
-/** Populate petal nodes once for flower ring animation. */
+/**
+ * While Please stay is active: Next stays clickable (visual press) but no-ops.
+ * Label becomes “Please stay” instead of Next.
+ */
+function updateNextSkipLockUi() {
+  const locked = selfNoSkipUntil > unixNowSec();
+  const next = $("btn-next");
+  if (next) {
+    // Keep enabled so :active / click feel works; handler no-ops when locked.
+    next.disabled = false;
+    next.classList.toggle("is-no-skip-locked", !!locked);
+    next.setAttribute("aria-disabled", locked ? "true" : "false");
+    const label = next.querySelector("[data-i18n='btn.next'], .next-label, span:not(.icon)");
+    if (label && !label.classList?.contains?.("icon") && label.tagName !== "SVG") {
+      if (locked) {
+        if (!label.dataset.nextLabelOrig) {
+          label.dataset.nextLabelOrig = label.textContent || "Next";
+        }
+        label.textContent =
+          _t("stars.pleaseStayBtn") || "Please stay";
+      } else if (label.dataset.nextLabelOrig) {
+        label.textContent =
+          _t("btn.next") || label.dataset.nextLabelOrig || "Next";
+        delete label.dataset.nextLabelOrig;
+      }
+    }
+    next.title = locked
+      ? _t("stars.pleaseStayLockedTitle") || "Please stay"
+      : _t("btn.nextTitle") || next.getAttribute("data-i18n-title") || "Next";
+  }
+  document.documentElement.classList.toggle("no-skip-locked", !!locked);
+}
+
+function isSelfNoSkipLocked() {
+  return selfNoSkipUntil > unixNowSec();
+}
+
+/**
+ * Heart-curve points (classic cardioid heart), normalized to 0–1.
+ * Used to place many petals around the partner frame — center stays clear.
+ */
+function heartCurvePoints(count) {
+  const raw = [];
+  const n = Math.max(12, count | 0);
+  for (let i = 0; i < n; i++) {
+    const t = (i / n) * Math.PI * 2;
+    const st = Math.sin(t);
+    const x = 16 * st * st * st;
+    // Flip Y so the point sits at the bottom (CSS y grows downward)
+    const y = -(
+      13 * Math.cos(t) -
+      5 * Math.cos(2 * t) -
+      2 * Math.cos(3 * t) -
+      Math.cos(4 * t)
+    );
+    raw.push({ x, y });
+  }
+  let minX = Infinity,
+    maxX = -Infinity,
+    minY = Infinity,
+    maxY = -Infinity;
+  for (const p of raw) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  const w = maxX - minX || 1;
+  const h = maxY - minY || 1;
+  // Fit heart into the frame with a little inset so blooms sit on the border
+  const padX = 0.04;
+  const padY = 0.05;
+  return raw.map((p) => ({
+    x: padX + ((p.x - minX) / w) * (1 - padX * 2),
+    y: padY + ((p.y - minY) / h) * (1 - padY * 2),
+  }));
+}
+
+/** Same-gift combo within a short window (TikTok-style ×2 / ×3…). */
+const GIFT_COMBO_WINDOW_MS = 2800;
+let giftComboState = { key: "", count: 0, at: 0 };
+
+function nextGiftCombo(which, kind) {
+  const k = String(kind || "").toLowerCase();
+  if (!k) return 1;
+  const key = `${which || "x"}:${k}`;
+  const now = Date.now();
+  if (giftComboState.key === key && now - giftComboState.at < GIFT_COMBO_WINDOW_MS) {
+    giftComboState.count = Math.min(99, (giftComboState.count || 1) + 1);
+  } else {
+    giftComboState.key = key;
+    giftComboState.count = 1;
+  }
+  giftComboState.at = now;
+  return giftComboState.count;
+}
+
+/**
+ * TikTok-style impact: flash + hero glyph + combo banner on gift show.
+ * @param {HTMLElement} overlay
+ * @param {string} kind
+ * @param {{ combo?: number }} [opts]
+ */
+function triggerGiftImpact(overlay, kind, opts = {}) {
+  if (!overlay || !kind) return;
+  const k = String(kind).toLowerCase();
+  const combo = Math.max(1, Math.min(99, Number(opts.combo) || 1));
+  const meta = {
+    heart: { ico: "💖", name: "Heart", accent: "#ff5a8a" },
+    flowers: { ico: "🌸", name: "Flowers", accent: "#ff6bb5" },
+    balloons: { ico: "🎈", name: "Balloons", accent: "#5ad4ff" },
+    confetti: { ico: "🎊", name: "Confetti", accent: "#ffd14a" },
+    fireworks: { ico: "🎆", name: "Fireworks", accent: "#ffb020" },
+    bars: { ico: "🔒", name: "Behind bars", accent: "#a0b0c8" },
+    please_stay: { ico: "🙏", name: "Please stay", accent: "#ff8fab" },
+  }[k] || { ico: "★", name: "Gift", accent: "#ffd54a" };
+
+  const mega = combo >= 3 || (k === "fireworks" && combo >= 2);
+  const big = combo >= 2 || k === "fireworks";
+
+  let flash = overlay.querySelector(".fx-impact-flash");
+  if (!flash) {
+    flash = document.createElement("div");
+    flash.className = "fx-impact-flash";
+    flash.setAttribute("aria-hidden", "true");
+    overlay.appendChild(flash);
+  }
+  flash.style.setProperty("--fx-accent", meta.accent);
+  flash.classList.toggle("is-mega", mega);
+  flash.classList.remove("is-on");
+  void flash.offsetWidth;
+  flash.classList.add("is-on");
+  setTimeout(() => flash.classList.remove("is-on", "is-mega"), mega ? 900 : 700);
+
+  let hero = overlay.querySelector(".fx-impact-hero");
+  if (!hero) {
+    hero = document.createElement("div");
+    hero.className = "fx-impact-hero";
+    hero.setAttribute("aria-hidden", "true");
+    overlay.appendChild(hero);
+  }
+  hero.textContent = combo >= 2 ? `${meta.ico}`.repeat(Math.min(3, combo)).slice(0, 6) || meta.ico : meta.ico;
+  if (combo >= 2) {
+    // Prefer single icon + scale rather than broken multi-emoji for some fonts
+    hero.textContent = meta.ico;
+  }
+  hero.classList.toggle("is-combo", combo >= 2);
+  hero.classList.toggle("is-mega", mega);
+  hero.classList.remove("is-on");
+  void hero.offsetWidth;
+  hero.classList.add("is-on");
+  setTimeout(() => hero.classList.remove("is-on", "is-combo", "is-mega"), mega ? 1400 : 1100);
+
+  let banner = overlay.querySelector(".fx-combo-banner");
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.className = "fx-combo-banner";
+    banner.setAttribute("aria-hidden", "true");
+    overlay.appendChild(banner);
+  }
+  const comboLabel =
+    combo >= 5 ? "MAX" : combo >= 2 ? `×${combo}` : "×1";
+  banner.innerHTML = `<span class="fx-combo-ico">${meta.ico}</span><span class="fx-combo-name">${meta.name}</span><span class="fx-combo-x${
+    combo >= 2 ? " is-hot" : ""
+  }${mega ? " is-mega" : ""}">${comboLabel}</span>`;
+  banner.style.setProperty("--fx-accent", meta.accent);
+  banner.classList.toggle("is-combo", combo >= 2);
+  banner.classList.toggle("is-mega", mega);
+  banner.classList.remove("is-on");
+  void banner.offsetWidth;
+  banner.classList.add("is-on");
+  setTimeout(
+    () => banner.classList.remove("is-on", "is-combo", "is-mega"),
+    mega ? 2800 : 2200
+  );
+
+  // Tile shake — stronger for fireworks / high combos
+  if (big || k === "confetti" || k === "please_stay") {
+    const tile = overlay.closest(".tile");
+    if (tile) {
+      tile.classList.remove("fx-tile-shake", "fx-tile-shake-hard");
+      void tile.offsetWidth;
+      tile.classList.add(mega || k === "fireworks" ? "fx-tile-shake-hard" : "fx-tile-shake");
+      setTimeout(() => {
+        tile.classList.remove("fx-tile-shake", "fx-tile-shake-hard");
+      }, mega ? 720 : 520);
+    }
+  }
+
+  // Extra spark bursts for fireworks combo + canvas cinematic
+  if (k === "fireworks") {
+    try {
+      playFireworksCanvasBurst(overlay, { mega: mega || combo >= 2, combo });
+    } catch (_) {}
+    if (combo >= 2) {
+      overlay.classList.remove("fx-fw-combo-pop");
+      void overlay.offsetWidth;
+      overlay.classList.add("fx-fw-combo-pop");
+      setTimeout(() => overlay.classList.remove("fx-fw-combo-pop"), 1200);
+    }
+  }
+}
+
+/** Populate many petals/hearts along a heart outline around the partner window. */
 function ensureFlowerPetals(overlay) {
   const ring = overlay?.querySelector?.(".fx-flowers-ring");
-  if (!ring || ring.dataset.ready === "1") return;
-  const glyphs = ["🌸", "🌺", "🌼", "💮", "🌹", "🌷", "🌻", "💐"];
+  if (!ring) return;
+  // Versioned so older layouts rebuild for denser TikTok-style frame
+  if (ring.dataset.ready === "heart-v5") return;
+  const glyphs = [
+    "🌸", "💗", "🌺", "💕", "🌹", "🌷", "💮", "💖", "🌼", "💞",
+    "🩷", "❤️", "💐", "❣️", "🎀", "💗", "🌸", "❤️‍🔥",
+  ];
+  const outer = heartCurvePoints(52);
+  const mid = heartCurvePoints(40).map((p) => ({
+    x: 0.5 + (p.x - 0.5) * 0.88,
+    y: 0.5 + (p.y - 0.5) * 0.88,
+  }));
+  const inner = heartCurvePoints(28).map((p) => ({
+    x: 0.5 + (p.x - 0.5) * 0.74,
+    y: 0.5 + (p.y - 0.5) * 0.74,
+  }));
   let html = "";
-  for (let i = 0; i < 14; i++) {
-    const g = glyphs[i % glyphs.length];
-    html += `<span class="fx-petal" style="--i:${i}">${g}</span>`;
+  let i = 0;
+  const place = (pts, sizeClass) => {
+    for (const p of pts) {
+      const g = glyphs[i % glyphs.length];
+      const rot = ((i * 41) % 56) - 28;
+      const scale =
+        sizeClass === "lg"
+          ? 1.12 + (i % 4) * 0.1
+          : sizeClass === "md"
+            ? 0.95 + (i % 3) * 0.08
+            : 0.72 + (i % 3) * 0.07;
+      html += `<span class="fx-petal fx-petal-${sizeClass}" style="--x:${(
+        p.x * 100
+      ).toFixed(2)}%;--y:${(p.y * 100).toFixed(2)}%;--i:${i};--rot:${rot}deg;--s:${scale.toFixed(
+        2
+      )}" aria-hidden="true">${g}</span>`;
+      i++;
+    }
+  };
+  place(outer, "lg");
+  place(mid, "md");
+  place(inner, "sm");
+  for (let s = 0; s < 16; s++) {
+    const hp = heartCurvePoints(16)[s];
+    if (!hp) continue;
+    const jx = (Math.sin(s * 2.3) * 0.05).toFixed(3);
+    const jy = (Math.cos(s * 1.9) * 0.05).toFixed(3);
+    html += `<span class="fx-sparkle" style="--x:${((hp.x + Number(jx)) * 100).toFixed(
+      2
+    )}%;--y:${((hp.y + Number(jy)) * 100).toFixed(2)}%;--i:${s}" aria-hidden="true">✨</span>`;
   }
   ring.innerHTML = html;
-  ring.dataset.ready = "1";
+  ring.dataset.ready = "heart-v5";
 }
 
+/** Rising balloons across the partner window. */
+function ensureBalloons(overlay) {
+  const layer = overlay?.querySelector?.(".fx-balloons-layer");
+  if (!layer) return;
+  if (layer.dataset.ready === "balloons-v2") return;
+  const colors = [
+    "#ff5a7a", "#ff8a3d", "#ffd14a", "#5ad48a", "#4db7ff",
+    "#a78bfa", "#ff6bcb", "#f472b6", "#34d399", "#60a5fa",
+    "#fb7185", "#fbbf24",
+  ];
+  let html = "";
+  const n = 32;
+  for (let i = 0; i < n; i++) {
+    const left = 2 + ((i * 13 + (i % 7) * 11) % 94);
+    const delay = ((i * 0.28) % 5.2).toFixed(2);
+    const dur = (6.2 + (i % 7) * 0.55).toFixed(2);
+    const size = (1.05 + (i % 6) * 0.2).toFixed(2);
+    const drift = (((i * 17) % 48) - 24).toFixed(0);
+    const color = colors[i % colors.length];
+    const sway = (1.8 + (i % 5) * 0.35).toFixed(2);
+    html += `<span class="fx-balloon" style="--left:${left}%;--delay:${delay}s;--dur:${dur}s;--size:${size};--drift:${drift}px;--color:${color};--sway:${sway}s" aria-hidden="true">
+      <span class="fx-balloon-body"><span class="fx-balloon-shine"></span></span>
+      <span class="fx-balloon-knot"></span>
+      <span class="fx-balloon-string"></span>
+    </span>`;
+  }
+  layer.innerHTML = html;
+  layer.dataset.ready = "balloons-v2";
+}
+
+/** Floating hearts (1★) — denser rise with side sway. */
+function ensureHeartsFx(overlay) {
+  const layer = overlay?.querySelector?.(".fx-heart-layer");
+  if (!layer) return;
+  if (layer.dataset.ready === "heart-v2") return;
+  const icons = ["💖", "💗", "❤️", "💕", "💘", "🩷", "❤️‍🔥", "❣️"];
+  let html = "";
+  // Hero big heart
+  html += `<span class="fx-heart-hero" aria-hidden="true">💖</span>`;
+  for (let i = 0; i < 36; i++) {
+    const left = 2 + ((i * 11 + (i % 5) * 13) % 94);
+    const delay = ((i * 0.16) % 3.6).toFixed(2);
+    const dur = (2.8 + (i % 5) * 0.5).toFixed(2);
+    const size = (0.75 + (i % 6) * 0.22).toFixed(2);
+    const sway = (((i * 19) % 50) - 25).toFixed(0);
+    html += `<span class="fx-heart-bit" style="--left:${left}%;--delay:${delay}s;--dur:${dur}s;--size:${size};--sway:${sway}px" aria-hidden="true">${
+      icons[i % icons.length]
+    }</span>`;
+  }
+  layer.innerHTML = html;
+  layer.dataset.ready = "heart-v2";
+}
+
+/** Premium fireworks — CSS sparks + canvas cinematic bursts. */
+function ensureFireworks(overlay) {
+  const layer = overlay?.querySelector?.(".fx-fireworks-layer");
+  if (!layer) return;
+  if (layer.dataset.ready === "fw-v3") return;
+  const colors = [
+    "#ff5a7a", "#ffd14a", "#5ad48a", "#4db7ff", "#a78bfa",
+    "#ff8a3d", "#fff", "#ff6bcb", "#fde68a",
+  ];
+  let html = "";
+  for (let b = 0; b < 11; b++) {
+    const cx = 8 + ((b * 23 + (b % 3) * 11) % 84);
+    const cy = 14 + ((b * 19) % 58);
+    const delay = (b * 0.42).toFixed(2);
+    const scale = (0.85 + (b % 4) * 0.2).toFixed(2);
+    html += `<span class="fx-fw-burst" style="--cx:${cx}%;--cy:${cy}%;--delay:${delay}s;--bscale:${scale}" aria-hidden="true">`;
+    const sparks = 18 + (b % 3) * 4;
+    for (let p = 0; p < sparks; p++) {
+      const ang = (p / sparks) * 360 + (b % 2) * 8;
+      const col = colors[(b + p) % colors.length];
+      const dist = 48 + (p % 5) * 10;
+      html += `<span class="fx-fw-spark" style="--ang:${ang}deg;--color:${col};--dist:${dist}px"></span>`;
+    }
+    html += `<span class="fx-fw-core" style="--color:${colors[b % colors.length]}"></span>`;
+    html += `</span>`;
+  }
+  html += `<span class="fx-fw-emoji" style="--left:50%;--delay:0.05s" aria-hidden="true">🎆</span>`;
+  html += `<span class="fx-fw-emoji" style="--left:22%;--delay:0.75s" aria-hidden="true">✨</span>`;
+  html += `<span class="fx-fw-emoji" style="--left:78%;--delay:1.2s" aria-hidden="true">🎇</span>`;
+  html += `<span class="fx-fw-emoji" style="--left:40%;--delay:1.85s" aria-hidden="true">💥</span>`;
+  html += `<canvas class="fx-fw-canvas" aria-hidden="true"></canvas>`;
+  layer.innerHTML = html;
+  layer.dataset.ready = "fw-v3";
+}
+
+/**
+ * One-shot canvas fireworks burst (no external assets).
+ * @param {HTMLElement} overlay
+ * @param {{ mega?: boolean, combo?: number }} [opts]
+ */
+function playFireworksCanvasBurst(overlay, opts = {}) {
+  if (!overlay) return;
+  ensureFireworks(overlay);
+  const layer = overlay.querySelector(".fx-fireworks-layer");
+  const canvas = layer?.querySelector?.(".fx-fw-canvas");
+  if (!canvas || !canvas.getContext) return;
+  const rect = overlay.getBoundingClientRect();
+  const w = Math.max(120, Math.floor(rect.width) || 320);
+  const h = Math.max(120, Math.floor(rect.height) || 320);
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = Math.floor(w * dpr);
+  canvas.height = Math.floor(h * dpr);
+  canvas.style.width = "100%";
+  canvas.style.height = "100%";
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const mega = !!opts.mega || (Number(opts.combo) || 1) >= 2;
+  const colors = [
+    "#ff5a7a", "#ffd14a", "#5ad48a", "#4db7ff", "#a78bfa",
+    "#ff8a3d", "#ffffff", "#ff6bcb", "#fde68a", "#60a5fa",
+  ];
+  const particles = [];
+  const bursts = mega ? 5 : 3;
+  for (let b = 0; b < bursts; b++) {
+    const cx = w * (0.18 + Math.random() * 0.64);
+    const cy = h * (0.18 + Math.random() * 0.45);
+    const n = mega ? 42 + (b % 3) * 10 : 28 + (b % 3) * 8;
+    const col = colors[(b * 3) % colors.length];
+    for (let i = 0; i < n; i++) {
+      const ang = (Math.PI * 2 * i) / n + Math.random() * 0.2;
+      const spd = (mega ? 2.2 : 1.6) + Math.random() * (mega ? 3.8 : 2.8);
+      particles.push({
+        x: cx,
+        y: cy,
+        vx: Math.cos(ang) * spd,
+        vy: Math.sin(ang) * spd,
+        life: 1,
+        decay: 0.012 + Math.random() * 0.018,
+        r: 1.2 + Math.random() * 2.4,
+        col: Math.random() > 0.85 ? "#fff" : col,
+        trail: Math.random() > 0.55,
+      });
+    }
+    // bright core flash
+    particles.push({
+      x: cx,
+      y: cy,
+      vx: 0,
+      vy: 0,
+      life: 1,
+      decay: 0.04,
+      r: mega ? 10 : 7,
+      col: "#fff",
+      trail: false,
+      core: true,
+    });
+  }
+  let raf = 0;
+  const t0 = performance.now();
+  const maxMs = mega ? 1600 : 1200;
+  const tick = (now) => {
+    const elapsed = now - t0;
+    ctx.clearRect(0, 0, w, h);
+    // soft vignette glow
+    const g = ctx.createRadialGradient(w / 2, h * 0.4, 10, w / 2, h * 0.4, w * 0.55);
+    g.addColorStop(0, "rgba(255,180,60,0.08)");
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+    let alive = 0;
+    for (const p of particles) {
+      if (p.life <= 0) continue;
+      alive++;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += 0.035; // gravity
+      p.vx *= 0.99;
+      p.life -= p.decay;
+      ctx.globalAlpha = Math.max(0, p.life);
+      if (p.trail) {
+        ctx.strokeStyle = p.col;
+        ctx.lineWidth = Math.max(0.6, p.r * 0.45);
+        ctx.beginPath();
+        ctx.moveTo(p.x - p.vx * 2.2, p.y - p.vy * 2.2);
+        ctx.lineTo(p.x, p.y);
+        ctx.stroke();
+      }
+      ctx.fillStyle = p.col;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.core ? p.r * p.life : p.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    if (alive > 0 && elapsed < maxMs) {
+      raf = requestAnimationFrame(tick);
+    } else {
+      ctx.clearRect(0, 0, w, h);
+      cancelAnimationFrame(raf);
+    }
+  };
+  cancelAnimationFrame(canvas._fwRaf || 0);
+  canvas._fwRaf = requestAnimationFrame(tick);
+}
+
+/** Falling confetti with tumble — denser burst. */
+function ensureConfetti(overlay) {
+  const layer = overlay?.querySelector?.(".fx-confetti-layer");
+  if (!layer) return;
+  if (layer.dataset.ready === "confetti-v2") return;
+  const colors = [
+    "#ff5a7a", "#ffd14a", "#5ad48a", "#4db7ff", "#a78bfa",
+    "#ff8a3d", "#f472b6", "#fff", "#34d399", "#fbbf24",
+  ];
+  const shapes = ["rect", "rect", "circle", "heart", "rect", "ribbon"];
+  let html = "";
+  const n = 72;
+  for (let i = 0; i < n; i++) {
+    const left = 1 + ((i * 13 + (i % 9) * 9) % 97);
+    const delay = ((i * 0.11) % 2.8).toFixed(2);
+    const dur = (2.6 + (i % 6) * 0.4).toFixed(2);
+    const size = (7 + (i % 7) * 2.2).toFixed(0);
+    const rot = ((i * 53) % 360).toFixed(0);
+    const color = colors[i % colors.length];
+    const shape = shapes[i % shapes.length];
+    const spin = (0.8 + (i % 5) * 0.35).toFixed(2);
+    html += `<span class="fx-confetti-bit fx-confetti-${shape}" style="--left:${left}%;--delay:${delay}s;--dur:${dur}s;--size:${size}px;--rot:${rot}deg;--color:${color};--spin:${spin}s" aria-hidden="true"></span>`;
+  }
+  for (let i = 0; i < 14; i++) {
+    const left = 5 + ((i * 19) % 88);
+    const delay = (0.15 + i * 0.22).toFixed(2);
+    const dur = (3.4 + (i % 4) * 0.45).toFixed(2);
+    const emos = ["💖", "✨", "🎉", "⭐", "💫"];
+    html += `<span class="fx-confetti-emoji" style="--left:${left}%;--delay:${delay}s;--dur:${dur}s" aria-hidden="true">${
+      emos[i % emos.length]
+    }</span>`;
+  }
+  layer.innerHTML = html;
+  layer.dataset.ready = "confetti-v2";
+}
+
+/** Soft celebration pop + sound when you receive a gift. */
+function playGiftCelebrate(kind, combo = 1) {
+  try {
+    playGiftSound(kind);
+  } catch (_) {}
+  const el = $("gift-celebrate");
+  if (!el) return;
+  const n = Math.max(1, Math.min(99, Number(combo) || 1));
+  const icon =
+    kind === "flowers"
+      ? "🌸"
+      : kind === "balloons"
+        ? "🎈"
+        : kind === "confetti"
+          ? "🎊"
+          : kind === "heart"
+            ? "💖"
+            : kind === "fireworks"
+              ? "🎆"
+              : kind === "please_stay"
+                ? "🙏"
+                : kind === "bars"
+                  ? "🔒"
+                  : "★";
+  const name =
+    kind === "flowers"
+      ? "Flowers"
+      : kind === "balloons"
+        ? "Balloons"
+        : kind === "confetti"
+          ? "Confetti"
+          : kind === "heart"
+            ? "Heart"
+            : kind === "fireworks"
+              ? "Fireworks"
+              : kind === "please_stay"
+                ? "Please stay"
+                : kind === "bars"
+                  ? "Behind bars"
+                  : "Gift";
+  const xLabel = n >= 5 ? "MAX" : `×${n}`;
+  el.innerHTML = `<span class="gift-celebrate-ico">${icon}</span><span class="gift-celebrate-name">${name}</span><span class="gift-celebrate-x${
+    n >= 2 ? " is-hot" : ""
+  }">${xLabel}</span>`;
+  el.hidden = false;
+  el.removeAttribute("hidden");
+  el.classList.remove("is-pop", "is-combo");
+  el.classList.toggle("is-combo", n >= 2);
+  void el.offsetWidth;
+  el.classList.add("is-pop");
+  setTimeout(() => {
+    el.classList.remove("is-pop", "is-combo");
+    el.hidden = true;
+    el.setAttribute("hidden", "");
+  }, n >= 2 ? 1850 : 1650);
+}
+
+/** Short WebAudio “whoosh / pop” — no external files. */
+function playGiftSound(kind) {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!playGiftSound._ctx) playGiftSound._ctx = new AC();
+    const ctx = playGiftSound._ctx;
+    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    const t0 = ctx.currentTime;
+    const freqs =
+      kind === "bars"
+        ? [180, 140, 110]
+        : kind === "balloons"
+          ? [520, 660, 780, 920]
+          : kind === "confetti"
+            ? [880, 1100, 1320, 990, 1480]
+            : kind === "fireworks"
+              ? [220, 440, 880, 1320, 1760]
+              : kind === "heart"
+                ? [520, 660, 784, 988]
+                : kind === "please_stay"
+                  ? [392, 494, 587]
+                  : [440, 554, 659, 880];
+    freqs.forEach((f, i) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type =
+        kind === "bars"
+          ? "triangle"
+          : kind === "fireworks"
+            ? "sawtooth"
+            : "sine";
+      o.frequency.value = f;
+      const peak =
+        kind === "fireworks" ? 0.1 / (i + 1) : 0.09 / (i + 1);
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(peak, t0 + 0.015 + i * 0.035);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.32 + i * 0.06);
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.start(t0 + i * 0.035);
+      o.stop(t0 + 0.4 + i * 0.06);
+    });
+    // Soft noise burst for confetti/fireworks
+    if (kind === "confetti" || kind === "fireworks") {
+      try {
+        const buf = ctx.createBuffer(1, ctx.sampleRate * 0.12, ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < data.length; i++) {
+          data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+        }
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        const ng = ctx.createGain();
+        ng.gain.setValueAtTime(0.04, t0);
+        ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.12);
+        src.connect(ng);
+        ng.connect(ctx.destination);
+        src.start(t0);
+      } catch (_) {}
+    }
+  } catch (_) {}
+}
+
+/** Quick gift strip over partner video (long-press). */
+function giftStripOpen() {
+  const strip = $("gift-strip");
+  if (!strip) return;
+  if (!matched && !inFriendCall) return;
+  strip.hidden = false;
+  strip.removeAttribute("hidden");
+  strip.classList.add("is-open");
+  // Enable/disable by balance (per gift cost)
+  strip.querySelectorAll("[data-gift]").forEach((btn) => {
+    const g = btn.getAttribute("data-gift") || "";
+    const ok = myStars >= giftCost(g);
+    btn.disabled = !ok;
+    btn.classList.toggle("is-disabled", !ok);
+  });
+  trackEvent("gift_strip_open");
+}
+
+function giftStripClose() {
+  const strip = $("gift-strip");
+  if (!strip) return;
+  strip.classList.remove("is-open");
+  setTimeout(() => {
+    if (!strip.classList.contains("is-open")) {
+      strip.hidden = true;
+      strip.setAttribute("hidden", "");
+    }
+  }, 160);
+}
+
+/** Cancel pending gift-strip long-press (shared with swipe). */
+function clearGiftStripLongPress() {
+  if (giftStripLongPressTimer) {
+    clearTimeout(giftStripLongPressTimer);
+    giftStripLongPressTimer = 0;
+  }
+}
+
+/**
+ * Swipe left or right on partner video → Next (skip conversationalist).
+ * Does not run on pure friend calls (no Next button).
+ * Coordinates with long-press gift strip (horizontal drag cancels long-press).
+ */
+function canSwipeSkipPartner() {
+  if (!matched && !inFriendCall) return false;
+  // Match Next button policy: pure 1v1 friend call has no Next
+  const pureFriend = inFriendCall && matchMode === "friend" && !trioBrowse;
+  if (pureFriend) return false;
+  if (isSelfNoSkipLocked()) return false;
+  const next = $("btn-next");
+  if (next?.hidden) return false;
+  return true;
+}
+
+function partnerSwipeChromeSelector() {
+  return (
+    ".side-rail, .tile-dock, .tile-floor, .partner-menu, .gift-strip, " +
+    ".swipe-skip-hint, button, a, input, select, textarea, label, " +
+    ".stars-badge, .tile-corner-btn, .tile-tag, .chat-panel"
+  );
+}
+
+function resetPartnerSwipeVisual() {
+  const tile = $("tile-remote");
+  if (!tile) return;
+  tile.classList.remove(
+    "is-swiping",
+    "swipe-exit-left",
+    "swipe-exit-right",
+    "swipe-armed"
+  );
+  tile.style.removeProperty("--swipe-x");
+  tile.style.removeProperty("--swipe-o");
+  const hint = $("swipe-skip-hint");
+  if (hint) {
+    hint.hidden = true;
+    hint.setAttribute("hidden", "");
+    hint.classList.remove("is-left", "is-right", "is-armed");
+  }
+}
+
+function applyPartnerSwipeVisual(dx, width) {
+  const tile = $("tile-remote");
+  if (!tile) return;
+  const max = Math.max(120, width * 0.45);
+  const clamped = Math.max(-max, Math.min(max, dx));
+  const progress = Math.min(1, Math.abs(clamped) / Math.max(72, width * 0.22));
+  tile.classList.add("is-swiping");
+  tile.classList.toggle("swipe-armed", progress >= 0.92);
+  tile.style.setProperty("--swipe-x", `${clamped.toFixed(1)}px`);
+  tile.style.setProperty("--swipe-o", String(1 - progress * 0.28));
+  const hint = $("swipe-skip-hint");
+  if (hint) {
+    hint.hidden = false;
+    hint.removeAttribute("hidden");
+    hint.classList.toggle("is-left", clamped < 0);
+    hint.classList.toggle("is-right", clamped > 0);
+    hint.classList.toggle("is-armed", progress >= 0.92);
+    const lab = hint.querySelector(".swipe-skip-label");
+    if (lab) {
+      lab.textContent =
+        _t("swipe.next") || _t("btn.next") || "Next";
+    }
+  }
+}
+
+function commitPartnerSwipeSkip(dir) {
+  const tile = $("tile-remote");
+  swipeSkipSuppressClick = true;
+  giftStripSuppressClick = true;
+  clearGiftStripLongPress();
+  try {
+    giftStripClose();
+  } catch (_) {}
+  if (tile) {
+    tile.classList.remove("is-swiping", "swipe-armed");
+    tile.classList.add(dir < 0 ? "swipe-exit-left" : "swipe-exit-right");
+  }
+  try {
+    navigator.vibrate?.(18);
+  } catch (_) {}
+  trackEvent("swipe_skip", { dir: dir < 0 ? "left" : "right" });
+  // Fire Next after a short fly-off so it feels intentional
+  setTimeout(() => {
+    resetPartnerSwipeVisual();
+    const next = $("btn-next");
+    if (next && !next.hidden) {
+      next.click();
+    }
+    // Allow menu clicks again shortly after
+    setTimeout(() => {
+      swipeSkipSuppressClick = false;
+    }, 320);
+  }, 160);
+}
+
+function wirePartnerSwipe() {
+  const tile = $("tile-remote");
+  if (!tile || tile.dataset.swipeWired) return;
+  tile.dataset.swipeWired = "1";
+
+  const endSwipe = (e, cancelled) => {
+    const st = partnerSwipe;
+    if (!st || !st.tracking) {
+      partnerSwipe = null;
+      return;
+    }
+    if (st.id != null && e?.pointerId != null && e.pointerId !== st.id) return;
+    st.tracking = false;
+    const dx = (e?.clientX != null ? e.clientX : st.lastX) - st.x0;
+    const dy = (e?.clientY != null ? e.clientY : st.lastY) - st.y0;
+    const dt = Math.max(1, Date.now() - st.t0);
+    const w = tile.clientWidth || 320;
+    const distOk = Math.abs(dx) >= Math.max(64, w * 0.18);
+    const velocity = Math.abs(dx) / dt; // px/ms
+    const flickOk = Math.abs(dx) >= 42 && velocity > 0.55;
+    const horizontal = Math.abs(dx) > Math.abs(dy) * 1.05;
+    const giftOpen =
+      $("gift-strip") &&
+      !$("gift-strip").hidden &&
+      $("gift-strip").classList.contains("is-open");
+    if (
+      !cancelled &&
+      !giftOpen &&
+      st.moved &&
+      horizontal &&
+      (distOk || flickOk) &&
+      canSwipeSkipPartner()
+    ) {
+      commitPartnerSwipeSkip(dx < 0 ? -1 : 1);
+    } else {
+      // Spring back
+      if (st.moved) {
+        tile.classList.add("swipe-snapback");
+        tile.style.setProperty("--swipe-x", "0px");
+        tile.style.setProperty("--swipe-o", "1");
+        setTimeout(() => {
+          tile.classList.remove("swipe-snapback");
+          resetPartnerSwipeVisual();
+        }, 180);
+        // Drop suppress after this gesture so a later tap can open the menu
+        setTimeout(() => {
+          if (!partnerSwipe) {
+            swipeSkipSuppressClick = false;
+            giftStripSuppressClick = false;
+          }
+        }, 280);
+      } else {
+        resetPartnerSwipeVisual();
+      }
+    }
+    partnerSwipe = null;
+  };
+
+  tile.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (e.button != null && e.button !== 0) return;
+      if (e.target?.closest?.(partnerSwipeChromeSelector())) return;
+      if (!canSwipeSkipPartner()) return;
+      // Don't start swipe while gift strip is open (tap outside closes it)
+      const gs = $("gift-strip");
+      if (gs && !gs.hidden && gs.classList.contains("is-open")) return;
+      partnerSwipe = {
+        id: e.pointerId,
+        x0: e.clientX,
+        y0: e.clientY,
+        lastX: e.clientX,
+        lastY: e.clientY,
+        t0: Date.now(),
+        tracking: true,
+        moved: false,
+      };
+    },
+    { passive: true }
+  );
+
+  tile.addEventListener(
+    "pointermove",
+    (e) => {
+      const st = partnerSwipe;
+      if (!st?.tracking) return;
+      if (st.id != null && e.pointerId !== st.id) return;
+      st.lastX = e.clientX;
+      st.lastY = e.clientY;
+      const dx = e.clientX - st.x0;
+      const dy = e.clientY - st.y0;
+      // Cancel gift long-press once the finger drifts
+      if (Math.abs(dx) + Math.abs(dy) > 12) clearGiftStripLongPress();
+      // Mostly vertical — let it go (no skip visual)
+      if (Math.abs(dy) > 28 && Math.abs(dy) > Math.abs(dx) * 1.2) {
+        st.tracking = false;
+        resetPartnerSwipeVisual();
+        partnerSwipe = null;
+        return;
+      }
+      if (Math.abs(dx) < 10) return;
+      st.moved = true;
+      // Suppress partner-menu click for this gesture
+      giftStripSuppressClick = true;
+      swipeSkipSuppressClick = true;
+      applyPartnerSwipeVisual(dx, tile.clientWidth || 320);
+    },
+    { passive: true }
+  );
+
+  tile.addEventListener("pointerup", (e) => endSwipe(e, false));
+  tile.addEventListener("pointercancel", (e) => endSwipe(e, true));
+  // If pointer leaves the tile while dragging, still finish on up (capture helps)
+  tile.addEventListener("lostpointercapture", (e) => {
+    if (partnerSwipe?.tracking) endSwipe(e, true);
+  });
+}
+
+function wireGiftStrip() {
+  const strip = $("gift-strip");
+  const tile = $("tile-remote");
+  if (!tile || tile.dataset.giftStripWired) return;
+  tile.dataset.giftStripWired = "1";
+
+  tile.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (e.button != null && e.button !== 0) return;
+      if (
+        e.target?.closest?.(
+          ".side-rail, .tile-dock, .tile-floor, .partner-menu, .gift-strip, button, a, input, select, textarea, label, .fx-overlay"
+        )
+      ) {
+        return;
+      }
+      if (!matched && !inFriendCall) return;
+      clearGiftStripLongPress();
+      giftStripLongPressTimer = setTimeout(() => {
+        giftStripLongPressTimer = 0;
+        // Don't open gifts if a swipe is already in progress
+        if (partnerSwipe?.moved) return;
+        giftStripSuppressClick = true;
+        try {
+          e.target?.setPointerCapture?.(e.pointerId);
+        } catch (_) {}
+        giftStripOpen();
+        // Soft haptic
+        try {
+          navigator.vibrate?.(12);
+        } catch (_) {}
+      }, 480);
+    },
+    { passive: true }
+  );
+  tile.addEventListener("pointerup", clearGiftStripLongPress);
+  tile.addEventListener("pointercancel", clearGiftStripLongPress);
+  tile.addEventListener("pointerleave", clearGiftStripLongPress);
+  tile.addEventListener("pointermove", (e) => {
+    // Cancel if finger drifts too far
+    if (!giftStripLongPressTimer) return;
+    // movement cancels long-press slightly
+    if (Math.abs(e.movementX) + Math.abs(e.movementY) > 14) clearGiftStripLongPress();
+  });
+
+  strip?.querySelectorAll("[data-gift]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const kind = btn.getAttribute("data-gift") || "";
+      giftStripClose();
+      spendEffectOnPartner(kind);
+    });
+  });
+  $("gift-strip-more")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    giftStripClose();
+    openStarsSheet($("local-stars-badge"));
+  });
+  // Tap outside strip closes it
+  document.addEventListener("pointerdown", (e) => {
+    const s = $("gift-strip");
+    if (!s || s.hidden || !s.classList.contains("is-open")) return;
+    if (e.target?.closest?.("#gift-strip, .gift-strip")) return;
+    giftStripClose();
+  });
+}
+
+/** Remove partner (remote tile) gift overlays — bars / flowers. */
 function clearPartnerFx() {
   setFxOverlay("remote", "", 0);
+}
+
+/**
+ * Clear gift overlays that sit on the conversationalist window.
+ * Call whenever the remote tile leaves a live partner (skip / next / stop / they leave).
+ * Keeps self (local) effects if still server-timed — those are on *your* cam.
+ */
+function clearRemoteMatchFx() {
+  try {
+    clearPartnerFx();
+  } catch (_) {}
+  try {
+    giftStripClose();
+  } catch (_) {}
 }
 
 function ensureFxTicker() {
@@ -2324,6 +3780,32 @@ function ensureFxTicker() {
     } else if (selfFx) {
       setFxOverlay("local", "", 0);
     }
+    // Please stay timer on self (independent of cosmetic selfFx)
+    if (selfNoSkipUntil > now) {
+      setFxOverlay("local", "please_stay", selfNoSkipUntil);
+      any = true;
+    } else if (selfNoSkipUntil) {
+      selfNoSkipUntil = 0;
+      setFxOverlay("local", "please_stay", 0);
+      updateNextSkipLockUi();
+    }
+    // Partner please_stay visual (element id remote-fx-please_stay)
+    const stayRemote = $("remote-fx-please_stay");
+    if (stayRemote && !stayRemote.hidden) {
+      const tEl = $("remote-fx-please_stay-timer");
+      const m = String(tEl?.textContent || "").match(/(\d+)\s*s/);
+      // re-tick from data attribute if set
+      const untilAttr = Number(stayRemote.dataset.until || 0);
+      if (untilAttr > now) {
+        if (tEl)
+          tEl.textContent =
+            _t("stars.pleaseStayTimer", { s: untilAttr - now }) ||
+            `🙏 ${untilAttr - now}s`;
+        any = true;
+      } else if (untilAttr) {
+        setFxOverlay("remote", "please_stay", 0);
+      }
+    }
     if (!any && fxTickTimer) {
       clearInterval(fxTickTimer);
       fxTickTimer = 0;
@@ -2331,9 +3813,10 @@ function ensureFxTicker() {
   }, 1000);
 }
 
-/** Spend stars on a partner gift effect (bars / flowers). */
+/** Spend stars on a partner gift effect. */
 function spendEffectOnPartner(effect) {
   const kind = String(effect || "bars").toLowerCase();
+  const cost = giftCost(kind);
   const uid = primaryPartnerUserId || lastMatchMeta?.user_id || "";
   if (!uid) {
     setStatus(_t("stars.noPartner") || "No partner to gift");
@@ -2343,16 +3826,32 @@ function spendEffectOnPartner(effect) {
     setStatus(_t("stars.needLive") || "Only during a live chat");
     return;
   }
-  if (myStars < STAR_EFFECT_COST) {
+  if (myStars < cost) {
     setStatus(
-      _t("stars.needStars", { n: STAR_EFFECT_COST, have: myStars }) ||
-        `Need ${STAR_EFFECT_COST} stars (you have ${myStars})`
+      _t("stars.needStars", { n: cost, have: myStars }) ||
+        `Need ${cost} stars (you have ${myStars})`
     );
     return;
   }
-  trackEvent("star_spend", { effect: kind, cost: STAR_EFFECT_COST });
-  send({ type: "spend_stars", to_user_id: uid, effect: kind });
+  const nowMs = Date.now();
+  if (lastGiftSpendAt && nowMs - lastGiftSpendAt < GIFT_RATE_LIMIT_MS) {
+    const wait = Math.ceil((GIFT_RATE_LIMIT_MS - (nowMs - lastGiftSpendAt)) / 1000);
+    setStatus(
+      _t("stars.giftRateLimit", { s: wait }) ||
+        `Easy — wait ${wait}s before another gift`
+    );
+    return;
+  }
+  lastGiftSpendAt = nowMs;
+  trackEvent("star_spend", { effect: kind, cost });
+  // Idempotency key: hub applies each op_id at most once (retry-safe, anti double-spend)
+  const op_id =
+    typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `sp_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  send({ type: "spend_stars", to_user_id: uid, effect: kind, op_id });
   closePartnerMenu();
+  giftStripClose();
 }
 
 function spendBarsOnPartner() {
@@ -2361,9 +3860,22 @@ function spendBarsOnPartner() {
 function spendFlowersOnPartner() {
   spendEffectOnPartner("flowers");
 }
+function spendBalloonsOnPartner() {
+  spendEffectOnPartner("balloons");
+}
+function spendConfettiOnPartner() {
+  spendEffectOnPartner("confetti");
+}
+function spendHeartOnPartner() {
+  spendEffectOnPartner("heart");
+}
+function spendFireworksOnPartner() {
+  spendEffectOnPartner("fireworks");
+}
 
 /**
- * After RatePrompt from hub (chat ≥15 min): give a star or skip.
+ * After RatePrompt from hub (chat ≥15 min): gift 1–3★ (by your tier) or skip.
+ * Normal → max 1 · Trusted 100+ → max 2 · Senior 250+ → max 3.
  * Same pair can only review once (server-enforced).
  */
 function showStarReviewPrompt(msg) {
@@ -2375,110 +3887,299 @@ function showStarReviewPrompt(msg) {
     const secs = Math.max(0, Number(msg?.duration_secs) || STAR_MIN_SECS);
     const mins = Math.max(15, Math.floor(secs / 60));
     const hourChat = secs >= 3600;
+    // Prefer server max_gift; fall back to local tier
+    let maxGift = Math.max(1, Math.min(3, Number(msg?.max_gift) || 0));
+    if (!maxGift || maxGift < 1) {
+      maxGift = reportWeightForStars(myStars); // 1 / 2 / 3 matches tier
+    }
+    maxGift = Math.max(1, Math.min(3, maxGift));
     const toast = document.createElement("div");
     toast.id = "star-review-toast";
     toast.className = "friend-soft-toast star-review-toast";
     toast.setAttribute("role", "dialog");
     toast.style.pointerEvents = "auto";
-    const body = hourChat
-      ? _t("stars.reviewBodyHour", { name, m: mins }) ||
-        `${name} · you talked ${mins}+ min. You both already earned a star for 1 hour — gift an extra?`
-      : _t("stars.reviewBody", { name, m: mins }) ||
-        `${name} · you talked ${mins}+ min. Give a star?`;
-    toast.innerHTML = `
-      <strong>${escapeHtml(
-        hourChat
+    const body =
+      maxGift >= 3
+        ? _t("stars.reviewBodySenior", { name, m: mins, n: maxGift }) ||
+          `${name} · ${mins}+ min. As a senior you can gift up to ${maxGift}★.`
+        : maxGift >= 2
+          ? _t("stars.reviewBodyTrusted", { name, m: mins, n: maxGift }) ||
+            `${name} · ${mins}+ min. As trusted you can gift up to ${maxGift}★.`
+          : hourChat
+            ? _t("stars.reviewBodyHour", { name, m: mins }) ||
+              `${name} · you talked ${mins}+ min. You both already earned a star for 1 hour — gift an extra?`
+            : _t("stars.reviewBody", { name, m: mins }) ||
+              `${name} · you talked ${mins}+ min. Give a star?`;
+    const title =
+      maxGift >= 2
+        ? _t("stars.reviewTitleMulti", { n: maxGift }) || `Gift stars (up to ${maxGift}★)?`
+        : hourChat
           ? _t("stars.reviewTitleExtra") || "Gift an extra star?"
-          : _t("stars.reviewTitle") || "Rate this chat?"
-      )}</strong>
+          : _t("stars.reviewTitle") || "Rate this chat?";
+    let giftBtns = "";
+    for (let a = 1; a <= maxGift; a++) {
+      const label =
+        a === 1
+          ? _t("stars.give1") || "★ 1"
+          : a === 2
+            ? _t("stars.give2") || "★★ 2"
+            : _t("stars.give3") || "★★★ 3";
+      giftBtns += `<button type="button" class="pill tight btn-star-yes" data-star-amount="${a}">${escapeHtml(
+        label
+      )}</button>`;
+    }
+    toast.innerHTML = `
+      <strong>${escapeHtml(title)}</strong>
       <span>${escapeHtml(body)}</span>
-      <div class="export-nudge-actions" style="margin-top:0.45rem">
+      <div class="export-nudge-actions star-review-actions" style="margin-top:0.45rem">
         <button type="button" class="pill tight ghost" id="btn-star-no">${escapeHtml(
           _t("stars.skip") || "No star"
         )}</button>
-        <button type="button" class="pill tight btn-star-yes" id="btn-star-yes">${escapeHtml(
-          _t("stars.give") || "★ Star"
-        )}</button>
+        ${giftBtns}
       </div>`;
     document.body.appendChild(toast);
     const dismiss = () => {
       if (toast.parentNode) toast.remove();
     };
-    const sendRate = (star) => {
-      trackEvent("star_rate", { star: star ? 1 : 0 });
-      send({ type: "rate_partner", user_id: uid, star: !!star });
+    const sendRate = (amount) => {
+      const star = amount > 0;
+      trackEvent("star_rate", { star: star ? 1 : 0, amount: amount || 0, max: maxGift });
+      send({
+        type: "rate_partner",
+        user_id: uid,
+        star: !!star,
+        amount: star ? amount : 0,
+      });
       dismiss();
       setStatus(
         star
-          ? _t("stars.given") || "Star given"
+          ? amount > 1
+            ? _t("stars.givenN", { n: amount }) || `★ ${amount} given`
+            : _t("stars.given") || "Star given"
           : _t("stars.skipped") || "No star"
       );
     };
-    $("btn-star-no")?.addEventListener("click", () => sendRate(false));
-    $("btn-star-yes")?.addEventListener("click", () => sendRate(true));
-    // Auto-dismiss without rating after 45s (user can only rate while pending on server)
-    setTimeout(dismiss, 45000);
+    $("btn-star-no")?.addEventListener("click", () => {
+      sendRate(0);
+      // After gift prompt, offer Add friend if still eligible
+      setTimeout(() => {
+        try {
+          maybeShowPostMatchFriendNudge("after_star_review", { force: true });
+        } catch (_) {}
+      }, 400);
+    });
+    toast.querySelectorAll("[data-star-amount]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const a = Math.max(1, Math.min(3, Number(btn.getAttribute("data-star-amount")) || 1));
+        sendRate(a);
+        setTimeout(() => {
+          try {
+            maybeShowPostMatchFriendNudge("after_star_gift", { force: true });
+          } catch (_) {}
+        }, 600);
+      });
+    });
+    // Auto-dismiss without rating after 50s (user can only rate while pending on server)
+    setTimeout(() => {
+      dismiss();
+      try {
+        maybeShowPostMatchFriendNudge("after_star_timeout", { force: true });
+      } catch (_) {}
+    }, 50000);
   } catch (_) {}
 }
 
-function maybeShowPostMatchFriendNudge(reason) {
+/**
+ * Capture partner identity while still available, then show Add-friend toast
+ * (delayed after long chats so star-review can appear first).
+ */
+function schedulePostMatchFriendNudge(reason) {
   try {
     if (matchMode === "friend" || inFriendCall) return;
-    // Snapshot before any tear-down clears partner fields
     const code = String(lastMatchMeta?.friend_code || "").toUpperCase();
     const uid = primaryPartnerUserId || lastMatchMeta?.user_id || "";
-    // Need a way to send the request
     if (!code && !uid) return;
-    // Already friends (or request in flight) — never ask again
     if (isPartnerAlreadyFriend(uid, code) || isPartnerRequestPending(uid, code)) {
       return;
     }
-    if (!code) return; // can't add without code
-    // Shorter chats still get a soft ask (was 25s — too rare)
-    if (matchDurationSec() < 12) return;
+    if (!code) return;
+    const sec = matchDurationSec();
+    if (sec < POST_MATCH_FRIEND_MIN_SEC) return;
+    const key = uid || code;
+    if (friendNudgeShown.has(key)) return;
+    postMatchFriendSnap = {
+      code,
+      uid,
+      name:
+        lastMatchMeta?.name || lastMatchMeta?.short_id || code || "Partner",
+      sec,
+      reason: reason || "",
+      key,
+    };
+    if (postMatchFriendNudgeTimer) {
+      clearTimeout(postMatchFriendNudgeTimer);
+      postMatchFriendNudgeTimer = 0;
+    }
+    // ≥15 min chats often get rate_prompt first — wait a beat so both don't fight.
+    const delay = sec >= 15 * 60 ? 3200 : sec >= 5 * 60 ? 900 : 280;
+    postMatchFriendNudgeTimer = setTimeout(() => {
+      postMatchFriendNudgeTimer = 0;
+      maybeShowPostMatchFriendNudge(reason, { fromSchedule: true });
+    }, delay);
+  } catch (_) {}
+}
+
+/**
+ * Morph post-match toast into “request sent → Call later” so the funnel continues.
+ */
+function showPostMatchFriendSentStep(toast, { name, code }) {
+  if (!toast || !toast.parentNode) return;
+  toast.classList.add("is-sent");
+  toast.innerHTML = `
+      <strong>${escapeHtml(
+        _t("friends.postMatchSentTitle") || "Request sent"
+      )}</strong>
+      <span>${escapeHtml(
+        _t("friends.postMatchSentBody", { name: name || "them" }) ||
+          `When ${name || "they"} Accept, you’ll both show Online — tap Call back.`
+      )}</span>
+      <span class="post-match-steps">${escapeHtml(
+        _t("friends.postMatchSentSteps") ||
+          "They Accept → you see them Online → Call back"
+      )}</span>
+      <span class="post-match-code mono">${escapeHtml(
+        (_t("friends.theirCode") || "Code") + ": " + (code || "")
+      )}</span>
+      <div class="export-nudge-actions post-match-actions" style="margin-top:0.45rem">
+        <button type="button" class="pill tight ghost" id="btn-post-friend-done">${escapeHtml(
+          _t("friends.postMatchDone") || "Got it"
+        )}</button>
+        <button type="button" class="pill tight accent" id="btn-post-friend-open">${escapeHtml(
+          _t("friends.open") || "Friends"
+        )}</button>
+      </div>`;
+  const dismiss = () => {
+    if (toast.parentNode) toast.remove();
+  };
+  $("btn-post-friend-done")?.addEventListener("click", dismiss);
+  $("btn-post-friend-open")?.addEventListener("click", () => {
+    trackEvent("friend_nudge_open_friends_after_add");
+    dismiss();
+    try {
+      openFriends();
+      try {
+        setFriendsSheetTab("history");
+      } catch (_) {}
+    } catch (_) {}
+  });
+  setTimeout(dismiss, 22000);
+  trackEvent("friend_nudge_sent_step");
+}
+
+function maybeShowPostMatchFriendNudge(reason, opts = {}) {
+  try {
+    // Week-2 retention: always show real toast (not SOFT_POPUPS-gated).
+    if (matchMode === "friend" || inFriendCall) return;
+    // Prefer scheduled snapshot (survives stop/next clearing partner fields)
+    const snap = postMatchFriendSnap;
+    const code = String(
+      snap?.code || lastMatchMeta?.friend_code || ""
+    ).toUpperCase();
+    const uid =
+      snap?.uid || primaryPartnerUserId || lastMatchMeta?.user_id || "";
+    if (!code && !uid) return;
+    if (isPartnerAlreadyFriend(uid, code) || isPartnerRequestPending(uid, code)) {
+      return;
+    }
+    if (!code) return;
+    const sec = Math.max(
+      0,
+      Number(snap?.sec) || matchDurationSec() || 0
+    );
+    if (sec < POST_MATCH_FRIEND_MIN_SEC) return;
     const key = uid || code;
     if (friendNudgeShown.has(key)) return;
     if ($("post-match-friend-nudge")) return;
+    // If star review is open, wait until it closes (re-schedule once)
+    if ($("star-review-toast") && !opts.force) {
+      if (!opts.fromSchedule) schedulePostMatchFriendNudge(reason || snap?.reason);
+      return;
+    }
     friendNudgeShown.add(key);
+    postMatchFriendSnap = null;
     const name =
-      lastMatchMeta?.name || lastMatchMeta?.short_id || code || "Partner";
+      snap?.name ||
+      lastMatchMeta?.name ||
+      lastMatchMeta?.short_id ||
+      code ||
+      "Partner";
+    const longChat = sec >= 5 * 60;
+    const deepChat = sec >= 15 * 60;
+    const mins = Math.max(1, Math.floor(sec / 60));
     const toast = document.createElement("div");
     toast.id = "post-match-friend-nudge";
-    toast.className = "friend-soft-toast post-match-friend-nudge";
+    toast.className =
+      "friend-soft-toast post-match-friend-nudge is-force" +
+      (longChat ? " is-warm" : "") +
+      (deepChat ? " is-deep" : "");
     toast.setAttribute("role", "dialog");
     toast.style.pointerEvents = "auto";
+    const title = deepChat
+      ? _t("friends.postMatchTitleLong") || "Great chat — stay in touch?"
+      : longChat
+        ? _t("friends.postMatchTitleWarm") || "Liked the chat?"
+        : _t("friends.postMatchTitle") || "Add as friend?";
+    const body = deepChat
+      ? _t("friends.postMatchBodyLong", { name, m: mins }) ||
+        `${name} · ${mins}+ min. Add them to Call later when online.`
+      : longChat
+        ? _t("friends.postMatchBodyWarm", { name, m: mins }) ||
+          `${name} · ${mins} min. Request them — Call when you’re both free.`
+        : _t("friends.postMatchBody", { name }) ||
+          `${name} · request them to Call later when online.`;
+    const steps =
+      _t("friends.postMatchSteps") ||
+      "Add → they Accept → Call when online";
     toast.innerHTML = `
-      <strong>${escapeHtml(
-        _t("friends.postMatchTitle") || "Add as friend?"
-      )}</strong>
-      <span>${escapeHtml(name)} · ${escapeHtml(
-      _t("friends.postMatchBody") ||
-        "Request them to Call later when online."
-      )}</span>
+      <strong>${escapeHtml(title)}</strong>
+      <span>${escapeHtml(body)}</span>
+      <span class="post-match-steps">${escapeHtml(steps)}</span>
       <span class="post-match-code mono">${escapeHtml(
         (_t("friends.theirCode") || "Code") + ": " + code
       )}</span>
-      <div class="export-nudge-actions" style="margin-top:0.45rem">
+      <div class="export-nudge-actions post-match-actions post-match-actions-force" style="margin-top:0.55rem">
+        <button type="button" class="pill tight accent post-match-primary" id="btn-post-friend-yes">${escapeHtml(
+          _t("friends.postMatchYes") || "Add friend"
+        )}</button>
+        <button type="button" class="pill tight ghost" id="btn-post-friend-copy">${escapeHtml(
+          _t("friends.copyCode") || "Copy code"
+        )}</button>
         <button type="button" class="pill tight ghost" id="btn-post-friend-no">${escapeHtml(
           _t("friends.postMatchNo") || "No thanks"
         )}</button>
-        <button type="button" class="pill tight" id="btn-post-friend-copy">${escapeHtml(
-          _t("friends.copyCode") || "Copy code"
-        )}</button>
-        <button type="button" class="pill tight accent" id="btn-post-friend-yes">${escapeHtml(
-          _t("friends.postMatchYes") || "Add friend"
-        )}</button>
       </div>`;
     document.body.appendChild(toast);
+    trackEvent("friend_nudge_show", {
+      reason: reason || snap?.reason || "",
+      sec,
+      long: longChat ? 1 : 0,
+      deep: deepChat ? 1 : 0,
+      force: 1,
+    });
     const dismiss = () => {
       if (toast.parentNode) toast.remove();
     };
     $("btn-post-friend-no")?.addEventListener("click", () => {
-      trackEvent("friend_nudge_dismiss", { reason: reason || "" });
+      trackEvent("friend_nudge_dismiss", {
+        reason: reason || snap?.reason || "",
+        sec,
+      });
       dismiss();
     });
     $("btn-post-friend-copy")?.addEventListener("click", async () => {
-      trackEvent("friend_nudge_copy_code", { reason: reason || "" });
+      trackEvent("friend_nudge_copy_code", {
+        reason: reason || snap?.reason || "",
+      });
       try {
         await copyToClipboard(code, "friends.codeCopied");
       } catch (_) {
@@ -2486,12 +4187,19 @@ function maybeShowPostMatchFriendNudge(reason) {
       }
     });
     $("btn-post-friend-yes")?.addEventListener("click", () => {
-      trackEvent("friend_nudge_accept", { reason: reason || "" });
-      dismiss();
-      requestAddFriend(code);
-      setStatus(_t("friends.requestSent") || "Friend request sent");
+      trackEvent("friend_nudge_accept", {
+        reason: reason || snap?.reason || "",
+        sec,
+      });
+      const ok = requestAddFriend(code);
+      if (ok !== false) {
+        showPostMatchFriendSentStep(toast, { name, code });
+      } else {
+        dismiss();
+      }
     });
-    setTimeout(dismiss, 16000);
+    // Longer window — primary retention moment
+    setTimeout(dismiss, deepChat ? 32000 : longChat ? 28000 : 22000);
   } catch (_) {}
 }
 
@@ -2514,22 +4222,32 @@ function markStopInviteNudgeDone() {
 
 function maybeShowStopInviteNudge() {
   try {
+    if (!SOFT_POPUPS_ENABLED) {
+      markStopInviteNudgeDone();
+      return;
+    }
     if (stopInviteNudgeDone()) return;
     if (matched || inFriendCall || inQueue || wantSearch) return;
-    if ($("post-match-friend-nudge") || $("stop-invite-nudge")) return;
+    if (
+      $("post-match-friend-nudge") ||
+      $("stop-invite-nudge") ||
+      $("star-review-toast")
+    )
+      return;
     // Only when pool felt empty (alone / quiet)
     const others = Math.max(0, (lastWaitingCount || 0) - 1);
     if (others > 0) return;
     markStopInviteNudgeDone();
     const toast = document.createElement("div");
     toast.id = "stop-invite-nudge";
-    toast.className = "friend-soft-toast stop-invite-nudge";
+    toast.className = "friend-soft-toast stop-invite-nudge is-warm";
     toast.setAttribute("role", "status");
     toast.style.pointerEvents = "auto";
-    const shareBtn = ROOMS_ENABLED
-      ? `<button type="button" class="pill tight accent" id="btn-stop-invite-share">${escapeHtml(
-          _t("remote.shareRoom") || "Share room"
-        )}</button>`
+    const code = String(myFriendCode || "").toUpperCase();
+    const codeLine = code
+      ? `<span class="post-match-code mono">${escapeHtml(
+          (_t("friends.yourCode") || "Your code") + ": " + code
+        )}</span>`
       : "";
     toast.innerHTML = `
       <strong>${escapeHtml(
@@ -2537,18 +4255,26 @@ function maybeShowStopInviteNudge() {
       )}</strong>
       <span>${escapeHtml(
         _t("remote.stopInviteBody") ||
-          "Pool was quiet — open Friends to share your code when you want company."
+          "Pool was quiet — share your invite so a friend can join and Call you."
       )}</span>
+      <span class="post-match-steps">${escapeHtml(
+        _t("friends.postMatchSteps") ||
+          "Add → they Accept → Call when online"
+      )}</span>
+      ${codeLine}
       <div class="export-nudge-actions" style="margin-top:0.45rem">
         <button type="button" class="pill tight ghost" id="btn-stop-invite-later">${escapeHtml(
           _t("friends.exportNudgeLater") || "Later"
         )}</button>
-        <button type="button" class="pill tight${ROOMS_ENABLED ? "" : " accent"}" id="btn-stop-invite-friends">${escapeHtml(
+        <button type="button" class="pill tight" id="btn-stop-invite-friends">${escapeHtml(
           _t("friends.open") || "Friends"
         )}</button>
-        ${shareBtn}
+        <button type="button" class="pill tight accent" id="btn-stop-invite-share">${escapeHtml(
+          _t("friends.inviteLiveCta") || "Share invite · I’m live"
+        )}</button>
       </div>`;
     document.body.appendChild(toast);
+    trackEvent("stop_invite_show");
     const dismiss = () => {
       if (toast.parentNode) toast.remove();
     };
@@ -2561,19 +4287,24 @@ function maybeShowStopInviteNudge() {
       dismiss();
       openFriends();
     });
-    $("btn-stop-invite-share")?.addEventListener("click", () => {
+    $("btn-stop-invite-share")?.addEventListener("click", async () => {
       trackEvent("stop_invite_share");
       dismiss();
-      if (!ROOMS_ENABLED) return;
-      shareOrCopy(
-        roomShareUrl({ mintIfEmpty: true }),
-        siteBrandName() + " room",
-        "room.shared",
-        "room.copied",
-        { preferShare: true }
-      );
+      try {
+        await shareFriendInvite({ preferShare: true, liveNow: true });
+      } catch (_) {
+        if (ROOMS_ENABLED) {
+          shareOrCopy(
+            roomShareUrl({ mintIfEmpty: true }),
+            siteBrandName() + " room",
+            "room.shared",
+            "room.copied",
+            { preferShare: true }
+          );
+        }
+      }
     });
-    setTimeout(dismiss, 16000);
+    setTimeout(dismiss, 18000);
   } catch (_) {}
 }
 
@@ -3725,22 +5456,9 @@ function hideReconnectBanner() {
 
 /** Soft confirmation after hub drop recovers (not a nag). */
 function showBackOnlineToast() {
-  const id = "back-online-toast";
-  const existing = $(id);
-  if (existing) existing.remove();
-  const toast = document.createElement("div");
-  toast.id = id;
-  toast.className = "friend-soft-toast friend-soft-toast-ok back-online-toast";
-  toast.setAttribute("role", "status");
-  toast.innerHTML = `
-    <strong>${escapeHtml(_t("conn.backOnline") || "Back online")}</strong>
-    <span>${escapeHtml(
-      _t("conn.backOnlineBody") || "Hub reconnected — you can search or call again."
-    )}</span>`;
-  document.body.appendChild(toast);
-  setTimeout(() => {
-    if (toast.parentNode) toast.remove();
-  }, 4200);
+  setStatus(
+    _t("conn.backOnline") || "Back online — you can search or call again."
+  );
 }
 
 function updateConnFromState() {
@@ -3878,26 +5596,10 @@ function autoDisablePreferDirectOnFail({ autoNext = true } = {}) {
 }
 
 function showPreferDirectAutoToast() {
-  const id = "prefer-direct-auto-toast";
-  const existing = $(id);
-  if (existing) existing.remove();
-  const toast = document.createElement("div");
-  toast.id = id;
-  toast.className = "weak-conn-tip prefer-direct-auto-toast";
-  toast.setAttribute("role", "status");
-  toast.innerHTML = `
-    <span>${escapeHtml(
-      _t("conn.preferDirectAutoOffBody") ||
-        "Direct-only mode couldn’t connect. TURN relay is on again for the next match (you can re-enable Prefer Direct in Settings)."
-    )}</span>
-    <button type="button" class="pill tight ghost" id="btn-prefer-auto-dismiss">${escapeHtml(
-      _t("coach.dismiss") || "Dismiss"
-    )}</button>`;
-  document.body.appendChild(toast);
-  $("btn-prefer-auto-dismiss")?.addEventListener("click", () => toast.remove());
-  setTimeout(() => {
-    if (toast.parentNode) toast.remove();
-  }, 10000);
+  setStatus(
+    _t("conn.preferDirectAutoOffBody") ||
+      "Direct-only couldn’t connect — TURN relay is on again for the next match."
+  );
 }
 
 function showCallCoach(reasonKey) {
@@ -3959,7 +5661,7 @@ function startWebrtcWatch() {
   }, 14000);
 }
 
-function handleWebrtcConnectionState(s) {
+function handleWebrtcConnectionState(s, pcHint) {
   setStatus(_t("status.webrtc", { s }));
   if (s === "connected") {
     webrtcConnectedOk = true;
@@ -3988,6 +5690,9 @@ function handleWebrtcConnectionState(s) {
       mode: matchMode || "solo",
       friend: inFriendCall || matchMode === "friend" ? 1 : 0,
     });
+    markInviteFunnelConnected(
+      inFriendCall || matchMode === "friend" ? "friend" : "stranger"
+    );
     // Upgrade match toast once media path is live
     showMatchFoundToast({ connected: true });
     flashPartnerTile();
@@ -3997,6 +5702,10 @@ function handleWebrtcConnectionState(s) {
       liveChip.hidden = true;
     }
   } else if (s === "failed") {
+    // Soft-recover find-3rd / multi-peer without killing the first partner
+    if (pcHint && trySoftRecoverPeer(pcHint)) {
+      return;
+    }
     // Prefer Direct ICE fail: auto-allow TURN + soft Next (once/session)
     if (autoDisablePreferDirectOnFail({ autoNext: true })) {
       /* toast + Next scheduled */
@@ -4006,6 +5715,92 @@ function handleWebrtcConnectionState(s) {
   } else if (s === "disconnected") {
     setConnStrip("warn", _t("coach.unstable"), "");
   }
+}
+
+/** Last Matched.peers list — used for soft ICE reconnect without full rematch. */
+let lastMatchedPeers = [];
+
+/**
+ * Soft-recover a failed peer (find-3rd stranger) without tearing the teammate link.
+ * @param {import('./webrtc.js').RouletteWebRtc | object} pc
+ * @returns {boolean} true if recovery was started (caller should not show full coach)
+ */
+function trySoftRecoverPeer(pc) {
+  if (!pc || !matched) return false;
+  // Only during multi-peer / party layouts
+  if (!(trioBrowse || matchMode === "party_browse" || peerPcs.size > 1)) {
+    return false;
+  }
+  // Never soft-kill the only teammate/friend path
+  if (isTeammateRole(pc._role) && peerPcs.size <= 1) return false;
+
+  const peerId =
+    pc.remotePeerId ||
+    [...peerPcs.entries()].find(([, v]) => v === pc)?.[0] ||
+    "";
+  if (!peerId) return false;
+
+  // Step 1: ICE restart once
+  if (!pc._softIceTried) {
+    pc._softIceTried = true;
+    setStatus(_t("trio.iceRestart") || "Reconnecting peer…");
+    trackEvent("peer_soft_ice", { role: pc._role || "", mode: matchMode || "" });
+    Promise.resolve(pc.softIceRestart?.())
+      .then((ok) => {
+        if (!ok) schedulePeerHardReconnect(peerId, pc);
+      })
+      .catch(() => schedulePeerHardReconnect(peerId, pc));
+    // If still failed after 5s, recreate PC
+    setTimeout(() => {
+      try {
+        const cur = peerPcs.get(peerId);
+        if (!cur || cur !== pc) return;
+        const ice = cur.pc?.iceConnectionState || cur.pc?.connectionState || "";
+        if (ice === "failed" || ice === "disconnected" || ice === "closed") {
+          schedulePeerHardReconnect(peerId, pc);
+        }
+      } catch (_) {}
+    }, 5000);
+    return true;
+  }
+
+  // Step 2 already requested
+  if (pc._softReconnectScheduled) return true;
+  schedulePeerHardReconnect(peerId, pc);
+  return true;
+}
+
+function schedulePeerHardReconnect(peerId, oldPc) {
+  if (!peerId || !matched) return;
+  if (oldPc) oldPc._softReconnectScheduled = true;
+  if (schedulePeerHardReconnect._busy) return;
+  schedulePeerHardReconnect._busy = true;
+  setStatus(_t("trio.peerRetry") || "Retrying third person connection…");
+  trackEvent("peer_soft_reconnect", { mode: matchMode || "" });
+  (async () => {
+    try {
+      const existing = peerPcs.get(peerId);
+      if (existing) {
+        try {
+          existing.closeCall({ keepLocal: true, sendBye: false });
+        } catch (_) {}
+        peerPcs.delete(peerId);
+      }
+      // Rebuild only from last matched peer list (keeps teammate)
+      const peers =
+        (lastMatchedPeers && lastMatchedPeers.length
+          ? lastMatchedPeers
+          : []
+        ).slice();
+      if (!peers.length) return;
+      await joinPeers(peers);
+      ensurePartnerVideoVisible();
+    } catch (e) {
+      console.warn("[soft reconnect]", e);
+    } finally {
+      schedulePeerHardReconnect._busy = false;
+    }
+  })();
 }
 
 function wireCallCoach() {
@@ -4392,8 +6187,13 @@ function bindPcVideo(pc, el) {
   const stream = pc.remoteStream;
   if (el && stream) {
     prepareVideoEl(el, { muted: false });
-    el.srcObject = stream;
+    if (el.srcObject !== stream) el.srcObject = stream;
     playVideoEl(el);
+    try {
+      if (typeof applyLowLatencyPlayout === "function" && pc.pc) {
+        applyLowLatencyPlayout(pc.pc);
+      }
+    } catch (_) {}
     if (isMainRemoteVideoEl(el)) {
       setRemoteEmpty(false);
       applyRemoteVolume();
@@ -4406,8 +6206,16 @@ function paintRemoteFromPc(pc, stream) {
   const el = pc?._videoEl;
   if (!el) return;
   prepareVideoEl(el, { muted: false });
-  el.srcObject = stream || pc.remoteStream || null;
+  const next = stream || pc.remoteStream || null;
+  // Avoid thrashing srcObject (resets A/V sync clocks in some browsers)
+  if (el.srcObject !== next) el.srcObject = next;
   playVideoEl(el);
+  // Keep receive jitter buffers tight so audio doesn't drift behind video
+  try {
+    if (typeof applyLowLatencyPlayout === "function" && pc?.pc) {
+      applyLowLatencyPlayout(pc.pc);
+    }
+  } catch (_) {}
   // Partner tiles only — not friend PiP / local
   if (isMainRemoteVideoEl(el)) {
     setRemoteEmpty(false);
@@ -4442,21 +6250,15 @@ function ensurePartnerVideoVisible() {
 
 /**
  * Find an existing RTC peer for a match peer_id.
- * After find-third, server may re-list the same person with a different key style —
- * fall back to the only live stream PC so we never drop the first conversationalist.
+ * Exact map key or pc.remotePeerId only — never “the only live PC”.
+ * (Loose fallback re-keyed the first partner under the 3rd’s id and froze video.)
  */
 function findPcForPeer(peerId) {
-  if (peerId && peerPcs.has(peerId)) return peerPcs.get(peerId);
-  const entries = [...peerPcs.entries()];
-  if (!entries.length) return null;
-  const live = entries.filter(([, pc]) =>
-    (pc.remoteStream?.getVideoTracks?.() || []).some((t) => t.readyState === "live")
-  );
-  if (live.length === 1) return live[0][1];
-  if (entries.length === 1) return entries[0][1];
-  // Prefer anything already marked teammate/friend
-  const mate = entries.find(([, pc]) => isTeammateRole(pc._role));
-  if (mate) return mate[1];
+  if (!peerId) return null;
+  if (peerPcs.has(peerId)) return peerPcs.get(peerId);
+  for (const pc of peerPcs.values()) {
+    if (pc?.remotePeerId && pc.remotePeerId === peerId) return pc;
+  }
   return null;
 }
 
@@ -4481,16 +6283,26 @@ function bindFirstPartnerToMain(meta) {
   const peerId = meta?.peer_id || "";
   let pc = findPcForPeer(peerId);
   if (!pc) {
-    // Last resort: any PC with a remote stream
+    // Prefer a teammate-marked PC — never grab the 3rd (stranger) stream for main
     for (const p of peerPcs.values()) {
-      if (p.remoteStream) {
+      if (isTeammateRole(p._role) && p.remoteStream) {
         pc = p;
         break;
       }
     }
   }
+  if (!pc && peerPcs.size === 1) {
+    // Only safe fallback when there is exactly one peer (1v1 / searching for 3rd)
+    const only = [...peerPcs.values()][0];
+    if (only?.remoteStream) pc = only;
+  }
   if (!pc) return null;
   if (peerId) rekeyPeerPc(peerId, pc);
+  // Keep stranger role if this is somehow the third's PC (do not rebrand)
+  if (!isTeammateRole(pc._role) && (pc._role === "stranger" || pc._role === "party")) {
+    // Wrong PC for "first partner" — abort rather than freeze main onto 3rd
+    if (peerPcs.size > 1) return null;
+  }
   pc._role = "teammate";
   // Detach from friend-pip if still there
   showFriendPip(false);
@@ -4513,7 +6325,7 @@ function bindFirstPartnerToMain(meta) {
       meta?.flag || lastMatchMeta?.flag
     );
   }
-  if (wrap) wrap.hidden = !(tag && (tag.textContent || "").trim());
+  syncRemoteTileTagVisibility();
   return pc;
 }
 
@@ -4823,7 +6635,159 @@ function friendInviteUrl() {
   if (myFriendCode) u.searchParams.set("friend", myFriendCode);
   const name = getDisplayName();
   if (name && name !== "anon") u.searchParams.set("name", name);
+  // Mark growth path for analytics + friendlier landing
+  u.searchParams.set("ref", "friend_invite");
   return u.toString();
+}
+
+/** Persist ?friend= across rules gate / reconnect so deep links don't get lost. */
+const PENDING_FRIEND_KEY = "ruletka-pending-friend-v1";
+let pendingFriendInviteHandled = false;
+
+function stashPendingFriendFromUrl() {
+  try {
+    const q = new URLSearchParams(location.search);
+    const raw = q.get("friend");
+    if (!raw) return;
+    const code = normalizeFriendCodeInput(raw);
+    if (code) sessionStorage.setItem(PENDING_FRIEND_KEY, code);
+  } catch (_) {}
+}
+
+function getPendingFriendCode() {
+  try {
+    const q = new URLSearchParams(location.search).get("friend");
+    if (q) {
+      const c = normalizeFriendCodeInput(q);
+      if (c) {
+        sessionStorage.setItem(PENDING_FRIEND_KEY, c);
+        return c;
+      }
+    }
+    return normalizeFriendCodeInput(sessionStorage.getItem(PENDING_FRIEND_KEY) || "");
+  } catch {
+    return "";
+  }
+}
+
+function clearPendingFriendCode() {
+  try {
+    sessionStorage.removeItem(PENDING_FRIEND_KEY);
+  } catch (_) {}
+  try {
+    const u = new URL(location.href);
+    if (u.searchParams.has("friend")) {
+      u.searchParams.delete("friend");
+      history.replaceState(null, "", u.pathname + u.search + u.hash);
+    }
+  } catch (_) {}
+}
+
+/**
+ * Deep-link live.html?friend=CODE — open Friends, prefill, send request once connected.
+ * @returns {boolean} true if request was sent
+ */
+function applyPendingFriendInvite({ forceOpen = true } = {}) {
+  const code = getPendingFriendCode();
+  if (!code || pendingFriendInviteHandled) return false;
+  const input = $("add-friend-code");
+  if (input) {
+    input.value = code;
+    try {
+      input.classList.add("is-invite-prefill");
+    } catch (_) {}
+  }
+  if (forceOpen) {
+    try {
+      openFriends();
+    } catch (_) {}
+  }
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    setStatus(
+      _t("friends.inviteConnecting", { code }) ||
+        `Invite ${code} — connecting, then requesting…`
+    );
+    return false;
+  }
+  // Avoid self-add noise before my code is known
+  if (
+    myFriendCode &&
+    code === String(myFriendCode).toUpperCase().replace(/[^A-Z0-9]/g, "")
+  ) {
+    clearPendingFriendCode();
+    pendingFriendInviteHandled = true;
+    setStatus(_t("friends.cannotSelf") || "That’s your own invite link");
+    return false;
+  }
+  if (requestAddFriend(code)) {
+    pendingFriendInviteHandled = true;
+    clearPendingFriendCode();
+    setStatus(
+      _t("friends.inviteDeepOk", { code }) ||
+        `Request sent for ${code} — they Accept, then you can Call`
+    );
+    trackEvent("friend_invite_deep_link", { ok: 1 });
+    markInviteFunnelRequestSent(code);
+    // Soft highlight on friends code hero so both sides of the flow feel intentional
+    try {
+      $("friends-code-hero")?.classList.add("is-invite-highlight");
+      setTimeout(
+        () => $("friends-code-hero")?.classList.remove("is-invite-highlight"),
+        5000
+      );
+    } catch (_) {}
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Homepage / share landings: ?invite=1 | ?open=friends | ?ref=invite
+ * Opens Friends and nudges sharing your own code (growth for empty pool).
+ */
+function maybeOpenInviteShareLanding() {
+  let openInvite = false;
+  try {
+    const q = new URLSearchParams(location.search);
+    openInvite =
+      q.get("invite") === "1" ||
+      q.get("open") === "friends" ||
+      q.get("ref") === "invite";
+    if (!openInvite) return;
+    // Clean URL (keep lang)
+    ["invite", "open"].forEach((k) => {
+      if (q.has(k)) q.delete(k);
+    });
+    if (q.get("ref") === "invite") q.delete("ref");
+    const qs = q.toString();
+    history.replaceState(
+      null,
+      "",
+      location.pathname + (qs ? "?" + qs : "") + location.hash
+    );
+  } catch (_) {
+    return;
+  }
+  trackEvent("invite_landing_open");
+  setTimeout(() => {
+    try {
+      openFriends();
+      $("friends-code-hero")?.classList.add("is-invite-highlight");
+      setStatus(
+        _t("friends.inviteLandingHint") ||
+          "Share your code so a friend can add you — then Call when online"
+      );
+      // One-tap: if code ready, optional auto-focus share
+      if (myFriendCode) {
+        $("btn-share-invite")?.classList.add("pulse-once");
+        setTimeout(() => $("btn-share-invite")?.classList.remove("pulse-once"), 2400);
+      }
+      setTimeout(
+        () => $("friends-code-hero")?.classList.remove("is-invite-highlight"),
+        6000
+      );
+    } catch (_) {}
+  }, 500);
 }
 
 function clearCallTimeout() {
@@ -4840,16 +6804,244 @@ function startCallTimeout() {
   clearCallTimeout();
   callTimeoutTimer = setTimeout(() => {
     callTimeoutTimer = 0;
-    setStatus(_t("status.callTimeout"));
-    log(_t("friends.noAnswer"));
-    if (lastOutgoingCallPeer?.user_id) {
+    setStatus(_t("status.callTimeout") || "No answer");
+    log(_t("friends.noAnswer") || "No answer");
+    const peer = lastOutgoingCallPeer;
+    hideOutgoingCallToast();
+    if (peer?.user_id) {
       recordMissedCall({
-        ...lastOutgoingCallPeer,
-        name: lastOutgoingCallPeer.name || "Friend",
+        ...peer,
+        name: peer.name || "Friend",
       });
+      showNoAnswerToast(peer);
     }
     lastOutgoingCallPeer = null;
   }, 30000);
+}
+
+/** Outbound “Calling…” toast with Cancel (Week-4 ring UX). */
+function hideOutgoingCallToast() {
+  try {
+    $("outgoing-call-toast")?.remove?.();
+  } catch (_) {}
+}
+
+function showOutgoingCallToast(peer) {
+  hideOutgoingCallToast();
+  const name = peer?.name || peer?.short_id || "Friend";
+  const uid = peer?.user_id || "";
+  const toast = document.createElement("div");
+  toast.id = "outgoing-call-toast";
+  toast.className = "call-toast outgoing-call-toast";
+  toast.setAttribute("role", "status");
+  toast.setAttribute("aria-live", "polite");
+  toast.innerHTML = `
+    <div class="call-toast-body">
+      <strong>${escapeHtml(name)}</strong>
+      <span class="outgoing-call-dots">${escapeHtml(
+        _t("status.calling") || "Calling…"
+      )}</span>
+    </div>
+    <div class="call-toast-actions">
+      <button type="button" class="pill danger" id="btn-cancel-call">${escapeHtml(
+        _t("friends.cancelCall") || "Cancel"
+      )}</button>
+    </div>`;
+  document.body.appendChild(toast);
+  trackEvent("outgoing_call_show");
+  $("btn-cancel-call")?.addEventListener("click", () => {
+    trackEvent("outgoing_call_cancel");
+    cancelOutgoingCall(uid);
+  });
+}
+
+function cancelOutgoingCall(userId) {
+  const uid = (userId || lastOutgoingCallPeer?.user_id || "").trim();
+  clearCallTimeout();
+  hideOutgoingCallToast();
+  if (uid) {
+    try {
+      send({ type: "call_cancel", user_id: uid });
+    } catch (_) {}
+  }
+  lastOutgoingCallPeer = null;
+  setStatus(_t("friends.callCancelled") || "Call cancelled");
+}
+
+/** No answer — offer Call again if still online. */
+function showNoAnswerToast(peer) {
+  try {
+    if (!peer?.user_id) return;
+    if (matched || inFriendCall) return;
+    const id = "no-answer-toast";
+    $(id)?.remove?.();
+    const name = peer.name || "Friend";
+    const online = !!(friendsCache || []).find(
+      (f) => f && f.user_id === peer.user_id && f.online
+    );
+    const toast = document.createElement("div");
+    toast.id = id;
+    toast.className = "friend-soft-toast post-match-friend-nudge is-force is-no-answer";
+    toast.setAttribute("role", "status");
+    toast.style.pointerEvents = "auto";
+    toast.innerHTML = `
+      <strong>${escapeHtml(
+        _t("friends.noAnswerTitle") || "No answer"
+      )}</strong>
+      <span>${escapeHtml(
+        online
+          ? _t("friends.noAnswerBodyOnline", { name }) ||
+              `${name} didn’t pick up — try Call back.`
+          : _t("friends.noAnswerBody", { name }) ||
+              `${name} didn’t pick up. Call when they’re online.`
+      )}</span>
+      <div class="export-nudge-actions post-match-actions" style="margin-top:0.45rem">
+        ${
+          online
+            ? `<button type="button" class="pill tight accent post-match-primary" id="btn-no-answer-retry">${escapeHtml(
+                _t("friends.redial") || "Call back"
+              )}</button>`
+            : ""
+        }
+        <button type="button" class="pill tight ghost" id="btn-no-answer-ok">${escapeHtml(
+          _t("friends.postMatchDone") || "Got it"
+        )}</button>
+      </div>`;
+    document.body.appendChild(toast);
+    trackEvent("no_answer_toast", { online: online ? 1 : 0 });
+    const dismiss = () => {
+      if (toast.parentNode) toast.remove();
+    };
+    $("btn-no-answer-ok")?.addEventListener("click", dismiss);
+    $("btn-no-answer-retry")?.addEventListener("click", () => {
+      trackEvent("no_answer_retry");
+      dismiss();
+      placeFriendCall(peer.user_id, { closePanel: false });
+    });
+    setTimeout(dismiss, 16000);
+  } catch (_) {}
+}
+
+/** Last missed call for in-app Call back banner (not only OS notif). */
+const LAST_MISSED_CALL_KEY = "ruletka-last-missed-call-v1";
+
+function saveLastMissedCall(entry) {
+  try {
+    if (!entry?.user_id) return;
+    localStorage.setItem(
+      LAST_MISSED_CALL_KEY,
+      JSON.stringify({
+        user_id: entry.user_id,
+        name: entry.name || "Friend",
+        friend_code: entry.friend_code || "",
+        short_id: entry.short_id || "",
+        t: Date.now(),
+      })
+    );
+  } catch (_) {}
+}
+
+function loadLastMissedCall() {
+  try {
+    const o = JSON.parse(localStorage.getItem(LAST_MISSED_CALL_KEY) || "null");
+    if (!o || !o.user_id) return null;
+    // Expire after 24h
+    if (Date.now() - (o.t || 0) > 24 * 60 * 60 * 1000) {
+      localStorage.removeItem(LAST_MISSED_CALL_KEY);
+      return null;
+    }
+    return o;
+  } catch {
+    return null;
+  }
+}
+
+function clearLastMissedCall() {
+  try {
+    localStorage.removeItem(LAST_MISSED_CALL_KEY);
+  } catch (_) {}
+}
+
+/**
+ * When free: banner for recent missed call → Call back (if online) or open History.
+ */
+function maybeShowMissedCallBackBanner() {
+  try {
+    if (matched || inFriendCall || trioBrowse) return;
+    if ($("missed-call-banner") || $("call-toast") || $("outgoing-call-toast"))
+      return;
+    const m = loadLastMissedCall();
+    if (!m?.user_id) return;
+    // Don't spam: once per session after save
+    try {
+      if (sessionStorage.getItem("ruletka-missed-banner-shown") === m.user_id + ":" + m.t)
+        return;
+    } catch (_) {}
+    const fr = (friendsCache || []).find((f) => f && f.user_id === m.user_id);
+    const online = !!(fr && fr.online);
+    const name = (fr && friendDisplayName(fr)) || m.name || "Friend";
+    const toast = document.createElement("div");
+    toast.id = "missed-call-banner";
+    toast.className =
+      "friend-soft-toast post-match-friend-nudge is-force is-missed-banner";
+    toast.setAttribute("role", "status");
+    toast.style.pointerEvents = "auto";
+    toast.innerHTML = `
+      <strong>${escapeHtml(
+        _t("friends.missedBannerTitle") || "Missed call"
+      )}</strong>
+      <span>${escapeHtml(
+        online
+          ? _t("friends.missedBannerOnline", { name }) ||
+              `${name} called — they’re online now. Call back?`
+          : _t("friends.missedBannerBody", { name }) ||
+              `Missed call from ${name}. Open history when they’re online.`
+      )}</span>
+      <div class="export-nudge-actions post-match-actions" style="margin-top:0.45rem">
+        ${
+          online
+            ? `<button type="button" class="pill tight accent post-match-primary" id="btn-missed-call-now">${escapeHtml(
+                _t("friends.redial") || "Call back"
+              )}</button>`
+            : `<button type="button" class="pill tight accent" id="btn-missed-open-hist">${escapeHtml(
+                _t("friends.openHistory") || "Call history"
+              )}</button>`
+        }
+        <button type="button" class="pill tight ghost" id="btn-missed-dismiss">${escapeHtml(
+          _t("friends.postMatchDone") || "Got it"
+        )}</button>
+      </div>`;
+    document.body.appendChild(toast);
+    try {
+      sessionStorage.setItem(
+        "ruletka-missed-banner-shown",
+        m.user_id + ":" + m.t
+      );
+    } catch (_) {}
+    trackEvent("missed_call_banner_show", { online: online ? 1 : 0 });
+    const dismiss = (clear) => {
+      if (toast.parentNode) toast.remove();
+      if (clear) clearLastMissedCall();
+    };
+    $("btn-missed-dismiss")?.addEventListener("click", () => {
+      trackEvent("missed_call_banner_dismiss");
+      dismiss(true);
+    });
+    $("btn-missed-call-now")?.addEventListener("click", () => {
+      trackEvent("missed_call_banner_call");
+      dismiss(true);
+      placeFriendCall(m.user_id, { closePanel: false });
+    });
+    $("btn-missed-open-hist")?.addEventListener("click", () => {
+      trackEvent("missed_call_banner_history");
+      dismiss(false);
+      try {
+        openFriends();
+        setFriendsSheetTab("history");
+      } catch (_) {}
+    });
+    setTimeout(() => dismiss(false), 20000);
+  } catch (_) {}
 }
 
 function rulesAccepted() {
@@ -4931,6 +7123,11 @@ function acceptRulesAndEnter() {
   showPartnerEmptyWithBrand({ searching: false });
   // Room invite deep-link: join as soon as gate is done
   setTimeout(() => maybeAutoJoinRoomInvite(), 350);
+  setTimeout(() => {
+    try {
+      maybeShowFirstSessionGuide();
+    } catch (_) {}
+  }, 900);
 }
 
 function wireRulesGate() {
@@ -5055,6 +7252,8 @@ function setRemoteEmpty(show, opts) {
     if (wrap) wrap.hidden = true;
     if (tag) tag.textContent = "";
     setTileAvatar("remote", "");
+    // Never leave bars/flowers over Start / brand empty (skip either side)
+    clearRemoteMatchFx();
   }
   // Brand poster always; loop video only while empty (lazy src for mobile)
   syncEmptyBrandMedia(show);
@@ -5300,6 +7499,162 @@ function updateEmptyShareVisibility() {
   }
   updateFriendsOnlineStrip();
   updateEmptyAloneActions();
+  updateEmptyIdleInvite();
+  updateEmptyRecentStrip();
+}
+
+/**
+ * Idle empty card: always surface friend code + Share (growth without waiting).
+ * Hidden while alone-search panel is up (that panel already shows the code).
+ */
+function updateEmptyIdleInvite() {
+  const row = $("empty-idle-invite");
+  const codeBtn = $("btn-empty-idle-code");
+  if (!row) return;
+  const empty = $("remote-empty");
+  const emptyOpen =
+    !!empty &&
+    !empty.classList.contains("hidden") &&
+    !matched &&
+    !inFriendCall &&
+    !trioBrowse;
+  const alonePanel = $("empty-alone-actions");
+  const aloneUp = alonePanel && !alonePanel.hidden;
+  const show = emptyOpen && !aloneUp && !!myFriendCode;
+  row.hidden = !show;
+  if (show) {
+    row.removeAttribute("hidden");
+    if (codeBtn) {
+      codeBtn.textContent = myFriendCode;
+      codeBtn.title =
+        (_t("friends.copyCode") || "Copy code") + ` · ${myFriendCode}`;
+    }
+  } else {
+    row.setAttribute("hidden", "");
+  }
+  if (codeBtn && !codeBtn.dataset.wired) {
+    codeBtn.dataset.wired = "1";
+    codeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      trackEvent("empty_idle_copy_code");
+      shareFriendInvite({ preferShare: false, liveNow: false });
+    });
+  }
+  const shareBtn = $("btn-empty-idle-share");
+  if (shareBtn && !shareBtn.dataset.wired) {
+    shareBtn.dataset.wired = "1";
+    shareBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      trackEvent("empty_idle_share");
+      shareFriendInvite({ preferShare: true, liveNow: false });
+    });
+  }
+}
+
+/**
+ * Recent partners on empty card — Call back (friend online) or Add by code.
+ */
+function updateEmptyRecentStrip() {
+  const strip = $("empty-recent-strip");
+  const row = $("empty-recent-row");
+  if (!strip || !row) return;
+  const empty = $("remote-empty");
+  const emptyOpen =
+    !!empty &&
+    !empty.classList.contains("hidden") &&
+    !matched &&
+    !inFriendCall &&
+    !trioBrowse;
+  if (!emptyOpen) {
+    strip.hidden = true;
+    row.innerHTML = "";
+    return;
+  }
+  const friendIds = new Set(
+    (friendsCache || []).map((f) => f.user_id).filter(Boolean)
+  );
+  const seen = new Set();
+  const items = [];
+  for (const h of loadHistory()) {
+    if (!h) continue;
+    const key = h.user_id || h.friend_code || h.short_id;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const isFriend = !!(h.user_id && friendIds.has(h.user_id));
+    const fr = isFriend
+      ? friendsCache.find((f) => f.user_id === h.user_id)
+      : null;
+    const online = !!(fr && fr.online);
+    // Prefer actionable rows: online friend call-back, or stranger with code
+    if (!online && !(h.friend_code && !isFriend) && !(isFriend && h.user_id)) {
+      continue;
+    }
+    items.push({ h, fr, isFriend, online });
+    if (items.length >= 4) break;
+  }
+  if (!items.length) {
+    strip.hidden = true;
+    row.innerHTML = "";
+    return;
+  }
+  strip.hidden = false;
+  strip.removeAttribute("hidden");
+  row.innerHTML = items
+    .map(({ h, fr, isFriend, online }) => {
+      const rawName =
+        (fr && friendDisplayName(fr)) || h.name || h.short_id || "…";
+      const name = escapeHtml(rawName);
+      const nameAttr = escapeAttr(rawName);
+      const uid = escapeAttr(h.user_id || "");
+      const code = escapeAttr(h.friend_code || "");
+      if (online && h.user_id) {
+        return `<button type="button" class="empty-recent-chip is-call" data-recent-call="${uid}" title="${escapeAttr(
+          _t("friends.redial") || "Call back"
+        )}"><span class="empty-recent-dot" aria-hidden="true"></span><span class="empty-recent-name">${name}</span><span class="empty-recent-act">${escapeHtml(
+          _t("friends.redial") || "Call back"
+        )}</span></button>`;
+      }
+      if (isFriend && h.user_id) {
+        return `<button type="button" class="empty-recent-chip is-msg" data-recent-msg="${uid}" data-name="${nameAttr}" title="${escapeAttr(
+          _t("friends.message") || "Message"
+        )}"><span class="empty-recent-name">${name}</span><span class="empty-recent-act">${escapeHtml(
+          _t("friends.message") || "Msg"
+        )}</span></button>`;
+      }
+      if (h.friend_code) {
+        return `<button type="button" class="empty-recent-chip is-add" data-recent-add="${code}" title="${escapeAttr(
+          _t("friends.addFromHistory") || "Add friend"
+        )}"><span class="empty-recent-name">${name}</span><span class="empty-recent-act">${escapeHtml(
+          _t("friends.addFromHistory") || "Add"
+        )}</span></button>`;
+      }
+      return "";
+    })
+    .join("");
+  row.querySelectorAll("[data-recent-call]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const uid = btn.getAttribute("data-recent-call");
+      if (!uid) return;
+      trackEvent("empty_recent_call");
+      placeFriendCall(uid, { closePanel: false });
+    });
+  });
+  row.querySelectorAll("[data-recent-msg]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      trackEvent("empty_recent_msg");
+      openFriendChat(btn.getAttribute("data-recent-msg"), {
+        name: btn.getAttribute("data-name") || "",
+      });
+    });
+  });
+  row.querySelectorAll("[data-recent-add]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const code = btn.getAttribute("data-recent-add");
+      if (!code) return;
+      trackEvent("empty_recent_add");
+      requestAddFriend(code);
+    });
+  });
 }
 
 /**
@@ -5389,6 +7744,11 @@ function maybeStartLongWaitBoost() {
  */
 function maybeShowAloneInviteToast() {
   try {
+    // Invite UI lives on the empty partner card — no floating popup.
+    if (!SOFT_POPUPS_ENABLED) {
+      aloneInviteToastShown = true;
+      return;
+    }
     if (aloneInviteToastShown) return;
     if (matched || inFriendCall || trioBrowse) return;
     if (!inQueue && !wantSearch) return;
@@ -5484,6 +7844,7 @@ function markPeopleOnlineNudgeDay() {
 }
 function maybeShowPeopleOnlineNudge() {
   try {
+    if (!SOFT_POPUPS_ENABLED) return;
     if (peopleOnlineNudgeDayDone()) return;
     if (matched || inFriendCall || inQueue || wantSearch || trioBrowse) return;
     const online = lastOnlineCount || 0;
@@ -5648,10 +8009,11 @@ function syncMatchChrome() {
     empty.classList.toggle("is-searching", isSearching);
     if (isIdle) empty.classList.remove("is-searching");
   }
-  // Partner tray: hide compose until searching/matched (calmer empty state)
+  // Partner tray: hide compose until live; while searching keep Stop tappable
   const partnerFloor = $("tile-floor-partner");
   if (partnerFloor) {
     partnerFloor.classList.toggle("is-idle", isIdle);
+    partnerFloor.classList.toggle("is-searching", isSearching);
     partnerFloor.classList.toggle("is-active", isSearching || isLive);
   }
   const localFloor = $("tile-floor-local");
@@ -5720,9 +8082,12 @@ function setSearchingEmptyCopy() {
   maybeScheduleAloneSearchCopy();
 }
 
+/** Auto-expand invite QR while alone-searching (dominant path). */
+let aloneQrAutoTimer = 0;
+
 /**
- * Alone in queue: show Invite / Copy code / Friends under Start.
- * Growth path while ROOMS_ENABLED is false.
+ * Alone / quiet pool while searching: one dominant Share CTA (+ optional Call).
+ * Secondary actions (copy / QR / friends) stay collapsed under “More”.
  */
 function updateEmptyAloneActions() {
   const row = $("empty-alone-actions");
@@ -5733,17 +8098,125 @@ function updateEmptyAloneActions() {
     !matched &&
     !inFriendCall &&
     !trioBrowse;
+  // Show while searching alone — also if pool is very small (≤2 waiting)
+  const quiet =
+    isPoolAlone() ||
+    (typeof lastWaitingCount === "number" && lastWaitingCount <= 2);
   const show =
-    emptyOpen &&
-    isPoolAlone() &&
-    (inQueue || wantSearch) &&
-    !trioBrowse;
+    emptyOpen && quiet && (inQueue || wantSearch) && !trioBrowse;
   if (row) {
     row.hidden = !show;
     if (show) row.removeAttribute("hidden");
     else row.setAttribute("hidden", "");
+    row.classList.toggle("is-dominant", !!show);
   }
   document.documentElement.classList.toggle("alone-searching", !!show);
+
+  // Online friends → one-tap Call (better than cold invite when possible)
+  const callRow = $("empty-alone-call-row");
+  const onlineFriends = (friendsCache || []).filter(
+    (f) => f && f.online && f.user_id && f.user_id !== myUserId
+  );
+  if (callRow) {
+    if (show && onlineFriends.length) {
+      callRow.hidden = false;
+      callRow.removeAttribute("hidden");
+      callRow.innerHTML =
+        `<span class="empty-alone-call-lbl">${escapeHtml(
+          _t("friends.callOnlineNow") || "Friends online — call now"
+        )}</span>` +
+        onlineFriends
+          .slice(0, 4)
+          .map((f) => {
+            const name = escapeHtml(
+              friendDisplayName(f) || f.name || f.short_id || "Friend"
+            );
+            return `<button type="button" class="empty-alone-btn accent empty-alone-call-btn" data-alone-call="${escapeAttr(
+              f.user_id
+            )}">${escapeHtml(
+              _t("friends.redial") || "Call"
+            )} · ${name}</button>`;
+          })
+          .join("");
+      callRow.querySelectorAll("[data-alone-call]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const uid = btn.getAttribute("data-alone-call");
+          if (!uid) return;
+          trackEvent("empty_alone_call_online");
+          placeFriendCall(uid, { closePanel: false });
+        });
+      });
+      // Soften share CTA when Call is available
+      const share = $("btn-empty-invite-share");
+      if (share) {
+        share.classList.remove("accent", "empty-alone-primary");
+        share.classList.add("ghost");
+      }
+    } else {
+      callRow.hidden = true;
+      callRow.setAttribute("hidden", "");
+      callRow.innerHTML = "";
+      const share = $("btn-empty-invite-share");
+      if (share) {
+        share.classList.add("accent", "empty-alone-primary");
+        share.classList.remove("ghost");
+      }
+    }
+  }
+
+  // Code on primary CTA subtitle (not a separate chip row)
+  const codeWrap = $("empty-alone-code-wrap");
+  const codeBtn = $("btn-empty-alone-code");
+  const shareBtn = $("btn-empty-invite-share");
+  if (codeWrap) {
+    // Always hidden as separate row — code lives in primary button when ready
+    codeWrap.hidden = true;
+    codeWrap.setAttribute("hidden", "");
+  }
+  if (shareBtn && show && myFriendCode) {
+    const base =
+      _t("friends.inviteLiveCta") || "Share invite · I’m live";
+    shareBtn.innerHTML = `${escapeHtml(base)}<span class="empty-alone-code-sub">${escapeHtml(
+      myFriendCode
+    )}</span>`;
+  } else if (shareBtn && show) {
+    shareBtn.textContent =
+      _t("friends.inviteLiveCta") || "Share invite · I’m live";
+  }
+  if (codeBtn && !codeBtn.dataset.wired) {
+    codeBtn.dataset.wired = "1";
+    codeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      shareFriendInvite({ preferShare: false, liveNow: true });
+    });
+  }
+
+  // Auto-show QR after a short alone wait (scan path without extra taps)
+  if (aloneQrAutoTimer) {
+    clearTimeout(aloneQrAutoTimer);
+    aloneQrAutoTimer = 0;
+  }
+  if (!show) {
+    const qr = $("empty-alone-qr");
+    if (qr) {
+      qr.hidden = true;
+      qr.innerHTML = "";
+    }
+    const more = $("empty-alone-more");
+    if (more) more.open = false;
+  } else if (!onlineFriends.length) {
+    aloneQrAutoTimer = setTimeout(() => {
+      aloneQrAutoTimer = 0;
+      if (matched || inFriendCall || !document.documentElement.classList.contains("alone-searching"))
+        return;
+      const qr = $("empty-alone-qr");
+      if (qr && (qr.hidden || !qr.innerHTML)) {
+        trackEvent("empty_alone_qr_auto");
+        toggleEmptyAloneQr();
+      }
+    }, 6000);
+  }
+  updateEmptyIdleInvite();
 }
 
 let aloneSearchCopyTimer = 0;
@@ -5864,6 +8337,7 @@ function isOnCellular() {
  */
 function maybeShowCellularDataTip() {
   try {
+    if (!SOFT_POPUPS_ENABLED) return;
     if (!isLikelyMobile()) return;
     if (!isOnCellular()) return;
     try {
@@ -5919,6 +8393,7 @@ function placeFriendCall(userId, { closePanel = true } = {}) {
   if (!uid) return false;
   if (!isMutualFriend(uid)) {
     clearCallTimeout();
+    hideOutgoingCallToast();
     setStatus(
       _t("friends.callOnlyFriends") ||
         "Only friends can call — add them by code first"
@@ -5935,14 +8410,17 @@ function placeFriendCall(userId, { closePanel = true } = {}) {
   };
   if (!send({ type: "call_friend", user_id: uid })) {
     clearCallTimeout();
+    hideOutgoingCallToast();
     lastOutgoingCallPeer = null;
     setStatus(_t("status.disconnected") || "disconnected — reconnecting…");
     log(_t("status.disconnected") || "not connected");
     return false;
   }
   setStatus(_t("status.calling") || "Calling…");
+  showOutgoingCallToast(lastOutgoingCallPeer);
   startCallTimeout();
   log(_t("status.calling") || "Calling…");
+  trackEvent("friend_call_place");
   if (closePanel) closeFriends();
   return true;
 }
@@ -6208,12 +8686,18 @@ function playRingBurst() {
 function startIncomingRing(name) {
   stopIncomingRing();
   playRingBurst();
+  tryVibrateRing();
   ringTimer = setInterval(() => {
     if (!incomingCallFrom) {
       stopIncomingRing();
       return;
     }
     playRingBurst();
+    tryVibrateRing();
+    // Re-assert OS notification while tab stays in background
+    if (document.visibilityState !== "visible") {
+      tryShowCallNotification(name, { renotify: true });
+    }
   }, 2200);
   // Flash document title when tab is in background
   titleFlashBase = document.title;
@@ -6228,8 +8712,31 @@ function startIncomingRing(name) {
       ? `📞 ${name || "Call"} — ruletka.vip`
       : titleFlashBase || "ruletka.vip";
   }, 900);
-  // System notification if page is hidden
-  tryShowCallNotification(name);
+  // System notification if page is hidden (or not focused)
+  tryShowCallNotification(name, { renotify: false });
+  // If user returns to tab mid-ring, focus Answer
+  try {
+    document.addEventListener("visibilitychange", onRingVisibility, {
+      passive: true,
+    });
+  } catch (_) {}
+}
+
+function onRingVisibility() {
+  if (!incomingCallFrom) return;
+  if (document.visibilityState === "visible") {
+    try {
+      $("btn-accept-call")?.focus?.();
+    } catch (_) {}
+  }
+}
+
+function tryVibrateRing() {
+  try {
+    if (typeof navigator.vibrate === "function") {
+      navigator.vibrate([120, 80, 120, 80, 200]);
+    }
+  } catch (_) {}
 }
 
 function stopIncomingRing() {
@@ -6251,38 +8758,266 @@ function stopIncomingRing() {
     } catch (_) {}
     activeCallNotification = null;
   }
+  try {
+    document.removeEventListener("visibilitychange", onRingVisibility);
+  } catch (_) {}
+  try {
+    if (typeof navigator.vibrate === "function") navigator.vibrate(0);
+  } catch (_) {}
 }
 
-function tryShowCallNotification(name) {
+/**
+ * OS notification for incoming friend call (background / other tab).
+ * @param {string} name
+ * @param {{ renotify?: boolean }} [opts]
+ */
+function tryShowCallNotification(name, opts = {}) {
   if (typeof Notification === "undefined") return;
-  if (document.visibilityState === "visible") return;
+  // Visible + focused: in-page toast is enough
+  if (
+    document.visibilityState === "visible" &&
+    (typeof document.hasFocus !== "function" || document.hasFocus())
+  ) {
+    return;
+  }
   const show = () => {
     try {
-      activeCallNotification = new Notification(_t("friends.incomingNotifTitle"), {
-        body: _t("friends.incomingNotifBody", { n: name || "Friend" }),
-        tag: "ruletka-friend-call",
-        renotify: true,
-        silent: false,
-      });
+      // Close previous same-tag so renotify works on some browsers
+      if (activeCallNotification) {
+        try {
+          activeCallNotification.close();
+        } catch (_) {}
+        activeCallNotification = null;
+      }
+      activeCallNotification = new Notification(
+        _t("friends.incomingNotifTitle") || "Incoming call",
+        {
+          body:
+            _t("friends.incomingNotifBody", { n: name || "Friend" }) ||
+            `${name || "Friend"} is calling — tap to answer`,
+          tag: "ruletka-friend-call",
+          renotify: opts.renotify !== false,
+          requireInteraction: true,
+          silent: false,
+        }
+      );
       activeCallNotification.onclick = () => {
-        window.focus();
-        activeCallNotification?.close();
+        try {
+          window.focus();
+        } catch (_) {}
+        try {
+          activeCallNotification?.close();
+        } catch (_) {}
+        // Jump to answer control
+        try {
+          $("btn-accept-call")?.focus?.();
+          $("call-toast")?.scrollIntoView?.({ block: "nearest" });
+        } catch (_) {}
+        trackEvent("call_notif_click");
       };
+      trackEvent("call_notif_show", {
+        renotify: opts.renotify ? 1 : 0,
+      });
     } catch (_) {}
   };
-  if (Notification.permission === "granted") show();
-  else if (Notification.permission === "default") {
+  if (Notification.permission === "granted") {
+    show();
+  } else if (
+    Notification.permission === "default" &&
+    friendCallAlertsEnabled()
+  ) {
+    // User already opted in (Accept prompt) but OS dialog not finished
     Notification.requestPermission().then((p) => {
-      if (p === "granted" && incomingCallFrom && document.visibilityState !== "visible") {
+      trackEvent("notif_permission", { p: String(p || ""), src: "call_ring" });
+      if (
+        p === "granted" &&
+        incomingCallFrom &&
+        document.visibilityState !== "visible"
+      ) {
         show();
       }
     });
   }
 }
 
-/** Never auto-prompt for notifications — only if UI later offers an explicit opt-in. */
+/**
+ * Alerts for friend online + incoming calls (same pref — one opt-in).
+ * Only after explicit user action (Friends toggle or post-Accept toast).
+ */
+function friendOnlineNotifEnabled() {
+  try {
+    return loadPrefs().friendOnlineNotif === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Alias: call + online share the same opt-in. */
+function friendCallAlertsEnabled() {
+  return friendOnlineNotifEnabled();
+}
+
+function syncFriendOnlineNotifUi() {
+  const chk = $("chk-friend-online-notif");
+  if (!chk) return;
+  chk.checked = friendOnlineNotifEnabled();
+}
+
+/** Called when Friends opens — never prompts unless already opted in. */
 function ensureNotifPermissionSoft() {
-  // Intentionally empty: pop-up permission nags feel like "stay on the site" pressure.
+  if (!friendOnlineNotifEnabled()) return;
+  if (typeof Notification === "undefined") return;
+  if (Notification.permission !== "default") return;
+  try {
+    Notification.requestPermission().then((p) => {
+      trackEvent("notif_permission", { p: String(p || ""), src: "soft" });
+    });
+  } catch (_) {}
+}
+
+async function setFriendOnlineNotif(on) {
+  savePrefs({ friendOnlineNotif: !!on });
+  syncFriendOnlineNotifUi();
+  trackEvent("friend_online_notif_pref", { on: on ? 1 : 0 });
+  if (!on) {
+    setStatus(
+      _t("friends.notifOffline") || "Call & online alerts off"
+    );
+    return;
+  }
+  if (typeof Notification === "undefined") {
+    setStatus(
+      _t("friends.notifUnsupported") || "Notifications not supported here"
+    );
+    savePrefs({ friendOnlineNotif: false });
+    syncFriendOnlineNotifUi();
+    return;
+  }
+  if (Notification.permission === "granted") {
+    setStatus(
+      _t("friends.notifOnCalls") ||
+        "Alerts on — calls & friends online when this tab is in the background"
+    );
+    return;
+  }
+  if (Notification.permission === "denied") {
+    setStatus(
+      _t("friends.notifDenied") ||
+        "Notifications blocked — enable them in browser settings"
+    );
+    savePrefs({ friendOnlineNotif: false });
+    syncFriendOnlineNotifUi();
+    return;
+  }
+  try {
+    const p = await Notification.requestPermission();
+    trackEvent("notif_permission", { p: String(p || ""), src: "opt_in" });
+    if (p === "granted") {
+      setStatus(
+        _t("friends.notifOnCalls") ||
+          "Alerts on — calls & friends online when this tab is in the background"
+      );
+    } else {
+      savePrefs({ friendOnlineNotif: false });
+      syncFriendOnlineNotifUi();
+      setStatus(
+        _t("friends.notifDenied") || "Notifications not allowed"
+      );
+    }
+  } catch (_) {
+    savePrefs({ friendOnlineNotif: false });
+    syncFriendOnlineNotifUi();
+  }
+}
+
+/** One-shot: after first mutual Accept, offer call alerts (not a cold nag). */
+const NOTIF_OPTIN_KEY = "ruletka-notif-optin-prompt-v1";
+
+function notifOptInPromptDone() {
+  try {
+    return localStorage.getItem(NOTIF_OPTIN_KEY) === "1";
+  } catch {
+    return true;
+  }
+}
+
+function markNotifOptInPromptDone() {
+  try {
+    localStorage.setItem(NOTIF_OPTIN_KEY, "1");
+  } catch (_) {}
+}
+
+/**
+ * Soft toast after first friend Accept — Enable alerts for missed calls.
+ * Skipped if already opted in, denied, or unsupported.
+ */
+function maybeShowNotifOptInAfterAccept() {
+  try {
+    if (notifOptInPromptDone()) return;
+    if (friendOnlineNotifEnabled()) {
+      markNotifOptInPromptDone();
+      return;
+    }
+    if (typeof Notification === "undefined") {
+      markNotifOptInPromptDone();
+      return;
+    }
+    if (Notification.permission === "denied") {
+      markNotifOptInPromptDone();
+      return;
+    }
+    if (matched || inFriendCall || trioBrowse) return;
+    if ($("notif-optin-toast") || $("call-toast")) return;
+    // Defer so Accept toast can show first; then offer alerts
+    setTimeout(() => {
+      try {
+        if (notifOptInPromptDone() || friendOnlineNotifEnabled()) return;
+        if ($("call-toast") || matched || inFriendCall) return;
+        // Remove accepted toast if still open — single focused CTA
+        try {
+          $("friend-accepted-toast")?.remove?.();
+        } catch (_) {}
+        markNotifOptInPromptDone();
+        const toast = document.createElement("div");
+        toast.id = "notif-optin-toast";
+        toast.className =
+          "friend-soft-toast post-match-friend-nudge is-force is-notif-optin";
+        toast.setAttribute("role", "dialog");
+        toast.style.pointerEvents = "auto";
+        toast.innerHTML = `
+          <strong>${escapeHtml(
+            _t("friends.notifOptInTitle") || "Don’t miss the next Call"
+          )}</strong>
+          <span>${escapeHtml(
+            _t("friends.notifOptInBody") ||
+              "Turn on alerts so you hear friend calls when this tab is in the background."
+          )}</span>
+          <div class="export-nudge-actions post-match-actions" style="margin-top:0.5rem">
+            <button type="button" class="pill tight accent post-match-primary" id="btn-notif-optin-yes">${escapeHtml(
+              _t("friends.notifOptInYes") || "Enable alerts"
+            )}</button>
+            <button type="button" class="pill tight ghost" id="btn-notif-optin-no">${escapeHtml(
+              _t("friends.notifOptInNo") || "Not now"
+            )}</button>
+          </div>`;
+        document.body.appendChild(toast);
+        trackEvent("notif_optin_show");
+        const dismiss = () => {
+          if (toast.parentNode) toast.remove();
+        };
+        $("btn-notif-optin-no")?.addEventListener("click", () => {
+          trackEvent("notif_optin_dismiss");
+          dismiss();
+        });
+        $("btn-notif-optin-yes")?.addEventListener("click", async () => {
+          trackEvent("notif_optin_accept");
+          dismiss();
+          await setFriendOnlineNotif(true);
+        });
+        setTimeout(dismiss, 24000);
+      } catch (_) {}
+    }, 4200);
+  } catch (_) {}
 }
 
 function flashPartnerTile() {
@@ -6295,14 +9030,11 @@ function flashPartnerTile() {
   setTimeout(() => tile.classList.remove("match-flash"), 1100);
 }
 
-/** Brief soft toast when a match lands / media path is up. */
+/**
+ * Match landed / connected.
+ * Strangers → status only. Friend call → small top-right toast under stars.
+ */
 function showMatchFoundToast(opts = {}) {
-  const existing = $("match-found-toast");
-  if (existing) existing.remove();
-  const toast = document.createElement("div");
-  toast.id = "match-found-toast";
-  toast.className = "friend-soft-toast friend-soft-toast-ok match-found-toast";
-  toast.setAttribute("role", "status");
   const friend = matchMode === "friend" || inFriendCall;
   let title;
   let body = "";
@@ -6322,13 +9054,24 @@ function showMatchFoundToast(opts = {}) {
       _t("match.foundBody") ||
       (friend ? "Connecting video…" : "Connecting video…");
   }
-  toast.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${escapeHtml(
-    body
-  )}</span>`;
-  document.body.appendChild(toast);
-  setTimeout(() => {
-    if (toast.parentNode) toast.remove();
-  }, opts.connected ? 2800 : 2200);
+  setStatus(body ? `${title} · ${body}` : title);
+  // Friend connect only — corner toast under ★ (not the old bottom popup)
+  if (!friend) return;
+  try {
+    const id = "friend-connect-toast";
+    $(id)?.remove?.();
+    const toast = document.createElement("div");
+    toast.id = id;
+    toast.className = "corner-toast friend-connect-toast";
+    toast.setAttribute("role", "status");
+    toast.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${escapeHtml(
+      body
+    )}</span>`;
+    document.body.appendChild(toast);
+    setTimeout(() => {
+      if (toast.parentNode) toast.remove();
+    }, opts.connected ? 3200 : 2600);
+  } catch (_) {}
 }
 
 function setArchPill(mode) {
@@ -6435,6 +9178,12 @@ function markPathStatsTipDone() {
  */
 function maybeShowPathStatsTip() {
   try {
+    if (!SOFT_POPUPS_ENABLED) {
+      try {
+        markPathStatsTipDone?.();
+      } catch (_) {}
+      return;
+    }
     if (pathStatsTipDone()) return;
     if ($("path-stats-tip") || $("weak-conn-tip") || $("prefer-direct-auto-toast"))
       return;
@@ -7106,9 +9855,191 @@ async function pushOutboundVideoTracks() {
   updateSideIcons();
 }
 
+/**
+ * Mobile browsers (esp. iOS Safari) often paint CSS filter:blur() on <video> as solid black.
+ * Use a canvas that samples the video at low res + soft upscale (works everywhere).
+ */
+function needsCanvasVideoBlur() {
+  try {
+    // Coarse pointer / no hover ≈ phone/tablet; also force for iOS UA
+    const ua = navigator.userAgent || "";
+    if (/iPhone|iPad|iPod|Android|Mobile|webOS/i.test(ua)) return true;
+    if (window.matchMedia?.("(hover: none)").matches) return true;
+    if (window.matchMedia?.("(pointer: coarse)").matches) return true;
+  } catch (_) {}
+  return false;
+}
+
+/** @type {number} */
+let partnerBlurRaf = 0;
+/** @type {number} */
+let selfBlurRaf = 0;
+
+function ensureVideoBlurCanvas(tileId, canvasId) {
+  const tile = $(tileId);
+  if (!tile) return null;
+  let c = $(canvasId);
+  if (!c) {
+    c = document.createElement("canvas");
+    c.id = canvasId;
+    c.className = "video-blur-canvas";
+    c.setAttribute("aria-hidden", "true");
+    // Sit above videos, below chrome (stars/fs are z 7–8)
+    tile.appendChild(c);
+  }
+  return c;
+}
+
+/**
+ * Soft blur by multi-pass downscale (no CSS filter on <video> — avoids black frame on iOS).
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {HTMLVideoElement} video
+ * @param {HTMLCanvasElement} canvas
+ * @param {{ mirror?: boolean }} [opts]
+ */
+function drawSoftBlurredVideo(ctx, video, canvas, opts = {}) {
+  const vw = video.videoWidth || 0;
+  const vh = video.videoHeight || 0;
+  if (!vw || !vh || video.readyState < 2) {
+    // Not ready — soft slate (not pure black)
+    const w = canvas.width || 160;
+    const h = canvas.height || 90;
+    const g = ctx.createLinearGradient(0, 0, w, h);
+    g.addColorStop(0, "#1c2230");
+    g.addColorStop(1, "#12161e");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+    return;
+  }
+  // Target display buffer (modest for CPU on phones)
+  const outW = 360;
+  const outH = Math.max(1, Math.round((vh / vw) * outW));
+  if (canvas.width !== outW || canvas.height !== outH) {
+    canvas.width = outW;
+    canvas.height = outH;
+  }
+  // Tiny intermediate for heavy blur feel
+  const tinyW = 48;
+  const tinyH = Math.max(1, Math.round((vh / vw) * tinyW));
+  if (!drawSoftBlurredVideo._tiny) {
+    drawSoftBlurredVideo._tiny = document.createElement("canvas");
+  }
+  const tiny = drawSoftBlurredVideo._tiny;
+  if (tiny.width !== tinyW || tiny.height !== tinyH) {
+    tiny.width = tinyW;
+    tiny.height = tinyH;
+  }
+  const tctx = tiny.getContext("2d");
+  if (!tctx) return;
+  try {
+    tctx.imageSmoothingEnabled = true;
+    tctx.drawImage(video, 0, 0, tinyW, tinyH);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    // Optional extra blur if browser supports canvas filter
+    try {
+      ctx.filter = "blur(6px) saturate(0.9)";
+    } catch (_) {
+      ctx.filter = "none";
+    }
+    if (opts.mirror) {
+      ctx.save();
+      ctx.translate(outW, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(tiny, 0, 0, tinyW, tinyH, 0, 0, outW, outH);
+      ctx.restore();
+    } else {
+      ctx.drawImage(tiny, 0, 0, tinyW, tinyH, 0, 0, outW, outH);
+    }
+    ctx.filter = "none";
+    // Slight dim so it reads as “privacy blur”
+    ctx.fillStyle = "rgba(10, 12, 18, 0.18)";
+    ctx.fillRect(0, 0, outW, outH);
+  } catch (_) {
+    ctx.fillStyle = "#1a2030";
+    ctx.fillRect(0, 0, outW, outH);
+  }
+}
+
+function stopPartnerBlurCanvas() {
+  if (partnerBlurRaf) {
+    cancelAnimationFrame(partnerBlurRaf);
+    partnerBlurRaf = 0;
+  }
+  const c = $("partner-blur-canvas");
+  if (c) {
+    c.classList.remove("is-active");
+    c.hidden = true;
+  }
+}
+
+function startPartnerBlurCanvas() {
+  if (!needsCanvasVideoBlur()) {
+    stopPartnerBlurCanvas();
+    return;
+  }
+  const canvas = ensureVideoBlurCanvas("tile-remote", "partner-blur-canvas");
+  const video = $("remote");
+  if (!canvas || !video) return;
+  canvas.hidden = false;
+  canvas.classList.add("is-active");
+  const ctx = canvas.getContext("2d", { alpha: false });
+  if (!ctx) return;
+  const tick = () => {
+    if (!partnerBlurred) {
+      stopPartnerBlurCanvas();
+      return;
+    }
+    drawSoftBlurredVideo(ctx, video, canvas, { mirror: false });
+    partnerBlurRaf = requestAnimationFrame(tick);
+  };
+  if (partnerBlurRaf) cancelAnimationFrame(partnerBlurRaf);
+  partnerBlurRaf = requestAnimationFrame(tick);
+}
+
+function stopSelfBlurCanvas() {
+  if (selfBlurRaf) {
+    cancelAnimationFrame(selfBlurRaf);
+    selfBlurRaf = 0;
+  }
+  const c = $("self-blur-canvas");
+  if (c) {
+    c.classList.remove("is-active");
+    c.hidden = true;
+  }
+}
+
+function startSelfBlurCanvas() {
+  if (!needsCanvasVideoBlur()) {
+    stopSelfBlurCanvas();
+    return;
+  }
+  const canvas = ensureVideoBlurCanvas("tile-local", "self-blur-canvas");
+  const video = $("local");
+  if (!canvas || !video) return;
+  canvas.hidden = false;
+  canvas.classList.add("is-active");
+  const ctx = canvas.getContext("2d", { alpha: false });
+  if (!ctx) return;
+  const tick = () => {
+    if (!selfBlurred) {
+      stopSelfBlurCanvas();
+      return;
+    }
+    // Match selfie mirror (default) unless user flipped to natural
+    const mirror = !video.classList.contains("is-unmirrored");
+    drawSoftBlurredVideo(ctx, video, canvas, { mirror });
+    selfBlurRaf = requestAnimationFrame(tick);
+  };
+  if (selfBlurRaf) cancelAnimationFrame(selfBlurRaf);
+  selfBlurRaf = requestAnimationFrame(tick);
+}
+
 function setPartnerBlur(on) {
   partnerBlurred = !!on;
   updateSideIcons();
+  if (partnerBlurred) startPartnerBlurCanvas();
+  else stopPartnerBlurCanvas();
 }
 
 function togglePartnerBlur() {
@@ -7123,6 +10054,8 @@ function setSelfBlur(on) {
   selfBlurred = !!on;
   pushOutboundVideoTracks().catch(() => {});
   updateSideIcons();
+  if (selfBlurred) startSelfBlurCanvas();
+  else stopSelfBlurCanvas();
 }
 
 function toggleSelfBlur() {
@@ -7361,10 +10294,85 @@ function isLikelyMobile() {
   return /Android|iPhone|iPad|iPod|Mobile|webOS|IEMobile/i.test(ua);
 }
 
-/** Front (`user`) vs rear (`environment`) — only used when starting getUserMedia, not the Reverse button. */
-let cameraFacing = "user";
-/** When true, do not soft-fallback to the opposite facingMode (mobile device select). */
+/** Front (`user`) vs rear (`environment`) — used when starting getUserMedia. */
+let cameraFacing = (() => {
+  try {
+    const f = loadPrefs().cameraFacing;
+    if (f === "environment" || f === "user") return f;
+  } catch (_) {}
+  return "user";
+})();
+/** When true, do not soft-fallback to the opposite facingMode (user picked front/back). */
 let facingModeStrict = false;
+
+/**
+ * Infer facingMode from a device label (iOS: "Front Camera" / "Back Camera").
+ * @returns {"user"|"environment"|""}
+ */
+function inferFacingFromLabel(label) {
+  const s = String(label || "").toLowerCase();
+  if (!s) return "";
+  // Rear / world-facing first (avoid "front" false positives)
+  if (
+    /\b(back|rear|environment|world|outer|задн|задня|сзади|trasera|arrière|hinten)\b/i.test(
+      s
+    )
+  ) {
+    return "environment";
+  }
+  if (
+    /\b(front|user|face|facetime|selfie|передн|передня|фронт|frontal|avant|vorder)\b/i.test(
+      s
+    )
+  ) {
+    return "user";
+  }
+  return "";
+}
+
+/** Label for the currently selected camera option (or given deviceId). */
+function cameraOptionLabel(deviceId) {
+  const sel = $("sel-camera");
+  if (!sel) return "";
+  const id = deviceId != null ? String(deviceId) : sel.value || "";
+  const opt = [...(sel.options || [])].find((o) => o.value === id);
+  return (opt?.textContent || opt?.label || "").trim();
+}
+
+/**
+ * Apply camera choice from Settings / select: set facing for mobile + prefs.
+ * Critical for iPhone — mobile GUM was ignoring deviceId and always used front.
+ */
+function applyCameraChoice(deviceId) {
+  const id = String(deviceId || "").trim();
+  const label = cameraOptionLabel(id);
+  const face = inferFacingFromLabel(label);
+  if (face === "environment" || face === "user") {
+    cameraFacing = face;
+    facingModeStrict = true; // don't fall back to the other lens
+  } else if (id) {
+    // Unknown label but explicit pick — prefer deviceId path, keep last facing
+    facingModeStrict = false;
+  }
+  try {
+    savePrefs({
+      cameraId: id || "",
+      cameraFacing: cameraFacing === "environment" ? "environment" : "user",
+    });
+  } catch (_) {}
+  try {
+    syncCamFacingButtons?.();
+  } catch (_) {}
+  return { id, label, face: cameraFacing };
+}
+
+/** True if this deviceId is in the live camera select (safe for GUM on this device). */
+function isKnownCameraId(deviceId) {
+  if (!deviceId) return false;
+  const sel = $("sel-camera");
+  if (!sel?.options?.length) return false;
+  return [...sel.options].some((o) => o.value === deviceId);
+}
 
 /** Prefer mirrored selfie preview (true) or natural left/right (false). Reverse toggles this. */
 function getLocalMirrored() {
@@ -7547,31 +10555,69 @@ function videoSizeForPref(pref) {
 }
 
 /**
- * Build getUserMedia attempts. Mobile prefers facingMode (front cam).
- * Desktop prefers selected / saved device ids first.
+ * Build getUserMedia attempts.
+ * - Desktop: deviceId first.
+ * - Mobile: if user picked a known camera (Settings), try that deviceId first,
+ *   then facingMode (user/environment) so rear cam works on iPhone.
  * Uses Settings → Camera resolution when set.
  */
 function buildMediaAttempts(videoDeviceId, audioDeviceId) {
-  const audioBase = {
-    echoCancellation: true,
-    noiseSuppression: true,
-    autoGainControl: true,
-    channelCount: 1,
-  };
+  // Low capture latency + AEC — reduces “sound lags picture” (AEC alone can add 20–80ms)
+  const audioBase =
+    typeof lowLatencyAudioConstraints === "function"
+      ? lowLatencyAudioConstraints()
+      : {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+          latency: { ideal: 0.01, max: 0.04 },
+        };
   const { primary: videoHi, fallback: videoMid } = videoSizeForPref(getVideoResolutionPref());
   const attempts = [];
   const mobile = isLikelyMobile();
+  const face =
+    cameraFacing === "environment" ? "environment" : "user";
+  const faceAlt = face === "user" ? "environment" : "user";
 
-  // Mobile (and reverse-cam): never use exact desktop deviceIds — OverconstrainedError is common
-  if (mobile || facingModeStrict) {
-    if (mobile) {
-      videoDeviceId = null;
-      audioDeviceId = null;
-    }
-    const face =
-      cameraFacing === "environment" ? "environment" : "user";
-    const faceAlt = face === "user" ? "environment" : "user";
-    // Strict reverse: try exact facing first so front↔back actually switches
+  // Only trust deviceIds that are in the live select (avoids stale desktop ids on phone)
+  const camId =
+    videoDeviceId && (!mobile || isKnownCameraId(videoDeviceId))
+      ? videoDeviceId
+      : null;
+  const micId = audioDeviceId || null;
+
+  // Explicit camera pick: deviceId first (iOS lists Front/Back with stable ids after permission)
+  if (camId) {
+    attempts.push({
+      video: { deviceId: { exact: camId }, ...videoHi },
+      audio: micId ? { deviceId: { ideal: micId }, ...audioBase } : audioBase,
+    });
+    attempts.push({
+      video: { deviceId: { ideal: camId }, ...videoHi },
+      audio: micId ? { deviceId: { ideal: micId }, ...audioBase } : audioBase,
+    });
+    attempts.push({
+      video: { deviceId: { ideal: camId }, ...videoMid },
+      audio: micId ? { deviceId: { ideal: micId }, ...audioBase } : true,
+    });
+    attempts.push({
+      video: { deviceId: { ideal: camId } },
+      audio: true,
+    });
+    // Pair deviceId with facingMode when we know front/back (helps some WebKits)
+    attempts.push({
+      video: {
+        deviceId: { ideal: camId },
+        facingMode: { ideal: face },
+        ...videoMid,
+      },
+      audio: true,
+    });
+  }
+
+  // Mobile / strict facing: facingMode path (rear = environment)
+  if (mobile || facingModeStrict || !camId) {
     if (facingModeStrict) {
       attempts.push({
         video: { facingMode: { exact: face }, ...videoHi },
@@ -7603,7 +10649,7 @@ function buildMediaAttempts(videoDeviceId, audioDeviceId) {
       video: { facingMode: { ideal: face } },
       audio: true,
     });
-    // Soft fallbacks only when not reversing (would undo the switch)
+    // Soft fallbacks only when not forcing front/back (would undo the switch)
     if (!facingModeStrict) {
       attempts.push({
         video: { facingMode: { ideal: faceAlt }, ...videoMid },
@@ -7620,44 +10666,43 @@ function buildMediaAttempts(videoDeviceId, audioDeviceId) {
     }
     attempts.push({ video: false, audio: audioBase });
     if (mobile) return attempts;
-    // Desktop reverse: continue into deviceId attempts below if facingMode fails
   }
 
-  if (videoDeviceId || audioDeviceId) {
+  if (camId || micId) {
     attempts.push({
-      video: videoDeviceId
-        ? { deviceId: { exact: videoDeviceId }, ...videoHi }
+      video: camId
+        ? { deviceId: { exact: camId }, ...videoHi }
         : { ...videoHi },
-      audio: audioDeviceId
-        ? { deviceId: { exact: audioDeviceId }, ...audioBase }
+      audio: micId
+        ? { deviceId: { exact: micId }, ...audioBase }
         : audioBase,
     });
     attempts.push({
-      video: videoDeviceId
-        ? { deviceId: { ideal: videoDeviceId }, ...videoHi }
+      video: camId
+        ? { deviceId: { ideal: camId }, ...videoHi }
         : { ...videoHi },
-      audio: audioDeviceId
-        ? { deviceId: { ideal: audioDeviceId }, ...audioBase }
+      audio: micId
+        ? { deviceId: { ideal: micId }, ...audioBase }
         : audioBase,
     });
     attempts.push({
-      video: videoDeviceId
-        ? { deviceId: { ideal: videoDeviceId }, ...videoMid }
+      video: camId
+        ? { deviceId: { ideal: camId }, ...videoMid }
         : { ...videoMid },
-      audio: audioDeviceId
-        ? { deviceId: { ideal: audioDeviceId }, ...audioBase }
+      audio: micId
+        ? { deviceId: { ideal: micId }, ...audioBase }
         : audioBase,
     });
-    if (videoDeviceId) {
+    if (camId) {
       attempts.push({
-        video: { deviceId: { ideal: videoDeviceId }, ...videoMid },
+        video: { deviceId: { ideal: camId }, ...videoMid },
         audio: false,
       });
     }
-    if (audioDeviceId) {
+    if (micId) {
       attempts.push({
         video: false,
-        audio: { deviceId: { ideal: audioDeviceId }, ...audioBase },
+        audio: { deviceId: { ideal: micId }, ...audioBase },
       });
     }
   }
@@ -7801,13 +10846,33 @@ async function startPreview() {
     let { videoDeviceId, audioDeviceId } = selectedDevices();
     const prefs = loadPrefs();
     const mobile = isLikelyMobile();
-    // Desktop: restore prefs. Mobile: ignore — deviceIds from another phone/PC break GUM
-    if (!mobile) {
-      if (!videoDeviceId && prefs.cameraId) videoDeviceId = prefs.cameraId;
-      if (!audioDeviceId && prefs.micId) audioDeviceId = prefs.micId;
-    } else {
+    // Restore saved devices when they still appear in the live select (safe on iPhone).
+    // Never use a stale id that is not in the current enumerateDevices list.
+    if (!videoDeviceId && prefs.cameraId && isKnownCameraId(prefs.cameraId)) {
+      videoDeviceId = prefs.cameraId;
+    }
+    if (!audioDeviceId && prefs.micId) {
+      audioDeviceId = prefs.micId;
+    }
+    if (mobile && videoDeviceId && !isKnownCameraId(videoDeviceId)) {
       videoDeviceId = null;
-      audioDeviceId = null;
+    }
+    // Restore last facing preference (rear cam) when prefs have it
+    try {
+      const savedFace = prefs.cameraFacing;
+      if (savedFace === "environment" || savedFace === "user") {
+        if (!inferFacingFromLabel(cameraOptionLabel(videoDeviceId))) {
+          cameraFacing = savedFace;
+        }
+      }
+    } catch (_) {}
+    // If select has a camera with a known front/back label, prefer that facing
+    if (videoDeviceId) {
+      const face = inferFacingFromLabel(cameraOptionLabel(videoDeviceId));
+      if (face) {
+        cameraFacing = face;
+        facingModeStrict = true;
+      }
     }
 
     // Release current tracks so the new device can open (exclusive cam/mic locks)
@@ -7843,14 +10908,17 @@ async function startPreview() {
       try {
         const face =
           cameraFacing === "environment" ? "environment" : "user";
-        const vConstraints = mobile
-          ? { video: { facingMode: { ideal: face } }, audio: false }
-          : {
-              video: videoDeviceId
-                ? { deviceId: { ideal: videoDeviceId } }
-                : true,
-              audio: false,
-            };
+        const vConstraints =
+          videoDeviceId && isKnownCameraId(videoDeviceId)
+            ? { video: { deviceId: { ideal: videoDeviceId } }, audio: false }
+            : mobile
+              ? { video: { facingMode: { ideal: face } }, audio: false }
+              : {
+                  video: videoDeviceId
+                    ? { deviceId: { ideal: videoDeviceId } }
+                    : true,
+                  audio: false,
+                };
         const v = await navigator.mediaDevices.getUserMedia(vConstraints);
         v.getVideoTracks().forEach((t) => stream.addTrack(t));
       } catch (_) {}
@@ -7859,9 +10927,7 @@ async function startPreview() {
       try {
         const a = await navigator.mediaDevices.getUserMedia({
           video: false,
-          audio: mobile
-            ? true
-            : audioDeviceId
+          audio: audioDeviceId
             ? {
                 deviceId: { ideal: audioDeviceId },
                 echoCancellation: true,
@@ -7881,25 +10947,61 @@ async function startPreview() {
     showEnableCamButton(false, _t("local.emptySub"));
     await attachLocalStream(stream);
     applyLocalMirrorClass();
-    if (videoDeviceId || audioDeviceId) {
-      const gotV = stream.getVideoTracks()[0]?.getSettings?.().deviceId;
+    // Verify we got the requested facing / device; log soft fallbacks
+    {
+      const gotTrack = stream.getVideoTracks()[0];
+      const gotV = gotTrack?.getSettings?.().deviceId;
+      const gotFace = gotTrack?.getSettings?.()?.facingMode || "";
       const gotA = stream.getAudioTracks()[0]?.getSettings?.().deviceId;
+      if (gotFace === "environment" || gotFace === "user") {
+        cameraFacing = gotFace;
+      }
       if (videoDeviceId && gotV && gotV !== videoDeviceId) {
         log(_t("device.camFallback") || "camera fell back to another device");
+      }
+      if (
+        facingModeStrict &&
+        cameraFacing === "environment" &&
+        gotFace &&
+        gotFace !== "environment"
+      ) {
+        log(_t("device.camFallback") || "camera fell back to another device");
+        setStatus(
+          _t("device.rearCamFail") ||
+            "Could not open rear camera — try again or check permissions"
+        );
+      } else if (facingModeStrict) {
+        // Successful strict switch — clear strict so later cold starts can soft-fallback
+        // Keep cameraFacing so next startPreview prefers the same lens
       }
       if (audioDeviceId && gotA && gotA !== audioDeviceId) {
         log(_t("device.micFallback") || "mic fell back to another device");
       }
+      // Persist what we actually opened
+      try {
+        const patch = {
+          cameraFacing: cameraFacing === "environment" ? "environment" : "user",
+        };
+        if (gotV) patch.cameraId = gotV;
+        savePrefs(patch);
+        if (gotV && $("sel-camera")) {
+          const sel = $("sel-camera");
+          if ([...sel.options].some((o) => o.value === gotV)) sel.value = gotV;
+        }
+      } catch (_) {}
     }
   } catch (e) {
     const name = e?.name || "";
     if (name === "NotAllowedError" || name === "PermissionDeniedError") {
       mediaPermissionDenied = true;
     }
-    // Clear bad desktop device prefs that poison mobile (if any leaked)
+    // Only clear cameraId if it is no longer a known device (stale cross-device pref)
     if (name === "OverconstrainedError" && isLikelyMobile()) {
       try {
-        savePrefs({ cameraId: "", micId: "" });
+        const prefs = loadPrefs();
+        if (prefs.cameraId && !isKnownCameraId(prefs.cameraId)) {
+          savePrefs({ cameraId: "" });
+        }
       } catch (_) {}
     }
     log(_t("log.previewFail", { e: (e && (e.message || e.name)) || e }));
@@ -7907,6 +11009,7 @@ async function startPreview() {
     showEnableCamButton(true, friendlyMediaError(e));
   } finally {
     mediaPreviewBusy = false;
+    facingModeStrict = false; // one-shot for the switch attempt
   }
 }
 
@@ -8020,6 +11123,18 @@ function togglePartnerMute() {
 }
 
 function showSettingsView(name) {
+  // keep facing + audio toggles painted when opening device/connection pages
+  try {
+    if (name === "camera" || name === "devices") {
+      syncCamFacingButtons();
+      syncLowLatencyAudioToggles();
+    }
+    if (name === "connection" || name === "devices") {
+      syncLowLatencyAudioToggles();
+      syncPreferDirectToggle();
+    }
+  } catch (_) {}
+  // original body continues below — patch inserts at top of function
   const views = document.querySelectorAll("#settings-sheet .settings-view");
   const targetId = `settings-view-${name}`;
   views.forEach((v) => {
@@ -8090,6 +11205,160 @@ function syncPreferDirectToggle() {
   if (!chk) return;
   const prefs = loadPrefs();
   chk.checked = !!prefs.preferDirectOnly;
+}
+
+/** Low-latency audio (lipsync) — default on unless user opted out. */
+function isLowLatencyAudioPref() {
+  const p = loadPrefs();
+  if (p.lowLatencyAudio === false || p.lowLatencyAudio === 0) return false;
+  return true;
+}
+
+function syncLowLatencyAudioToggles() {
+  const on = isLowLatencyAudioPref();
+  const a = $("chk-low-latency-audio");
+  const b = $("chk-low-latency-audio-conn");
+  if (a) a.checked = on;
+  if (b) b.checked = on;
+}
+
+function setLowLatencyAudio(on, { restart = true } = {}) {
+  savePrefs({ lowLatencyAudio: !!on });
+  syncLowLatencyAudioToggles();
+  // Tighten/relax receive buffers on live PCs immediately
+  for (const pc of peerPcs.values()) {
+    try {
+      if (pc?.pc && typeof applyLowLatencyPlayout === "function") {
+        const tier = pc._qualityTier || "high";
+        const ms =
+          typeof playoutTargetForTier === "function"
+            ? playoutTargetForTier(tier)
+            : on
+              ? 28
+              : 50;
+        applyLowLatencyPlayout(pc.pc, ms);
+      }
+    } catch (_) {}
+  }
+  setStatus(
+    on
+      ? _t("settings.lowLatencyAudioOn") || "Low-latency audio on — restarting mic…"
+      : _t("settings.lowLatencyAudioOff") || "Full mic processing on — restarting mic…"
+  );
+  if (restart) {
+    startPreview().catch(() => {});
+  }
+  trackEvent("low_latency_audio", { on: on ? 1 : 0 });
+}
+
+function syncCamFacingButtons() {
+  const face = cameraFacing === "environment" ? "environment" : "user";
+  $("btn-cam-front")?.classList.toggle("is-active", face === "user");
+  $("btn-cam-rear")?.classList.toggle("is-active", face === "environment");
+}
+
+/**
+ * Explicit Front / Rear switch (reliable on iPhone).
+ * @param {"user"|"environment"} face
+ */
+async function switchCameraFacing(face) {
+  const want = face === "environment" ? "environment" : "user";
+  cameraFacing = want;
+  facingModeStrict = true;
+  // Prefer matching deviceId from the list when labels exist
+  const id = findDeviceIdForFacing(want);
+  if (id && $("sel-camera")) {
+    $("sel-camera").value = id;
+    applyCameraChoice(id);
+  } else {
+    try {
+      savePrefs({
+        cameraFacing: want,
+        cameraId: id || loadPrefs().cameraId || "",
+      });
+    } catch (_) {}
+  }
+  syncCamFacingButtons();
+  setStatus(
+    want === "environment"
+      ? _t("settings.camSwitchingRear") || "Switching to rear camera…"
+      : _t("settings.camSwitchingFront") || "Switching to front camera…"
+  );
+  trackEvent("cam_facing", { face: want });
+  await startPreview();
+  applyLocalMirrorClass();
+  syncSettingsSummary();
+  syncCamFacingButtons();
+  const got = currentTrackFacingMode();
+  if (got && got !== want) {
+    setStatus(
+      _t("device.rearCamFail") ||
+        "Could not open that camera — check permissions"
+    );
+  } else {
+    setStatus(
+      want === "environment"
+        ? _t("settings.camRearOn") || "Rear camera"
+        : _t("settings.camFrontOn") || "Front camera"
+    );
+  }
+}
+
+/** Update A/V lag chip from active peer stats. */
+async function updateAvLagChip() {
+  const chip = $("av-lag-chip");
+  if (!chip) return;
+  if (!matched && !inFriendCall) {
+    chip.hidden = true;
+    return;
+  }
+  const pc =
+    rtc ||
+    [...peerPcs.values()].find((p) => !isTeammateRole(p._role)) ||
+    [...peerPcs.values()][0];
+  if (!pc || typeof pc.estimateAvPlayoutLag !== "function") {
+    chip.hidden = true;
+    return;
+  }
+  try {
+    const lag = await pc.estimateAvPlayoutLag();
+    if (lag.lagMs == null && lag.audioMs == null) {
+      chip.hidden = true;
+      return;
+    }
+    const ms = Math.round(lag.lagMs != null ? lag.lagMs : lag.audioMs || 0);
+    const prevAlert =
+      chip.classList.contains("is-warn") || chip.classList.contains("is-bad");
+    chip.classList.remove("is-ok", "is-warn", "is-bad");
+    // +ms = audio behind video (the common lipsync complaint)
+    if (Math.abs(ms) < 45) {
+      chip.classList.add("is-ok");
+      chip.textContent = _t("conn.avSyncOk") || "A/V ok";
+      chip.title =
+        _t("conn.avSyncOkTitle") ||
+        "Audio and video playout are roughly aligned";
+    } else if (Math.abs(ms) < 100) {
+      chip.classList.add("is-warn");
+      chip.textContent =
+        (_t("conn.avLag") || "A/V") + " " + (ms > 0 ? "+" : "") + ms + "ms";
+      chip.title =
+        _t("conn.avLagTitle") ||
+        "Audio may trail the picture. Enable Low-latency audio in Settings.";
+    } else {
+      chip.classList.add("is-bad");
+      chip.textContent =
+        (_t("conn.avLag") || "A/V") + " " + (ms > 0 ? "+" : "") + ms + "ms";
+      chip.title =
+        _t("conn.avLagBadTitle") ||
+        "Noticeable A/V lag. Try Low-latency audio or a better network.";
+    }
+    const alert =
+      chip.classList.contains("is-warn") || chip.classList.contains("is-bad");
+    if (alert && !prevAlert) peekRemoteMeta(REMOTE_META_ALERT_MS);
+    // Don't force-show here; applyRemoteMetaVisibility decides
+  } catch (_) {
+    chip.hidden = true;
+  }
 }
 
 function syncLangChoices() {
@@ -8387,14 +11656,20 @@ function renderDeviceChoiceList(kind) {
       if (!target) return;
       target.value = id;
       if (k === "camera") {
-        savePrefs({ cameraId: id });
+        applyCameraChoice(id);
+        setStatus(_t("device.switchingCam") || "switching camera…");
         await startPreview();
+        applyLocalMirrorClass();
+        syncSettingsSummary();
       } else if (k === "mic") {
         savePrefs({ micId: id });
+        setStatus(_t("device.switchingMic") || "switching mic…");
         await startPreview();
+        syncSettingsSummary();
       } else if (k === "speaker") {
         savePrefs({ speakerId: id });
         applySpeaker();
+        syncSettingsSummary();
       }
       showSettingsView("devices");
     });
@@ -8470,6 +11745,11 @@ function wireSettingsNav() {
       await shareFriendInvite({ preferShare: true, liveNow: true });
     } catch (_) {}
   });
+  $("btn-empty-qr-invite")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    trackEvent("empty_alone_qr");
+    toggleEmptyAloneQr();
+  });
   $("btn-mobile-invite-friend")?.addEventListener("click", async () => {
     trackEvent("mobile_alone_invite_friend");
     try {
@@ -8532,10 +11812,296 @@ function wireSettingsNav() {
 }
 
 const PROFILE_FORMAT = "ruletka-profile/1";
+/** Password-protected export envelope (AES-GCM + PBKDF2). */
+const PROFILE_FORMAT_ENC = "ruletka-profile/2-enc";
+/** PBKDF2 iterations — high enough for offline password protection in-browser. */
+const PROFILE_KDF_ITERS = 310000;
+const PROFILE_MIN_PASSWORD = 6;
 
 /** Keys that must never be written to or read from a profile file (anti star double-spend). */
 const PROFILE_STAR_DENY =
   /^(stars?|my_?stars?|star_count|star_counts|star_edges|star_effects|hour_star|reputation|coins?)$/i;
+
+function b64FromBytes(u8) {
+  let s = "";
+  const bytes = u8 instanceof Uint8Array ? u8 : new Uint8Array(u8);
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    s += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(s);
+}
+
+function bytesFromB64(b64) {
+  const bin = atob(String(b64 || ""));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function isEncryptedProfile(data) {
+  if (!data || typeof data !== "object") return false;
+  const fmt = String(data.format || "");
+  return (
+    fmt === PROFILE_FORMAT_ENC ||
+    fmt === "ruletka-profile/2" ||
+    (data.ciphertext && data.salt && data.iv && (data.cipher === "AES-GCM" || data.kdf))
+  );
+}
+
+async function deriveProfileKey(password, saltBytes, iterations) {
+  const enc = new TextEncoder();
+  const baseKey = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(String(password || "")),
+    "PBKDF2",
+    false,
+    ["deriveKey"]
+  );
+  const iters = Number(iterations);
+  return crypto.subtle.deriveKey(
+    {
+      name: "PBKDF2",
+      salt: saltBytes,
+      iterations: Math.max(100000, Number.isFinite(iters) && iters > 0 ? iters : PROFILE_KDF_ITERS),
+      hash: "SHA-256",
+    },
+    baseKey,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+/**
+ * Encrypt a profile object into a portable JSON envelope.
+ * Password never leaves the device; only ciphertext is written to disk.
+ */
+async function encryptProfilePayload(profileObj, password) {
+  if (!crypto?.subtle) {
+    throw new Error("WebCrypto unavailable");
+  }
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveProfileKey(password, salt, PROFILE_KDF_ITERS);
+  const plain = new TextEncoder().encode(JSON.stringify(profileObj));
+  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plain);
+  return {
+    format: PROFILE_FORMAT_ENC,
+    v: 2,
+    software: "ruletka.vip",
+    exported_at: new Date().toISOString(),
+    kdf: "PBKDF2",
+    hash: "SHA-256",
+    iter: PROFILE_KDF_ITERS,
+    cipher: "AES-GCM",
+    salt: b64FromBytes(salt),
+    iv: b64FromBytes(iv),
+    ciphertext: b64FromBytes(new Uint8Array(ct)),
+    note:
+      "Encrypted profile backup. Open Settings → Import user and enter the same password to restore. Stars are hub-only and not inside this file.",
+  };
+}
+
+/** Decrypt envelope → plain profile object. Throws on wrong password / corrupt data. */
+async function decryptProfilePayload(envelope, password) {
+  if (!crypto?.subtle) throw new Error("WebCrypto unavailable");
+  const salt = bytesFromB64(envelope.salt);
+  const iv = bytesFromB64(envelope.iv);
+  const ct = bytesFromB64(envelope.ciphertext);
+  if (!salt.length || !iv.length || !ct.length) {
+    throw new Error("bad envelope");
+  }
+  const iters = Number(envelope.iter) || PROFILE_KDF_ITERS;
+  const key = await deriveProfileKey(password, salt, iters);
+  const plainBuf = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv },
+    key,
+    ct
+  );
+  const text = new TextDecoder().decode(plainBuf);
+  const data = JSON.parse(text);
+  if (!data || typeof data !== "object") throw new Error("bad payload");
+  return data;
+}
+
+/**
+ * Password modal for export (password + confirm) or import (single password).
+ * @param {{ mode: 'export'|'import' }} opts
+ * @returns {Promise<string|null>} password or null if cancelled
+ */
+function openProfilePasswordModal(opts = {}) {
+  const mode = opts.mode === "import" ? "import" : "export";
+  return new Promise((resolve) => {
+    let root = $("profile-pw-modal");
+    if (!root) {
+      root = document.createElement("div");
+      root.id = "profile-pw-modal";
+      root.className = "profile-pw-modal";
+      root.hidden = true;
+      root.innerHTML = `
+        <div class="profile-pw-scrim" data-pw-dismiss></div>
+        <div class="profile-pw-card" role="dialog" aria-modal="true" aria-labelledby="profile-pw-title">
+          <header class="profile-pw-head">
+            <h3 id="profile-pw-title"></h3>
+            <button type="button" class="profile-pw-close" data-pw-dismiss aria-label="Close">✕</button>
+          </header>
+          <p class="profile-pw-hint" id="profile-pw-hint"></p>
+          <label class="profile-pw-label" for="profile-pw-input">
+            <span id="profile-pw-label-text"></span>
+            <input type="password" id="profile-pw-input" class="profile-pw-input" autocomplete="new-password" spellcheck="false" />
+          </label>
+          <label class="profile-pw-label" id="profile-pw-confirm-wrap" for="profile-pw-confirm" hidden>
+            <span id="profile-pw-confirm-label"></span>
+            <input type="password" id="profile-pw-confirm" class="profile-pw-input" autocomplete="new-password" spellcheck="false" />
+          </label>
+          <p class="profile-pw-error" id="profile-pw-error" hidden></p>
+          <div class="profile-pw-actions">
+            <button type="button" class="pill tight ghost" data-pw-dismiss id="profile-pw-cancel"></button>
+            <button type="button" class="pill tight accent" id="profile-pw-submit"></button>
+          </div>
+          <button type="button" class="profile-pw-plain-link" id="profile-pw-plain" hidden></button>
+        </div>`;
+      document.body.appendChild(root);
+    }
+
+    const title = $("profile-pw-title");
+    const hint = $("profile-pw-hint");
+    const labelText = $("profile-pw-label-text");
+    const confirmWrap = $("profile-pw-confirm-wrap");
+    const confirmLabel = $("profile-pw-confirm-label");
+    const errEl = $("profile-pw-error");
+    const input = $("profile-pw-input");
+    const confirm = $("profile-pw-confirm");
+    const submit = $("profile-pw-submit");
+    const cancel = $("profile-pw-cancel");
+    const plainBtn = $("profile-pw-plain");
+
+    const showErr = (msg) => {
+      if (!errEl) return;
+      if (msg) {
+        errEl.hidden = false;
+        errEl.textContent = msg;
+      } else {
+        errEl.hidden = true;
+        errEl.textContent = "";
+      }
+    };
+
+    if (mode === "export") {
+      if (title)
+        title.textContent =
+          _t("settings.exportPwTitle") || "Protect export with a password";
+      if (hint)
+        hint.textContent =
+          _t("settings.exportPwHint") ||
+          "You’ll need this password to import on another phone or browser. We never store it.";
+      if (labelText)
+        labelText.textContent = _t("settings.exportPwLabel") || "Password";
+      if (confirmLabel)
+        confirmLabel.textContent =
+          _t("settings.exportPwConfirm") || "Confirm password";
+      if (confirmWrap) confirmWrap.hidden = false;
+      if (submit)
+        submit.textContent =
+          _t("settings.exportPwSubmit") || "Encrypt & download";
+      if (plainBtn) {
+        plainBtn.hidden = false;
+        plainBtn.textContent =
+          _t("settings.exportPlainLink") ||
+          "Export without password (not recommended)";
+      }
+    } else {
+      if (title)
+        title.textContent =
+          _t("settings.importPwTitle") || "Enter export password";
+      if (hint)
+        hint.textContent =
+          _t("settings.importPwHint") ||
+          "This file is encrypted. Type the password you set when exporting.";
+      if (labelText)
+        labelText.textContent = _t("settings.importPwLabel") || "Password";
+      if (confirmWrap) confirmWrap.hidden = true;
+      if (submit)
+        submit.textContent = _t("settings.importPwSubmit") || "Unlock & import";
+      if (plainBtn) plainBtn.hidden = true;
+    }
+    if (cancel) cancel.textContent = _t("settings.exportPwCancel") || "Cancel";
+    showErr("");
+    if (input) input.value = "";
+    if (confirm) confirm.value = "";
+
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      root.hidden = true;
+      root.setAttribute("hidden", "");
+      document.removeEventListener("keydown", onKey);
+      root.removeEventListener("click", onClick);
+      submit?.removeEventListener("click", onSubmit);
+      plainBtn?.removeEventListener("click", onPlain);
+      resolve(value);
+    };
+
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        finish(null);
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        onSubmit();
+      }
+    };
+    const onClick = (e) => {
+      if (e.target?.closest?.("[data-pw-dismiss]")) finish(null);
+    };
+    const onSubmit = () => {
+      const pw = String(input?.value || "");
+      if (mode === "export") {
+        if (pw.length < PROFILE_MIN_PASSWORD) {
+          showErr(
+            _t("settings.exportPwShort", { n: PROFILE_MIN_PASSWORD }) ||
+              `Password must be at least ${PROFILE_MIN_PASSWORD} characters`
+          );
+          input?.focus();
+          return;
+        }
+        const pw2 = String(confirm?.value || "");
+        if (pw !== pw2) {
+          showErr(
+            _t("settings.exportPwMismatch") || "Passwords do not match"
+          );
+          confirm?.focus();
+          return;
+        }
+        finish(pw);
+      } else {
+        if (!pw) {
+          showErr(
+            _t("settings.importPwEmpty") || "Enter the password"
+          );
+          input?.focus();
+          return;
+        }
+        finish(pw);
+      }
+    };
+    const onPlain = () => {
+      // Sentinel for unencrypted export
+      finish("");
+    };
+
+    document.addEventListener("keydown", onKey);
+    root.addEventListener("click", onClick);
+    submit?.addEventListener("click", onSubmit);
+    plainBtn?.addEventListener("click", onPlain);
+
+    root.hidden = false;
+    root.removeAttribute("hidden");
+    setTimeout(() => input?.focus?.(), 40);
+  });
+}
 
 function loadHistorySafe() {
   try {
@@ -8561,16 +12127,22 @@ function prefsForProfileExport() {
   return out;
 }
 
-/** Friends backup rows without star badges (hub is source of truth). */
+/** Friends backup rows without star badges (hub is source of truth). Includes local nicknames. */
 function friendsForProfileExport() {
-  return loadFriendsBackup().map((f) => ({
-    user_id: String(f.user_id || ""),
-    name: String(f.name || f.short_id || "").slice(0, 32),
-    friend_code: String(f.friend_code || "").toUpperCase(),
-    short_id: String(f.short_id || "").slice(0, 16),
-    saved_at: f.saved_at || Date.now(),
-    // deliberately omit: stars, star_count, effects
-  }));
+  const nicks = loadFriendNicks();
+  return loadFriendsBackup().map((f) => {
+    const uid = String(f.user_id || "");
+    const nick = String(nicks[uid] || f.nick || "").trim().slice(0, 32);
+    return {
+      user_id: uid,
+      name: String(f.name || f.short_id || "").slice(0, 32),
+      friend_code: String(f.friend_code || "").toUpperCase(),
+      short_id: String(f.short_id || "").slice(0, 16),
+      nick: nick || undefined,
+      saved_at: f.saved_at || Date.now(),
+      // deliberately omit: stars, star_count, effects
+    };
+  });
 }
 
 /**
@@ -8624,6 +12196,7 @@ function buildProfileExport() {
       // no stars field
     },
     friends: friendsForProfileExport(),
+    friend_nicks: loadFriendNicks(),
     prefs: prefsForProfileExport(),
     history: loadHistorySafe(),
     lang,
@@ -8754,14 +12327,15 @@ function renameFriendPrompt(userId, currentName) {
 const EXPORT_NUDGE_KEY = "ruletka-export-nudge-done-v1";
 /** Last time we showed the export nudge (ms) — allows a soft re-ask if never exported. */
 const EXPORT_NUDGE_SHOWN_AT_KEY = "ruletka-export-nudge-shown-at-v1";
-const EXPORT_NUDGE_RETRY_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
+/** Soft re-ask after 1 day if they only dismissed (never exported). */
+const EXPORT_NUDGE_RETRY_MS = 1 * 24 * 60 * 60 * 1000;
 const IMPORT_BACKUP_NUDGE_KEY = "ruletka-import-backup-nudge-v1";
 
 function exportNudgeDone() {
   try {
-    // Explicit dismiss or successful export
+    // Permanent only after a successful export
     if (localStorage.getItem(EXPORT_NUDGE_KEY) === "1") return true;
-    // Soft: re-show after a few days if they never acted
+    // Soft: re-show after retry window if they never exported
     const shown = Number(localStorage.getItem(EXPORT_NUDGE_SHOWN_AT_KEY) || 0);
     if (shown && Date.now() - shown < EXPORT_NUDGE_RETRY_MS) return true;
     return false;
@@ -8797,6 +12371,7 @@ function clearImportBackupNudge() {
 /** Soft one-shot after successful profile import (shown post-reload). */
 function maybeShowImportBackupNudge() {
   try {
+    // Retention-critical — always allowed even when soft marketing popups are off
     if (localStorage.getItem(IMPORT_BACKUP_NUDGE_KEY) !== "1") return;
   } catch {
     return;
@@ -8805,19 +12380,23 @@ function maybeShowImportBackupNudge() {
   clearImportBackupNudge();
   const toast = document.createElement("div");
   toast.id = "import-backup-nudge";
-  toast.className = "export-nudge-toast";
+  toast.className = "export-nudge-toast is-backup-nudge";
   toast.setAttribute("role", "status");
+  toast.style.pointerEvents = "auto";
   toast.innerHTML = `
-    <p>${escapeHtml(
+    <p class="export-nudge-title">${escapeHtml(
+      _t("friends.importBackupTitle") || "Backup this device"
+    )}</p>
+    <p class="export-nudge-body">${escapeHtml(
       _t("friends.importBackupNudge") ||
-        "Profile imported. Export a fresh backup when you can — keep a copy off this browser."
+        "Profile imported. Save a password-protected backup so you don’t lose friends if this browser is cleared."
     )}</p>
     <div class="export-nudge-actions">
       <button type="button" class="pill tight ghost" id="btn-import-nudge-later">${escapeHtml(
         _t("friends.importBackupLater") || "Later"
       )}</button>
       <button type="button" class="pill tight accent" id="btn-import-nudge-now">${escapeHtml(
-        _t("friends.importBackupBtn") || "Export now"
+        _t("friends.exportNudgeBtn") || "Encrypt & export"
       )}</button>
     </div>`;
   document.body.appendChild(toast);
@@ -8825,57 +12404,81 @@ function maybeShowImportBackupNudge() {
     if (toast.parentNode) toast.remove();
   };
   $("btn-import-nudge-later")?.addEventListener("click", dismiss);
-  $("btn-import-nudge-now")?.addEventListener("click", () => {
-    exportProfileFile();
-    dismiss();
+  $("btn-import-nudge-now")?.addEventListener("click", async () => {
+    trackEvent("import_backup_nudge_export");
+    const ok = await exportProfileFile();
+    if (ok) dismiss();
   });
-  setTimeout(dismiss, 22000);
+  setTimeout(dismiss, 28000);
+  trackEvent("import_backup_nudge_show");
 }
 
 /**
- * Soft toast after first friend / mutual accept.
- * Marks permanent done only on Export or Later — auto-hide can re-show after 3 days.
+ * Retention toast after first friend / star / mutual accept.
+ * Always allowed (not a soft marketing popup). Permanent dismiss only after successful export.
+ * Later / auto-hide can re-show after 1 day.
  */
 function maybeShowFirstFriendExportNudge(reason) {
   if (exportNudgeDone()) return;
-  if ($("export-nudge-toast") || $("import-backup-nudge") || $("alone-invite-toast"))
+  if ($("export-nudge-toast") || $("import-backup-nudge")) return;
+  // Don't cover live video with a modal-feeling toast mid-call
+  if (matched || inFriendCall) {
+    if (!maybeShowFirstFriendExportNudge._deferred) {
+      maybeShowFirstFriendExportNudge._deferred = reason || "first_friend";
+      setTimeout(() => {
+        const r = maybeShowFirstFriendExportNudge._deferred;
+        maybeShowFirstFriendExportNudge._deferred = null;
+        if (!matched && !inFriendCall) maybeShowFirstFriendExportNudge(r);
+      }, 12000);
+    }
     return;
+  }
   markExportNudgeShown();
   const toast = document.createElement("div");
   toast.id = "export-nudge-toast";
-  toast.className = "export-nudge-toast";
+  toast.className = "export-nudge-toast is-backup-nudge";
   toast.setAttribute("role", "status");
   toast.style.pointerEvents = "auto";
+  const title =
+    reason === "first_star"
+      ? _t("friends.exportNudgeStarTitle") || "You earned a star ★"
+      : reason === "friend_accept"
+        ? _t("friends.exportNudgeAcceptTitle") || "You’re friends now"
+        : _t("friends.exportNudgeTitle") || "Friend saved";
+  const body =
+    reason === "first_star"
+      ? _t("friends.exportNudgeStar") ||
+        "Save a password-protected backup so friends & identity survive if this browser is cleared."
+      : _t("friends.exportNudge") ||
+        "Save a password-protected backup so you don’t lose them if this browser is cleared.";
   toast.innerHTML = `
-    <p>${escapeHtml(
-      _t("friends.exportNudge") ||
-        "Friend added! Export a profile backup so you don’t lose them if this browser is cleared."
-    )}</p>
+    <p class="export-nudge-title">${escapeHtml(title)}</p>
+    <p class="export-nudge-body">${escapeHtml(body)}</p>
     <div class="export-nudge-actions">
       <button type="button" class="pill tight ghost" id="btn-export-nudge-later">${escapeHtml(
         _t("friends.exportNudgeLater") || "Later"
       )}</button>
       <button type="button" class="pill tight accent" id="btn-export-nudge-now">${escapeHtml(
-        _t("friends.exportNudgeBtn") || "Export now"
+        _t("friends.exportNudgeBtn") || "Encrypt & export"
       )}</button>
     </div>`;
   document.body.appendChild(toast);
   trackEvent("export_nudge_show", { reason: reason || "first_friend" });
-  const dismiss = (permanent) => {
-    if (permanent) markExportNudgeDone();
+  const dismiss = (exported) => {
+    if (exported) markExportNudgeDone();
     if (toast.parentNode) toast.remove();
   };
   $("btn-export-nudge-later")?.addEventListener("click", () => {
     trackEvent("export_nudge_later");
-    dismiss(true);
+    dismiss(false);
   });
-  $("btn-export-nudge-now")?.addEventListener("click", () => {
+  $("btn-export-nudge-now")?.addEventListener("click", async () => {
     trackEvent("export_nudge_export");
-    exportProfileFile();
-    dismiss(true);
+    // Only permanent-dismiss if they finished export (password modal may cancel)
+    const ok = await exportProfileFile();
+    if (ok) dismiss(true);
   });
-  // Auto-hide without permanent dismiss — may re-ask after retry window
-  setTimeout(() => dismiss(false), 22000);
+  setTimeout(() => dismiss(false), 28000);
 }
 
 function closeAllFriendMoreMenus() {
@@ -8887,44 +12490,104 @@ function closeAllFriendMoreMenus() {
   });
 }
 
-function exportProfileFile() {
+/** @returns {Promise<boolean>} true if a file was downloaded */
+async function exportProfileFile() {
   try {
     const data = buildProfileExport();
     if (!data.identity.user_id) {
       setStatus(_t("settings.exportNoId") || "No identity yet — open live once first");
-      return;
+      return false;
     }
-    const blob = new Blob([JSON.stringify(data, null, 2)], {
+    const password = await openProfilePasswordModal({ mode: "export" });
+    if (password === null) return false; // cancelled
+
+    let payload;
+    let encrypted = false;
+    if (password === "") {
+      // Explicit “export without password” — legacy plain JSON
+      payload = data;
+      encrypted = false;
+    } else {
+      setStatus(_t("settings.exportEncrypting") || "Encrypting…");
+      payload = await encryptProfilePayload(data, password);
+      encrypted = true;
+    }
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
       type: "application/json",
     });
     const a = document.createElement("a");
     const stamp = new Date().toISOString().slice(0, 10);
     a.href = URL.createObjectURL(blob);
-    a.download = `ruletka-profile-${stamp}.json`;
+    a.download = encrypted
+      ? `ruletka-profile-${stamp}.enc.json`
+      : `ruletka-profile-${stamp}.json`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     markExportNudgeDone();
     setStatus(
-      (_t("settings.exportDone") || "Profile exported") +
+      (encrypted
+        ? _t("settings.exportDoneEnc") || "Encrypted profile exported"
+        : _t("settings.exportDone") || "Profile exported") +
         " · " +
         (_t("settings.exportStarsNote") || "Stars are not in this file (hub-only).")
     );
-    log(_t("settings.exportDone"));
+    log(
+      encrypted
+        ? _t("settings.exportDoneEnc") || "Encrypted profile exported"
+        : _t("settings.exportDone")
+    );
+    try {
+      trackEvent("profile_export", { encrypted: encrypted ? 1 : 0 });
+    } catch (_) {}
+    return true;
   } catch (e) {
     setStatus(_t("settings.exportFail") || "Export failed");
     console.warn("[export]", e);
+    return false;
   }
 }
 
 async function importProfileFile(file) {
   if (!file) return;
-  let data;
+  let raw;
   try {
     const text = await file.text();
-    data = JSON.parse(text);
+    raw = JSON.parse(text);
   } catch {
+    setStatus(_t("settings.importBad") || "Invalid profile file");
+    return;
+  }
+
+  let data = raw;
+  if (isEncryptedProfile(raw)) {
+    // Retry loop until unlock or cancel
+    for (;;) {
+      const password = await openProfilePasswordModal({ mode: "import" });
+      if (password === null) return;
+      try {
+        setStatus(_t("settings.importDecrypting") || "Decrypting…");
+        data = await decryptProfilePayload(raw, password);
+        break;
+      } catch (e) {
+        console.warn("[import decrypt]", e);
+        setStatus(
+          _t("settings.importWrongPw") ||
+            "Wrong password or damaged file — try again"
+        );
+        // loop: show modal again
+      }
+    }
+  }
+
+  await applyImportedProfile(data);
+}
+
+/** Apply a decrypted/plain profile object (shared by plain + encrypted import). */
+async function applyImportedProfile(data) {
+  if (!data || typeof data !== "object") {
     setStatus(_t("settings.importBad") || "Invalid profile file");
     return;
   }
@@ -8951,7 +12614,7 @@ async function importProfileFile(file) {
     setStatus(_t("settings.importBad") || "Invalid profile file");
     return;
   }
-  if (data.format && data.format !== PROFILE_FORMAT) {
+  if (data.format && data.format !== PROFILE_FORMAT && !isEncryptedProfile(data)) {
     // allow older/simple files if user_id present
     if (!data.identity?.user_id && !data.user_id) {
       setStatus(_t("settings.importBad") || "Invalid profile file");
@@ -9024,6 +12687,25 @@ async function importProfileFile(file) {
     if (Array.isArray(data.friends) && data.friends.length) {
       const cleaned = scrubStarsFromImportValue(data.friends);
       saveFriendsBackup(cleaned);
+      // Restore per-friend nicknames embedded on rows
+      try {
+        const map = loadFriendNicks();
+        for (const f of cleaned) {
+          if (f?.user_id && f.nick) map[String(f.user_id)] = String(f.nick).slice(0, 32);
+        }
+        saveFriendNicks(map);
+      } catch (_) {}
+    }
+    // Full nick map (preferred)
+    if (data.friend_nicks && typeof data.friend_nicks === "object") {
+      try {
+        const cleaned = scrubStarsFromImportValue(data.friend_nicks);
+        const map = loadFriendNicks();
+        for (const [k, v] of Object.entries(cleaned || {})) {
+          if (k && v) map[String(k)] = String(v).slice(0, 32);
+        }
+        saveFriendNicks(map);
+      } catch (_) {}
     }
     markImportBackupNudgePending();
     setStatus(
@@ -9032,6 +12714,9 @@ async function importProfileFile(file) {
         "Profile imported — stars load from the hub for this identity"
     );
     log(_t("settings.importDone") + " → " + String(uid).slice(0, 16));
+    try {
+      trackEvent("profile_import", { ok: 1 });
+    } catch (_) {}
     setTimeout(() => location.reload(), 400);
   } catch (e) {
     console.warn("[import]", e);
@@ -9196,6 +12881,9 @@ function repositionOpenDockFlyouts() {
   }
   if (messagesIsOpen()) {
     positionDockFlyout($("messages-sheet"), $("btn-messages"), { align: "start", maxWidth: 400 });
+  }
+  if (starsSheetIsOpen()) {
+    positionStarsSheet($("stars-sheet"));
   }
 }
 
@@ -9511,23 +13199,14 @@ function connect(isRetry = false) {
     sendHelloPayload(getDisplayName());
     const room = currentRoom();
     if (room) send({ type: "set_room", room });
-    // Apply pending friend invite from URL
-    const invite = new URLSearchParams(location.search).get("friend");
-    if (invite) {
-      setTimeout(() => {
-        if (ws === socket && ws.readyState === WebSocket.OPEN) {
-          if (requestAddFriend(invite)) {
-            setStatus(_t("friends.inviteAdded") || "Friend request sent from invite link");
-          }
-          // strip friend param so refresh doesn't re-add noise
-          try {
-            const u = new URL(location.href);
-            u.searchParams.delete("friend");
-            history.replaceState(null, "", u.pathname + u.search + u.hash);
-          } catch (_) {}
-        }
-      }, 400);
-    }
+    // Apply pending friend invite from URL / session (survives rules gate)
+    stashPendingFriendFromUrl();
+    captureInviteFunnelLanding();
+    setTimeout(() => {
+      if (ws === socket && ws.readyState === WebSocket.OPEN) {
+        applyPendingFriendInvite({ forceOpen: true });
+      }
+    }, 450);
     startPing();
     // Re-enter match queue after blip (hello is already sent)
     if (wantSearch || inQueue) {
@@ -9680,6 +13359,12 @@ function handleServer(msg) {
           myFriendCode = msg.friend_code;
           if ($("my-friend-code")) $("my-friend-code").textContent = myFriendCode;
         }
+        // Deep-link invite may have been waiting for hello / friend_code
+        try {
+          if (getPendingFriendCode() && !pendingFriendInviteHandled) {
+            applyPendingFriendInvite({ forceOpen: false });
+          }
+        } catch (_) {}
         // Local mirror so codes survive for re-request / profile export
         if (friendsCache.length) saveFriendsBackup(friendsCache);
         // Toast when a known friend comes online (not first empty→full load)
@@ -9713,6 +13398,9 @@ function handleServer(msg) {
         renderRequestLists();
         renderHistoryList();
         updateFriendsOnlineStrip();
+        updateEmptyAloneActions();
+        updateEmptyIdleInvite();
+        updateEmptyRecentStrip();
         // Keep open sheet in sync (code + lists) after add / accept
         if ($("friends-sheet") && !$("friends-sheet").hidden) {
           if ($("my-friend-code")) {
@@ -9754,25 +13442,52 @@ function handleServer(msg) {
       break;
     case "call_ended":
       hideIncomingCall();
+      hideOutgoingCallToast();
       clearCallTimeout();
-      if (msg.reason && /declin|no answer|timeout|missed/i.test(msg.reason)) {
-        if (lastOutgoingCallPeer?.user_id) {
-          recordMissedCall(lastOutgoingCallPeer);
+      {
+        const reason = String(msg.reason || "");
+        const wasOutgoing = !!lastOutgoingCallPeer?.user_id;
+        if (
+          wasOutgoing &&
+          /declin|no answer|timeout|missed|cancel/i.test(reason)
+        ) {
+          if (/declin/i.test(reason) || /no answer|timeout|missed/i.test(reason)) {
+            recordMissedCall(lastOutgoingCallPeer);
+            if (/declin/i.test(reason)) {
+              showNoAnswerToast({
+                ...lastOutgoingCallPeer,
+                // declined — still offer retry if online
+              });
+            }
+          }
         }
+        lastOutgoingCallPeer = null;
+        inFriendCall = false;
+        matchMode = "solo";
+        endActiveMatchChat();
+        updateFriendActionButtons();
+        if (!matched) {
+          closeAllPeers({ keepFriend: false });
+          setSplitRemote(false);
+          setRemoteEmpty(true);
+          clearPartnerStarsBadge();
+          clearRemoteMatchFx();
+        }
+        log(reason || "call ended");
+        setStatus(
+          /cancel/i.test(reason)
+            ? _t("friends.callCancelled") || "Call cancelled"
+            : /declin/i.test(reason)
+              ? _t("friends.callDeclined") || "Call declined"
+              : reason || "call ended"
+        );
+        // Free again → maybe show missed call-back
+        setTimeout(() => {
+          try {
+            maybeShowMissedCallBackBanner();
+          } catch (_) {}
+        }, 800);
       }
-      lastOutgoingCallPeer = null;
-      inFriendCall = false;
-      matchMode = "solo";
-      endActiveMatchChat();
-      updateFriendActionButtons();
-      if (!matched) {
-        closeAllPeers({ keepFriend: false });
-        setSplitRemote(false);
-        setRemoteEmpty(true);
-        clearPartnerStarsBadge();
-      }
-      log(msg.reason || "call ended");
-      setStatus(msg.reason || "call ended");
       break;
     case "rate_prompt":
       showStarReviewPrompt(msg);
@@ -9780,35 +13495,86 @@ function handleServer(msg) {
     case "rate_result":
       {
         const n = Math.max(0, Number(msg.stars) || 0);
+        const amt = Math.max(0, Number(msg.amount) || (msg.star ? 1 : 0));
         const uid = String(msg.user_id || "");
         const msgText = String(msg.message || "");
         const hourBonus = /hour chat reward/i.test(msgText);
+        const seniorTalk = /senior talk reward|talked to senior/i.test(msgText);
+        const trustedSenior = /trusted with senior/i.test(msgText);
         if (msg.ok && msg.star && uid && uid === myUserId) {
-          // Someone starred us OR 1h mutual bonus
+          // Someone starred us OR auto hour / senior-talk bonus
           const prev = myStars;
           myStars = n;
           setStarsBadge("local", myStars);
           syncAccountSettingsSummary();
-          if (hourBonus) {
-            setStatus(
+          if (hourBonus || seniorTalk) {
+            let title =
+              _t("stars.hourRewardTitle") || "1 hour reward ★";
+            let body =
+              _t("stars.hourRewardBody", { n: myStars }) ||
+              `Long chat reward. Balance: ★ ${myStars}. You can still gift extra stars.`;
+            let status =
               _t("stars.hourRewardStatus") ||
-                "1 hour chat — you both earned a star ★"
-            );
-            showStarFeedbackToast("gift", {
-              title: _t("stars.hourRewardTitle") || "1 hour reward ★",
-              body:
-                _t("stars.hourRewardBody", { n: myStars }) ||
-                `You both earned a star for a long chat. Balance: ★ ${myStars}. You can still gift an extra star.`,
+              "1 hour chat — you both earned a star ★";
+            if (seniorTalk || (hourBonus && amt >= 3)) {
+              title =
+                _t("stars.seniorTalkTitle") || "Talked to a senior ★★★";
+              body =
+                _t("stars.seniorTalkBody", { n: amt, bal: myStars }) ||
+                `You earned ★ ${amt} for chatting with a senior. Balance: ★ ${myStars}. They can still gift you more.`;
+              status =
+                _t("stars.seniorTalkStatus", { n: amt }) ||
+                `Senior talk reward · ★ ${amt}`;
+            } else if (trustedSenior || (hourBonus && amt >= 2)) {
+              title =
+                _t("stars.trustedSeniorTitle") || "Trusted × senior hour ★★";
+              body =
+                _t("stars.trustedSeniorBody", { n: amt, bal: myStars }) ||
+                `You earned ★ ${amt} for a full hour with a senior. Balance: ★ ${myStars}. You can still gift more.`;
+              status =
+                _t("stars.trustedSeniorStatus", { n: amt }) ||
+                `Hour with senior · ★ ${amt}`;
+            } else if (amt > 1) {
+              body =
+                _t("stars.hourRewardBodyN", { n: amt, bal: myStars }) ||
+                `You earned ★ ${amt} for a long chat. Balance: ★ ${myStars}.`;
+              status =
+                _t("stars.hourRewardStatusN", { n: amt }) ||
+                `Long chat reward · ★ ${amt}`;
+            }
+            setStatus(status);
+            showStarFeedbackToast("gift", { title, body });
+            trackEvent("star_hour_bonus", {
+              n: myStars,
+              amount: amt,
+              senior_talk: seniorTalk || amt >= 3 ? 1 : 0,
+              trusted_senior: trustedSenior || amt === 2 ? 1 : 0,
             });
-            trackEvent("star_hour_bonus", { n: myStars });
           } else {
-            setStatus(_t("stars.received") || "You received a star ★");
-            showStarFeedbackToast("earned", { n: myStars });
-            if (n > prev) trackEvent("star_earned", { n: myStars });
+            const got =
+              amt > 1
+                ? _t("stars.receivedN", { n: amt }) ||
+                  `You received ★ ${amt}`
+                : _t("stars.received") || "You received a star ★";
+            setStatus(got);
+            showStarFeedbackToast("gift", {
+              title: got,
+              body:
+                _t("stars.earnedBody", { n: myStars }) ||
+                `Balance: ★ ${myStars}. Tap ★ to open the Stars guide.`,
+            });
+            if (n > prev) trackEvent("star_earned", { n: myStars, amount: amt });
           }
           pulseStarsBadge("local");
+          // Stronger export nudge after first reputation milestone
+          if (prev === 0 && myStars > 0) {
+            setTimeout(
+              () => maybeShowFirstFriendExportNudge("first_star"),
+              2200
+            );
+          }
         } else if (msg.ok && msg.star && uid) {
-          // We starred them (optional gift after 16+ min)
+          // We gifted them (optional after 15+ min)
           if (uid === primaryPartnerUserId || uid === lastMatchMeta?.user_id) {
             setStarsBadge("remote", n);
             pulseStarsBadge("remote");
@@ -9819,9 +13585,18 @@ function handleServer(msg) {
             _t("remote.tag") ||
             "Partner";
           if (uid !== myUserId) {
-            showStarFeedbackToast("given", { name });
-            setStatus(_t("stars.given") || "Star given");
-            trackEvent("star_given");
+            const title =
+              amt > 1
+                ? _t("stars.givenN", { n: amt }) || `★ ${amt} given`
+                : _t("stars.givenTitle") || "Star sent ★";
+            showStarFeedbackToast("gift", {
+              title,
+              body:
+                _t("stars.givenBody", { name }) ||
+                `You gifted stars to ${name}.`,
+            });
+            setStatus(title);
+            trackEvent("star_given", { amount: amt });
           }
         } else if (msg.ok && !msg.star) {
           setStatus(_t("stars.skipped") || "No star");
@@ -9846,40 +13621,84 @@ function handleServer(msg) {
             pulseStarsBadge("local");
             const giftTitle =
               kind === "flowers"
-                ? _t("stars.flowersBtn") || "Flowers"
-                : _t("stars.barsBtn") || "Behind bars";
+                ? _t("stars.giftFlowersName") || "Flowers"
+                : kind === "balloons"
+                  ? _t("stars.giftBalloonsName") || "Balloons"
+                  : kind === "confetti"
+                    ? _t("stars.giftConfettiName") || "Confetti"
+                    : kind === "heart"
+                      ? _t("stars.giftHeartName") || "Heart"
+                      : kind === "fireworks"
+                        ? _t("stars.giftFireworksName") || "Fireworks"
+                        : kind === "please_stay"
+                          ? _t("stars.giftPleaseStayName") || "Please stay"
+                          : _t("stars.giftBarsName") || "Behind bars";
             showStarFeedbackToast("gift", {
-              title: _t("stars.giftSentTitle") || "Gift sent",
+              title:
+                kind === "please_stay"
+                  ? _t("stars.pleaseStaySentTitle") || "Please stay sent"
+                  : _t("stars.giftSentTitle") || "Gift sent",
               body:
                 _srv(msg.message) ||
                 msg.message ||
                 giftTitle + ` · ★ ${myStars}`,
             });
             setStatus(_srv(msg.message) || msg.message || "Gift sent");
+            try {
+              playGiftSound(kind);
+            } catch (_) {}
           }
           if (uid === myUserId) {
             setFxOverlay("local", kind, until);
             if (!fromMe && msg.from_user_id) {
               const name = msg.from_name || "Someone";
+              let body;
               if (kind === "flowers") {
-                const body =
+                body =
                   _t("stars.flowersOnYou", { name }) ||
                   `${name} sent you flowers`;
-                setStatus(body);
-                showStarFeedbackToast("gift", {
-                  title: _t("stars.giftReceivedTitle") || "Gift received",
-                  body,
-                });
+              } else if (kind === "balloons") {
+                body =
+                  _t("stars.balloonsOnYou", { name }) ||
+                  `${name} sent you balloons`;
+              } else if (kind === "confetti") {
+                body =
+                  _t("stars.confettiOnYou", { name }) ||
+                  `${name} sent you confetti`;
+              } else if (kind === "heart") {
+                body =
+                  _t("stars.heartOnYou", { name }) ||
+                  `${name} sent you a heart`;
+              } else if (kind === "fireworks") {
+                body =
+                  _t("stars.fireworksOnYou", { name }) ||
+                  `${name} sent you fireworks`;
+              } else if (kind === "please_stay") {
+                body =
+                  _t("stars.pleaseStayOnYou", { name }) ||
+                  `${name} asked you to stay · Next locked briefly`;
               } else {
-                const body =
+                body =
                   _t("stars.barsOnYou", { name }) ||
                   `${name} put you behind bars`;
-                setStatus(body);
-                showStarFeedbackToast("gift", {
-                  title: _t("stars.giftReceivedTitle") || "Gift received",
-                  body,
-                });
               }
+              setStatus(body);
+              showStarFeedbackToast("gift", {
+                title:
+                  kind === "please_stay"
+                    ? _t("stars.pleaseStayReceivedTitle") || "Please stay"
+                    : _t("stars.giftReceivedTitle") || "Gift received",
+                body,
+              });
+              // Combo was set by setFxOverlay above
+              const c = Math.max(
+                1,
+                Number(
+                  document.querySelector(`#local-fx-${kind}`)?.dataset
+                    ?.giftCombo || giftComboState.count || 1
+                )
+              );
+              playGiftCelebrate(kind, c);
             }
           }
           if (
@@ -9906,6 +13725,47 @@ function handleServer(msg) {
         }
       }
       break;
+    case "report_result":
+      {
+        const ok = !!msg.ok;
+        const banned = !!msg.auto_banned;
+        const applied = Math.max(0, Number(msg.applied_weight) || 0);
+        const score = Math.max(0, Number(msg.report_score) || 0);
+        const thr = Math.max(0, Number(msg.threshold) || 0);
+        const w = Math.max(0, Number(msg.reporter_weight) || 0);
+        let title =
+          _t("stars.reportResultTitle") || "Report received";
+        let body = _srv(msg.message) || msg.message || "";
+        if (banned) {
+          title = _t("stars.reportBannedTitle") || "User restricted";
+          body =
+            _t("stars.reportBannedBody") ||
+            "Your report helped restrict this account from matchmaking.";
+        } else if (applied === 0) {
+          body =
+            _t("stars.reportPeerBlocked") ||
+            "Seniors can’t auto-ban each other — needs broader consensus.";
+        } else if (thr > 0) {
+          body =
+            _t("stars.reportProgressBody", {
+              w: applied,
+              score,
+              thr,
+              tier: w,
+            }) ||
+            `Your report counted as weight ${applied} (tier ×${w}). Progress ${score}/${thr} toward auto-ban.`;
+        }
+        showStarFeedbackToast("gift", { title, body });
+        if (body) setStatus(body);
+        trackEvent("report_result", {
+          banned: banned ? 1 : 0,
+          applied,
+          score,
+          thr,
+          weight: w,
+        });
+      }
+      break;
     case "lobby_info":
       setPool({
         online: msg.online,
@@ -9928,6 +13788,10 @@ function handleServer(msg) {
       const detailRaw = msg.detail || "";
       const detailRu = _srv(detailRaw);
       if (msg.phase === "friend_call") {
+        hideOutgoingCallToast();
+        clearCallTimeout();
+        lastOutgoingCallPeer = null;
+        clearLastMissedCall();
         inFriendCall = true;
         matched = true;
         matchMode = "friend";
@@ -9955,7 +13819,7 @@ function handleServer(msg) {
         const keepFriend = inFriendCall || keepParty || matchMode === "friend";
         if (!keepFriend) {
           maybeShowMatchPathSummary("partner_left");
-          maybeShowPostMatchFriendNudge("partner_left");
+          schedulePostMatchFriendNudge("partner_left");
         }
         matched = msg.phase === "friend_call" || keepFriend;
         wantSearch =
@@ -9967,6 +13831,8 @@ function handleServer(msg) {
           setSplitRemote(false);
           setRemoteEmpty(true);
           resetRemoteEmptyCopy();
+          clearPartnerStarsBadge();
+          clearRemoteMatchFx();
           matchMode = "solo";
           yourRole = "solo";
           trioBrowse = false;
@@ -10135,6 +14001,10 @@ function handleMatched(msg) {
   isOfferer = !!msg.is_offerer;
   matchMode = msg.mode || "solo";
   yourRole = msg.your_role || "solo";
+  // Keep peer list for soft ICE reconnect (find-3rd)
+  if (Array.isArray(msg.peers) && msg.peers.length) {
+    lastMatchedPeers = msg.peers.slice();
+  }
   // Pure friend 1:1 only — party/find-third uses trioBrowse + party_browse
   if (matchMode === "friend") inFriendCall = true;
   else if (matchMode === "solo") inFriendCall = false;
@@ -10189,7 +14059,15 @@ function handleMatched(msg) {
   if (partyMember) {
     // Do NOT force empty overlay — 1v1 stream must stay visible as first partner
     trioBrowse = true;
-    for (const pc of peerPcs.values()) {
+    // Only reclassify PCs that are not the new third stranger (avoids freezing mate stream)
+    const strangerPeerIds = new Set(
+      peers
+        .filter((p) => p.role === "stranger" || p.role === "party")
+        .map((p) => p.peer_id)
+        .filter(Boolean)
+    );
+    for (const [pid, pc] of peerPcs.entries()) {
+      if (strangerPeerIds.has(pid) || strangerPeerIds.has(pc.remotePeerId)) continue;
       if (pc._role === "stranger" || !pc._role) pc._role = "teammate";
     }
     const mateMeta =
@@ -10261,6 +14139,9 @@ function handleMatched(msg) {
         stars: 0,
       };
   partnerStars = lastMatchMeta.stars || 0;
+  try {
+    refreshFlairUi();
+  } catch (_) {}
   setStarsBadge("remote", partnerStars);
   setStarsBadge("local", myStars); // show yours so click-to-spend works
   // Partner may already be behind bars from a prior gift
@@ -10341,7 +14222,7 @@ function handleMatched(msg) {
         setTileAvatar("remote", av);
       }
     }
-    if (wrap) wrap.hidden = !(tag && (tag.textContent || "").trim());
+    syncRemoteTileTagVisibility();
   }
   if (trioBrowse && opponents[0]) {
     const n = opponents[0].name || msg.partner_short || "";
@@ -10383,8 +14264,11 @@ function handleMatched(msg) {
 
 function handleIncomingSignal(msg) {
   const from = msg.from_peer || "";
-  let pc = from ? peerPcs.get(from) : null;
-  if (!pc && peerPcs.size === 1) {
+  let pc = from ? findPcForPeer(from) : null;
+  // Legacy 1v1 only: signals without from_peer when a single PC exists.
+  // NEVER route a named peer’s signal to “the only PC” — when find-3rd’s third
+  // connects, that applied their SDP onto the first partner and froze both sides.
+  if (!pc && !from && peerPcs.size === 1) {
     pc = [...peerPcs.values()][0];
   }
   if (pc) {
@@ -10400,6 +14284,9 @@ function closeAllPeers({ keepFriend = false } = {}) {
   stopMatchTimer();
   clearIntroBlurTimer();
   introBlurGen++;
+  // Gift overlays belong to the current conversationalist window — drop on teardown
+  // (covers Next / Stop / Spin / partner left / block / NSFW skip, etc.)
+  clearRemoteMatchFx();
   for (const [pid, pc] of [...peerPcs.entries()]) {
     const keep =
       keepFriend &&
@@ -10442,6 +14329,17 @@ function closeAllPeers({ keepFriend = false } = {}) {
   webrtcConnectedOk = false;
 }
 
+/**
+ * True when `pc` is already the WebRTC link for match peer `p` (exact id only).
+ * Rejects teammate↔stranger mix-ups that used to rekey the first partner onto the 3rd.
+ */
+function pcBelongsToPeer(pc, p) {
+  if (!pc || !p?.peer_id) return false;
+  if (peerPcs.get(p.peer_id) === pc) return true;
+  if (pc.remotePeerId && pc.remotePeerId === p.peer_id) return true;
+  return false;
+}
+
 async function joinPeers(peers) {
   if (!previewStream?.active) await startPreview();
   if (!previewStream) {
@@ -10465,17 +14363,33 @@ async function joinPeers(peers) {
   // Drop PCs only when the peer is gone. Never close a peer still in `list`
   // (find-third reclassifies the same stranger peer_id as "teammate" — old code
   // treated that as "close stranger", killing the 1v1 video both ways).
+  const listIds = new Set(list.map((p) => p.peer_id).filter(Boolean));
   for (const [pid, pc] of [...peerPcs.entries()]) {
-    const still = list.find((p) => p.peer_id === pid);
+    const still = list.find((p) => p.peer_id === pid || (pc.remotePeerId && p.peer_id === pc.remotePeerId));
     if (still) {
       // Keep connection; update role (stranger → teammate, etc.)
       if (still.role) pc._role = still.role;
+      if (still.peer_id && still.peer_id !== pid) rekeyPeerPc(still.peer_id, pc);
       continue;
     }
-    if (isTeammateRole(pc._role) && matchMode !== "solo") {
+    if (isTeammateRole(pc._role) && matchMode !== "solo" && list.some((p) => isTeammateRole(p.role))) {
       // Durable co-search / friend link while party-browsing — not after trio→solo collapse
       continue;
     }
+    // Keep if map key is stale but this PC is still the listed teammate (live media)
+    if (
+      isTeammateRole(pc._role) &&
+      matchMode !== "solo" &&
+      (pc.remoteStream?.getVideoTracks?.() || []).some((t) => t.readyState === "live")
+    ) {
+      const mate = list.find((p) => isTeammateRole(p.role));
+      if (mate && !findPcForPeer(mate.peer_id)) {
+        rekeyPeerPc(mate.peer_id, pc);
+        pc._role = mate.role || "teammate";
+        continue;
+      }
+    }
+    if (listIds.has(pid)) continue;
     try {
       pc.closeCall({ keepLocal: true, sendBye: false });
     } catch (_) {}
@@ -10494,8 +14408,7 @@ async function joinPeers(peers) {
     bindFirstPartnerToMain(mate);
     setRemoteEmpty(false);
     if (opponents[0]) {
-      const opc =
-        peerPcs.get(opponents[0].peer_id) || findPcForPeer(opponents[0].peer_id);
+      const opc = findPcForPeer(opponents[0].peer_id);
       videoSlotsTrioBind(opponents[0], opc);
     } else {
       setThirdSlotStream(null);
@@ -10518,7 +14431,7 @@ async function joinPeers(peers) {
 
   if (!useTrio && partyBrowsing && yourRole === "party" && friendMeta) {
     // Classic friend party: stranger on main, friend PiP
-    const fpc = peerPcs.get(friendMeta.peer_id);
+    const fpc = findPcForPeer(friendMeta.peer_id);
     const pip = $("friend-pip");
     if (fpc) {
       if ($("remote")?.srcObject && fpc.remoteStream && $("remote").srcObject === fpc.remoteStream) {
@@ -10532,51 +14445,76 @@ async function joinPeers(peers) {
   } else if (matchMode === "friend" || (inFriendCall && opponents.length === 0 && !useTrio)) {
     showFriendPip(false);
     if (friendMeta) {
-      const fpc = peerPcs.get(friendMeta.peer_id);
+      const fpc = findPcForPeer(friendMeta.peer_id);
       if (fpc) bindPcVideo(fpc, $("remote"));
     }
   } else if (!useTrio) {
     showFriendPip(false);
   }
 
+  /** New PCs to connect — start in parallel so 1v2 doesn’t serialize ICE. */
+  const connectJobs = [];
+
   for (const p of list) {
     // Teammate / friend: always reuse existing media — never tear down & renegotiate
     if (isTeammateRole(p.role)) {
       const existing = findPcForPeer(p.peer_id);
-      if (existing) {
+      if (existing && pcBelongsToPeer(existing, p)) {
         rekeyPeerPc(p.peer_id, existing);
         existing._role = p.role || "teammate";
-        const el =
-          useTrio && yourRole === "party"
-            ? $("remote")
-            : partyBrowsing && yourRole === "party" && !useTrio
-              ? $("friend-pip")
-              : $("remote");
         if (useTrio && yourRole === "party") {
           bindFirstPartnerToMain(p);
         } else {
+          const el =
+            partyBrowsing && yourRole === "party" && !useTrio
+              ? $("friend-pip")
+              : $("remote");
           bindPcVideo(existing, el);
           if (existing.remoteStream) paintRemoteFromPc(existing, existing.remoteStream);
+        }
+        continue;
+      }
+      // Prefer any live teammate-marked PC (map key may lag after find-third)
+      const liveMate = [...peerPcs.values()].find(
+        (pc) =>
+          isTeammateRole(pc._role) &&
+          (pc.remoteStream?.getVideoTracks?.() || []).some((t) => t.readyState === "live")
+      );
+      if (liveMate) {
+        rekeyPeerPc(p.peer_id, liveMate);
+        liveMate._role = p.role || "teammate";
+        if (useTrio && yourRole === "party") bindFirstPartnerToMain(p);
+        else {
+          bindPcVideo(liveMate, $("remote"));
+          if (liveMate.remoteStream) paintRemoteFromPc(liveMate, liveMate.remoteStream);
         }
         continue;
       }
       // No PC yet (shouldn't happen mid find-third) — fall through to create
     }
 
-    if (peerPcs.has(p.peer_id) || findPcForPeer(p.peer_id)) {
-      const existing = peerPcs.get(p.peer_id) || findPcForPeer(p.peer_id);
-      if (existing && (p.role === "stranger" || p.role === "party")) {
-        rekeyPeerPc(p.peer_id, existing);
-        const el = videoSlots.get(p.peer_id) || $("remote");
-        bindPcVideo(existing, el);
-        if (useTrio && yourRole === "party" && (el === $("remote-third") || el?.id === "remote-third")) {
-          setThirdSlotStream(existing.remoteStream || null, p.name || "");
+    {
+      const existing = findPcForPeer(p.peer_id);
+      // Only reuse if this PC is really for this peer — never steal teammate for stranger
+      if (
+        existing &&
+        pcBelongsToPeer(existing, p) &&
+        !(isTeammateRole(existing._role) && (p.role === "stranger" || p.role === "party"))
+      ) {
+        if (p.role === "stranger" || p.role === "party") {
+          rekeyPeerPc(p.peer_id, existing);
+          existing._role = p.role;
+          const el = videoSlots.get(p.peer_id) || $("remote");
+          bindPcVideo(existing, el);
+          if (useTrio && yourRole === "party" && (el === $("remote-third") || el?.id === "remote-third")) {
+            setThirdSlotStream(existing.remoteStream || null, p.name || "");
+          }
         }
+        continue;
       }
-      continue;
     }
 
-    // Never open a second PC for a teammate if we already have live media to anyone
+    // Never open a second PC for a teammate if we already have live media to them
     if (isTeammateRole(p.role) && partnerHasLiveVideo()) {
       bindFirstPartnerToMain(p);
       continue;
@@ -10622,12 +14560,27 @@ async function joinPeers(peers) {
           ) {
             setThirdSlotStream(stream, p.name || "");
           }
+          // Solo matched a party (1v2): keep both party feeds painted
+          if (
+            yourRole === "solo" &&
+            matchMode === "party_browse" &&
+            (p.role === "party" || p.role === "stranger")
+          ) {
+            ensurePartnerVideoVisible();
+          }
         },
         onConnectionState: (s) => {
-          handleWebrtcConnectionState(s);
+          handleWebrtcConnectionState(s, pc);
         },
         onIceConnectionState: (ice) => {
-          if (ice === "failed") handleWebrtcConnectionState("failed");
+          if (ice === "failed") handleWebrtcConnectionState("failed", pc);
+          else if (ice === "connected" || ice === "completed") {
+            // Stranger in find-3rd connected — clear soft-retry flags
+            try {
+              pc._softIceTried = false;
+              pc._softReconnectScheduled = false;
+            } catch (_) {}
+          }
         },
         onQualityTier: (tier) => {
           if (pc === rtc || !isTeammateRole(p.role)) setQualityTierHint(tier);
@@ -10647,37 +14600,92 @@ async function joinPeers(peers) {
     );
     pc._role = p.role || "stranger";
     pc._videoEl = videoEl;
+    pc._softIceTried = false;
+    pc._softReconnectScheduled = false;
     pc.setLocalStream(previewStream);
     peerPcs.set(p.peer_id, pc);
     if (!isTeammateRole(p.role) || !rtc) rtc = pc;
     if (isTeammateRole(p.role) && videoEl === $("friend-pip")) {
       showFriendPip(true);
     }
-    try {
-      await pc.connect();
-      const left = [];
-      for (const s of pendingSignals.splice(0)) {
-        if (!s.from_peer || s.from_peer === p.peer_id || p.peer_id === "legacy") {
-          await pc.handleRemoteSignal(s.kind, s.payload);
-        } else {
-          left.push(s);
+    connectJobs.push(
+      (async () => {
+        try {
+          await pc.connect();
+          // Drain pending signals for this peer only (not teammate leftovers)
+          const left = [];
+          const mine = [];
+          for (const s of pendingSignals.splice(0)) {
+            if (!s.from_peer || s.from_peer === p.peer_id || p.peer_id === "legacy") {
+              mine.push(s);
+            } else {
+              left.push(s);
+            }
+          }
+          pendingSignals.push(...left);
+          for (const s of mine) {
+            try {
+              await pc.handleRemoteSignal(s.kind, s.payload);
+            } catch (e) {
+              log(_t("log.signalErr", { e: e?.message || e }));
+            }
+          }
+        } catch (e) {
+          log(_t("log.callFail", { e: e.message || e }));
         }
-      }
-      pendingSignals.push(...left);
-    } catch (e) {
-      log(_t("log.callFail", { e: e.message || e }));
+      })()
+    );
+  }
+
+  if (connectJobs.length) {
+    await Promise.allSettled(connectJobs);
+  }
+
+  // Find-3rd: if stranger still has no media after connect jobs, soft-retry once
+  if (useTrio && yourRole === "party" && opponents[0]) {
+    const oid = opponents[0].peer_id;
+    const opc = findPcForPeer(oid);
+    const hasVid =
+      opc?.remoteStream &&
+      (opc.remoteStream.getVideoTracks?.() || []).some((t) => t.readyState === "live");
+    if (opc && !hasVid && !opc._softTrioWatch) {
+      opc._softTrioWatch = true;
+      setTimeout(() => {
+        try {
+          if (!matched || !trioBrowse) return;
+          const cur = findPcForPeer(oid);
+          if (!cur) return;
+          const live =
+            cur.remoteStream &&
+            (cur.remoteStream.getVideoTracks?.() || []).some(
+              (t) => t.readyState === "live"
+            );
+          const ice = cur.pc?.iceConnectionState || "";
+          if (!live && (ice === "failed" || ice === "disconnected" || ice === "checking" || ice === "new" || !ice)) {
+            trySoftRecoverPeer(cur);
+          }
+        } catch (_) {}
+      }, 10000);
     }
   }
 
   if (useTrio && yourRole === "party" && friendMeta) {
-    const fpc = peerPcs.get(friendMeta.peer_id);
+    const fpc = findPcForPeer(friendMeta.peer_id);
     if (fpc) {
       bindPcVideo(fpc, $("remote"));
       showFriendPip(false);
     }
+    // Paint third if already connected
+    if (opponents[0]) {
+      const opc = findPcForPeer(opponents[0].peer_id);
+      if (opc?.remoteStream) {
+        setThirdSlotStream(opc.remoteStream, opponents[0].name || "");
+        videoSlotsTrioBind(opponents[0], opc);
+      }
+    }
     syncLocalPipMirror();
   } else if (partyBrowsing && yourRole === "party" && friendMeta && !useTrio) {
-    const fpc = peerPcs.get(friendMeta.peer_id);
+    const fpc = findPcForPeer(friendMeta.peer_id);
     if (fpc?.remoteStream && $("friend-pip")) {
       bindPcVideo(fpc, $("friend-pip"));
       showFriendPip(true);
@@ -10701,19 +14709,107 @@ let lastConnGrade = "";
 /** @type {"direct"|"relay"|"unknown"|""} */
 let lastIceKind = "";
 
+/**
+ * Partner meta chrome (timer · Good/Direct · ms · A/V): show briefly, then autohide.
+ * Stays visible while connection is weak or A/V is lagging.
+ */
+const REMOTE_META_PEEK_MS = 4200;
+const REMOTE_META_ALERT_MS = 10000;
+let remoteMetaHideAt = 0;
+let remoteMetaHideTimer = 0;
+
+function peekRemoteMeta(ms = REMOTE_META_PEEK_MS) {
+  const until = Date.now() + ms;
+  if (until > remoteMetaHideAt) remoteMetaHideAt = until;
+  applyRemoteMetaVisibility();
+  if (remoteMetaHideTimer) clearTimeout(remoteMetaHideTimer);
+  remoteMetaHideTimer = setTimeout(() => {
+    remoteMetaHideTimer = 0;
+    applyRemoteMetaVisibility();
+  }, Math.max(50, remoteMetaHideAt - Date.now() + 40));
+}
+
+function clearRemoteMetaAutohide() {
+  remoteMetaHideAt = 0;
+  if (remoteMetaHideTimer) {
+    clearTimeout(remoteMetaHideTimer);
+    remoteMetaHideTimer = 0;
+  }
+}
+
+function remoteMetaAvIsAlert() {
+  const av = $("av-lag-chip");
+  if (!av || av.hidden) return false;
+  return av.classList.contains("is-warn") || av.classList.contains("is-bad");
+}
+
+function remoteMetaShouldShow() {
+  if (!matched && !inFriendCall) return false;
+  if (Date.now() < remoteMetaHideAt) return true;
+  if (lastConnGrade === "weak") return true;
+  if (remoteMetaAvIsAlert()) return true;
+  return false;
+}
+
+/** Apply show/hide for timer + quality chips on the partner tile. */
+function applyRemoteMetaVisibility() {
+  const live = !!(matched || inFriendCall);
+  const show = remoteMetaShouldShow();
+  const timer = $("match-timer");
+  const chip = $("conn-chip");
+  const quality = $("call-quality");
+  const av = $("av-lag-chip");
+
+  if (timer) {
+    // Keep text updating; only toggle visibility while in a call
+    if (!live) timer.hidden = true;
+    else timer.hidden = !show;
+  }
+  if (chip) {
+    if (!live || !(chip.textContent || "").trim()) chip.hidden = true;
+    else chip.hidden = !show;
+  }
+  if (quality) {
+    if (!live || !(quality.textContent || "").trim()) quality.hidden = true;
+    else quality.hidden = !show;
+  }
+  if (av) {
+    if (!live) {
+      av.hidden = true;
+    } else if (remoteMetaAvIsAlert()) {
+      av.hidden = false; // keep lag warnings visible
+    } else if (!(av.textContent || "").trim() || av.textContent === "A/V") {
+      // leave as updateAvLagChip left it when empty
+      if (!show) av.hidden = true;
+    } else {
+      av.hidden = !show;
+    }
+  }
+  const wrap = document.querySelector(".tile-remote-meta");
+  if (wrap) wrap.classList.toggle("is-meta-hidden", live && !show);
+}
+
 function stopStats() {
   if (statsTimer) clearInterval(statsTimer);
   statsTimer = 0;
+  clearRemoteMetaAutohide();
   const el = $("call-quality");
   if (el) {
     el.textContent = "";
     el.className = "quality";
     el.hidden = true;
   }
+  const lag = $("av-lag-chip");
+  if (lag) {
+    lag.hidden = true;
+    lag.textContent = "A/V";
+    lag.className = "av-lag-chip";
+  }
   clearConnChip();
   clearIcePathBadge();
   lastConnGrade = "";
   lastIceKind = "";
+  applyRemoteMetaVisibility();
 }
 
 function clearConnChip() {
@@ -10757,30 +14853,15 @@ function maybeShowWeakConnTip(grade, iceKind) {
   if (weakConnTipShownForMatch) return;
   if (Date.now() - weakConnSince < 8000) return;
   weakConnTipShownForMatch = true;
-  const existing = $("weak-conn-tip");
-  if (existing) existing.remove();
   const preferOn =
     typeof preferDirectOnlyEnabled === "function" && preferDirectOnlyEnabled();
-  const tip = document.createElement("div");
-  tip.id = "weak-conn-tip";
-  tip.className = "weak-conn-tip";
-  tip.setAttribute("role", "status");
   const body =
     preferOn || iceKind === "relay"
       ? _t("conn.weakTipDirect") ||
         "Connection is weak — try Wi‑Fi, or turn off Prefer Direct in Settings → Connection."
       : _t("conn.weakTip") ||
         "Connection is weak — try Wi‑Fi or move closer to your router.";
-  tip.innerHTML = `
-    <span>${escapeHtml(body)}</span>
-    <button type="button" class="pill tight ghost" id="btn-weak-conn-dismiss">${escapeHtml(
-      _t("coach.dismiss") || "Dismiss"
-    )}</button>`;
-  document.body.appendChild(tip);
-  $("btn-weak-conn-dismiss")?.addEventListener("click", () => tip.remove());
-  setTimeout(() => {
-    if (tip.parentNode) tip.remove();
-  }, 12000);
+  setStatus(body);
   trackEvent("conn_weak_tip", { ice: iceKind || "", prefer: preferOn ? 1 : 0 });
 }
 
@@ -10824,8 +14905,8 @@ function updateConnChip(rtt, loss, iceKind) {
         ? _t("conn.chipWeak") || "Weak"
         : _t("conn.chipOk") || "OK";
 
+  const prevGrade = lastConnGrade;
   lastConnGrade = grade;
-  chip.hidden = false;
   chip.className = "conn-chip grade-" + grade + (iceKind === "relay" ? " path-relay" : "");
   chip.textContent = label + " · " + path;
   // Partner tile live frame grade (visual border)
@@ -10841,6 +14922,12 @@ function updateConnChip(rtt, loss, iceKind) {
     (_t("conn.chipTitle", { label, path }) || `Connection: ${label} · ${path}`) +
     (detail.length ? " (" + detail.join(", ") + ")" : "");
   maybeShowWeakConnTip(grade, iceKind);
+  // Peek on first paint / grade change / weak; otherwise stay autohidden
+  if (!prevGrade || prevGrade !== grade || grade === "weak") {
+    peekRemoteMeta(grade === "weak" ? REMOTE_META_ALERT_MS : REMOTE_META_PEEK_MS);
+  } else {
+    applyRemoteMetaVisibility();
+  }
 }
 
 function startStats() {
@@ -10891,7 +14978,8 @@ function startStats() {
       if (el) {
         el.textContent = parts.join(" · ") || "";
         el.className = "quality";
-        el.hidden = !parts.length;
+        // Visibility handled by applyRemoteMetaVisibility (autohide)
+        if (parts.length) el.removeAttribute("hidden");
         if (rtt != null && rtt > 250) el.classList.add("warn");
         if ((rtt != null && rtt > 500) || (loss != null && loss > 5))
           el.classList.add("bad");
@@ -10908,6 +14996,11 @@ function startStats() {
         }
       }
       updateConnChip(rtt, loss, iceKind);
+      // A/V lag chip (lipsync) — independent of RTT “Good”
+      try {
+        await updateAvLagChip();
+      } catch (_) {}
+      applyRemoteMetaVisibility();
     } catch (_) {}
   }, 2000);
 }
@@ -11000,6 +15093,12 @@ function renderFriendsList() {
               f.user_id
             )}">${escapeHtml(_t("friends.call"))}</button>`
           : "";
+        const flairE = partnerFlairEmoji(f.user_id);
+        const flairChip = flairE
+          ? `<span class="friend-flair" title="${escapeAttr(
+              _t("friends.duoFlairTitle") || "Duo flair"
+            )}">${flairE}</span>`
+          : "";
         const key = friendThreadKey(f.user_id);
         const thr = loadChatThreads()[key];
         const lastLocal = thr?.msgs?.length ? thr.msgs[thr.msgs.length - 1] : null;
@@ -11045,7 +15144,7 @@ function renderFriendsList() {
         ${friendAvatarHtml(f)}
         <span class="dot"></span>
         <div class="meta">
-          <strong>${escapeHtml(display)}</strong>${starsChip}
+          <strong>${escapeHtml(display)}</strong>${flairChip}${starsChip}
           ${nickHint}
           <span>${escapeHtml(st)} · ${escapeHtml(f.friend_code || "")}</span>
           ${previewLine}
@@ -11306,6 +15405,7 @@ function pushHistory(entry) {
   try {
     syncFriendsTabCounts();
     if (friendsSheetTab === "history") renderHistoryList();
+    updateEmptyRecentStrip();
   } catch (_) {}
 }
 
@@ -11527,21 +15627,32 @@ function renderHistoryList() {
           .join(" · ");
         let actions = "";
         if (onlineFriend) {
-          actions = `<button type="button" class="pill tight accent btn-hist-call" data-uid="${escapeAttr(
+          actions = `<button type="button" class="pill tight accent btn-hist-call hist-call-primary" data-uid="${escapeAttr(
             h.user_id
-          )}">${escapeHtml(_t("friends.redial") || "Call")}</button>`;
+          )}">${escapeHtml(
+            _t("friends.redial") || "Call back"
+          )}</button>`;
         } else if (isFriend && h.user_id) {
+          // Offline friend: Message + muted Call hint (ring when they come online)
           actions = `<button type="button" class="pill tight ghost btn-hist-msg" data-uid="${escapeAttr(
             h.user_id
           )}" data-name="${escapeAttr(display)}">${escapeHtml(
             _t("friends.message") || "Message"
+          )}</button><button type="button" class="pill tight ghost btn-hist-wait" data-uid="${escapeAttr(
+            h.user_id
+          )}" title="${escapeAttr(
+            _t("friends.callWhenOnline") || "Call when they come online"
+          )}">${escapeHtml(
+            _t("friends.offline") || "Offline"
           )}</button>`;
         } else if (h.friend_code && !isFriend) {
-          actions = `<button type="button" class="pill tight btn-hist-add" data-code="${escapeAttr(
+          actions = `<button type="button" class="pill tight accent btn-hist-add" data-code="${escapeAttr(
             h.friend_code
-          )}">${escapeHtml(_t("friends.addFromHistory") || "Add")}</button>`;
+          )}">${escapeHtml(
+            _t("friends.addFromHistory") || "Add friend"
+          )}</button>`;
         }
-        return `<div class="friend-row${onlineFriend ? " online" : ""}${
+        return `<div class="friend-row${onlineFriend ? " online is-call-ready" : ""}${
           isFriend ? " is-friend" : ""
         }">
           <span class="dot ${onlineFriend ? "online" : ""}"></span>
@@ -11560,20 +15671,32 @@ function renderHistoryList() {
   });
   el.querySelectorAll(".btn-hist-call").forEach((btn) => {
     btn.addEventListener("click", () => {
+      trackEvent("history_call_back");
       placeFriendCall(btn.getAttribute("data-uid"));
     });
   });
   el.querySelectorAll(".btn-hist-msg").forEach((btn) => {
     btn.addEventListener("click", () => {
+      trackEvent("history_message");
       openFriendChat(btn.getAttribute("data-uid"), {
         name: btn.getAttribute("data-name") || "",
       });
+    });
+  });
+  el.querySelectorAll(".btn-hist-wait").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      trackEvent("history_wait_offline");
+      setStatus(
+        _t("friends.callWhenOnline") ||
+          "You’ll get Call back when they come online"
+      );
     });
   });
   el.querySelectorAll(".btn-hist-add").forEach((btn) => {
     btn.addEventListener("click", () => {
       const code = btn.getAttribute("data-code");
       if (!code) return;
+      trackEvent("history_add_friend");
       requestAddFriend(code);
     });
   });
@@ -11701,9 +15824,10 @@ function startMatchTimer() {
   matchTimerStartedAt = Date.now();
   const el = $("match-timer");
   if (el) {
-    el.hidden = false;
     el.textContent = "0:00";
   }
+  // Brief peek of timer + quality row, then autohide
+  peekRemoteMeta(REMOTE_META_PEEK_MS);
   matchTimerInterval = setInterval(() => {
     const el2 = $("match-timer");
     if (!el2 || !matched) return;
@@ -11724,8 +15848,12 @@ function stopMatchTimer() {
     if (lastMatchMeta?.user_id) {
       patchHistoryDuration(lastMatchMeta.user_id, lastMatchDurationSec);
     }
+    try {
+      noteLongChatForFlair(lastMatchMeta, lastMatchDurationSec);
+    } catch (_) {}
   }
   matchTimerStartedAt = 0;
+  clearRemoteMetaAutohide();
   const el = $("match-timer");
   if (el) {
     el.hidden = true;
@@ -11796,76 +15924,162 @@ function wireWaitTips() {
   });
 }
 
-/** Friend came online — toast + optional OS notification + one-tap Call */
+/**
+ * Friend came online — Call-first toast (Week-2).
+ * Only when we can actually place a call (mutual friend + user_id + online).
+ * During a live match: quiet status only (no toast steal focus).
+ */
 function showFriendOnlineToast(f) {
   const name = friendDisplayName(f) || f?.name || f?.friend_code || "Friend";
-  const uid = f?.user_id || "";
+  const uid = (f?.user_id || "").trim();
+  const canCall = !!(uid && f?.online && isMutualFriend(uid));
+
+  // No actionable call → no toast (avoid empty “is online” noise)
+  if (!canCall) {
+    if (uid && f?.online) {
+      setStatus(
+        _t("friends.onlineNotifBody", { n: name }) || `${name} is online`
+      );
+    }
+    return;
+  }
+
+  // Week-5: if this is the last missed-call peer, prioritize Call back copy
+  let missedPriority = false;
+  try {
+    const m = loadLastMissedCall();
+    missedPriority = !!(m && m.user_id === uid);
+  } catch (_) {}
+
+  if (matched || inFriendCall || trioBrowse) {
+    setStatus(
+      missedPriority
+        ? _t("friends.onlineMissedDuringCall", { n: name }) ||
+            `${name} (missed call) is online — Call after this chat`
+        : _t("friends.onlineNotifBody", { n: name }) ||
+            `${name} is online — Call after this chat`
+    );
+    trackEvent("friend_online_during_call", {
+      has_uid: 1,
+      missed: missedPriority ? 1 : 0,
+    });
+    return;
+  }
+
+  setStatus(
+    missedPriority
+      ? _t("friends.onlineMissedBody", { n: name }) ||
+          `${name} is back — you missed their call. Call back?`
+      : _t("friends.onlineNotifBody", { n: name }) ||
+          `${name} is online — Call back`
+  );
   const id = "presence-toast";
   const existing = $(id);
   if (existing) existing.remove();
   const toast = document.createElement("div");
   toast.id = id;
-  toast.className = "presence-toast presence-toast-call";
+  toast.className =
+    "presence-toast presence-toast-call corner-toast is-call-first" +
+    (missedPriority ? " is-missed-priority" : "");
   toast.setAttribute("role", "status");
   toast.style.pointerEvents = "auto";
-  const canCall = !!(uid && f?.online);
+  const sub = missedPriority
+    ? _t("friends.onlineMissedSub") || "missed your call — Call back now"
+    : _t("friends.onlineCallBack") || "is online — Call back";
+  const btnLabel = missedPriority
+    ? _t("friends.redialMissed") || "Call back now"
+    : _t("friends.redial") || "Call back";
   toast.innerHTML = `
     <div class="presence-toast-text">
       <strong>${escapeHtml(name)}</strong>
-      <span>${escapeHtml(_t("friends.onlineNow") || "is online")}</span>
+      <span>${escapeHtml(sub)}</span>
     </div>
-    ${
-      canCall
-        ? `<button type="button" class="pill tight accent" id="btn-presence-call">${escapeHtml(
-            _t("friends.call") || "Call"
-          )}</button>`
-        : ""
-    }`;
+    <button type="button" class="pill tight accent presence-call-btn" id="btn-presence-call">${escapeHtml(
+      btnLabel
+    )}</button>`;
   document.body.appendChild(toast);
+  trackEvent("friend_online_toast_show", {
+    can_call: 1,
+    missed: missedPriority ? 1 : 0,
+  });
+  const doCall = () => {
+    toast.remove();
+    trackEvent(
+      missedPriority
+        ? "friend_online_missed_call"
+        : "friend_online_toast_call"
+    );
+    if (missedPriority) {
+      try {
+        clearLastMissedCall();
+      } catch (_) {}
+    }
+    placeFriendCall(uid, { closePanel: false });
+  };
   $("btn-presence-call")?.addEventListener("click", (e) => {
     e.stopPropagation();
-    toast.remove();
-    trackEvent("friend_online_toast_call");
-    placeFriendCall(uid, { closePanel: false });
+    doCall();
   });
+  // Whole toast = call (not open Friends) — drive rings
   toast.addEventListener("click", (e) => {
     if (e.target.closest("button")) return;
-    toast.remove();
-    openFriends();
+    trackEvent("friend_online_toast_click_call");
+    doCall();
   });
   setTimeout(() => {
     if (toast.parentNode) toast.remove();
-  }, 8000);
-  tryShowFriendOnlineNotification(name, uid);
+  }, missedPriority ? 22000 : 16000);
+  tryShowFriendOnlineNotification(name, uid, { missed: missedPriority });
+  // Refresh empty strips so Call chips appear immediately
+  try {
+    updateFriendsOnlineStrip();
+    updateEmptyAloneActions();
+    updateEmptyRecentStrip();
+    renderHistoryList();
+    // Also surface missed banner if they just came online
+    if (missedPriority) maybeShowMissedCallBackBanner();
+  } catch (_) {}
 }
 
-function tryShowFriendOnlineNotification(name, uid) {
+function tryShowFriendOnlineNotification(name, uid, opts = {}) {
+  if (!friendOnlineNotifEnabled()) return;
   if (typeof Notification === "undefined") return;
+  // Toast handles foreground; OS notif when tab hidden (or always if user prefers alerts)
   if (document.visibilityState === "visible") return;
-  const show = () => {
-    try {
-      const n = new Notification(
-        _t("friends.onlineNotifTitle") || "Friend online",
-        {
-          body: _t("friends.onlineNotifBody", { n: name || "Friend" }) ||
+  if (Notification.permission !== "granted") return;
+  try {
+    const missed = !!opts.missed;
+    const n = new Notification(
+      missed
+        ? _t("friends.onlineMissedNotifTitle") || "Missed call — they’re online"
+        : _t("friends.onlineNotifTitle") || "Friend online",
+      {
+        body: missed
+          ? _t("friends.onlineMissedNotifBody", { n: name || "Friend" }) ||
+            `${name || "Friend"} is online — tap to Call back`
+          : _t("friends.onlineNotifBody", { n: name || "Friend" }) ||
             `${name || "Friend"} is online — open to Call`,
-          tag: "ruletka-friend-online-" + (uid || "x"),
-          renotify: true,
+        tag: "ruletka-friend-online-" + (uid || "x"),
+        renotify: true,
+        requireInteraction: missed,
+      }
+    );
+    n.onclick = () => {
+      window.focus();
+      n.close();
+      if (uid) {
+        if (missed) {
+          try {
+            clearLastMissedCall();
+          } catch (_) {}
         }
-      );
-      n.onclick = () => {
-        window.focus();
-        n.close();
-        if (uid) placeFriendCall(uid, { closePanel: false });
-        else openFriends();
-      };
-    } catch (_) {}
-  };
-  if (Notification.permission === "granted") show();
-  else if (Notification.permission === "default") {
-    // Soft: only if user already interacted with Friends (no auto-nag)
-  }
+        placeFriendCall(uid, { closePanel: false });
+      } else openFriends();
+    };
+  } catch (_) {}
 }
+
+
 
 function recordMissedCall(entry) {
   pushHistory({
@@ -11876,7 +16090,14 @@ function recordMissedCall(entry) {
     friend_code: entry?.friend_code || "",
   });
   updateFriendsUnreadBadge();
+  saveLastMissedCall(entry);
   tryShowMissedCallNotification(entry?.name || "Friend");
+  // In-app banner when free (or shortly after)
+  try {
+    if (!matched && !inFriendCall) {
+      setTimeout(() => maybeShowMissedCallBackBanner(), 600);
+    }
+  } catch (_) {}
 }
 
 function tryShowMissedCallNotification(name) {
@@ -12168,43 +16389,231 @@ function requestAddFriend(rawCode) {
 
 /** Soft toast: request sent → waiting for Accept (not a forced nag). */
 function showFriendSentToast(code) {
-  const existing = $("friend-sent-toast");
-  if (existing) existing.remove();
-  const toast = document.createElement("div");
-  toast.id = "friend-sent-toast";
-  toast.className = "friend-soft-toast";
-  toast.setAttribute("role", "status");
-  toast.innerHTML = `
-    <strong>${escapeHtml(_t("friends.sentToast") || "Request sent — waiting for them to Accept")}</strong>
-    <span>${escapeHtml(code || "")}</span>`;
-  document.body.appendChild(toast);
-  setTimeout(() => {
-    if (toast.parentNode) toast.remove();
-  }, 5000);
+  setStatus(
+    (_t("friends.sentToast") || "Request sent — waiting for Accept") +
+      (code ? ` · ${code}` : "")
+  );
 }
 
-/** Soft toast when mutual friendship completes. */
+/** Toast when mutual friendship completes — Call if online (Week-2 funnel). */
 function showFriendAcceptedToast(f) {
-  const existing = $("friend-accepted-toast");
-  if (existing) existing.remove();
   const name = friendDisplayName(f) || f?.name || f?.friend_code || "Friend";
-  const toast = document.createElement("div");
-  toast.id = "friend-accepted-toast";
-  toast.className = "friend-soft-toast friend-soft-toast-ok";
-  toast.setAttribute("role", "status");
-  toast.innerHTML = `
-    <strong>${escapeHtml(name)}</strong>
-    <span>${escapeHtml(
-      _t("friends.acceptedToast") || "You’re friends now — Call when they’re online"
-    )}</span>`;
-  document.body.appendChild(toast);
+  const uid = (f?.user_id || "").trim();
+  const online = !!(f?.online && uid);
+  // Long-chat → friend: unlock duo flair (cosmetic, 7 days)
+  let duo = false;
+  try {
+    duo = maybeGrantDuoFlair(f?.user_id);
+  } catch (_) {}
+  setStatus(
+    online
+      ? `${name} · ` +
+          (_t("friends.acceptedOnline") || "You’re friends — Call now")
+      : duo
+        ? `${name} · ` +
+          (_t("friends.duoFlairToast") ||
+            "You’re friends · duo flair unlocked ✨")
+        : `${name} · ` +
+          (_t("friends.acceptedToast") ||
+            "You’re friends now — Call when they’re online")
+  );
   try {
     playMatchChime();
   } catch (_) {}
-  trackEvent("friend_accepted");
-  setTimeout(() => {
-    if (toast.parentNode) toast.remove();
-  }, 6000);
+  trackEvent("friend_accepted", {
+    duo: duo ? 1 : 0,
+    online: online ? 1 : 0,
+  });
+  try {
+    refreshFlairUi();
+  } catch (_) {}
+
+  // Visual toast with Call when they are already online
+  try {
+    if (matched || inFriendCall || trioBrowse) return;
+    const id = "friend-accepted-toast";
+    $(id)?.remove?.();
+    const toast = document.createElement("div");
+    toast.id = id;
+    toast.className =
+      "friend-soft-toast post-match-friend-nudge is-force is-accepted";
+    toast.setAttribute("role", "status");
+    toast.style.pointerEvents = "auto";
+    toast.innerHTML = `
+      <strong>${escapeHtml(
+        _t("friends.acceptedToastTitle") || "You’re friends"
+      )}</strong>
+      <span>${escapeHtml(
+        online
+          ? _t("friends.acceptedOnlineBody", { name }) ||
+              `${name} is online — Call them now.`
+          : _t("friends.acceptedOfflineBody", { name }) ||
+              `${name} · Call back when you both see Online.`
+      )}</span>
+      <div class="export-nudge-actions post-match-actions" style="margin-top:0.5rem">
+        ${
+          online
+            ? `<button type="button" class="pill tight accent post-match-primary" id="btn-accepted-call">${escapeHtml(
+                _t("friends.redial") || "Call back"
+              )}</button>`
+            : ""
+        }
+        <button type="button" class="pill tight ghost" id="btn-accepted-ok">${escapeHtml(
+          _t("friends.postMatchDone") || "Got it"
+        )}</button>
+      </div>`;
+    document.body.appendChild(toast);
+    const dismiss = () => {
+      if (toast.parentNode) toast.remove();
+    };
+    $("btn-accepted-ok")?.addEventListener("click", dismiss);
+    $("btn-accepted-call")?.addEventListener("click", () => {
+      trackEvent("friend_accepted_call");
+      dismiss();
+      if (uid) placeFriendCall(uid, { closePanel: false });
+    });
+    setTimeout(dismiss, online ? 20000 : 14000);
+    // Week-3: after first Accept, soft opt-in for call alerts (background rings)
+    maybeShowNotifOptInAfterAccept();
+  } catch (_) {
+    try {
+      maybeShowNotifOptInAfterAccept();
+    } catch (_) {}
+  }
+}
+
+/* ── Cosmetic chat flair (local, no stars) ──
+ * Long chat (≥15m) → temporary spark on you.
+ * Later mutual friend accept with that partner → duo flair 7d.
+ */
+const FLAIR_KEY = "ruletka-chat-flair-v1";
+const FLAIR_LONG_SECS = 15 * 60;
+const FLAIR_SPARK_MS = 24 * 60 * 60 * 1000;
+const FLAIR_DUO_MS = 7 * 24 * 60 * 60 * 1000;
+
+function loadFlairState() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(FLAIR_KEY) || "{}");
+    return raw && typeof raw === "object" ? raw : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveFlairState(st) {
+  try {
+    localStorage.setItem(FLAIR_KEY, JSON.stringify(st || {}));
+  } catch (_) {}
+}
+
+function pruneFlairState(st) {
+  const now = Date.now();
+  if (st.selfUntil && st.selfUntil < now) delete st.selfUntil;
+  if (st.selfKind && !st.selfUntil) delete st.selfKind;
+  if (st.longPartners && typeof st.longPartners === "object") {
+    for (const [k, v] of Object.entries(st.longPartners)) {
+      if (!v || v < now) delete st.longPartners[k];
+    }
+  }
+  if (st.duo && typeof st.duo === "object") {
+    for (const [k, v] of Object.entries(st.duo)) {
+      if (!v || v < now) delete st.duo[k];
+    }
+  }
+  return st;
+}
+
+/** After a long stranger/friend chat, remember partner + give yourself a 24h spark. */
+function noteLongChatForFlair(meta, secs) {
+  if (!meta || secs < FLAIR_LONG_SECS) return;
+  const uid = String(meta.user_id || "").trim();
+  const st = pruneFlairState(loadFlairState());
+  const now = Date.now();
+  st.selfUntil = Math.max(st.selfUntil || 0, now + FLAIR_SPARK_MS);
+  st.selfKind = st.selfKind === "duo" ? "duo" : "spark";
+  if (uid) {
+    if (!st.longPartners) st.longPartners = {};
+    st.longPartners[uid] = now + FLAIR_DUO_MS; // eligible for duo if they become friends
+  }
+  saveFlairState(st);
+  refreshFlairUi();
+  trackEvent("flair_spark", { secs: Math.floor(secs) });
+}
+
+/** If accepted friend was a long-chat partner → duo flair. */
+function maybeGrantDuoFlair(userId) {
+  const uid = String(userId || "").trim();
+  if (!uid) return false;
+  const st = pruneFlairState(loadFlairState());
+  const now = Date.now();
+  const eligible = st.longPartners && st.longPartners[uid] > now;
+  if (!eligible) {
+    saveFlairState(st);
+    return false;
+  }
+  if (!st.duo) st.duo = {};
+  st.duo[uid] = now + FLAIR_DUO_MS;
+  st.selfUntil = Math.max(st.selfUntil || 0, now + FLAIR_DUO_MS);
+  st.selfKind = "duo";
+  delete st.longPartners[uid];
+  saveFlairState(st);
+  trackEvent("flair_duo", {});
+  return true;
+}
+
+function selfFlairEmoji() {
+  const st = pruneFlairState(loadFlairState());
+  saveFlairState(st);
+  if (!st.selfUntil || st.selfUntil < Date.now()) return "";
+  return st.selfKind === "duo" ? "✨" : "🔥";
+}
+
+function partnerFlairEmoji(userId) {
+  const uid = String(userId || "").trim();
+  if (!uid) return "";
+  const st = pruneFlairState(loadFlairState());
+  if (st.duo && st.duo[uid] > Date.now()) return "✨";
+  return "";
+}
+
+function refreshFlairUi() {
+  const me = selfFlairEmoji();
+  document.documentElement.classList.toggle("has-self-flair", !!me);
+  document.documentElement.classList.toggle(
+    "has-duo-flair",
+    me === "✨"
+  );
+  const chip = $("local-flair-chip");
+  if (chip) {
+    if (me) {
+      chip.hidden = false;
+      chip.removeAttribute("hidden");
+      chip.textContent = me;
+      chip.title =
+        me === "✨"
+          ? _t("friends.duoFlairTitle") || "Duo flair — long chat + friends"
+          : _t("friends.sparkFlairTitle") || "Spark flair — long chat (24h)";
+    } else {
+      chip.hidden = true;
+      chip.setAttribute("hidden", "");
+    }
+  }
+  // Partner tile flair
+  const pChip = $("remote-flair-chip");
+  if (pChip) {
+    const uid = primaryPartnerUserId || lastMatchMeta?.user_id || "";
+    const pe = partnerFlairEmoji(uid);
+    if (pe && (matched || inFriendCall)) {
+      pChip.hidden = false;
+      pChip.removeAttribute("hidden");
+      pChip.textContent = pe;
+      pChip.title =
+        _t("friends.duoFlairTitle") || "Duo flair — long chat + friends";
+    } else {
+      pChip.hidden = true;
+      pChip.setAttribute("hidden", "");
+    }
+  }
 }
 
 const FRIENDS_FIRST_HINT_KEY = "ruletka-friends-first-hint-v1";
@@ -12260,6 +16669,7 @@ function maybeShowFriendsFirstRun() {
 
 function openFriends() {
   closeAllDockFlyouts("friends");
+  syncFriendOnlineNotifUi();
   ensureNotifPermissionSoft();
   const sheet = $("friends-sheet");
   const bd = $("friends-backdrop");
@@ -12405,73 +16815,10 @@ function pipSupported() {
   }
 }
 
-function updatePipButton() {
-  const btn = $("btn-pip-remote");
-  if (!btn) return;
-  const show = pipSupported() && matched && !!$("remote")?.srcObject;
-  btn.hidden = !show;
-  const active =
-    document.pictureInPictureElement &&
-    document.pictureInPictureElement === $("remote");
-  btn.classList.toggle("is-active", !!active);
-  btn.setAttribute(
-    "aria-pressed",
-    active ? "true" : "false"
-  );
-  const title = active
-    ? _t("btn.pipExit") || "Exit picture-in-picture"
-    : _t("btn.pipTitle") || "Picture-in-picture";
-  btn.title = title;
-  btn.setAttribute("aria-label", title);
-}
-
-async function togglePartnerPip({ silent = false } = {}) {
-  const v = $("remote");
-  if (!v || !pipSupported()) {
-    if (!silent) {
-      setStatus(_t("btn.pipUnsupported") || "Picture-in-picture not available here");
-    }
-    return;
-  }
-  try {
-    if (document.pictureInPictureElement === v) {
-      await document.exitPictureInPicture();
-      trackEvent("pip_exit");
-    } else {
-      if (!v.srcObject) {
-        if (!silent) setStatus(_t("btn.pipNeedVideo") || "Partner video not ready yet");
-        return;
-      }
-      // Ensure video is playing so PiP is allowed
-      try {
-        v.muted = false;
-        const p = v.play();
-        if (p && typeof p.catch === "function") p.catch(() => {});
-      } catch (_) {}
-      await v.requestPictureInPicture();
-      trackEvent("pip_enter");
-      if (!silent) {
-        setStatus(_t("btn.pipOn") || "Partner in picture-in-picture");
-      }
-    }
-  } catch (e) {
-    if (!silent) {
-      setStatus(_t("btn.pipFail") || "Could not open picture-in-picture");
-      log("pip: " + (e?.message || e));
-    }
-  }
-  updatePipButton();
-}
-
-/** Soft auto-PiP when the tab hides mid-call (Chromium); no-op if blocked. */
-function maybeAutoPipOnHide() {
-  if (document.visibilityState === "visible") return;
-  if (!matched && !inFriendCall) return;
-  if (!pipSupported()) return;
-  if (document.pictureInPictureElement) return;
-  // Prefer-reduced-motion users still get PiP (it's functional, not animation)
-  togglePartnerPip({ silent: true });
-}
+/** PiP control removed from the UI — keep no-ops for any remaining callers. */
+function updatePipButton() {}
+async function togglePartnerPip() {}
+function maybeAutoPipOnHide() {}
 
 const REPORTS_KEY = "rulet.reports.v1";
 
@@ -12508,13 +16855,26 @@ function showPartnerReportReasons() {
   }
   const title = $("partner-menu-title");
   if (title) title.textContent = _t("partnerMenu.reportNext") || _t("partnerMenu.report") || "Report";
-  // 100+ stars → trusted reporter (server weights report as 2)
+  // 100+ → ×2, 250+ → ×3 (server report_weight_for)
   const trustedHint = $("partner-menu-trusted-hint");
   if (trustedHint) {
-    const trusted = myStars >= 100;
-    trustedHint.hidden = !trusted;
-    if (trusted) trustedHint.removeAttribute("hidden");
-    else trustedHint.setAttribute("hidden", "");
+    const w = reportWeightForStars(myStars);
+    if (w >= 3) {
+      trustedHint.hidden = false;
+      trustedHint.removeAttribute("hidden");
+      trustedHint.textContent =
+        _t("stars.seniorReporterHint") ||
+        "You have 250+★ — senior reporter. Your report counts as 3.";
+    } else if (w >= 2) {
+      trustedHint.hidden = false;
+      trustedHint.removeAttribute("hidden");
+      trustedHint.textContent =
+        _t("stars.trustedReporterHint") ||
+        "You have 100+★ — your report carries stronger weight (counts as 2).";
+    } else {
+      trustedHint.hidden = true;
+      trustedHint.setAttribute("hidden", "");
+    }
   }
 }
 
@@ -12633,7 +16993,7 @@ function openPartnerMenu() {
     findBtn.disabled = !canFind;
   }
 
-  // Star gifts (5★ / 30s, extendable)
+  // Star gifts (5★ / 15s, extendable)
   const liveGift = !!(matched || inFriendCall);
   const canGift =
     liveGift && !!primaryPartnerUserId && myStars >= STAR_EFFECT_COST;
@@ -12677,6 +17037,24 @@ function openPartnerMenu() {
     "stars.flowersExtend",
     `Flowers · ${STAR_EFFECT_COST}★ · ${STAR_EFFECT_SECS}s`,
     `More flowers +${STAR_EFFECT_SECS}s · ${STAR_EFFECT_COST}★`
+  );
+  wireGiftBtn(
+    "btn-partner-balloons",
+    "btn-partner-balloons-label",
+    "balloons",
+    "stars.balloonsBtn",
+    "stars.balloonsExtend",
+    `Balloons · ${STAR_EFFECT_COST}★ · ${STAR_EFFECT_SECS}s`,
+    `More balloons +${STAR_EFFECT_SECS}s · ${STAR_EFFECT_COST}★`
+  );
+  wireGiftBtn(
+    "btn-partner-confetti",
+    "btn-partner-confetti-label",
+    "confetti",
+    "stars.confettiBtn",
+    "stars.confettiExtend",
+    `Confetti · ${STAR_EFFECT_COST}★ · ${STAR_EFFECT_SECS}s`,
+    `More confetti +${STAR_EFFECT_SECS}s · ${STAR_EFFECT_COST}★`
   );
 
   showPartnerMenuMain();
@@ -12806,6 +17184,15 @@ function reportPartner(reason) {
       _t("partnerMenu.reportToast") ||
       "Reported · blocked · Next. You will not match them again."
   );
+  // Extra certainty strip (trust UX) — same language as block
+  try {
+    showBlockCertaintyToast({
+      title: _t("partnerMenu.reportOkTitle") || "Reported & blocked",
+      body:
+        _t("partnerMenu.reportNeverAgain") ||
+        "You will not match them again. They were skipped.",
+    });
+  } catch (_) {}
   log((_t("partnerMenu.reportOk") || "reported") + ` · ${entry.reason}`);
   trackEvent("report_next", { reason: entry.reason || "other" });
   closePartnerMenu();
@@ -12855,12 +17242,13 @@ on("btn-mute-remote", "click", () => togglePartnerMute());
 on("btn-blur-remote", "click", () => togglePartnerBlur());
 on("btn-blur-self", "click", () => toggleSelfBlur());
 on("btn-fs-remote", "click", () => toggleFullscreenPartner());
-on("btn-pip-remote", "click", () => togglePartnerPip());
 document.addEventListener("enterpictureinpicture", () => updatePipButton());
 document.addEventListener("leavepictureinpicture", () => updatePipButton());
 on("btn-partner-friend", "click", () => invitePartnerFriend());
 on("btn-partner-bars", "click", () => spendBarsOnPartner());
 on("btn-partner-flowers", "click", () => spendFlowersOnPartner());
+on("btn-partner-balloons", "click", () => spendBalloonsOnPartner());
+on("btn-partner-confetti", "click", () => spendConfettiOnPartner());
 on("btn-partner-find-third", "click", () => {
   closePartnerMenu();
   if (!TRIO_FIND_ENABLED || findThirdPending || !matched) return;
@@ -13247,10 +17635,11 @@ on("remote-vol-sheet", "input", onVolInput);
 on("sel-camera", "change", async () => {
   const id = $("sel-camera")?.value || "";
   if (!id) return;
-  savePrefs({ cameraId: id });
+  applyCameraChoice(id);
   setStatus(_t("device.switchingCam") || "switching camera…");
   await startPreview();
   applyLocalMirrorClass();
+  syncSettingsSummary();
 });
 
 /**
@@ -13284,15 +17673,38 @@ on("sel-speaker", "change", () => {
   applySpeaker();
 });
 // Partner video click → friend / block / report (fullscreen stays on Full button / F)
+// Long-press opens gift strip; swipe L/R skips (Next).
+wireGiftStrip();
+wirePartnerSwipe();
+// Tap partner chrome → briefly show timer / quality / A/V again
+$("remote-tile-tag")?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  if (matched || inFriendCall) peekRemoteMeta(REMOTE_META_PEEK_MS);
+});
 $("tile-remote")?.addEventListener("click", (e) => {
   if (e.target.closest(
-    ".side-rail, .tile-dock, .chat-panel, .partner-menu, button, a, input, select, textarea, label"
+    ".side-rail, .tile-dock, .chat-panel, .partner-menu, .gift-strip, button, a, input, select, textarea, label"
   )) {
+    return;
+  }
+  if (matched || inFriendCall) peekRemoteMeta(REMOTE_META_PEEK_MS);
+  if (swipeSkipSuppressClick) {
+    swipeSkipSuppressClick = false;
+    return;
+  }
+  if (giftStripSuppressClick) {
+    giftStripSuppressClick = false;
     return;
   }
   if (!matched || !primaryPartnerUserId || primaryPartnerUserId === myUserId) return;
   if (partnerMenuOpen()) {
     closePartnerMenu();
+    return;
+  }
+  // If gift strip is open, close it rather than open partner menu
+  const gs = $("gift-strip");
+  if (gs && !gs.hidden && gs.classList.contains("is-open")) {
+    giftStripClose();
     return;
   }
   openPartnerMenu();
@@ -13336,6 +17748,21 @@ on("btn-spin", "click", () => {
 });
 
 on("btn-next", "click", () => {
+  if (isSelfNoSkipLocked()) {
+    // Click registers, button presses — skip does nothing for the lock duration.
+    const left = Math.max(0, selfNoSkipUntil - unixNowSec());
+    const next = $("btn-next");
+    next?.classList.add("is-no-skip-pressed");
+    setTimeout(() => next?.classList.remove("is-no-skip-pressed"), 180);
+    setStatus(
+      _t("stars.pleaseStayLocked", { s: left }) ||
+        `Please stay · ${left}s`
+    );
+    try {
+      navigator.vibrate?.(12);
+    } catch (_) {}
+    return;
+  }
   // Capture path/quality before tearing down the match
   maybeShowMatchPathSummary("next");
   pendingSignals.length = 0;
@@ -13364,7 +17791,7 @@ on("btn-next", "click", () => {
   setArchPill("default");
   setFedChip(false);
   updateFriendActionButtons();
-  maybeShowPostMatchFriendNudge("next");
+  schedulePostMatchFriendNudge("next");
   trackEvent("next");
   send(nextPayload());
   updateConnFromState();
@@ -13374,7 +17801,7 @@ on("btn-next", "click", () => {
 /** Stop: leave queue / end stranger match; do not auto-search again. */
 function doStopMatchmaking() {
   maybeShowMatchPathSummary("stop");
-  maybeShowPostMatchFriendNudge("stop");
+  schedulePostMatchFriendNudge("stop");
   aloneInviteToastShown = false;
   try {
     $("alone-invite-toast")?.remove?.();
@@ -13517,9 +17944,50 @@ async function shareFriendInvite({ preferShare = true, liveNow = false } = {}) {
     preferShare: preferShare ? 1 : 0,
     liveNow: liveNow || inQueue || wantSearch ? 1 : 0,
   });
+  markInviteFunnelShare(preferShare ? "native_or_copy" : "copy");
   await shareOrCopy(url, title, "friends.inviteShared", "friends.inviteCopied", {
     preferShare,
   });
+}
+
+/** Toggle friend-invite QR under alone-search panel. */
+function toggleEmptyAloneQr() {
+  const qr = $("empty-alone-qr");
+  if (!qr) return;
+  if (!myFriendCode) {
+    setStatus(_t("friends.noCode") || "Friend code not ready yet");
+    return;
+  }
+  if (!qr.hidden && qr.innerHTML) {
+    qr.hidden = true;
+    qr.setAttribute("hidden", "");
+    qr.innerHTML = "";
+    return;
+  }
+  const url = friendInviteUrl();
+  qr.hidden = false;
+  qr.removeAttribute("hidden");
+  qr.innerHTML = "";
+  try {
+    if (typeof RuletQr !== "undefined" && RuletQr.render) {
+      RuletQr.render(qr, url, {
+        size: 148,
+        margin: 2,
+        alt: _t("friends.inviteQrAlt") || "Friend invite QR",
+      });
+    } else {
+      const src =
+        "https://api.qrserver.com/v1/create-qr-code/?size=148x148&margin=6&data=" +
+        encodeURIComponent(url);
+      qr.innerHTML = `<img src="${src}" width="148" height="148" alt="${escapeAttr(
+        _t("friends.inviteQrAlt") || "Friend invite QR"
+      )}" />`;
+    }
+  } catch (_) {
+    qr.innerHTML = `<p class="hint-inline mono" style="word-break:break-all">${escapeHtml(
+      url
+    )}</p>`;
+  }
 }
 
 function syncFriendsIdentityBanner(hasFriends, recoverableN) {
@@ -13581,6 +18049,9 @@ $("chk-match-sound")?.addEventListener("change", (e) => {
   savePrefs({ matchSound: !!e.target.checked });
   syncSettingsSummary();
 });
+$("chk-friend-online-notif")?.addEventListener("change", (e) => {
+  setFriendOnlineNotif(!!e.target.checked);
+});
 $("chk-nsfw-auto")?.addEventListener("change", (e) => {
   const on = !!e.target.checked;
   savePrefs({ nsfwAuto: on });
@@ -13603,6 +18074,23 @@ $("chk-prefer-direct")?.addEventListener("change", (e) => {
       : "prefer direct off (TURN allowed)"
   );
 });
+function wireLowLatencyAudioToggle(id) {
+  $(id)?.addEventListener("change", (e) => {
+    setLowLatencyAudio(!!e.target.checked, { restart: true });
+    syncSettingsSummary();
+  });
+}
+wireLowLatencyAudioToggle("chk-low-latency-audio");
+wireLowLatencyAudioToggle("chk-low-latency-audio-conn");
+$("btn-cam-front")?.addEventListener("click", () => switchCameraFacing("user"));
+$("btn-cam-rear")?.addEventListener("click", () =>
+  switchCameraFacing("environment")
+);
+// Keep dual toggles in sync on boot
+try {
+  syncLowLatencyAudioToggles();
+  syncCamFacingButtons();
+} catch (_) {}
 $("btn-reset-path-stats")?.addEventListener("click", () => {
   savePathStats({ direct: 0, relay: 0, unknown: 0 });
   pathStatRecordedForMatch = false;
@@ -13759,9 +18247,6 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key === "f" || e.key === "F") {
     e.preventDefault();
     toggleFullscreenPartner();
-  } else if (e.key === "i" || e.key === "I") {
-    e.preventDefault();
-    togglePartnerPip();
   } else if (e.key === "s" || e.key === "S") {
     e.preventDefault();
     doStopMatchmaking();
@@ -13916,6 +18401,18 @@ document.addEventListener(
   const prefs = loadPrefs();
   const idn = loadIdentity();
   const q = new URLSearchParams(location.search);
+  // Stash ?friend= early (before rules / socket) so invite survives first paint
+  try {
+    stashPendingFriendFromUrl();
+  } catch (_) {}
+  // Week-1 funnel: attribute share → land → request → connected
+  try {
+    captureInviteFunnelLanding();
+  } catch (_) {}
+  // Homepage “Invite friends” → open Friends to share real code
+  try {
+    maybeOpenInviteShareLanding();
+  } catch (_) {}
   if (ROOMS_ENABLED) {
     // Priority: ?room= → saved pref
     const fromUrl = q.get("room");
@@ -13949,6 +18446,10 @@ document.addEventListener(
     $("chk-match-sound").checked =
       typeof prefs.matchSound === "boolean" ? prefs.matchSound : true;
   }
+  syncFriendOnlineNotifUi();
+  try {
+    refreshFlairUi();
+  } catch (_) {}
   if ($("chk-nsfw-auto")) {
     $("chk-nsfw-auto").checked = prefs.nsfwAuto !== false;
   }
@@ -14051,6 +18552,14 @@ const gateBlocks = showRulesGate();
 startSession({ forceMedia: !gateBlocks });
 updateEmptyShareVisibility();
 updateStartButtonVisibility();
+// Returning users who never saw the quick guide (once)
+if (!gateBlocks) {
+  setTimeout(() => {
+    try {
+      maybeShowFirstSessionGuide();
+    } catch (_) {}
+  }, 1400);
+}
 // Soft post-import backup reminder (one shot, not a nag loop)
 setTimeout(() => {
   try {

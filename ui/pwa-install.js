@@ -249,8 +249,117 @@
     removeBanner();
   });
 
-  // Service worker registration (homepage + live)
+  // --- Service worker: register + soft update UX (avoid stale live.js after deploy) ---
+  var RELOAD_ONCE_KEY = "rulet-sw-reload-once";
+  var updateBanner = null;
+
+  function removeUpdateBanner() {
+    if (updateBanner && updateBanner.parentNode) {
+      updateBanner.parentNode.removeChild(updateBanner);
+    }
+    updateBanner = null;
+  }
+
+  function showUpdateBanner(reg) {
+    if (updateBanner || !document.body) return;
+    updateBanner = document.createElement("div");
+    updateBanner.id = "pwa-update-banner";
+    updateBanner.setAttribute("role", "status");
+    updateBanner.innerHTML =
+      '<div class="pwa-install-inner pwa-update-inner">' +
+      '<span class="pwa-install-bar" aria-hidden="true"></span>' +
+      '<div class="pwa-install-copy">' +
+      "<strong>" +
+      tr("pwa.updateTitle", "Update available") +
+      "</strong>" +
+      "<span>" +
+      tr(
+        "pwa.updateBody",
+        "A newer version is ready. Reload when you’re free (won’t interrupt mid-call if you wait)."
+      ) +
+      "</span>" +
+      "</div>" +
+      '<div class="pwa-install-actions">' +
+      '<button type="button" class="pwa-install-btn" id="pwa-update-go">' +
+      tr("pwa.updateBtn", "Reload") +
+      "</button>" +
+      '<button type="button" class="pwa-install-x" id="pwa-update-x" aria-label="Dismiss">×</button>' +
+      "</div></div>";
+    document.body.appendChild(updateBanner);
+    document.getElementById("pwa-update-x").addEventListener("click", function () {
+      removeUpdateBanner();
+    });
+    document.getElementById("pwa-update-go").addEventListener("click", function () {
+      try {
+        sessionStorage.setItem(RELOAD_ONCE_KEY, "pending");
+      } catch (_) {}
+      try {
+        if (reg && reg.waiting) {
+          reg.waiting.postMessage({ type: "SKIP_WAITING" });
+          // controllerchange will reload once
+          return;
+        }
+      } catch (_) {}
+      location.reload();
+    });
+  }
+
+  function wireSwUpdates(reg) {
+    if (!reg) return;
+
+    // Waiting worker already present (tab left open across deploy)
+    if (reg.waiting) {
+      showUpdateBanner(reg);
+    }
+
+    reg.addEventListener("updatefound", function () {
+      var installing = reg.installing;
+      if (!installing) return;
+      installing.addEventListener("statechange", function () {
+        // New worker installed and waiting (old controller still in charge)
+        if (installing.state === "installed") {
+          if (navigator.serviceWorker.controller || reg.waiting) {
+            showUpdateBanner(reg);
+          }
+        }
+      });
+    });
+
+    // Periodic + on-focus update checks (deploys land within minutes, not hours)
+    var check = function () {
+      try {
+        if (document.visibilityState === "visible") reg.update();
+      } catch (_) {}
+    };
+    setInterval(check, 15 * 60 * 1000);
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "visible") check();
+    });
+    window.addEventListener("online", check);
+    // First check shortly after register (catch deploy that landed mid-session)
+    setTimeout(check, 12 * 1000);
+  }
+
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+    // Reload only after user tapped “Reload” (or first control after install)
+    var refreshing = false;
+    navigator.serviceWorker.addEventListener("controllerchange", function () {
+      if (refreshing) return;
+      var flag = null;
+      try {
+        flag = sessionStorage.getItem(RELOAD_ONCE_KEY);
+      } catch (_) {}
+      if (flag === "pending") {
+        try {
+          sessionStorage.removeItem(RELOAD_ONCE_KEY);
+        } catch (_) {}
+        refreshing = true;
+        location.reload();
+        return;
+      }
+      // First SW install (no prior controller): no forced reload mid-page
+    });
+
     window.addEventListener("load", function () {
       navigator.serviceWorker
         .register("/sw.js", { updateViaCache: "none" })
@@ -258,11 +367,7 @@
           try {
             reg.update();
           } catch (_) {}
-          setInterval(function () {
-            try {
-              if (document.visibilityState === "visible") reg.update();
-            } catch (_) {}
-          }, 60 * 60 * 1000);
+          wireSwUpdates(reg);
         })
         .catch(function () {});
     });

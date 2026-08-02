@@ -14,6 +14,7 @@ use crate::federation::{
 use crate::friends_store::{self, FriendsFile};
 use crate::limits::{ClientLimiter, LimitConfig};
 use crate::protocol::{ClientMsg, FriendChatLine, FriendInfo, MatchPeer, ServerMsg};
+use crate::star_ledger::{SpendError, StarLedger};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
@@ -204,6 +205,21 @@ pub struct DayMetrics {
     /// Flowers gifts applied.
     #[serde(default)]
     pub star_spend_flowers: u64,
+    /// Balloons gifts applied.
+    #[serde(default)]
+    pub star_spend_balloons: u64,
+    /// Confetti gifts applied.
+    #[serde(default)]
+    pub star_spend_confetti: u64,
+    /// Cheap heart gifts applied.
+    #[serde(default)]
+    pub star_spend_heart: u64,
+    /// Premium fireworks gifts applied.
+    #[serde(default)]
+    pub star_spend_fireworks: u64,
+    /// Please stay (no-skip) gifts applied.
+    #[serde(default)]
+    pub star_spend_please_stay: u64,
     /// Total stars burned on gifts (cost sum).
     #[serde(default)]
     pub star_spent_total: u64,
@@ -231,14 +247,22 @@ pub struct SimpleHub {
     match_bans: HashMap<String, u64>,
     /// Friend DMs: conversation_key → messages (newest last)
     dms: HashMap<String, Vec<friends_store::StoredDm>>,
-    /// user_id → public star count
+    /// user_id → public star count (cache; authority is star_ledger)
     star_counts: HashMap<String, u64>,
+    /// Append-only mint/spend log with hash-chain + spend op_id idempotency
+    star_ledger: StarLedger,
+    /// user_id → (utc_day, stars_minted_today) — soft anti-sybil cap for natural mints
+    mint_day: HashMap<String, (u32, u64)>,
     /// Directed from|to edges (one review per pair)
     star_edges: HashSet<String>,
     /// user_id → active star-bought effect until unix
     star_effects: HashMap<String, friends_store::StarEffectRecord>,
     /// Dedupe keys for 1-hour mutual star rewards
     hour_star_sessions: HashSet<String>,
+    /// user_id → cannot press Next until this unix (Please stay)
+    no_skip_until: HashMap<String, u64>,
+    /// spender|target → last please_stay spend unix
+    please_stay_last: HashMap<String, u64>,
     queue: VecDeque<QueueEntry>,
     limits: LimitConfig,
     friends_path: PathBuf,
@@ -485,13 +509,23 @@ impl SimpleHub {
                 "loaded friends store"
             );
         }
+        let ledger_path = StarLedger::path_beside_friends(&friends_path);
+        let star_ledger = match StarLedger::load_or_migrate(ledger_path, &stored.star_counts) {
+            Ok(l) => l,
+            Err(e) => {
+                tracing::error!(error = %e, "star ledger load failed — starting empty (unsafe)");
+                StarLedger::empty(StarLedger::path_beside_friends(&friends_path))
+            }
+        };
+        // Ledger is authority for balances (after genesis migration)
+        let star_counts = star_ledger.balances_snapshot();
         let webhook = mod_webhook_url
             .map(|s| s.trim().to_string())
             .filter(|s| s.starts_with("https://"));
         if webhook.is_some() {
             tracing::info!("mod webhook enabled for auto-ban events");
         }
-        Self {
+        let hub = Self {
             clients: HashMap::new(),
             by_user: HashMap::new(),
             code_index: stored.code_index,
@@ -503,10 +537,14 @@ impl SimpleHub {
             report_reporters: stored.report_reporters,
             match_bans: stored.match_bans,
             dms: stored.dms,
-            star_counts: stored.star_counts,
+            star_counts,
+            star_ledger,
+            mint_day: HashMap::new(),
             star_edges: stored.star_edges,
             star_effects: stored.star_effects,
             hour_star_sessions: stored.hour_star_sessions,
+            no_skip_until: stored.no_skip_until,
+            please_stay_last: stored.please_stay_last,
             queue: VecDeque::new(),
             limits,
             friends_path,
@@ -519,7 +557,10 @@ impl SimpleHub {
                 day: utc_day(),
                 ..DayMetrics::default()
             },
-        }
+        };
+        // Persist reconciled star_counts so friends.json cache matches ledger
+        hub.persist_friends();
+        hub
     }
 
     fn fire_mod_webhook(&self, payload: serde_json::Value) {
@@ -576,6 +617,8 @@ impl SimpleHub {
             star_edges: self.star_edges.clone(),
             star_effects: self.star_effects.clone(),
             hour_star_sessions: self.hour_star_sessions.clone(),
+            no_skip_until: self.no_skip_until.clone(),
+            please_stay_last: self.please_stay_last.clone(),
         };
         if let Err(e) = friends_store::save(&self.friends_path, &data) {
             tracing::warn!(error = %e, "failed to save friends store");
@@ -628,21 +671,231 @@ impl SimpleHub {
     /// Both conversationalists earn +1 star automatically after this long (1 hour).
     /// Optional extra gifts (RatePartner) still work separately (once per pair).
     const STAR_HOUR_BONUS_SECS: u64 = 60 * 60;
+    /// Quiet easter-egg: chat with site owner (Драконов) — not advertised in UI.
+    const OWNER_EGG_TIER1_SECS: u64 = 2 * 60;
+    const OWNER_EGG_TIER1_STARS: u64 = 5;
+    const OWNER_EGG_TIER2_SECS: u64 = 15 * 60;
+    const OWNER_EGG_TIER2_STARS: u64 = 15;
+    const OWNER_EGG_TIER3_SECS: u64 = 60 * 60;
+    const OWNER_EGG_TIER3_STARS: u64 = 30;
 
     fn stars_for(&self, user_id: &str) -> u64 {
-        if user_id.is_empty() {
-            return 0;
-        }
-        self.star_counts.get(user_id).copied().unwrap_or(0)
+        self.star_ledger.balance(user_id)
     }
 
-    fn add_stars(&mut self, user_id: &str, n: u64) -> u64 {
+    /// Soft daily cap on *natural* mints (rate/hour/egg). Admin adjusts bypass.
+    const DAILY_MINT_CAP: u64 = 40;
+
+    fn utc_day_num() -> u32 {
+        (Self::unix_now() / 86_400) as u32
+    }
+
+    fn mint_budget_remaining(&self, user_id: &str) -> u64 {
+        let day = Self::utc_day_num();
+        match self.mint_day.get(user_id) {
+            Some((d, used)) if *d == day => Self::DAILY_MINT_CAP.saturating_sub(*used),
+            _ => Self::DAILY_MINT_CAP,
+        }
+    }
+
+    fn record_mint_day(&mut self, user_id: &str, amount: u64) {
+        if user_id.is_empty() || amount == 0 {
+            return;
+        }
+        let day = Self::utc_day_num();
+        let entry = self.mint_day.entry(user_id.to_string()).or_insert((day, 0));
+        if entry.0 != day {
+            *entry = (day, 0);
+        }
+        entry.1 = entry.1.saturating_add(amount);
+    }
+
+    /// Credit stars via append-only ledger (mint). `reason` is audit metadata.
+    fn add_stars(&mut self, user_id: &str, n: u64, reason: &str) -> u64 {
+        self.ledger_mint(user_id, n, reason, "")
+    }
+
+    fn ledger_mint(&mut self, user_id: &str, n: u64, reason: &str, session: &str) -> u64 {
         if user_id.is_empty() || n == 0 {
             return self.stars_for(user_id);
         }
-        let next = self.stars_for(user_id).saturating_add(n);
-        self.star_counts.insert(user_id.to_string(), next);
-        next
+        // Daily soft cap (admin: / adjust: reasons bypass)
+        let bypass_cap = reason.starts_with("admin:")
+            || reason.starts_with("adjust:")
+            || reason == "genesis_snapshot";
+        let mut amount = n;
+        if !bypass_cap {
+            let left = self.mint_budget_remaining(user_id);
+            if left == 0 {
+                tracing::info!(%user_id, reason, n, "star mint blocked by daily cap");
+                return self.stars_for(user_id);
+            }
+            if amount > left {
+                tracing::info!(
+                    %user_id,
+                    reason,
+                    requested = n,
+                    allowed = left,
+                    "star mint clipped by daily cap"
+                );
+                amount = left;
+            }
+        }
+        match self.star_ledger.mint(user_id, amount, reason, session) {
+            Ok((ev, bal)) => {
+                if bal == 0 {
+                    self.star_counts.remove(user_id);
+                } else {
+                    self.star_counts.insert(user_id.to_string(), bal);
+                }
+                if !bypass_cap {
+                    self.record_mint_day(user_id, amount);
+                }
+                tracing::debug!(
+                    seq = ev.seq,
+                    %user_id,
+                    n = amount,
+                    reason,
+                    bal,
+                    "star mint"
+                );
+                bal
+            }
+            Err(e) => {
+                tracing::error!(error = %e, %user_id, n = amount, reason, "star mint ledger failed");
+                // Fail closed: do not mutate cache if ledger write failed
+                self.stars_for(user_id)
+            }
+        }
+    }
+
+    /// Admin grant — always writes `adjust` with reason `admin:…` (bypasses daily mint cap).
+    pub fn admin_grant_stars(
+        &mut self,
+        user_id: &str,
+        amount: u64,
+        reason: &str,
+    ) -> Result<u64, String> {
+        let uid = user_id.trim();
+        if uid.is_empty() {
+            return Err("user_id required".into());
+        }
+        if amount == 0 || amount > 10_000 {
+            return Err("amount must be 1..=10000".into());
+        }
+        let note = {
+            let r = reason.trim();
+            if r.is_empty() {
+                "admin:grant".to_string()
+            } else if r.starts_with("admin:") {
+                r.chars().take(80).collect()
+            } else {
+                format!("admin:{}", r.chars().take(64).collect::<String>())
+            }
+        };
+        match self.star_ledger.adjust(uid, amount, &note) {
+            Ok((ev, bal)) => {
+                if bal == 0 {
+                    self.star_counts.remove(uid);
+                } else {
+                    self.star_counts.insert(uid.to_string(), bal);
+                }
+                self.persist_friends();
+                tracing::info!(
+                    seq = ev.seq,
+                    %uid,
+                    amount,
+                    bal,
+                    reason = %note,
+                    "admin star grant"
+                );
+                Ok(bal)
+            }
+            Err(e) => Err(format!("ledger: {e}")),
+        }
+    }
+
+    /// Ledger tip + top balances for admin metrics.
+    pub fn stars_ledger_snapshot(&self) -> serde_json::Value {
+        let mut rows: Vec<(String, u64)> = self
+            .star_ledger
+            .balances_snapshot()
+            .into_iter()
+            .filter(|(k, v)| !k.is_empty() && *v > 0)
+            .collect();
+        rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        let total: u64 = rows.iter().map(|(_, v)| *v).sum();
+        let top: Vec<serde_json::Value> = rows
+            .iter()
+            .take(12)
+            .map(|(u, s)| {
+                serde_json::json!({
+                    "user_id": u,
+                    "stars": s,
+                    "name": self.known_names.get(u).cloned().unwrap_or_default(),
+                })
+            })
+            .collect();
+        serde_json::json!({
+            "seq": self.star_ledger.seq(),
+            "tip_hash": self.star_ledger.tip_hash(),
+            "users_with_stars": rows.len(),
+            "total_stars": total,
+            "daily_mint_cap": Self::DAILY_MINT_CAP,
+            "top": top,
+        })
+    }
+
+    /// Debit stars for a gift. Returns Ok(new_balance) or Err(message).
+    fn ledger_spend(
+        &mut self,
+        from: &str,
+        to: &str,
+        amount: u64,
+        reason: &str,
+        op_id: &str,
+        session: &str,
+    ) -> Result<u64, String> {
+        match self
+            .star_ledger
+            .spend(from, to, amount, reason, op_id, session)
+        {
+            Ok((ev, bal)) => {
+                if bal == 0 {
+                    self.star_counts.remove(from);
+                } else {
+                    self.star_counts.insert(from.to_string(), bal);
+                }
+                tracing::debug!(
+                    seq = ev.seq,
+                    %from,
+                    %to,
+                    amount,
+                    reason,
+                    op_id,
+                    bal,
+                    "star spend"
+                );
+                Ok(bal)
+            }
+            Err(SpendError::AlreadyApplied { from_balance }) => {
+                // Keep cache in sync
+                if from_balance == 0 {
+                    self.star_counts.remove(from);
+                } else {
+                    self.star_counts.insert(from.to_string(), from_balance);
+                }
+                Err(format!("already_applied:{from_balance}"))
+            }
+            Err(SpendError::Insufficient { have, need }) => {
+                Err(format!("need {need} stars (you have {have})"))
+            }
+            Err(SpendError::Empty) => Err("invalid spend".into()),
+            Err(SpendError::Io(e)) => {
+                tracing::error!(error = %e, "star spend ledger io failed");
+                Err("ledger write failed".into())
+            }
+        }
     }
 
     fn unix_now() -> u64 {
@@ -652,17 +905,63 @@ impl SimpleHub {
             .unwrap_or(0)
     }
 
-    /// Cost / duration for star-bought effects (reputation only — no money).
+    /// Default mid-tier gift cost / duration (reputation only — no money).
     const EFFECT_COST_STARS: u64 = 5;
-    const EFFECT_DURATION_SECS: u64 = 30;
+    const EFFECT_DURATION_SECS: u64 = 15;
 
     fn normalize_effect_kind(raw: &str) -> Option<&'static str> {
         match raw.trim().to_ascii_lowercase().as_str() {
             "bars" | "jail" | "fence" => Some("bars"),
-            // Reserved for next gift: animated flowers
             "flowers" | "flower" => Some("flowers"),
+            "balloons" | "balloon" | "party" => Some("balloons"),
+            "confetti" | "confet" | "celebrate" => Some("confetti"),
+            "heart" | "hearts" | "wave" | "love" => Some("heart"),
+            "fireworks" | "firework" | "mega" | "show" => Some("fireworks"),
+            // Please stay: partner cannot Next for 15s (30★, once/month per pair)
+            "please_stay" | "pleasestay" | "stay" | "dont_skip" | "no_skip" | "hold" => {
+                Some("please_stay")
+            }
             _ => None,
         }
+    }
+
+    /// (cost stars, duration seconds) per gift kind.
+    fn effect_cost_duration(kind: &str) -> (u64, u64) {
+        match kind {
+            "heart" => (1, 8),
+            "fireworks" => (15, 20),
+            "please_stay" => (30, 15),
+            _ => (Self::EFFECT_COST_STARS, Self::EFFECT_DURATION_SECS),
+        }
+    }
+
+    /// Cooldown between Please stay spends on the same person (~30 days).
+    const PLEASE_STAY_COOLDOWN_SECS: u64 = 30 * 24 * 60 * 60;
+
+    /// True if this user currently cannot press Next (Please stay lock).
+    fn is_no_skip_active(&mut self, user_id: &str) -> bool {
+        if user_id.is_empty() {
+            return false;
+        }
+        let now = Self::unix_now();
+        match self.no_skip_until.get(user_id).copied() {
+            Some(until) if until > now => true,
+            Some(_) => {
+                self.no_skip_until.remove(user_id);
+                false
+            }
+            None => false,
+        }
+    }
+
+    fn no_skip_secs_left(&self, user_id: &str) -> u64 {
+        let now = Self::unix_now();
+        self.no_skip_until
+            .get(user_id)
+            .copied()
+            .filter(|u| *u > now)
+            .map(|u| u - now)
+            .unwrap_or(0)
     }
 
     /// Active effect for user if still running (clears expired from memory lazily).
@@ -749,7 +1048,13 @@ impl SimpleHub {
         }
     }
 
-    fn handle_spend_stars(&mut self, id: Uuid, to_user_id: String, effect_raw: String) {
+    fn handle_spend_stars(
+        &mut self,
+        id: Uuid,
+        to_user_id: String,
+        effect_raw: String,
+        op_id: String,
+    ) {
         let Some(kind) = Self::normalize_effect_kind(&effect_raw) else {
             self.metrics_inc_star_spend(&effect_raw, false, 0);
             self.send(
@@ -770,6 +1075,7 @@ impl SimpleHub {
             return;
         };
         let to_user_id = to_user_id.trim().to_string();
+        let op_id = op_id.trim().chars().take(80).collect::<String>();
         let Some(c) = self.clients.get(&id) else {
             return;
         };
@@ -793,6 +1099,39 @@ impl SimpleHub {
                     from_user_id: me_uid,
                     from_name: me_name,
                 },
+            );
+            return;
+        }
+
+        // Idempotent retry: same client op_id already committed in ledger
+        if !op_id.is_empty() && self.star_ledger.has_spend_op(&op_id) {
+            let bal = self.stars_for(&me_uid);
+            let (eff, until) = self.active_effect_ro(&to_user_id);
+            let until_out = if kind == "please_stay" {
+                self.no_skip_until
+                    .get(&to_user_id)
+                    .copied()
+                    .unwrap_or(0)
+            } else {
+                until
+            };
+            let effect_out = if kind == "please_stay" {
+                kind.to_string()
+            } else if !eff.is_empty() {
+                eff
+            } else {
+                kind.to_string()
+            };
+            self.broadcast_star_effect(
+                &to_user_id,
+                &effect_out,
+                until_out,
+                Self::effect_cost_duration(kind).0,
+                &me_uid,
+                &me_name,
+                bal,
+                true,
+                "already applied",
             );
             return;
         }
@@ -829,7 +1168,8 @@ impl SimpleHub {
             return;
         }
 
-        if my_stars < Self::EFFECT_COST_STARS {
+        let (cost, dur_secs) = Self::effect_cost_duration(kind);
+        if my_stars < cost {
             self.metrics_inc_star_spend(kind, false, 0);
             self.send(
                 id,
@@ -841,11 +1181,7 @@ impl SimpleHub {
                     cost: 0,
                     spender_stars: my_stars,
                     target_stars: self.stars_for(&to_user_id),
-                    message: format!(
-                        "need {} stars (you have {})",
-                        Self::EFFECT_COST_STARS,
-                        my_stars
-                    ),
+                    message: format!("need {} stars (you have {})", cost, my_stars),
                     from_user_id: me_uid,
                     from_name: me_name,
                 },
@@ -853,54 +1189,209 @@ impl SimpleHub {
             return;
         }
 
-        // Deduct from spender's received-star balance
-        let new_bal = my_stars.saturating_sub(Self::EFFECT_COST_STARS);
-        if new_bal == 0 {
-            self.star_counts.remove(&me_uid);
-        } else {
-            self.star_counts.insert(me_uid.clone(), new_bal);
+        let now = Self::unix_now();
+
+        // Please stay: once per month on the same person; no stacking/extend.
+        if kind == "please_stay" {
+            let edge = friends_store::star_edge_key(&me_uid, &to_user_id);
+            if let Some(last) = self.please_stay_last.get(&edge).copied() {
+                let elapsed = now.saturating_sub(last);
+                if elapsed < Self::PLEASE_STAY_COOLDOWN_SECS {
+                    let left = Self::PLEASE_STAY_COOLDOWN_SECS - elapsed;
+                    let days = (left / 86_400).max(1);
+                    self.metrics_inc_star_spend(kind, false, 0);
+                    self.send(
+                        id,
+                        ServerMsg::StarEffect {
+                            ok: false,
+                            user_id: to_user_id.clone(),
+                            effect: kind.into(),
+                            until: 0,
+                            cost: 0,
+                            spender_stars: my_stars,
+                            target_stars: self.stars_for(&to_user_id),
+                            message: format!(
+                                "please stay already used on them · try again in ~{} days",
+                                days
+                            ),
+                            from_user_id: me_uid,
+                            from_name: me_name,
+                        },
+                    );
+                    return;
+                }
+            }
+            if self
+                .no_skip_until
+                .get(&to_user_id)
+                .copied()
+                .unwrap_or(0)
+                > now
+            {
+                self.metrics_inc_star_spend(kind, false, 0);
+                self.send(
+                    id,
+                    ServerMsg::StarEffect {
+                        ok: false,
+                        user_id: to_user_id.clone(),
+                        effect: kind.into(),
+                        until: 0,
+                        cost: 0,
+                        spender_stars: my_stars,
+                        target_stars: self.stars_for(&to_user_id),
+                        message: "please stay already active".into(),
+                        from_user_id: me_uid,
+                        from_name: me_name,
+                    },
+                );
+                return;
+            }
         }
 
-        let now = Self::unix_now();
-        let prev = self.star_effects.get(&to_user_id).cloned();
-        let base = match &prev {
-            Some(e) if e.kind == kind && e.until > now => e.until,
-            _ => now,
+        // Deduct via append-only ledger (idempotent when op_id set)
+        let reason = format!("spend:{kind}");
+        let new_bal = match self.ledger_spend(
+            &me_uid,
+            &to_user_id,
+            cost,
+            &reason,
+            &op_id,
+            "",
+        ) {
+            Ok(bal) => bal,
+            Err(msg) if msg.starts_with("already_applied:") => {
+                // Retry with same op_id: do not re-apply effect, return current state
+                let bal: u64 = msg
+                    .trim_start_matches("already_applied:")
+                    .parse()
+                    .unwrap_or_else(|_| self.stars_for(&me_uid));
+                let (eff, until) = self.active_effect_ro(&to_user_id);
+                let ns = self.no_skip_secs_left(&to_user_id);
+                let effect_out = if kind == "please_stay" {
+                    kind.to_string()
+                } else if !eff.is_empty() {
+                    eff
+                } else {
+                    kind.to_string()
+                };
+                let until_out = if kind == "please_stay" {
+                    let now = Self::unix_now();
+                    self.no_skip_until
+                        .get(&to_user_id)
+                        .copied()
+                        .unwrap_or(now)
+                } else {
+                    until
+                };
+                let _ = ns;
+                self.broadcast_star_effect(
+                    &to_user_id,
+                    &effect_out,
+                    until_out,
+                    cost,
+                    &me_uid,
+                    &me_name,
+                    bal,
+                    true,
+                    "already applied",
+                );
+                return;
+            }
+            Err(msg) => {
+                self.metrics_inc_star_spend(kind, false, 0);
+                self.send(
+                    id,
+                    ServerMsg::StarEffect {
+                        ok: false,
+                        user_id: to_user_id.clone(),
+                        effect: kind.into(),
+                        until: 0,
+                        cost: 0,
+                        spender_stars: self.stars_for(&me_uid),
+                        target_stars: self.stars_for(&to_user_id),
+                        message: msg,
+                        from_user_id: me_uid,
+                        from_name: me_name,
+                    },
+                );
+                return;
+            }
         };
-        let until = base.saturating_add(Self::EFFECT_DURATION_SECS);
-        self.star_effects.insert(
-            to_user_id.clone(),
-            friends_store::StarEffectRecord {
-                kind: kind.to_string(),
-                until,
-            },
-        );
+
+        let until;
+        let message;
+        if kind == "please_stay" {
+            // Separate from cosmetic overlays (bars/flowers…) so they can coexist.
+            until = now.saturating_add(dur_secs);
+            self.no_skip_until
+                .insert(to_user_id.clone(), until);
+            let edge = friends_store::star_edge_key(&me_uid, &to_user_id);
+            self.please_stay_last.insert(edge, now);
+            message = format!("please stay · {}s — they can't skip", dur_secs);
+        } else {
+            let prev = self.star_effects.get(&to_user_id).cloned();
+            let base = match &prev {
+                Some(e) if e.kind == kind && e.until > now => e.until,
+                _ => now,
+            };
+            until = base.saturating_add(dur_secs);
+            self.star_effects.insert(
+                to_user_id.clone(),
+                friends_store::StarEffectRecord {
+                    kind: kind.to_string(),
+                    until,
+                },
+            );
+            let extended = prev
+                .as_ref()
+                .map(|e| e.kind == kind && e.until > now)
+                .unwrap_or(false);
+            message = if kind == "flowers" {
+                if extended {
+                    format!("+{}s flowers extended", dur_secs)
+                } else {
+                    format!("flowers for {}s", dur_secs)
+                }
+            } else if kind == "balloons" {
+                if extended {
+                    format!("+{}s balloons extended", dur_secs)
+                } else {
+                    format!("balloons for {}s", dur_secs)
+                }
+            } else if kind == "confetti" {
+                if extended {
+                    format!("+{}s confetti extended", dur_secs)
+                } else {
+                    format!("confetti for {}s", dur_secs)
+                }
+            } else if kind == "heart" {
+                if extended {
+                    format!("+{}s hearts extended", dur_secs)
+                } else {
+                    format!("hearts for {}s", dur_secs)
+                }
+            } else if kind == "fireworks" {
+                if extended {
+                    format!("+{}s fireworks extended", dur_secs)
+                } else {
+                    format!("fireworks for {}s", dur_secs)
+                }
+            } else if extended {
+                format!("+{}s bars extended", dur_secs)
+            } else {
+                format!("behind bars for {}s", dur_secs)
+            };
+        }
         self.persist_friends();
 
-        let extended = prev
-            .as_ref()
-            .map(|e| e.kind == kind && e.until > now)
-            .unwrap_or(false);
-        let message = if kind == "flowers" {
-            if extended {
-                format!("+{}s flowers extended", Self::EFFECT_DURATION_SECS)
-            } else {
-                format!("flowers for {}s", Self::EFFECT_DURATION_SECS)
-            }
-        } else if extended {
-            format!("+{}s bars extended", Self::EFFECT_DURATION_SECS)
-        } else {
-            format!("behind bars for {}s", Self::EFFECT_DURATION_SECS)
-        };
-
-        self.metrics_inc_star_spend(kind, true, Self::EFFECT_COST_STARS);
+        self.metrics_inc_star_spend(kind, true, cost);
 
         tracing::info!(
             %me_uid,
             %to_user_id,
             kind,
             until,
-            cost = Self::EFFECT_COST_STARS,
+            cost,
             remaining = new_bal,
             "star effect applied"
         );
@@ -909,7 +1400,7 @@ impl SimpleHub {
             &to_user_id,
             kind,
             until,
-            Self::EFFECT_COST_STARS,
+            cost,
             &me_uid,
             &me_name,
             new_bal,
@@ -937,8 +1428,155 @@ impl SimpleHub {
         Some((them_id, them_uid, them_name))
     }
 
-    /// After ≥1 hour together, both earn +1 star automatically (once per match).
-    /// Safe to call from both sides of the hangup — second call is a no-op.
+    /// Cap hour_star_sessions growth (hour + senior-talk + owner-egg dedupe keys).
+    fn trim_hour_star_sessions(&mut self) {
+        if self.hour_star_sessions.len() > 6000 {
+            let drop_n = self.hour_star_sessions.len() - 5000;
+            let drain: Vec<String> = self
+                .hour_star_sessions
+                .iter()
+                .take(drop_n)
+                .cloned()
+                .collect();
+            for k in drain {
+                self.hour_star_sessions.remove(&k);
+            }
+        }
+    }
+
+    /// True if display name is the site owner (Драконов / Dragonov). Case-insensitive.
+    /// Intentional easter egg — do not surface this in client copy or docs.
+    fn is_owner_egg_name(name: &str) -> bool {
+        let n: String = name
+            .trim()
+            .chars()
+            .flat_map(|c| c.to_lowercase())
+            .collect();
+        matches!(
+            n.as_str(),
+            "драконов" | "dragonov" | "drakonov" | "draconov"
+        )
+    }
+
+    /// Stars for chatting with the owner this long (highest tier only). 0 = none.
+    fn owner_egg_amount_for_secs(secs: u64) -> u64 {
+        if secs >= Self::OWNER_EGG_TIER3_SECS {
+            Self::OWNER_EGG_TIER3_STARS
+        } else if secs >= Self::OWNER_EGG_TIER2_SECS {
+            Self::OWNER_EGG_TIER2_STARS
+        } else if secs >= Self::OWNER_EGG_TIER1_SECS {
+            Self::OWNER_EGG_TIER1_STARS
+        } else {
+            0
+        }
+    }
+
+    /// Resolve a stable display name for egg matching (live client + known_names).
+    fn egg_name_for_uid(&self, uid: &str, live_name: &str) -> String {
+        if Self::is_owner_egg_name(live_name) {
+            return live_name.to_string();
+        }
+        self.known_names
+            .get(uid)
+            .cloned()
+            .unwrap_or_else(|| live_name.to_string())
+    }
+
+    /// Quiet easter egg: visitor who talked to owner (Драконов) earns tiered ★ once per match.
+    /// 2m→5 · 15m→15 · 1h→30. Owner does not receive this bonus. No UI advertising.
+    fn try_award_owner_talk_egg(&mut self, id: Uuid) {
+        let Some(c) = self.clients.get(&id) else {
+            return;
+        };
+        let started = c.match_started;
+        let secs = started.map(|t| t.elapsed().as_secs()).unwrap_or(0);
+        let amount = Self::owner_egg_amount_for_secs(secs);
+        if amount == 0 {
+            return;
+        }
+        let me_uid = c.user_id.clone();
+        let me_name = c.name.clone();
+        if me_uid.is_empty() {
+            return;
+        }
+        let Some((_them_id, them_uid, them_name_live)) = self.star_partner_of(id) else {
+            return;
+        };
+        if them_uid == me_uid {
+            return;
+        }
+        let them_name = self.egg_name_for_uid(&them_uid, &them_name_live);
+        let me_is_owner = Self::is_owner_egg_name(&me_name)
+            || Self::is_owner_egg_name(&self.egg_name_for_uid(&me_uid, &me_name));
+        let them_is_owner = Self::is_owner_egg_name(&them_name);
+
+        // Only the visitor talking *to* the owner gets the egg.
+        let (visitor_uid, _owner_uid) = if them_is_owner && !me_is_owner {
+            (me_uid.clone(), them_uid.clone())
+        } else if me_is_owner && !them_is_owner {
+            // Partner side is evaluating while owner is still connected —
+            // award the other person (visitor), not the owner.
+            (them_uid.clone(), me_uid.clone())
+        } else {
+            return;
+        };
+
+        let started_unix = Self::unix_now().saturating_sub(secs);
+        let pair = friends_store::dm_conv_key(&me_uid, &them_uid);
+        let egg_key = format!("owner|{pair}|{started_unix}");
+        if self.hour_star_sessions.contains(&egg_key) {
+            return;
+        }
+        // Claim egg + senior-talk so the public senior +3 does not stack on top of egg.
+        let early_key = format!("seniortalk|{pair}|{started_unix}");
+        self.hour_star_sessions.insert(egg_key);
+        self.hour_star_sessions.insert(early_key);
+        self.trim_hour_star_sessions();
+
+        let new_bal = self.add_stars(&visitor_uid, amount, "mint:owner_egg");
+        self.metrics_inc_star_hour();
+        self.persist_friends();
+        // Keep log opaque-ish (no "owner easter egg" string in public paths).
+        tracing::info!(
+            %visitor_uid,
+            secs,
+            amount,
+            new_bal,
+            "long-chat bonus (special host)"
+        );
+        if let Some(&cid) = self.by_user.get(&visitor_uid) {
+            // Generic message → client shows ordinary received-stars toast (no host name).
+            self.send(
+                cid,
+                ServerMsg::RateResult {
+                    ok: true,
+                    user_id: visitor_uid,
+                    star: true,
+                    amount,
+                    stars: new_bal,
+                    message: "chat reward".into(),
+                },
+            );
+        }
+    }
+
+    /// Auto hour reward for `me` given both balances.
+    /// Talking to a senior (250+): normal (&lt;100) → +3, trusted (100–249) → +2, else +1.
+    fn hour_reward_amount_for(me_stars: u64, them_stars: u64) -> u64 {
+        if them_stars >= Self::SENIOR_REPORTER_STARS {
+            if me_stars < Self::TRUSTED_REPORTER_STARS {
+                return 3;
+            }
+            if me_stars < Self::SENIOR_REPORTER_STARS {
+                return 2;
+            }
+        }
+        1
+    }
+
+    /// After ≥1 hour together, both earn stars automatically (once per match).
+    /// Tier-aware: normal+senior → normal +3; trusted+senior → trusted +2; else +1 each.
+    /// Senior may still gift more via RatePartner (up to 3★).
     fn try_award_hour_chat_stars(&mut self, id: Uuid) {
         let Some(c) = self.clients.get(&id) else {
             return;
@@ -959,41 +1597,49 @@ impl SimpleHub {
             return;
         }
         let started_unix = Self::unix_now().saturating_sub(secs);
-        let key = format!(
-            "hour|{}|{}",
-            friends_store::dm_conv_key(&me_uid, &them_uid),
-            started_unix
-        );
+        let pair = friends_store::dm_conv_key(&me_uid, &them_uid);
+        let key = format!("hour|{pair}|{started_unix}");
         if self.hour_star_sessions.contains(&key) {
             return;
         }
+        // Claim early senior-talk key so we do not double-pay +3
+        let early_key = format!("seniortalk|{pair}|{started_unix}");
         self.hour_star_sessions.insert(key);
-        // Cap growth of the set (keep last ~5k)
-        if self.hour_star_sessions.len() > 6000 {
-            let drop_n = self.hour_star_sessions.len() - 5000;
-            let drain: Vec<String> = self
-                .hour_star_sessions
-                .iter()
-                .take(drop_n)
-                .cloned()
-                .collect();
-            for k in drain {
-                self.hour_star_sessions.remove(&k);
-            }
-        }
-        let me_stars = self.add_stars(&me_uid, 1);
-        let them_stars = self.add_stars(&them_uid, 1);
+        self.hour_star_sessions.insert(early_key);
+        self.trim_hour_star_sessions();
+
+        let me_s0 = self.stars_for(&me_uid);
+        let them_s0 = self.stars_for(&them_uid);
+        let me_amt = Self::hour_reward_amount_for(me_s0, them_s0);
+        let them_amt = Self::hour_reward_amount_for(them_s0, me_s0);
+        let me_stars = self.ledger_mint(&me_uid, me_amt, "mint:hour_bonus", &format!("hour|{pair}|{started_unix}"));
+        let them_stars = self.ledger_mint(&them_uid, them_amt, "mint:hour_bonus", &format!("hour|{pair}|{started_unix}"));
         self.metrics_inc_star_hour();
         self.persist_friends();
         tracing::info!(
             %me_uid,
             %them_uid,
             secs,
+            me_amt,
+            them_amt,
             me_stars,
             them_stars,
-            "1h mutual star bonus"
+            "1h mutual star bonus (tier-aware)"
         );
-        // Notify both (same shape as gift receive so client toasts fire)
+        let me_msg = if me_amt >= 3 {
+            "hour chat reward · talked to senior"
+        } else if me_amt >= 2 {
+            "hour chat reward · trusted with senior"
+        } else {
+            "hour chat reward"
+        };
+        let them_msg = if them_amt >= 3 {
+            "hour chat reward · talked to senior"
+        } else if them_amt >= 2 {
+            "hour chat reward · trusted with senior"
+        } else {
+            "hour chat reward"
+        };
         if let Some(&cid) = self.by_user.get(&me_uid) {
             self.send(
                 cid,
@@ -1001,8 +1647,9 @@ impl SimpleHub {
                     ok: true,
                     user_id: me_uid.clone(),
                     star: true,
+                    amount: me_amt,
                     stars: me_stars,
-                    message: "hour chat reward".into(),
+                    message: me_msg.into(),
                 },
             );
         }
@@ -1013,20 +1660,98 @@ impl SimpleHub {
                     ok: true,
                     user_id: them_uid.clone(),
                     star: true,
+                    amount: them_amt,
                     stars: them_stars,
-                    message: "hour chat reward".into(),
+                    message: them_msg.into(),
                 },
             );
         }
-        let _ = them_name; // used for future toast detail if needed
+        let _ = them_name;
+    }
+
+    /// Normal (&lt;100★) talked to senior (250+) for ≥15 min but left before 1h:
+    /// award +3 once per match (not stacked with hour senior boost).
+    fn try_award_senior_talk_boost(&mut self, id: Uuid) {
+        let Some(c) = self.clients.get(&id) else {
+            return;
+        };
+        let started = c.match_started;
+        let secs = started.map(|t| t.elapsed().as_secs()).unwrap_or(0);
+        if secs < Self::STAR_MIN_SECS {
+            return;
+        }
+        let me_uid = c.user_id.clone();
+        if me_uid.is_empty() {
+            return;
+        }
+        let Some((_them_id, them_uid, _them_name)) = self.star_partner_of(id) else {
+            return;
+        };
+        if them_uid == me_uid {
+            return;
+        }
+        let started_unix = Self::unix_now().saturating_sub(secs);
+        let pair = friends_store::dm_conv_key(&me_uid, &them_uid);
+        let hour_key = format!("hour|{pair}|{started_unix}");
+        let early_key = format!("seniortalk|{pair}|{started_unix}");
+        if self.hour_star_sessions.contains(&hour_key)
+            || self.hour_star_sessions.contains(&early_key)
+        {
+            return;
+        }
+
+        let me_s = self.stars_for(&me_uid);
+        let them_s = self.stars_for(&them_uid);
+        let (boost_uid, boost_amt) = if me_s < Self::TRUSTED_REPORTER_STARS
+            && them_s >= Self::SENIOR_REPORTER_STARS
+        {
+            (me_uid.clone(), 3u64)
+        } else if them_s < Self::TRUSTED_REPORTER_STARS
+            && me_s >= Self::SENIOR_REPORTER_STARS
+        {
+            (them_uid.clone(), 3u64)
+        } else {
+            return;
+        };
+
+        self.hour_star_sessions.insert(early_key);
+        self.trim_hour_star_sessions();
+        let new_bal = self.add_stars(&boost_uid, boost_amt, "mint:senior_talk");
+        self.persist_friends();
+        tracing::info!(
+            %boost_uid,
+            secs,
+            boost_amt,
+            new_bal,
+            "senior-talk boost (+3 for normal after ≥15m with senior)"
+        );
+        if let Some(&cid) = self.by_user.get(&boost_uid) {
+            self.send(
+                cid,
+                ServerMsg::RateResult {
+                    ok: true,
+                    user_id: boost_uid,
+                    star: true,
+                    amount: boost_amt,
+                    stars: new_bal,
+                    message: "senior talk reward".into(),
+                },
+            );
+        }
     }
 
     /// After a match/call ends:
-    /// 1) ≥1 hour → both get +1 star automatically
-    /// 2) ≥15 min → offer optional extra gift star (once per pair, existing flow)
+    /// 1) ≥1 hour → tier-aware auto stars
+    /// 2) ≥15 min normal+senior (no hour) → normal +3
+    /// 3) quiet host easter egg (if applicable)
+    /// 4) ≥15 min → optional gift (up to 1/2/3 by giver tier)
     fn arm_star_rating(&mut self, id: Uuid) {
         // Mutual hour bonus first (works even if gift already used)
         self.try_award_hour_chat_stars(id);
+        // Early leave after 15m with a senior (if hour did not fire)
+        self.try_award_senior_talk_boost(id);
+        // Quiet host chat bonus (not advertised)
+        self.try_award_owner_talk_egg(id);
 
         let Some(c) = self.clients.get(&id) else {
             return;
@@ -1057,17 +1782,32 @@ impl SimpleHub {
             c.pending_rate_name = them_name.clone();
             c.pending_rate_secs = secs;
         }
+        let max_gift = self.max_post_chat_gift(&me_uid);
         self.send(
             id,
             ServerMsg::RatePrompt {
                 user_id: them_uid,
                 name: them_name,
                 duration_secs: secs,
+                max_gift,
             },
         );
     }
 
-    fn handle_rate_partner(&mut self, id: Uuid, target_uid: String, star: bool) {
+    /// Max free stars a user may gift after a long chat (reputation tier).
+    /// Normal → 1 · Trusted (100+) → 2 · Senior (250+) → 3.
+    fn max_post_chat_gift(&self, user_id: &str) -> u64 {
+        let s = self.stars_for(user_id);
+        if s >= Self::SENIOR_REPORTER_STARS {
+            3
+        } else if s >= Self::TRUSTED_REPORTER_STARS {
+            2
+        } else {
+            1
+        }
+    }
+
+    fn handle_rate_partner(&mut self, id: Uuid, target_uid: String, star: bool, amount: u64) {
         let target_uid = target_uid.trim().to_string();
         let Some(c) = self.clients.get(&id) else {
             return;
@@ -1080,6 +1820,7 @@ impl SimpleHub {
                     ok: false,
                     user_id: target_uid,
                     star: false,
+                    amount: 0,
                     stars: 0,
                     message: "invalid rating".into(),
                 },
@@ -1095,6 +1836,7 @@ impl SimpleHub {
                     ok: false,
                     user_id: target_uid,
                     star: false,
+                    amount: 0,
                     stars: 0,
                     message: "no review available for this person".into(),
                 },
@@ -1108,6 +1850,7 @@ impl SimpleHub {
                     ok: false,
                     user_id: target_uid,
                     star: false,
+                    amount: 0,
                     stars: 0,
                     message: "chat too short for a star (need 15 minutes)".into(),
                 },
@@ -1122,6 +1865,7 @@ impl SimpleHub {
                     ok: false,
                     user_id: target_uid.clone(),
                     star: false,
+                    amount: 0,
                     stars: self.stars_for(&target_uid),
                     message: "already reviewed".into(),
                 },
@@ -1134,12 +1878,20 @@ impl SimpleHub {
             return;
         }
         self.star_edges.insert(edge);
-        let new_stars = if star {
-            self.add_stars(&target_uid, 1)
+        let max_gift = self.max_post_chat_gift(&me_uid);
+        let gift_n = if star {
+            let raw = if amount == 0 { 1 } else { amount };
+            raw.clamp(1, max_gift)
+        } else {
+            0
+        };
+        let new_stars = if gift_n > 0 {
+            self.add_stars(&target_uid, gift_n, "mint:rate_partner")
         } else {
             self.stars_for(&target_uid)
         };
-        if star {
+        if gift_n > 0 {
+            // Count once per review action (not per star) for gift metrics
             self.metrics_inc_star_gift();
         }
         if let Some(c) = self.clients.get_mut(&id) {
@@ -1148,22 +1900,28 @@ impl SimpleHub {
             c.pending_rate_secs = 0;
         }
         self.persist_friends();
+        let gave = gift_n > 0;
         self.send(
             id,
             ServerMsg::RateResult {
                 ok: true,
                 user_id: target_uid.clone(),
-                star,
+                star: gave,
+                amount: gift_n,
                 stars: new_stars,
-                message: if star {
-                    "star given".into()
+                message: if gave {
+                    if gift_n == 1 {
+                        "star given".into()
+                    } else {
+                        format!("{gift_n} stars given")
+                    }
                 } else {
                     "skipped".into()
                 },
             },
         );
         // Live-update target if online (their local badge / friends list)
-        if star {
+        if gave {
             if let Some(&tid) = self.by_user.get(&target_uid) {
                 self.send(
                     tid,
@@ -1171,13 +1929,26 @@ impl SimpleHub {
                         ok: true,
                         user_id: target_uid.clone(),
                         star: true,
+                        amount: gift_n,
                         stars: new_stars,
-                        message: "you received a star".into(),
+                        message: if gift_n == 1 {
+                            "you received a star".into()
+                        } else {
+                            format!("you received {gift_n} stars")
+                        },
                     },
                 );
             }
         }
-        tracing::info!(%me_uid, %target_uid, star, stars = new_stars, "partner rated");
+        tracing::info!(
+            %me_uid,
+            %target_uid,
+            star = gave,
+            amount = gift_n,
+            max_gift,
+            stars = new_stars,
+            "partner rated"
+        );
     }
 
     /// Last DM involving `fuid` across any conversation they share with someone.
@@ -1282,16 +2053,20 @@ impl SimpleHub {
     }
 
     /// Fallback unique *weight* before auto match-ban (generic/other).
-    /// Weight is usually 1 per reporter; trusted (100+ stars) count as 2.
+    /// Weight: normal=1 · trusted (100+) =2 · senior (250+) =3.
     const REPORT_BAN_THRESHOLD: usize = 3;
     /// Default ban length when generic threshold is hit (3 days).
     const REPORT_BAN_SECS: u64 = 3 * 24 * 3600;
     /// Max reports one user may file per rolling hour (anti abuse).
     const REPORT_RATE_PER_HOUR: usize = 12;
-    /// Reputation stars needed for stronger report weight (trusted moderator).
+    /// Reputation stars for trusted reporter (reports count ×2).
     const TRUSTED_REPORTER_STARS: u64 = 100;
     /// How much a trusted reporter counts toward the ban threshold (normal = 1).
     const TRUSTED_REPORT_WEIGHT: u32 = 2;
+    /// Reputation stars for senior reporter (reports count ×3 — bans faster).
+    const SENIOR_REPORTER_STARS: u64 = 250;
+    /// How much a senior reporter counts toward the ban threshold.
+    const SENIOR_REPORT_WEIGHT: u32 = 3;
 
     /// Severity → (weight needed, ban duration secs).
     /// Underage: single independent report → long restriction (ops review via log).
@@ -1306,20 +2081,71 @@ impl SimpleHub {
         }
     }
 
-    /// Report weight for a user: 2 if they earned ≥100 stars, else 1.
+    /// Report weight: 3 if ≥250★, 2 if ≥100★, else 1.
+    /// Higher weight reaches auto match-ban thresholds with fewer independent reports.
     fn report_weight_for(&self, reporter_uid: &str) -> u32 {
-        if self.stars_for(reporter_uid) >= Self::TRUSTED_REPORTER_STARS {
+        let stars = self.stars_for(reporter_uid);
+        if stars >= Self::SENIOR_REPORTER_STARS {
+            Self::SENIOR_REPORT_WEIGHT
+        } else if stars >= Self::TRUSTED_REPORTER_STARS {
             Self::TRUSTED_REPORT_WEIGHT
         } else {
             1
         }
     }
 
-    /// Sum of unique reporters' weights (trusted stars → stronger say).
-    fn report_score_for_target(&self, target_uid: &str) -> u32 {
+    /// Extra ban-score needed when the *target* is high reputation (harder to ban).
+    /// Not applied to underage reports (safety takes priority).
+    fn target_reputation_shield(target_stars: u64) -> usize {
+        if target_stars >= Self::SENIOR_REPORTER_STARS {
+            4 // 250+ need broad community consensus
+        } else if target_stars >= Self::TRUSTED_REPORTER_STARS {
+            2 // 100+ not easy to ban
+        } else {
+            0
+        }
+    }
+
+    /// Weight this reporter contributes toward auto-banning this target.
+    /// Peer protection:
+    /// - Two seniors (250+) cannot auto-ban each other (weight 0 either way).
+    /// - Trusted (100+) reporting another 100+ counts only as 1 (not easy peer bans).
+    /// Underage reports always use full reporter weight (no peer dampening).
+    fn report_weight_against(
+        &self,
+        reporter_uid: &str,
+        target_uid: &str,
+        underage: bool,
+    ) -> u32 {
+        if reporter_uid.is_empty() || reporter_uid == target_uid {
+            return 0;
+        }
+        let base = self.report_weight_for(reporter_uid);
+        if underage {
+            return base;
+        }
+        let r_stars = self.stars_for(reporter_uid);
+        let t_stars = self.stars_for(target_uid);
+        // Seniors cannot cancel each other out via auto match-ban
+        if r_stars >= Self::SENIOR_REPORTER_STARS && t_stars >= Self::SENIOR_REPORTER_STARS {
+            return 0;
+        }
+        // 100+ vs 100+ (incl. senior target): dampen to 1 so peers don't easily ban peers
+        if r_stars >= Self::TRUSTED_REPORTER_STARS && t_stars >= Self::TRUSTED_REPORTER_STARS {
+            return 1;
+        }
+        base
+    }
+
+    /// Sum of unique reporters' effective weights against this target.
+    fn report_score_for_target(&self, target_uid: &str, underage: bool) -> u32 {
         self.report_reporters
             .get(target_uid)
-            .map(|set| set.iter().map(|uid| self.report_weight_for(uid)).sum())
+            .map(|set| {
+                set.iter()
+                    .map(|uid| self.report_weight_against(uid, target_uid, underage))
+                    .sum()
+            })
             .unwrap_or(0)
     }
 
@@ -1590,6 +2416,21 @@ impl SimpleHub {
             } else if kind == "flowers" {
                 self.metrics.star_spend_flowers =
                     self.metrics.star_spend_flowers.saturating_add(1);
+            } else if kind == "balloons" {
+                self.metrics.star_spend_balloons =
+                    self.metrics.star_spend_balloons.saturating_add(1);
+            } else if kind == "confetti" {
+                self.metrics.star_spend_confetti =
+                    self.metrics.star_spend_confetti.saturating_add(1);
+            } else if kind == "heart" {
+                self.metrics.star_spend_heart =
+                    self.metrics.star_spend_heart.saturating_add(1);
+            } else if kind == "fireworks" {
+                self.metrics.star_spend_fireworks =
+                    self.metrics.star_spend_fireworks.saturating_add(1);
+            } else if kind == "please_stay" {
+                self.metrics.star_spend_please_stay =
+                    self.metrics.star_spend_please_stay.saturating_add(1);
             }
         } else {
             self.metrics.star_spend_fail = self.metrics.star_spend_fail.saturating_add(1);
@@ -1649,6 +2490,7 @@ impl SimpleHub {
                 "call_rings": self.metrics.call_rings,
                 "ring_to_call_pct": ring_to_call_pct,
             },
+            "stars_ledger": self.stars_ledger_snapshot(),
             "history": history,
             "path": path.display().to_string(),
         })
@@ -3519,6 +4361,20 @@ impl SimpleHub {
                 if !self.allow_match_cmd(id) {
                     return;
                 }
+                // Please stay: target cannot Next until the timer ends (server-enforced).
+                let me_uid = self
+                    .clients
+                    .get(&id)
+                    .map(|c| c.user_id.clone())
+                    .unwrap_or_default();
+                if self.is_no_skip_active(&me_uid) {
+                    let left = self.no_skip_secs_left(&me_uid);
+                    self.status(
+                        id,
+                        format!("please stay active — can't skip for {left}s more"),
+                    );
+                    return;
+                }
                 let room = if room.trim().is_empty() {
                     self.room_of(id)
                 } else {
@@ -3540,14 +4396,19 @@ impl SimpleHub {
             ClientMsg::FindThirdInvite => self.handle_find_third_invite(id),
             ClientMsg::FindThirdRespond { accept } => self.handle_find_third_respond(id, accept),
             ClientMsg::FindThirdCancel => self.handle_find_third_cancel(id),
-            ClientMsg::RatePartner { user_id, star } => {
-                self.handle_rate_partner(id, user_id, star);
+            ClientMsg::RatePartner {
+                user_id,
+                star,
+                amount,
+            } => {
+                self.handle_rate_partner(id, user_id, star, amount);
             }
             ClientMsg::SpendStars {
                 to_user_id,
                 effect,
+                op_id,
             } => {
-                self.handle_spend_stars(id, to_user_id, effect);
+                self.handle_spend_stars(id, to_user_id, effect, op_id);
             }
             ClientMsg::BrowseTogether { room } => {
                 let room = if room.trim().is_empty() {
@@ -3599,6 +4460,7 @@ impl SimpleHub {
             ClientMsg::CallRespond { user_id, accept } => {
                 self.handle_call_respond(id, user_id, accept)
             }
+            ClientMsg::CallCancel { user_id } => self.handle_call_cancel(id, user_id),
             ClientMsg::HangupFriend => {
                 if self.clients.get(&id).and_then(|c| c.friend_call).is_some() {
                     self.end_friend_call(id, "friend hung up");
@@ -4046,21 +4908,37 @@ impl SimpleHub {
         };
         let (threshold, ban_secs) = Self::report_severity(&reason_s);
         let is_ai = reason_s.eq_ignore_ascii_case("explicit_ai");
+        let is_underage = reason_s.eq_ignore_ascii_case("underage");
         let reporter_stars = self.stars_for(&reporter.0);
+        let target_stars = self.stars_for(&user_id);
         let reporter_weight = self.report_weight_for(&reporter.0);
+        let applied_weight =
+            self.report_weight_against(&reporter.0, &user_id, is_underage);
         let trusted = reporter_weight >= Self::TRUSTED_REPORT_WEIGHT;
+        let senior = reporter_weight >= Self::SENIOR_REPORT_WEIGHT;
+        let peer_blocked = !is_underage
+            && reporter_stars >= Self::SENIOR_REPORTER_STARS
+            && target_stars >= Self::SENIOR_REPORTER_STARS;
+        let peer_damped = !is_underage
+            && !peer_blocked
+            && applied_weight < reporter_weight
+            && reporter_stars >= Self::TRUSTED_REPORTER_STARS
+            && target_stars >= Self::TRUSTED_REPORTER_STARS;
 
-        // Unique reporters → weighted score (100+ stars = stronger say)
+        // Unique reporters → score with peer protection + target shield
         let reporters = self.report_reporters.entry(user_id.clone()).or_default();
         reporters.insert(reporter.0.clone());
         let report_count = reporters.len();
-        let report_score = self.report_score_for_target(&user_id);
-        // AI-only signals need one extra weight point (reduces false-positive bans)
-        let effective_threshold = if is_ai {
-            threshold.saturating_add(1)
-        } else {
-            threshold
-        };
+        let report_score = self.report_score_for_target(&user_id, is_underage);
+        // AI-only: +1. High-rep targets: +shield (except underage).
+        let mut effective_threshold = threshold;
+        if is_ai {
+            effective_threshold = effective_threshold.saturating_add(1);
+        }
+        if !is_underage {
+            effective_threshold = effective_threshold
+                .saturating_add(Self::target_reputation_shield(target_stars));
+        }
         let mut banned = false;
         if report_score as usize >= effective_threshold {
             let until = Self::now_unix().saturating_add(ban_secs);
@@ -4073,6 +4951,7 @@ impl SimpleHub {
                     reporters = report_count,
                     score = report_score,
                     threshold = effective_threshold,
+                    target_stars,
                     reason = %reason_s,
                     until,
                     "auto match-ban after weighted reports"
@@ -4089,6 +4968,7 @@ impl SimpleHub {
                     ),
                     "target_user_id": user_id,
                     "target_name": target_name,
+                    "target_stars": target_stars,
                     "reason": reason_s,
                     "unique_reporters": report_count,
                     "report_score": report_score,
@@ -4097,6 +4977,9 @@ impl SimpleHub {
                     "until": until,
                     "ai_assisted": is_ai,
                     "last_reporter_trusted": trusted,
+                    "last_reporter_senior": senior,
+                    "last_reporter_weight": reporter_weight,
+                    "last_reporter_applied_weight": applied_weight,
                     "last_reporter_stars": reporter_stars,
                 }));
             }
@@ -4110,9 +4993,15 @@ impl SimpleHub {
             "reporter_short": reporter.2,
             "reporter_stars": reporter_stars,
             "reporter_weight": reporter_weight,
+            "reporter_applied_weight": applied_weight,
             "reporter_trusted": trusted,
+            "reporter_senior": senior,
+            "peer_blocked": peer_blocked,
+            "peer_damped": peer_damped,
             "target_user_id": user_id,
             "target_name": target_name,
+            "target_stars": target_stars,
+            "target_shield": if is_underage { 0 } else { Self::target_reputation_shield(target_stars) },
             "reason": reason_s,
             "unique_reporters": report_count,
             "report_score": report_score,
@@ -4143,14 +5032,31 @@ impl SimpleHub {
             }
         }
         self.metrics_inc_report();
-        self.status(
+        let status_msg = if banned {
+            "report received — user restricted"
+        } else if peer_blocked {
+            "report received — seniors cannot auto-ban each other (needs broader consensus)"
+        } else if peer_damped {
+            "report received — high-rep target; peer reports count less"
+        } else if senior {
+            "report received — senior trusted reporter (strongest weight ×3)"
+        } else if trusted {
+            "report received — trusted reporter (stronger weight ×2)"
+        } else {
+            "report received — thank you"
+        };
+        self.status(id, status_msg);
+        // Structured feedback so the client can show weight / progress
+        self.send(
             id,
-            if banned {
-                "report received — user restricted"
-            } else if trusted {
-                "report received — trusted reporter (stronger weight)"
-            } else {
-                "report received — thank you"
+            ServerMsg::ReportResult {
+                ok: true,
+                auto_banned: banned,
+                reporter_weight,
+                applied_weight,
+                report_score,
+                threshold: effective_threshold as u32,
+                message: status_msg.into(),
             },
         );
     }
@@ -4465,6 +5371,28 @@ impl SimpleHub {
         );
         self.metrics_inc_call_ring();
         self.status(id, "calling friend…");
+    }
+
+    /// Caller hung up while the target was still ringing.
+    fn handle_call_cancel(&mut self, id: Uuid, user_id: String) {
+        let Some(me) = self.clients.get(&id) else {
+            return;
+        };
+        let my_uid = me.user_id.clone();
+        if my_uid.is_empty() || user_id.is_empty() {
+            return;
+        }
+        // Tell callee the ring is over (if they still have that incoming UI).
+        if let Some(&oid) = self.by_user.get(&user_id) {
+            self.send(
+                oid,
+                ServerMsg::CallEnded {
+                    reason: "caller cancelled".into(),
+                },
+            );
+        }
+        self.status(id, "call cancelled");
+        tracing::info!(%my_uid, target = %user_id, "call_cancel");
     }
 
     fn handle_call_respond(&mut self, id: Uuid, from_user_id: String, accept: bool) {

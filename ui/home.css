@@ -557,7 +557,24 @@ body.has-live-people .home-cta {
 }
 @media (min-width: 960px) {
   .home-points {
-    grid-template-columns: repeat(4, 1fr);
+    /* 5 equal cards in one row on wide screens */
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.85rem;
+  }
+}
+@media (min-width: 960px) and (max-width: 1100px) {
+  .home-points {
+    /* slightly tighter type so 5 fit without overflow */
+    gap: 0.7rem;
+  }
+  .home-points li {
+    padding: 1.05rem 0.95rem 1.1rem;
+  }
+  .home-points strong {
+    font-size: 0.9rem;
+  }
+  .home-points li > div > span {
+    font-size: 0.8rem;
   }
 }
 
@@ -622,6 +639,20 @@ body.has-live-people .home-cta {
   background: linear-gradient(145deg, rgba(255, 45, 85, 0.16) 0%, rgba(255, 107, 53, 0.08) 100%);
   border-color: rgba(255, 107, 53, 0.35);
 }
+.pt-ico-stars {
+  color: #ffd54a;
+  background: linear-gradient(145deg, rgba(255, 213, 74, 0.22) 0%, rgba(232, 150, 16, 0.12) 100%);
+  border-color: rgba(255, 200, 60, 0.45);
+  box-shadow:
+    0 4px 14px rgba(0, 0, 0, 0.25),
+    0 0 16px rgba(255, 190, 40, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+.home-points li.home-point-stars {
+  border-color: rgba(255, 200, 60, 0.22);
+  background:
+    linear-gradient(165deg, rgba(255, 210, 80, 0.09) 0%, rgba(20, 16, 8, 0.55) 100%);
+}
 .home-points li:hover .pt-ico {
   transform: scale(1.06);
   box-shadow:
@@ -639,6 +670,17 @@ body.has-live-people .home-cta {
 }
 .home-points li:hover .pt-ico-safety {
   border-color: rgba(255, 143, 171, 0.5);
+}
+.home-points li:hover .pt-ico-stars {
+  border-color: rgba(255, 220, 100, 0.7);
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.3),
+    0 0 22px rgba(255, 190, 40, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+.home-points li.home-point-stars:hover {
+  border-color: rgba(255, 210, 80, 0.4);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.28), 0 0 28px rgba(255, 180, 40, 0.12);
 }
 
 .home-points strong {
@@ -666,6 +708,139 @@ body.has-live-people .home-cta {
 }
 .home-lang-ico svg {
   display: block;
+}
+
+/* —— Stars reputation section (not money) —— */
+.home-stars {
+  margin-top: 1.35rem;
+  padding: 1.45rem 1.4rem 1.5rem;
+  border-radius: calc(var(--radius) + 2px);
+  border: 1px solid rgba(255, 200, 60, 0.32);
+  background:
+    linear-gradient(
+      145deg,
+      rgba(90, 60, 10, 0.45) 0%,
+      rgba(28, 20, 8, 0.82) 42%,
+      rgba(14, 16, 24, 0.78) 100%
+    );
+  backdrop-filter: blur(14px);
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.28),
+    0 0 40px rgba(255, 180, 40, 0.08),
+    inset 0 1px 0 rgba(255, 230, 140, 0.12);
+  position: relative;
+  overflow: hidden;
+}
+.home-stars.home-stars-compact {
+  padding: 1.1rem 1.25rem 1.15rem;
+}
+.home-stars.home-stars-compact .home-stars-head {
+  margin-bottom: 0.35rem;
+}
+.home-stars.home-stars-compact .home-stars-lead {
+  margin: 0;
+  font-size: 0.95rem;
+  color: rgba(255, 235, 200, 0.92);
+  font-weight: 550;
+}
+.home-stars.home-stars-compact .home-stars-lead strong {
+  font-weight: 700;
+}
+.home-stars::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(255, 210, 80, 0.75), transparent);
+}
+.home-stars-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin-bottom: 0.7rem;
+  position: relative;
+  z-index: 1;
+}
+.home-stars-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.28rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #1a1200;
+  background: linear-gradient(180deg, #fff0b0 0%, #ffd54a 45%, #e8a812 100%);
+  border: 1px solid rgba(255, 240, 180, 0.55);
+  box-shadow:
+    0 2px 10px rgba(255, 180, 30, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+.home-stars h2 {
+  margin: 0;
+  font-size: clamp(1.2rem, 3vw, 1.45rem);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  color: #fff6d0;
+  text-shadow: 0 0 20px rgba(255, 200, 60, 0.25);
+}
+.home-stars-lead {
+  margin: 0 0 0.65rem;
+  font-size: 1rem;
+  line-height: 1.55;
+  color: rgba(255, 235, 190, 0.95);
+  position: relative;
+  z-index: 1;
+}
+.home-stars-lead strong {
+  color: #ffe9a0;
+  font-weight: 750;
+}
+.home-stars-body {
+  position: relative;
+  z-index: 1;
+  color: rgba(210, 200, 175, 0.92) !important;
+}
+.home-stars-body strong {
+  color: #ffe9a0 !important;
+}
+.home-stars-grid {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.65rem;
+  position: relative;
+  z-index: 1;
+}
+@media (min-width: 720px) {
+  .home-stars-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.75rem;
+  }
+}
+.home-stars-grid li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 210, 80, 0.18);
+}
+.home-stars-grid strong {
+  font-size: 0.88rem;
+  font-weight: 750;
+  color: #ffe9a0;
+}
+.home-stars-grid span {
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: rgba(210, 200, 175, 0.88);
 }
 
 /* —— Story sections —— */
@@ -1083,7 +1258,58 @@ body.has-live-people .home-cta {
   }
 }
 
+/* Week-1 liquidity strip under hero stats */
+.home-liquidity {
+  margin-top: 0.85rem;
+  max-width: 34rem;
+}
+.home-busy-hours {
+  margin: 0 0 0.4rem;
+  font-size: 0.88rem;
+  font-weight: 650;
+  line-height: 1.4;
+  color: #f0d9a0;
+  letter-spacing: 0.01em;
+}
+.home-busy-hours.is-live {
+  color: #9ee6c0;
+}
+.home-quiet-cta {
+  margin: 0.35rem 0 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.4;
+  color: #ffb4a8;
+}
+.home-invite-hint {
+  margin: 0.25rem 0 0;
+}
+body.is-quiet-pool .home-invite-btn.is-priority,
+.home-invite-btn.is-priority {
+  border-color: rgba(255, 120, 100, 0.55);
+  box-shadow: 0 0 0 1px rgba(255, 100, 90, 0.25), 0 8px 24px rgba(255, 60, 80, 0.2);
+  animation: home-invite-pulse 2.2s ease-in-out infinite;
+}
+@keyframes home-invite-pulse {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.08); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-invite-btn.is-priority { animation: none; }
+}
+
 /* PWA install banner (shared with live via same class names) */
+#pwa-update-banner {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  z-index: 10050;
+  animation: pwa-slide-up 0.35s ease-out;
+}
+#pwa-update-banner .pwa-install-bar {
+  background: linear-gradient(90deg, #5b8cff, #7c5cff);
+}
 #pwa-install-banner {
   position: fixed;
   left: 50%;

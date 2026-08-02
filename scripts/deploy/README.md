@@ -65,9 +65,22 @@ ssh root@YOUR_DROPLET 'bash /opt/ruletka/deploy/setup-turn.sh'
 /opt/ruletka/bin/roulette-bridge
 /opt/ruletka/ui/                 # homepage + live
 /opt/ruletka/data/friends.json
+/opt/ruletka/data/star_ledger.jsonl   # star balances (authoritative)
+/opt/ruletka/backups/                 # from backup-ruletka-data.sh
+/opt/ruletka/deploy/backup-ruletka-data.sh
 /etc/caddy/Caddyfile
 /etc/systemd/system/roulette-bridge.service
 ```
+
+## Data backup
+
+Always snapshot **friends + star ledger** together:
+
+```bash
+ssh root@YOUR_DROPLET 'bash /opt/ruletka/deploy/backup-ruletka-data.sh'
+```
+
+See `docs/OPS.md` (Backups section).
 
 ## Updates
 
