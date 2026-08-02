@@ -21,6 +21,18 @@ Short checklist for running a public hub without full-time moderators.
 
 Admin UI: `https://your-hub/admin.html` (token from `admin.env`).
 
+## Deploy safety (do not wipe hub data)
+
+`scripts/deploy/push.sh` syncs **only** `bin/`, `ui/`, and `deploy/`.
+
+| Path | On deploy |
+|------|-----------|
+| `/opt/ruletka/bin`, `ui`, `deploy` | Replaced (`rsync --delete` inside each) |
+| `/opt/ruletka/data/*` | **Preserved** (friends, ledger, metrics, `*.env`) |
+| `/opt/ruletka/backups/*` | **Preserved** |
+
+Never `rsync --delete` the whole `/opt/ruletka` tree — that once wiped backups and recreated `admin.env` / `turn.env`. First install still seeds empty `friends.json` only if the file is missing. After deploy, admin token is the one already in `data/admin.env` (create-once in `install-on-server.sh`).
+
 ## TURN / Hide IP (coturn)
 
 Prod coturn listens on **`turn:ruletka.vip:3478`** (UDP/TCP) with time-limited credentials from `turn.env`. Relay ports **49160–49300**. Config: `scripts/deploy/coturn.conf` + `setup-turn.sh`.

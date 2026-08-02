@@ -89,3 +89,16 @@ Lottie, multi-hub stars, more admin charts until peak_online regularly > 10 **an
 
 **Stop building features** until a real two-person session moves `friend_calls` or alone %.
 
+## Engineering wrap (2026-08) — shipped, not more product
+
+| Track | Status |
+|-------|--------|
+| Stars A–D, gift FX | Live |
+| Hide IP + relay A/V | Live |
+| No-account export/import + Web Share + QR | Live |
+| Deploy never wipes `data/` / `backups/` | Live (`push.sh`) |
+| TURNS/443 | Deferred (coturn 3478 only) |
+| Lottie / multi-hub / IAP | Still parked |
+
+**Operator (you):** fixed evening slots + one full friend invite → Accept → Call. That is the remaining “finish,” not more UI.
+

@@ -1486,5 +1486,7 @@
   "invite.packBodyCode": "Let’s try {brand} together during tonight live ({range}).\n\n1) Open: {url}\n2) Add my friend code: {code}\n3) Accept → Call when both Online\n\nPeer-to-peer video · no account · Block/Report built in.",
   "invite.packLiveBody": "I’m on {brand} right now (peer-to-peer video, no account).\n\n1) Open: {url}\n2) Add my code: {code}\n3) I Accept → Call when Online\n\nTonight window: {range}",
   "invite.packOnlineBody": "{n} people online on {brand} now — random video chat or friends Call.\n\nOpen: {url}\nNo account · video stays browser-to-browser.",
-  "invite.shareLineCode": "{brand}: add me {code} then Call · {url}"
+  "invite.shareLineCode": "{brand}: add me {code} then Call · {url}",
+  "settings.exportDoneEnc": "Encrypted profile exported",
+  "settings.exportEncrypting": "Encrypting…"
 }

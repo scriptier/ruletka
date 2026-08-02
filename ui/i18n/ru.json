@@ -1486,5 +1486,7 @@
   "invite.packBodyCode": "Давай вместе на {brand} в вечерний live ({range}).\n\n1) Открой: {url}\n2) Добавь мой код: {code}\n3) Accept → звонок, когда оба Online\n\nВидео peer-to-peer · без аккаунта · есть Блок/Жалоба.",
   "invite.packLiveBody": "Я сейчас на {brand} (peer-to-peer видео, без аккаунта).\n\n1) Открой: {url}\n2) Добавь код: {code}\n3) Я приму → звонок Online\n\nОкно: {range}",
   "invite.packOnlineBody": "Сейчас {n} онлайн на {brand} — случайный чат или звонок другу.\n\nОткрой: {url}\nБез аккаунта · видео браузер к браузеру.",
-  "invite.shareLineCode": "{brand}: добавь {code} и звони · {url}"
+  "invite.shareLineCode": "{brand}: добавь {code} и звони · {url}",
+  "settings.exportDoneEnc": "Зашифрованный профиль экспортирован",
+  "settings.exportEncrypting": "Шифрование…"
 }
