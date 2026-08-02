@@ -7,16 +7,30 @@ See monorepo docs:
 - [`docs/MOBILE.md`](../docs/MOBILE.md) — phases + parity checklist  
 - [`docs/PROTOCOL.md`](../docs/PROTOCOL.md) — WebSocket JSON  
 
-## Status (Phase 0 scaffold)
+## Status (Phase 0 → A/V wiring)
 
 | Piece | Status |
 |-------|--------|
 | Expo app shell + 18+ rules | ✅ |
 | SecureStore identity | ✅ |
 | `HubClient` → `wss://hub/ws` | ✅ hello / spin / next / stop / signal / ping |
-| Live debug screen | ✅ match events logged |
-| `react-native-webrtc` A/V | ⏳ needs `expo prebuild` + device build |
+| Live screen + match | ✅ |
+| `MediaSession` offer/answer/ice | ✅ code path (native module required) |
+| Local/remote `RTCView` | ✅ when WebRTC linked |
+| Mic / cam / flip | ✅ |
 | Friends / stars UI | ⏳ Phase 2–3 |
+
+### First A/V call (device)
+
+```bash
+cd mobile
+npm install
+npx expo prebuild
+npx expo run:android   # physical device or emulator with camera
+# second peer: web https://ruletka.vip/live.html  OR another device
+```
+
+Both must reach the same hub (`EXPO_PUBLIC_HUB_BASE`). Signal kinds match web: `offer` / `answer` / `ice` / `bye`.
 
 ## Requirements
 

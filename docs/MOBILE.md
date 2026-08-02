@@ -22,7 +22,7 @@ Web client (`ui/`) remains the **product reference**. Mobile reimplements the pr
 
 | Phase | Goal | Exit |
 |-------|------|------|
-| **0** Foundations | Scaffold, HubClient, one A/V match | App ↔ web or app ↔ app match works |
+| **0** Foundations | Scaffold, HubClient, MediaSession A/V | App ↔ web or app ↔ app match works (native build) |
 | **1** Stranger loop | Start/Next/Stop, safety, chat | Internal TestFlight / Play testing |
 | **2** Friends | Codes, call ring, miss | Friend call loop store-testable |
 | **3** Stars + export | Gifts, spend, backup | Parity checklist green |
