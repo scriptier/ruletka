@@ -97,7 +97,20 @@
         (typeof window.t === "function" ? window.t : null);
       if (fn) {
         var v = fn(key);
-        if (v && v !== key) return v;
+        // RuletI18n.t humanizes missing keys ("pwa.updateTitle" → "Update Title").
+        // Prefer the English fallback in that case so banners never show raw key labels.
+        if (v && v !== key) {
+          var last = String(key || "").split(".").pop() || "";
+          var human = last
+            .replace(/([A-Z])/g, " $1")
+            .replace(/[_-]+/g, " ")
+            .replace(/^\s+/, "")
+            .replace(/^./, function (c) {
+              return c.toUpperCase();
+            });
+          if (v === human || v === last) return fallback;
+          return v;
+        }
       }
     } catch (_) {}
     return fallback;
