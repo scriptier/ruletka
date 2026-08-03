@@ -111,7 +111,23 @@ async fn branded_ui(
         .unwrap_or_else(|_| axum::http::Request::new(Body::empty()));
 
     if is_branded_text_path(path) {
-        // Read file ourselves for safe rewrite
+        // Default brand (ruletka.vip): serve files directly — no full-file rewrite.
+        // Cuts TTFB vs reading multi‑100KB HTML into a String on every request.
+        if brand == "ruletka.vip" {
+            let svc = ServeDir::new(&state.ui_dir).append_index_html_on_directories(true);
+            return match svc.oneshot(req).await {
+                Ok(mut r) => {
+                    r.headers_mut().insert(
+                        header::CACHE_CONTROL,
+                        HeaderValue::from_static("public, max-age=60"),
+                    );
+                    r.into_response()
+                }
+                Err(_) => StatusCode::NOT_FOUND.into_response(),
+            };
+        }
+
+        // Alternate hosts (.me etc.): rewrite brand strings in HTML/manifest.
         let rel = if path == "/" || path.is_empty() {
             "index.html".to_string()
         } else {

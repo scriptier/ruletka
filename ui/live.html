@@ -53,11 +53,45 @@
   <noscript>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </noscript>
-  <!-- Critical CSS: preload then apply (faster first paint on mobile) -->
-  <link rel="preload" href="live-stage.css?v=271" as="style" />
+  <!-- Shell CSS first; full stage CSS non-blocking (was ~250KB parse on main thread) -->
   <link rel="stylesheet" href="style.css?v=158" />
-  <link rel="stylesheet" href="live-stage.css?v=271" />
-  <script src="brand.js?v=2"></script>
+  <style id="live-critical">
+    /* Minimal first-paint: dark stage + age gate (full rules in live-stage.css) */
+    html.stage-html, body.stage-body {
+      margin: 0; min-height: 100%; background: #07080c; color: #e8eef7;
+      font-family: system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    .age-gate {
+      position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 0.75rem; padding: 1.5rem;
+      background: radial-gradient(800px 400px at 50% 20%, #1a2030 0%, #07080c 70%);
+      text-align: center;
+    }
+    .age-gate-title { font-size: 1.5rem; font-weight: 800; margin: 0; }
+    .age-gate-sub, .age-gate-kicker { color: #9aa8bc; max-width: 28rem; line-height: 1.45; }
+    .age-gate-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; justify-content: center; margin-top: 0.5rem; }
+    .age-gate-btn {
+      border: 0; border-radius: 999px; padding: 0.75rem 1.25rem; font-weight: 700; cursor: pointer;
+      background: #ff2d55; color: #fff;
+    }
+    .age-gate-btn.ghost { background: rgba(255,255,255,0.08); color: #c5d0e0; }
+    .age-gate-logo { width: 96px; height: 96px; border-radius: 20px; object-fit: cover; }
+    .stage-body > .stage, .stage-root { min-height: 100vh; }
+    .top-bar, .side-rail, .tile-dock, .chat-panel { opacity: 0; }
+    .rules-overlay[hidden], .age-gate[hidden] { display: none !important; }
+  </style>
+  <link rel="preload" href="live-stage.css?v=272" as="style" />
+  <link
+    rel="stylesheet"
+    href="live-stage.css?v=272"
+    media="print"
+    onload="this.media='all';var c=document.getElementById('live-critical');if(c)c.remove();"
+  />
+  <noscript><link rel="stylesheet" href="live-stage.css?v=272" /></noscript>
+  <!-- Warm the big app chunk early without blocking HTML parse -->
+  <link rel="preload" href="live.js?v=278" as="script" />
+  <link rel="preload" href="i18n.js?v=199" as="script" />
+  <script src="brand.js?v=2" defer></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
     (function () {
@@ -1211,7 +1245,7 @@
     <!-- Step 1: 18+ -->
     <div class="age-gate" id="age-gate-step" role="dialog" aria-modal="true" aria-labelledby="age-gate-title">
       <div class="age-gate-visual" aria-hidden="true">
-        <img class="age-gate-logo" src="/brand/logo-mark.png" width="96" height="96" alt="" />
+        <img class="age-gate-logo" src="/brand/icon-192.png" width="96" height="96" alt="" decoding="async" fetchpriority="low" />
       </div>
       <p class="age-gate-kicker" data-i18n="rules.ageGateKicker">18+ only · peer-to-peer video chat</p>
       <h1 id="age-gate-title" class="age-gate-title" data-i18n="rules.ageGateTitle">Are you 18 or older?</h1>
@@ -2166,12 +2200,12 @@
 
   <!-- Critical path: defer app scripts. QR / invite-copy / live-window load on demand. -->
   <script src="analytics.js?v=3" defer></script>
-  <script src="pwa-install.js?v=8" defer></script>
-  <script src="i18n.js?v=198" defer></script>
+  <script src="pwa-install.js?v=9" defer></script>
+  <script src="i18n.js?v=199" defer></script>
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=156" defer></script>
   <script src="webrtc.js?v=161" defer></script>
-  <script src="live.js?v=277" defer></script>
+  <script src="live.js?v=278" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

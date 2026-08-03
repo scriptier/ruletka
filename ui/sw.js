@@ -6,9 +6,9 @@
  * - Bump CACHE when shell list changes so activate cleans old entries.
  * - No skipWaiting on install (avoids mid-call takeover); client posts SKIP_WAITING on Reload.
  */
-const CACHE = "rulet-shell-v6";
+const CACHE = "rulet-shell-v7";
 
-/** Offline-safe shell only — versioned live stack is always network-first. */
+/** Offline-safe shell only — keep small (no 250KB icons / mp4). Live stack is network-first. */
 const SHELL = [
   "/",
   "/index.html",
@@ -22,10 +22,8 @@ const SHELL = [
   "/manifest.webmanifest",
   "/brand.js",
   "/pwa-install.js",
-  "/brand/icon-192.png",
-  "/brand/icon-512.png",
   "/brand/favicon-32.png",
-  "/brand/logo-mark.png",
+  "/brand/icon-192.png",
 ];
 
 /** Paths that must never be served from cache (always hit network). */

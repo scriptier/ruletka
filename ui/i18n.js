@@ -1751,6 +1751,21 @@
     // External pack already present without merge flag
     if (!BUNDLED.has(c) && STR[c]) return Promise.resolve(STR[c]);
     if (loading[c]) return loading[c];
+    // Prefer sessionStorage pack cache (avoids re-downloading ~100KB JSON every navigation)
+    const packCacheKey = "ruletka-i18n-pack-v68-" + c;
+    try {
+      const cached = sessionStorage.getItem(packCacheKey);
+      if (cached) {
+        const j = JSON.parse(cached);
+        if (j && typeof j === "object") {
+          STR[c] = Object.assign({}, STR[c] || STR.en || {}, j, {
+            __packMerged: true,
+          });
+          return Promise.resolve(STR[c]);
+        }
+      }
+    } catch (_) {}
+
     // Always fetch /i18n/{code}.json and merge over built-ins (en/ru too)
     loading[c] = fetch(`/i18n/${c}.json?v=68`, { cache: "force-cache" })
       .then((r) => {
@@ -1762,6 +1777,11 @@
           STR[c] = Object.assign({}, STR[c] || STR.en || {}, j, {
             __packMerged: true,
           });
+          try {
+            sessionStorage.setItem(packCacheKey, JSON.stringify(j));
+          } catch (_) {
+            /* quota */
+          }
         }
         return STR[c];
       })
