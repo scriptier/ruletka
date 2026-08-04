@@ -17244,18 +17244,19 @@ function blockUserId(uid, opts = {}) {
   closePartnerMenu();
   try {
     syncFriendsTabCounts();
-    if (friendsSheetTab === "history") renderHistoryList();
-    if (friendsSheetTab === "blocked" || (blockedCache && blockedCache.length)) {
-      // Show blocked tab after a history block so user can confirm
-      if (opts.fromHistory) {
-        try {
-          setFriendsSheetTab("blocked");
-        } catch (_) {
-          renderBlockedList();
-        }
-      } else {
-        renderBlockedList();
+    // Refresh friends + blocked panels (blocked list lives inside renderFriendsList)
+    try {
+      renderFriendsList();
+    } catch (_) {}
+    if (opts.fromHistory) {
+      // Jump to Blocked tab so the user can see the person is blocked
+      try {
+        setFriendsSheetTab("blocked");
+      } catch (_) {
+        if (friendsSheetTab === "history") renderHistoryList();
       }
+    } else if (friendsSheetTab === "history") {
+      renderHistoryList();
     }
   } catch (_) {}
   return true;
