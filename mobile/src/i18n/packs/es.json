@@ -1145,7 +1145,7 @@
   "settings.legalMore": "Más legal y licencia",
   "settings.license": "Licencia · LGPL-2.1",
   "settings.lowLatencyAudio": "Audio de baja latencia",
-  "settings.lowLatencyAudioHint": "Mejor lipsync — menos procesado del mic. Si hay eco, desactívalo.",
+  "settings.lowLatencyAudioHint": "Desactivado por defecto (reducción de ruido on). Actívalo para mejor lipsync — si hay eco/ruido, déjalo off.",
   "settings.lowLatencyAudioOff": "Procesado completo del mic — reiniciando mic…",
   "settings.lowLatencyAudioOn": "Audio de baja latencia activado — reiniciando mic…",
   "settings.matchSound": "Sonido al emparejar",

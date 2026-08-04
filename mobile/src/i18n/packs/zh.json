@@ -1145,7 +1145,7 @@
   "settings.legalMore": "更多法律与许可",
   "settings.license": "许可证 · LGPL-2.1",
   "settings.lowLatencyAudio": "低延迟音频",
-  "settings.lowLatencyAudioHint": "更严格的口型同步——更少的麦克风处理。如果您听到回声，请将其关闭。",
+  "settings.lowLatencyAudioHint": "默认关闭（噪声抑制开启）。需要更紧口型同步时再打开——有回声/噪声请保持关闭。",
   "settings.lowLatencyAudioOff": "全面麦克风处理开启 - 重新启动麦克风...",
   "settings.lowLatencyAudioOn": "低延迟音频开启 — 重新启动麦克风...",
   "settings.matchSound": "匹配时提示音",

@@ -1145,7 +1145,7 @@
   "settings.legalMore": "Więcej prawne i licencja",
   "settings.license": "Licencja · LGPL-2.1",
   "settings.lowLatencyAudio": "Dźwięk o niskim opóźnieniu",
-  "settings.lowLatencyAudioHint": "Ściślejsza synchronizacja ruchu warg — mniej przetwarzania mikrofonu. Jeśli słyszysz echo, wyłącz tę opcję.",
+  "settings.lowLatencyAudioHint": "Domyślnie wył. (redukcja szumu włączona). Włącz dla lepszego lipsync — przy echu/szumie zostaw wył.",
   "settings.lowLatencyAudioOff": "Włączone pełne przetwarzanie mikrofonu — ponowne uruchamianie mikrofonu…",
   "settings.lowLatencyAudioOn": "Włączony dźwięk o niskim opóźnieniu — restartowanie mikrofonu…",
   "settings.matchSound": "Dźwięk przy dopasowaniu",

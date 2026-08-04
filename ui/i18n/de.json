@@ -1145,7 +1145,7 @@
   "settings.legalMore": "Mehr Rechtliches & Lizenz",
   "settings.license": "Lizenz · LGPL-2.1",
   "settings.lowLatencyAudio": "Audio mit geringer Latenz",
-  "settings.lowLatencyAudioHint": "Festere Lippensync — weniger Mikrofon-Verarbeitung. Bei Echo ausschalten.",
+  "settings.lowLatencyAudioHint": "Standard aus (Rauschunterdrückung an). Einschalten für engeres Lippensync — bei Echo/Rauschen aus lassen.",
   "settings.lowLatencyAudioOff": "Volle Mikro-Verarbeitung an — Mikro startet neu…",
   "settings.lowLatencyAudioOn": "Niedrige Audio-Latenz an — Mikro startet neu…",
   "settings.matchSound": "Ton bei Match",

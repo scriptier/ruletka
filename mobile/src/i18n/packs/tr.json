@@ -1145,7 +1145,7 @@
   "settings.legalMore": "Daha fazla yasal ve lisans",
   "settings.license": "Lisans · LGPL-2.1",
   "settings.lowLatencyAudio": "Düşük gecikmeli ses",
-  "settings.lowLatencyAudioHint": "Daha sıkı dudak senkronizasyonu — daha az mikrofon işleme. Yankı duyarsanız bunu kapatın.",
+  "settings.lowLatencyAudioHint": "Varsayılan kapalı (gürültü azaltma açık). Daha sıkı lipsync için açın — yankı/gürültüde kapalı bırakın.",
   "settings.lowLatencyAudioOff": "Tam mikrofon işleme açık — mikrofon yeniden başlatılıyor…",
   "settings.lowLatencyAudioOn": "Düşük gecikmeli ses açık — mikrofon yeniden başlatılıyor…",
   "settings.matchSound": "Eşleşmede ses",

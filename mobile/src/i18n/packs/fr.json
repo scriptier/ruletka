@@ -1145,7 +1145,7 @@
   "settings.legalMore": "Plus de légal & licence",
   "settings.license": "Licence · LGPL-2.1",
   "settings.lowLatencyAudio": "Audio à faible latence",
-  "settings.lowLatencyAudioHint": "Synchronisation labiale plus serrée – moins de traitement du micro. Si vous entendez un écho, désactivez-le.",
+  "settings.lowLatencyAudioHint": "Désactivé par défaut (réduction de bruit on). Activez pour un lipsync plus serré — si écho/bruit, laissez off.",
   "settings.lowLatencyAudioOff": "Traitement complet du micro activé – redémarrage du micro…",
   "settings.lowLatencyAudioOn": "Audio à faible latence activé – redémarrage du micro…",
   "settings.matchSound": "Son au match",

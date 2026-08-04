@@ -382,11 +382,12 @@ function isLowLatencyAudioEnabled() {
     const p = JSON.parse(
       localStorage.getItem("freenet-roulette-media-prefs-v1") || "{}"
     );
-    // Default ON — lipsync was a frequent complaint; toggle can disable
-    if (p.lowLatencyAudio === false || p.lowLatencyAudio === 0) return false;
-    return true;
+    // Default OFF — noise suppression + AGC on (better multi-party / noisy rooms).
+    // User can opt into low-latency (less processing, tighter lipsync) in Settings.
+    if (p.lowLatencyAudio === true || p.lowLatencyAudio === 1) return true;
+    return false;
   } catch {
-    return true;
+    return false;
   }
 }
 

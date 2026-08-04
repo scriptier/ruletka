@@ -89,7 +89,7 @@
   />
   <noscript><link rel="stylesheet" href="live-stage.css?v=272" /></noscript>
   <!-- Warm the big app chunk early without blocking HTML parse -->
-  <link rel="preload" href="live.js?v=281" as="script" />
+  <link rel="preload" href="live.js?v=282" as="script" />
   <link rel="preload" href="i18n.js?v=200" as="script" />
   <script src="brand.js?v=2" defer></script>
   <script>
@@ -1537,7 +1537,7 @@
           <label class="settings-toggle-row">
             <span class="toggle-copy">
               <span class="toggle-title" data-i18n="settings.lowLatencyAudio">Low-latency audio</span>
-              <span class="toggle-hint" data-i18n="settings.lowLatencyAudioHint">Tighter lipsync — less mic processing. If you hear echo, turn this off.</span>
+              <span class="toggle-hint" data-i18n="settings.lowLatencyAudioHint">Off by default (noise reduction on). Turn on for tighter lipsync — if you hear echo/noise, leave this off.</span>
             </span>
             <span class="toggle-switch">
               <input type="checkbox" id="chk-low-latency-audio" checked />
@@ -1958,7 +1958,7 @@
         <label class="settings-toggle-row">
           <span class="toggle-copy">
             <span class="toggle-title" data-i18n="settings.lowLatencyAudio">Low-latency audio</span>
-            <span class="toggle-hint" data-i18n="settings.lowLatencyAudioHint">Tighter lipsync — less mic processing. If you hear echo, turn this off.</span>
+            <span class="toggle-hint" data-i18n="settings.lowLatencyAudioHint">Off by default (noise reduction on). Turn on for tighter lipsync — if you hear echo/noise, leave this off.</span>
           </span>
           <span class="toggle-switch">
             <input type="checkbox" id="chk-low-latency-audio-conn" checked />
@@ -2204,8 +2204,8 @@
   <script src="i18n.js?v=200" defer></script>
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=156" defer></script>
-  <script src="webrtc.js?v=161" defer></script>
-  <script src="live.js?v=281" defer></script>
+  <script src="webrtc.js?v=162" defer></script>
+  <script src="live.js?v=282" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

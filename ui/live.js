@@ -12520,11 +12520,11 @@ function syncHideIpToggle() {
   syncPreferDirectToggle();
 }
 
-/** Low-latency audio (lipsync) — default on unless user opted out. */
+/** Low-latency audio (lipsync) — default off so NS/AGC stay on. */
 function isLowLatencyAudioPref() {
   const p = loadPrefs();
-  if (p.lowLatencyAudio === false || p.lowLatencyAudio === 0) return false;
-  return true;
+  if (p.lowLatencyAudio === true || p.lowLatencyAudio === 1) return true;
+  return false;
 }
 
 function syncLowLatencyAudioToggles() {

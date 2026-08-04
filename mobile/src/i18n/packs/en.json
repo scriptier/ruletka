@@ -1145,7 +1145,7 @@
   "settings.legalMore": "More legal & license",
   "settings.license": "License · LGPL-2.1",
   "settings.lowLatencyAudio": "Low-latency audio",
-  "settings.lowLatencyAudioHint": "Tighter lipsync — less mic processing. If you hear echo, turn this off.",
+  "settings.lowLatencyAudioHint": "Off by default (noise reduction on). Turn on for tighter lipsync — if you hear echo/noise, leave this off.",
   "settings.lowLatencyAudioOff": "Full mic processing on — restarting mic…",
   "settings.lowLatencyAudioOn": "Low-latency audio on — restarting mic…",
   "settings.matchSound": "Sound on match",

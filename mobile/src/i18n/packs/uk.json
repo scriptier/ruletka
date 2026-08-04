@@ -1145,7 +1145,7 @@
   "settings.legalMore": "Ще правове та ліцензія",
   "settings.license": "Ліцензія · LGPL-2.1",
   "settings.lowLatencyAudio": "Аудіо з низькою затримкою",
-  "settings.lowLatencyAudioHint": "Точніша синхронізація — менше обробки мікрофона. Якщо ви чуєте луну, вимкніть це.",
+  "settings.lowLatencyAudioHint": "За замовч. вимк (шумозаглушення увімк). Увімкніть для меншої затримки звуку — при ехо/шумі залиште вимк.",
   "settings.lowLatencyAudioOff": "Повна обробка мікрофона — перезапуск мікрофона…",
   "settings.lowLatencyAudioOn": "Аудіо з низькою затримкою ввімкнено — перезапуск мікрофона…",
   "settings.matchSound": "Звук при матчі",
