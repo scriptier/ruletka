@@ -182,6 +182,8 @@
   "friends.blockConfirm": "¿Bloquear a esta persona? No volverás a emparejarla.",
   "friends.blockFromHistory": "Bloquear",
   "friends.blockFromHistoryTitle": "Bloquear — no volveréis a emparejaros",
+  "friends.blockNeedConn": "Sin conexión al hub — espera a reconectar y bloquea de nuevo",
+  "friends.blockNeedId": "No se puede bloquear — no hay id de este chat",
   "friends.blockNeverAgain": "No volveréis a emparejaros. Desbloquea cuando quieras en Amigos.",
   "friends.blockNext": "Bloquear · Siguiente",
   "friends.blockOk": "usuario bloqueado",

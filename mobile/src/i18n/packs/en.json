@@ -182,6 +182,8 @@
   "friends.blockConfirm": "Block this person? You will not match them again.",
   "friends.blockFromHistory": "Block",
   "friends.blockFromHistoryTitle": "Block — you will not match them again",
+  "friends.blockNeedConn": "Not connected to hub — wait for reconnect, then Block again",
+  "friends.blockNeedId": "Cannot block — no user id for this chat",
   "friends.blockNeverAgain": "You will not match them again. Unblock anytime in Friends.",
   "friends.blockNext": "Block · Next",
   "friends.blockOk": "user blocked",

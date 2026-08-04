@@ -182,6 +182,8 @@
   "friends.blockConfirm": "Zablokować tę osobę? Nie spotkacie się już w losowaniu.",
   "friends.blockFromHistory": "Zablokuj",
   "friends.blockFromHistoryTitle": "Zablokuj — nie traficie się ponownie",
+  "friends.blockNeedConn": "Brak połączenia z hubem — poczekaj na reconnect i zablokuj ponownie",
+  "friends.blockNeedId": "Nie można zablokować — brak id tego czatu",
   "friends.blockNeverAgain": "Nie traficie na siebie ponownie. Odblokujesz w Znajomych.",
   "friends.blockNext": "Blokuj · Dalej",
   "friends.blockOk": "użytkownik zablokowany",

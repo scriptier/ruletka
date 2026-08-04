@@ -182,6 +182,8 @@
   "friends.blockConfirm": "Bu kişiyi engelle? Bir daha eşleşmezsiniz.",
   "friends.blockFromHistory": "Engelle",
   "friends.blockFromHistoryTitle": "Engelle — bir daha eşleşmezsiniz",
+  "friends.blockNeedConn": "Hub bağlantısı yok — yeniden bağlanınca tekrar Engelle",
+  "friends.blockNeedId": "Engellenemiyor — bu sohbetin id’si yok",
   "friends.blockNeverAgain": "Bir daha eşleşmeyeceksiniz. Engeli Dostlar’dan kaldırabilirsiniz.",
   "friends.blockNext": "Engelle · Sonraki",
   "friends.blockOk": "kullanıcı engellendi",

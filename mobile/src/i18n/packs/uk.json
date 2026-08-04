@@ -182,6 +182,8 @@
   "friends.blockConfirm": "Заблокувати? Ви більше не зустрінетесь у пошуку.",
   "friends.blockFromHistory": "Блок",
   "friends.blockFromHistoryTitle": "Блок — більше не зустрінетесь",
+  "friends.blockNeedConn": "Немає зв’язку з хабом — дочекайтесь перепідключення і натисніть Блок знову",
+  "friends.blockNeedId": "Не можна заблокувати — немає id цього чату",
   "friends.blockNeverAgain": "Ви більше не зустрінетесь. Розблокувати можна в Друзях.",
   "friends.blockNext": "Блок · Далі",
   "friends.blockOk": "користувача заблоковано",

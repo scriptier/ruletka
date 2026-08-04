@@ -182,6 +182,8 @@
   "friends.blockConfirm": "屏蔽此人？你们将不会再匹配。",
   "friends.blockFromHistory": "拉黑",
   "friends.blockFromHistoryTitle": "拉黑 — 不会再匹配到对方",
+  "friends.blockNeedConn": "未连接中枢 — 重连后再点拉黑",
+  "friends.blockNeedId": "无法拉黑 — 此记录没有用户 id",
   "friends.blockNeverAgain": "你们不会再被匹配。可随时在好友中取消拉黑。",
   "friends.blockNext": "拉黑 · 下一个",
   "friends.blockOk": "用户已屏蔽",

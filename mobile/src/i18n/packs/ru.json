@@ -182,6 +182,8 @@
   "friends.blockConfirm": "Заблокировать? Вы больше не встретитесь в поиске.",
   "friends.blockFromHistory": "В блок",
   "friends.blockFromHistoryTitle": "Блок — вы больше не встретитесь",
+  "friends.blockNeedConn": "Нет связи с хабом — дождитесь переподключения и нажмите Блок снова",
+  "friends.blockNeedId": "Нельзя заблокировать — нет id у этой записи",
   "friends.blockNeverAgain": "Вы больше не встретитесь. Снять блок можно в Друзьях.",
   "friends.blockNext": "Блок · Далее",
   "friends.blockOk": "пользователь заблокирован",

@@ -182,6 +182,8 @@
   "friends.blockConfirm": "Bloquer cette personne ? Vous ne serez plus appairés.",
   "friends.blockFromHistory": "Bloquer",
   "friends.blockFromHistoryTitle": "Bloquer — plus de match avec eux",
+  "friends.blockNeedConn": "Pas connecté au hub — attendez la reconnexion, puis bloquez à nouveau",
+  "friends.blockNeedId": "Impossible de bloquer — pas d’id pour ce chat",
   "friends.blockNeverAgain": "Vous ne serez plus jumelés. Débloquez à tout moment dans Amis.",
   "friends.blockNext": "Bloquer · Suivant",
   "friends.blockOk": "utilisateur bloqué",

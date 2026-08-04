@@ -17175,19 +17175,48 @@ function showBlockCertaintyToast(opts = {}) {
 
 /** @returns {boolean} true if block was applied */
 function blockUserId(uid, opts = {}) {
-  if (!uid) return false;
+  uid = String(uid || "").trim();
+  if (!uid) {
+    setStatus(
+      _t("friends.blockNeedId") ||
+        "Cannot block — no user id on this history entry"
+    );
+    return false;
+  }
   const silent = !!opts.silent;
   const keepFriends = !!opts.keepFriends;
   if (!silent && !confirm(_t("friends.blockConfirm"))) return false;
-  send({ type: "block_user", user_id: uid });
-  // Optimistic local cache so History UI updates before next friends snapshot
+  // Must reach hub so block is stored server-side (prevents rematch forever)
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    setStatus(
+      _t("friends.blockNeedConn") ||
+        "Not connected to hub — wait for reconnect, then Block again"
+    );
+    log("block failed: ws not open");
+    return false;
+  }
+  const sent = send({ type: "block_user", user_id: uid });
+  if (!sent) {
+    setStatus(
+      _t("friends.blockNeedConn") ||
+        "Not connected to hub — wait for reconnect, then Block again"
+    );
+    return false;
+  }
+  // Optimistic local cache so History / Blocked tab update immediately
   try {
     if (!blockedCache.includes(uid)) {
       blockedCache = [...blockedCache, uid];
     }
   } catch (_) {}
+  // Drop from local history so they disappear from the list
+  if (opts.fromHistory || opts.removeFromHistory) {
+    try {
+      saveHistory(loadHistory().filter((h) => h && h.user_id !== uid));
+    } catch (_) {}
+  }
   setStatus(_t("friends.blockNeverAgain") || _t("friends.blockOk"));
-  log(_t("friends.blockOk"));
+  log(_t("friends.blockOk") + " " + uid.slice(0, 10));
   if (!opts.skipToast) {
     showBlockCertaintyToast({
       title: _t("friends.blockOkTitle") || "Blocked",
@@ -17216,7 +17245,18 @@ function blockUserId(uid, opts = {}) {
   try {
     syncFriendsTabCounts();
     if (friendsSheetTab === "history") renderHistoryList();
-    if (friendsSheetTab === "blocked") renderBlockedList();
+    if (friendsSheetTab === "blocked" || (blockedCache && blockedCache.length)) {
+      // Show blocked tab after a history block so user can confirm
+      if (opts.fromHistory) {
+        try {
+          setFriendsSheetTab("blocked");
+        } catch (_) {
+          renderBlockedList();
+        }
+      } else {
+        renderBlockedList();
+      }
+    }
   } catch (_) {}
   return true;
 }
@@ -17516,16 +17556,14 @@ function renderHistoryList() {
             _t("friends.addFromHistory") || "Add friend"
           )}</button>`;
         }
-        // Block past partners (works offline — hub remembers; no rematch)
+        // Block past partners (hub stores block; matchmaking will never pair you again)
         if (h.user_id && !isBlocked) {
           actions += `<button type="button" class="pill tight danger btn-hist-block" data-uid="${escapeAttr(
             h.user_id
           )}" title="${escapeAttr(
-            _t("friends.blockFromHistoryTitle") ||
-              "Block — you will not match them again"
-          )}">${escapeHtml(
-            _t("friends.blockFromHistory") || "Block"
-          )}</button>`;
+            _t("friends.blockNeverAgain") ||
+              "You will not match them again"
+          )}">${escapeHtml(_t("friends.block") || "Block")}</button>`;
         } else if (h.user_id && isBlocked) {
           actions += `<span class="pill tight ghost hist-blocked-label">${escapeHtml(
             _t("friends.alreadyBlocked") || "Blocked"
@@ -17580,11 +17618,23 @@ function renderHistoryList() {
     });
   });
   el.querySelectorAll(".btn-hist-block").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const uid = btn.getAttribute("data-uid");
-      if (!uid) return;
+    btn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const uid = (btn.getAttribute("data-uid") || "").trim();
+      if (!uid) {
+        setStatus(
+          _t("friends.blockNeedId") ||
+            "Cannot block — no user id for this chat"
+        );
+        return;
+      }
       trackEvent("history_block");
-      blockUserId(uid, { keepFriends: true, fromHistory: true });
+      blockUserId(uid, {
+        keepFriends: true,
+        fromHistory: true,
+        removeFromHistory: true,
+      });
     });
   });
   syncFriendsTabCounts();
