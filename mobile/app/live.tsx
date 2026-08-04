@@ -221,6 +221,18 @@ export default function LiveScreen() {
           push(
             `matched ${peer.name} mode=${peer.mode} offerer=${peer.isOfferer}`
           );
+          // 1v2 / 2v2 / multi: force full mic processing (NS+AGC)
+          const nPeers = (m.peers || []).length;
+          const multi =
+            nPeers >= 2 ||
+            peer.mode === "party_browse" ||
+            String(m.mode || "") === "party_browse";
+          if (multi) {
+            media.setMultiPeerAudio(true);
+            media.applyFullAudioProcessing().catch(() => {});
+          } else {
+            media.setMultiPeerAudio(false);
+          }
           media
             .startCall({ isOfferer: peer.isOfferer })
             .then(() => push("startCall ok"))

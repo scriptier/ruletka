@@ -140,6 +140,23 @@ export class MediaSession {
     return this.remoteStream;
   }
 
+  /** Multi-peer (1v2 / 2v2 / trio): force noise suppression + AGC. */
+  private multiPeerAudio = false;
+
+  setMultiPeerAudio(on: boolean): void {
+    this.multiPeerAudio = !!on;
+  }
+
+  private audioConstraints(): object {
+    // Default full processing (NS + AGC); multi-peer keeps the same path
+    return {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      channelCount: 1,
+    };
+  }
+
   async ensureLocalStream(): Promise<MediaStreamLike | null> {
     if (this.localStream) return this.localStream;
     const rtc = this.rtc || loadWebrtc();
@@ -154,7 +171,7 @@ export class MediaSession {
     }
     try {
       const stream = await rtc.mediaDevices.getUserMedia({
-        audio: true,
+        audio: this.audioConstraints(),
         video: {
           facingMode: "user",
           width: { ideal: 1280 },
@@ -166,9 +183,46 @@ export class MediaSession {
       this.handlers.onLocalStream?.(stream);
       return stream;
     } catch (e) {
-      const err = e instanceof Error ? e : new Error(String(e));
-      this.handlers.onError?.(err);
-      return null;
+      // Fallback if device rejects advanced constraints
+      try {
+        const stream = await rtc.mediaDevices.getUserMedia({
+          audio: true,
+          video: {
+            facingMode: "user",
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30 },
+          },
+        });
+        this.localStream = stream;
+        this.handlers.onLocalStream?.(stream);
+        return stream;
+      } catch (e2) {
+        const err = e2 instanceof Error ? e2 : new Error(String(e2));
+        this.handlers.onError?.(err);
+        return null;
+      }
+    }
+  }
+
+  /** Re-apply NS/AGC when entering multi-peer (if track supports applyConstraints). */
+  async applyFullAudioProcessing(): Promise<void> {
+    this.multiPeerAudio = true;
+    const tracks = this.localStream?.getAudioTracks?.() || [];
+    for (const t of tracks) {
+      try {
+        // applyConstraints exists on native MediaStreamTrack
+        const anyT = t as { applyConstraints?: (c: object) => Promise<void> };
+        if (anyT.applyConstraints) {
+          await anyT.applyConstraints({
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          });
+        }
+      } catch {
+        /* ignore */
+      }
     }
   }
 

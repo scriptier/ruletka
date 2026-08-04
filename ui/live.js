@@ -12527,6 +12527,162 @@ function isLowLatencyAudioPref() {
   return false;
 }
 
+/**
+ * Multi-remote audio (1v2 / 2v2 / trio): force full mic processing + headphones tip.
+ * Two+ remotes into speakers without NS/AGC gets muddy and echos easily.
+ */
+let multiPeerAudioActive = false;
+
+function countRemoteAudioPeers() {
+  let n = 0;
+  try {
+    for (const pc of peerPcs.values()) {
+      if (!pc) continue;
+      // Count peers that are not pure local-only; any remote PC counts
+      n += 1;
+    }
+  } catch (_) {}
+  return n;
+}
+
+/** True for 1v2, 2v2, or friend+stranger trio (2+ audio paths). */
+function isMultiPeerAudioFromMatch(peers) {
+  if (!peers || !peers.length) return countRemoteAudioPeers() >= 2;
+  const opponents = peers.filter(
+    (p) => p && (p.role === "stranger" || p.role === "party")
+  );
+  const teammates = peers.filter((p) => p && isTeammateRole(p.role));
+  // Solo sees 2 opponents → 1v2 or 2v2
+  if (opponents.length >= 2) return true;
+  // Party member / trio: teammate + stranger
+  if (teammates.length >= 1 && opponents.length >= 1) return true;
+  // Already connected to 2+ PCs
+  if (countRemoteAudioPeers() >= 2) return true;
+  // Trio layout with third slot live
+  if (trioBrowse && opponents.length >= 1) return true;
+  return false;
+}
+
+/**
+ * Apply full NS+AGC to existing local tracks (and force next getUserMedia).
+ */
+async function applyFullAudioProcessingToLocal() {
+  if (typeof setForceFullAudioProcessing === "function") {
+    setForceFullAudioProcessing(true);
+  }
+  const cons =
+    typeof fullProcessingAudioConstraints === "function"
+      ? fullProcessingAudioConstraints()
+      : {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        };
+  // Primary local stream on main rtc or any peer
+  const streams = new Set();
+  try {
+    if (rtc && rtc.localStream) streams.add(rtc.localStream);
+  } catch (_) {}
+  try {
+    for (const pc of peerPcs.values()) {
+      if (pc && pc.localStream) streams.add(pc.localStream);
+    }
+  } catch (_) {}
+  try {
+    const v = $("local");
+    if (v && v.srcObject) streams.add(v.srcObject);
+  } catch (_) {}
+  for (const stream of streams) {
+    try {
+      for (const track of stream.getAudioTracks?.() || []) {
+        try {
+          await track.applyConstraints(cons);
+        } catch (_) {
+          /* some browsers reject partial constraint sets */
+        }
+      }
+    } catch (_) {}
+  }
+}
+
+function maybeShowMultiPeerHeadphonesTip() {
+  try {
+    if (sessionStorage.getItem("rulet-multi-audio-tip-v1") === "1") return;
+    sessionStorage.setItem("rulet-multi-audio-tip-v1", "1");
+  } catch (_) {}
+  try {
+    if ($("multi-audio-tip")) return;
+    const toast = document.createElement("div");
+    toast.id = "multi-audio-tip";
+    toast.className = "friend-soft-toast post-match-friend-nudge is-force";
+    toast.setAttribute("role", "status");
+    toast.style.pointerEvents = "auto";
+    toast.innerHTML = `
+      <strong>${escapeHtml(
+        _t("audio.multiPeerTitle") || "Multi-person audio"
+      )}</strong>
+      <span>${escapeHtml(
+        _t("audio.multiPeerBody") ||
+          "Noise reduction is on for group calls. Headphones help a lot with echo."
+      )}</span>
+      <div class="export-nudge-actions" style="margin-top:0.5rem">
+        <button type="button" class="pill tight accent" id="btn-multi-audio-ok">${escapeHtml(
+          _t("audio.multiPeerOk") || "Got it"
+        )}</button>
+      </div>`;
+    document.body.appendChild(toast);
+    trackEvent("multi_audio_tip_show");
+    const dismiss = () => {
+      try {
+        if (toast.parentNode) toast.remove();
+      } catch (_) {}
+    };
+    $("btn-multi-audio-ok")?.addEventListener("click", dismiss);
+    setTimeout(dismiss, 12000);
+  } catch (_) {}
+}
+
+/**
+ * Call when match layout has 2+ remotes (1v2, 2v2, trio).
+ * @param {object[]} [peers] from matched message
+ */
+function enterMultiPeerAudioMode(peers) {
+  if (!isMultiPeerAudioFromMatch(peers) && countRemoteAudioPeers() < 2) {
+    return;
+  }
+  const was = multiPeerAudioActive;
+  multiPeerAudioActive = true;
+  applyFullAudioProcessingToLocal().catch(() => {});
+  // If user had low-latency on, restart capture with full processing
+  if (!was && isLowLatencyAudioPref()) {
+    try {
+      setStatus(
+        _t("audio.multiPeerForced") ||
+          "Group call — noise reduction on for clearer audio"
+      );
+    } catch (_) {}
+    try {
+      startPreview().catch(() => {});
+    } catch (_) {}
+  }
+  maybeShowMultiPeerHeadphonesTip();
+  trackEvent("multi_audio_mode", { peers: countRemoteAudioPeers() });
+}
+
+function leaveMultiPeerAudioMode() {
+  if (!multiPeerAudioActive) return;
+  multiPeerAudioActive = false;
+  if (typeof setForceFullAudioProcessing === "function") {
+    setForceFullAudioProcessing(false);
+  }
+  // Restore user low-latency preference if they had it on
+  if (isLowLatencyAudioPref()) {
+    try {
+      startPreview().catch(() => {});
+    } catch (_) {}
+  }
+}
+
 function syncLowLatencyAudioToggles() {
   const on = isLowLatencyAudioPref();
   const a = $("chk-low-latency-audio");
@@ -16036,6 +16192,10 @@ function handleMatched(msg) {
     .slice(0, 2);
   const split = opponents.length >= 2 && !trioBrowse;
   setSplitRemote(split);
+  // 1v2 / 2v2 / party+stranger: force full mic processing (NS+AGC)
+  try {
+    enterMultiPeerAudioMode(peers);
+  } catch (_) {}
   {
     const tag = $("remote-tag");
     const wrap = $("remote-tile-tag");
@@ -16134,6 +16294,10 @@ function closeAllPeers({ keepFriend = false } = {}) {
   // Gift overlays belong to the current conversationalist window — drop on teardown
   // (covers Next / Stop / Spin / partner left / block / NSFW skip, etc.)
   clearRemoteMatchFx();
+  // Leaving multi-remote layout — restore normal audio prefs
+  try {
+    if (!keepFriend) leaveMultiPeerAudioMode();
+  } catch (_) {}
   for (const [pid, pc] of [...peerPcs.entries()]) {
     const keep =
       keepFriend &&
@@ -16487,6 +16651,11 @@ async function joinPeers(peers) {
   if (connectJobs.length) {
     await Promise.allSettled(connectJobs);
   }
+
+  // After PCs are up: force full mic processing for multi-remote audio
+  try {
+    enterMultiPeerAudioMode(list);
+  } catch (_) {}
 
   // Find-3rd: if stranger still has no media after connect jobs, soft-retry once
   if (useTrio && yourRole === "party" && opponents[0]) {

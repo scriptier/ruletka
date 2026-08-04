@@ -377,7 +377,23 @@ function applyLowLatencyPlayout(pc, targetMs = 40) {
  * Whether the user opted into low-latency mic processing (less A/V lag).
  * Reads localStorage directly so webrtc.js works without live.js prefs helpers.
  */
+/**
+ * When true (1v2 / 2v2 / trio), force full mic processing even if user
+ * enabled low-latency in Settings — multi-remote audio gets messy without NS/AGC.
+ */
+let forceFullAudioProcessing = false;
+
+function setForceFullAudioProcessing(on) {
+  forceFullAudioProcessing = !!on;
+}
+
+function isForceFullAudioProcessing() {
+  return forceFullAudioProcessing;
+}
+
 function isLowLatencyAudioEnabled() {
+  // Multi-peer always uses full processing (NS + AGC)
+  if (forceFullAudioProcessing) return false;
   try {
     const p = JSON.parse(
       localStorage.getItem("freenet-roulette-media-prefs-v1") || "{}"
@@ -391,13 +407,30 @@ function isLowLatencyAudioEnabled() {
   }
 }
 
+/** Full AEC + noise suppression + AGC (multi-peer / noisy rooms). */
+function fullProcessingAudioConstraints(extra = {}) {
+  return {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+    channelCount: 1,
+    latency: { ideal: 0.02, max: 0.08 },
+    sampleRate: { ideal: 48000 },
+    ...extra,
+  };
+}
+
 /**
  * Prefer slightly lower-latency capture constraints when supported.
  * AEC/NS/AGC improve calls but can add 20–80ms of algorithmic audio delay
  * that is not always reflected in video timestamps → sound lags picture.
+ * Multi-peer forces full processing via forceFullAudioProcessing.
  * @returns {MediaTrackConstraints}
  */
 function lowLatencyAudioConstraints(extra = {}) {
+  if (forceFullAudioProcessing) {
+    return fullProcessingAudioConstraints(extra);
+  }
   const low = isLowLatencyAudioEnabled();
   return {
     echoCancellation: true, // keep echo control always
@@ -1141,6 +1174,9 @@ if (typeof window !== "undefined") {
   window.QUALITY_TIERS = QUALITY_TIERS;
   window.applyLowLatencyPlayout = applyLowLatencyPlayout;
   window.lowLatencyAudioConstraints = lowLatencyAudioConstraints;
+  window.fullProcessingAudioConstraints = fullProcessingAudioConstraints;
   window.isLowLatencyAudioEnabled = isLowLatencyAudioEnabled;
+  window.setForceFullAudioProcessing = setForceFullAudioProcessing;
+  window.isForceFullAudioProcessing = isForceFullAudioProcessing;
   window.playoutTargetForTier = playoutTargetForTier;
 }
