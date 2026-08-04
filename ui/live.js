@@ -17177,8 +17177,15 @@ function showBlockCertaintyToast(opts = {}) {
 function blockUserId(uid, opts = {}) {
   if (!uid) return false;
   const silent = !!opts.silent;
+  const keepFriends = !!opts.keepFriends;
   if (!silent && !confirm(_t("friends.blockConfirm"))) return false;
   send({ type: "block_user", user_id: uid });
+  // Optimistic local cache so History UI updates before next friends snapshot
+  try {
+    if (!blockedCache.includes(uid)) {
+      blockedCache = [...blockedCache, uid];
+    }
+  } catch (_) {}
   setStatus(_t("friends.blockNeverAgain") || _t("friends.blockOk"));
   log(_t("friends.blockOk"));
   if (!opts.skipToast) {
@@ -17189,7 +17196,10 @@ function blockUserId(uid, opts = {}) {
         "You will not match them again. Unblock anytime in Friends.",
     });
   }
-  trackEvent("block", { silent: silent ? 1 : 0 });
+  trackEvent("block", {
+    silent: silent ? 1 : 0,
+    from_history: opts.fromHistory ? 1 : 0,
+  });
   if (primaryPartnerUserId === uid) {
     primaryPartnerUserId = "";
     matched = false;
@@ -17201,8 +17211,13 @@ function blockUserId(uid, opts = {}) {
     updateFriendActionButtons();
     stopNsfwWatch();
   }
-  if (!silent) closeFriends();
+  if (!silent && !keepFriends) closeFriends();
   closePartnerMenu();
+  try {
+    syncFriendsTabCounts();
+    if (friendsSheetTab === "history") renderHistoryList();
+    if (friendsSheetTab === "blocked") renderBlockedList();
+  } catch (_) {}
   return true;
 }
 
@@ -17472,6 +17487,8 @@ function renderHistoryList() {
         ]
           .filter(Boolean)
           .join(" · ");
+        const isBlocked =
+          !!(h.user_id && (blockedCache || []).includes(h.user_id));
         let actions = "";
         if (onlineFriend) {
           actions = `<button type="button" class="pill tight accent btn-hist-call hist-call-primary" data-uid="${escapeAttr(
@@ -17492,16 +17509,31 @@ function renderHistoryList() {
           )}">${escapeHtml(
             _t("friends.offline") || "Offline"
           )}</button>`;
-        } else if (h.friend_code && !isFriend) {
+        } else if (h.friend_code && !isFriend && !isBlocked) {
           actions = `<button type="button" class="pill tight accent btn-hist-add" data-code="${escapeAttr(
             h.friend_code
           )}">${escapeHtml(
             _t("friends.addFromHistory") || "Add friend"
           )}</button>`;
         }
+        // Block past partners (works offline — hub remembers; no rematch)
+        if (h.user_id && !isBlocked) {
+          actions += `<button type="button" class="pill tight danger btn-hist-block" data-uid="${escapeAttr(
+            h.user_id
+          )}" title="${escapeAttr(
+            _t("friends.blockFromHistoryTitle") ||
+              "Block — you will not match them again"
+          )}">${escapeHtml(
+            _t("friends.blockFromHistory") || "Block"
+          )}</button>`;
+        } else if (h.user_id && isBlocked) {
+          actions += `<span class="pill tight ghost hist-blocked-label">${escapeHtml(
+            _t("friends.alreadyBlocked") || "Blocked"
+          )}</span>`;
+        }
         return `<div class="friend-row${onlineFriend ? " online is-call-ready" : ""}${
           isFriend ? " is-friend" : ""
-        }">
+        }${isBlocked ? " is-blocked" : ""}">
           <span class="dot ${onlineFriend ? "online" : ""}"></span>
           <div class="meta">
             <strong>${escapeHtml(display)}</strong>
@@ -17545,6 +17577,14 @@ function renderHistoryList() {
       if (!code) return;
       trackEvent("history_add_friend");
       requestAddFriend(code);
+    });
+  });
+  el.querySelectorAll(".btn-hist-block").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const uid = btn.getAttribute("data-uid");
+      if (!uid) return;
+      trackEvent("history_block");
+      blockUserId(uid, { keepFriends: true, fromHistory: true });
     });
   });
   syncFriendsTabCounts();
