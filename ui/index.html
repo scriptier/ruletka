@@ -55,7 +55,6 @@
   <link rel="stylesheet" href="home.css?v=94" />
   <script src="brand.js?v=2" defer></script>
   <script src="live-window.js?v=1" defer></script>
-  <script src="invite-copy.js?v=1" defer></script>
   <script src="analytics.js?v=3" defer></script>
   <script src="pwa-install.js?v=10" defer></script>
   <script type="application/ld+json">
@@ -225,28 +224,6 @@
           <p class="home-quiet-cta" id="home-quiet-cta" hidden data-i18n="home.quietCta">
             Nobody waiting — share Invite friends so two of you land together.
           </p>
-          <!-- Ready-to-paste invite pack (Telegram / chat) -->
-          <div class="home-invite-pack" id="home-invite-pack">
-            <div class="home-invite-pack-head">
-              <strong data-i18n="home.invitePackTitle">Ready text for a friend</strong>
-              <span class="home-invite-pack-sub" data-i18n="home.invitePackSub">Copy → paste in Telegram / chat</span>
-            </div>
-            <textarea
-              id="home-invite-pack-text"
-              class="home-invite-pack-text"
-              readonly
-              rows="5"
-              aria-label="Invite message"
-            ></textarea>
-            <div class="home-invite-pack-actions">
-              <button type="button" class="home-invite-pack-btn accent" id="btn-copy-invite-pack" data-i18n="home.invitePackCopy">
-                Copy text
-              </button>
-              <button type="button" class="home-invite-pack-btn" id="btn-open-live-invite" data-i18n="home.invitePackLive">
-                Open live · my code
-              </button>
-            </div>
-          </div>
         </div>
       </div>
     </section>
@@ -727,9 +704,6 @@
             if (inviteHint) inviteHint.hidden = !hasPeople;
             var dict = packCache[getLang()] || STR[getLang()] || STR.en;
             updateHomeLiveWindow(dict, { hasPeople: hasPeople, online: online });
-            try {
-              refreshInvitePack();
-            } catch (_) {}
             var inviteBtn = document.getElementById("btn-home-invite");
             if (inviteBtn) {
               // Quiet pool OR outside evening window → push invite harder
@@ -969,103 +943,6 @@
           } catch (_) {
             doHomeShare(inviteBtn, "invite");
           }
-        });
-      }
-
-      // Ready-to-paste invite pack (homepage share card)
-      function refreshInvitePack() {
-        var ta = document.getElementById("home-invite-pack-text");
-        if (!ta) return;
-        var dict = packCache[getLang()] || STR[getLang()] || STR.en;
-        var brand =
-          (window.RuletBrand && RuletBrand.name && RuletBrand.name()) ||
-          "ruletka.vip";
-        var lq = homeLangQs();
-        var url =
-          location.origin +
-          "/live.html?" +
-          (lq ? lq + "&" : "") +
-          "ref=invite";
-        var n = homeOnlineCount();
-        var t = function (k, fb) {
-          return (dict && dict[k]) || fb;
-        };
-        if (window.RuletInviteCopy && RuletInviteCopy.buildPack) {
-          var pack = RuletInviteCopy.buildPack({
-            brand: brand,
-            url: url,
-            online: n,
-            liveNow: false,
-            t: t,
-          });
-          ta.value = pack.full || pack.body || "";
-        } else {
-          var range = "18:00–23:00";
-          try {
-            if (window.RuletLiveWindow)
-              range = RuletLiveWindow.getState().rangeLabel;
-          } catch (_) {}
-          ta.value = t(
-            "invite.packBody",
-            "Join me on " + brand + " tonight (" + range + "):\n" + url
-          )
-            .replace(/\{brand\}/g, brand)
-            .replace(/\{url\}/g, url)
-            .replace(/\{range\}/g, range);
-        }
-      }
-      function copyInvitePack() {
-        var ta = document.getElementById("home-invite-pack-text");
-        var btn = document.getElementById("btn-copy-invite-pack");
-        if (!ta) return;
-        var text = ta.value || "";
-        var dict = packCache[getLang()] || STR[getLang()] || STR.en;
-        var ok = (dict && dict["home.invitePackCopied"]) || "Copied ✓";
-        var done = function () {
-          if (!btn) return;
-          var prev = btn.textContent;
-          btn.textContent = ok;
-          setTimeout(function () {
-            btn.textContent =
-              (dict && dict["home.invitePackCopy"]) || prev || "Copy text";
-          }, 1600);
-        };
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(text).then(done).catch(function () {
-            ta.select();
-            try {
-              document.execCommand("copy");
-            } catch (_) {}
-            done();
-          });
-        } else {
-          ta.select();
-          try {
-            document.execCommand("copy");
-          } catch (_) {}
-          done();
-        }
-        try {
-          if (typeof RuletTrack === "function")
-            RuletTrack("home_invite_pack_copy", {});
-        } catch (_) {}
-      }
-      refreshInvitePack();
-      setInterval(refreshInvitePack, 60000);
-      var copyPackBtn = document.getElementById("btn-copy-invite-pack");
-      if (copyPackBtn)
-        copyPackBtn.addEventListener("click", copyInvitePack);
-      var openLiveInvite = document.getElementById("btn-open-live-invite");
-      if (openLiveInvite) {
-        openLiveInvite.addEventListener("click", function () {
-          var qs = "invite=1";
-          var lq = homeLangQs();
-          if (lq) qs += "&" + lq;
-          try {
-            if (typeof RuletTrack === "function")
-              RuletTrack("home_invite_pack_live", {});
-          } catch (_) {}
-          location.href = "/live.html?" + qs;
         });
       }
     })();
