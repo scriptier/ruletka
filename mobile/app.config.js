@@ -113,11 +113,11 @@ const expo = {
     supportUrl: `${hubBase}/safety.html`,
     eas: {
       ...(base.expo.extra?.eas || {}),
-      // Set via: cd mobile && npx eas init
+      // Expo project (eas init --id …)
       projectId:
         process.env.EAS_PROJECT_ID ||
         base.expo.extra?.eas?.projectId ||
-        "replace-with-eas-project-id",
+        "1e9b8ca4-2dfc-4923-84d1-138222be372f",
     },
   },
 };

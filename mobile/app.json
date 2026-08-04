@@ -2,6 +2,7 @@
   "expo": {
     "name": "ruletka",
     "slug": "ruletka",
+    "owner": "courtiers-team",
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -47,7 +48,7 @@
     "extra": {
       "hubBase": "https://ruletka.vip",
       "eas": {
-        "projectId": "replace-with-eas-project-id"
+        "projectId": "1e9b8ca4-2dfc-4923-84d1-138222be372f"
       }
     }
   }
