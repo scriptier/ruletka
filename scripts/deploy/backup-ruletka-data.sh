@@ -77,7 +77,9 @@ backup_now() {
   } >"$tmp/MANIFEST.txt"
 
   tar -C "$tmp" -czf "$out" .
-  chmod 600 "$out" 2>/dev/null || true
+  # Group-readable so deploy/ruletka can pull off-box; not world-readable
+  chgrp ruletka "$out" 2>/dev/null || true
+  chmod 640 "$out" 2>/dev/null || true
   log "backup ok: $out"
   ls -lh "$out"
 

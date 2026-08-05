@@ -1,46 +1,65 @@
 # Host hardening (ruletka.vip droplet)
 
-Applied on production 2026-08-05. See also `/opt/ruletka/deploy/HARDENING.md` on the server.
+Production hardening as of 2026-08-05. On-server note: `/opt/ruletka/deploy/HARDENING.md`.
 
 ## Applied
 
 | Control | Setting |
 |--------|---------|
-| UFW | Default deny inbound; allow 22, 80, 443, TURN 3478 + 49160–49300 |
-| SSH | Keys only · `PasswordAuthentication no` · root `prohibit-password` · `MaxAuthTries 3` |
-| fail2ban | `sshd` jail · 4 tries / 10m → 1h ban |
-| Data perms | Secrets `640 root:ruletka` · JSON/jsonl `640 ruletka:ruletka` · dirs `750` |
+| UFW | Default deny inbound; allow **22, 80, 443, TURN 3478 + 49160–49300** |
+| SSH IP allowlist | **Not used** — SSH stays open on 22 (keys only); no VPN/IP restriction |
+| SSH auth | Keys only · `PasswordAuthentication no` · root `prohibit-password` · `MaxAuthTries 3` |
+| Deploy user | `deploy` · sudo NOPASSWD · same key as root · password locked |
+| fail2ban | `sshd` jail (4 tries / 10m → 1h ban) |
+| Data perms | Secrets `640 root:ruletka` · JSON/jsonl `640 ruletka` · dirs `750` |
 | App bind | Bridge `127.0.0.1:8790` · Caddy TLS edge only |
+| Auto updates | unattended-upgrades + **reboot 04:17 UTC** when needed |
+| Backups | Daily 03:15 UTC on-disk · `latest.tgz` · operator **pull** off-box |
 
-**Note:** OpenSSH uses **first match wins**. Cloud-init may write `50-cloud-init.conf` with `PasswordAuthentication yes` — keep `00-ruletka-hardening.conf` first and set cloud-init to `no` after droplet rebuilds.
+**OpenSSH note:** first match wins. Keep `00-ruletka-hardening.conf` and ensure cloud-init does not set `PasswordAuthentication yes`.
 
-## Manual: DigitalOcean Cloud Firewall
+## SSH
 
-In DO Control Panel → Networking → Firewalls → create rules matching UFW, attach to the droplet:
+```bash
+# Preferred
+ssh -i ~/.ssh/ruletka_ed25519 deploy@209.38.204.153
 
-**Inbound**
-- TCP 22 (optionally source = your admin IPs only)
-- TCP 80, TCP 443, UDP 443
-- TCP+UDP 3478
-- TCP+UDP 49160–49300
+# Emergency
+ssh -i ~/.ssh/ruletka_ed25519 root@209.38.204.153
+```
 
-**Outbound:** Allow all (or DNS + HTTPS as preferred).
+## Off-box backups
 
-## After rebuild / new droplet
+On-disk (droplet): `/opt/ruletka/backups/ruletka-data-*.tgz`  
+Pull to this machine:
 
-1. Re-apply UFW rules from `scripts/deploy/setup-turn.sh` / install docs  
-2. Copy SSH drop-ins (`00-ruletka-hardening.conf`)  
-3. `apt install fail2ban` + `jail.local`  
-4. Fix data `chmod`/`chown`  
-5. Attach Cloud Firewall  
+```bash
+./scripts/deploy/pull-backups.sh
+# → ~/ruletka-backups/
+```
+
+Optional push from droplet — create `/opt/ruletka/data/backup.env`:
+
+```bash
+ROULETKA_BACKUP_RSYNC_TARGET=user@other-host:/backups/ruletka/
+ROULETKA_BACKUP_RSYNC_SSH=ssh -i /path/to/key
+```
+
+Also enable **DigitalOcean weekly Droplet Snapshots** in the DO UI (full disk off-box).
+
+## DigitalOcean Cloud Firewall (manual)
+
+Same ports as UFW. Do **not** require a fixed VPN IP for SSH unless you choose that later.
 
 ## Verify
 
 ```bash
 sshd -T | grep -E 'passwordauthentication|permitrootlogin'
-# expect: passwordauthentication no · permitrootlogin without-password
+# passwordauthentication no · permitrootlogin without-password
 systemctl is-active fail2ban
 fail2ban-client status sshd
 ufw status verbose
-ss -tlnp | grep 8790   # expect 127.0.0.1 only
+ss -tlnp | grep 8790   # 127.0.0.1 only
+id deploy
+ls /opt/ruletka/backups/latest.tgz
 ```
