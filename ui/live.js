@@ -11024,176 +11024,28 @@ function updateEmptyWindowChip() {
 }
 
 /**
- * Alone / quiet pool while searching: one dominant Share CTA (+ optional Call).
- * Secondary actions (copy / QR / friends) stay collapsed under “More”.
+ * Alone / quiet-pool invite CTA under Start — permanently off (clean Start).
+ * Friends invite remains in Friends sheet only.
  */
 function updateEmptyAloneActions() {
   const row = $("empty-alone-actions");
-  const empty = $("remote-empty");
-  const emptyOpen =
-    !!empty &&
-    !empty.classList.contains("hidden") &&
-    !matched &&
-    !inFriendCall &&
-    !trioBrowse;
-  // Quiet pool (alone / ≤2 waiting): always offer invite even before Start
-  const quiet =
-    isPoolAlone() ||
-    (typeof lastWaitingCount === "number" && lastWaitingCount <= 2) ||
-    (typeof lastOnlineCount === "number" && lastOnlineCount <= 2);
-  const show =
-    emptyOpen && quiet && !matched && !inFriendCall && !trioBrowse;
   if (row) {
-    row.hidden = !show;
-    if (show) row.removeAttribute("hidden");
-    else row.setAttribute("hidden", "");
-    row.classList.toggle("is-dominant", !!show);
+    row.hidden = true;
+    row.setAttribute("hidden", "");
+    row.setAttribute("aria-hidden", "true");
+    row.classList.remove("is-dominant");
   }
-  document.documentElement.classList.toggle("alone-searching", !!show);
-  // Always surface friend code when inviting — fewer taps for two-person tests
-  try {
-    const codeWrap = $("empty-alone-code-wrap");
-    const codeBtn = $("btn-empty-alone-code");
-    const code = String(myFriendCode || "").trim();
-    if (codeWrap && codeBtn) {
-      if (show && code) {
-        codeBtn.textContent = code;
-        codeWrap.hidden = false;
-        codeWrap.removeAttribute("hidden");
-      } else if (!show) {
-        codeWrap.hidden = true;
-        codeWrap.setAttribute("hidden", "");
-      }
-    }
-  } catch (_) {}
-
-  // Dynamic alone lead from tonight-live window (helper may load async)
-  try {
-    const lead = row?.querySelector?.(".empty-alone-lead");
-    const applyLead = () => {
-      if (!lead || !show || typeof RuletLiveWindow === "undefined") return;
-      const t = (k, fb, vars) => {
-        let s = _t(k) || fb;
-        if (s === k) s = fb;
-        return RuletLiveWindow.fill ? RuletLiveWindow.fill(s, vars) : s;
-      };
-      lead.textContent =
-        RuletLiveWindow.aloneLeadLine?.(t) ||
-        _t("friends.aloneInviteLead") ||
-        lead.textContent;
-    };
-    if (typeof RuletLiveWindow !== "undefined") applyLead();
-    else if (show) ensureLiveWindow().then((ok) => ok && applyLead());
-  } catch (_) {}
-  try {
-    updateEmptyWindowChip();
-  } catch (_) {}
-
-  // Online friends → one-tap Call (better than cold invite when possible)
-  const callRow = $("empty-alone-call-row");
-  const onlineFriends = (friendsCache || []).filter(
-    (f) => f && f.online && f.user_id && f.user_id !== myUserId
-  );
-  if (callRow) {
-    if (show && onlineFriends.length) {
-      callRow.hidden = false;
-      callRow.removeAttribute("hidden");
-      callRow.innerHTML =
-        `<span class="empty-alone-call-lbl">${escapeHtml(
-          _t("friends.callOnlineNow") || "Friends online — call now"
-        )}</span>` +
-        onlineFriends
-          .slice(0, 4)
-          .map((f) => {
-            const name = escapeHtml(
-              friendDisplayName(f) || f.name || f.short_id || "Friend"
-            );
-            return `<button type="button" class="empty-alone-btn accent empty-alone-call-btn" data-alone-call="${escapeAttr(
-              f.user_id
-            )}">${escapeHtml(
-              _t("friends.redial") || "Call"
-            )} · ${name}</button>`;
-          })
-          .join("");
-      callRow.querySelectorAll("[data-alone-call]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const uid = btn.getAttribute("data-alone-call");
-          if (!uid) return;
-          trackEvent("empty_alone_call_online");
-          placeFriendCall(uid, { closePanel: false });
-        });
-      });
-      // Soften share CTA when Call is available
-      const share = $("btn-empty-invite-share");
-      if (share) {
-        share.classList.remove("accent", "empty-alone-primary");
-        share.classList.add("ghost");
-      }
-    } else {
-      callRow.hidden = true;
-      callRow.setAttribute("hidden", "");
-      callRow.innerHTML = "";
-      const share = $("btn-empty-invite-share");
-      if (share) {
-        share.classList.add("accent", "empty-alone-primary");
-        share.classList.remove("ghost");
-      }
-    }
-  }
-
-  // Code on primary CTA subtitle (not a separate chip row)
-  const codeWrap = $("empty-alone-code-wrap");
-  const codeBtn = $("btn-empty-alone-code");
-  const shareBtn = $("btn-empty-invite-share");
-  if (codeWrap) {
-    // Always hidden as separate row — code lives in primary button when ready
-    codeWrap.hidden = true;
-    codeWrap.setAttribute("hidden", "");
-  }
-  if (shareBtn && show && myFriendCode) {
-    const base =
-      _t("friends.inviteLiveCta") || "Share invite · I’m live";
-    shareBtn.innerHTML = `${escapeHtml(base)}<span class="empty-alone-code-sub">${escapeHtml(
-      myFriendCode
-    )}</span>`;
-  } else if (shareBtn && show) {
-    shareBtn.textContent =
-      _t("friends.inviteLiveCta") || "Share invite · I’m live";
-  }
-  if (codeBtn && !codeBtn.dataset.wired) {
-    codeBtn.dataset.wired = "1";
-    codeBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      shareFriendInvite({ preferShare: false, liveNow: true });
-    });
-  }
-
-  // Auto-show QR after a short alone wait (scan path without extra taps)
+  document.documentElement.classList.remove("alone-searching");
   if (aloneQrAutoTimer) {
     clearTimeout(aloneQrAutoTimer);
     aloneQrAutoTimer = 0;
   }
-  if (!show) {
-    const qr = $("empty-alone-qr");
-    if (qr) {
-      qr.hidden = true;
-      qr.innerHTML = "";
-    }
-    const more = $("empty-alone-more");
-    if (more) more.open = false;
-  } else if (!onlineFriends.length) {
-    aloneQrAutoTimer = setTimeout(() => {
-      aloneQrAutoTimer = 0;
-      if (matched || inFriendCall || !document.documentElement.classList.contains("alone-searching"))
-        return;
-      const qr = $("empty-alone-qr");
-      if (qr && (qr.hidden || !qr.innerHTML)) {
-        trackEvent("empty_alone_qr_auto");
-        toggleEmptyAloneQr();
-      }
-    }, 6000);
-  }
-  updateEmptyIdleInvite();
+  try {
+    updateEmptyWindowChip();
+  } catch (_) {}
+  try {
+    updateEmptyIdleInvite();
+  } catch (_) {}
 }
 
 let aloneSearchCopyTimer = 0;

@@ -228,8 +228,8 @@
     #tile-local .side-rail { z-index: 50 !important; }
 </style>
   <!-- Load stage CSS as all immediately — no media=print FOUC trick (was leaving rails opacity:0) -->
-  <link rel="stylesheet" href="live-stage.css?v=327" />
-  <link rel="preload" href="live.js?v=370" as="script" />
+  <link rel="stylesheet" href="live-stage.css?v=328" />
+  <link rel="preload" href="live.js?v=371" as="script" />
   <link rel="preload" href="i18n.js?v=220" as="script" />
   <script src="brand.js?v=2" defer></script>
   <script>
@@ -609,11 +609,10 @@
             <div class="empty-title" data-i18n="remote.emptyTitle">Tap Start to begin</div>
 <!-- empty-sub kept for connecting status only — alone-tips disabled -->
             <div class="empty-sub" id="remote-empty-sub" hidden></div>
-            <!-- Week-6 cold-start: one-screen path (not a soft-popup nag) -->
+            <!-- Cold-start path kept short under Start (no invite/liquidity nags) -->
             <ol class="empty-first-hint" id="empty-first-hint" hidden>
               <li data-i18n="remote.firstHint1">Tap Start — allow camera &amp; mic (stays peer-to-peer)</li>
               <li data-i18n="remote.firstHint2">Meet someone · Next anytime · Block/Report if needed</li>
-              <li data-i18n="remote.firstHint3">Quiet pool? Share invite so a friend can Call you</li>
             </ol>
             <button type="button" class="start-match-btn" id="btn-start-match" data-i18n="btn.start">
               Start
@@ -621,49 +620,11 @@
             <p class="empty-cam-why" id="empty-cam-why" hidden data-i18n="remote.camWhy">
               Camera is only used for live chat — video goes browser-to-browser, not uploaded to us.
             </p>
-<!-- Alone / quiet pool: one dominant Share (Week-1 liquidity) -->
-            <div class="empty-alone-actions" id="empty-alone-actions" hidden>
-              <p class="empty-alone-lead" data-i18n="friends.aloneInviteLead">
-                Pool is quiet — a friend online fills it faster than waiting.
-              </p>
-              <p class="empty-alone-steps" data-i18n="friends.aloneInviteSteps">
-                They open live → add your code → you Accept → Call
-              </p>
-              <!-- Online friends: one-tap Call (preferred over cold invite) -->
-              <div class="empty-alone-call-row" id="empty-alone-call-row" hidden></div>
-              <button type="button" class="empty-alone-btn accent empty-alone-primary" id="btn-empty-invite-share">
-                Share invite · I’m live
-              </button>
-              <!-- Code wrap kept for JS copy fallback (hidden UI) -->
-              <div class="empty-alone-code-wrap" id="empty-alone-code-wrap" hidden>
-                <span class="empty-alone-code-lbl" data-i18n="friends.yourCode">Your code</span>
-                <button type="button" class="empty-alone-code" id="btn-empty-alone-code" title="Copy code">
-                  —
-                </button>
-              </div>
-              <div class="empty-alone-qr" id="empty-alone-qr" hidden></div>
-              <details class="empty-alone-more" id="empty-alone-more">
-                <summary data-i18n="friends.aloneMore">More options</summary>
-                <div class="empty-alone-row">
-                  <button type="button" class="empty-alone-btn ghost" id="btn-empty-copy-code" data-i18n="friends.copyCode">
-                    Copy code
-                  </button>
-                  <button type="button" class="empty-alone-btn ghost" id="btn-empty-qr-invite" data-i18n="friends.showQr">
-                    QR
-                  </button>
-                  <button type="button" class="empty-alone-btn ghost" id="btn-empty-open-friends" data-i18n="friends.open">
-                    Friends
-                  </button>
-                </div>
-              </details>
+            <!-- Alone invite / friend_call CTA removed from under Start (use Friends sheet) -->
+            <div class="empty-alone-actions" id="empty-alone-actions" hidden aria-hidden="true"></div>
+            <div class="friends-online-row" id="friends-online-row"></div>
             </div>
-<div class="friends-online-row" id="friends-online-row"></div>
-            </div>
-            <!-- Mobile alone-pool: friend invite (rooms share only if rooms enabled) -->
-            <div class="mobile-invite" id="mobile-invite" hidden>
-              <button type="button" class="mobile-invite-btn accent rooms-ui" id="btn-mobile-share" data-i18n="remote.shareRoom" hidden>Share room</button>
-              <button type="button" class="mobile-invite-btn accent" id="btn-mobile-invite-friend" data-i18n="friends.inviteNow" hidden>Invite friend</button>
-            </div>
+            <div class="mobile-invite" id="mobile-invite" hidden aria-hidden="true"></div>
           </div>
         <div class="tile-tag tile-tag-remote" id="remote-tile-tag" hidden>
           <!-- Identity stack: avatar above flag+name (matches local tile) -->
@@ -2553,7 +2514,7 @@
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=156" defer></script>
   <script src="webrtc.js?v=168" defer></script>
-  <script src="live.js?v=370" defer></script>
+  <script src="live.js?v=371" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {
