@@ -228,9 +228,9 @@
     #tile-local .side-rail { z-index: 50 !important; }
 </style>
   <!-- Load stage CSS as all immediately — no media=print FOUC trick (was leaving rails opacity:0) -->
-  <link rel="stylesheet" href="live-stage.css?v=335" />
-  <link rel="preload" href="live.js?v=377" as="script" />
-  <link rel="preload" href="i18n.js?v=223" as="script" />
+  <link rel="stylesheet" href="live-stage.css?v=336" />
+  <link rel="preload" href="live.js?v=378" as="script" />
+  <link rel="preload" href="i18n.js?v=224" as="script" />
   <script src="brand.js?v=2" defer></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -633,6 +633,7 @@
             <span class="name-on-tile name-on-tile-stack" id="remote-tag"></span>
             <span class="peer-who-sub" id="remote-who-sub" hidden></span>
             <span class="trust-tier-chip" id="remote-trust-chip" hidden title="Reputation tier"></span>
+            <span class="partner-praise-chip" id="remote-praise-chip" hidden title="Peer praise"></span>
             <span class="mutual-bond-chip" id="remote-mutual-chip" hidden title="Mutual friend">↔</span>
             <span class="flair-chip" id="remote-flair-chip" hidden title="Flair" aria-hidden="true"></span>
           </div>
@@ -2568,11 +2569,11 @@
   <!-- Critical path: defer app scripts. QR / invite-copy / live-window load on demand. -->
   <script src="analytics.js?v=3" defer></script>
   <script src="pwa-install.js?v=11" defer></script>
-  <script src="i18n.js?v=223" defer></script>
+  <script src="i18n.js?v=224" defer></script>
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=156" defer></script>
   <script src="webrtc.js?v=168" defer></script>
-  <script src="live.js?v=377" defer></script>
+  <script src="live.js?v=378" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

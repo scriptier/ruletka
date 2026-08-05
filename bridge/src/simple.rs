@@ -1170,6 +1170,8 @@ impl SimpleHub {
                             stars: bal,
                             trust,
                             message: format!("admin grant · ★{amount} (balance ★{bal})"),
+                            from_user_id: String::new(),
+                            from_name: String::new(),
                         },
                     );
                 }
@@ -1990,6 +1992,8 @@ impl SimpleHub {
                     stars: new_bal,
                     trust: 0,
                     message: "chat reward".into(),
+                    from_user_id: String::new(),
+                    from_name: String::new(),
                 },
             );
         }
@@ -2088,6 +2092,8 @@ impl SimpleHub {
                     stars: me_stars,
                     trust: 0,
                     message: me_msg.into(),
+                    from_user_id: String::new(),
+                    from_name: String::new(),
                 },
             );
         }
@@ -2102,6 +2108,8 @@ impl SimpleHub {
                     stars: them_stars,
                     trust: 0,
                     message: them_msg.into(),
+                    from_user_id: String::new(),
+                    from_name: String::new(),
                 },
             );
         }
@@ -2175,6 +2183,8 @@ impl SimpleHub {
                     stars: new_bal,
                     trust: 0,
                     message: "senior talk reward".into(),
+                    from_user_id: String::new(),
+                    from_name: String::new(),
                 },
             );
         }
@@ -2276,6 +2286,8 @@ impl SimpleHub {
                     stars: 0,
                     trust: 0,
                     message: "invalid rating".into(),
+                    from_user_id: String::new(),
+                    from_name: String::new(),
                 },
             );
             return;
@@ -2293,6 +2305,8 @@ impl SimpleHub {
                     stars: 0,
                     trust: 0,
                     message: "no review available for this person".into(),
+                    from_user_id: String::new(),
+                    from_name: String::new(),
                 },
             );
             return;
@@ -2310,6 +2324,8 @@ impl SimpleHub {
                     stars: 0,
                     trust: 0,
                     message: format!("chat too short for a star (need {need_m} minutes)"),
+                    from_user_id: String::new(),
+                    from_name: String::new(),
                 },
             );
             return;
@@ -2326,6 +2342,8 @@ impl SimpleHub {
                     stars: self.stars_for(&target_uid),
                     trust: 0,
                     message: "already reviewed".into(),
+                    from_user_id: String::new(),
+                    from_name: String::new(),
                 },
             );
             // clear pending so UI stops
@@ -2366,6 +2384,12 @@ impl SimpleHub {
         }
         self.persist_friends();
         let gave = gift_n > 0;
+        let me_name = self
+            .clients
+            .get(&id)
+            .map(|c| c.name.clone())
+            .filter(|n| !n.is_empty() && n != "anon")
+            .unwrap_or_else(|| "someone".into());
         let msg_self = if gave {
             if gift_n == 1 {
                 "star given".into()
@@ -2387,6 +2411,8 @@ impl SimpleHub {
                 stars: new_stars,
                 trust: new_trust,
                 message: msg_self,
+                from_user_id: me_uid.clone(),
+                from_name: me_name.clone(),
             },
         );
         // Live-update target if online (their local badge / friends list)
@@ -2406,6 +2432,8 @@ impl SimpleHub {
                         } else {
                             format!("you received {gift_n} stars")
                         },
+                        from_user_id: me_uid.clone(),
+                        from_name: me_name.clone(),
                     },
                 );
             }
@@ -2421,6 +2449,8 @@ impl SimpleHub {
                         stars: self.stars_for(&target_uid),
                         trust: self.trust_for(&target_uid),
                         message: "someone thanked you".into(),
+                        from_user_id: me_uid.clone(),
+                        from_name: me_name.clone(),
                     },
                 );
             }
@@ -3484,6 +3514,7 @@ impl SimpleHub {
             avatar: String::new(),
             stars: self.stars_for(&remote.user_id),
             trust: self.effective_trust_for(&remote.user_id),
+            trust_gifters: self.trust_gifters_for(&remote.user_id),
             effect: eff,
             effect_until: eff_until,
             effect_level: eff_level,
@@ -4226,6 +4257,7 @@ impl SimpleHub {
             avatar: to.avatar.clone(),
             stars: self.stars_for(&to.user_id),
             trust: self.effective_trust_for(&to.user_id),
+            trust_gifters: self.trust_gifters_for(&to.user_id),
             effect,
             effect_until,
             effect_level: effect_level.max(1).min(3),

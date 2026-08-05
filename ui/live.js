@@ -523,8 +523,13 @@ const STARS_MS_G1_KEY = "rulet_stars_ms_g1";
 const STARS_MS_G5_KEY = "rulet_stars_ms_g5";
 const STARS_MS_W100_KEY = "rulet_stars_ms_w100";
 const STARS_MS_W250_KEY = "rulet_stars_ms_w250";
-/** Partner trust (public reputation) during current match. */
+/** Partner spendable ★ during current match (badge number). */
 let partnerStars = 0;
+/** Partner public trust + unique gifters (social proof). */
+let partnerTrust = 0;
+let partnerTrustGifters = 0;
+/** Session: people who praised us (uid → { name, kind: star|thanks, ts }). */
+let recentPraiseBy = {};
 /** Min chat length for star review (must match bridge STAR_MIN_SECS). */
 const STAR_MIN_SECS = 15 * 60;
 /** First unique partners use a shorter window (must match bridge STAR_FIRST_RATE_SECS). */
@@ -3151,16 +3156,69 @@ function syncRemoteMutualChip() {
   } catch (_) {
     mutual = false;
   }
-  const show = live && mutual;
+  // Prefer stronger ★ mutual bond if friends list says so
+  let mutualStar = false;
+  try {
+    const fr = (friendsCache || []).find((f) => f && f.user_id === uid);
+    mutualStar = !!(fr && fr.mutual_star);
+  } catch (_) {}
+  const show = live && (mutual || mutualStar);
   el.hidden = !show;
   if (show) el.removeAttribute("hidden");
   else el.setAttribute("hidden", "");
   if (show) {
-    el.textContent = _t("stars.mutualChip") || "↔ friend";
-    el.title =
-      _t("stars.mutualChipTip") || "Mutual friend — real social bond";
+    if (mutualStar) {
+      el.textContent = _t("stars.mutualStarChip") || "★↔";
+      el.title =
+        _t("stars.mutualStarTip") || "You both gifted each other ★";
+      el.classList.add("is-star-bond");
+    } else {
+      el.textContent = _t("stars.mutualChip") || "↔ friend";
+      el.title =
+        _t("stars.mutualChipTip") || "Mutual friend — real social bond";
+      el.classList.remove("is-star-bond");
+    }
     el.setAttribute("aria-label", el.title);
   }
+}
+
+/** Partner social proof: “praised by N”. */
+function syncPartnerPraiseChip(opts = {}) {
+  const el = $("remote-praise-chip");
+  if (!el) return;
+  const live = !!(matched || inFriendCall);
+  const g =
+    opts.gifters != null
+      ? Math.max(0, Number(opts.gifters) || 0)
+      : Math.max(0, Number(partnerTrustGifters) || 0);
+  const trust =
+    opts.trust != null
+      ? Math.max(0, Number(opts.trust) || 0)
+      : Math.max(0, Number(partnerTrust) || 0);
+  const show = live && (g > 0 || trust > 0);
+  el.hidden = !show;
+  if (show) el.removeAttribute("hidden");
+  else el.setAttribute("hidden", "");
+  if (!show) {
+    el.textContent = "";
+    return;
+  }
+  if (g > 0) {
+    el.textContent =
+      _t("stars.praisedByN", { n: g }) || `praised by ${g}`;
+    el.title =
+      _t("stars.praisedByTip", { n: g, t: trust }) ||
+      `${g} unique people gifted them ★ after chats` +
+        (trust ? ` · trust ${trust}` : "");
+  } else {
+    el.textContent =
+      _t("stars.praiseTrustOnly", { t: trust }) || `trust ${trust}`;
+    el.title =
+      _t("stars.praiseTrustOnlyTip", { t: trust }) ||
+      `Public trust ${trust} · no gifter count yet`;
+  }
+  el.setAttribute("aria-label", el.title);
+  el.classList.toggle("is-hot", g >= TRUSTED_MIN_GIFTERS);
 }
 
 function clearTrustTierChips() {
@@ -3820,7 +3878,17 @@ function wireStarBadgeInteractions() {
 
 function clearPartnerStarsBadge() {
   partnerStars = 0;
+  partnerTrust = 0;
+  partnerTrustGifters = 0;
   setStarsBadge("remote", 0);
+  try {
+    const pc = $("remote-praise-chip");
+    if (pc) {
+      pc.hidden = true;
+      pc.setAttribute("hidden", "");
+      pc.textContent = "";
+    }
+  } catch (_) {}
   try {
     const chip = $("remote-trust-chip");
     if (chip) {
@@ -5454,6 +5522,62 @@ function applyStarRateWindowFromHub(msg) {
 }
 
 /** After a successful local rate (gift or skip), consume one early slot. */
+/** Remember a peer who praised us (for gift-back / reciprocity UI). */
+function notePraiseReceived(uid, name, kind) {
+  const id = String(uid || "").trim();
+  if (!id || id === myUserId) return;
+  try {
+    if (!recentPraiseBy || typeof recentPraiseBy !== "object") {
+      recentPraiseBy = {};
+    }
+    recentPraiseBy[id] = {
+      name: String(name || "Partner").trim() || "Partner",
+      kind: kind === "thanks" ? "thanks" : "star",
+      ts: Date.now(),
+    };
+    // Cap map size
+    const keys = Object.keys(recentPraiseBy);
+    if (keys.length > 40) {
+      keys
+        .sort((a, b) => (recentPraiseBy[a].ts || 0) - (recentPraiseBy[b].ts || 0))
+        .slice(0, keys.length - 30)
+        .forEach((k) => delete recentPraiseBy[k]);
+    }
+  } catch (_) {}
+}
+
+/**
+ * Soft nudge after someone praises you — gift back after long chats.
+ * Once per uid per session (localStorage hour bucket).
+ */
+function maybeShowReciprocityNudge(uid, name, kind) {
+  const id = String(uid || "").trim();
+  if (!id) return;
+  try {
+    const key = `rulet_recip_${id}`;
+    const hour = Math.floor(Date.now() / 3600000);
+    if (sessionStorage.getItem(key) === String(hour)) return;
+    sessionStorage.setItem(key, String(hour));
+  } catch (_) {}
+  const nm = String(name || "Partner").trim() || "Partner";
+  const title =
+    kind === "thanks"
+      ? _t("stars.recipThanksTitle") || "They said thanks"
+      : _t("stars.recipStarTitle") || "They praised you ★";
+  const body =
+    kind === "thanks"
+      ? _t("stars.recipThanksBody", { name: nm }) ||
+        `${nm} thanked you. After a long chat you can gift ★ or thank back.`
+      : _t("stars.recipStarBody", { name: nm }) ||
+        `${nm} gifted you ★. After long chats you can gift back once per person.`;
+  try {
+    showStarFeedbackToast("gift", { title, body });
+  } catch (_) {
+    setStatus(title);
+  }
+  trackEvent("stars_reciprocity_nudge", { kind: kind || "star" });
+}
+
 function noteLocalStarRateCompleted() {
   if (earlyRatesLeft > 0) {
     earlyRatesLeft = Math.max(0, earlyRatesLeft - 1);
@@ -5618,12 +5742,15 @@ function showStarReviewPrompt(msg) {
       maxGift = reportWeightForStars(myTrustEffective || myTrust); // effective tier
     }
     maxGift = Math.max(1, Math.min(3, maxGift));
+    const theyPraised = !!(recentPraiseBy && recentPraiseBy[uid]);
     const toast = document.createElement("div");
     toast.id = "star-review-toast";
-    toast.className = "friend-soft-toast star-review-toast";
+    toast.className =
+      "friend-soft-toast star-review-toast" +
+      (theyPraised ? " is-reciprocity" : "");
     toast.setAttribute("role", "dialog");
     toast.style.pointerEvents = "auto";
-    const body =
+    let body =
       maxGift >= 3
         ? _t("stars.reviewBodySenior", { name, m: mins, n: maxGift }) ||
           `${name} · ${mins}+ min. As a senior you can gift up to ${maxGift}★.`
@@ -5638,8 +5765,15 @@ function showStarReviewPrompt(msg) {
                 `${name} · ${mins}+ min (first chats unlock earlier). Give a star?`
               : _t("stars.reviewBody", { name, m: mins }) ||
                 `${name} · you talked ${mins}+ min. Give a star?`;
-    const title =
-      maxGift >= 2
+    if (theyPraised) {
+      body =
+        (_t("stars.reviewBodyReciprocity", { name, m: mins }) ||
+          `${name} praised you earlier · ${mins}+ min — gift back?`) +
+        (maxGift > 1 ? ` (up to ${maxGift}★)` : "");
+    }
+    const title = theyPraised
+      ? _t("stars.reviewTitleReciprocity") || "Gift back?"
+      : maxGift >= 2
         ? _t("stars.reviewTitleMulti", { n: maxGift }) || `Gift stars (up to ${maxGift}★)?`
         : hourChat
           ? _t("stars.reviewTitleExtra") || "Gift an extra star?"
@@ -18944,6 +19078,8 @@ function handleServer(msg) {
           const prev = myStars;
           const prevTrust = myTrust;
           const adminGrant = /admin grant/i.test(msgText);
+          const fromUid = String(msg.from_user_id || "").trim();
+          const fromName = String(msg.from_name || "").trim();
           myStars = n;
           // Peer gifts raise trust; hour/senior bonuses only raise balance
           if (trustIn != null && !hourBonus && !seniorTalk && !adminGrant) {
@@ -19033,6 +19169,11 @@ function handleServer(msg) {
                 `Balance: ★ ${myStars}. Tap ★ to open the Stars guide.`,
             });
             if (n > prev) trackEvent("star_earned", { n: myStars, amount: amt });
+            // Reciprocity: remember who praised us
+            if (fromUid && fromUid !== myUserId && !hourBonus && !seniorTalk) {
+              notePraiseReceived(fromUid, fromName || "Partner", "star");
+              maybeShowReciprocityNudge(fromUid, fromName || "Partner", "star");
+            }
           }
           pulseStarsBadge("local");
           // Stronger export nudge after first reputation milestone
@@ -19081,16 +19222,25 @@ function handleServer(msg) {
           }
         } else if (msg.ok && !msg.star) {
           if (/thanked you/i.test(msgText)) {
+            const fromUid = String(msg.from_user_id || "").trim();
+            const fromName = String(msg.from_name || "").trim() || "Partner";
             const title =
               _t("stars.thanksReceivedTitle") || "Someone thanked you";
             setStatus(title);
             showStarFeedbackToast("gift", {
               title,
               body:
-                _t("stars.thanksReceivedBody") ||
-                "A peer said thanks after your chat — no ★ minted.",
+                fromUid
+                  ? _t("stars.thanksReceivedFrom", { name: fromName }) ||
+                    `${fromName} said thanks after your chat.`
+                  : _t("stars.thanksReceivedBody") ||
+                    "A peer said thanks after your chat — no ★ minted.",
             });
             trackEvent("star_thanks_received", {});
+            if (fromUid && fromUid !== myUserId) {
+              notePraiseReceived(fromUid, fromName, "thanks");
+              maybeShowReciprocityNudge(fromUid, fromName, "thanks");
+            }
           } else if (/thanks sent/i.test(msgText)) {
             setStatus(_t("stars.thanksSent") || "Thanks sent");
           } else {
@@ -19705,6 +19855,7 @@ function handleMatched(msg) {
           0,
           Number(primary.trust != null ? primary.trust : primary.stars) || 0
         ),
+        trust_gifters: Math.max(0, Number(primary.trust_gifters) || 0),
       }
     : {
         user_id: "",
@@ -19715,8 +19866,11 @@ function handleMatched(msg) {
         avatar: "",
         stars: 0,
         trust: 0,
+        trust_gifters: 0,
       };
   partnerStars = lastMatchMeta.stars || 0;
+  partnerTrust = lastMatchMeta.trust || 0;
+  partnerTrustGifters = lastMatchMeta.trust_gifters || 0;
   try {
     refreshFlairUi();
   } catch (_) {}
@@ -19725,6 +19879,9 @@ function handleMatched(msg) {
     trust: lastMatchMeta.trust || 0,
   });
   setStarsBadge("local", myStars, { trust: myTrust }); // balance + trust tier
+  try {
+    syncPartnerPraiseChip();
+  } catch (_) {}
   // Partner may already be behind bars from a prior gift
   {
     const p =
@@ -20798,7 +20955,17 @@ function renderFriendsList() {
   } else {
     const read = loadChatRead();
     const nicks = loadFriendNicks();
-    el.innerHTML = friendsCache
+    // Bonded first (mutual ★, then mutual thanks), then online, then name
+    const sortedFriends = [...friendsCache].sort((a, b) => {
+      const ba = (a.mutual_star ? 2 : 0) + (a.mutual_thanks ? 1 : 0);
+      const bb = (b.mutual_star ? 2 : 0) + (b.mutual_thanks ? 1 : 0);
+      if (bb !== ba) return bb - ba;
+      if (!!b.online !== !!a.online) return (b.online ? 1 : 0) - (a.online ? 1 : 0);
+      const na = friendDisplayName(a).toLowerCase();
+      const nb = friendDisplayName(b).toLowerCase();
+      return na.localeCompare(nb);
+    });
+    el.innerHTML = sortedFriends
       .map((f) => {
         const online = f.online ? "online" : "";
         const st = f.online ? _t("friends.online") : _t("friends.offline");

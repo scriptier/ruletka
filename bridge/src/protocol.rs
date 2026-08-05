@@ -237,6 +237,9 @@ pub struct MatchPeer {
     /// Public reputation trust (peer rate-gifts) — used for tier chrome, not the number.
     #[serde(default)]
     pub trust: u64,
+    /// Distinct peers who gifted this user post-chat ★ (public social proof).
+    #[serde(default)]
+    pub trust_gifters: u32,
     /// Active star-bought effect on this peer ("bars", …). Empty = none.
     #[serde(default)]
     pub effect: String,
@@ -446,6 +449,11 @@ pub enum ServerMsg {
         trust: u64,
         #[serde(default)]
         message: String,
+        /// Who initiated the gift/thanks (for reciprocity UI). Empty on errors.
+        #[serde(default)]
+        from_user_id: String,
+        #[serde(default)]
+        from_name: String,
     },
     /// Result of SpendStars + broadcast when an effect is applied/extended.
     StarEffect {
