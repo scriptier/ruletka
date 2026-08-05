@@ -230,7 +230,7 @@
   <!-- Load stage CSS as all immediately — no media=print FOUC trick (was leaving rails opacity:0) -->
   <link rel="stylesheet" href="live-stage.css?v=343" />
   <link rel="preload" href="live.js?v=388" as="script" />
-  <link rel="preload" href="i18n.js?v=229" as="script" />
+  <link rel="preload" href="i18n.js?v=230" as="script" />
   <script src="brand.js?v=2" defer></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -2029,7 +2029,7 @@
               <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-lock"/></svg></span>
               <span class="settings-row-copy">
                 <span class="settings-row-title" data-i18n="settings.hideIp">Hide my IP</span>
-                <span class="settings-row-sub" id="settings-hide-ip-summary" data-i18n="settings.hideIpOpenSub">Force TURN · set in Connection</span>
+                <span class="settings-row-sub" id="settings-hide-ip-summary" data-i18n="settings.hideIpOpenSub">Optional · set in Connection (off by default)</span>
               </span>
             </span>
             <span class="chev">›</span>
@@ -2403,7 +2403,7 @@
         <label class="settings-toggle-row conn-hide-ip-row">
           <span class="toggle-copy">
             <span class="toggle-title" data-i18n="settings.hideIp">Hide my IP</span>
-            <span class="toggle-hint" data-i18n="settings.hideIpHint">Routes via TURN so they never see your IP. May add a little lag. Needs hub TURN. Device-only preference.</span>
+            <span class="toggle-hint" data-i18n="settings.hideIpHint">Off by default (faster P2P). On: force TURN so they never see your IP — more lag, uses hub relay. Needs TURN.</span>
           </span>
           <span class="toggle-switch">
             <input type="checkbox" id="chk-hide-ip" />
@@ -2667,7 +2667,7 @@
   <!-- Critical path: defer app scripts. QR / invite-copy / live-window load on demand. -->
   <script src="analytics.js?v=3" defer></script>
   <script src="pwa-install.js?v=11" defer></script>
-  <script src="i18n.js?v=229" defer></script>
+  <script src="i18n.js?v=230" defer></script>
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=156" defer></script>
   <script src="webrtc.js?v=168" defer></script>
