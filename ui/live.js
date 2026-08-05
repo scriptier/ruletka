@@ -21308,6 +21308,20 @@ async function joinPeers(peers) {
         onDataMessage: (msg) => {
           handleP2pDataMessage(msg, pc);
         },
+        onIceConnectionState: (ice) => {
+          // Re-assert self-hide black track when media path settles (avoids leak on renegotiate)
+          if (
+            selfBlurred &&
+            (ice === "connected" || ice === "completed" || ice === "checking")
+          ) {
+            pushOutboundVideoTracks().catch(() => {});
+          }
+        },
+        onConnectionState: (st) => {
+          if (selfBlurred && (st === "connected" || st === "connecting")) {
+            pushOutboundVideoTracks().catch(() => {});
+          }
+        },
       },
       !!p.is_offerer,
       p.peer_id === "legacy" ? "" : p.peer_id
@@ -26434,6 +26448,10 @@ on("btn-next", "click", () => {
   setArchPill("default");
   setFedChip(false);
   updateFriendActionButtons();
+  // Next stranger: restore sticky Hide if preferred
+  try {
+    applySelfBlurPolicyForSession({ silent: true });
+  } catch (_) {}
   schedulePostMatchFriendNudge("next");
   trackEvent("next");
   send(nextPayload());

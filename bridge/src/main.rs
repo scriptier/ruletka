@@ -1045,6 +1045,64 @@ async fn admin_unban_handler(
     Json(serde_json::json!({"ok": ok})).into_response()
 }
 
+/// List active social-force mutes (bars abuse).
+async fn admin_social_mutes_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if !admin_token_ok(&state, &headers) {
+        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+    }
+    let hub = state.hub.lock().await;
+    Json(serde_json::json!({
+        "ok": true,
+        "mutes": hub.admin_social_mutes(),
+    }))
+    .into_response()
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct AdminSocialMuteBody {
+    user_id: String,
+    #[serde(default)]
+    secs: u64,
+}
+
+/// Clear or set social-force mute.
+async fn admin_social_mute_clear_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<AdminUnbanBody>,
+) -> impl IntoResponse {
+    if !admin_token_ok(&state, &headers) {
+        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+    }
+    let mut hub = state.hub.lock().await;
+    let ok = hub.admin_clear_social_mute(&body.user_id);
+    Json(serde_json::json!({"ok": ok})).into_response()
+}
+
+async fn admin_social_mute_set_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<AdminSocialMuteBody>,
+) -> impl IntoResponse {
+    if !admin_token_ok(&state, &headers) {
+        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+    }
+    let mut hub = state.hub.lock().await;
+    let ok = hub.admin_set_social_mute(&body.user_id, body.secs);
+    if ok {
+        Json(serde_json::json!({"ok": true})).into_response()
+    } else {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"ok": false, "error": "bad user_id"})),
+        )
+            .into_response()
+    }
+}
+
 /// Grant stars via append-only ledger (`adjust` / admin:reason). Bypasses daily mint cap.
 async fn admin_stars_handler(
     State(state): State<AppState>,
@@ -1777,6 +1835,12 @@ async fn main() {
         )
         .route("/v1/admin/ban", post(admin_ban_handler))
         .route("/v1/admin/unban", post(admin_unban_handler))
+        .route("/v1/admin/social_mutes", get(admin_social_mutes_handler))
+        .route(
+            "/v1/admin/social_mute/clear",
+            post(admin_social_mute_clear_handler),
+        )
+        .route("/v1/admin/social_mute", post(admin_social_mute_set_handler))
         .route("/v1/admin/stars", post(admin_stars_handler))
         .route(
             "/v1/admin/recent_matches",

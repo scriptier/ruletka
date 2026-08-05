@@ -781,6 +781,32 @@
     </div>
     <p class="hint">Days <code>0</code> or the Permanent button = permanent restriction (~year 2200). Use Recent matches below to ban both sides of a call.</p>
 
+    <h2>Social force mutes (bars abuse)</h2>
+    <p class="hint">
+      Auto soft-mute when someone bars too many unique people (≥8/24h or ≥20/7d).
+      Muted users cannot write stigma or post-chat trust on others. Clear if false positive.
+    </p>
+    <div class="card" id="social-mutes-card">
+      <div class="empty" id="social-mutes-empty">Sign in to load social mutes</div>
+      <table id="social-mutes-table" hidden>
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Until</th>
+            <th>Bars 24h / 30d</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="social-mutes-body"></tbody>
+      </table>
+    </div>
+    <div class="auth">
+      <input id="mute-uid" type="text" placeholder="user_id to mute (social force)" autocomplete="off" />
+      <input id="mute-days" type="number" min="1" max="90" value="7" style="flex:0 0 5rem" title="Days" />
+      <button type="button" class="danger" id="btn-social-mute">Mute social force</button>
+      <button type="button" id="btn-social-mute-refresh">Refresh mutes</button>
+    </div>
+
     <h2>Recent matches</h2>
     <div class="card" id="recent-matches-card">
       <div class="empty" id="recent-matches-empty">Sign in to load recent matches (in-memory, last ~80 since hub restart)</div>
@@ -910,6 +936,90 @@
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || r.statusText || "request failed");
       return j;
+    }
+
+    function renderSocialMutes(mutes) {
+      const body = $("social-mutes-body");
+      const empty = $("social-mutes-empty");
+      const table = $("social-mutes-table");
+      if (!body || !empty || !table) return;
+      if (!mutes || !mutes.length) {
+        empty.hidden = false;
+        empty.textContent = "No active social force mutes";
+        table.hidden = true;
+        body.innerHTML = "";
+        return;
+      }
+      empty.hidden = true;
+      table.hidden = false;
+      body.innerHTML = mutes
+        .map(
+          (m) => `<tr>
+          <td>
+            <div>${escapeHtml(m.name || "—")}</div>
+            <div class="uid" title="${escapeAttr(m.user_id)}">${escapeHtml(shortId(m.user_id))}</div>
+          </td>
+          <td>
+            <div>${escapeHtml(fmtUntil(m.until))}</div>
+            <div class="uid">${escapeHtml(fmtRemaining(m.remaining_secs))} left</div>
+          </td>
+          <td>${m.bars_given_24h ?? "—"} / ${m.bars_given_30d ?? "—"}</td>
+          <td><button type="button" data-clear-mute="${escapeAttr(m.user_id)}">Clear mute</button></td>
+        </tr>`
+        )
+        .join("");
+      body.querySelectorAll("[data-clear-mute]").forEach((btn) => {
+        btn.addEventListener("click", () => clearSocialMute(btn.getAttribute("data-clear-mute")));
+      });
+    }
+
+    function fmtRemaining(secs) {
+      const s = Math.max(0, Number(secs) || 0);
+      if (s < 3600) return Math.ceil(s / 60) + "m";
+      if (s < 86400) return Math.ceil(s / 3600) + "h";
+      return Math.ceil(s / 86400) + "d";
+    }
+
+    async function loadSocialMutes() {
+      try {
+        const data = await api("/v1/admin/social_mutes");
+        renderSocialMutes(data.mutes || []);
+      } catch (e) {
+        const empty = $("social-mutes-empty");
+        if (empty) {
+          empty.hidden = false;
+          empty.textContent = e.message || "Failed to load mutes";
+        }
+      }
+    }
+
+    async function clearSocialMute(uid) {
+      if (!uid || !confirm("Clear social force mute for " + uid + "?")) return;
+      try {
+        await api("/v1/admin/social_mute/clear", {
+          method: "POST",
+          body: JSON.stringify({ user_id: uid }),
+        });
+        await loadSocialMutes();
+      } catch (e) {
+        showErr(e.message || String(e));
+      }
+    }
+
+    async function setSocialMute() {
+      const uid = ($("mute-uid")?.value || "").trim();
+      const days = Math.max(1, Number($("mute-days")?.value) || 7);
+      if (!uid) return;
+      if (!confirm("Mute social force for " + uid + " (" + days + " days)?")) return;
+      try {
+        await api("/v1/admin/social_mute", {
+          method: "POST",
+          body: JSON.stringify({ user_id: uid, secs: days * 86400 }),
+        });
+        await loadSocialMutes();
+      } catch (e) {
+        showErr(e.message || String(e));
+      }
     }
 
     function renderBans(bans) {
@@ -1968,6 +2078,7 @@
           metrics: data.metrics || {},
         });
         await loadMesh();
+        await loadSocialMutes();
       } catch (e) {
         showErr(e.message || String(e));
       }
@@ -2103,6 +2214,8 @@
     $("btn-ban-perm")?.addEventListener("click", () => {
       ban($("ban-uid").value.trim(), 0);
     });
+    $("btn-social-mute")?.addEventListener("click", () => setSocialMute());
+    $("btn-social-mute-refresh")?.addEventListener("click", () => loadSocialMutes());
     $("btn-grant-stars")?.addEventListener("click", () => grantStars());
     $("token").addEventListener("keydown", (e) => {
       if (e.key === "Enter") refresh();

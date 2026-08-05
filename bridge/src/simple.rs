@@ -6566,6 +6566,68 @@ impl SimpleHub {
         removed
     }
 
+    /// Active social-force mutes (bars abuse): user_id → until_unix.
+    pub fn admin_social_mutes(&self) -> Vec<serde_json::Value> {
+        let now = Self::unix_now();
+        let mut out: Vec<serde_json::Value> = self
+            .social_force_muted_until
+            .iter()
+            .filter(|(_, until)| **until > now)
+            .map(|(uid, until)| {
+                let name = self.known_names.get(uid).cloned().unwrap_or_default();
+                let bars_given = self.bars_given_unique(uid, Self::BARS_WINDOW_SECS);
+                let bars_24h = self.bars_given_unique(uid, 24 * 60 * 60);
+                serde_json::json!({
+                    "user_id": uid,
+                    "name": name,
+                    "until": until,
+                    "remaining_secs": until.saturating_sub(now),
+                    "bars_given_30d": bars_given,
+                    "bars_given_24h": bars_24h,
+                })
+            })
+            .collect();
+        out.sort_by(|a, b| {
+            let au = a.get("until").and_then(|v| v.as_u64()).unwrap_or(0);
+            let bu = b.get("until").and_then(|v| v.as_u64()).unwrap_or(0);
+            bu.cmp(&au)
+        });
+        out
+    }
+
+    /// Clear social-force mute so user can affect others' social credit again.
+    pub fn admin_clear_social_mute(&mut self, user_id: &str) -> bool {
+        let user_id = user_id.trim();
+        if user_id.is_empty() {
+            return false;
+        }
+        let removed = self.social_force_muted_until.remove(user_id).is_some();
+        if removed {
+            self.persist_friends();
+            tracing::info!(%user_id, "admin clear social force mute");
+        }
+        removed
+    }
+
+    /// Manually set social-force mute for `secs` (default 7d if 0).
+    pub fn admin_set_social_mute(&mut self, user_id: &str, secs: u64) -> bool {
+        let user_id = user_id.trim().to_string();
+        if user_id.is_empty() {
+            return false;
+        }
+        let dur = if secs == 0 {
+            Self::BARS_ABUSE_MUTE_SECS
+        } else {
+            secs.min(90 * 24 * 60 * 60)
+        };
+        let until = Self::unix_now().saturating_add(dur);
+        self.social_force_muted_until
+            .insert(user_id.clone(), until);
+        self.persist_friends();
+        tracing::info!(%user_id, until, "admin set social force mute");
+        true
+    }
+
     /// Manual match ban (seconds from now).
     /// `secs == 0` (or ≥ 100 years) → permanent (until year ~2200).
     pub fn admin_ban(&mut self, user_id: &str, secs: u64) -> bool {
