@@ -11008,7 +11008,9 @@ html[data-theme="matrix"] .settings-body::-webkit-scrollbar-thumb {
 /* Alone-invite coaching under Start removed — never force-show empty-sub */
 html.alone-searching #remote-empty .empty-sub,
 #remote-empty.alone-invite-sub .empty-sub,
-#remote-empty-sub {
+#remote-empty-sub,
+#empty-alone-actions,
+#mobile-invite {
   display: none !important;
 }
 

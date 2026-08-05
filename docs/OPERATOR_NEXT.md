@@ -114,3 +114,7 @@ npx eas submit --profile production --platform android
 
 **Blocked without interactive login:** `eas login` (not possible unattended from CI/agent).  
 Everything else for the product loop is implemented and production hub is current.
+
+## Play Internal (manual)
+
+See [`PLAY_UPLOAD.md`](PLAY_UPLOAD.md) for AAB links and Console steps.

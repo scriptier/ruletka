@@ -10494,15 +10494,11 @@ function updateEmptyShareVisibility() {
   const showRoomTools = !!(ROOMS_ENABLED && emptyOpen);
   if (invite) invite.hidden = !showRoomTools;
 
-  // Mobile: friend invite when alone in queue (not room share)
+  // Mobile alone-invite under Start removed — keep shell hidden
   if (mobile) {
-    const showMobileFriend = searchingAlone && !ROOMS_ENABLED;
-    mobile.hidden = !showMobileFriend;
-    mobile.classList.toggle("is-searching-alone", showMobileFriend);
-    const roomBtn = $("btn-mobile-share");
-    const friendBtn = $("btn-mobile-invite-friend");
-    if (roomBtn) roomBtn.hidden = !ROOMS_ENABLED;
-    if (friendBtn) friendBtn.hidden = !showMobileFriend;
+    mobile.hidden = true;
+    mobile.setAttribute("hidden", "");
+    mobile.classList.remove("is-searching-alone");
   }
 
   if (showRoomTools && alone && (inQueue || wantSearch)) {
@@ -16093,39 +16089,7 @@ function wireSettingsNav() {
       openKeysHelp();
     } catch (_) {}
   });
-  $("btn-empty-open-friends")?.addEventListener("click", () => {
-    trackEvent("empty_alone_open_friends");
-    try {
-      openFriends();
-    } catch (_) {}
-  });
-  $("btn-empty-copy-code")?.addEventListener("click", async () => {
-    trackEvent("empty_alone_copy_code");
-    try {
-      await shareFriendInvite({ preferShare: false, liveNow: true });
-    } catch (_) {}
-  });
-  $("btn-empty-invite-share")?.addEventListener("click", async () => {
-    trackEvent("empty_alone_invite_share");
-    try {
-      await shareFriendInvite({ preferShare: true, liveNow: true });
-    } catch (_) {}
-  });
-  $("btn-empty-qr-invite")?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    trackEvent("empty_alone_qr");
-    toggleEmptyAloneQr();
-  });
-  $("btn-mobile-invite-friend")?.addEventListener("click", async () => {
-    trackEvent("mobile_alone_invite_friend");
-    try {
-      await shareFriendInvite({ preferShare: true, liveNow: true });
-    } catch (_) {
-      try {
-        openFriends();
-      } catch (_) {}
-    }
-  });
+  // Empty-card alone invite buttons removed from Start UI (Friends sheet only)
   wireStarBadgeInteractions();
   setStarsBadge("local", myStars);
   $("btn-settings-done")?.addEventListener("click", () => closeSettings());
