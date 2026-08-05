@@ -1619,5 +1619,6 @@
   "settings.audioModeQuiet": "Jetzt: Rauschunterdrückung · empfohlen",
   "settings.audioModeFast": "Jetzt: niedrige Latenz · ruhiger Raum",
   "settings.audioModeQuietTip": "Rauschunterdrückung + Echo. Beste Wahl für die meisten.",
-  "settings.audioModeFastTip": "Weniger Verarbeitung für engeres Lippensync. Echo/Rauschen können zunehmen."
+  "settings.audioModeFastTip": "Weniger Verarbeitung für engeres Lippensync. Echo/Rauschen können zunehmen.",
+  "friends.safetyNudgeBodyAdd": "{n} — Als Freund hinzufügen für spätere Anrufe, oder Melden / Blockieren. Auch unter Freunde → Verlauf."
 }

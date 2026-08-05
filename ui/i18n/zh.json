@@ -1619,5 +1619,6 @@
   "settings.audioModeQuiet": "当前：降噪 · 推荐",
   "settings.audioModeFast": "当前：低延迟 · 安静环境",
   "settings.audioModeQuietTip": "降噪 + 回声抑制。大多数人首选。",
-  "settings.audioModeFastTip": "处理更少、口型更紧。回声/噪音可能变差。"
+  "settings.audioModeFastTip": "处理更少、口型更紧。回声/噪音可能变差。",
+  "friends.safetyNudgeBodyAdd": "{n} — 加好友以便稍后再打，或举报/拉黑。也可在「好友 → 通话记录」。"
 }

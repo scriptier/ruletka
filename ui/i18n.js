@@ -1974,7 +1974,7 @@
     } catch (_) {}
 
     // Always fetch /i18n/{code}.json and merge over built-ins (en/ru too)
-    loading[c] = fetch(`/i18n/${c}.json?v=102`, { cache: "force-cache" })
+    loading[c] = fetch(`/i18n/${c}.json?v=103`, { cache: "force-cache" })
       .then((r) => {
         if (!r.ok) throw new Error("lang pack " + c);
         return r.json();
@@ -2004,7 +2004,7 @@
   }
 
   function loadMeta() {
-    return fetch("/i18n/meta.json?v=102", { cache: "force-cache" })
+    return fetch("/i18n/meta.json?v=103", { cache: "force-cache" })
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
         if (j && Array.isArray(j.languages)) META = j;

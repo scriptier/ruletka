@@ -227,7 +227,7 @@
   "friends.acceptedOnlineBody": "{name} онлайн — позвоните сейчас.",
   "friends.acceptedToast": "Вы теперь друзья — звоните, когда они онлайн",
   "friends.acceptedToastTitle": "Вы друзья",
-  "friends.add": "Запрос",
+  "friends.add": "В друзья",
   "friends.addCode": "Добавить по коду",
   "friends.addFromHistory": "В друзья",
   "friends.aloneInviteBody": "Мало людей онлайн. Пригласите друга — код, Accept, затем Звонок.",
@@ -1619,5 +1619,6 @@
   "settings.audioModeQuiet": "Сейчас: шумоподавление · рекомендуется",
   "settings.audioModeFast": "Сейчас: низкая задержка · тихая комната",
   "settings.audioModeQuietTip": "Шумоподавление и эхо-контроль. Лучше для большинства и групповых звонков.",
-  "settings.audioModeFastTip": "Меньше обработки — губы и голос ближе. Эхо и шум могут усилиться."
+  "settings.audioModeFastTip": "Меньше обработки — губы и голос ближе. Эхо и шум могут усилиться.",
+  "friends.safetyNudgeBodyAdd": "{n} — Добавьте в друзья, чтобы звонить позже, или Пожаловаться / Заблокировать. Также: Друзья → История."
 }

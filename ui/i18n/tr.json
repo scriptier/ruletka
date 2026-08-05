@@ -1619,5 +1619,6 @@
   "settings.audioModeQuiet": "Şimdi: gürültü azaltma · önerilir",
   "settings.audioModeFast": "Şimdi: düşük gecikme · sessiz oda",
   "settings.audioModeQuietTip": "Gürültü azaltma + yankı. Çoğu kişi için en iyisi.",
-  "settings.audioModeFastTip": "Daha az işlem — lipsync daha sıkı. Yankı/gürültü artabilir."
+  "settings.audioModeFastTip": "Daha az işlem — lipsync daha sıkı. Yankı/gürültü artabilir.",
+  "friends.safetyNudgeBodyAdd": "{n} — Sonra aramak için arkadaş ekle, veya Bildir / Engelle. Ayrıca Arkadaşlar → Geçmiş."
 }

@@ -5196,22 +5196,36 @@ function maybeShowPostMatchSafetyNudge(reason) {
     safetyNudgeShown.add(uid);
     postMatchSafetySnap = null;
     const name = snap?.name || "Partner";
+    const code = String(snap?.friend_code || "").trim().toUpperCase();
+    const canAddFriend =
+      !!code &&
+      !isPartnerAlreadyFriend(uid, code) &&
+      !isPartnerRequestPending(uid, code);
     const toast = document.createElement("div");
     toast.id = "post-match-safety-nudge";
     toast.className =
       "friend-soft-toast post-match-friend-nudge post-match-safety-nudge is-force";
     toast.setAttribute("role", "dialog");
     toast.style.pointerEvents = "auto";
+    const addFriendBtn = canAddFriend
+      ? `<button type="button" class="pill tight accent post-match-primary" id="btn-post-safety-add">${escapeHtml(
+          _t("friends.add") || "Add friend"
+        )}</button>`
+      : "";
     toast.innerHTML = `
       <strong>${escapeHtml(
         _t("friends.safetyNudgeTitle") || "Last partner"
       )}</strong>
       <span>${escapeHtml(
-        _t("friends.safetyNudgeBody", { n: name }) ||
-          `${name} — Report or Block if they broke the rules. Also under Friends → Call history → All.`
+        canAddFriend
+          ? _t("friends.safetyNudgeBodyAdd", { n: name }) ||
+              `${name} — Add as friend to Call later, or Report / Block if needed. Also under Friends → Call history.`
+          : _t("friends.safetyNudgeBody", { n: name }) ||
+              `${name} — Report or Block if they broke the rules. Also under Friends → Call history → All.`
       )}</span>
       <div class="export-nudge-actions post-match-actions post-match-actions-force" style="margin-top:0.55rem">
-        <button type="button" class="pill tight danger post-match-primary" id="btn-post-safety-report">${escapeHtml(
+        ${addFriendBtn}
+        <button type="button" class="pill tight danger" id="btn-post-safety-report">${escapeHtml(
           _t("partnerMenu.reportNext") || "Report · Block"
         )}</button>
         <button type="button" class="pill tight danger" id="btn-post-safety-block">${escapeHtml(
@@ -5225,7 +5239,10 @@ function maybeShowPostMatchSafetyNudge(reason) {
         )}</button>
       </div>`;
     document.body.appendChild(toast);
-    trackEvent("safety_nudge_show", { reason: reason || snap?.reason || "" });
+    trackEvent("safety_nudge_show", {
+      reason: reason || snap?.reason || "",
+      can_add: canAddFriend ? 1 : 0,
+    });
     const dismiss = () => {
       if (toast.parentNode) toast.remove();
     };
@@ -5245,6 +5262,23 @@ function maybeShowPostMatchSafetyNudge(reason) {
         setFriendsSheetTab("history");
         renderHistoryList();
       } catch (_) {}
+    });
+    $("btn-post-safety-add")?.addEventListener("click", () => {
+      trackEvent("safety_nudge_add_friend");
+      try {
+        const ok = requestAddFriend(code);
+        if (ok) {
+          try {
+            friendNudgeShown.add(uid || code);
+          } catch (_) {}
+          // Morph into request-sent step (same funnel as friend nudge)
+          try {
+            showPostMatchFriendSentStep(toast, { name, code });
+            return;
+          } catch (_) {}
+        }
+      } catch (_) {}
+      dismiss();
     });
     $("btn-post-safety-block")?.addEventListener("click", () => {
       trackEvent("safety_nudge_block");

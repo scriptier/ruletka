@@ -1619,5 +1619,6 @@
   "settings.audioModeQuiet": "Maintenant : réduction de bruit · recommandé",
   "settings.audioModeFast": "Maintenant : faible latence · pièce calme",
   "settings.audioModeQuietTip": "Réduction de bruit + écho. Meilleur pour la plupart.",
-  "settings.audioModeFastTip": "Moins de traitement pour le lipsync. Écho/bruit possibles."
+  "settings.audioModeFastTip": "Moins de traitement pour le lipsync. Écho/bruit possibles.",
+  "friends.safetyNudgeBodyAdd": "{n} — Ajouter en ami pour rappeler plus tard, ou Signaler / Bloquer. Aussi Amis → Historique."
 }

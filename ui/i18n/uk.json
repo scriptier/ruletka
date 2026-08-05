@@ -383,7 +383,7 @@
   "friends.requestAccepted": "запит прийнято",
   "friends.requestSent": "Запит у друзі надіслано",
   "friends.safetyNudgeBody": "{n} — Report or Block if they broke the rules. Also under Friends → Call history → All.",
-  "friends.safetyNudgeTitle": "Last partner",
+  "friends.safetyNudgeTitle": "Останній співрозмовник",
   "friends.sentToast": "Запит надіслано — чекаємо Accept",
   "friends.shareInvite": "Поділитися",
   "friends.tabBlocked": "Блок",
@@ -1619,5 +1619,6 @@
   "settings.audioModeQuiet": "Зараз: шумозаглушення · рекомендовано",
   "settings.audioModeFast": "Зараз: низька затримка · тиха кімната",
   "settings.audioModeQuietTip": "Шумозаглушення та ехо-контроль. Краще для більшості та групових дзвінків.",
-  "settings.audioModeFastTip": "Менше обробки — губи й голос ближче. Ехо й шум можуть посилитися."
+  "settings.audioModeFastTip": "Менше обробки — губи й голос ближче. Ехо й шум можуть посилитися.",
+  "friends.safetyNudgeBodyAdd": "{n} — Додайте в друзі, щоб дзвонити пізніше, або Скарга / Блок. Також: Друзі → Історія."
 }

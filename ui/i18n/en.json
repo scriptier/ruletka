@@ -1620,5 +1620,6 @@
   "settings.audioModeQuiet": "Now: noise reduction · recommended",
   "settings.audioModeFast": "Now: low delay · quiet room",
   "settings.audioModeQuietTip": "Noise reduction + echo control. Best for most people and multi-person calls.",
-  "settings.audioModeFastTip": "Less processing for tighter lipsync. Echo and noise may be worse."
+  "settings.audioModeFastTip": "Less processing for tighter lipsync. Echo and noise may be worse.",
+  "friends.safetyNudgeBodyAdd": "{n} — Add as friend to Call later, or Report / Block if needed. Also under Friends → Call history."
 }

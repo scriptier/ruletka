@@ -1619,5 +1619,6 @@
   "settings.audioModeQuiet": "Teraz: redukcja szumów · zalecane",
   "settings.audioModeFast": "Teraz: niskie opóźnienie · cichy pokój",
   "settings.audioModeQuietTip": "Redukcja szumów + echo. Najlepsze dla większości.",
-  "settings.audioModeFastTip": "Mniej przetwarzania pod lipsync. Echo/szum mogą wzrosnąć."
+  "settings.audioModeFastTip": "Mniej przetwarzania pod lipsync. Echo/szum mogą wzrosnąć.",
+  "friends.safetyNudgeBodyAdd": "{n} — Dodaj do znajomych, by dzwonić później, lub Zgłoś / Zablokuj. Też Znajomi → Historia."
 }

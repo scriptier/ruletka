@@ -1619,5 +1619,6 @@
   "settings.audioModeQuiet": "Ahora: reducción de ruido · recomendado",
   "settings.audioModeFast": "Ahora: baja latencia · sala quieta",
   "settings.audioModeQuietTip": "Reducción de ruido + eco. Mejor para la mayoría.",
-  "settings.audioModeFastTip": "Menos procesamiento para lipsync. El eco/ruido puede empeorar."
+  "settings.audioModeFastTip": "Menos procesamiento para lipsync. El eco/ruido puede empeorar.",
+  "friends.safetyNudgeBodyAdd": "{n} — Añadir como amigo para llamar después, o Reportar / Bloquear. También en Amigos → Historial."
 }
