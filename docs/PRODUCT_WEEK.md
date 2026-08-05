@@ -37,8 +37,11 @@ If after **7 days** of real traffic:
 ## Operator checklist (you)
 
 - [ ] Pick 2–3 fixed evening slots (local) and be online with 1–2 real people
-- [ ] Share one `?friend=CODE` link; confirm funnel events and friend Accept → Call
-- [ ] After each deploy: hard refresh once; watch for SW “Update available” only after free
+- [ ] Run full Path A in [`LIQUIDITY_TEST.md`](LIQUIDITY_TEST.md) (share → land → Accept → Call)
+- [ ] Confirm admin `/health` → `metrics_today.friend_calls` ≥ 1 and `call_rings` ≥ 1
+- [ ] After each deploy: hard refresh once (or SW **Reload**); confirm `live.js?v=` in Network matches deploy
+
+**Hub snapshot tip:** `curl -sS https://ruletka.vip/health | jq .metrics_today`
 
 ## Week 2 (return path) — shipped
 

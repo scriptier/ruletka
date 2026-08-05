@@ -9496,7 +9496,8 @@ async function shareOrCopy(url, title, okShareKey, okCopyKey, opts) {
 }
 
 function friendInviteUrl() {
-  const u = new URL(location.origin + location.pathname);
+  // Always land on live.html (not homepage) so rules + deep-link apply
+  const u = new URL(location.origin + "/live.html");
   if (myFriendCode) u.searchParams.set("friend", myFriendCode);
   const name = getDisplayName();
   if (name && name !== "anon") u.searchParams.set("name", name);
