@@ -28,4 +28,12 @@ export const MOBILE_BY_LANG: Record<string, Overlay> = {
   uk: require("./overlay/uk.json"),
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   zh: require("./overlay/zh.json"),
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  cs: require("./overlay/cs.json"),
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  bg: require("./overlay/bg.json"),
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  sr: require("./overlay/sr.json"),
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  ar: require("./overlay/ar.json"),
 };

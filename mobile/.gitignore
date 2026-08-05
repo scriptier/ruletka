@@ -24,4 +24,6 @@ google-play.json
 
 # Local store binaries
 artifacts/
-
+artifacts/*.aab
+secrets/google-play.json
+secrets/*.json

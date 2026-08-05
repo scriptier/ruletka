@@ -77,6 +77,7 @@ Package: **`me.ruletka.app`**. Production profile no longer ships `expo-dev-clie
 
 | Build | Version code | Status | Notes |
 |-------|--------------|--------|--------|
+| [0eb04286…](https://expo.dev/accounts/courtiers-team/projects/ruletka/builds/0eb04286-c21c-42cf-ba34-16a48f7e493e) | **8** | finished | Prefer · [AAB](https://expo.dev/artifacts/eas/3ihPx6pyOKLD2qmJHcnhjnN1tSH-nb07AxZ8DdDJXjs.aab) · `mobile/artifacts/ruletka-0.1.1-vc8.aab` · version **0.1.1** · commit `6b5d6cf` |
 | [d6de984a…](https://expo.dev/accounts/courtiers-team/projects/ruletka/builds/d6de984a-72d7-48ee-a59f-24e2da3b8785) | **6** | finished | Prefer · [AAB](https://expo.dev/artifacts/eas/GfChIFs_P8ZgFKav1jqyZ9mnBWlOUJg1ixepxDo6IN8.aab) · `mobile/artifacts/ruletka-0.1.0-vc6.aab` · commit `896e6be` |
 | [9d626558…](https://expo.dev/accounts/courtiers-team/projects/ruletka/builds/9d626558-8b8c-465b-b7e1-4b2f05e0d101) | **5** | finished | `mobile/artifacts/ruletka-0.1.0-vc5.aab` |
 | [3e43e238…](https://expo.dev/accounts/courtiers-team/projects/ruletka/builds/3e43e238-cb1d-44ae-adc4-e40367cb23c3) | **4** | finished | [AAB download](https://expo.dev/artifacts/eas/1Zg9q_UtLbeKCEmXeyY4rVKZMStgPOne51jZS36NQKE.aab) · `mobile/artifacts/ruletka-0.1.0-vc4.aab` |
@@ -94,7 +95,7 @@ npx eas-cli submit --profile production --platform android --latest
 
 **Submit is blocked until you add** `mobile/secrets/google-play.json` (Play service account). See `mobile/secrets/README.md`.
 
-**Manual path (no JSON yet):** Play Console → **me.ruletka.app** → Testing → **Internal testing** → Create release → upload the AAB (vc3 file above, or vc4 when finished).
+**Manual path (no JSON yet):** Play Console → **me.ruletka.app** → Testing → **Internal testing** → Create release → upload the AAB (`mobile/artifacts/ruletka-0.1.1-vc8.aab` or latest from EAS).
 
 ```bash
 npx eas build --profile production --platform all
