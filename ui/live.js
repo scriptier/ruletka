@@ -16995,14 +16995,27 @@ function syncAccountSettingsSummary() {
   if (starsEl) starsEl.textContent = dual;
   const starsRow = $("settings-stars-row-value");
   if (starsRow) starsRow.textContent = dual;
-  // Main list: backup status summary
+  // Main list: backup status summary + soft nudge when friends exist but never exported
   const idSum = $("settings-identity-summary");
   const backupStatus = $("settings-backup-status");
+  const idBtn = $("btn-settings-open-identity");
   let lastTs = 0;
   try {
     lastTs = Math.max(0, Number(localStorage.getItem(PROFILE_EXPORT_TS_KEY)) || 0);
   } catch (_) {}
   const codeShort = (myFriendCode || "").trim();
+  let friendN = 0;
+  try {
+    friendN = (typeof loadFriendsBackup === "function" ? loadFriendsBackup() : [])
+      .length;
+  } catch (_) {
+    friendN = 0;
+  }
+  const needsBackup = lastTs <= 0 && friendN >= 1;
+  if (idBtn) {
+    idBtn.classList.toggle("needs-backup", needsBackup);
+    idBtn.classList.toggle("settings-row-accent", needsBackup);
+  }
   if (idSum) {
     if (lastTs > 0) {
       const days = Math.max(0, Math.floor((Date.now() - lastTs) / 86400000));
@@ -17014,6 +17027,10 @@ function syncAccountSettingsSummary() {
               n: days,
               code: codeShort || "—",
             }) || `Backup ${days}d ago · code ${codeShort || "—"}`;
+    } else if (needsBackup) {
+      idSum.textContent =
+        _t("settings.needsBackup", { n: friendN, code: codeShort || "—" }) ||
+        `Export a backup · ${friendN} friend(s) · code ${codeShort || "—"}`;
     } else {
       idSum.textContent =
         _t("settings.backupNeverShort", { code: codeShort || "—" }) ||
@@ -17038,11 +17055,26 @@ function syncAccountSettingsSummary() {
         backupStatus.textContent =
           _t("settings.backupLastOk") || "Backup exported on this browser.";
       }
+    } else if (needsBackup) {
+      backupStatus.textContent =
+        _t("settings.needsBackupBody", { n: friendN }) ||
+        `You have ${friendN} friend(s) on this hub — export a password backup before switching devices.`;
     } else {
       backupStatus.textContent =
         _t("settings.backupNever") ||
         "No backup exported on this browser yet.";
     }
+  }
+  // Safety → Hide IP summary chip
+  const hideIpSum = $("settings-hide-ip-summary");
+  if (hideIpSum) {
+    const on =
+      !!loadPrefs().hideIpRelayOnly ||
+      (typeof hideIpRelayOnlyEnabled === "function" &&
+        hideIpRelayOnlyEnabled());
+    hideIpSum.textContent = on
+      ? _t("settings.hideIpOnShort") || "On · TURN only"
+      : _t("settings.hideIpOpenSub") || "Force TURN · set in Connection";
   }
 }
 
@@ -17129,7 +17161,7 @@ function syncSettingsSummary() {
     if (res && res !== "auto") bits.push(`${res}p`);
     $("settings-devices-summary").textContent = bits.filter(Boolean).join(" · ");
   }
-  // Safety summary — keep short so it never truncates mid-word
+  // Safety summary — blur / NSFW / Hide IP only (sounds live under Devices)
   if ($("settings-safety-summary")) {
     const prefs = loadPrefs();
     const parts = [];
@@ -17140,13 +17172,13 @@ function syncSettingsSummary() {
       parts.push(_t("settings.sumNsfw") || "NSFW");
     }
     const hideIp =
+      prefs.hideIpRelayOnly === true ||
       prefs.forceRelay === true ||
       prefs.hideIp === true ||
-      prefs.icePolicy === "relay";
+      prefs.icePolicy === "relay" ||
+      (typeof hideIpRelayOnlyEnabled === "function" &&
+        hideIpRelayOnlyEnabled());
     if (hideIp) parts.push(_t("settings.sumHideIp") || "Hide IP");
-    if (typeof prefs.matchSound === "boolean" ? prefs.matchSound : true) {
-      /* sound on is default — omit unless only feature left */
-    }
     if (parts.length >= 3) {
       $("settings-safety-summary").textContent =
         _t("settings.sumAllOn") || "All on";
@@ -17286,6 +17318,16 @@ function wireSettingsNav() {
   wireStarBadgeInteractions();
   setStarsBadge("local", myStars);
   $("btn-settings-done")?.addEventListener("click", () => closeSettings());
+  $("btn-settings-open-friend-alerts")?.addEventListener("click", () => {
+    try {
+      closeSettings();
+    } catch (_) {}
+    setTimeout(() => {
+      try {
+        openFriends();
+      } catch (_) {}
+    }, 160);
+  });
   $("btn-conn-refresh")?.addEventListener("click", () => {
     refreshConnectionDetails();
     refreshSecurityPanel();

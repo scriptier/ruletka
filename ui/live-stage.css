@@ -8961,6 +8961,17 @@ footer.stage-footer[hidden] {
 .settings-gear-badge[hidden] {
   display: none !important;
 }
+/* Soft nudge: friends exist but no profile export yet */
+#btn-settings-open-identity.needs-backup {
+  box-shadow: inset 3px 0 0 0 rgba(255, 196, 55, 0.85);
+}
+#btn-settings-open-identity.needs-backup .settings-row-title {
+  color: color-mix(in srgb, var(--accent, #ffd54a) 88%, #fff);
+}
+#btn-settings-open-identity.needs-backup .settings-row-sub {
+  color: color-mix(in srgb, var(--accent, #ffd54a) 55%, var(--muted, #9aa3b5));
+}
+
 #btn-settings-updates.has-unread .row-ico {
   color: #ffb0a0;
   text-shadow: 0 0 10px rgba(255, 80, 100, 0.45);
