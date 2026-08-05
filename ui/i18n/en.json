@@ -1621,5 +1621,19 @@
   "settings.audioModeFast": "Now: low delay · quiet room",
   "settings.audioModeQuietTip": "Noise reduction + echo control. Best for most people and multi-person calls.",
   "settings.audioModeFastTip": "Less processing for tighter lipsync. Echo and noise may be worse.",
-  "friends.safetyNudgeBodyAdd": "{n} — Add as friend to Call later, or Report / Block if needed. Also under Friends → Call history."
+  "friends.safetyNudgeBodyAdd": "{n} — Add as friend to Call later, or Report / Block if needed. Also under Friends → Call history.",
+  "stars.wealthNoTrust": "★{n} ready to spend · Trust grows only from peer gifts (need {need} trust for Trusted).",
+  "stars.chipWealthRich": "✦ rich",
+  "stars.chipWealthUp": "✦",
+  "stars.chipWealthTip": "High balance for gifts — peer ★ still build Trust separately",
+  "stars.chipTrustTip": "Trust tier from peer gifts (not spendable balance)",
+  "stars.tierWealthLegend": "Legendary balance",
+  "stars.tierWealthGold": "Rich balance",
+  "stars.tierWealthSilver": "Solid balance",
+  "stars.unlockWealthOnly": "★{n} for gifts · get peer ★ gifts to build Trust (100 → Trusted)",
+  "stars.unlockNormalV2": "Balance = gifts · Trust = peer ★ · 100 trust → Trusted look",
+  "stars.unlockTrustedV2": "Trusted · gift up to 2★ · 250 trust + gifters → senior",
+  "stars.unlockSeniorV2": "Senior trust · gift up to 3★ after long chats · hard to auto-ban",
+  "stars.progressHintWealth": "★{b} to spend · {n} peer trust to Trusted status.",
+  "stars.trustWealthOnlyBody": "You have ★{n} to spend on gifts. Trust only rises when others gift you after chats."
 }

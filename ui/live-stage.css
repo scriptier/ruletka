@@ -17630,3 +17630,97 @@ html.match-live .tile-remote .side-rail-left,
   opacity: 0.88;
   max-width: 28rem;
 }
+
+/* —— High spendable balance “wealth” chrome (even if trust is still low) —— */
+.stars-sheet-hero.is-wealth-2:not(.is-trusted):not(.is-senior) {
+  border-color: rgba(180, 200, 255, 0.35);
+  background:
+    radial-gradient(ellipse 80% 70% at 20% 0%, rgba(100, 140, 255, 0.18), transparent 55%),
+    rgba(255, 255, 255, 0.06);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 8px 28px rgba(40, 70, 140, 0.2);
+}
+.stars-sheet-hero.is-wealth-3:not(.is-trusted):not(.is-senior) {
+  border-color: rgba(255, 200, 80, 0.45);
+  background:
+    radial-gradient(ellipse 90% 80% at 15% 0%, rgba(255, 190, 60, 0.22), transparent 55%),
+    linear-gradient(165deg, rgba(50, 40, 12, 0.55), rgba(20, 18, 28, 0.75));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 230, 140, 0.15),
+    0 10px 32px rgba(120, 80, 10, 0.28);
+}
+.stars-sheet-hero.is-wealth-4:not(.is-trusted):not(.is-senior),
+.stars-sheet-hero.is-wealth-4.is-normal {
+  border-color: rgba(255, 210, 100, 0.65);
+  background:
+    radial-gradient(ellipse 100% 90% at 10% -10%, rgba(255, 210, 90, 0.35), transparent 50%),
+    radial-gradient(ellipse 60% 50% at 90% 100%, rgba(255, 120, 40, 0.12), transparent 50%),
+    linear-gradient(165deg, rgba(60, 42, 8, 0.75), rgba(18, 14, 22, 0.9));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 240, 180, 0.25),
+    0 12px 40px rgba(160, 100, 0, 0.35);
+}
+.stars-sheet-hero.is-wealth-3:not(.is-trusted):not(.is-senior) .stars-sheet-balance,
+.stars-sheet-hero.is-wealth-4:not(.is-trusted):not(.is-senior) .stars-sheet-balance {
+  color: #ffe9a0;
+  text-shadow: 0 0 18px rgba(255, 200, 60, 0.45);
+  font-size: 2.05rem;
+  font-weight: 850;
+  letter-spacing: -0.02em;
+}
+.stars-sheet-hero.is-wealth-4:not(.is-trusted):not(.is-senior) .stars-sheet-hero-ico {
+  color: #ffd54a;
+  filter: drop-shadow(0 0 10px rgba(255, 200, 60, 0.65));
+  transform: scale(1.12);
+}
+.stars-tier-chip.is-wealth {
+  border-color: rgba(255, 200, 90, 0.55);
+  background: rgba(80, 55, 10, 0.75);
+  color: #ffe9a0;
+}
+.stars-tier-chip.is-wealth-legend {
+  border-color: rgba(255, 220, 120, 0.75);
+  background: linear-gradient(135deg, rgba(120, 80, 10, 0.9), rgba(60, 40, 8, 0.95));
+  color: #fff3c4;
+  box-shadow: 0 0 12px rgba(255, 180, 40, 0.35);
+}
+.stars-dual-chip.is-balance.is-hot,
+.stars-sheet-hero.is-wealth-3 .stars-dual-chip.is-balance,
+.stars-sheet-hero.is-wealth-4 .stars-dual-chip.is-balance {
+  border-color: rgba(255, 200, 80, 0.4);
+  background: rgba(255, 180, 40, 0.12);
+}
+.stars-sheet-hero.is-wealth-3 .stars-dual-chip.is-balance .stars-dual-val,
+.stars-sheet-hero.is-wealth-4 .stars-dual-chip.is-balance .stars-dual-val {
+  color: #ffe9a0;
+}
+/* Tile badge wealth glow when balance high (trust may still be low) */
+.stars-badge.wealth-2 {
+  border-color: rgba(160, 190, 255, 0.45);
+  box-shadow: 0 2px 12px rgba(80, 120, 220, 0.25);
+}
+.stars-badge.wealth-3 {
+  border-color: rgba(255, 200, 80, 0.55);
+  background: rgba(40, 30, 8, 0.92);
+  color: #ffe9a0;
+  box-shadow: 0 2px 14px rgba(200, 140, 20, 0.35);
+}
+.stars-badge.wealth-4 {
+  border-color: rgba(255, 220, 100, 0.75);
+  background: linear-gradient(145deg, rgba(70, 50, 10, 0.95), rgba(28, 20, 6, 0.96));
+  color: #fff0c0;
+  box-shadow:
+    0 0 0 1px rgba(255, 210, 80, 0.25),
+    0 4px 18px rgba(220, 150, 20, 0.45);
+}
+.stars-badge.wealth-4 .stars-icon {
+  color: #ffd54a;
+  filter: drop-shadow(0 0 6px rgba(255, 200, 60, 0.7));
+}
+.stars-gifters-floor-hint {
+  color: #f0d080;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  margin: 0.15rem 0 0;
+}

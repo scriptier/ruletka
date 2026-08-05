@@ -228,8 +228,8 @@
     #tile-local .side-rail { z-index: 50 !important; }
 </style>
   <!-- Load stage CSS as all immediately — no media=print FOUC trick (was leaving rails opacity:0) -->
-  <link rel="stylesheet" href="live-stage.css?v=331" />
-  <link rel="preload" href="live.js?v=373" as="script" />
+  <link rel="stylesheet" href="live-stage.css?v=332" />
+  <link rel="preload" href="live.js?v=374" as="script" />
   <link rel="preload" href="i18n.js?v=220" as="script" />
   <script src="brand.js?v=2" defer></script>
   <script>
@@ -1274,7 +1274,7 @@
             <span>0</span><span>100</span><span>250</span>
           </div>
           <p class="stars-progress-hint" id="stars-progress-hint" data-i18n="stars.progressHint">
-            Trust from peer gifts · 100 trust → reports ×2.
+            Trust from peer gifts · 100 trust → Trusted status.
           </p>
           <p class="stars-progress-hint-sub" id="stars-progress-hint-sub" hidden></p>
         </div>
@@ -2514,7 +2514,7 @@
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=156" defer></script>
   <script src="webrtc.js?v=168" defer></script>
-  <script src="live.js?v=373" defer></script>
+  <script src="live.js?v=374" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

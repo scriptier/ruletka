@@ -2616,15 +2616,26 @@ function setStarsBadge(which, count, opts = {}) {
     } else badge.setAttribute("hidden", "");
     badge.classList.add("is-clickable");
     badge.classList.toggle("is-live-chat", live);
-    // Visual evolution by **trust** tier (report weight goals)
+    // Trust tier + spendable wealth chrome (high balance can still look gold)
     const w = reportWeightForStars(tierScore);
-    badge.classList.remove("tier-normal", "tier-trusted", "tier-senior");
+    const wealth = starsWealthLevel(n);
+    badge.classList.remove(
+      "tier-normal",
+      "tier-trusted",
+      "tier-senior",
+      "wealth-1",
+      "wealth-2",
+      "wealth-3",
+      "wealth-4"
+    );
     badge.classList.add(
       w >= 3 ? "tier-senior" : w >= 2 ? "tier-trusted" : "tier-normal"
     );
+    if (wealth >= 1) badge.classList.add(`wealth-${wealth}`);
     badge.dataset.tier = String(w);
     badge.dataset.stars = String(n);
     badge.dataset.trust = String(tierScore);
+    badge.dataset.wealth = String(wealth);
     const ico = badge.querySelector(".stars-icon");
     if (ico) {
       // Same glyph; CSS beefs up trusted/senior (glow, size, gold)
@@ -2797,6 +2808,16 @@ function clearTrustTierChips() {
   setTrustTierChip("local", myTrust);
 }
 
+/** Spendable-balance “wealth” level for chrome (independent of trust tier). */
+function starsWealthLevel(balance) {
+  const b = Math.max(0, Number(balance) || 0);
+  if (b >= 250) return 4;
+  if (b >= 100) return 3;
+  if (b >= 50) return 2;
+  if (b >= 10) return 1;
+  return 0;
+}
+
 function syncStarsSheetUi() {
   const balN = Math.max(0, Number(myStars) || 0);
   const trustN = Math.max(0, Number(myTrust) || 0);
@@ -2804,11 +2825,12 @@ function syncStarsSheetUi() {
     0,
     Number(myTrustEffective) || clientEffectiveTrust(trustN, myTrustGifters)
   );
-  /** Ladder / report tier uses effective trust */
+  /** Ladder / trust tier uses effective trust (peer gifts + floors) */
   const n = effN;
   const w = reportWeightForStars(n);
   const isSenior = n >= STARS_SENIOR_GOAL;
   const isTrusted = n >= STARS_TRUSTED_GOAL;
+  const wealth = starsWealthLevel(balN);
   const live = !!(matched || inFriendCall);
   const hasPartner = !!(primaryPartnerUserId || lastMatchMeta?.user_id);
 
@@ -2816,6 +2838,10 @@ function syncStarsSheetUi() {
   if (bal) bal.textContent = String(balN);
   const balChip = $("stars-sheet-balance-chip");
   if (balChip) balChip.textContent = String(balN);
+  try {
+    const dualBal = document.querySelector(".stars-dual-chip.is-balance");
+    dualBal?.classList.toggle("is-hot", wealth >= 3);
+  } catch (_) {}
   const trustEl = $("stars-sheet-trust");
   if (trustEl) {
     trustEl.textContent =
@@ -2828,7 +2854,13 @@ function syncStarsSheetUi() {
   const floorEl = $("stars-gifters-floor-hint");
   if (floorEl) {
     const g = Math.max(0, Number(myTrustGifters) || 0);
-    if (trustN >= STARS_SENIOR_GOAL && g < SENIOR_MIN_GIFTERS) {
+    // High balance but no peer trust — explain the dual system
+    if (balN >= 50 && trustN < STARS_TRUSTED_GOAL) {
+      floorEl.hidden = false;
+      floorEl.textContent =
+        _t("stars.wealthNoTrust", { n: balN, need: STARS_TRUSTED_GOAL }) ||
+        `★${balN} ready to spend · Trust grows only from peer gifts (need ${STARS_TRUSTED_GOAL} trust for Trusted).`;
+    } else if (trustN >= STARS_SENIOR_GOAL && g < SENIOR_MIN_GIFTERS) {
       floorEl.hidden = false;
       floorEl.textContent =
         _t("stars.floorSenior", { n: SENIOR_MIN_GIFTERS, have: g }) ||
@@ -2838,7 +2870,7 @@ function syncStarsSheetUi() {
       floorEl.textContent =
         _t("stars.floorTrusted", { n: TRUSTED_MIN_GIFTERS, have: g }) ||
         `Need ${TRUSTED_MIN_GIFTERS} unique gifters for trusted (have ${g}).`;
-    } else if (g < TRUSTED_MIN_GIFTERS) {
+    } else if (g < TRUSTED_MIN_GIFTERS && trustN > 0) {
       floorEl.hidden = false;
       floorEl.textContent =
         _t("stars.floorHint", {
@@ -2852,43 +2884,92 @@ function syncStarsSheetUi() {
     }
   }
 
-  // Hero tier chip + name
+  // Hero: trust chip + wealth chrome (balance can look premium even if trust is low)
   const chip = $("stars-tier-chip");
   if (chip) {
-    chip.textContent = `×${w}`;
+    if (isSenior || isTrusted) {
+      chip.textContent = `×${w}`;
+      chip.title =
+        _t("stars.chipTrustTip") ||
+        "Trust tier from peer gifts (not spendable balance)";
+    } else if (wealth >= 3) {
+      chip.textContent =
+        _t("stars.chipWealthRich") || "✦ rich";
+      chip.title =
+        _t("stars.chipWealthTip") ||
+        "High balance for gifts — peer ★ still build Trust separately";
+    } else if (wealth >= 1) {
+      chip.textContent =
+        _t("stars.chipWealthUp") || "✦";
+      chip.title =
+        _t("stars.chipWealthTip") ||
+        "Growing balance for gifts";
+    } else {
+      chip.textContent = `×${w}`;
+      chip.title = "";
+    }
     chip.dataset.tier = String(w);
+    chip.dataset.wealth = String(wealth);
     chip.classList.toggle("is-trusted", w === 2);
     chip.classList.toggle("is-senior", w >= 3);
+    chip.classList.toggle("is-wealth", wealth >= 2 && w < 2);
+    chip.classList.toggle("is-wealth-legend", wealth >= 4 && w < 3);
   }
   const tierName = $("stars-tier-name");
   if (tierName) {
-    tierName.textContent = isSenior
-      ? _t("stars.tierSenior") || "Senior reporter"
-      : isTrusted
-        ? _t("stars.tierTrusted") || "Trusted reporter"
-        : _t("stars.tierNormal") || "Normal reporter";
+    if (isSenior) {
+      tierName.textContent =
+        _t("stars.tierSenior") || "Senior reporter";
+    } else if (isTrusted) {
+      tierName.textContent =
+        _t("stars.tierTrusted") || "Trusted reporter";
+    } else if (wealth >= 4) {
+      tierName.textContent =
+        _t("stars.tierWealthLegend") || "Legendary balance";
+    } else if (wealth >= 3) {
+      tierName.textContent =
+        _t("stars.tierWealthGold") || "Rich balance";
+    } else if (wealth >= 2) {
+      tierName.textContent =
+        _t("stars.tierWealthSilver") || "Solid balance";
+    } else {
+      tierName.textContent =
+        _t("stars.tierNormal") || "Normal reporter";
+    }
   }
   const hero = $("stars-sheet-hero");
   if (hero) {
     hero.classList.toggle("is-normal", !isTrusted && !isSenior);
     hero.classList.toggle("is-trusted", isTrusted && !isSenior);
     hero.classList.toggle("is-senior", isSenior);
+    hero.classList.remove(
+      "is-wealth-1",
+      "is-wealth-2",
+      "is-wealth-3",
+      "is-wealth-4"
+    );
+    if (wealth >= 1) hero.classList.add(`is-wealth-${wealth}`);
+    hero.dataset.wealth = String(wealth);
   }
-  // One-line “what this tier unlocks”
+  // One-line “what this unlocks” — dual system after brigade v1
   const unlock = $("stars-unlock-line");
   if (unlock) {
     if (isSenior) {
       unlock.textContent =
-        _t("stars.unlockSenior") ||
-        "Senior · reports ×3 · gift up to 3★ after long chats";
+        _t("stars.unlockSeniorV2") ||
+        "Senior trust · gift up to 3★ after long chats · hard to auto-ban";
     } else if (isTrusted) {
       unlock.textContent =
-        _t("stars.unlockTrusted") ||
-        "Trusted · reports ×2 · gift up to 2★ · 250 trust → senior";
+        _t("stars.unlockTrustedV2") ||
+        "Trusted · gift up to 2★ · 250 trust + gifters → senior";
+    } else if (balN >= 50 && trustN < STARS_TRUSTED_GOAL) {
+      unlock.textContent =
+        _t("stars.unlockWealthOnly", { n: balN }) ||
+        `★${balN} for gifts · get peer ★ gifts to build Trust (100 → Trusted)`;
     } else {
       unlock.textContent =
-        _t("stars.unlockNormal") ||
-        "Balance for gifts · trust from peer ★ · 100 trust → trusted";
+        _t("stars.unlockNormalV2") ||
+        "Balance = gifts · Trust = peer ★ · 100 trust → Trusted look";
     }
   }
 
@@ -2993,16 +3074,16 @@ function syncStarsSheetUi() {
     };
     if (isSenior) {
       hintProg.textContent =
-        _t("stars.progressSenior", { g }) ||
-        `Senior reporter — reports ×3 · ${g} gifters.`;
+        _t("stars.progressSeniorV2", { g }) ||
+        `Senior trust · gift up to 3★ · ${g} gifters.`;
       setSub(
         _t("stars.progressSeniorSub") ||
           "Other seniors can’t auto-ban you."
       );
     } else if (isTrusted) {
       hintProg.textContent =
-        _t("stars.progressHintSeniorLeft", { n: rawLeftSenior, g }) ||
-        `Trusted (×2) · ${rawLeftSenior} more trust to senior (×3).`;
+        _t("stars.progressHintSeniorLeftV2", { n: rawLeftSenior, g }) ||
+        `Trusted · ${rawLeftSenior} more trust to senior.`;
       setSub(
         g < SENIOR_MIN_GIFTERS
           ? _t("stars.needGiftersSeniorClean", {
@@ -3015,8 +3096,11 @@ function syncStarsSheetUi() {
     } else {
       // Keep balance out of this line — hero already shows it
       hintProg.textContent =
-        _t("stars.progressHintLeftShort", { n: rawLeftTrusted }) ||
-        `${rawLeftTrusted} more trust to trusted (reports ×2).`;
+        balN >= 50
+          ? _t("stars.progressHintWealth", { b: balN, n: rawLeftTrusted }) ||
+            `★${balN} to spend · ${rawLeftTrusted} peer trust to Trusted status.`
+          : _t("stars.progressHintLeftShortV2", { n: rawLeftTrusted }) ||
+            `${rawLeftTrusted} more peer trust to Trusted.`;
       setSub(
         g < TRUSTED_MIN_GIFTERS
           ? _t("stars.needGiftersTrustedClean", {
@@ -3042,16 +3126,20 @@ function syncStarsSheetUi() {
   if (trust) {
     if (isSenior) {
       trust.textContent =
-        _t("stars.trustYouAreSenior") ||
-        "You have 250+★ — senior (×3). Other seniors cannot auto-ban you via reports alone.";
+        _t("stars.trustYouAreSeniorV2") ||
+        "Senior trust (250+) · gift up to 3★ · other seniors can’t auto-ban you.";
     } else if (isTrusted) {
       trust.textContent =
-        _t("stars.trustYouAre") ||
-        "You have 100+★ — trusted (×2). You’re harder to ban. Reach 250★ for ×3.";
+        _t("stars.trustYouAreV2") ||
+        "Trusted (100+) · gift up to 2★ · 250+ trust for senior.";
+    } else if (balN >= 50) {
+      trust.textContent =
+        _t("stars.trustWealthOnlyBody", { n: balN }) ||
+        `You have ★${balN} to spend on gifts. Trust (left chip path) only rises when others gift you after chats.`;
     } else {
       trust.textContent =
-        _t("stars.trustStepBody") ||
-        "At 100★ reports ×2; at 250★ ×3. High-rep targets are shielded. One report per person.";
+        _t("stars.trustStepBodyV2") ||
+        "Balance spends on gifts. Trust from peer ★ unlocks Trusted/Senior looks and gift limits.";
     }
   }
 
