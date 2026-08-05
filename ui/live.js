@@ -725,21 +725,46 @@ function setBlurStarterLeft(n) {
   } catch (_) {}
 }
 
-/** True when Settings forces blur-first (not just starter budget). Default ON. */
+/**
+ * Settings “Always blur everyone” — ignores partner reputation.
+ * Default OFF so reputation-based auto-blur is the product default.
+ * Explicit true still forces permanent blur for every stranger.
+ */
 function blurFirstPrefEnabled() {
   try {
-    const v = loadPrefs().blurFirst;
-    // Default on for new users; only off when user explicitly disabled
-    if (v === false) return false;
-    return true;
+    return loadPrefs().blurFirst === true;
   } catch {
-    return true;
+    return false;
   }
 }
 
-function blurFirstEnabled() {
+/** Partner public score for intro-blur policy (balance or trust). */
+function partnerRepScoreForBlur(meta) {
+  const m = meta || lastMatchMeta || {};
+  const stars = Math.max(
+    0,
+    Number(m.stars != null ? m.stars : partnerStars) || 0
+  );
+  const trust = Math.max(
+    0,
+    Number(m.trust != null ? m.trust : partnerTrust) || 0
+  );
+  return Math.max(stars, trust);
+}
+
+/** Below this score: stranger stays blurred until Unblur. At/above: 3s intro only. */
+const BLUR_REP_THRESHOLD = 39;
+
+/** True when this stranger should stay blurred until the user taps Unblur. */
+function strangerKeepsBlurUntilUnblur(meta) {
   if (blurFirstPrefEnabled()) return true;
-  return blurStarterLeft() > 0;
+  if (blurStarterLeft() > 0) return true;
+  return partnerRepScoreForBlur(meta) < BLUR_REP_THRESHOLD;
+}
+
+function blurFirstEnabled() {
+  // Back-compat name: any path that keeps blur until Unblur
+  return strangerKeepsBlurUntilUnblur();
 }
 
 /** Consume one starter match when a stranger session begins under starter mode. */
@@ -857,13 +882,15 @@ function clearIntroBlurTimer() {
 }
 
 /**
- * Blur a new stranger for INTRO_BLUR_MS so the user can Next/Stop if needed,
- * then unblur automatically — unless blur-first (settings or starter) is on.
+ * Blur a new stranger:
+ * - Settings always-blur OR starter budget OR rep &lt; 39 → stay blurred until Unblur
+ * - rep ≥ 39 → INTRO_BLUR_MS then auto-unblur
  */
 function applyStrangerIntroBlur() {
   clearIntroBlurTimer();
   setPartnerBlur(true);
-  const keepBlurred = blurFirstEnabled();
+  const score = partnerRepScoreForBlur();
+  const keepBlurred = strangerKeepsBlurUntilUnblur();
   if (keepBlurred) {
     // Starter path: burn one of the first-N matches
     const wasStarter = !blurFirstPrefEnabled() && blurStarterLeft() > 0;
@@ -874,24 +901,49 @@ function applyStrangerIntroBlur() {
         _t("log.blurStarter") ||
           "partner blurred until you unblur (starter safety)"
       );
-    } else {
+    } else if (blurFirstPrefEnabled()) {
       log(_t("log.blurFirst") || "partner stays blurred until you unblur");
       maybeShowUnblurCoach();
+    } else {
+      // Low reputation / stars auto-blur
+      log(
+        _t("log.blurLowRep", { n: score, thr: BLUR_REP_THRESHOLD }) ||
+          `partner blurred until Unblur (score ${score} < ${BLUR_REP_THRESHOLD})`
+      );
+      maybeShowUnblurCoach();
+      try {
+        trackEvent("blur_low_rep", {
+          score,
+          thr: BLUR_REP_THRESHOLD,
+          stars: partnerStars,
+          trust: partnerTrust,
+        });
+      } catch (_) {}
     }
-    // Sync settings checkbox so user sees permanent option is separate
     try {
       syncBlurFirstUi();
       syncPartnerBlurButtonLabels();
     } catch (_) {}
     return;
   }
-  log(_t("log.blurIntro") || "partner blurred 3s — Next if needed");
+  log(
+    _t("log.blurIntroRep", { n: score }) ||
+      `partner blurred 3s — score ${score} ≥ ${BLUR_REP_THRESHOLD}`
+  );
+  try {
+    trackEvent("blur_intro_rep", {
+      score,
+      thr: BLUR_REP_THRESHOLD,
+      stars: partnerStars,
+      trust: partnerTrust,
+    });
+  } catch (_) {}
   const gen = ++introBlurGen;
   introBlurTimer = setTimeout(() => {
     introBlurTimer = 0;
     if (gen !== introBlurGen) return;
     if (!matched) return;
-    if (blurFirstEnabled()) return;
+    if (strangerKeepsBlurUntilUnblur()) return;
     if (!partnerBlurred) return; // user already unblurred
     setPartnerBlur(false);
     log(_t("log.blurIntroDone") || "partner unblurred");
@@ -902,6 +954,14 @@ function syncBlurFirstUi() {
   const chk = $("chk-blur-first");
   if (!chk) return;
   chk.checked = blurFirstPrefEnabled();
+  const titleEl = chk
+    .closest(".settings-row")
+    ?.querySelector?.(".toggle-title");
+  if (titleEl) {
+    titleEl.textContent =
+      _t("settings.blurFirst") ||
+      "Always blur everyone";
+  }
   const hint = chk
     .closest(".settings-row")
     ?.querySelector?.(".toggle-hint");
@@ -909,18 +969,21 @@ function syncBlurFirstUi() {
   if (blurFirstPrefEnabled()) {
     hint.textContent =
       _t("settings.blurFirstHintOn") ||
-      "On: every new conversationalist stays blurred until you tap Unblur";
+      "On: every stranger stays blurred until you Unblur (ignores their ★).";
     return;
   }
   const left = blurStarterLeft();
   if (left > 0) {
     hint.textContent =
-      _t("settings.blurFirstHintStarter", { n: left }) ||
-      `First ${left} stranger matches stay blurred until you unblur · then 3s intro blur`;
+      _t("settings.blurFirstHintStarter", {
+        n: left,
+        thr: BLUR_REP_THRESHOLD,
+      }) ||
+      `First ${left} stranger matches stay blurred · then auto: under ${BLUR_REP_THRESHOLD}★ keep blur · ${BLUR_REP_THRESHOLD}+ get 3s only`;
   } else {
     hint.textContent =
-      _t("settings.blurFirstHint") ||
-      "Off: only 3s intro blur on new matches (then auto-unblur)";
+      _t("settings.blurFirstHint", { thr: BLUR_REP_THRESHOLD }) ||
+      `Auto: under ${BLUR_REP_THRESHOLD}★ stay blurred until Unblur · ${BLUR_REP_THRESHOLD}+ blur 3s then reveal`;
   }
 }
 
@@ -9888,14 +9951,22 @@ function syncAllPeerMediaChrome() {
 }
 
 /**
- * Extra conversationalists (2nd/3rd video slots) start blurred when always-blur
- * is on — same safety default as the main partner intro, but never blur friends.
+ * Extra conversationalists (2nd/3rd slots) use the same rep / always-blur policy
+ * as the main partner — never auto-blur friends/teammates.
  */
 function shouldDefaultBlurExtraPeer(peerMeta, elId) {
   if (elId !== "remote2" && elId !== "remote-third") return false;
-  if (!blurFirstEnabled()) return false;
   if (isTeammateRole(peerMeta?.role)) return false;
-  return true;
+  const meta = {
+    stars: Math.max(0, Number(peerMeta?.stars) || 0),
+    trust: Math.max(
+      0,
+      Number(
+        peerMeta?.trust != null ? peerMeta.trust : peerMeta?.stars
+      ) || 0
+    ),
+  };
+  return strangerKeepsBlurUntilUnblur(meta);
 }
 
 function registerPeerUi(peerMeta, elId) {
@@ -17165,8 +17236,8 @@ function syncSettingsSummary() {
   if ($("settings-safety-summary")) {
     const prefs = loadPrefs();
     const parts = [];
-    if (prefs.blurFirst !== false) {
-      parts.push(_t("settings.sumBlur") || "Blur");
+    if (prefs.blurFirst === true) {
+      parts.push(_t("settings.sumBlur") || "Always blur");
     }
     if (prefs.nsfwAuto !== false) {
       parts.push(_t("settings.sumNsfw") || "NSFW");
@@ -20480,7 +20551,7 @@ function handleMatched(msg) {
       ...lastMatchMeta,
     });
   }
-  // Strangers: 3s intro blur (auto-clear) or permanent if blur-first is on.
+  // Strangers: rep &lt; 39 stay blurred; 39+ get 3s intro; Settings always-blur overrides.
   // Friends / known teammates start clear.
   const isFriendMatch =
     matchMode === "friend" || inFriendCall || onlyTeammate;
@@ -26453,13 +26524,16 @@ $("chk-nsfw-auto")?.addEventListener("change", (e) => {
 $("chk-blur-first")?.addEventListener("change", (e) => {
   const on = !!e.target.checked;
   savePrefs({ blurFirst: on });
-  // Always-blur mode: every new stranger stays blurred until user taps Unblur
+  // On: force always-blur for everyone. Off: reputation auto (under 39 keep · 39+ 3s).
   try {
-    trackEvent("blur_first_pref", { on: on ? 1 : 0, starter: blurStarterLeft() });
+    trackEvent("blur_first_pref", {
+      on: on ? 1 : 0,
+      starter: blurStarterLeft(),
+      thr: BLUR_REP_THRESHOLD,
+    });
     syncBlurFirstUi();
     syncPartnerBlurButtonLabels();
   } catch (_) {}
-  // Apply immediately to current stranger call (not friends)
   try {
     if (matched && matchMode !== "friend" && !inFriendCall) {
       if (on) {
@@ -26471,19 +26545,22 @@ $("chk-blur-first")?.addEventListener("change", (e) => {
             "Always blur on — this partner is blurred. Tap Unblur when ready."
         );
       } else {
-        // Leaving always-blur: keep current blur state; next match uses 3s intro
+        const score = partnerRepScoreForBlur();
         setStatus(
-          _t("settings.blurFirstOffNow") ||
-            "Always blur off — next matches use 3s intro blur only."
+          _t("settings.blurFirstOffNow", {
+            thr: BLUR_REP_THRESHOLD,
+            n: score,
+          }) ||
+            `Always blur off — next matches: under ${BLUR_REP_THRESHOLD}★ keep blur · ${BLUR_REP_THRESHOLD}+ get 3s.`
         );
       }
     } else {
       setStatus(
         on
           ? _t("settings.blurFirstOn") ||
-              "Always blur new conversationalists until you Unblur"
-          : _t("settings.blurFirstOff") ||
-              "Always blur off — new matches auto-unblur after 3s"
+              "Always blur everyone until you Unblur (ignores their ★)"
+          : _t("settings.blurFirstOff", { thr: BLUR_REP_THRESHOLD }) ||
+              `Auto blur: under ${BLUR_REP_THRESHOLD}★ until Unblur · ${BLUR_REP_THRESHOLD}+ only 3s`
       );
     }
   } catch (_) {}
@@ -26926,7 +27003,7 @@ document.addEventListener(
     $("chk-nsfw-auto").checked = prefs.nsfwAuto !== false;
   }
   if ($("chk-blur-first")) {
-    $("chk-blur-first").checked = prefs.blurFirst !== false;
+    $("chk-blur-first").checked = prefs.blurFirst === true;
     try {
       syncBlurFirstUi();
     } catch (_) {}
