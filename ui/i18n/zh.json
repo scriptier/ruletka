@@ -1224,10 +1224,10 @@
   "settings.legalHubSub": "所有政策集中一处",
   "settings.legalMore": "更多法律与许可",
   "settings.license": "许可证 · LGPL-2.1",
-  "settings.lowLatencyAudio": "低延迟音频",
-  "settings.lowLatencyAudioHint": "默认关闭（噪声抑制开启）。需要更紧口型同步时再打开——有回声/噪声请保持关闭。",
-  "settings.lowLatencyAudioOff": "全面麦克风处理开启 - 重新启动麦克风...",
-  "settings.lowLatencyAudioOn": "低延迟音频开启 — 重新启动麦克风...",
+  "settings.lowLatencyAudio": "低延迟模式",
+  "settings.lowLatencyAudioHint": "关（推荐）：降噪 + 回声抑制，适合嘈杂房间和多人通话。开：声音更少滞后（口型同步）— 仅在安静房间且感觉声音偏慢时开启。",
+  "settings.lowLatencyAudioOff": "已开降噪（推荐）。正在重启麦克风…",
+  "settings.lowLatencyAudioOn": "已开低延迟 — 安静环境更佳。正在重启麦克风…",
   "settings.matchSound": "匹配时提示音",
   "settings.mic": "麦克风",
   "settings.noAccountBody": "好友绑定此浏览器身份。导出带密码备份以便新手机恢复。服务器上无账户。",
@@ -1615,5 +1615,9 @@
   "friends.inviteJoinHint": "加入当前通话 — 保留当前伙伴",
   "friends.moreOptions": "更多选项",
   "friends.invitingJoinToast": "正在加入通话…",
-  "layout.tip": "点 ▦ 切换竖排 ↔ 网格"
+  "layout.tip": "点 ▦ 切换竖排 ↔ 网格",
+  "settings.audioModeQuiet": "当前：降噪 · 推荐",
+  "settings.audioModeFast": "当前：低延迟 · 安静环境",
+  "settings.audioModeQuietTip": "降噪 + 回声抑制。大多数人首选。",
+  "settings.audioModeFastTip": "处理更少、口型更紧。回声/噪音可能变差。"
 }

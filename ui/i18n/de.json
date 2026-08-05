@@ -1224,10 +1224,10 @@
   "settings.legalHubSub": "Alle Richtlinien an einem Ort",
   "settings.legalMore": "Mehr Rechtliches & Lizenz",
   "settings.license": "Lizenz · LGPL-2.1",
-  "settings.lowLatencyAudio": "Audio mit geringer Latenz",
-  "settings.lowLatencyAudioHint": "Standard aus (Rauschunterdrückung an). Einschalten für engeres Lippensync — bei Echo/Rauschen aus lassen.",
-  "settings.lowLatencyAudioOff": "Volle Mikro-Verarbeitung an — Mikro startet neu…",
-  "settings.lowLatencyAudioOn": "Niedrige Audio-Latenz an — Mikro startet neu…",
+  "settings.lowLatencyAudio": "Niedrige-Latenz-Modus",
+  "settings.lowLatencyAudioHint": "Aus (empfohlen): Rauschunterdrückung + Echosteuerung — besser in lauten Räumen und Gruppen. An: weniger Verzögerung (Lippensync) — nur wenn die Stimme spät wirkt und der Raum ruhig ist.",
+  "settings.lowLatencyAudioOff": "Rauschunterdrückung an (empfohlen). Mikro startet neu…",
+  "settings.lowLatencyAudioOn": "Niedrige Latenz an — ruhiger Raum ideal. Mikro startet neu…",
   "settings.matchSound": "Ton bei Match",
   "settings.mic": "Mikrofon",
   "settings.noAccountBody": "Freunde hängen an dieser Browser-Identität. Exportiere ein passwortgeschütztes Backup fürs neue Handy. Kein Server-Konto.",
@@ -1615,5 +1615,9 @@
   "friends.inviteJoinHint": "Zum Anruf hinzufügen — aktueller Partner bleibt",
   "friends.moreOptions": "Mehr",
   "friends.invitingJoinToast": "Zum Anruf hinzufügen…",
-  "layout.tip": "▦ tippen: Stapel ↔ gleiches Raster"
+  "layout.tip": "▦ tippen: Stapel ↔ gleiches Raster",
+  "settings.audioModeQuiet": "Jetzt: Rauschunterdrückung · empfohlen",
+  "settings.audioModeFast": "Jetzt: niedrige Latenz · ruhiger Raum",
+  "settings.audioModeQuietTip": "Rauschunterdrückung + Echo. Beste Wahl für die meisten.",
+  "settings.audioModeFastTip": "Weniger Verarbeitung für engeres Lippensync. Echo/Rauschen können zunehmen."
 }

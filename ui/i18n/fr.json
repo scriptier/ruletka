@@ -1224,10 +1224,10 @@
   "settings.legalHubSub": "Toutes les politiques au même endroit",
   "settings.legalMore": "Plus de légal & licence",
   "settings.license": "Licence · LGPL-2.1",
-  "settings.lowLatencyAudio": "Audio à faible latence",
-  "settings.lowLatencyAudioHint": "Désactivé par défaut (réduction de bruit on). Activez pour un lipsync plus serré — si écho/bruit, laissez off.",
-  "settings.lowLatencyAudioOff": "Traitement complet du micro activé – redémarrage du micro…",
-  "settings.lowLatencyAudioOn": "Audio à faible latence activé – redémarrage du micro…",
+  "settings.lowLatencyAudio": "Mode faible latence",
+  "settings.lowLatencyAudioHint": "Off (recommandé) : réduction de bruit + anti-écho — mieux en pièce bruyante et en groupe. On : moins de retard (lèvres/voix) — seulement si la voix arrive en retard et la pièce est calme.",
+  "settings.lowLatencyAudioOff": "Réduction de bruit on (recommandé). Redémarrage micro…",
+  "settings.lowLatencyAudioOn": "Faible latence on — idéal au calme. Redémarrage micro…",
   "settings.matchSound": "Son au match",
   "settings.mic": "Micro",
   "settings.noAccountBody": "Les amis sont liés à cette identité navigateur. Exportez une sauvegarde avec mot de passe pour un nouveau téléphone. Pas de compte serveur.",
@@ -1615,5 +1615,9 @@
   "friends.inviteJoinHint": "Les ajouter à cet appel — le partenaire actuel reste",
   "friends.moreOptions": "Plus d’options",
   "friends.invitingJoinToast": "Ajout à l’appel…",
-  "layout.tip": "Touchez ▦ pour basculer pile ↔ grille"
+  "layout.tip": "Touchez ▦ pour basculer pile ↔ grille",
+  "settings.audioModeQuiet": "Maintenant : réduction de bruit · recommandé",
+  "settings.audioModeFast": "Maintenant : faible latence · pièce calme",
+  "settings.audioModeQuietTip": "Réduction de bruit + écho. Meilleur pour la plupart.",
+  "settings.audioModeFastTip": "Moins de traitement pour le lipsync. Écho/bruit possibles."
 }

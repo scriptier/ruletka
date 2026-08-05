@@ -1224,10 +1224,10 @@
   "settings.legalHubSub": "Wszystkie polityki w jednym miejscu",
   "settings.legalMore": "Więcej prawne i licencja",
   "settings.license": "Licencja · LGPL-2.1",
-  "settings.lowLatencyAudio": "Dźwięk o niskim opóźnieniu",
-  "settings.lowLatencyAudioHint": "Domyślnie wył. (redukcja szumu włączona). Włącz dla lepszego lipsync — przy echu/szumie zostaw wył.",
-  "settings.lowLatencyAudioOff": "Włączone pełne przetwarzanie mikrofonu — ponowne uruchamianie mikrofonu…",
-  "settings.lowLatencyAudioOn": "Włączony dźwięk o niskim opóźnieniu — restartowanie mikrofonu…",
+  "settings.lowLatencyAudio": "Tryb niskiego opóźnienia",
+  "settings.lowLatencyAudioHint": "Wył. (zalecane): redukcja szumów + echo — lepiej w hałasie i w grupie. Wł.: mniejszy lag głosu — tylko gdy głos spóźnia się i jest cicho.",
+  "settings.lowLatencyAudioOff": "Redukcja szumów wł. (zalecane). Restart mikrofomu…",
+  "settings.lowLatencyAudioOn": "Niskie opóźnienie wł. — cichy pokój. Restart mikrofomu…",
   "settings.matchSound": "Dźwięk przy dopasowaniu",
   "settings.mic": "Mikrofon",
   "settings.noAccountBody": "Znajomi są powiązani z tą tożsamością przeglądarki. Wyeksportuj kopię z hasłem na nowy telefon. Brak konta na serwerze.",
@@ -1615,5 +1615,9 @@
   "friends.inviteJoinHint": "Dodaj do tej rozmowy — obecny rozmówca zostaje",
   "friends.moreOptions": "Więcej",
   "friends.invitingJoinToast": "Dodawanie do rozmowy…",
-  "layout.tip": "Dotknij ▦: stos ↔ siatka"
+  "layout.tip": "Dotknij ▦: stos ↔ siatka",
+  "settings.audioModeQuiet": "Teraz: redukcja szumów · zalecane",
+  "settings.audioModeFast": "Teraz: niskie opóźnienie · cichy pokój",
+  "settings.audioModeQuietTip": "Redukcja szumów + echo. Najlepsze dla większości.",
+  "settings.audioModeFastTip": "Mniej przetwarzania pod lipsync. Echo/szum mogą wzrosnąć."
 }

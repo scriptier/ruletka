@@ -17441,3 +17441,39 @@ html.match-live .tile-remote .side-rail-left,
 #friends-online-strip {
   display: none !important;
 }
+
+/* Low-delay vs noise-reduction mode pills in Settings */
+.settings-audio-mode-row .toggle-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.28rem;
+  min-width: 0;
+}
+.settings-audio-mode-row .toggle-mode-pill {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  margin: 0.05rem 0 0.05rem;
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+  border: 1px solid rgba(100, 180, 140, 0.45);
+  background: rgba(40, 90, 70, 0.35);
+  color: #c8f5dc;
+}
+.settings-audio-mode-row .toggle-mode-pill.is-fast,
+.settings-audio-mode-row.is-low-latency .toggle-mode-pill {
+  border-color: rgba(120, 160, 255, 0.5);
+  background: rgba(40, 60, 110, 0.45);
+  color: #d4e4ff;
+}
+.settings-audio-mode-row .toggle-hint {
+  font-size: 0.78rem;
+  line-height: 1.4;
+  opacity: 0.88;
+  max-width: 28rem;
+}

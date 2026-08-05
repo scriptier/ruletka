@@ -1224,10 +1224,10 @@
   "settings.legalHubSub": "Todas las políticas en un lugar",
   "settings.legalMore": "Más legal y licencia",
   "settings.license": "Licencia · LGPL-2.1",
-  "settings.lowLatencyAudio": "Audio de baja latencia",
-  "settings.lowLatencyAudioHint": "Desactivado por defecto (reducción de ruido on). Actívalo para mejor lipsync — si hay eco/ruido, déjalo off.",
-  "settings.lowLatencyAudioOff": "Procesado completo del mic — reiniciando mic…",
-  "settings.lowLatencyAudioOn": "Audio de baja latencia activado — reiniciando mic…",
+  "settings.lowLatencyAudio": "Modo baja latencia",
+  "settings.lowLatencyAudioHint": "Off (recomendado): reducción de ruido + eco — mejor en salas ruidosas y llamadas en grupo. On: menos retraso (labios y voz) — solo si la voz se siente tarde y hay silencio.",
+  "settings.lowLatencyAudioOff": "Reducción de ruido on (recomendado). Reiniciando mic…",
+  "settings.lowLatencyAudioOn": "Baja latencia on — mejor en silencio. Reiniciando mic…",
   "settings.matchSound": "Sonido al emparejar",
   "settings.mic": "Micrófono",
   "settings.noAccountBody": "Los amigos van con esta identidad del navegador. Exporta una copia con contraseña para un teléfono nuevo. No hay cuenta en el servidor.",
@@ -1615,5 +1615,9 @@
   "friends.inviteJoinHint": "Añadirlos a esta llamada — el compañero actual se queda",
   "friends.moreOptions": "Más opciones",
   "friends.invitingJoinToast": "Añadiendo a la llamada…",
-  "layout.tip": "Toca ▦ para cambiar pila ↔ cuadrícula"
+  "layout.tip": "Toca ▦ para cambiar pila ↔ cuadrícula",
+  "settings.audioModeQuiet": "Ahora: reducción de ruido · recomendado",
+  "settings.audioModeFast": "Ahora: baja latencia · sala quieta",
+  "settings.audioModeQuietTip": "Reducción de ruido + eco. Mejor para la mayoría.",
+  "settings.audioModeFastTip": "Menos procesamiento para lipsync. El eco/ruido puede empeorar."
 }

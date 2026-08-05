@@ -1224,10 +1224,10 @@
   "settings.legalHubSub": "All policies in one place",
   "settings.legalMore": "More legal & license",
   "settings.license": "License · LGPL-2.1",
-  "settings.lowLatencyAudio": "Low-latency audio",
-  "settings.lowLatencyAudioHint": "Off by default (noise reduction on). Turn on for tighter lipsync — if you hear echo/noise, leave this off.",
-  "settings.lowLatencyAudioOff": "Full mic processing on — restarting mic…",
-  "settings.lowLatencyAudioOn": "Low-latency audio on — restarting mic…",
+  "settings.lowLatencyAudio": "Low delay mode",
+  "settings.lowLatencyAudioHint": "Off (recommended): noise reduction + echo control — better in noisy rooms and group calls. On: less delay so voice matches lips — only if speech feels late and the room is quiet.",
+  "settings.lowLatencyAudioOff": "Noise reduction on (recommended). Restarting mic…",
+  "settings.lowLatencyAudioOn": "Low delay on — best in a quiet room. Restarting mic…",
   "settings.matchSound": "Sound on match",
   "settings.mic": "Microphone",
   "settings.noAccountBody": "Friends live under this browser identity. Export a password-protected backup so you keep them on a new phone. No email or password account on the server.",
@@ -1616,5 +1616,9 @@
   "friends.moreOptions": "More options",
   "friends.invitingJoinToast": "Adding to this call…",
   "layout.tip": "Tap ▦ to switch vertical stack ↔ equal grid",
-  "friends.invitingJoin": "adding to this call (won't drop partner)"
+  "friends.invitingJoin": "adding to this call (won't drop partner)",
+  "settings.audioModeQuiet": "Now: noise reduction · recommended",
+  "settings.audioModeFast": "Now: low delay · quiet room",
+  "settings.audioModeQuietTip": "Noise reduction + echo control. Best for most people and multi-person calls.",
+  "settings.audioModeFastTip": "Less processing for tighter lipsync. Echo and noise may be worse."
 }

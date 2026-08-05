@@ -226,8 +226,8 @@
     #tile-local .side-rail { z-index: 50 !important; }
 </style>
   <!-- Load stage CSS as all immediately — no media=print FOUC trick (was leaving rails opacity:0) -->
-  <link rel="stylesheet" href="live-stage.css?v=323" />
-  <link rel="preload" href="live.js?v=364" as="script" />
+  <link rel="stylesheet" href="live-stage.css?v=324" />
+  <link rel="preload" href="live.js?v=365" as="script" />
   <link rel="preload" href="i18n.js?v=219" as="script" />
   <script src="brand.js?v=2" defer></script>
   <script>
@@ -1855,13 +1855,14 @@
             </span>
             <input id="remote-vol-sheet" type="range" min="0" max="100" value="100" />
           </div>
-          <label class="settings-toggle-row">
+          <label class="settings-toggle-row settings-audio-mode-row">
             <span class="toggle-copy">
-              <span class="toggle-title" data-i18n="settings.lowLatencyAudio">Low-latency audio</span>
-              <span class="toggle-hint" data-i18n="settings.lowLatencyAudioHint">Off by default (noise reduction on). Turn on for tighter lipsync — if you hear echo/noise, leave this off.</span>
+              <span class="toggle-title" data-i18n="settings.lowLatencyAudio">Low delay mode</span>
+              <span class="toggle-mode-pill" id="audio-mode-pill-devices" data-audio-mode-pill>Noise reduction · recommended</span>
+              <span class="toggle-hint" data-i18n="settings.lowLatencyAudioHint">Off (recommended): noise reduction + echo control — better in noisy rooms and multi-person calls. On: less delay so voice matches lips — only if speech feels late and the room is quiet.</span>
             </span>
             <span class="toggle-switch">
-              <input type="checkbox" id="chk-low-latency-audio" checked />
+              <input type="checkbox" id="chk-low-latency-audio" />
               <span class="toggle-ui" aria-hidden="true"></span>
             </span>
           </label>
@@ -2299,13 +2300,14 @@
             <span class="toggle-ui" aria-hidden="true"></span>
           </span>
         </label>
-        <label class="settings-toggle-row">
+        <label class="settings-toggle-row settings-audio-mode-row">
           <span class="toggle-copy">
-            <span class="toggle-title" data-i18n="settings.lowLatencyAudio">Low-latency audio</span>
-            <span class="toggle-hint" data-i18n="settings.lowLatencyAudioHint">Off by default (noise reduction on). Turn on for tighter lipsync — if you hear echo/noise, leave this off.</span>
+            <span class="toggle-title" data-i18n="settings.lowLatencyAudio">Low delay mode</span>
+            <span class="toggle-mode-pill" id="audio-mode-pill-conn" data-audio-mode-pill>Noise reduction · recommended</span>
+            <span class="toggle-hint" data-i18n="settings.lowLatencyAudioHint">Off (recommended): noise reduction + echo control — better in noisy rooms and multi-person calls. On: less delay so voice matches lips — only if speech feels late and the room is quiet.</span>
           </span>
           <span class="toggle-switch">
-            <input type="checkbox" id="chk-low-latency-audio-conn" checked />
+            <input type="checkbox" id="chk-low-latency-audio-conn" />
             <span class="toggle-ui" aria-hidden="true"></span>
           </span>
         </label>
@@ -2549,7 +2551,7 @@
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=156" defer></script>
   <script src="webrtc.js?v=168" defer></script>
-  <script src="live.js?v=364" defer></script>
+  <script src="live.js?v=365" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

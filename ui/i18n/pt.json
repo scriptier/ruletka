@@ -1224,10 +1224,10 @@
   "settings.legalHubSub": "Todas as políticas num só sítio",
   "settings.legalMore": "Mais legal e licença",
   "settings.license": "Licença · LGPL-2.1",
-  "settings.lowLatencyAudio": "Áudio de baixa latência",
-  "settings.lowLatencyAudioHint": "Desligado por padrão (redução de ruído on). Ligue para lipsync mais justo — se houver eco/ruído, deixe off.",
-  "settings.lowLatencyAudioOff": "Processamento completo do microfone ativado – reiniciando o microfone…",
-  "settings.lowLatencyAudioOn": "Áudio de baixa latência ativado – reiniciando o microfone…",
+  "settings.lowLatencyAudio": "Modo baixa latência",
+  "settings.lowLatencyAudioHint": "Off (recomendado): redução de ruído + eco — melhor em salas barulhentas e em grupo. On: menos atraso (lábios/voz) — só se a voz atrasar e o ambiente for silencioso.",
+  "settings.lowLatencyAudioOff": "Redução de ruído on (recomendado). Reiniciando mic…",
+  "settings.lowLatencyAudioOn": "Baixa latência on — melhor em silêncio. Reiniciando mic…",
   "settings.matchSound": "Som no match",
   "settings.mic": "Microfone",
   "settings.noAccountBody": "Amigos ficam nesta identidade do navegador. Exporte um backup com senha para o telefone novo. Sem conta no servidor.",
@@ -1615,5 +1615,9 @@
   "friends.inviteJoinHint": "Adicionar a esta chamada — o parceiro atual permanece",
   "friends.moreOptions": "Mais opções",
   "friends.invitingJoinToast": "Adicionando à chamada…",
-  "layout.tip": "Toque ▦ para alternar pilha ↔ grade"
+  "layout.tip": "Toque ▦ para alternar pilha ↔ grade",
+  "settings.audioModeQuiet": "Agora: redução de ruído · recomendado",
+  "settings.audioModeFast": "Agora: baixa latência · sala quieta",
+  "settings.audioModeQuietTip": "Redução de ruído + eco. Melhor para a maioria.",
+  "settings.audioModeFastTip": "Menos processamento para lipsync. Eco/ruído podem piorar."
 }

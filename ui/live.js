@@ -15615,12 +15615,35 @@ function leaveMultiPeerAudioMode() {
   // Leave capture alone mid-session — next Start / device change re-reads prefs.
 }
 
+/** Live “what mode am I in?” pills under the low-delay toggle. */
+function syncAudioModePills(on) {
+  const low = !!on;
+  const label = low
+    ? _t("settings.audioModeFast") || "Now: low delay · quieter room"
+    : _t("settings.audioModeQuiet") || "Now: noise reduction · recommended";
+  document.querySelectorAll("[data-audio-mode-pill]").forEach((el) => {
+    el.textContent = label;
+    el.classList.toggle("is-fast", low);
+    el.classList.toggle("is-quiet", !low);
+    el.title = low
+      ? _t("settings.audioModeFastTip") ||
+        "Mic processing reduced for less lag. Echo/noise may be worse."
+      : _t("settings.audioModeQuietTip") ||
+        "Noise reduction + echo control on. Best for most people.";
+  });
+  // Mark parent rows for theme styling
+  document.querySelectorAll(".settings-audio-mode-row").forEach((row) => {
+    row.classList.toggle("is-low-latency", low);
+  });
+}
+
 function syncLowLatencyAudioToggles() {
   const on = isLowLatencyAudioPref();
   const a = $("chk-low-latency-audio");
   const b = $("chk-low-latency-audio-conn");
   if (a) a.checked = on;
   if (b) b.checked = on;
+  syncAudioModePills(on);
 }
 
 function setLowLatencyAudio(on, { restart = true } = {}) {
@@ -15643,8 +15666,10 @@ function setLowLatencyAudio(on, { restart = true } = {}) {
   }
   setStatus(
     on
-      ? _t("settings.lowLatencyAudioOn") || "Low-latency audio on — restarting mic…"
-      : _t("settings.lowLatencyAudioOff") || "Full mic processing on — restarting mic…"
+      ? _t("settings.lowLatencyAudioOn") ||
+          "Low delay on — quieter room works best. Restarting mic…"
+      : _t("settings.lowLatencyAudioOff") ||
+          "Noise reduction on (recommended). Restarting mic…"
   );
   if (restart) {
     startPreview().catch(() => {});

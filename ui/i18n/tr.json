@@ -1224,10 +1224,10 @@
   "settings.legalHubSub": "Tüm politikalar bir yerde",
   "settings.legalMore": "Daha fazla yasal ve lisans",
   "settings.license": "Lisans · LGPL-2.1",
-  "settings.lowLatencyAudio": "Düşük gecikmeli ses",
-  "settings.lowLatencyAudioHint": "Varsayılan kapalı (gürültü azaltma açık). Daha sıkı lipsync için açın — yankı/gürültüde kapalı bırakın.",
-  "settings.lowLatencyAudioOff": "Tam mikrofon işleme açık — mikrofon yeniden başlatılıyor…",
-  "settings.lowLatencyAudioOn": "Düşük gecikmeli ses açık — mikrofon yeniden başlatılıyor…",
+  "settings.lowLatencyAudio": "Düşük gecikme modu",
+  "settings.lowLatencyAudioHint": "Kapalı (önerilir): gürültü azaltma + yankı — gürültülü oda ve grup aramalarında daha iyi. Açık: ses daha az gecikir — yalnızca ses geç geliyorsa ve oda sessizse.",
+  "settings.lowLatencyAudioOff": "Gürültü azaltma açık (önerilir). Mikrofon yeniden başlıyor…",
+  "settings.lowLatencyAudioOn": "Düşük gecikme açık — sessiz oda ideal. Mikrofon yeniden başlıyor…",
   "settings.matchSound": "Eşleşmede ses",
   "settings.mic": "Mikrofon",
   "settings.noAccountBody": "Arkadaşlar bu tarayıcı kimliğine bağlı. Yeni telefon için parola korumalı yedek alın. Sunucuda hesap yok.",
@@ -1615,5 +1615,9 @@
   "friends.inviteJoinHint": "Bu aramaya ekle — mevcut partner kalır",
   "friends.moreOptions": "Diğer",
   "friends.invitingJoinToast": "Aramaya ekleniyor…",
-  "layout.tip": "▦ dokun: yığın ↔ ızgara"
+  "layout.tip": "▦ dokun: yığın ↔ ızgara",
+  "settings.audioModeQuiet": "Şimdi: gürültü azaltma · önerilir",
+  "settings.audioModeFast": "Şimdi: düşük gecikme · sessiz oda",
+  "settings.audioModeQuietTip": "Gürültü azaltma + yankı. Çoğu kişi için en iyisi.",
+  "settings.audioModeFastTip": "Daha az işlem — lipsync daha sıkı. Yankı/gürültü artabilir."
 }
