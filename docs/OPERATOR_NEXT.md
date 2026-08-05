@@ -75,6 +75,11 @@ export ROULETTE_PUSH_WEBHOOK_URL=https://your-relay.example/ruletka-push
 
 Package: **`me.ruletka.app`**. Production profile no longer ships `expo-dev-client` or OTA `channel` (no `expo-updates` yet). RN aligned to **0.76.9**; WebRTC `pickFirst` packaging set for EAS Gradle.
 
+| Build | Version code | Status | Notes |
+|-------|--------------|--------|--------|
+| [c6bcf3de…](https://expo.dev/accounts/courtiers-team/projects/ruletka/builds/c6bcf3de-894e-4ecb-b1dc-fd44aa43c319) | **3** | finished | AAB: [download](https://expo.dev/artifacts/eas/fzJwHbxvPjkaf90GT4cNUswYJY-KNYpfufZPp3ZLzZo.aab) · also `mobile/artifacts/ruletka-0.1.0-vc3.aab` (gitignored) |
+| [3e43e238…](https://expo.dev/accounts/courtiers-team/projects/ruletka/builds/3e43e238-cb1d-44ae-adc4-e40367cb23c3) | **4** | queued/building | Built from latest `main` after product polish commit |
+
 ```bash
 cd mobile
 npm run preflight
@@ -83,13 +88,20 @@ npx eas-cli build --profile production --platform android --non-interactive
 npx eas-cli submit --profile production --platform android --latest
 ```
 
-Submit needs **`mobile/secrets/google-play.json`** (Play service account). See `mobile/secrets/README.md`.  
-Without it, download the AAB from the Expo build page and upload manually in Play Console → **Internal testing**.
+**Submit is blocked until you add** `mobile/secrets/google-play.json` (Play service account). See `mobile/secrets/README.md`.
+
+**Manual path (no JSON yet):** Play Console → **me.ruletka.app** → Testing → **Internal testing** → Create release → upload the AAB (vc3 file above, or vc4 when finished).
 
 ```bash
 npx eas build --profile production --platform all
 npx eas submit --profile production --platform android
 ```
+
+### iOS (blocked on App Store Connect)
+
+1. Create app in App Store Connect (bundle `me.ruletka.app`).
+2. Put numeric **Apple ID** into `mobile/eas.json` → `submit.production.ios.ascAppId` (replace `REPLACE_ASC_APP_ID`).
+3. `npx eas-cli build --profile production --platform ios` (Apple login / certs may prompt).
 
 ## 5. Smoke
 
