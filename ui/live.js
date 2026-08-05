@@ -432,6 +432,11 @@ let partnerMuted = false;
 let partnerBlurred = false;
 /** Hide your camera from partners until you reveal (disables outbound video track) */
 let selfBlurred = false;
+/**
+ * Sticky preference: user chose Hide for stranger matching.
+ * Cleared only by user Reveal; auto-off during friend calls, restored after.
+ */
+let selfBlurPreferForStrangers = false;
 /** NSFWJS model + scan timer */
 let nsfwModel = null;
 let nsfwLoadPromise = null;
@@ -12322,6 +12327,10 @@ function startMatchFromIdle() {
     showRulesGate();
     return;
   }
+  // Sticky Hide: re-apply before stranger search (friend calls clear it temporarily)
+  try {
+    applySelfBlurPolicyForSession({ silent: true });
+  } catch (_) {}
   // Warm / refresh ICE (TURN credentials) before first PC is built
   try {
     if (typeof loadRtcConfig === "function") {
@@ -14266,6 +14275,59 @@ function getBlackVideoTrack() {
   return _blackVideoTrack;
 }
 
+/** Pure 1:1 friend call (not party hunt / stranger) — auto-reveal self. */
+function isPureFriendCallSession() {
+  return (
+    matchMode === "friend" ||
+    (!!inFriendCall && matchMode === "friend") ||
+    (lastPhaseName === "friend_call" && matchMode === "friend")
+  );
+}
+
+/**
+ * Stream attached to PeerConnections.
+ * When self-hidden for strangers: black video + real audio (local preview stays real).
+ */
+function localStreamForPeerOutbound() {
+  if (!previewStream) return null;
+  if (!selfBlurred) return previewStream;
+  const black = getBlackVideoTrack();
+  const out = new MediaStream();
+  if (black) out.addTrack(black);
+  for (const t of previewStream.getAudioTracks()) {
+    if (t) out.addTrack(t);
+  }
+  // No black track available — still avoid sending real cam if possible
+  if (!black) {
+    for (const t of previewStream.getVideoTracks()) {
+      try {
+        // Keep track object but disabled on outbound only via setCamEnabled path
+        out.addTrack(t);
+      } catch (_) {}
+    }
+  }
+  return out;
+}
+
+/**
+ * Friend calls: force reveal. Stranger / queue / idle: restore sticky Hide preference.
+ * @param {{ silent?: boolean }} [opts]
+ */
+function applySelfBlurPolicyForSession(opts = {}) {
+  try {
+    if (isPureFriendCallSession()) {
+      if (selfBlurred) {
+        setSelfBlur(false, { fromAuto: true, silent: !!opts.silent });
+      }
+      return;
+    }
+    // Stranger match, party hunt, searching, idle with sticky Hide
+    if (selfBlurPreferForStrangers && !selfBlurred) {
+      setSelfBlur(true, { fromAuto: true, silent: !!opts.silent });
+    }
+  } catch (_) {}
+}
+
 async function pushOutboundVideoTracks() {
   const real = previewStream?.getVideoTracks()?.[0] || null;
   // Local element always uses real preview stream (CSS handles self-blur look)
@@ -14278,27 +14340,40 @@ async function pushOutboundVideoTracks() {
       playVideoEl(local);
     }
   }
+  const hideOut = !!selfBlurred;
   for (const pc of peerPcs.values()) {
     try {
       if (camOff) {
         pc.setCamEnabled?.(false);
         continue;
       }
-      if (selfBlurred) {
+      if (hideOut) {
         const black = getBlackVideoTrack();
         if (black && pc.pc) {
-          const vSender = pc.pc.getSenders().find((s) => s.track?.kind === "video");
-          if (vSender) await vSender.replaceTrack(black);
+          const senders = pc.pc.getSenders();
+          const vs =
+            senders.find((s) => s.track?.kind === "video") ||
+            senders.find((s) => !s.track);
+          if (vs) await vs.replaceTrack(black);
           else pc.pc.addTrack(black, new MediaStream([black]));
+          try {
+            pc.setLocalStream?.(localStreamForPeerOutbound());
+          } catch (_) {}
         } else {
           pc.setCamEnabled?.(false);
         }
       } else if (real) {
         real.enabled = true;
         if (pc.pc) {
-          const vSender = pc.pc.getSenders().find((s) => s.track?.kind === "video");
+          const senders = pc.pc.getSenders();
+          const vSender =
+            senders.find((s) => s.track?.kind === "video") ||
+            senders.find((s) => !s.track);
           if (vSender) await vSender.replaceTrack(real);
         }
+        try {
+          if (previewStream) pc.setLocalStream?.(previewStream);
+        } catch (_) {}
         pc.setCamEnabled?.(true);
       }
     } catch (e) {
@@ -14490,8 +14565,17 @@ function togglePartnerBlur() {
   );
 }
 
-function setSelfBlur(on) {
+/**
+ * @param {boolean} on
+ * @param {{ fromAuto?: boolean, silent?: boolean }} [opts]
+ *   fromAuto: system policy (friend reveal / restore sticky) — don't change preference
+ */
+function setSelfBlur(on, opts = {}) {
   selfBlurred = !!on;
+  if (!opts.fromAuto) {
+    // User Hide/Reveal: sticky for all stranger matching until they Reveal
+    selfBlurPreferForStrangers = selfBlurred;
+  }
   pushOutboundVideoTracks().catch(() => {});
   updateSideIcons();
   if (selfBlurred) startSelfBlurCanvas();
@@ -14499,10 +14583,12 @@ function setSelfBlur(on) {
 }
 
 function toggleSelfBlur() {
+  // During pure friend call, toggling still works as normal temporary hide
   setSelfBlur(!selfBlurred);
   log(
     selfBlurred
-      ? _t("log.selfBlurOn") || "You are hidden — partner sees black"
+      ? _t("log.selfBlurOn") ||
+          "You are hidden — partner sees black (stays on for strangers until you Reveal)"
       : _t("log.selfBlurOff") || "You revealed yourself"
   );
 }
@@ -15498,7 +15584,7 @@ async function attachLocalStream(stream) {
   } catch (_) {}
 
   for (const pc of peerPcs.values()) {
-    pc.setLocalStream(previewStream);
+    pc.setLocalStream(localStreamForPeerOutbound() || previewStream);
     await pc.syncLocalTracksToPc();
   }
   await pushOutboundVideoTracks();
@@ -20230,6 +20316,9 @@ function handleServer(msg) {
         showFriendPip(false);
         reattachFriendToMainRemote();
         updateFriendActionButtons();
+        try {
+          applySelfBlurPolicyForSession();
+        } catch (_) {}
       }
       // Partner left / Next: tear down stranger WebRTC
       // Note: "still chatting" = trio collapsed to 1v1 — do NOT tear down (Matched follows)
@@ -20494,6 +20583,10 @@ function handleMatched(msg) {
   // New person → full partner volume again (even if previous call was quiet)
   resetPartnerVolumeForNewMatch(msg);
   setPhase(matchMode === "friend" ? "friend_call" : "matched");
+  // Hide stays for strangers; auto-reveal only for pure friend calls
+  try {
+    applySelfBlurPolicyForSession();
+  } catch (_) {}
   syncScreenWakeLock();
   updatePipButton();
   updateEmptyShareVisibility();
@@ -21223,7 +21316,11 @@ async function joinPeers(peers) {
     pc._videoEl = videoEl;
     pc._softIceTried = false;
     pc._softReconnectScheduled = false;
-    pc.setLocalStream(previewStream);
+    // Apply self-hide before connect so first SDP/media is already black if preferred
+    try {
+      applySelfBlurPolicyForSession({ silent: true });
+    } catch (_) {}
+    pc.setLocalStream(localStreamForPeerOutbound() || previewStream);
     peerPcs.set(p.peer_id, pc);
     if (!isTeammateRole(p.role) || !rtc) rtc = pc;
     if (isTeammateRole(p.role) && videoEl === $("friend-pip")) {
@@ -21317,6 +21414,9 @@ async function joinPeers(peers) {
       showFriendPip(true);
     }
   }
+  try {
+    applySelfBlurPolicyForSession({ silent: true });
+  } catch (_) {}
   await pushOutboundVideoTracks();
   ensurePartnerVideoVisible();
 }
@@ -25997,6 +26097,10 @@ on("btn-hangup-friend", "click", () => {
   setSplitRemote(false);
   setRemoteEmpty(true);
   updateFriendActionButtons();
+  // After friend hangup: restore sticky Hide for next stranger search
+  try {
+    applySelfBlurPolicyForSession({ silent: true });
+  } catch (_) {}
 });
 
 function dismissFindThirdToast() {
@@ -26262,6 +26366,10 @@ on("btn-spin", "click", () => {
   setSplitRemote(false);
   enableTrioLayout(false);
   resetRemoteEmptyCopy();
+  // Sticky Hide for stranger search
+  try {
+    applySelfBlurPolicyForSession({ silent: true });
+  } catch (_) {}
   // Loop brand video behind searching empty (Start/Spin is a user gesture)
   showPartnerEmptyWithBrand({ searching: true });
   setArchPill("default");
