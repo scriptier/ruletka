@@ -10007,14 +10007,28 @@ function acceptRulesAndEnter() {
   try {
     trackEvent("rules_accept");
   } catch (_) {}
+  // Keep ?friend= invite through the gate
+  try {
+    stashPendingFriendFromUrl();
+  } catch (_) {}
   // Warm media after Accept (user gesture) so Start is faster
   startSession({ forceMedia: true });
   // User gesture — start partner empty brand loop
   showPartnerEmptyWithBrand({ searching: false });
+  // Deep-link friend invite: open Friends + request as soon as hub is ready
+  setTimeout(() => {
+    try {
+      applyPendingFriendInvite({ forceOpen: true });
+    } catch (_) {}
+  }, 500);
   // Point at the main action immediately
+  const pendingFriend = getPendingFriendCode();
   setStatus(
-    _t("status.afterRules") ||
-      "Tap Start to meet someone — allow camera when asked"
+    pendingFriend
+      ? _t("friends.inviteConnecting", { code: pendingFriend }) ||
+          `Invite ${pendingFriend} — connecting, then requesting…`
+      : _t("status.afterRules") ||
+          "Tap Start to meet someone — allow camera when asked"
   );
   try {
     showStartButton(true);
@@ -11021,12 +11035,13 @@ function updateEmptyAloneActions() {
     !matched &&
     !inFriendCall &&
     !trioBrowse;
-  // Show while searching alone — also if pool is very small (≤2 waiting)
+  // Quiet pool (alone / ≤2 waiting): always offer invite even before Start
   const quiet =
     isPoolAlone() ||
-    (typeof lastWaitingCount === "number" && lastWaitingCount <= 2);
+    (typeof lastWaitingCount === "number" && lastWaitingCount <= 2) ||
+    (typeof lastOnlineCount === "number" && lastOnlineCount <= 2);
   const show =
-    emptyOpen && quiet && (inQueue || wantSearch) && !trioBrowse;
+    emptyOpen && quiet && !matched && !inFriendCall && !trioBrowse;
   if (row) {
     row.hidden = !show;
     if (show) row.removeAttribute("hidden");
@@ -11034,6 +11049,22 @@ function updateEmptyAloneActions() {
     row.classList.toggle("is-dominant", !!show);
   }
   document.documentElement.classList.toggle("alone-searching", !!show);
+  // Always surface friend code when inviting — fewer taps for two-person tests
+  try {
+    const codeWrap = $("empty-alone-code-wrap");
+    const codeBtn = $("btn-empty-alone-code");
+    const code = String(myFriendCode || "").trim();
+    if (codeWrap && codeBtn) {
+      if (show && code) {
+        codeBtn.textContent = code;
+        codeWrap.hidden = false;
+        codeWrap.removeAttribute("hidden");
+      } else if (!show) {
+        codeWrap.hidden = true;
+        codeWrap.setAttribute("hidden", "");
+      }
+    }
+  } catch (_) {}
 
   // Dynamic alone lead from tonight-live window (helper may load async)
   try {

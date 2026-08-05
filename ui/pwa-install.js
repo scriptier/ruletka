@@ -338,19 +338,22 @@
       });
     });
 
-    // Periodic + on-focus update checks (deploys land within minutes, not hours)
+    // Periodic + on-focus update checks (deploys should land within ~1–2 min)
     var check = function () {
       try {
         if (document.visibilityState === "visible") reg.update();
       } catch (_) {}
     };
-    setInterval(check, 15 * 60 * 1000);
+    setInterval(check, 2 * 60 * 1000);
     document.addEventListener("visibilitychange", function () {
       if (document.visibilityState === "visible") check();
     });
+    window.addEventListener("focus", check);
+    window.addEventListener("pageshow", check);
     window.addEventListener("online", check);
-    // First check shortly after register (catch deploy that landed mid-session)
-    setTimeout(check, 12 * 1000);
+    // First check quickly after register (catch deploy that landed mid-session)
+    setTimeout(check, 3 * 1000);
+    setTimeout(check, 20 * 1000);
   }
 
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {

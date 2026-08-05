@@ -53,13 +53,27 @@ ruletka.vip, ruletka.me {
 		header Cache-Control "no-store"
 	}
 
-	# Versioned static assets (live.js?v=N) — long cache; query busts deploy
+	# Only long-cache when ?v= is present (deploy bust). Bare /foo.js must revalidate.
 	@fingerprinted {
 		path *.js *.css *.woff2 *.woff *.svg *.png *.jpg *.jpeg *.webp *.webmanifest
+		query v=*
 	}
 	handle @fingerprinted {
 		reverse_proxy 127.0.0.1:8790
 		header Cache-Control "public, max-age=31536000, immutable"
+	}
+
+	# Live app shell — never serve stale HTML/JS/CSS after a deploy
+	@liveApp {
+		path /live.html /live.js /live-stage.css /live-themes.css /webrtc.js /i18n.js /pwa-install.js /sw.js
+	}
+	handle @liveApp {
+		reverse_proxy 127.0.0.1:8790
+		header Cache-Control "no-store, no-cache, must-revalidate"
+	}
+	handle /i18n/* {
+		reverse_proxy 127.0.0.1:8790
+		header Cache-Control "no-store, no-cache, must-revalidate"
 	}
 
 	# Brand media (video loops) — medium cache
@@ -71,10 +85,10 @@ ruletka.vip, ruletka.me {
 		header Cache-Control "public, max-age=86400"
 	}
 
-	# HTML / rest — short cache so deploys show up without hard-fight
+	# HTML / rest — short cache so deploys show without hard-fight
 	handle {
 		reverse_proxy 127.0.0.1:8790
-		header Cache-Control "public, max-age=60, must-revalidate"
+		header Cache-Control "public, max-age=30, must-revalidate"
 	}
 
 	header {
