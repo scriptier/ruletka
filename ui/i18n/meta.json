@@ -16,6 +16,26 @@
       "dir": "ltr"
     },
     {
+      "code": "pl",
+      "native": "Polski",
+      "dir": "ltr"
+    },
+    {
+      "code": "cs",
+      "native": "Čeština",
+      "dir": "ltr"
+    },
+    {
+      "code": "bg",
+      "native": "Български",
+      "dir": "ltr"
+    },
+    {
+      "code": "sr",
+      "native": "Српски",
+      "dir": "ltr"
+    },
+    {
       "code": "es",
       "native": "Español",
       "dir": "ltr"
@@ -41,9 +61,9 @@
       "dir": "ltr"
     },
     {
-      "code": "pl",
-      "native": "Polski",
-      "dir": "ltr"
+      "code": "ar",
+      "native": "العربية",
+      "dir": "rtl"
     },
     {
       "code": "zh",

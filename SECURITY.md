@@ -24,3 +24,11 @@ We aim to acknowledge within a few days. Please do not open public issues for ex
 - Keep `ROULETTE_ADMIN_TOKEN` and `ROULETTE_FEDERATION_TOKEN` secret.
 - Federation peers are an **allowlist** — never auto-trust random seeders into claim/relay.
 - Rate-limit and monitor public hubs; enable bans via admin tools.
+
+## Privacy notes (product)
+
+- **Approximate location** (country/city) may be derived **on the hub from the connect IP** for display chips. It is not GPS. Users who enable **Hide my IP** do not publish real country/city to partners (optional cosmetic flag only).
+- **Peer video** is P2P; the hub does not store call recordings.
+- **Reports / friends / star ledger** are hub-side data for matchmaking and safety — see Privacy policy and `docs/REPORT_BRIGADE.md`.
+- Social status and soft rank are **peer-driven**. Operators may run admin tools for underage/legal/edge cases; day-to-day culture is Next / Block / consensus report.
+

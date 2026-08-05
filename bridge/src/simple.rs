@@ -143,8 +143,16 @@ pub struct Client {
     gender: String,
     /// Soft match preference: any | man | woman | ""
     looking: String,
-    /// Cosmetic self-chosen flag (ISO alpha-2). Not geolocation.
+    /// Cosmetic self-chosen flag (ISO alpha-2). Public only when hide_ip.
     flag: String,
+    /// When true: partners see cosmetic flag only (no country/city from geo).
+    hide_ip: bool,
+    /// Hub geo from connect IP (ISO alpha-2). Empty if unknown / private IP.
+    geo_code: String,
+    /// English country name from hub geo.
+    geo_country: String,
+    /// City from hub geo.
+    geo_city: String,
     /// Small avatar data URL (jpeg/png/webp). Empty = none.
     avatar: String,
     /// Soft interest tags (allowlisted, max 3). Prefer shared; never hard-filter.
@@ -3719,6 +3727,9 @@ impl SimpleHub {
             role: "stranger".into(),
             friend_code: String::new(),
             flag: String::new(),
+            country: String::new(),
+            city: String::new(),
+            hide_ip: false,
             avatar: String::new(),
             stars: self.stars_for(&remote.user_id),
             trust: self.social_health_for(&remote.user_id),
@@ -3907,6 +3918,10 @@ impl SimpleHub {
                 gender: String::new(),
                 looking: "any".into(),
                 flag: String::new(),
+                hide_ip: false,
+                geo_code: String::new(),
+                geo_country: String::new(),
+                geo_city: String::new(),
                 avatar: String::new(),
                 tags: Vec::new(),
                 limiter: ClientLimiter::new(),
@@ -3945,7 +3960,34 @@ impl SimpleHub {
             // Pre-identity connect: treat as full early-rate budget
             rate_min_secs: Self::STAR_FIRST_RATE_SECS,
             early_rates_left: Self::STAR_FIRST_RATE_SLOTS as u32,
+            country: String::new(),
+            city: String::new(),
+            flag: String::new(),
+            hide_ip: false,
         })
+    }
+
+    /// Apply hub-side geo after async IP lookup (may race with disconnect).
+    /// Pushes `Geo` so the client can refresh its own location chip without re-hello.
+    pub fn set_client_geo(&mut self, id: Uuid, code: String, country: String, city: String) {
+        let code = normalize_flag(&code);
+        let country: String = country.chars().take(64).collect();
+        let city: String = city.chars().take(64).collect();
+        if let Some(c) = self.clients.get_mut(&id) {
+            c.geo_code = code.clone();
+            c.geo_country = country.clone();
+            c.geo_city = city.clone();
+        } else {
+            return;
+        }
+        self.send(
+            id,
+            ServerMsg::Geo {
+                country,
+                city,
+                flag: code,
+            },
+        );
     }
 
     pub fn notify_join(&mut self) {
@@ -4242,42 +4284,104 @@ impl SimpleHub {
             if !self.clients.contains_key(&mate) {
                 return false;
             }
-            // Stranger = other session peer (the 3rd) — not the party mate
-            let stranger = session_peers.iter().copied().find(|&p| p != mate);
-            if let Some(s) = stranger {
-                if self.clients.contains_key(&s) {
-                    tracing::info!(%leaving, %mate, %s, "trio collapse: keep mate+stranger as 1v1");
-                    // Clear friend-call link to leaving without idling the mate
-                    if friend_call == Some(mate) || self.clients.get(&mate).and_then(|c| c.friend_call) == Some(leaving)
-                    {
-                        if let Some(c) = self.clients.get_mut(&mate) {
-                            if c.friend_call == Some(leaving) {
-                                c.friend_call = None;
-                            }
-                        }
+            // All non-mate session peers (1 in classic 1v2; 2 in 2v2)
+            let strangers: Vec<Uuid> = session_peers
+                .iter()
+                .copied()
+                .filter(|&p| p != mate && self.clients.contains_key(&p))
+                .collect();
+
+            // Prune leaving from mate + strangers
+            let mut prune_ids = strangers.clone();
+            prune_ids.push(mate);
+            for p in prune_ids {
+                if let Some(c) = self.clients.get_mut(&p) {
+                    c.session_peers.retain(|x| *x != leaving);
+                    if c.friend_call == Some(leaving) {
+                        c.friend_call = None;
                     }
-                    if let Some(c) = self.clients.get_mut(&s) {
-                        c.session_peers.retain(|x| *x != leaving);
+                    if c.partner == Some(leaving) {
+                        c.partner = c.session_peers.iter().next().copied();
                     }
-                    self.collapse_to_solo_1v1(mate, s, detail);
+                }
+            }
+            // Mate's party link was to leaving — clear it
+            if let Some(c) = self.clients.get_mut(&mate) {
+                if c.party_with == Some(leaving) {
+                    c.party_with = None;
+                    c.stranger_party = false;
+                }
+                if c.friend_call == Some(leaving) {
+                    c.friend_call = None;
+                }
+            }
+
+            if strangers.is_empty() {
+                // Still searching as party (no 3rd yet) — mate goes idle
+                if let Some(p) = self.clients.get_mut(&mate) {
+                    p.party_with = None;
+                    p.stranger_party = false;
+                    p.partner = None;
+                    p.session_peers.clear();
+                    p.session_id = None;
+                    p.phase = Phase::Idle;
+                }
+                self.dequeue_client(mate);
+                self.status(mate, "party partner left");
+                return true;
+            }
+
+            if strangers.len() == 1 {
+                let s = strangers[0];
+                tracing::info!(%leaving, %mate, %s, "trio collapse: keep mate+stranger as 1v1");
+                self.collapse_to_solo_1v1(mate, s, detail);
+                return true;
+            }
+
+            // 2v2 (or multi): mate alone facing remaining opposing peers
+            // If two strangers are still a party together → reshape to 1v2
+            if strangers.len() >= 2 {
+                let o0 = strangers[0];
+                let o1 = strangers[1];
+                let linked = self
+                    .clients
+                    .get(&o0)
+                    .map(|c| c.party_with == Some(o1))
+                    .unwrap_or(false)
+                    || self
+                        .clients
+                        .get(&o1)
+                        .map(|c| c.party_with == Some(o0))
+                        .unwrap_or(false);
+                if linked
+                    && self.clients.contains_key(&o0)
+                    && self.clients.contains_key(&o1)
+                    && self.clients.contains_key(&mate)
+                {
+                    tracing::info!(
+                        %leaving, %mate, %o0, %o1,
+                        "2v2 collapse: mate alone vs remaining pair (1v2)"
+                    );
+                    // Drop any extra strangers beyond the pair (shouldn't happen)
+                    for &extra in strangers.iter().skip(2) {
+                        self.force_session_idle(extra, "partner left");
+                    }
+                    // Fresh 1v2 mesh so all clients get correct Matched peer lists
+                    self.start_party_vs_solo(mate, o0, o1);
+                    self.status(mate, "partner left — still connected");
+                    self.status(o0, "partner left — still connected");
+                    self.status(o1, "partner left — still connected");
                     return true;
                 }
-            }
-            // Still searching as party (no 3rd yet) — mate goes idle (or stays friend if linked)
-            if let Some(p) = self.clients.get_mut(&mate) {
-                p.party_with = None;
-                p.stranger_party = false;
-                p.partner = None;
-                p.session_peers.clear();
-                p.session_id = None;
-                if p.friend_call == Some(leaving) {
-                    p.friend_call = None;
+                // Not a linked pair — keep mate + first stranger as 1v1; idle the rest
+                let s = strangers[0];
+                tracing::info!(%leaving, %mate, %s, "multi leave: keep mate+first as 1v1");
+                for &extra in strangers.iter().skip(1) {
+                    self.force_session_idle(extra, "partner left");
                 }
-                p.phase = Phase::Idle;
+                self.collapse_to_solo_1v1(mate, s, detail);
+                return true;
             }
-            self.dequeue_client(mate);
-            self.status(mate, "party partner left");
-            return true;
         }
 
         // Case A2: leaving has no party_with but is in a 3-peer session as solo 3rd's peer —
@@ -4328,6 +4432,22 @@ impl SimpleHub {
         }
 
         false
+    }
+
+    /// Force a client out of match (orphaned after multi leave).
+    fn force_session_idle(&mut self, id: Uuid, detail: &str) {
+        self.dequeue_client(id);
+        if let Some(c) = self.clients.get_mut(&id) {
+            c.phase = Phase::Idle;
+            c.partner = None;
+            c.session_peers.clear();
+            c.session_id = None;
+            c.party_with = None;
+            c.stranger_party = false;
+            c.friend_call = None;
+            c.match_started = None;
+        }
+        self.status(id, detail);
     }
 
     /// Convert two clients into a normal solo 1v1 match (clear party flags).
@@ -4458,6 +4578,7 @@ impl SimpleHub {
         effect_until: u64,
         effect_level: u32,
     ) -> MatchPeer {
+        let (flag, country, city, hide_ip) = Self::public_location(to);
         MatchPeer {
             peer_id: to.peer_id.clone(),
             short_id: to.short_id.clone(),
@@ -4466,7 +4587,10 @@ impl SimpleHub {
             is_offerer: from.peer_id < to.peer_id,
             role: role.into(),
             friend_code: to.friend_code.clone(),
-            flag: to.flag.clone(),
+            flag,
+            country,
+            city,
+            hide_ip,
             avatar: to.avatar.clone(),
             stars: self.stars_for(&to.user_id),
             trust: self.social_health_for(&to.user_id),
@@ -4475,6 +4599,35 @@ impl SimpleHub {
             effect_until,
             effect_level: effect_level.max(1).min(3),
         }
+    }
+
+    /// What partners may see: real geo unless hide_ip (then cosmetic flag only).
+    fn public_location(c: &Client) -> (String, String, String, bool) {
+        if c.hide_ip {
+            (c.flag.clone(), String::new(), String::new(), true)
+        } else {
+            let flag = if !c.geo_code.is_empty() {
+                c.geo_code.clone()
+            } else {
+                // No geo yet / private IP — no fake location
+                String::new()
+            };
+            (
+                flag,
+                c.geo_country.clone(),
+                c.geo_city.clone(),
+                false,
+            )
+        }
+    }
+
+    /// Self-view location for HelloOk (always real geo when known, even if hide_ip).
+    fn self_location(c: &Client) -> (String, String, String) {
+        (
+            c.geo_code.clone(),
+            c.geo_country.clone(),
+            c.geo_city.clone(),
+        )
     }
 
     /// Active cosmetic effect snapshot for match payloads: (kind, until, level).
@@ -5588,8 +5741,11 @@ impl SimpleHub {
                 flag,
                 avatar,
                 tags,
+                hide_ip,
             } => {
-                self.handle_hello(id, user_id, name, gender, looking, flag, avatar, tags);
+                self.handle_hello(
+                    id, user_id, name, gender, looking, flag, avatar, tags, hide_ip,
+                );
             }
             ClientMsg::SetPrefs {
                 gender,
@@ -5597,8 +5753,9 @@ impl SimpleHub {
                 flag,
                 avatar,
                 tags,
+                hide_ip,
             } => {
-                self.handle_set_prefs(id, gender, looking, flag, avatar, tags);
+                self.handle_set_prefs(id, gender, looking, flag, avatar, tags, hide_ip);
             }
             ClientMsg::Ping => self.send(id, ServerMsg::Pong),
             ClientMsg::SetRoom { room } => {
@@ -5872,6 +6029,7 @@ impl SimpleHub {
         flag: String,
         avatar: String,
         tags: Vec<String>,
+        hide_ip: bool,
     ) {
         let g = normalize_gender(&gender);
         let l = normalize_looking(&looking);
@@ -5883,6 +6041,7 @@ impl SimpleHub {
             c.gender = g;
             c.looking = l;
             c.flag = f;
+            c.hide_ip = hide_ip;
             c.avatar = a.clone();
             c.tags = tags;
         }
@@ -5918,6 +6077,7 @@ impl SimpleHub {
         flag: String,
         avatar: String,
         tags: Vec<String>,
+        hide_ip: bool,
     ) {
         let user_id = if user_id.trim().is_empty() {
             id.to_string()
@@ -5973,6 +6133,7 @@ impl SimpleHub {
             c.gender = gender;
             c.looking = looking;
             c.flag = flag;
+            c.hide_ip = hide_ip;
             c.avatar = avatar.clone();
             c.tags = tags;
         }
@@ -5988,6 +6149,12 @@ impl SimpleHub {
 
         let peer_id = self.clients[&id].peer_id.clone();
         let short_id = self.clients[&id].short_id.clone();
+        let (self_flag, self_country, self_city) = self
+            .clients
+            .get(&id)
+            .map(Self::self_location)
+            .unwrap_or_default();
+        let self_hide_ip = self.clients.get(&id).map(|c| c.hide_ip).unwrap_or(false);
         let my_stars = self.stars_for(&user_id);
         let my_trust = self.trust_for(&user_id);
         let my_trust_effective = self.effective_trust_for(&user_id);
@@ -6027,6 +6194,10 @@ impl SimpleHub {
                 effect_level: my_eff_level,
                 rate_min_secs,
                 early_rates_left,
+                country: self_country,
+                city: self_city,
+                flag: self_flag,
+                hide_ip: self_hide_ip,
             },
         );
         self.push_friends_list(id);

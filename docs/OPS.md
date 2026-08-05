@@ -241,3 +241,11 @@ curl -sS https://your-hub/health | jq .
 curl -sS https://your-hub/v1/directory | jq .
 curl -sS https://your-hub/v1/federation/info | jq .
 ```
+
+## Deploys vs live calls
+
+- **Video is P2P** — restarting the bridge does not relay media.
+- Clients **keep WebRTC up** if media is live when the hub WebSocket drops, then re-hello.
+- **UI refresh** is deferred until the user is idle (Next/Stop/leave). `/health` exposes `boot_id` + `ui_deploy` (from `ui/deploy.json` written by `push.sh`).
+- Mid-call: soft banner “Update ready”; auto soft-reload after the call ends.
+

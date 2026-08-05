@@ -2580,6 +2580,90 @@ a.brand:focus-visible {
   opacity: 1;
 }
 
+/* Edge glow while dragging (left / right commit cue) */
+.swipe-edge-glow {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: min(42%, 9.5rem);
+  z-index: 14;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+.swipe-edge-glow-left {
+  left: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(80, 150, 255, 0.55) 0%,
+    rgba(80, 150, 255, 0.12) 55%,
+    transparent 100%
+  );
+}
+.swipe-edge-glow-right {
+  right: 0;
+  background: linear-gradient(
+    270deg,
+    rgba(80, 150, 255, 0.55) 0%,
+    rgba(80, 150, 255, 0.12) 55%,
+    transparent 100%
+  );
+}
+.tile-remote.is-swiping.is-swipe-left .swipe-edge-glow-left,
+.tile-remote.is-swiping.is-swipe-right .swipe-edge-glow-right {
+  opacity: 0.75;
+}
+.tile-remote.is-swiping.swipe-armed.is-swipe-left .swipe-edge-glow-left,
+.tile-remote.is-swiping.swipe-armed.is-swipe-right .swipe-edge-glow-right {
+  opacity: 1;
+  filter: saturate(1.25) brightness(1.08);
+}
+@media (prefers-reduced-motion: reduce) {
+  .tile-remote.is-swiping .remote-stack,
+  .tile-remote.is-swiping .fx-overlay,
+  .tile-remote.swipe-exit-left .remote-stack,
+  .tile-remote.swipe-exit-right .remote-stack {
+    transition: none !important;
+  }
+  .swipe-edge-glow {
+    transition: none;
+  }
+}
+
+/* One-shot swipe coach (first match with Next available) */
+.swipe-coach-tip {
+  border-color: rgba(120, 170, 255, 0.5);
+  background: rgba(14, 22, 40, 0.96);
+  color: #e4eeff;
+  box-shadow: 0 12px 36px rgba(0, 16, 48, 0.5);
+}
+.swipe-coach-tip .swipe-coach-arrows {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #9ec4ff;
+  flex: 0 0 auto;
+}
+.swipe-coach-tip .pill {
+  flex: 0 0 auto;
+}
+
+/* ~1s Undo after swipe-commit before Next fires */
+.swipe-undo-tip {
+  border-color: rgba(255, 200, 90, 0.5);
+  background: rgba(40, 28, 10, 0.96);
+  color: #ffe9c4;
+  box-shadow: 0 12px 36px rgba(40, 20, 0, 0.45);
+  z-index: 90;
+}
+.swipe-undo-tip .pill.accent {
+  flex: 0 0 auto;
+  min-width: 4.5rem;
+}
+
 .vid {
   position: absolute;
   inset: 0;
@@ -3733,41 +3817,43 @@ html.start-idle #btn-spin {
   border: 2px solid rgba(255, 255, 255, 0.36);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
 }
-.tile-remote-id .name-on-tile,
-.tile-remote-id #remote-tag.name-on-tile {
+.tile-remote-id .loc-on-tile,
+.tile-remote-id #remote-tag.loc-on-tile {
   display: inline-flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  gap: 0.22rem;
+  gap: 0.14rem;
   white-space: normal;
   max-width: 100%;
-  padding: 0.35rem 0.55rem 0.38rem;
+  padding: 0.35rem 0.55rem 0.4rem;
   border-radius: 12px;
   text-align: center;
 }
-.tile-remote-id #remote-tag.name-on-tile .name-flag {
-  font-size: 1.3rem;
+.tile-remote-id #remote-tag.loc-on-tile:empty,
+.tile-remote-id #remote-tag.loc-on-tile[hidden] {
+  display: none !important;
+}
+.tile-remote-id #remote-tag .loc-flag {
+  font-size: 1.35rem;
   line-height: 1;
 }
-.tile-remote-id #remote-tag.name-on-tile .name-text {
-  font-size: 0.76rem;
+.tile-remote-id #remote-tag .loc-country {
+  font-size: 0.72rem;
   font-weight: 650;
   max-width: 9rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-align: center;
 }
-/* No flag — compact horizontal pill */
-.tile-remote-id #remote-tag.name-on-tile:not(:has(.name-flag)) {
-  flex-direction: row;
-  align-items: center;
-  gap: 0;
-  padding: 0.22rem 0.55rem;
-  border-radius: 999px;
+.tile-remote-id #remote-tag .loc-city {
+  font-size: 0.66rem;
+  font-weight: 500;
+  opacity: 0.88;
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
-  text-align: left;
 }
 .tile-remote-meta {
   display: flex;
@@ -11375,7 +11461,7 @@ html.chrome-autohide .tile-fs-btn,
 .tile-local-id,
 #local-id-stack,
 #remote-tile-tag,
-#local-name-tag,
+#local-loc-tag,
 .stars-badge,
 .stars-badge-local,
 .stars-badge-remote,
@@ -11396,22 +11482,26 @@ html.chrome-autohide .tile-fs-btn,
 #local-id-stack {
   display: flex !important;
   flex-direction: column !important;
+  flex-wrap: nowrap !important;
   align-items: center !important;
   position: absolute !important;
-  top: 0.45rem !important;
-  left: 0.5rem !important;
+  top: max(0.1rem, env(safe-area-inset-top, 0px)) !important;
+  left: 0.4rem !important;
   right: auto !important;
-  max-width: min(46%, 11rem) !important;
+  max-width: min(48%, 12rem) !important;
 }
-/* Name chips: keep readable on black/idle tiles */
-.tile-local #local-name.name-on-tile,
-.tile-remote #remote-tag.name-on-tile,
-.tile-local .tile-tag-local-name,
-.tile-remote-id .name-on-tile {
+/* Location chips: keep readable on black/idle tiles */
+.tile-local #local-loc.loc-on-tile,
+.tile-remote #remote-tag.loc-on-tile,
+.tile-local .tile-tag-local-loc,
+.tile-remote-id .loc-on-tile {
   opacity: 1 !important;
   visibility: visible !important;
-  display: inline-flex !important;
   z-index: 46 !important;
+}
+.tile-local #local-loc.loc-on-tile:empty,
+.tile-remote #remote-tag.loc-on-tile:empty {
+  display: none !important;
 }
 html.chrome-autohide .tile-remote.is-chrome-open .side-rail-left > *,
 html.chrome-autohide .tile-remote.is-chrome-open .tile-floor-partner > *,
@@ -11475,7 +11565,7 @@ html.alone-searching #remote-empty .empty-sub {
 }
 
 /* Local tile identity:
-   one stack top-left — avatar + flag/name centered together; ★ top-right */
+   top-left — flag→country→city, name below; ★+avatar top-right */
 .tile-local .tile-local-id {
   position: absolute;
   top: 0.4rem;
@@ -11485,12 +11575,110 @@ html.alone-searching #remote-empty .empty-sub {
   z-index: 18;
   display: flex !important;
   flex-direction: column;
-  align-items: center; /* avatar sits centered over flag+name */
+  align-items: flex-start;
   gap: 0.28rem;
   max-width: min(46%, 11rem);
   pointer-events: none;
   opacity: 1 !important;
   visibility: visible !important;
+}
+.tile-name-stars-stack,
+.tile-name-stars-local,
+.tile-name-stars-remote,
+#local-name-stars,
+#remote-name-stars {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  left: auto;
+  bottom: auto;
+  z-index: 46;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.28rem;
+  max-width: min(48%, 12rem);
+  pointer-events: none;
+}
+.tile-name-stars-stack .stars-badge,
+.tile-name-stars-local .stars-badge,
+.tile-name-stars-remote .stars-badge,
+.tile-name-stars-stack #local-stars-badge,
+.tile-name-stars-stack #remote-stars-badge {
+  position: relative !important;
+  top: auto !important;
+  right: auto !important;
+  left: auto !important;
+  pointer-events: auto !important;
+}
+.tile-name-stars-stack .name-top-right,
+.tile-name-stars-stack .name-on-tile,
+#local-name.name-on-tile,
+#remote-name.name-on-tile {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 0.26rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 650;
+  line-height: 1.15;
+  color: #eef2f7;
+  background: rgba(8, 12, 20, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+#remote-name[hidden] {
+  display: none !important;
+}
+.loc-on-tile {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.14rem;
+  padding: 0.35rem 0.55rem 0.4rem;
+  border-radius: 12px;
+  text-align: center;
+  background: rgba(8, 12, 20, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  color: #eef2f7;
+  max-width: 100%;
+}
+.loc-on-tile:empty,
+.loc-on-tile[hidden] {
+  display: none !important;
+}
+.loc-on-tile .loc-flag {
+  display: block;
+  font-size: 1.4rem;
+  line-height: 1;
+}
+.loc-on-tile .loc-country {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1.15;
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.loc-on-tile .loc-city {
+  display: block;
+  font-size: 0.66rem;
+  font-weight: 500;
+  line-height: 1.1;
+  opacity: 0.88;
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .tile-local .tile-avatar-local {
   position: relative;
@@ -11518,8 +11706,9 @@ html.alone-searching #remote-empty .empty-sub {
 .tile-local .tile-avatar-local[hidden] {
   display: none !important;
 }
-/* Flag + name under avatar — same column, no absolute offset */
-.tile-local .tile-tag-local-name {
+/* Location under avatar — same column, no absolute offset */
+.tile-local .tile-tag-local-loc,
+.tile-local .tile-tag-local-loc {
   position: relative;
   top: auto;
   left: auto;
@@ -11527,78 +11716,64 @@ html.alone-searching #remote-empty .empty-sub {
   bottom: auto;
   z-index: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 0.22rem;
   max-width: 100%;
   pointer-events: none;
 }
-.tile-local .name-on-tile-stack,
-.tile-local #local-name.name-on-tile {
+.tile-local #local-loc.loc-on-tile {
   display: inline-flex !important;
   flex-direction: column;
-  align-items: center; /* flag centered over name */
+  align-items: center;
   justify-content: flex-start;
-  gap: 0.26rem;
-  padding: 0.38rem 0.6rem 0.42rem;
-  border-radius: 12px;
-  white-space: normal;
-  /* Readable even when local camera is black */
-  background: rgba(8, 12, 20, 0.82) !important;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
-  color: #eef2f7 !important;
+  gap: 0.14rem;
   opacity: 1 !important;
   visibility: visible !important;
-  min-height: 1.5rem;
+  min-height: 0;
   max-width: 100%;
-  overflow: hidden;
-  background: rgba(0, 0, 0, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
-  text-align: center;
 }
-/* No golden tier ring on flag/name — keep the quiet pill */
+.tile-local #local-loc.loc-on-tile:empty,
+.tile-local #local-loc.loc-on-tile[hidden] {
+  display: none !important;
+}
+/* Name sits under location in the left stack, centered with flag */
+.tile-local #local-name.name-on-tile {
+  position: relative !important;
+  top: auto !important;
+  right: auto !important;
+  left: auto !important;
+  order: 20 !important;
+  align-self: center !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: center !important;
+  white-space: nowrap !important;
+  text-align: center !important;
+  margin-top: 0.22rem !important;
+  padding: 0.3rem 0.7rem !important;
+  border-radius: 999px !important;
+  font-size: 0.92rem !important;
+  font-weight: 700 !important;
+  background: rgba(8, 12, 20, 0.88) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+}
+.tile-local #local-loc-tag {
+  order: 1 !important;
+  align-self: center !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+}
+/* No golden tier ring on location/name chips */
+.tile-local #local-loc.has-star-tier,
 .tile-local #local-name.has-star-tier,
-.tile-local #local-name.has-star-tier.tier-trusted,
-.tile-local #local-name.has-star-tier.tier-senior,
-.tile-local #local-name-tag.has-star-tier .name-on-tile,
-.tile-local .name-on-tile.has-star-tier.tier-trusted,
-.tile-local .name-on-tile.has-star-tier.tier-senior {
+.tile-local #local-loc-tag.has-star-tier .loc-on-tile,
+.tile-local #local-loc-tag.has-star-tier .name-on-tile {
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35) !important;
   border-color: rgba(255, 255, 255, 0.12) !important;
-}
-.tile-local #local-name.name-on-tile .name-flag {
-  display: block;
-  font-size: 1.35rem;
-  line-height: 1;
-  margin: 0;
-  text-align: center;
-}
-.tile-local #local-name.name-on-tile .name-text {
-  display: block;
-  font-size: 0.76rem;
-  font-weight: 650;
-  line-height: 1.15;
-  max-width: 9rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: center;
-  margin-top: 0.04rem;
-}
-/* When no flag, plain text name still fits the pill */
-.tile-local #local-name.name-on-tile:not(:has(.name-flag)) {
-  flex-direction: row;
-  align-items: center;
-  gap: 0;
-  padding: 0.28rem 0.6rem;
-  border-radius: 999px;
-  white-space: nowrap;
-  text-align: left;
-}
-.tile-local #local-name.name-on-tile:not(:has(.name-flag)) .name-text {
-  margin-top: 0;
-  text-align: left;
 }
 
 /* Friend list: compact star chip next to name */
@@ -11945,7 +12120,9 @@ html.alone-searching #remote-empty .empty-sub {
   z-index: 62;
   width: min(420px, calc(100vw - 1rem));
   max-width: min(420px, calc(100vw - 1rem));
-  max-height: min(78dvh, 640px);
+  /* Tall enough for Overview (Status + progress + earn); JS also sets height */
+  max-height: min(92dvh, 860px);
+  min-height: min(42dvh, 420px);
   background: rgba(12, 14, 20, 0.58) !important;
   backdrop-filter: blur(22px) saturate(1.35) !important;
   -webkit-backdrop-filter: blur(22px) saturate(1.35) !important;
@@ -12113,7 +12290,12 @@ html.alone-searching #remote-empty .empty-sub {
   font-variant-numeric: tabular-nums;
   color: #f2f6ff;
   letter-spacing: -0.01em;
-  line-height: 1.15;
+  line-height: 1.2;
+  /* Status can be "12 (18)" — never clip mid-number */
+  white-space: normal;
+  overflow: visible;
+  word-break: break-word;
+  max-width: 100%;
 }
 .stars-dual-chip.is-trust .stars-dual-val {
   color: #ffe9a0;
@@ -12123,11 +12305,19 @@ html.alone-searching #remote-empty .empty-sub {
   font-size: 0.62rem;
   font-weight: 550;
   color: rgba(180, 195, 215, 0.9);
-  line-height: 1.25;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.3;
+  /* Full “N praised” / status sublines — wrap instead of ellipsis */
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
   max-width: 100%;
+}
+.stars-dual-chip {
+  min-height: 3.4rem;
+}
+.stars-dual-chip.is-trust .stars-dual-val,
+#stars-sheet-trust {
+  font-size: 1rem;
 }
 .stars-gifters-floor-hint {
   position: relative;
@@ -13324,12 +13514,14 @@ button.stars-badge {
   right: 0.9rem;
   transform: none;
 }
-/* Partner ★ — pinned top-right of conversationalist window */
+/* Partner ★ — under name in top-right stack (parent is absolute) */
 #remote-stars-badge.stars-badge-remote,
-.stars-badge-remote {
-  position: absolute;
-  top: 0.55rem;
-  right: 0.55rem;
+.stars-badge-remote,
+.tile-name-stars-remote #remote-stars-badge,
+.tile-name-stars-remote .stars-badge-remote {
+  position: relative;
+  top: auto;
+  right: auto;
   left: auto;
   z-index: 8;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
@@ -13364,41 +13556,34 @@ button.stars-badge {
   z-index: 5;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
 }
-/* Local ★ — flush top-right corner (avatar lives top-left with flag) */
+/* Local ★ — under name in top-right stack */
 .stars-badge-local,
-#local-stars-badge.stars-badge-local {
-  top: 0.4rem;
-  right: 0.4rem;
+#local-stars-badge.stars-badge-local,
+.tile-name-stars-local #local-stars-badge,
+.tile-name-stars-local .stars-badge-local {
+  position: relative;
+  top: auto;
+  right: auto;
   left: auto;
   z-index: 8;
 }
-@media (min-width: 721px) {
-  .stars-badge-local,
-  #local-stars-badge.stars-badge-local {
-    top: 0.4rem;
-    right: 0.4rem;
-  }
-}
 @media (max-width: 720px) {
   .stars-badge {
-    top: 0.3rem;
-    right: 0.3rem;
     font-size: 0.82rem;
     padding: 0.18rem 0.4rem 0.18rem 0.32rem;
   }
   .stars-badge .stars-icon {
     font-size: 0.95rem;
   }
-  .stars-badge-local,
-  #local-stars-badge.stars-badge-local {
-    top: 0.3rem;
-    right: 0.3rem;
-  }
   .stars-badge-remote {
-    top: 0.3rem;
-    right: 0.3rem;
     font-size: 0.78rem;
     padding: 0.16rem 0.36rem 0.16rem 0.28rem;
+  }
+  .tile-name-stars-stack,
+  #local-name-stars,
+  #remote-name-stars {
+    top: 0.3rem;
+    right: 0.3rem;
   }
 }
 /* Please stay — soft hold pulse + countdown (layers over video, not bars) */
@@ -13864,12 +14049,13 @@ html.gift-fw-flash::after {
 .flair-chip[hidden] {
   display: none !important;
 }
-.tile-tag-local-name,
+.tile-tag-local-loc,
 .tile-remote-id {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 0.15rem;
+  gap: 0.18rem;
 }
 .friend-flair {
   margin-left: 0.25rem;
@@ -15544,34 +15730,216 @@ body.debate-active.debate-i-speak #tile-remote {
   }
 }
 
-/* Post-call star review toast */
-.star-review-toast {
-  max-width: min(22rem, calc(100vw - 1.5rem));
+/* ── Unified post-call card (star review · add friend · safety) ── */
+.post-call-card,
+.star-review-toast,
+.post-match-friend-nudge.is-force {
+  max-width: min(22.5rem, calc(100vw - 1.25rem));
+  padding: 0.9rem 1rem 0.95rem;
+  gap: 0.45rem;
+  border-radius: 16px;
+  animation: post-call-in 0.28s ease-out;
 }
-.star-review-toast .export-nudge-actions {
+@keyframes post-call-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+.post-call-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+.post-call-avatar {
+  flex-shrink: 0;
+  width: 2.65rem;
+  height: 2.65rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: #ffe9a0;
+  background: linear-gradient(145deg, rgba(80, 60, 20, 0.95), rgba(30, 24, 10, 0.98));
+  border: 1.5px solid rgba(255, 210, 80, 0.45);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.post-call-avatar.is-ok {
+  color: #9aecc0;
+  background: linear-gradient(145deg, rgba(30, 70, 50, 0.95), rgba(12, 28, 20, 0.98));
+  border-color: rgba(100, 210, 150, 0.5);
+}
+.post-call-avatar.is-safety {
+  color: #ffb0b8;
+  background: linear-gradient(145deg, rgba(70, 24, 30, 0.95), rgba(28, 10, 14, 0.98));
+  border-color: rgba(255, 100, 110, 0.45);
+}
+.post-call-head-copy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+}
+.post-call-head-copy strong {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #f2f5fa;
+  line-height: 1.2;
+}
+.post-call-meta {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  gap: 0.28rem 0.4rem;
+}
+.post-call-name {
+  font-size: 0.8rem !important;
+  font-weight: 650;
+  color: #c8d4e6 !important;
+}
+.post-call-dur {
+  font-size: 0.7rem !important;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #ffe9a0 !important;
+  background: rgba(255, 200, 60, 0.12);
+  border: 1px solid rgba(255, 210, 80, 0.28);
+  border-radius: 999px;
+  padding: 0.08rem 0.4rem;
+}
+.post-call-badge {
+  font-size: 0.65rem !important;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #9ec5ff !important;
+  background: rgba(90, 140, 255, 0.14);
+  border: 1px solid rgba(120, 160, 255, 0.3);
+  border-radius: 999px;
+  padding: 0.08rem 0.38rem;
+}
+.post-call-badge.is-warm {
+  color: #ffd0a0 !important;
+  background: rgba(255, 160, 80, 0.14);
+  border-color: rgba(255, 170, 90, 0.35);
+}
+.post-call-body {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: #9aa8bc;
+}
+.post-call-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   gap: 0.4rem;
-  justify-content: flex-end;
+  margin-top: 0.15rem;
+}
+.post-call-gift-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.post-call-gift-row .btn-star-yes,
+.post-call-primary,
+.star-review-toast .post-call-primary {
+  flex: 1 1 auto;
+  min-height: 2.65rem;
+  font-size: 0.95rem;
+  font-weight: 800;
+  justify-content: center;
 }
 .star-review-toast .btn-star-yes {
   background: linear-gradient(180deg, #ffd86b, #e8a812);
   color: #1a1200;
   border: none;
-  font-weight: 750;
+  font-weight: 800;
 }
-.star-review-actions {
+.star-review-toast .btn-star-yes[data-star-amount="2"] {
+  background: linear-gradient(180deg, #ffe08a, #f0b020);
+}
+.star-review-toast .btn-star-yes[data-star-amount="3"] {
+  background: linear-gradient(180deg, #fff0b0, #ffc933 45%, #e89610);
+  box-shadow: 0 2px 10px rgba(255, 180, 40, 0.4);
+}
+.star-review-toast.is-reciprocity {
+  border-color: rgba(255, 180, 80, 0.5);
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.55),
+    0 0 24px rgba(255, 160, 60, 0.18);
+}
+.post-call-secondary-row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
   justify-content: flex-end;
 }
-.star-review-actions .btn-star-yes[data-star-amount="2"] {
-  background: linear-gradient(180deg, #ffe08a, #f0b020);
+.post-call-secondary-row .pill {
+  min-height: 2.2rem;
 }
-.star-review-actions .btn-star-yes[data-star-amount="3"] {
-  background: linear-gradient(180deg, #fff0b0, #ffc933 45%, #e89610);
-  box-shadow: 0 2px 10px rgba(255, 180, 40, 0.4);
+.post-call-safety-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding-top: 0.15rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  margin-top: 0.1rem;
+}
+.post-call-link {
+  appearance: none;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 650;
+  color: #8a96a8;
+  cursor: pointer;
+  padding: 0.2rem 0.15rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.post-call-link.danger {
+  color: #e89098;
+}
+.post-call-link:hover,
+.post-call-link:focus-visible {
+  color: #eef2f7;
+  outline: none;
+}
+.post-call-link.danger:hover,
+.post-call-link.danger:focus-visible {
+  color: #ffb8be;
+}
+.post-call-dot {
+  color: rgba(150, 160, 180, 0.45);
+  font-size: 0.7rem;
+}
+.post-match-friend-nudge .post-match-steps {
+  font-size: 0.72rem !important;
+  color: rgba(160, 175, 195, 0.85) !important;
+}
+.post-match-safety-nudge .post-call-safety-row {
+  border-top: none;
+  justify-content: stretch;
+}
+.post-match-safety-nudge .post-call-safety-row .pill {
+  flex: 1;
+  justify-content: center;
+  min-height: 2.4rem;
+}
+.star-review-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
 }
 
 @media (max-width: 720px) {
@@ -15652,7 +16020,8 @@ body.debate-active.debate-i-speak #tile-remote {
     0 0 0 1px rgba(255, 220, 120, 0.2);
 }
 .tile-remote-id .trust-tier-chip,
-.tile-tag-local-name .trust-tier-chip {
+.tile-tag-local-loc .trust-tier-chip,
+.tile-tag-local-loc .trust-tier-chip {
   margin-left: 0.15rem;
   flex-shrink: 0;
 }
@@ -15667,7 +16036,7 @@ body.debate-active.debate-i-speak #tile-remote {
 /* ── Star tier frames: avatars only (name/flag stay plain) ── */
 /* Intentionally no gold ring on .name-on-tile / #local-name / #remote-tag */
 .tile-tag.has-star-tier.tier-trusted,
-#local-name-tag.has-star-tier.tier-trusted {
+#local-loc-tag.has-star-tier.tier-trusted {
   /* name chips: no tier chrome */
 }
 .tile-avatar.has-star-tier.tier-trusted,
@@ -18116,7 +18485,8 @@ html.match-live .tile-remote .side-rail-left,
   border: 1px solid rgba(120, 180, 255, 0.4);
 }
 .tile-remote-id .mutual-bond-chip,
-.tile-tag-local-name .stars-soft-rank-chip {
+.tile-tag-local-loc .stars-soft-rank-chip,
+.tile-tag-local-loc .stars-soft-rank-chip {
   margin-left: 0.2rem;
   vertical-align: middle;
 }
@@ -18432,4 +18802,360 @@ html.match-live .tile-remote .side-rail-left,
   font-size: 0.65rem;
   font-weight: 800;
   background: rgba(0, 0, 0, 0.25);
+}
+
+/* === Location + name/stars stack (ship v344) — win over legacy absolute ★ chips === */
+.tile-name-stars-stack,
+#local-name-stars,
+#remote-name-stars {
+  position: absolute !important;
+  top: 0.4rem !important;
+  right: 0.4rem !important;
+  left: auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-end !important;
+  gap: 0.28rem !important;
+  z-index: 50 !important;
+  max-width: min(48%, 12rem) !important;
+  pointer-events: none !important;
+}
+.tile-name-stars-stack .stars-badge,
+.tile-name-stars-stack #local-stars-badge,
+.tile-name-stars-stack #remote-stars-badge {
+  position: relative !important;
+  top: auto !important;
+  right: auto !important;
+  left: auto !important;
+  pointer-events: auto !important;
+}
+.tile-name-stars-stack .name-on-tile,
+.tile-name-stars-stack #local-name,
+.tile-name-stars-stack #remote-name {
+  position: relative !important;
+  top: auto !important;
+  right: auto !important;
+  left: auto !important;
+}
+.loc-on-tile .loc-flag { font-size: 1.4rem; line-height: 1; }
+.loc-on-tile .loc-country { font-size: 0.72rem; font-weight: 650; }
+.loc-on-tile .loc-city { font-size: 0.66rem; font-weight: 500; opacity: 0.88; }
+
+/* === Identity layout: flag→country→city then name below (centered stack) === */
+.tile-local .tile-local-id,
+#local-id-stack {
+  position: absolute !important;
+  /* Hug the header / safe area */
+  top: max(0.1rem, env(safe-area-inset-top, 0px)) !important;
+  left: 0.4rem !important;
+  right: auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important; /* flag/city stack + name share a center axis */
+  gap: 0.18rem !important;
+  max-width: min(48%, 12rem) !important;
+  z-index: 46 !important;
+  pointer-events: none !important;
+}
+.tile-local #local-name.name-on-tile,
+.tile-remote #remote-name.name-on-tile {
+  position: relative !important;
+  top: auto !important;
+  right: auto !important;
+  left: auto !important;
+  display: inline-flex !important;
+  justify-content: center !important;
+  /* MUST stay after location in flex order (0 would put name above city) */
+  order: 20 !important;
+  align-self: center !important;
+  max-width: 100% !important;
+  margin-top: 0.2rem !important;
+  margin-bottom: 0 !important;
+  padding: 0.3rem 0.7rem !important;
+  border-radius: 999px !important;
+  font-size: 0.92rem !important; /* slightly larger than location labels */
+  font-weight: 700 !important;
+  letter-spacing: 0.01em !important;
+  background: rgba(8, 12, 20, 0.88) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  color: #eef2f7 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+.tile-remote-id {
+  display: flex !important;
+  flex-direction: column !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  gap: 0.18rem !important;
+}
+/* Location block first (flag→country→city), then name, then chips */
+.tile-remote-id #remote-tag.loc-on-tile,
+.tile-remote-id .loc-on-tile {
+  order: 1 !important;
+}
+.tile-remote-id #remote-name.name-on-tile,
+.tile-remote-id .name-top-left {
+  order: 20 !important;
+  margin-top: 0.2rem !important;
+  margin-bottom: 0 !important;
+}
+.tile-remote-id .peer-who-sub,
+.tile-remote-id .trust-tier-chip,
+.tile-remote-id .partner-praise-chip,
+.tile-remote-id .mutual-bond-chip,
+.tile-remote-id .flair-chip {
+  order: 30 !important;
+}
+/* Local: location chip first, name below */
+.tile-local #local-loc-tag,
+#local-id-stack #local-loc-tag {
+  order: 1 !important;
+}
+.tile-local #local-name.name-on-tile,
+#local-id-stack #local-name {
+  order: 20 !important;
+}
+.tile-avatar-stars-stack,
+#local-avatar-stars,
+#remote-avatar-stars {
+  position: absolute !important;
+  /* Pull closer to the window chrome / header */
+  top: 0.18rem !important;
+  right: 0.32rem !important;
+  left: auto !important;
+  display: flex !important;
+  flex-direction: row !important;
+  /* Stars sit high next to avatar top, not mid-avatar */
+  align-items: flex-start !important;
+  justify-content: flex-end !important;
+  gap: 0.4rem !important;
+  z-index: 50 !important;
+  pointer-events: none !important;
+  max-width: min(52%, 14rem) !important;
+}
+.tile-avatar-stars-stack .stars-badge,
+.tile-avatar-stars-stack #local-stars-badge,
+.tile-avatar-stars-stack #remote-stars-badge {
+  position: relative !important;
+  top: 0.12rem !important; /* slight optical lift vs avatar rim */
+  right: auto !important;
+  left: auto !important;
+  pointer-events: auto !important;
+  flex-shrink: 0 !important;
+}
+.tile-avatar-stars-stack .tile-avatar,
+.tile-avatar-stars-stack #local-avatar,
+.tile-avatar-stars-stack #remote-avatar {
+  position: relative !important;
+  top: auto !important;
+  right: auto !important;
+  left: auto !important;
+  width: 4.25rem !important;
+  height: 4.25rem !important;
+  flex-shrink: 0 !important;
+  margin: 0 !important;
+}
+/* Kill legacy name+stars column stack if any CSS still references it */
+.tile-name-stars-stack,
+#local-name-stars,
+#remote-name-stars {
+  display: none !important;
+}
+@media (max-width: 720px) {
+  .tile-avatar-stars-stack .tile-avatar,
+  .tile-avatar-stars-stack #local-avatar,
+  .tile-avatar-stars-stack #remote-avatar {
+    width: 3.5rem !important;
+    height: 3.5rem !important;
+  }
+  .tile-avatar-stars-stack,
+  #local-avatar-stars,
+  #remote-avatar-stars {
+    top: 0.14rem !important;
+    right: 0.22rem !important;
+    gap: 0.3rem !important;
+    align-items: flex-start !important;
+  }
+  .tile-local .tile-local-id,
+  #local-id-stack {
+    top: 0.3rem !important;
+    left: 0.35rem !important;
+  }
+}
+
+/* Stars sheet v348 — taller window + full Status readout */
+#stars-sheet.stars-sheet,
+#stars-sheet.stars-sheet.is-open {
+  max-height: min(92dvh, 860px) !important;
+}
+#stars-sheet .settings-body {
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+}
+#stars-sheet .stars-dual-chip {
+  overflow: visible !important;
+}
+#stars-sheet .stars-dual-val,
+#stars-sheet #stars-sheet-trust,
+#stars-sheet .stars-dual-sub {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: unset !important;
+}
+#stars-sheet .stars-panel.is-active {
+  display: block !important;
+  min-height: 0;
+}
+#stars-sheet .stars-rep-stat-val {
+  white-space: normal !important;
+  overflow: visible !important;
+  word-break: break-word;
+}
+
+/* Post-call report reason picker */
+.post-call-reason-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.15rem 0 0.35rem;
+}
+.post-call-reason-list .post-call-reason {
+  width: 100%;
+  justify-content: flex-start;
+  min-height: 2.4rem;
+  font-weight: 650;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 120, 130, 0.28);
+  color: #f0e4e6;
+}
+.post-call-reason-list .post-call-reason:hover,
+.post-call-reason-list .post-call-reason:focus-visible {
+  background: rgba(220, 60, 80, 0.22);
+  border-color: rgba(255, 120, 130, 0.55);
+  outline: none;
+}
+.post-call-card.is-report-pick {
+  border-color: rgba(255, 100, 110, 0.45);
+  max-width: min(22.5rem, calc(100vw - 1.25rem));
+}
+.stars-dual-raw {
+  opacity: 0.75;
+  font-weight: 550;
+}
+/* Status dual chip: always show full number */
+#stars-sheet .stars-dual-chip.is-trust {
+  min-height: 3.6rem;
+}
+#stars-sheet #stars-sheet-trust {
+  font-size: 1.05rem !important;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+/* Deferred deploy update banner (mid-call) */
+.deferred-update-banner {
+  z-index: 70 !important;
+  bottom: max(5.5rem, env(safe-area-inset-bottom, 0px) + 4.5rem) !important;
+  border-color: rgba(120, 180, 255, 0.4) !important;
+  box-shadow:
+    0 14px 40px rgba(0, 0, 0, 0.5),
+    0 0 22px rgba(80, 140, 255, 0.15) !important;
+  pointer-events: auto !important;
+}
+.deferred-update-banner strong {
+  color: #cfe0ff;
+}
+/* Power / map / ladder: never clip status copy */
+#stars-sheet .stars-map-copy span,
+#stars-sheet .stars-ladder-copy span,
+#stars-sheet .stars-progress-hint,
+#stars-sheet .stars-progress-hint-sub,
+#stars-sheet .stars-ladder-note {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: unset !important;
+  line-height: 1.35;
+}
+#stars-sheet .stars-map-row {
+  align-items: flex-start;
+}
+#stars-sheet .stars-map-copy {
+  min-width: 0;
+  flex: 1;
+}
+/* Identity top-left: name under location, centered with flag stack */
+.tile-remote-id .name-top-left,
+.tile-local-id .name-top-left {
+  align-self: center !important;
+  order: 20 !important;
+  margin-top: 0.2rem !important;
+  margin-bottom: 0 !important;
+}
+
+/* Final lock: location hug header; name under city, centered with loc */
+#remote-tile-tag:not([hidden]),
+.tile-tag.tile-tag-remote:not([hidden]) {
+  position: absolute !important;
+  top: max(0.1rem, env(safe-area-inset-top, 0px)) !important;
+  left: 0.4rem !important;
+  z-index: 50 !important;
+}
+.tile-remote-id,
+.tile-local-id,
+#local-id-stack {
+  flex-direction: column !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+}
+#remote-tag.loc-on-tile,
+#local-loc.loc-on-tile,
+#local-loc-tag {
+  order: 1 !important;
+  align-self: center !important;
+}
+#remote-tag.loc-on-tile,
+#local-loc.loc-on-tile {
+  display: inline-flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  text-align: center !important;
+}
+#local-loc-tag {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+}
+#remote-name.name-on-tile,
+#local-name.name-on-tile {
+  order: 20 !important;
+  align-self: center !important;
+  margin-top: 0.22rem !important;
+  font-size: 0.92rem !important;
+  font-weight: 700 !important;
+  padding: 0.3rem 0.7rem !important;
+  justify-content: center !important;
+  text-align: center !important;
+}
+
+/* === RTL (Arabic) identity + stage polish === */
+html[dir="rtl"] .tile-local-id,
+html[dir="rtl"] #local-id-stack,
+html[dir="rtl"] #remote-tile-tag:not([hidden]),
+html[dir="rtl"] .tile-tag.tile-tag-remote:not([hidden]) {
+  left: auto !important;
+  right: 0.4rem !important;
+}
+html[dir="rtl"] .tile-avatar-stars-stack,
+html[dir="rtl"] #local-avatar-stars,
+html[dir="rtl"] #remote-avatar-stars {
+  right: auto !important;
+  left: 0.32rem !important;
+  flex-direction: row-reverse !important;
+}
+html[dir="rtl"] body {
+  font-family: "Noto Sans Arabic", "Noto Sans", Inter, system-ui, sans-serif;
 }

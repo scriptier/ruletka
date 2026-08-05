@@ -27,15 +27,19 @@
   <link rel="alternate" hreflang="ru" href="https://ruletka.vip/?lang=ru" />
   <link rel="alternate" hreflang="en" href="https://ruletka.vip/?lang=en" />
   <link rel="alternate" hreflang="uk" href="https://ruletka.vip/?lang=uk" />
+  <link rel="alternate" hreflang="pl" href="https://ruletka.vip/?lang=pl" />
+  <link rel="alternate" hreflang="cs" href="https://ruletka.vip/?lang=cs" />
+  <link rel="alternate" hreflang="bg" href="https://ruletka.vip/?lang=bg" />
+  <link rel="alternate" hreflang="sr" href="https://ruletka.vip/?lang=sr" />
   <link rel="alternate" hreflang="es" href="https://ruletka.vip/?lang=es" />
   <link rel="alternate" hreflang="de" href="https://ruletka.vip/?lang=de" />
   <link rel="alternate" hreflang="fr" href="https://ruletka.vip/?lang=fr" />
   <link rel="alternate" hreflang="pt" href="https://ruletka.vip/?lang=pt" />
   <link rel="alternate" hreflang="tr" href="https://ruletka.vip/?lang=tr" />
-  <link rel="alternate" hreflang="pl" href="https://ruletka.vip/?lang=pl" />
+  <link rel="alternate" hreflang="ar" href="https://ruletka.vip/?lang=ar" />
   <link rel="alternate" hreflang="zh" href="https://ruletka.vip/?lang=zh" />
   <link rel="alternate" hreflang="x-default" href="https://ruletka.vip/" />
-  <link rel="icon" href="/brand/favicon-32.png?v=10" type="image/png" sizes="32x32" />
+<link rel="icon" href="/brand/favicon-32.png?v=10" type="image/png" sizes="32x32" />
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="/brand/apple-touch-icon-180.png?v=10" />
   <link rel="manifest" href="manifest.webmanifest" />
@@ -44,12 +48,12 @@
   <!-- Non-blocking fonts (was render-blocking — major home slowdown) -->
   <link
     rel="stylesheet"
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap"
     media="print"
     onload="this.media='all'"
   />
   <noscript>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </noscript>
   <link rel="preload" href="/brand/logo-hero.jpg?v=12" as="image" fetchpriority="high" />
   <link rel="stylesheet" href="home.css?v=100" />
@@ -67,7 +71,7 @@
         "url": "https://ruletka.vip/",
         "name": "ruletka.vip",
         "description": "Peer-to-peer chat roulette — random video chat without accounts.",
-        "inLanguage": ["ru", "en"],
+        "inLanguage": ["ru", "en", "uk", "pl", "cs", "bg", "sr", "es", "de", "fr", "pt", "tr", "ar", "zh"],
         "publisher": { "@id": "https://ruletka.vip/#org" }
       },
       {
@@ -128,12 +132,16 @@
           <option value="ru" selected>Русский</option>
           <option value="en">English</option>
           <option value="uk">Українська</option>
+          <option value="pl">Polski</option>
+          <option value="cs">Čeština</option>
+          <option value="bg">Български</option>
+          <option value="sr">Српски</option>
           <option value="es">Español</option>
           <option value="de">Deutsch</option>
           <option value="fr">Français</option>
           <option value="pt">Português</option>
           <option value="tr">Türkçe</option>
-          <option value="pl">Polski</option>
+          <option value="ar">العربية</option>
           <option value="zh">中文</option>
         </select>
       </label>
@@ -550,7 +558,7 @@
         },
       };
 
-      var HOME_LANGS = ["ru", "en", "uk", "es", "de", "fr", "pt", "tr", "pl", "zh"];
+      var HOME_LANGS = ["ru", "en", "uk", "pl", "cs", "bg", "sr", "es", "de", "fr", "pt", "tr", "ar", "zh"];
 
       function getLang() {
         try {
@@ -630,7 +638,7 @@
             online: 0,
           });
         } catch (_) {}
-        fetch("/i18n/" + lang + ".json?v=118", { cache: "force-cache" })
+        fetch("/i18n/" + lang + ".json?v=132", { cache: "force-cache" })
           .then(function (r) {
             if (!r.ok) throw new Error("pack");
             return r.json();

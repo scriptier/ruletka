@@ -62,3 +62,10 @@ Request listing: [`docs/HUB_DIRECTORY.md`](docs/HUB_DIRECTORY.md).
 ## License
 
 Contributions are accepted under **LGPL-2.1-only** (see `LICENSE` and `Cargo.toml`).
+
+## Language packs
+
+- Source of truth: `ui/i18n/en.json` (all keys required).
+- Other locales: same key set (CI / local check: count keys vs `en.json`).
+- Live loads packs via `i18n.js`; marketing/legal pages via `site-i18n.js` (`PACK_V` + `?v=` on the script tag).
+- After adding strings: bump pack `?v=` / `PACK_V` so deploys are not sticky-cached.

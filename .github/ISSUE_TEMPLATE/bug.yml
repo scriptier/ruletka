@@ -16,7 +16,10 @@ body:
         - live UI
         - WebRTC / ICE / TURN
         - friends / calls
-        - stars
+        - stars / social score
+        - location / geo
+        - multi-party / party
+        - i18n / languages
         - deploy / self-host / Docker
         - docs
         - other

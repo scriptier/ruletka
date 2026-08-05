@@ -1349,18 +1349,86 @@ function flagLabel(code) {
   return em ? `${em} ${name}` : name;
 }
 
+function countryNameForCode(code) {
+  const cc = normalizeFlagCode(code);
+  if (!cc) return "";
+  const hit = FLAG_OPTIONS.find((x) => x[0] === cc);
+  return hit ? hit[1] : cc;
+}
+
 function formatNameWithFlag(name, flag) {
   const n = (name || "anon").trim() || "anon";
   const em = flagEmoji(flag);
   return em ? `${em} ${n}` : n;
 }
 
-/** Put name + larger flag emoji into a .name-on-tile (or similar) element. */
-function setNameOnTile(el, name, flag) {
+/** Hub geo for *you* (always real when known — for local tile). */
+let myGeo = { flag: "", country: "", city: "" };
+
+/**
+ * Location stack: flag → country → city (vertical).
+ * Hide-IP peers: flag only (cosmetic); no country/city.
+ */
+function setLocationOnTile(el, meta) {
+  if (!el) return;
+  const flag = normalizeFlagCode(meta?.flag || "");
+  const country = String(meta?.country || "").trim();
+  const city = String(meta?.city || "").trim();
+  const hideIp = !!meta?.hide_ip || !!meta?.hideIp;
+  const em = flagEmoji(flag);
+  // Hide-IP: cosmetic flag only (no fake country/city).
+  // Real geo: flag → country → city.
+  const countryLine = hideIp
+    ? ""
+    : country || (flag ? countryNameForCode(flag) : "");
+  const cityLine = hideIp ? "" : city;
+  if (!em && !countryLine && !cityLine) {
+    el.innerHTML = "";
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  let html = "";
+  if (em) {
+    html += `<span class="loc-flag" aria-hidden="true">${em}</span>`;
+  }
+  if (countryLine) {
+    html += `<span class="loc-country"></span>`;
+  }
+  if (cityLine) {
+    html += `<span class="loc-city"></span>`;
+  }
+  el.innerHTML = html;
+  const cEl = el.querySelector(".loc-country");
+  if (cEl) cEl.textContent = countryLine;
+  const cityEl = el.querySelector(".loc-city");
+  if (cityEl) cityEl.textContent = cityLine;
+}
+
+/** Name only (top-right above stars). */
+function setDisplayNameOnTile(el, name) {
   if (!el) return;
   const n = (name || "anon").trim() || "anon";
+  el.textContent = n;
+  if (el.id === "remote-name") {
+    el.hidden = !n;
+  }
+}
+
+/**
+ * Legacy helper: partner menu / third tile — name + optional flag inline.
+ * Prefer setLocationOnTile + setDisplayNameOnTile for stage tiles.
+ */
+function setNameOnTile(el, name, flag) {
+  if (!el) return;
+  // Location-only elements
+  if (el.classList?.contains("loc-on-tile") || el.id === "remote-tag" || el.id === "local-loc") {
+    setLocationOnTile(el, { flag, country: countryNameForCode(flag), city: "" });
+    return;
+  }
+  const n = (name || "anon").trim() || "anon";
   const em = flagEmoji(flag);
-  if (em) {
+  if (em && (el.id === "partner-menu-name" || el.id === "third-tag")) {
     el.innerHTML = `<span class="name-flag" aria-hidden="true">${em}</span><span class="name-text"></span>`;
     const t = el.querySelector(".name-text");
     if (t) t.textContent = n;
@@ -1370,9 +1438,32 @@ function setNameOnTile(el, name, flag) {
 }
 
 function refreshLocalNameChip() {
-  const tile = $("local-name");
-  if (tile) setNameOnTile(tile, getDisplayName(), getFlag());
+  const nameEl = $("local-name");
+  if (nameEl) setDisplayNameOnTile(nameEl, getDisplayName());
+  refreshLocalLocationChip();
   syncFlagSettingsSummary();
+  syncHideIpFlagSection();
+}
+
+function refreshLocalLocationChip() {
+  const loc = $("local-loc");
+  if (!loc) return;
+  // Self always sees real hub geo when known (even if hide_ip for partners).
+  const flag = normalizeFlagCode(myGeo.flag || "");
+  const country = String(myGeo.country || "").trim() || countryNameForCode(flag);
+  const city = String(myGeo.city || "").trim();
+  setLocationOnTile(loc, { flag, country, city, hide_ip: false });
+}
+
+function syncHideIpFlagSection() {
+  const sec = $("hide-ip-flag-section");
+  if (!sec) return;
+  const on =
+    !!loadPrefs().hideIpRelayOnly ||
+    (typeof hideIpRelayOnlyEnabled === "function" && hideIpRelayOnlyEnabled());
+  sec.hidden = !on;
+  if (on) sec.removeAttribute("hidden");
+  else sec.setAttribute("hidden", "");
 }
 
 function syncFlagSettingsSummary() {
@@ -1397,7 +1488,7 @@ function setFlag(code, { persist = true, notify = true } = {}) {
   if (persist) savePrefs({ flag });
   refreshLocalNameChip();
   if (notify) {
-    // Push to hub so next match sees it; set_prefs updates live client flag
+    // Push to hub so next match sees cosmetic flag (only when hide_ip)
     if (ws && ws.readyState === WebSocket.OPEN) {
       sendMatchPrefs();
     }
@@ -1438,16 +1529,22 @@ function setTileAvatar(which, dataUrl) {
   if (which === "remote") syncRemoteTileTagVisibility();
 }
 
-/** Show partner identity strip when name and/or avatar is present. */
+/** Show partner location strip when location and/or avatar is present. */
 function syncRemoteTileTagVisibility() {
   const wrap = $("remote-tile-tag");
   const tag = $("remote-tag");
   const av = $("remote-avatar");
   if (!wrap) return;
-  const hasName = !!(tag && String(tag.textContent || "").trim());
+  const hasLoc = !!(
+    tag &&
+    !tag.hidden &&
+    (tag.querySelector(".loc-flag") ||
+      tag.querySelector(".loc-country") ||
+      String(tag.textContent || "").trim())
+  );
   const hasAv = !!(av && !av.hidden);
-  wrap.hidden = !(hasName || hasAv);
-  if (hasName || hasAv) wrap.removeAttribute("hidden");
+  wrap.hidden = !(hasLoc || hasAv);
+  if (hasLoc || hasAv) wrap.removeAttribute("hidden");
   else wrap.setAttribute("hidden", "");
 }
 
@@ -1719,7 +1816,10 @@ function matchPrefs() {
   const flag = normalizeFlagCode(p.flag);
   const avatar = isValidAvatarDataUrl(p.avatar) ? p.avatar : "";
   const tags = normalizeInterestTags(p.tags);
-  return { gender, looking, flag, avatar, tags };
+  const hide_ip =
+    p.hideIpRelayOnly === true ||
+    (typeof hideIpRelayOnlyEnabled === "function" && hideIpRelayOnlyEnabled());
+  return { gender, looking, flag, avatar, tags, hide_ip: !!hide_ip };
 }
 
 function sendHelloPayload(name) {
@@ -1731,9 +1831,11 @@ function sendHelloPayload(name) {
     name: name || getDisplayName(),
     gender: prefs.gender,
     looking: prefs.looking,
-    flag: prefs.flag || "",
+    // Cosmetic flag only matters when hide_ip; still send so hub stores it
+    flag: prefs.hide_ip ? prefs.flag || "" : "",
     avatar: prefs.avatar || "",
     tags: prefs.tags || [],
+    hide_ip: !!prefs.hide_ip,
   });
 }
 
@@ -1744,9 +1846,10 @@ function sendMatchPrefs() {
     type: "set_prefs",
     gender: prefs.gender,
     looking: prefs.looking,
-    flag: prefs.flag || "",
+    flag: prefs.hide_ip ? prefs.flag || "" : "",
     avatar: prefs.avatar || "",
     tags: prefs.tags || [],
+    hide_ip: !!prefs.hide_ip,
   });
 }
 
@@ -2627,8 +2730,8 @@ function applyStarsTierFrames(which, n) {
   // Clear any leftover classes on name chips from older deploys
   const clearIds =
     which === "local"
-      ? ["local-name-tag", "local-name", "local-avatar"]
-      : ["remote-tile-tag", "remote-tag", "remote-avatar"];
+      ? ["local-loc-tag", "local-loc", "local-name", "local-avatar"]
+      : ["remote-tile-tag", "remote-tag", "remote-name", "remote-avatar"];
   clearIds.forEach((id) => {
     const el = $(id);
     if (!el) return;
@@ -2840,17 +2943,18 @@ function setStarsBadge(which, count, opts = {}) {
     }
     const tierBit =
       w >= 3
-        ? _t("stars.tierSenior") || "Senior · ×3"
+        ? _t("stars.tierSenior") || "Senior"
         : w >= 2
-          ? _t("stars.tierTrusted") || "Trusted · ×2"
+          ? _t("stars.tierTrusted") || "Trusted"
           : "";
     const label =
       which === "local"
         ? (_t("stars.yours") || "Your balance") +
           ` · ★ ${n}` +
           (tierScore
-            ? ` · ${_t("stars.trustShort") || "trust"} ${tierScore}`
-            : "")
+            ? ` · ${_t("stars.trustShort") || "status"} ${tierScore}`
+            : "") +
+          (tierBit ? ` · ${tierBit}` : "")
         : (_t("stars.tipTheirsTitle") || "Reputation") + ` · ★ ${n}`;
     badge.setAttribute(
       "aria-label",
@@ -3506,11 +3610,14 @@ function closeStarGiftPop() {
   closeStarsSheet();
 }
 
-/** Stars needed for report weight tiers (must match bridge). */
-const STARS_TRUSTED_GOAL = 100; // weight ×2
-const STARS_SENIOR_GOAL = 250; // weight ×3 — bans faster
+/** Status goals (peer ★ / social health). Soft rank + gift caps — not ban multipliers. */
+const STARS_TRUSTED_GOAL = 100; // Trusted: soft rank + gift up to 2★
+const STARS_SENIOR_GOAL = 250; // Senior: soft rank + gift up to 3★
 
-/** Report weight for current stars (mirrors bridge report_weight_for). */
+/**
+ * Tier ladder from a status score (trust / social health).
+ * Returns 1 normal · 2 trusted · 3 senior. Used for gift max + chrome — not report ban weight.
+ */
 function reportWeightForStars(stars) {
   const n = Math.max(0, Number(stars) || 0);
   if (n >= STARS_SENIOR_GOAL) return 3;
@@ -3737,14 +3844,42 @@ function syncStarsSheetUi() {
   } catch (_) {}
   const trustEl = $("stars-sheet-trust");
   if (trustEl) {
-    // Status points = social health; show raw praise if different
-    trustEl.textContent =
+    // Status = social health (full number, never truncated mid-value)
+    const shown = healthN || trustN;
+    trustEl.textContent = String(shown);
+    trustEl.title =
       healthN !== trustN && trustN > 0
-        ? `${healthN} (${trustN})`
-        : String(healthN || trustN);
+        ? _t("stars.statusVsRaw", { health: healthN, raw: trustN }) ||
+          `Status ${healthN} · raw peer praise ${trustN}`
+        : _t("stars.statusPointsLabel") || "Status";
+  }
+  // Dual-chip subline: full “N praised” (wraps in CSS)
+  const dualTrustSub = document.querySelector(
+    ".stars-dual-chip.is-trust .stars-dual-sub"
+  );
+  if (dualTrustSub) {
+    const g = Math.max(0, Number(myTrustGifters) || 0);
+    dualTrustSub.innerHTML = "";
+    const gSpan = document.createElement("span");
+    gSpan.id = "stars-sheet-gifters";
+    gSpan.textContent = String(g);
+    dualTrustSub.appendChild(gSpan);
+    dualTrustSub.appendChild(document.createTextNode(" "));
+    const lbl = document.createElement("span");
+    lbl.setAttribute("data-i18n", "stars.giftersLabelShort");
+    lbl.textContent = _t("stars.giftersLabelShort") || "praised";
+    dualTrustSub.appendChild(lbl);
+    if (healthN !== trustN && trustN > 0) {
+      dualTrustSub.appendChild(document.createTextNode(" · "));
+      const raw = document.createElement("span");
+      raw.className = "stars-dual-raw";
+      raw.textContent =
+        _t("stars.statusRawShort", { n: trustN }) || `raw ${trustN}`;
+      dualTrustSub.appendChild(raw);
+    }
   }
   const giftersEl = $("stars-sheet-gifters");
-  if (giftersEl) {
+  if (giftersEl && !dualTrustSub) {
     giftersEl.textContent = String(Math.max(0, Number(myTrustGifters) || 0));
   }
   const floorEl = $("stars-gifters-floor-hint");
@@ -3813,8 +3948,11 @@ function syncStarsSheetUi() {
         _t("stars.chipWealthTip") ||
         "Growing balance for gifts";
     } else {
-      chip.textContent = `×${w}`;
-      chip.title = "";
+      // New / normal status — never show ban-gun "×1"
+      chip.textContent = _t("stars.chipNew") || "New";
+      chip.title =
+        _t("stars.chipNewTip") ||
+        "Status grows when people gift you ★ after long chats";
     }
     chip.dataset.tier = String(w);
     chip.dataset.wealth = String(wealth);
@@ -4158,10 +4296,15 @@ function syncStarsSheetUi() {
  * Open Stars guide sheet (settings-style). Always available on ★ click.
  * @param {HTMLElement | null} [_anchor]
  */
-/** Compact glass Stars popover sizing (wider, shorter than Settings). */
+/**
+ * Stars sheet height budget.
+ * Overview is tall (hero + progress + earn); allow near-full viewport so Status
+ * chips and earn rows aren’t clipped. Gifts is shorter and measures down.
+ */
 function starsFlyoutMaxHeight() {
-  const vh = window.innerHeight || 640;
-  return Math.min(vh * 0.78, 640);
+  const vh = window.innerHeight || 720;
+  // Prefer almost full height on phones; desktop cap ~860 so it still feels like a sheet
+  return Math.min(Math.round(vh * 0.92), 860);
 }
 
 function positionStarsSheet(sheet) {
@@ -4180,13 +4323,16 @@ function positionStarsSheet(sheet) {
     sheet.style.bottom = "4.5rem";
     sheet.style.width = "min(448px, calc(100vw - 1rem))";
   }
-  // Measure natural content height, then clamp so .settings-body can scroll
-  // (height:auto + max-height alone clips without enabling child scroll).
+  // Measure natural content height for the active tab, clamp to max.
+  // Body scrolls only if content still exceeds (rare after taller max).
   sheet.style.maxHeight = `${maxH}px`;
   sheet.style.height = "auto";
   void sheet.offsetHeight;
   const natural = Math.ceil(sheet.scrollHeight || 0);
-  const h = Math.max(220, Math.min(natural || maxH, maxH));
+  // Overview needs more room; floor higher so Status dual chips aren't crushed
+  const tab = sheet.dataset?.activeTab || "overview";
+  const minH = tab === "gifts" ? 280 : tab === "power" ? 360 : 420;
+  const h = Math.max(minH, Math.min(natural || maxH, maxH));
   sheet.style.height = `${h}px`;
 }
 
@@ -4259,6 +4405,17 @@ function openStarsSheet(_anchor) {
   positionStarsSheet(sheet);
   void sheet.offsetWidth;
   sheet.classList.add("is-open");
+  // Remeasure after paint so Overview Status/earn rows get full height
+  requestAnimationFrame(() => {
+    try {
+      positionStarsSheet(sheet);
+    } catch (_) {}
+    requestAnimationFrame(() => {
+      try {
+        positionStarsSheet(sheet);
+      } catch (_) {}
+    });
+  });
   if (bd) {
     bd.hidden = false;
     bd.removeAttribute("hidden");
@@ -5533,11 +5690,26 @@ function clearGiftStripLongPress() {
 }
 
 /**
+ * Settings: swipe/drag partner video to Next.
+ * Default on — opt out in Match prefs → Controls.
+ * @returns {boolean}
+ */
+function swipeSkipEnabled() {
+  try {
+    return loadPrefs().swipeSkip !== false;
+  } catch (_) {
+    return true;
+  }
+}
+
+/**
  * Swipe left or right on partner video → Next (skip conversationalist).
  * Does not run on pure friend calls (no Next button).
  * Coordinates with long-press gift strip (horizontal drag cancels long-press).
+ * Gated by swipeSkipEnabled() (Settings → Match prefs).
  */
 function canSwipeSkipPartner() {
+  if (!swipeSkipEnabled()) return false;
   if (!matched && !inFriendCall) return false;
   // Match Next button policy: pure 1v1 friend call has no Next
   const pureFriend = inFriendCall && matchMode === "friend" && !trioBrowse;
@@ -5548,11 +5720,91 @@ function canSwipeSkipPartner() {
   return true;
 }
 
+function syncSwipeSkipToggle() {
+  const chk = $("chk-swipe-skip");
+  if (chk) chk.checked = swipeSkipEnabled();
+}
+
+/** One-shot coach: teach swipe-to-next on first eligible match. */
+const SWIPE_COACH_KEY = "ruletka-swipe-coach-v1";
+let swipeCoachTimer = 0;
+/** Track armed threshold so we haptic once per drag past commit line */
+let swipeArmedHapticFired = false;
+/** Pending Next after swipe — cancellable via Undo chip */
+let swipeUndoTimer = 0;
+let swipePendingSkip = false;
+
+function swipeCoachDone() {
+  try {
+    return localStorage.getItem(SWIPE_COACH_KEY) === "1";
+  } catch {
+    return true;
+  }
+}
+
+function markSwipeCoachDone() {
+  try {
+    localStorage.setItem(SWIPE_COACH_KEY, "1");
+  } catch (_) {}
+}
+
+function dismissSwipeCoachTip() {
+  if (swipeCoachTimer) {
+    clearTimeout(swipeCoachTimer);
+    swipeCoachTimer = 0;
+  }
+  const tip = $("swipe-coach-tip");
+  if (tip?.parentNode) tip.remove();
+}
+
+/**
+ * After first real media path with Next available, teach swipe once.
+ * Skipped when swipe pref is off, pure friend call, or coach already seen.
+ */
+function maybeShowSwipeCoach() {
+  try {
+    if (!swipeSkipEnabled()) return;
+    if (swipeCoachDone()) return;
+    if (!canSwipeSkipPartner()) return;
+    if ($("swipe-coach-tip")) return;
+    // Prefer stranger roulette / party paths over pure friend
+    if (matchMode === "friend" && inFriendCall && !trioBrowse) return;
+
+    const body =
+      _t("swipe.coachBody") ||
+      "Swipe left or right on their video for the next person. Tap for friend / block / report.";
+    const tip = document.createElement("div");
+    tip.id = "swipe-coach-tip";
+    tip.className = "weak-conn-tip swipe-coach-tip";
+    tip.setAttribute("role", "status");
+    tip.style.pointerEvents = "auto";
+    tip.innerHTML = `
+      <span class="swipe-coach-arrows" aria-hidden="true">‹ ›</span>
+      <span>${escapeHtml(body)}</span>
+      <button type="button" class="pill tight accent" id="btn-swipe-coach-ok">${escapeHtml(
+        _t("swipe.coachGotIt") || _t("pwa.iosGotIt") || "Got it"
+      )}</button>`;
+    document.body.appendChild(tip);
+    const dismiss = () => {
+      markSwipeCoachDone();
+      dismissSwipeCoachTip();
+    };
+    $("btn-swipe-coach-ok")?.addEventListener("click", dismiss);
+    tip.addEventListener("click", (e) => {
+      if (e.target?.id === "btn-swipe-coach-ok") return;
+      /* keep open unless button */
+    });
+    if (swipeCoachTimer) clearTimeout(swipeCoachTimer);
+    swipeCoachTimer = setTimeout(dismiss, 9000);
+    trackEvent("swipe_coach_show", { mode: matchMode || "solo" });
+  } catch (_) {}
+}
+
 function partnerSwipeChromeSelector() {
   return (
     ".side-rail, .tile-dock, .tile-floor, .partner-menu, .gift-strip, " +
     ".debate-overlay, .debate-mobile-bar, .debate-card, " +
-    ".swipe-skip-hint, button, a, input, select, textarea, label, " +
+    ".swipe-skip-hint, .swipe-edge-glow, button, a, input, select, textarea, label, " +
     ".stars-badge, .tile-corner-btn, .tile-tag, .chat-panel"
   );
 }
@@ -5564,10 +5816,13 @@ function resetPartnerSwipeVisual() {
     "is-swiping",
     "swipe-exit-left",
     "swipe-exit-right",
-    "swipe-armed"
+    "swipe-armed",
+    "is-swipe-left",
+    "is-swipe-right"
   );
   tile.style.removeProperty("--swipe-x");
   tile.style.removeProperty("--swipe-o");
+  swipeArmedHapticFired = false;
   const hint = $("swipe-skip-hint");
   if (hint) {
     hint.hidden = true;
@@ -5582,17 +5837,30 @@ function applyPartnerSwipeVisual(dx, width) {
   const max = Math.max(120, width * 0.45);
   const clamped = Math.max(-max, Math.min(max, dx));
   const progress = Math.min(1, Math.abs(clamped) / Math.max(72, width * 0.22));
+  const armed = progress >= 0.92;
+  const wasArmed = tile.classList.contains("swipe-armed");
   tile.classList.add("is-swiping");
-  tile.classList.toggle("swipe-armed", progress >= 0.92);
+  tile.classList.toggle("swipe-armed", armed);
+  tile.classList.toggle("is-swipe-left", clamped < 0);
+  tile.classList.toggle("is-swipe-right", clamped > 0);
   tile.style.setProperty("--swipe-x", `${clamped.toFixed(1)}px`);
   tile.style.setProperty("--swipe-o", String(1 - progress * 0.28));
+  // Haptic tick once when crossing the commit threshold
+  if (armed && !wasArmed && !swipeArmedHapticFired) {
+    swipeArmedHapticFired = true;
+    try {
+      navigator.vibrate?.(12);
+    } catch (_) {}
+  } else if (!armed) {
+    swipeArmedHapticFired = false;
+  }
   const hint = $("swipe-skip-hint");
   if (hint) {
     hint.hidden = false;
     hint.removeAttribute("hidden");
     hint.classList.toggle("is-left", clamped < 0);
     hint.classList.toggle("is-right", clamped > 0);
-    hint.classList.toggle("is-armed", progress >= 0.92);
+    hint.classList.toggle("is-armed", armed);
     const lab = hint.querySelector(".swipe-skip-label");
     if (lab) {
       lab.textContent =
@@ -5601,34 +5869,139 @@ function applyPartnerSwipeVisual(dx, width) {
   }
 }
 
+function clearSwipeUndo() {
+  if (swipeUndoTimer) {
+    clearTimeout(swipeUndoTimer);
+    swipeUndoTimer = 0;
+  }
+  swipePendingSkip = false;
+  const tip = $("swipe-undo-tip");
+  if (tip?.parentNode) tip.remove();
+}
+
+/**
+ * Cancel a pending swipe-skip (Undo) — partner stays, video snaps back.
+ */
+function cancelSwipeSkipUndo(reason) {
+  if (!swipePendingSkip) return;
+  clearSwipeUndo();
+  const tile = $("tile-remote");
+  if (tile) {
+    tile.classList.remove(
+      "swipe-exit-left",
+      "swipe-exit-right",
+      "is-swipe-left",
+      "is-swipe-right"
+    );
+    tile.classList.add("swipe-snapback");
+    tile.style.setProperty("--swipe-x", "0px");
+    tile.style.setProperty("--swipe-o", "1");
+    setTimeout(() => {
+      tile.classList.remove("swipe-snapback");
+      resetPartnerSwipeVisual();
+    }, 180);
+  } else {
+    resetPartnerSwipeVisual();
+  }
+  swipeSkipSuppressClick = false;
+  giftStripSuppressClick = false;
+  trackEvent("swipe_undo", { reason: reason || "tap" });
+  try {
+    setStatus(_t("swipe.undoDone") || "Staying with this person");
+  } catch (_) {}
+}
+
+function showSwipeUndoTip(dir) {
+  clearSwipeUndo();
+  swipePendingSkip = true;
+  try {
+    if ($("swipe-undo-tip")) $("swipe-undo-tip").remove();
+  } catch (_) {}
+  const tip = document.createElement("div");
+  tip.id = "swipe-undo-tip";
+  tip.className = "weak-conn-tip swipe-undo-tip";
+  tip.setAttribute("role", "status");
+  tip.style.pointerEvents = "auto";
+  const label =
+    _t("swipe.undoHint") || "Next person…";
+  tip.innerHTML = `
+    <span>${escapeHtml(label)}</span>
+    <button type="button" class="pill tight accent" id="btn-swipe-undo">${escapeHtml(
+      _t("swipe.undo") || "Undo"
+    )}</button>`;
+  document.body.appendChild(tip);
+  $("btn-swipe-undo")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    cancelSwipeSkipUndo("button");
+  });
+  trackEvent("swipe_undo_shown", { dir: dir < 0 ? "left" : "right" });
+}
+
 function commitPartnerSwipeSkip(dir) {
   const tile = $("tile-remote");
+  // Nested commit while undo pending — force previous through
+  if (swipePendingSkip) {
+    clearSwipeUndo();
+  }
   swipeSkipSuppressClick = true;
   giftStripSuppressClick = true;
   clearGiftStripLongPress();
   try {
     giftStripClose();
   } catch (_) {}
+  try {
+    dismissSwipeCoachTip();
+    markSwipeCoachDone();
+  } catch (_) {}
   if (tile) {
     tile.classList.remove("is-swiping", "swipe-armed");
     tile.classList.add(dir < 0 ? "swipe-exit-left" : "swipe-exit-right");
+    tile.classList.toggle("is-swipe-left", dir < 0);
+    tile.classList.toggle("is-swipe-right", dir > 0);
   }
+  // Stronger commit pulse (armed tick already fired if they crossed threshold)
   try {
-    navigator.vibrate?.(18);
+    navigator.vibrate?.([10, 30, 22]);
   } catch (_) {}
-  trackEvent("swipe_skip", { dir: dir < 0 ? "left" : "right" });
-  // Fire Next after a short fly-off so it feels intentional
+  trackEvent("swipe_skip", {
+    dir: dir < 0 ? "left" : "right",
+    undo_ms: 1000,
+  });
+  const reduceMotion =
+    typeof matchMedia === "function" &&
+    matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // Brief fly-off, then Undo window before Next
+  const flyMs = reduceMotion ? 40 : 160;
   setTimeout(() => {
-    resetPartnerSwipeVisual();
-    const next = $("btn-next");
-    if (next && !next.hidden) {
-      next.click();
-    }
-    // Allow menu clicks again shortly after
-    setTimeout(() => {
+    if (!canSwipeSkipPartner() && !matched) {
+      // Call already ended
+      resetPartnerSwipeVisual();
       swipeSkipSuppressClick = false;
-    }, 320);
-  }, 160);
+      return;
+    }
+    showSwipeUndoTip(dir);
+    const undoMs = reduceMotion ? 700 : 1000;
+    swipeUndoTimer = setTimeout(() => {
+      swipeUndoTimer = 0;
+      if (!swipePendingSkip) return;
+      swipePendingSkip = false;
+      try {
+        $("swipe-undo-tip")?.remove();
+      } catch (_) {}
+      resetPartnerSwipeVisual();
+      const next = $("btn-next");
+      if (next && !next.hidden && canSwipeSkipPartner()) {
+        next.click();
+      } else if (next && !next.hidden && matched) {
+        // still fire Next if matched (canSwipe may race)
+        next.click();
+      }
+      setTimeout(() => {
+        swipeSkipSuppressClick = false;
+      }, 320);
+    }, undoMs);
+  }, flyMs);
 }
 
 function wirePartnerSwipe() {
@@ -5644,30 +6017,56 @@ function wirePartnerSwipe() {
     }
     if (st.id != null && e?.pointerId != null && e.pointerId !== st.id) return;
     st.tracking = false;
+    try {
+      if (st.id != null) tile.releasePointerCapture?.(st.id);
+    } catch (_) {}
     const dx = (e?.clientX != null ? e.clientX : st.lastX) - st.x0;
     const dy = (e?.clientY != null ? e.clientY : st.lastY) - st.y0;
     const dt = Math.max(1, Date.now() - st.t0);
     const w = tile.clientWidth || 320;
-    const distOk = Math.abs(dx) >= Math.max(64, w * 0.18);
+    // Mouse/trackpad: stricter (fewer accidental skips while clicking UI)
+    const isMouse = st.pointerType === "mouse";
+    const distMin = isMouse
+      ? Math.max(96, w * 0.26)
+      : Math.max(64, w * 0.18);
+    const distOk = Math.abs(dx) >= distMin;
     const velocity = Math.abs(dx) / dt; // px/ms
-    const flickOk = Math.abs(dx) >= 42 && velocity > 0.55;
-    const horizontal = Math.abs(dx) > Math.abs(dy) * 1.05;
+    const flickOk = isMouse
+      ? Math.abs(dx) >= 72 && velocity > 0.85
+      : Math.abs(dx) >= 42 && velocity > 0.55;
+    const horizontal = isMouse
+      ? Math.abs(dx) > Math.abs(dy) * 1.45
+      : Math.abs(dx) > Math.abs(dy) * 1.05;
     const giftOpen =
       $("gift-strip") &&
       !$("gift-strip").hidden &&
       $("gift-strip").classList.contains("is-open");
-    if (
+    const willCommit =
       !cancelled &&
       !giftOpen &&
       st.moved &&
       horizontal &&
       (distOk || flickOk) &&
-      canSwipeSkipPartner()
-    ) {
+      canSwipeSkipPartner() &&
+      !swipePendingSkip;
+    if (willCommit) {
       commitPartnerSwipeSkip(dx < 0 ? -1 : 1);
     } else {
       // Spring back
       if (st.moved) {
+        const wasArmed = tile.classList.contains("swipe-armed");
+        trackEvent("swipe_cancel", {
+          reason: cancelled
+            ? "cancel"
+            : giftOpen
+              ? "gift"
+              : !horizontal
+                ? "vertical"
+                : "short",
+          armed: wasArmed ? 1 : 0,
+          mouse: isMouse ? 1 : 0,
+          dx: Math.round(dx),
+        });
         tile.classList.add("swipe-snapback");
         tile.style.setProperty("--swipe-x", "0px");
         tile.style.setProperty("--swipe-o", "1");
@@ -5677,7 +6076,7 @@ function wirePartnerSwipe() {
         }, 180);
         // Drop suppress after this gesture so a later tap can open the menu
         setTimeout(() => {
-          if (!partnerSwipe) {
+          if (!partnerSwipe && !swipePendingSkip) {
             swipeSkipSuppressClick = false;
             giftStripSuppressClick = false;
           }
@@ -5695,6 +6094,7 @@ function wirePartnerSwipe() {
       if (e.button != null && e.button !== 0) return;
       if (e.target?.closest?.(partnerSwipeChromeSelector())) return;
       if (!canSwipeSkipPartner()) return;
+      if (swipePendingSkip) return; // undo window active
       // Don't start swipe while gift strip is open (tap outside closes it)
       const gs = $("gift-strip");
       if (gs && !gs.hidden && gs.classList.contains("is-open")) return;
@@ -5707,6 +6107,7 @@ function wirePartnerSwipe() {
         t0: Date.now(),
         tracking: true,
         moved: false,
+        pointerType: e.pointerType || "touch",
       };
     },
     { passive: true }
@@ -5724,15 +6125,38 @@ function wirePartnerSwipe() {
       const dy = e.clientY - st.y0;
       // Cancel gift long-press once the finger drifts
       if (Math.abs(dx) + Math.abs(dy) > 12) clearGiftStripLongPress();
-      // Mostly vertical — let it go (no skip visual)
-      if (Math.abs(dy) > 28 && Math.abs(dy) > Math.abs(dx) * 1.2) {
+      const isMouse = st.pointerType === "mouse";
+      // Mostly vertical — let it go (no skip visual). Mouse: cancel earlier.
+      const vertCancel =
+        isMouse
+          ? Math.abs(dy) > 20 && Math.abs(dy) > Math.abs(dx) * 1.15
+          : Math.abs(dy) > 28 && Math.abs(dy) > Math.abs(dx) * 1.2;
+      if (vertCancel) {
+        if (st.moved) {
+          trackEvent("swipe_cancel", {
+            reason: "vertical",
+            armed: 0,
+            mouse: isMouse ? 1 : 0,
+            dx: Math.round(dx),
+          });
+        }
         st.tracking = false;
         resetPartnerSwipeVisual();
         partnerSwipe = null;
         return;
       }
-      if (Math.abs(dx) < 10) return;
-      st.moved = true;
+      const startDx = isMouse ? 14 : 10;
+      if (Math.abs(dx) < startDx) return;
+      if (!st.moved) {
+        st.moved = true;
+        try {
+          tile.setPointerCapture?.(e.pointerId);
+        } catch (_) {}
+        trackEvent("swipe_start", {
+          mouse: isMouse ? 1 : 0,
+          mode: matchMode || "solo",
+        });
+      }
       // Suppress partner-menu click for this gesture
       giftStripSuppressClick = true;
       swipeSkipSuppressClick = true;
@@ -6220,6 +6644,29 @@ function syncStarUnlockBar(pct, secs, need, leftStr, early) {
   bar.setAttribute("role", "progressbar");
 }
 
+/** Initial letter for post-call partner avatar chip. */
+function partnerInitial(name) {
+  const n = String(name || "").trim();
+  if (!n) return "★";
+  try {
+    return n.charAt(0).toUpperCase();
+  } catch {
+    return "★";
+  }
+}
+
+/** Compact duration for post-call chips (e.g. 12:34 or 5m). */
+function formatPostCallDuration(secs) {
+  const s = Math.max(0, Math.floor(Number(secs) || 0));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  if (m < 60) return r ? `${m}:${String(r).padStart(2, "0")}` : `${m}m`;
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  return `${h}h ${mm}m`;
+}
+
 /**
  * After RatePrompt from hub (chat long enough): gift 1–3★ (by your tier) or skip.
  * First 3 unique partners: 5 min · after that: 15 min.
@@ -6231,7 +6678,13 @@ function showStarReviewPrompt(msg) {
     const uid = String(msg?.user_id || "").trim();
     if (!uid) return;
     if ($("star-review-toast")) return;
-    const name = String(msg?.name || lastMatchMeta?.name || "Partner").trim() || "Partner";
+    // Star review wins — hide competing post-call cards
+    try {
+      $("post-match-friend-nudge")?.remove();
+      $("post-match-safety-nudge")?.remove();
+    } catch (_) {}
+    const name =
+      String(msg?.name || lastMatchMeta?.name || "Partner").trim() || "Partner";
     const minReq = Math.max(
       60,
       Number(msg?.min_secs) || starRateMinSecs || STAR_MIN_SECS
@@ -6240,94 +6693,136 @@ function showStarReviewPrompt(msg) {
     const mins = Math.max(1, Math.floor(secs / 60));
     const hourChat = secs >= 3600;
     const early = !!(msg?.early || minReq < STAR_MIN_SECS);
-    // Prefer server max_gift; fall back to local tier
     let maxGift = Math.max(1, Math.min(3, Number(msg?.max_gift) || 0));
     if (!maxGift || maxGift < 1) {
-      maxGift = reportWeightForStars(myTrustEffective || myTrust); // effective tier
+      maxGift = reportWeightForStars(myTrustEffective || myTrust);
     }
     maxGift = Math.max(1, Math.min(3, maxGift));
     const theyPraised = !!(recentPraiseBy && recentPraiseBy[uid]);
+    const flag = normalizeFlagCode(
+      msg?.flag || lastMatchMeta?.flag || ""
+    );
+    const flagEm = flagEmoji(flag);
+    const durLabel = formatPostCallDuration(secs);
+    const ini = partnerInitial(name);
+
     const toast = document.createElement("div");
     toast.id = "star-review-toast";
     toast.className =
-      "friend-soft-toast star-review-toast" +
+      "friend-soft-toast post-call-card star-review-toast" +
       (theyPraised ? " is-reciprocity" : "");
     toast.setAttribute("role", "dialog");
+    toast.setAttribute("aria-modal", "true");
+    toast.setAttribute("aria-labelledby", "star-review-title");
     toast.style.pointerEvents = "auto";
-    let body =
-      maxGift >= 3
-        ? _t("stars.reviewBodySenior", { name, m: mins, n: maxGift }) ||
-          `${name} · ${mins}+ min. As a senior you can gift up to ${maxGift}★.`
+
+    let body = theyPraised
+      ? _t("stars.reviewBodyReciprocity", { name, m: mins }) ||
+        `They praised you earlier — gift back?`
+      : maxGift >= 3
+        ? _t("stars.reviewBodySeniorShort", { n: maxGift }) ||
+          `You can gift up to ${maxGift}★ (senior).`
         : maxGift >= 2
-          ? _t("stars.reviewBodyTrusted", { name, m: mins, n: maxGift }) ||
-            `${name} · ${mins}+ min. As trusted you can gift up to ${maxGift}★.`
+          ? _t("stars.reviewBodyTrustedShort", { n: maxGift }) ||
+            `You can gift up to ${maxGift}★ (trusted).`
           : hourChat
-            ? _t("stars.reviewBodyHour", { name, m: mins }) ||
-              `${name} · you talked ${mins}+ min. You both already earned a star for 1 hour — gift an extra?`
+            ? _t("stars.reviewBodyHourShort") ||
+              "Hour bonus already counted — gift an extra?"
             : early
-              ? _t("stars.reviewBodyEarly", { name, m: mins }) ||
-                `${name} · ${mins}+ min (first chats unlock earlier). Give a star?`
-              : _t("stars.reviewBody", { name, m: mins }) ||
-                `${name} · you talked ${mins}+ min. Give a star?`;
-    if (theyPraised) {
-      body =
-        (_t("stars.reviewBodyReciprocity", { name, m: mins }) ||
-          `${name} praised you earlier · ${mins}+ min — gift back?`) +
-        (maxGift > 1 ? ` (up to ${maxGift}★)` : "");
-    }
+              ? _t("stars.reviewBodyEarlyShort") ||
+                "First chats unlock earlier — gift a star?"
+              : _t("stars.reviewBodyShort") ||
+                "Nice chat — gift a star to raise their reputation?";
+
     const title = theyPraised
       ? _t("stars.reviewTitleReciprocity") || "Gift back?"
       : maxGift >= 2
-        ? _t("stars.reviewTitleMulti", { n: maxGift }) || `Gift stars (up to ${maxGift}★)?`
+        ? _t("stars.reviewTitleMulti", { n: maxGift }) ||
+          `Gift up to ${maxGift}★?`
         : hourChat
           ? _t("stars.reviewTitleExtra") || "Gift an extra star?"
           : early
-            ? _t("stars.reviewTitleEarly") || "Rate this chat? (early unlock)"
-            : _t("stars.reviewTitle") || "Rate this chat?";
+            ? _t("stars.reviewTitleEarly") || "Rate this chat?"
+            : _t("stars.reviewTitle") || "How was the chat?";
+
+    // Gift buttons: primary full-width when single; row when multi
     let giftBtns = "";
     for (let a = 1; a <= maxGift; a++) {
       const label =
         theyPraised && a === 1
           ? _t("stars.giftBack1") || "★ Gift back"
-          : a === 1
-            ? _t("stars.give1") || "★ 1"
-            : a === 2
-              ? _t("stars.give2") || "★★ 2"
-              : _t("stars.give3") || "★★★ 3";
-      const primary = theyPraised && a === 1 ? " accent" : "";
-      giftBtns += `<button type="button" class="pill tight${primary} btn-star-yes" data-star-amount="${a}">${escapeHtml(
+          : a === 1 && maxGift === 1
+            ? _t("stars.giveStar") || "★ Gift a star"
+            : a === 1
+              ? _t("stars.give1") || "★ 1"
+              : a === 2
+                ? _t("stars.give2") || "★★ 2"
+                : _t("stars.give3") || "★★★ 3";
+      const cls =
+        a === 1
+          ? "pill tight btn-star-yes post-call-primary"
+          : "pill tight btn-star-yes";
+      giftBtns += `<button type="button" class="${cls}" data-star-amount="${a}">${escapeHtml(
         label
       )}</button>`;
     }
-    // Reciprocity: gift buttons first (primary CTA), then thanks / skip
-    toast.innerHTML = theyPraised
-      ? `
-      <strong>${escapeHtml(title)}</strong>
-      <span>${escapeHtml(body)}</span>
-      <div class="export-nudge-actions star-review-actions" style="margin-top:0.45rem">
-        ${giftBtns}
-        <button type="button" class="pill tight ghost" id="btn-star-thanks">${escapeHtml(
-          _t("stars.thanks") || "Thanks"
-        )}</button>
-        <button type="button" class="pill tight ghost" id="btn-star-no">${escapeHtml(
-          _t("stars.skip") || "No star"
-        )}</button>
-      </div>`
-      : `
-      <strong>${escapeHtml(title)}</strong>
-      <span>${escapeHtml(body)}</span>
-      <div class="export-nudge-actions star-review-actions" style="margin-top:0.45rem">
-        <button type="button" class="pill tight ghost" id="btn-star-no">${escapeHtml(
-          _t("stars.skip") || "No star"
-        )}</button>
-        <button type="button" class="pill tight ghost" id="btn-star-thanks">${escapeHtml(
-          _t("stars.thanks") || "Thanks"
-        )}</button>
-        ${giftBtns}
+
+    toast.innerHTML = `
+      <div class="post-call-head">
+        <span class="post-call-avatar" aria-hidden="true">${escapeHtml(ini)}</span>
+        <div class="post-call-head-copy">
+          <strong id="star-review-title">${escapeHtml(title)}</strong>
+          <div class="post-call-meta">
+            <span class="post-call-name">${escapeHtml(name)}${
+              flagEm ? ` ${flagEm}` : ""
+            }</span>
+            <span class="post-call-dur" title="${escapeHtml(
+              _t("stars.reviewDuration") || "Chat length"
+            )}">${escapeHtml(durLabel)}</span>
+            ${
+              early
+                ? `<span class="post-call-badge">${escapeHtml(
+                    _t("stars.reviewEarlyBadge") || "Early"
+                  )}</span>`
+                : ""
+            }
+            ${
+              theyPraised
+                ? `<span class="post-call-badge is-warm">${escapeHtml(
+                    _t("stars.reviewPraisedBadge") || "They praised you"
+                  )}</span>`
+                : ""
+            }
+          </div>
+        </div>
+      </div>
+      <p class="post-call-body">${escapeHtml(body)}</p>
+      <div class="export-nudge-actions star-review-actions post-call-actions">
+        <div class="post-call-gift-row">${giftBtns}</div>
+        <div class="post-call-secondary-row">
+          <button type="button" class="pill tight ghost" id="btn-star-thanks">${escapeHtml(
+            _t("stars.thanks") || "Thanks"
+          )}</button>
+          <button type="button" class="pill tight ghost" id="btn-star-no">${escapeHtml(
+            _t("stars.skip") || "Skip"
+          )}</button>
+        </div>
       </div>`;
     document.body.appendChild(toast);
+    // Focus primary gift for keyboard / a11y
+    try {
+      toast.querySelector("[data-star-amount]")?.focus?.();
+    } catch (_) {}
+
     const dismiss = () => {
       if (toast.parentNode) toast.remove();
+    };
+    const afterRate = (kind) => {
+      setTimeout(() => {
+        try {
+          maybeShowPostMatchFriendNudge(kind, { force: true });
+        } catch (_) {}
+      }, kind === "after_star_gift" ? 500 : 350);
     };
     const sendRate = (amount, thanks) => {
       const star = amount > 0;
@@ -6355,38 +6850,29 @@ function showStarReviewPrompt(msg) {
             : _t("stars.given") || "Star given"
           : thanks
             ? _t("stars.thanksSent") || "Thanks sent"
-            : _t("stars.skipped") || "No star"
+            : _t("stars.skipped") || "Skipped"
       );
     };
     $("btn-star-no")?.addEventListener("click", () => {
       sendRate(0, false);
-      setTimeout(() => {
-        try {
-          maybeShowPostMatchFriendNudge("after_star_review", { force: true });
-        } catch (_) {}
-      }, 400);
+      afterRate("after_star_review");
     });
     $("btn-star-thanks")?.addEventListener("click", () => {
       sendRate(0, true);
-      setTimeout(() => {
-        try {
-          maybeShowPostMatchFriendNudge("after_star_thanks", { force: true });
-        } catch (_) {}
-      }, 400);
+      afterRate("after_star_thanks");
     });
     toast.querySelectorAll("[data-star-amount]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        const a = Math.max(1, Math.min(3, Number(btn.getAttribute("data-star-amount")) || 1));
+        const a = Math.max(
+          1,
+          Math.min(3, Number(btn.getAttribute("data-star-amount")) || 1)
+        );
         sendRate(a, false);
-        setTimeout(() => {
-          try {
-            maybeShowPostMatchFriendNudge("after_star_gift", { force: true });
-          } catch (_) {}
-        }, 600);
+        afterRate("after_star_gift");
       });
     });
-    // Auto-dismiss without rating after 50s (user can only rate while pending on server)
     setTimeout(() => {
+      if (!toast.parentNode) return;
       dismiss();
       try {
         maybeShowPostMatchFriendNudge("after_star_timeout", { force: true });
@@ -6441,6 +6927,10 @@ function schedulePostMatchSafetyNudge(reason) {
   } catch (_) {}
 }
 
+/**
+ * Safety-only card when we cannot show the friend card (no code / already friends).
+ * Slim: Report · Block · Dismiss — no 5-button wall.
+ */
 function maybeShowPostMatchSafetyNudge(reason) {
   try {
     const snap = postMatchSafetySnap;
@@ -6448,64 +6938,73 @@ function maybeShowPostMatchSafetyNudge(reason) {
     if (!uid) return;
     if (safetyNudgeShown.has(uid)) return;
     if ((blockedCache || []).includes(uid)) return;
-    if ($("post-match-safety-nudge")) return;
-    // Don't fight star review / friend nudge — wait a beat
-    if ($("star-review-toast") || $("post-match-friend-nudge")) {
+    if ($("post-match-safety-nudge") || $("post-match-friend-nudge")) return;
+    // Wait for star review; friend card owns safety when it will show
+    if ($("star-review-toast")) {
       postMatchSafetyNudgeTimer = setTimeout(() => {
         postMatchSafetyNudgeTimer = 0;
         maybeShowPostMatchSafetyNudge(reason || snap?.reason);
       }, 2800);
       return;
     }
-    safetyNudgeShown.add(uid);
-    postMatchSafetySnap = null;
-    const name = snap?.name || "Partner";
+    // Friend funnel will include Report/Block — skip separate safety card
     const code = String(snap?.friend_code || "").trim().toUpperCase();
     const canAddFriend =
       !!code &&
       !isPartnerAlreadyFriend(uid, code) &&
-      !isPartnerRequestPending(uid, code);
+      !isPartnerRequestPending(uid, code) &&
+      !friendNudgeShown.has(uid || code);
+    if (canAddFriend) {
+      // Friend nudge will carry soft safety actions
+      return;
+    }
+    safetyNudgeShown.add(uid);
+    postMatchSafetySnap = null;
+    const name = snap?.name || "Partner";
+    const ini = partnerInitial(name);
     const toast = document.createElement("div");
     toast.id = "post-match-safety-nudge";
     toast.className =
-      "friend-soft-toast post-match-friend-nudge post-match-safety-nudge is-force";
+      "friend-soft-toast post-call-card post-match-friend-nudge post-match-safety-nudge is-force";
     toast.setAttribute("role", "dialog");
+    toast.setAttribute("aria-modal", "true");
     toast.style.pointerEvents = "auto";
-    const addFriendBtn = canAddFriend
-      ? `<button type="button" class="pill tight accent post-match-primary" id="btn-post-safety-add">${escapeHtml(
-          _t("friends.add") || "Add friend"
-        )}</button>`
-      : "";
     toast.innerHTML = `
-      <strong>${escapeHtml(
-        _t("friends.safetyNudgeTitle") || "Last partner"
-      )}</strong>
-      <span>${escapeHtml(
-        canAddFriend
-          ? _t("friends.safetyNudgeBodyAdd", { n: name }) ||
-              `${name} — Add as friend to Call later, or Report / Block if needed. Also under Friends → Call history.`
-          : _t("friends.safetyNudgeBody", { n: name }) ||
-              `${name} — Report or Block if they broke the rules. Also under Friends → Call history → All.`
-      )}</span>
-      <div class="export-nudge-actions post-match-actions post-match-actions-force" style="margin-top:0.55rem">
-        ${addFriendBtn}
-        <button type="button" class="pill tight danger" id="btn-post-safety-report">${escapeHtml(
-          _t("partnerMenu.reportNext") || "Report · Block"
-        )}</button>
-        <button type="button" class="pill tight danger" id="btn-post-safety-block">${escapeHtml(
-          _t("friends.blockFromHistory") || "Block"
-        )}</button>
-        <button type="button" class="pill tight ghost" id="btn-post-safety-history">${escapeHtml(
-          _t("friends.openHistory") || "Call history"
-        )}</button>
-        <button type="button" class="pill tight ghost" id="btn-post-safety-dismiss">${escapeHtml(
-          _t("friends.postMatchNo") || "Dismiss"
-        )}</button>
+      <div class="post-call-head">
+        <span class="post-call-avatar is-safety" aria-hidden="true">${escapeHtml(
+          ini
+        )}</span>
+        <div class="post-call-head-copy">
+          <strong>${escapeHtml(
+            _t("friends.safetyNudgeTitle") || "Call ended"
+          )}</strong>
+          <div class="post-call-meta">
+            <span class="post-call-name">${escapeHtml(name)}</span>
+          </div>
+        </div>
+      </div>
+      <p class="post-call-body">${escapeHtml(
+        _t("friends.safetyNudgeBodyShort", { n: name }) ||
+          "Report or block if something was wrong. Otherwise dismiss."
+      )}</p>
+      <div class="export-nudge-actions post-call-actions post-match-actions">
+        <div class="post-call-secondary-row post-call-safety-row">
+          <button type="button" class="pill tight danger" id="btn-post-safety-report">${escapeHtml(
+            _t("partnerMenu.report") || "Report"
+          )}</button>
+          <button type="button" class="pill tight danger" id="btn-post-safety-block">${escapeHtml(
+            _t("friends.blockFromHistory") || "Block"
+          )}</button>
+          <button type="button" class="pill tight ghost" id="btn-post-safety-dismiss">${escapeHtml(
+            _t("friends.postMatchDone") || "Done"
+          )}</button>
+        </div>
       </div>`;
     document.body.appendChild(toast);
     trackEvent("safety_nudge_show", {
       reason: reason || snap?.reason || "",
-      can_add: canAddFriend ? 1 : 0,
+      can_add: 0,
+      slim: 1,
     });
     const dismiss = () => {
       if (toast.parentNode) toast.remove();
@@ -6514,74 +7013,15 @@ function maybeShowPostMatchSafetyNudge(reason) {
       trackEvent("safety_nudge_dismiss");
       dismiss();
     });
-    $("btn-post-safety-history")?.addEventListener("click", () => {
-      trackEvent("safety_nudge_history");
-      dismiss();
-      try {
-        openFriends();
-        historyFilterMode = "all";
-        try {
-          syncHistoryFilterUi();
-        } catch (_) {}
-        setFriendsSheetTab("history");
-        renderHistoryList();
-      } catch (_) {}
+    // Report → reason picker; Block via shared wire
+    wirePostCallSafetyActions(toast, {
+      uid,
+      name,
+      code: snap?.friend_code || "",
+      short_id: snap?.short_id || "",
+      from: "safety",
     });
-    $("btn-post-safety-add")?.addEventListener("click", () => {
-      trackEvent("safety_nudge_add_friend");
-      try {
-        const ok = requestAddFriend(code);
-        if (ok) {
-          try {
-            friendNudgeShown.add(uid || code);
-          } catch (_) {}
-          // Morph into request-sent step (same funnel as friend nudge)
-          try {
-            showPostMatchFriendSentStep(toast, { name, code });
-            return;
-          } catch (_) {}
-        }
-      } catch (_) {}
-      dismiss();
-    });
-    $("btn-post-safety-block")?.addEventListener("click", () => {
-      trackEvent("safety_nudge_block");
-      dismiss();
-      try {
-        blockUserId(uid, { fromHistory: true, removeFromHistory: false });
-      } catch (_) {}
-    });
-    $("btn-post-safety-report")?.addEventListener("click", () => {
-      trackEvent("safety_nudge_report");
-      dismiss();
-      try {
-        // Offline report + block (no live match required)
-        saveLocalReport({
-          t: Date.now(),
-          user_id: uid,
-          name: snap?.name || "",
-          short_id: snap?.short_id || "",
-          friend_code: snap?.friend_code || "",
-          reason: "explicit",
-        });
-        send({
-          type: "report_user",
-          user_id: uid,
-          reason: "explicit",
-        });
-        blockUserId(uid, {
-          silent: true,
-          skipToast: false,
-          fromHistory: true,
-          removeFromHistory: false,
-        });
-        setStatus(
-          _t("partnerMenu.reportOkFull") ||
-            "Reported · blocked. You will not match them again."
-        );
-      } catch (_) {}
-    });
-    setTimeout(dismiss, 28000);
+    setTimeout(dismiss, 22000);
   } catch (_) {}
 }
 
@@ -6631,27 +7071,37 @@ function schedulePostMatchFriendNudge(reason) {
 function showPostMatchFriendSentStep(toast, { name, code }) {
   if (!toast || !toast.parentNode) return;
   toast.classList.add("is-sent");
+  toast.classList.add("post-call-card");
+  const ini = partnerInitial(name);
   toast.innerHTML = `
-      <strong>${escapeHtml(
-        _t("friends.postMatchSentTitle") || "Request sent"
-      )}</strong>
-      <span>${escapeHtml(
+      <div class="post-call-head">
+        <span class="post-call-avatar is-ok" aria-hidden="true">✓</span>
+        <div class="post-call-head-copy">
+          <strong>${escapeHtml(
+            _t("friends.postMatchSentTitle") || "Request sent"
+          )}</strong>
+          <div class="post-call-meta">
+            <span class="post-call-name">${escapeHtml(name || "them")}</span>
+          </div>
+        </div>
+      </div>
+      <p class="post-call-body">${escapeHtml(
         _t("friends.postMatchSentBody", { name: name || "them" }) ||
-          `When ${name || "they"} Accept, you’ll both show Online — tap Call back.`
-      )}</span>
+          `When ${name || "they"} Accepts, you’ll both show Online — tap Call.`
+      )}</p>
       <span class="post-match-steps">${escapeHtml(
         _t("friends.postMatchSentSteps") ||
-          "They Accept → you see them Online → Call back"
+          "They Accept → Online → Call back"
       )}</span>
       <span class="post-match-code mono">${escapeHtml(
         (_t("friends.theirCode") || "Code") + ": " + (code || "")
       )}</span>
-      <div class="export-nudge-actions post-match-actions" style="margin-top:0.45rem">
+      <div class="export-nudge-actions post-call-actions post-match-actions">
+        <button type="button" class="pill tight accent post-call-primary" id="btn-post-friend-open">${escapeHtml(
+          _t("friends.open") || "Open Friends"
+        )}</button>
         <button type="button" class="pill tight ghost" id="btn-post-friend-done">${escapeHtml(
           _t("friends.postMatchDone") || "Got it"
-        )}</button>
-        <button type="button" class="pill tight accent" id="btn-post-friend-open">${escapeHtml(
-          _t("friends.open") || "Friends"
         )}</button>
       </div>`;
   const dismiss = () => {
@@ -6672,11 +7122,171 @@ function showPostMatchFriendSentStep(toast, { name, code }) {
   trackEvent("friend_nudge_sent_step");
 }
 
+/**
+ * Submit post-call report + block (offline-safe).
+ * @param {string} reason partner menu reason key
+ */
+function submitPostCallReport(opts) {
+  const uid = String(opts?.uid || "").trim();
+  if (!uid) return;
+  const reason = String(opts?.reason || "explicit").trim() || "explicit";
+  try {
+    saveLocalReport({
+      t: Date.now(),
+      user_id: uid,
+      name: opts?.name || "",
+      short_id: opts?.short_id || "",
+      friend_code: opts?.code || "",
+      reason,
+    });
+    send({ type: "report_user", user_id: uid, reason });
+    blockUserId(uid, {
+      silent: true,
+      skipToast: false,
+      fromHistory: true,
+      removeFromHistory: false,
+    });
+    setStatus(
+      reason === "underage"
+        ? _t("partnerMenu.reportOkUnderage") ||
+            "Underage report sent · blocked"
+        : _t("partnerMenu.reportOkFull") ||
+            "Reported · blocked. You will not match them again."
+    );
+  } catch (_) {}
+}
+
+/** Expand post-call card into a compact reason picker (same reasons as partner menu). */
+function showPostCallReportReasons(toast, meta) {
+  if (!toast || !toast.parentNode || !meta?.uid) return;
+  const reasons = [
+    ["underage", _t("partnerMenu.rUnderage") || "Underage concern"],
+    ["explicit", _t("partnerMenu.rExplicit") || "Explicit content"],
+    ["harassment", _t("partnerMenu.rHarassment") || "Harassment"],
+    ["hate", _t("partnerMenu.rHate") || "Hate / threats"],
+    ["spam", _t("partnerMenu.rSpam") || "Spam / scam"],
+    ["other", _t("partnerMenu.rOther") || "Other"],
+  ];
+  const name = meta.name || "Partner";
+  toast.classList.add("is-report-pick");
+  toast.innerHTML = `
+    <div class="post-call-head">
+      <span class="post-call-avatar is-safety" aria-hidden="true">!</span>
+      <div class="post-call-head-copy">
+        <strong>${escapeHtml(
+          _t("friends.postCallReportTitle") || "Report · Block"
+        )}</strong>
+        <div class="post-call-meta">
+          <span class="post-call-name">${escapeHtml(name)}</span>
+        </div>
+      </div>
+    </div>
+    <p class="post-call-body">${escapeHtml(
+      _t("friends.postCallReportBody") ||
+        "Pick a reason. We block them for you — reports need independent consensus for match bans."
+    )}</p>
+    <div class="post-call-reason-list" role="group">
+      ${reasons
+        .map(
+          ([key, label]) =>
+            `<button type="button" class="pill tight post-call-reason" data-report-reason="${escapeAttr(
+              key
+            )}">${escapeHtml(label)}</button>`
+        )
+        .join("")}
+    </div>
+    <div class="export-nudge-actions post-call-actions">
+      <button type="button" class="pill tight ghost" id="btn-post-report-back">${escapeHtml(
+        _t("partnerMenu.back") || "Back"
+      )}</button>
+    </div>`;
+  const dismiss = () => {
+    if (toast.parentNode) toast.remove();
+  };
+  toast.querySelectorAll("[data-report-reason]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const reason = btn.getAttribute("data-report-reason") || "explicit";
+      trackEvent("friend_nudge_report", { reason });
+      submitPostCallReport({ ...meta, reason });
+      dismiss();
+    });
+  });
+  $("btn-post-report-back")?.addEventListener("click", () => {
+    // Re-open friend/safety card if possible
+    dismiss();
+    try {
+      if (meta._from === "safety") {
+        postMatchSafetySnap = {
+          uid: meta.uid,
+          name: meta.name,
+          short_id: meta.short_id || "",
+          friend_code: meta.code || "",
+          reason: "report_back",
+        };
+        safetyNudgeShown.delete(meta.uid);
+        maybeShowPostMatchSafetyNudge("report_back");
+      } else {
+        friendNudgeShown.delete(meta.uid || meta.code);
+        postMatchFriendSnap = {
+          code: meta.code || "",
+          uid: meta.uid,
+          name: meta.name,
+          sec: meta.sec || POST_MATCH_FRIEND_MIN_SEC,
+          reason: "report_back",
+          key: meta.uid || meta.code,
+        };
+        maybeShowPostMatchFriendNudge("report_back", { force: true });
+      }
+    } catch (_) {}
+  });
+}
+
+/**
+ * Wire Report / Block on a post-call card (friend or safety).
+ */
+function wirePostCallSafetyActions(toast, { uid, name, code, short_id, sec, from }) {
+  if (!toast || !uid) return;
+  const dismiss = () => {
+    if (toast.parentNode) toast.remove();
+  };
+  const meta = {
+    uid,
+    name: name || "",
+    code: code || "",
+    short_id: short_id || "",
+    sec: sec || 0,
+    _from: from || "friend",
+  };
+  toast.querySelector("#btn-post-friend-block")?.addEventListener("click", () => {
+    trackEvent("friend_nudge_block");
+    dismiss();
+    try {
+      blockUserId(uid, { fromHistory: true, removeFromHistory: false });
+    } catch (_) {}
+  });
+  // Safety-only card still has #btn-post-safety-report / block
+  toast.querySelector("#btn-post-safety-block")?.addEventListener("click", () => {
+    trackEvent("safety_nudge_block");
+    dismiss();
+    try {
+      blockUserId(uid, { fromHistory: true, removeFromHistory: false });
+    } catch (_) {}
+  });
+  const openReasons = (evSource) => {
+    trackEvent(evSource || "friend_nudge_report_open");
+    showPostCallReportReasons(toast, meta);
+  };
+  toast
+    .querySelector("#btn-post-friend-report")
+    ?.addEventListener("click", () => openReasons("friend_nudge_report_open"));
+  toast
+    .querySelector("#btn-post-safety-report")
+    ?.addEventListener("click", () => openReasons("safety_nudge_report_open"));
+}
+
 function maybeShowPostMatchFriendNudge(reason, opts = {}) {
   try {
-    // Week-2 retention: always show real toast (not SOFT_POPUPS-gated).
     if (matchMode === "friend" || inFriendCall) return;
-    // Prefer scheduled snapshot (survives stop/next clearing partner fields)
     const snap = postMatchFriendSnap;
     const code = String(
       snap?.code || lastMatchMeta?.friend_code || ""
@@ -6696,12 +7306,17 @@ function maybeShowPostMatchFriendNudge(reason, opts = {}) {
     const key = uid || code;
     if (friendNudgeShown.has(key)) return;
     if ($("post-match-friend-nudge")) return;
-    // If star review is open, wait until it closes (re-schedule once)
     if ($("star-review-toast") && !opts.force) {
       if (!opts.fromSchedule) schedulePostMatchFriendNudge(reason || snap?.reason);
       return;
     }
     friendNudgeShown.add(key);
+    // Friend card owns safety for this partner
+    try {
+      safetyNudgeShown.add(uid || key);
+      postMatchSafetySnap = null;
+      $("post-match-safety-nudge")?.remove();
+    } catch (_) {}
     postMatchFriendSnap = null;
     const name =
       snap?.name ||
@@ -6712,13 +7327,18 @@ function maybeShowPostMatchFriendNudge(reason, opts = {}) {
     const longChat = sec >= 5 * 60;
     const deepChat = sec >= 15 * 60;
     const mins = Math.max(1, Math.floor(sec / 60));
+    const flag = normalizeFlagCode(lastMatchMeta?.flag || "");
+    const flagEm = flagEmoji(flag);
+    const ini = partnerInitial(name);
+    const durLabel = formatPostCallDuration(sec);
     const toast = document.createElement("div");
     toast.id = "post-match-friend-nudge";
     toast.className =
-      "friend-soft-toast post-match-friend-nudge is-force" +
+      "friend-soft-toast post-call-card post-match-friend-nudge is-force" +
       (longChat ? " is-warm" : "") +
       (deepChat ? " is-deep" : "");
     toast.setAttribute("role", "dialog");
+    toast.setAttribute("aria-modal", "true");
     toast.style.pointerEvents = "auto";
     const title = deepChat
       ? _t("friends.postMatchTitleLong") || "Great chat — stay in touch?"
@@ -6726,41 +7346,65 @@ function maybeShowPostMatchFriendNudge(reason, opts = {}) {
         ? _t("friends.postMatchTitleWarm") || "Liked the chat?"
         : _t("friends.postMatchTitle") || "Add as friend?";
     const body = deepChat
-      ? _t("friends.postMatchBodyLong", { name, m: mins }) ||
-        `${name} · ${mins}+ min. Add them to Call later when online.`
+      ? _t("friends.postMatchBodyLongShort", { m: mins }) ||
+        `${mins}+ min together. Add them to Call later when online.`
       : longChat
-        ? _t("friends.postMatchBodyWarm", { name, m: mins }) ||
-          `${name} · ${mins} min. Request them — Call when you’re both free.`
-        : _t("friends.postMatchBody", { name }) ||
-          `${name} · request them to Call later when online.`;
-    const steps =
-      _t("friends.postMatchSteps") ||
-      "Add → they Accept → Call when online";
+        ? _t("friends.postMatchBodyWarmShort", { m: mins }) ||
+          `${mins} min chat. Request them — Call when free.`
+        : _t("friends.postMatchBodyShort") ||
+          "Request them to Call later when you’re both online.";
     toast.innerHTML = `
-      <strong>${escapeHtml(title)}</strong>
-      <span>${escapeHtml(body)}</span>
-      <span class="post-match-steps">${escapeHtml(steps)}</span>
-      <span class="post-match-code mono">${escapeHtml(
-        (_t("friends.theirCode") || "Code") + ": " + code
+      <div class="post-call-head">
+        <span class="post-call-avatar" aria-hidden="true">${escapeHtml(ini)}</span>
+        <div class="post-call-head-copy">
+          <strong>${escapeHtml(title)}</strong>
+          <div class="post-call-meta">
+            <span class="post-call-name">${escapeHtml(name)}${
+              flagEm ? ` ${flagEm}` : ""
+            }</span>
+            <span class="post-call-dur">${escapeHtml(durLabel)}</span>
+          </div>
+        </div>
+      </div>
+      <p class="post-call-body">${escapeHtml(body)}</p>
+      <span class="post-match-steps">${escapeHtml(
+        _t("friends.postMatchSteps") || "Add → Accept → Call when online"
       )}</span>
-      <div class="export-nudge-actions post-match-actions post-match-actions-force" style="margin-top:0.55rem">
-        <button type="button" class="pill tight accent post-match-primary" id="btn-post-friend-yes">${escapeHtml(
+      <div class="export-nudge-actions post-call-actions post-match-actions">
+        <button type="button" class="pill tight accent post-call-primary post-match-primary" id="btn-post-friend-yes">${escapeHtml(
           _t("friends.postMatchYes") || "Add friend"
         )}</button>
-        <button type="button" class="pill tight ghost" id="btn-post-friend-copy">${escapeHtml(
-          _t("friends.copyCode") || "Copy code"
-        )}</button>
-        <button type="button" class="pill tight ghost" id="btn-post-friend-no">${escapeHtml(
-          _t("friends.postMatchNo") || "No thanks"
-        )}</button>
+        <div class="post-call-secondary-row">
+          <button type="button" class="pill tight ghost" id="btn-post-friend-copy">${escapeHtml(
+            _t("friends.copyCode") || "Copy code"
+          )}</button>
+          <button type="button" class="pill tight ghost" id="btn-post-friend-no">${escapeHtml(
+            _t("friends.postMatchNo") || "Not now"
+          )}</button>
+        </div>
+        <div class="post-call-safety-row" role="group" aria-label="${escapeHtml(
+          _t("friends.safetyRowLabel") || "If something was wrong"
+        )}">
+          <button type="button" class="post-call-link danger" id="btn-post-friend-report">${escapeHtml(
+            _t("partnerMenu.report") || "Report"
+          )}</button>
+          <span class="post-call-dot" aria-hidden="true">·</span>
+          <button type="button" class="post-call-link danger" id="btn-post-friend-block">${escapeHtml(
+            _t("friends.blockFromHistory") || "Block"
+          )}</button>
+        </div>
       </div>`;
     document.body.appendChild(toast);
+    try {
+      $("btn-post-friend-yes")?.focus?.();
+    } catch (_) {}
     trackEvent("friend_nudge_show", {
       reason: reason || snap?.reason || "",
       sec,
       long: longChat ? 1 : 0,
       deep: deepChat ? 1 : 0,
       force: 1,
+      unified: 1,
     });
     const dismiss = () => {
       if (toast.parentNode) toast.remove();
@@ -6794,8 +7438,15 @@ function maybeShowPostMatchFriendNudge(reason, opts = {}) {
         dismiss();
       }
     });
-    // Longer window — primary retention moment
-    setTimeout(dismiss, deepChat ? 32000 : longChat ? 28000 : 22000);
+    wirePostCallSafetyActions(toast, {
+      uid,
+      name,
+      code,
+      short_id: lastMatchMeta?.short_id || "",
+      sec,
+      from: "friend",
+    });
+    setTimeout(dismiss, deepChat ? 32000 : longChat ? 28000 : 24000);
   } catch (_) {}
 }
 
@@ -8636,6 +9287,7 @@ function setHideIpRelayOnly(on, { silent = false } = {}) {
     applyIceDirectPreference();
   }
   try {
+    syncHideIpFlagSection?.();
     syncSettingsSummary?.();
     refreshConnectionDetails?.();
   } catch (_) {}
@@ -8771,13 +9423,7 @@ function handleWebrtcConnectionState(s, pcHint) {
   if (s === "connected") {
     webrtcConnectedOk = true;
     // Allow another soft-ICE cycle after a successful recovery
-    if (pcHint) {
-      try {
-        pcHint._softIceTried = false;
-        pcHint._softReconnectScheduled = false;
-        pcHint._iceRestartCount = 0;
-      } catch (_) {}
-    }
+    if (pcHint) clearSoftRecoverFlags(pcHint);
     clearWebrtcWatch();
     hideCallCoach();
     startStats();
@@ -8812,6 +9458,14 @@ function handleWebrtcConnectionState(s, pcHint) {
     // Upgrade match toast once media path is live
     showMatchFoundToast({ connected: true });
     flashPartnerTile();
+    // One-shot: teach swipe-to-next after first real media path
+    try {
+      setTimeout(() => {
+        try {
+          maybeShowSwipeCoach();
+        } catch (_) {}
+      }, 1600);
+    } catch (_) {}
     // Hide compact "In a call" if ice-path badge is showing
     const liveChip = $("live-compact-chip");
     if (liveChip && $("ice-path") && !$("ice-path").hidden) {
@@ -8829,10 +9483,11 @@ function handleWebrtcConnectionState(s, pcHint) {
       /* toast + Next scheduled */
       return;
     }
-    // 1v1 / friend: soft ICE restart then hard PC rebuild before coach
+    // 1v1 / friend: multi-retry soft ICE then hard PC rebuild before coach
     if (pcHint && trySoftRecoverAny(pcHint, { reason: "failed" })) {
       return;
     }
+    // Only coach after soft pipeline exhausted and no rebuild path
     showCallCoach("coach.failed");
   } else if (s === "disconnected") {
     // Brief network blip — stay in call and try to recover (do not tear down)
@@ -8851,6 +9506,192 @@ function handleWebrtcConnectionState(s, pcHint) {
 
 /** Last Matched.peers list — used for soft ICE reconnect without full rematch. */
 let lastMatchedPeers = [];
+
+/** Soft ICE attempts before hard PeerConnection rebuild (same match). */
+const SOFT_ICE_MAX_ATTEMPTS = 3;
+/** Gap between soft ICE restarts while still bad. */
+const SOFT_ICE_RETRY_MS = 3500;
+/** After last soft attempt, wait this long then hard-rebuild if still dead. */
+const SOFT_ICE_HARD_AFTER_MS = 4500;
+
+/**
+ * @param {import('./webrtc.js').RouletteWebRtc | object | null} pc
+ * @returns {boolean}
+ */
+function isPcIceHealthy(pc) {
+  if (!pc) return false;
+  try {
+    if (typeof pc.iceHealth === "function") {
+      const h = pc.iceHealth();
+      if (h?.ok) return true;
+    }
+  } catch (_) {}
+  try {
+    const ice = pc.pc?.iceConnectionState || "";
+    const cs = pc.pc?.connectionState || "";
+    return (
+      ice === "connected" || ice === "completed" || cs === "connected"
+    );
+  } catch (_) {}
+  return false;
+}
+
+/**
+ * @param {import('./webrtc.js').RouletteWebRtc | object | null} pc
+ * @returns {boolean}
+ */
+function isPcIceBad(pc) {
+  if (!pc?.pc) return true;
+  try {
+    if (typeof pc.iceHealth === "function") {
+      const h = pc.iceHealth();
+      if (h?.ok) return false;
+      if (h?.bad) return true;
+    }
+  } catch (_) {}
+  try {
+    const ice = pc.pc?.iceConnectionState || "";
+    const cs = pc.pc?.connectionState || "";
+    if (ice === "connected" || ice === "completed" || cs === "connected") {
+      return false;
+    }
+    return (
+      ice === "failed" ||
+      ice === "disconnected" ||
+      ice === "closed" ||
+      cs === "failed" ||
+      cs === "disconnected" ||
+      cs === "closed" ||
+      !ice
+    );
+  } catch (_) {}
+  return true;
+}
+
+/**
+ * Clear soft-recover flags after a healthy media path returns.
+ * @param {import('./webrtc.js').RouletteWebRtc | object | null} pc
+ */
+function clearSoftRecoverFlags(pc) {
+  if (!pc) return;
+  try {
+    pc._softIceTried = false;
+    pc._softIceAttempts = 0;
+    pc._softRecoverActive = false;
+    pc._softReconnectScheduled = false;
+    pc._iceRestartCount = 0;
+  } catch (_) {}
+}
+
+/**
+ * Multi-attempt soft ICE pipeline, then optional hard PC rebuild (same match).
+ * Does not rematch on the hub — keeps conversation / multi-party layout.
+ * @param {string} peerId
+ * @param {import('./webrtc.js').RouletteWebRtc | object} pc
+ * @param {{ reason?: string, multi?: boolean, label?: string }} [opts]
+ */
+function startSoftRecoverPipeline(peerId, pc, opts = {}) {
+  if (!pc || pc._softRecoverActive) return;
+  pc._softRecoverActive = true;
+  pc._softIceTried = true;
+  pc._softIceAttempts = 0;
+
+  const reason = opts.reason || "";
+  const multi = !!opts.multi;
+  const label = opts.label || (multi ? "peer" : "solo");
+
+  setStatus(_t("trio.iceRestart") || "Reconnecting…");
+  setConnStrip(
+    "warn",
+    _t("conn.reconnectingMedia") || "Connection weak — reconnecting…",
+    "",
+    { reconnecting: true }
+  );
+
+  const resolveCur = () => {
+    if (peerId && peerPcs.has(peerId)) return peerPcs.get(peerId);
+    if (peerPcs.size) {
+      const hit = [...peerPcs.values()].find((v) => v === pc);
+      if (hit) return hit;
+      return [...peerPcs.values()][0];
+    }
+    return pc;
+  };
+
+  const attempt = (n) => {
+    try {
+      if (!matched) {
+        clearSoftRecoverFlags(pc);
+        return;
+      }
+      const cur = resolveCur();
+      if (!cur) {
+        clearSoftRecoverFlags(pc);
+        return;
+      }
+      // Replaced by hard rebuild or new join
+      if (cur !== pc && peerId && peerPcs.get(peerId) !== pc) {
+        // Pipeline was for old PC; only continue if same object still mapped
+        if (peerPcs.get(peerId) !== cur || cur._softRecoverActive !== true) {
+          /* new PC may start its own recover */
+        }
+      }
+      if (isPcIceHealthy(cur) || webrtcConnectedOk) {
+        clearSoftRecoverFlags(cur);
+        return;
+      }
+      // 1v1: live remote media is enough to stop escalating
+      if (!multi && hasLiveRemoteMedia()) {
+        clearSoftRecoverFlags(cur);
+        return;
+      }
+
+      if (n < SOFT_ICE_MAX_ATTEMPTS) {
+        cur._softIceAttempts = n + 1;
+        trackEvent(multi ? "peer_soft_ice" : "solo_soft_ice", {
+          reason,
+          attempt: n + 1,
+          mode: matchMode || "",
+          friend: inFriendCall ? 1 : 0,
+          role: cur._role || "",
+          label,
+        });
+        Promise.resolve(cur.softIceRestart?.({ force: true })).catch(() => {});
+        setTimeout(() => attempt(n + 1), SOFT_ICE_RETRY_MS);
+        return;
+      }
+
+      // Exhausted soft ICE — hard rebuild PeerConnection (same match peers)
+      setTimeout(() => {
+        try {
+          if (!matched) return;
+          if (webrtcConnectedOk) return;
+          const late = resolveCur();
+          if (!late) return;
+          if (
+            isPcIceHealthy(late) ||
+            (!multi && hasLiveRemoteMedia())
+          ) {
+            clearSoftRecoverFlags(late);
+            return;
+          }
+          if (late._softReconnectScheduled) return;
+          const pid =
+            peerId ||
+            late.remotePeerId ||
+            [...peerPcs.entries()].find(([, v]) => v === late)?.[0] ||
+            lastMatchedPeers?.[0]?.peer_id ||
+            "legacy";
+          schedulePeerHardReconnect(pid, late);
+        } catch (_) {}
+      }, SOFT_ICE_HARD_AFTER_MS);
+    } catch (e) {
+      console.warn("[soft recover]", e);
+    }
+  };
+
+  attempt(0);
+}
 
 /**
  * Soft-recover a failed peer (find-3rd stranger) without tearing the teammate link.
@@ -8872,33 +9713,14 @@ function trySoftRecoverPeer(pc) {
     "";
   if (!peerId) return false;
 
-  // Step 1: ICE restart once
-  if (!pc._softIceTried) {
-    pc._softIceTried = true;
-    setStatus(_t("trio.iceRestart") || "Reconnecting peer…");
-    trackEvent("peer_soft_ice", { role: pc._role || "", mode: matchMode || "" });
-    Promise.resolve(pc.softIceRestart?.())
-      .then((ok) => {
-        if (!ok) schedulePeerHardReconnect(peerId, pc);
-      })
-      .catch(() => schedulePeerHardReconnect(peerId, pc));
-    // If still failed after 5s, recreate PC
-    setTimeout(() => {
-      try {
-        const cur = peerPcs.get(peerId);
-        if (!cur || cur !== pc) return;
-        const ice = cur.pc?.iceConnectionState || cur.pc?.connectionState || "";
-        if (ice === "failed" || ice === "disconnected" || ice === "closed") {
-          schedulePeerHardReconnect(peerId, pc);
-        }
-      } catch (_) {}
-    }, 5000);
-    return true;
-  }
+  // Already recovering or hard-rebuild scheduled
+  if (pc._softRecoverActive || pc._softReconnectScheduled) return true;
 
-  // Step 2 already requested
-  if (pc._softReconnectScheduled) return true;
-  schedulePeerHardReconnect(peerId, pc);
+  startSoftRecoverPipeline(peerId, pc, {
+    multi: true,
+    reason: "peer_fail",
+    label: "peer",
+  });
   return true;
 }
 
@@ -8923,67 +9745,71 @@ function trySoftRecoverAny(pc, opts = {}) {
   ) {
     return false;
   }
+  if (pc._softRecoverActive || pc._softReconnectScheduled) return true;
+
   const peerId =
     pc.remotePeerId ||
     [...peerPcs.entries()].find(([, v]) => v === pc)?.[0] ||
+    lastMatchedPeers?.[0]?.peer_id ||
     "";
 
-  // Step 1: ICE restart (once per drop cycle)
-  if (!pc._softIceTried) {
-    pc._softIceTried = true;
-    setStatus(_t("trio.iceRestart") || "Reconnecting…");
-    setConnStrip(
-      "warn",
-      _t("conn.reconnectingMedia") || "Connection weak — reconnecting…",
-      "",
-      { reconnecting: true }
-    );
-    trackEvent("solo_soft_ice", {
-      reason: opts.reason || "",
-      mode: matchMode || "",
-      friend: inFriendCall ? 1 : 0,
+  // Need a rebuild target eventually
+  if (!peerId && !(lastMatchedPeers && lastMatchedPeers.length)) {
+    // Still try ICE-only (no hard rebuild path)
+    startSoftRecoverPipeline("", pc, {
+      multi: false,
+      reason: opts.reason || "solo",
+      label: "solo_no_peer",
     });
-    Promise.resolve(pc.softIceRestart?.({ force: true })).catch(() => {});
-    // If still dead after restart window → rebuild PeerConnection (same match)
-    setTimeout(() => {
-      try {
-        if (!matched) return;
-        if (hasLiveRemoteMedia() || webrtcConnectedOk) return;
-        const cur =
-          (peerId && peerPcs.get(peerId)) ||
-          [...peerPcs.values()][0] ||
-          pc;
-        const ice = cur?.pc?.iceConnectionState || "";
-        const cs = cur?.pc?.connectionState || "";
-        if (
-          ice === "connected" ||
-          ice === "completed" ||
-          cs === "connected"
-        ) {
-          return;
-        }
-        if (peerId) schedulePeerHardReconnect(peerId, cur);
-        else if (lastMatchedPeers?.length) {
-          schedulePeerHardReconnect(
-            lastMatchedPeers[0]?.peer_id || "legacy",
-            cur
-          );
-        }
-      } catch (_) {}
-    }, 6000);
     return true;
   }
 
-  // Step 2: already tried ICE — hard rebuild once
-  if (pc._softReconnectScheduled) return true;
-  if (peerId || lastMatchedPeers?.length) {
-    schedulePeerHardReconnect(
-      peerId || lastMatchedPeers[0]?.peer_id || "legacy",
-      pc
-    );
-    return true;
+  startSoftRecoverPipeline(peerId, pc, {
+    multi: false,
+    reason: opts.reason || "solo",
+    label: "solo",
+  });
+  return true;
+}
+
+/**
+ * Tab/app foreground: recheck ICE and soft-recover stalled peers (no hangup).
+ * Mobile browsers often freeze ICE while backgrounded without firing "failed".
+ */
+function resumeCallIceIfNeeded() {
+  if (!matched) return;
+  const seen = new Set();
+  const list = [];
+  for (const pc of peerPcs.values()) {
+    if (pc && !seen.has(pc)) {
+      seen.add(pc);
+      list.push(pc);
+    }
   }
-  return false;
+  if (rtc && !seen.has(rtc)) list.push(rtc);
+
+  for (const pc of list) {
+    try {
+      if (!pc?.pc) continue;
+      if (pc._softRecoverActive || pc._softReconnectScheduled) continue;
+      const healthy = isPcIceHealthy(pc);
+      // Live tracks can stay "live" while ICE is dead — prefer ICE health
+      if (healthy) {
+        // Stale video after long background: frames stopped but ICE ok
+        const stream = pc.remoteStream;
+        const liveTrack = stream
+          ? (stream.getTracks?.() || []).some((t) => t.readyState === "live")
+          : false;
+        if (liveTrack) continue;
+        // ICE ok but no live tracks — soft ICE once
+        trySoftRecoverAny(pc, { reason: "visibility_stale" });
+        continue;
+      }
+      if (isPcIceBad(pc)) {
+        trySoftRecoverAny(pc, { reason: "visibility_resume" });
+      }
+    } catch (_) {}
+  }
 }
 
 /**
@@ -9773,13 +10599,27 @@ function stopThirdSlotWatchdog() {
   }
 }
 
-function formatWhoSub(role, shortId, friendCode) {
-  const roleLabel =
-    role === "friend" || role === "teammate"
-      ? _t("trio.roleFriend") || "Friend"
-      : role === "stranger" || role === "party"
-        ? _t("trio.roleStranger") || "Stranger"
-        : _t("trio.rolePartner") || "Partner";
+function formatWhoSub(role, shortId, friendCode, opts = {}) {
+  const r = String(role || "");
+  let roleLabel;
+  if (r === "friend") {
+    roleLabel = _t("trio.roleFriend") || "Friend";
+  } else if (r === "teammate") {
+    roleLabel = _t("trio.roleTeammate") || "Teammate";
+  } else if (r === "stranger" || r === "party") {
+    // 2v2 / 1v2: number opponents when useful
+    if (opts.opponentIndex != null && opts.opponentTotal > 1) {
+      roleLabel =
+        _t("trio.roleOpponentN", { n: opts.opponentIndex }) ||
+        `Opponent ${opts.opponentIndex}`;
+    } else if (yourRole === "solo" && matchMode === "party_browse") {
+      roleLabel = _t("trio.roleParty") || "In a pair";
+    } else {
+      roleLabel = _t("trio.roleStranger") || "Stranger";
+    }
+  } else {
+    roleLabel = _t("trio.rolePartner") || "Partner";
+  }
   const idBit = (friendCode || shortId || "").toString().slice(0, 10);
   return idBit ? `${roleLabel} · ${idBit}` : roleLabel;
 }
@@ -10089,10 +10929,22 @@ function registerPeerUi(peerMeta, elId) {
     short: peerMeta.short_id || "",
     code: peerMeta.friend_code || "",
   });
+  // Opponent numbering for 1v2 / 2v2 / 3v1 clarity
+  let opponentIndex = null;
+  let opponentTotal = 0;
+  if (peerMeta.role === "stranger" || peerMeta.role === "party") {
+    const opps = (Array.isArray(lastMatchedPeers) ? lastMatchedPeers : [])
+      .filter((p) => p.role === "stranger" || p.role === "party")
+      .sort((a, b) => String(a.peer_id).localeCompare(String(b.peer_id)));
+    opponentTotal = opps.length;
+    const idx = opps.findIndex((p) => p.peer_id === peerMeta.peer_id);
+    if (idx >= 0 && opponentTotal > 1) opponentIndex = idx + 1;
+  }
   const sub = formatWhoSub(
     peerMeta.role,
     peerMeta.short_id,
-    peerMeta.friend_code
+    peerMeta.friend_code,
+    { opponentIndex, opponentTotal }
   );
   setWhoLabel(elId === "remote-third" ? "remote-third" : elId, peerMeta.name, sub);
   if (elId === "remote" || elId === "remote2" || elId === "remote-third") {
@@ -10115,42 +10967,45 @@ function updatePartyRoleStrip(msg) {
     : Array.isArray(lastMatchedPeers)
       ? lastMatchedPeers
       : [];
-  const hasStranger = peers.some(
+  const nOpp = peers.filter(
     (p) => p.role === "stranger" || p.role === "party"
-  );
-  const hasMate = peers.some((p) => isTeammateRole(p.role));
+  ).length;
+  const hasStranger = nOpp > 0;
+  const nMates = peers.filter((p) => isTeammateRole(p.role)).length;
   let line = "";
   let searching = false;
   if (trioBrowse && yourRole === "party") {
     if (hasStranger) {
       line =
-        _t("trio.stripWithThird") ||
-        "You + friend · with stranger";
+        nOpp >= 2
+          ? _t("trio.strip2v2") || "Your pair · vs their pair"
+          : _t("trio.stripWithThird") || "You + friend · stranger on the right";
     } else {
       line =
         _t("trio.stripHunting") ||
-        "You + friend · finding a stranger…";
+        "You + friend · Next finds a stranger (keeps friend)";
       searching = true;
     }
-  } else if (matchMode === "party_browse" && yourRole === "solo" && hasMate) {
+  } else if (matchMode === "party_browse" && yourRole === "solo") {
     line =
-      _t("trio.stripSoloVsParty") ||
-      "You · vs two people";
+      nOpp >= 3
+        ? _t("trio.stripSoloVs3") || "You · vs three people"
+        : nOpp >= 2
+          ? _t("trio.stripSoloVsParty") || "You · vs a pair (two videos)"
+          : _t("trio.stripSoloVsOne") || "You · vs one person";
   } else if (
     matchMode === "party_browse" &&
     yourRole === "party" &&
     hasStranger
   ) {
-    // 2v2-ish party member with strangers
-    const nOpp = peers.filter(
-      (p) => p.role === "stranger" || p.role === "party"
-    ).length;
     line =
       nOpp >= 2
         ? _t("trio.strip2v2") || "Your pair · vs their pair"
-        : _t("trio.stripWithThird") || "You + friend · with stranger";
+        : _t("trio.stripWithThird") || "You + friend · stranger on the right";
   } else if (inFriendCall && matchMode === "friend" && !trioBrowse) {
-    line = _t("trio.stripFriendCall") || "Friend call";
+    line =
+      _t("trio.stripFriendCall") ||
+      "Friend call · use ⋯ to find a stranger together";
   } else {
     strip.hidden = true;
     strip.classList.remove("is-searching");
@@ -10160,6 +11015,70 @@ function updatePartyRoleStrip(msg) {
   strip.hidden = false;
   strip.removeAttribute("hidden");
   strip.classList.toggle("is-searching", searching);
+  // Keep Next button labels in sync with role strip
+  try {
+    syncNextButtonCopy();
+  } catch (_) {}
+}
+
+/**
+ * Next / Stop labels that match multi-party reality (not generic "Next partner").
+ */
+function syncNextButtonCopy() {
+  const next = $("btn-next");
+  if (!next) return;
+  const lbl = next.querySelector("[data-i18n], span:not(.icon):not(svg)") ||
+    next.querySelector("span:last-of-type") ||
+    next;
+  const peers = Array.isArray(lastMatchedPeers) ? lastMatchedPeers : [];
+  const nOpp = peers.filter(
+    (p) => p.role === "stranger" || p.role === "party"
+  ).length;
+  const keepParty =
+    yourRole === "party" ||
+    matchMode === "party_browse" ||
+    trioBrowse ||
+    inFriendCall;
+  let title = _t("btn.nextTitle") || "Next partner";
+  let text = _t("btn.next") || "Next";
+  if (keepParty && (matchMode === "party_browse" || trioBrowse || yourRole === "party")) {
+    if (nOpp === 0 && (trioBrowse || yourRole === "party")) {
+      // Hunting with friend
+      text = _t("btn.nextHunting") || "Find stranger";
+      title =
+        _t("btn.nextHuntingTitle") ||
+        "Search for a stranger — your friend stays";
+    } else if (nOpp >= 1) {
+      text = _t("btn.nextStranger") || "Next stranger";
+      title =
+        _t("btn.nextStrangerTitle") ||
+        "Skip this stranger — keep your friend / pair";
+    }
+  } else if (matched && !inFriendCall) {
+    text = _t("btn.next") || "Next";
+    title = _t("btn.nextTitle") || "Next partner";
+  }
+  // Prefer the span that has data-i18n="btn.next" (keeps SVG icon)
+  const i18nSpan =
+    next.querySelector("[data-i18n='btn.next']") ||
+    [...next.querySelectorAll("span")].find(
+      (s) =>
+        !s.classList.contains("icon") &&
+        !s.classList.contains("icon-next") &&
+        !s.querySelector("svg")
+    );
+  if (i18nSpan) i18nSpan.textContent = text;
+  next.title = title;
+  next.setAttribute("aria-label", title);
+  // Stop: clearer when in party
+  const stop = $("btn-stop");
+  if (stop && keepParty && (matchMode === "party_browse" || trioBrowse)) {
+    stop.title =
+      _t("btn.stopPartyTitle") ||
+      "Leave call and stop searching (ends party browse)";
+  } else if (stop) {
+    stop.title = _t("btn.stopTitle") || "Stop searching / leave call";
+  }
 }
 
 function clearMultiPartyChrome() {
@@ -10393,12 +11312,19 @@ function bindFirstPartnerToMain(meta) {
     applySpeaker();
   }
   const tag = $("remote-tag");
-  const wrap = $("remote-tile-tag");
+  const nameEl = $("remote-name");
   if (tag) {
-    setNameOnTile(
-      tag,
-      meta?.name || lastMatchMeta?.name || _t("trio.partner") || "Partner",
-      meta?.flag || lastMatchMeta?.flag
+    setLocationOnTile(tag, {
+      flag: meta?.flag || lastMatchMeta?.flag || "",
+      country: meta?.country || lastMatchMeta?.country || "",
+      city: meta?.city || lastMatchMeta?.city || "",
+      hide_ip: !!(meta?.hide_ip ?? lastMatchMeta?.hide_ip),
+    });
+  }
+  if (nameEl) {
+    setDisplayNameOnTile(
+      nameEl,
+      meta?.name || lastMatchMeta?.name || _t("trio.partner") || "Partner"
     );
   }
   syncRemoteTileTagVisibility();
@@ -11536,8 +12462,16 @@ function setRemoteEmpty(show, opts) {
   if (show) {
     const wrap = $("remote-tile-tag");
     const tag = $("remote-tag");
+    const nameEl = $("remote-name");
     if (wrap) wrap.hidden = true;
-    if (tag) tag.textContent = "";
+    if (tag) {
+      tag.innerHTML = "";
+      tag.hidden = true;
+    }
+    if (nameEl) {
+      nameEl.textContent = "";
+      nameEl.hidden = true;
+    }
     setTileAvatar("remote", "");
     // Never leave bars/flowers over Start / brand empty (skip either side)
     clearRemoteMatchFx();
@@ -12198,6 +13132,9 @@ function syncMatchChrome() {
     if (next) next.hidden = false;
     if (stop) stop.hidden = false;
   }
+  try {
+    syncNextButtonCopy();
+  } catch (_) {}
 
   if (empty) {
     empty.classList.toggle("is-searching", isSearching);
@@ -17337,7 +18274,8 @@ function syncAccountSettingsSummary() {
         hideIpRelayOnlyEnabled());
     hideIpSum.textContent = on
       ? _t("settings.hideIpOnShort") || "On · TURN only"
-      : _t("settings.hideIpOpenSub") || "Force TURN · set in Connection";
+      : _t("settings.hideIpOpenSub") ||
+        "Optional · set in Connection (off by default)";
   }
 }
 
@@ -17393,6 +18331,7 @@ function syncSettingsSummary() {
   }
   syncAccountSettingsSummary();
   syncFlagSettingsSummary();
+  syncHideIpFlagSection();
   const cam = selectedOptionLabel($("sel-camera"));
   const mic = selectedOptionLabel($("sel-mic"));
   const spk = selectedOptionLabel($("sel-speaker"));
@@ -19461,6 +20400,206 @@ function manualReconnect() {
 /** True after a drop so hello_ok can show a soft “back online” toast. */
 let wasHubReconnecting = false;
 
+/**
+ * Live P2P call while matchmaking WebSocket is down (hub restart/deploy).
+ * Media can keep flowing browser-to-browser; we rejoin signaling without killing RTC.
+ */
+let hubSignalOrphanCall = false;
+
+/** Last /health boot_id + ui_deploy — detect deploys for deferred soft-reload. */
+let lastHubBootId = "";
+let lastUiDeployId = "";
+let pendingSoftReload = false;
+let hubHealthPollTimer = 0;
+
+/** True when we should not hard-reload the page (would kill the call). */
+function isInLiveCall() {
+  return !!(
+    matched ||
+    inFriendCall ||
+    hubSignalOrphanCall ||
+    peerPcs.size > 0 ||
+    partnerHasLiveVideo()
+  );
+}
+
+/** Soft-reload when idle; during a call mark pending and banner. */
+function requestSoftReload(reason) {
+  pendingSoftReload = true;
+  try {
+    sessionStorage.setItem("rulet-pending-soft-reload", reason || "1");
+  } catch (_) {}
+  if (!isInLiveCall()) {
+    applyPendingSoftReload();
+    return;
+  }
+  showDeferredUpdateBanner(reason);
+}
+
+function applyPendingSoftReload() {
+  if (!pendingSoftReload && !sessionStorage.getItem("rulet-pending-soft-reload")) {
+    return;
+  }
+  if (isInLiveCall()) {
+    showDeferredUpdateBanner("call");
+    return;
+  }
+  try {
+    sessionStorage.removeItem("rulet-pending-soft-reload");
+  } catch (_) {}
+  pendingSoftReload = false;
+  trackEvent("soft_reload", { why: "idle" });
+  try {
+    location.reload();
+  } catch (_) {}
+}
+
+function showDeferredUpdateBanner(reason) {
+  if ($("deferred-update-banner")) return;
+  try {
+    const el = document.createElement("div");
+    el.id = "deferred-update-banner";
+    el.className = "friend-soft-toast deferred-update-banner";
+    el.setAttribute("role", "status");
+    el.style.pointerEvents = "auto";
+    el.innerHTML = `
+      <strong>${escapeHtml(
+        _t("update.deferredTitle") || "Update ready"
+      )}</strong>
+      <span>${escapeHtml(
+        _t("update.deferredBody") ||
+          "A newer hub version is available. Your call stays peer-to-peer — we’ll refresh when you leave."
+      )}</span>
+      <div class="export-nudge-actions" style="margin-top:0.4rem">
+        <button type="button" class="pill tight ghost" id="btn-deferred-update-ok">${escapeHtml(
+          _t("friends.exportNudgeLater") || "OK"
+        )}</button>
+        <button type="button" class="pill tight accent" id="btn-deferred-update-now" ${
+          isInLiveCall() ? "disabled" : ""
+        }>${escapeHtml(_t("update.reloadNow") || "Reload now")}</button>
+      </div>`;
+    document.body.appendChild(el);
+    $("btn-deferred-update-ok")?.addEventListener("click", () => {
+      el.remove();
+    });
+    $("btn-deferred-update-now")?.addEventListener("click", () => {
+      if (isInLiveCall()) {
+        setStatus(
+          _t("update.waitForCall") || "Finish or leave the call first"
+        );
+        return;
+      }
+      applyPendingSoftReload();
+    });
+    // Auto-hide visual after 12s (flag stays until call ends)
+    setTimeout(() => {
+      try {
+        el.remove();
+      } catch (_) {}
+    }, 12000);
+  } catch (_) {}
+}
+
+function maybeApplyPendingSoftReload() {
+  if (!pendingSoftReload) {
+    try {
+      if (sessionStorage.getItem("rulet-pending-soft-reload")) {
+        pendingSoftReload = true;
+      }
+    } catch (_) {}
+  }
+  if (pendingSoftReload && !isInLiveCall()) {
+    applyPendingSoftReload();
+  }
+}
+
+/** Poll /health for boot_id / ui_deploy so deploys refresh idle clients. */
+function startHubHealthWatch() {
+  if (hubHealthPollTimer) return;
+  const tick = async () => {
+    try {
+      watchOrphanCallMedia();
+    } catch (_) {}
+    try {
+      const base =
+        (typeof RuletHub !== "undefined" && RuletHub.getBase?.()) ||
+        location.origin;
+      const r = await fetch(
+        String(base).replace(/\/$/, "") + "/health",
+        { cache: "no-store" }
+      );
+      if (!r.ok) return;
+      const j = await r.json();
+      noteHubHealthSnapshot(j);
+    } catch (_) {}
+    try {
+      maybeApplyPendingSoftReload();
+    } catch (_) {}
+  };
+  // First read after connect settles
+  setTimeout(tick, 4000);
+  hubHealthPollTimer = setInterval(tick, 45000);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") tick();
+  });
+}
+
+function noteHubHealthSnapshot(j) {
+  if (!j || typeof j !== "object") return;
+  const boot = String(j.boot_id || "");
+  const ui = String(j.ui_deploy || "");
+  // First snapshot only seeds baselines (no false “update” on page load)
+  if (!lastHubBootId && !lastUiDeployId) {
+    if (boot) lastHubBootId = boot;
+    if (ui) lastUiDeployId = ui;
+    return;
+  }
+  if (boot && lastHubBootId && boot !== lastHubBootId) {
+    trackEvent("hub_boot_changed");
+    lastHubBootId = boot;
+    requestSoftReload("boot");
+  } else if (boot) {
+    lastHubBootId = boot;
+  }
+  if (ui && lastUiDeployId && ui !== lastUiDeployId) {
+    trackEvent("ui_deploy_changed");
+    lastUiDeployId = ui;
+    requestSoftReload("ui");
+  } else if (ui) {
+    lastUiDeployId = ui;
+  }
+}
+
+/**
+ * If an orphan hub-blip call loses all media, drop orphan mode cleanly.
+ */
+function watchOrphanCallMedia() {
+  if (!hubSignalOrphanCall) return;
+  if (partnerHasLiveVideo() || peerPcs.size > 0) {
+    // Still have something live
+    const anyLive = [...peerPcs.values()].some((pc) => {
+      try {
+        return (pc.remoteStream?.getVideoTracks?.() || []).some(
+          (t) => t.readyState === "live"
+        );
+      } catch {
+        return false;
+      }
+    });
+    if (anyLive || partnerHasLiveVideo()) return;
+  }
+  // Media gone while hub still reconnecting — end call chrome
+  hubSignalOrphanCall = false;
+  matched = false;
+  try {
+    closeAllPeers({ keepFriend: false });
+  } catch (_) {}
+  setRemoteEmpty(true);
+  setStatus(_t("status.partnerLeft") || "Partner left");
+  updateConnFromState();
+  maybeApplyPendingSoftReload();
+}
+
 function scheduleReconnect() {
   if (intentionalClose) return;
   wasHubReconnecting = true;
@@ -19544,7 +20683,17 @@ function connect(isRetry = false) {
     if (ws !== socket) return;
     reconnectAttempt = 0;
     const rejoining = wantSearch || inQueue;
-    setStatus(rejoining ? _t("status.rejoinQueue") : _t("status.connected"));
+    const orphanKeep =
+      hubSignalOrphanCall &&
+      (peerPcs.size > 0 || partnerHasLiveVideo());
+    setStatus(
+      orphanKeep
+        ? _t("status.hubBackKeepCall") ||
+            "Hub back — call still peer-to-peer"
+        : rejoining
+          ? _t("status.rejoinQueue")
+          : _t("status.connected")
+    );
     updateConnFromState();
     const idn = loadIdentity();
     myUserId = idn.user_id;
@@ -19560,10 +20709,28 @@ function connect(isRetry = false) {
       }
     }, 450);
     startPing();
-    // Re-enter match queue after blip (hello is already sent)
+    try {
+      startHubHealthWatch();
+    } catch (_) {}
+    // Re-enter match queue after blip — but NOT while keeping a live orphan call
+    if (orphanKeep) {
+      matched = true;
+      wantSearch = false;
+      inQueue = false;
+      hideReconnectBanner();
+      setConnStrip("call", _t("conn.matched") || "In a call", "");
+      updateFriendActionButtons();
+      return;
+    }
     if (wantSearch || inQueue) {
       setTimeout(() => {
-        if (ws === socket && ws.readyState === WebSocket.OPEN && (wantSearch || inQueue) && !matched) {
+        if (
+          ws === socket &&
+          ws.readyState === WebSocket.OPEN &&
+          (wantSearch || inQueue) &&
+          !matched &&
+          !hubSignalOrphanCall
+        ) {
           send(spinPayload());
           setPhase("waiting");
           setStatus(_t("status.searching"));
@@ -19598,6 +20765,44 @@ function connect(isRetry = false) {
     if (!intentionalClose) {
       const wasInQueue = inQueue || wantSearch;
       const wasFriend = inFriendCall || matchMode === "friend";
+      const liveMedia =
+        partnerHasLiveVideo() ||
+        [...peerPcs.values()].some((pc) => {
+          try {
+            return (pc.remoteStream?.getVideoTracks?.() || []).some(
+              (t) => t.readyState === "live"
+            );
+          } catch {
+            return false;
+          }
+        });
+      // ── Live call survival: hub restart drops WS, not P2P media ──
+      if (liveMedia && (matched || wasFriend || peerPcs.size > 0)) {
+        hubSignalOrphanCall = true;
+        matched = true;
+        wantSearch = false;
+        inQueue = false;
+        pendingSignals.length = 0;
+        // Keep peerPcs + video elements; only signaling is gone
+        setStatus(
+          _t("status.hubBlipKeepCall") ||
+            "Hub reconnecting — video continues peer-to-peer…"
+        );
+        setConnStrip(
+          "warn",
+          _t("conn.hubBlipKeepCall") || "Call continues (P2P) · hub reconnecting",
+          "",
+          { reconnecting: true, showRetry: true }
+        );
+        log(
+          _t("log.hubBlipKeepCall") ||
+            "hub WS dropped — keeping live WebRTC until reconnect"
+        );
+        trackEvent("hub_orphan_call", { peers: peerPcs.size });
+        updateFriendActionButtons();
+        scheduleReconnect();
+        return;
+      }
       if (matched || wasInQueue) wantSearch = true;
       // Don't kill camera preview on brief disconnects
       if (wasFriend) {
@@ -19710,12 +20915,42 @@ function handleServer(msg) {
         else if (msg.name && msg.name !== "anon") saveIdentity({ name: msg.name });
         syncNameInputs(shown);
       }
+      // Hub geo for local location chip (flag → country → city)
+      if (msg.flag || msg.country || msg.city) {
+        myGeo = {
+          flag: normalizeFlagCode(msg.flag || ""),
+          country: String(msg.country || "").trim(),
+          city: String(msg.city || "").trim(),
+        };
+      }
+      refreshLocalNameChip();
       setStatus(_t("status.connected"));
       hideReconnectBanner();
       if (wasHubReconnecting) {
         wasHubReconnecting = false;
-        showBackOnlineToast();
-        trackEvent("hub_back_online");
+        if (
+          hubSignalOrphanCall &&
+          (peerPcs.size > 0 || partnerHasLiveVideo())
+        ) {
+          // Hub restarted mid-call: keep P2P media; don't show "search again" toast
+          matched = true;
+          wantSearch = false;
+          inQueue = false;
+          setStatus(
+            _t("status.hubBackKeepCall") ||
+              "Hub back — call still peer-to-peer"
+          );
+          setConnStrip(
+            "call",
+            _t("conn.matched") || "In a call",
+            ""
+          );
+          trackEvent("hub_back_online_orphan_call");
+        } else {
+          hubSignalOrphanCall = false;
+          showBackOnlineToast();
+          trackEvent("hub_back_online");
+        }
       }
       updateConnFromState();
       log(
@@ -19727,6 +20962,15 @@ function handleServer(msg) {
         setArchPill("default");
       }
       if (msg.signaling === "freenet") setArchPill("freenet");
+      break;
+    case "geo":
+      // Async hub IP→location finished after connect
+      myGeo = {
+        flag: normalizeFlagCode(msg.flag || ""),
+        country: String(msg.country || "").trim(),
+        city: String(msg.city || "").trim(),
+      };
+      refreshLocalLocationChip();
       break;
     case "friends":
       {
@@ -20701,6 +21945,9 @@ function handleMatched(msg) {
         short_id: primary.short_id || msg.partner_short || "",
         friend_code: primary.friend_code || "",
         flag: normalizeFlagCode(primary.flag || ""),
+        country: String(primary.country || "").trim(),
+        city: String(primary.city || "").trim(),
+        hide_ip: !!primary.hide_ip,
         avatar: isValidAvatarDataUrl(primary.avatar) ? primary.avatar : "",
         // spendable balance (badge number)
         stars: Math.max(0, Number(primary.stars) || 0),
@@ -20717,6 +21964,9 @@ function handleMatched(msg) {
         short_id: msg.partner_short || "",
         friend_code: "",
         flag: "",
+        country: "",
+        city: "",
+        hide_ip: false,
         avatar: "",
         stars: 0,
         trust: 0,
@@ -20797,16 +22047,19 @@ function handleMatched(msg) {
   } catch (_) {}
   {
     const tag = $("remote-tag");
-    const wrap = $("remote-tile-tag");
+    const nameEl = $("remote-name");
     if (tag) {
       if (split) {
-        tag.textContent =
-          msg.partner_short ||
-          _t("friends.partyTag") ||
-          "2";
+        setLocationOnTile(tag, {});
+        if (nameEl) {
+          setDisplayNameOnTile(
+            nameEl,
+            msg.partner_short || _t("friends.partyTag") || "2"
+          );
+        }
         setTileAvatar("remote", "");
       } else {
-        // Name + optional self-chosen flag / avatar (never real location)
+        // Location stack (flag→country→city) + name top-right
         const peer =
           opponents[0] ||
           peers.find((p) => isTeammateRole(p.role)) ||
@@ -20816,11 +22069,17 @@ function handleMatched(msg) {
           lastMatchMeta?.name ||
           msg.partner_short ||
           "";
-        const fl =
-          normalizeFlagCode(peer?.flag) ||
-          normalizeFlagCode(lastMatchMeta?.flag) ||
-          "";
-        setNameOnTile(tag, named, fl);
+        const locMeta = {
+          flag:
+            normalizeFlagCode(peer?.flag) ||
+            normalizeFlagCode(lastMatchMeta?.flag) ||
+            "",
+          country: String(peer?.country || lastMatchMeta?.country || "").trim(),
+          city: String(peer?.city || lastMatchMeta?.city || "").trim(),
+          hide_ip: !!(peer?.hide_ip ?? lastMatchMeta?.hide_ip),
+        };
+        setLocationOnTile(tag, locMeta);
+        if (nameEl) setDisplayNameOnTile(nameEl, named);
         const av =
           (isValidAvatarDataUrl(peer?.avatar) && peer.avatar) ||
           lastMatchMeta?.avatar ||
@@ -20893,6 +22152,10 @@ function handleIncomingSignal(msg) {
 }
 
 function closeAllPeers({ keepFriend = false } = {}) {
+  // Leaving call chrome — clear orphan-hub flag and maybe soft-reload UI
+  if (!keepFriend) {
+    hubSignalOrphanCall = false;
+  }
   stopMatchTimer();
   clearIntroBlurTimer();
   introBlurGen++;
@@ -20943,18 +22206,226 @@ function closeAllPeers({ keepFriend = false } = {}) {
     showFriendPip(false);
     enableTrioLayout(false);
   } else {
-    // Stranger gone — teammate back on main remote (not PiP)
+    // Stranger gone — clear extra tiles so they don't stay black
+    clearOrphanVideoSlots({ keepMain: true });
     reattachFriendToMainRemote();
     if (trioBrowse || yourRole === "party") {
       setThirdSlotStream(null);
       enableTrioLayout(true, { searching: true });
+    } else {
+      setSplitRemote(false);
     }
+    // Remaining link(s) can re-raise quality ceiling
+    try {
+      applyMultiPeerOutboundQuality(
+        [...peerPcs.entries()].map(([peer_id, pc]) => ({
+          peer_id,
+          role: pc._role || "friend",
+        }))
+      );
+    } catch (_) {}
   }
   stopStats();
   stopNsfwWatch();
   clearWebrtcWatch();
   hideCallCoach();
   webrtcConnectedOk = false;
+  try {
+    syncNextButtonCopy();
+  } catch (_) {}
+  // After call teardown: apply deferred UI reload if a deploy landed mid-call
+  if (!keepFriend) {
+    setTimeout(() => {
+      try {
+        maybeApplyPendingSoftReload();
+      } catch (_) {}
+    }, 600);
+  }
+}
+
+/**
+ * Multi-party outbound budget: primary (friend or first stranger) gets higher
+ * ceiling; extra links encode cheaper (scale + bitrate).
+ * @param {Array} peers Match peer list (optional; uses peerPcs roles if empty)
+ */
+function applyMultiPeerOutboundQuality(peers) {
+  const list = Array.isArray(peers) ? peers : [];
+  const live = [...peerPcs.entries()];
+  if (live.length <= 1) {
+    for (const [, pc] of live) {
+      if (typeof pc.setQualityCeiling === "function") {
+        pc.setQualityCeiling("high");
+      }
+      pc.applyQualityTier?.(pc._qualityTier || "high")?.catch?.(() => {});
+    }
+    return;
+  }
+  // Prefer teammate as "primary" for party members; else first by stable peer_id
+  const roleOf = (pid, pc) => {
+    const meta = list.find((p) => p.peer_id === pid);
+    return meta?.role || pc._role || "stranger";
+  };
+  let primaryId = null;
+  for (const [pid, pc] of live) {
+    if (isTeammateRole(roleOf(pid, pc))) {
+      primaryId = pid;
+      break;
+    }
+  }
+  if (!primaryId) {
+    primaryId = live
+      .map(([pid]) => pid)
+      .sort((a, b) => String(a).localeCompare(String(b)))[0];
+  }
+  const n = live.length;
+  // 2 links: primary mid, extra low. 3+: primary mid, extras min.
+  for (const [pid, pc] of live) {
+    const isPrimary = pid === primaryId;
+    let ceiling = "high";
+    let start = "high";
+    if (n >= 3) {
+      ceiling = isPrimary ? "mid" : "min";
+      start = isPrimary ? "mid" : "min";
+    } else if (n === 2) {
+      ceiling = isPrimary ? "high" : "low";
+      start = isPrimary ? "mid" : "low";
+    }
+    // Hide IP / relay: slightly lower ceilings
+    try {
+      if (
+        typeof hideIpRelayOnlyEnabled === "function" &&
+        hideIpRelayOnlyEnabled()
+      ) {
+        ceiling = clampLocalTier(ceiling, "mid");
+        start = clampLocalTier(start, ceiling);
+      }
+    } catch (_) {}
+    if (typeof pc.setQualityCeiling === "function") {
+      pc.setQualityCeiling(ceiling);
+    }
+    if (typeof pc.applyQualityTier === "function") {
+      pc.applyQualityTier(start).catch(() => {});
+    }
+  }
+}
+
+function clampLocalTier(tier, max) {
+  const rank = { high: 3, mid: 2, low: 1, min: 0 };
+  const t = rank[tier] != null ? tier : "mid";
+  const m = rank[max] != null ? max : "high";
+  return rank[t] <= rank[m] ? t : m;
+}
+
+/**
+ * Drop srcObject on tiles whose PC is gone — avoids black empty panes after leave.
+ * @param {{ keepMain?: boolean }} [opts]
+ */
+function clearOrphanVideoSlots(opts = {}) {
+  const keepMain = !!opts.keepMain;
+  const liveEls = new Set();
+  for (const pc of peerPcs.values()) {
+    if (pc._videoEl) liveEls.add(pc._videoEl);
+  }
+  const slots = [
+    { el: $("remote2"), wrap: $("remote2-wrap"), id: "remote2" },
+    { el: $("remote-third"), wrap: null, id: "remote-third" },
+  ];
+  if (!keepMain) {
+    slots.unshift({ el: $("remote"), wrap: null, id: "remote" });
+  }
+  for (const { el, wrap, id } of slots) {
+    if (!el) continue;
+    if (liveEls.has(el)) continue;
+    const hasLivePc = [...peerPcs.values()].some((pc) => {
+      try {
+        return pc._videoEl === el || el.srcObject === pc.remoteStream;
+      } catch {
+        return false;
+      }
+    });
+    if (hasLivePc) continue;
+    try {
+      el.srcObject = null;
+    } catch (_) {}
+    if (id === "remote2") {
+      el.hidden = true;
+      if (wrap) wrap.hidden = true;
+      setWhoLabel("remote2", "", "");
+      setPeerConnChip("remote2", "closed");
+    }
+    if (id === "remote-third") {
+      try {
+        setThirdSlotStream(null);
+      } catch (_) {
+        el.hidden = true;
+      }
+      setWhoLabel("remote-third", "", "");
+      setPeerConnChip("remote-third", "closed");
+    }
+  }
+}
+
+/**
+ * When a peer PC dies (failed/closed), unbind its tile and reflow remaining.
+ * @param {import('./webrtc.js').RouletteWebRtc | object} pc
+ */
+function onPeerPcEnded(pc) {
+  if (!pc) return;
+  let deadId = null;
+  for (const [pid, p] of peerPcs.entries()) {
+    if (p === pc) {
+      deadId = pid;
+      break;
+    }
+  }
+  if (deadId) {
+    try {
+      pc.closeCall?.({ keepLocal: true, sendBye: false });
+    } catch (_) {}
+    peerPcs.delete(deadId);
+  }
+  if (rtc === pc) {
+    rtc = peerPcs.size ? [...peerPcs.values()][0] : null;
+  }
+  clearOrphanVideoSlots({ keepMain: peerPcs.size > 0 });
+  // One remaining peer → solo 2-cam layout
+  if (peerPcs.size === 1 && (trioBrowse || matchMode === "party_browse")) {
+    const [pid, keepPc] = [...peerPcs.entries()][0];
+    const meta =
+      (Array.isArray(lastMatchedPeers)
+        ? lastMatchedPeers.find((p) => p.peer_id === pid)
+        : null) || { peer_id: pid, role: keepPc._role || "stranger" };
+    if (!isTeammateRole(keepPc._role) && yourRole === "party") {
+      // Stranger left while party hunting — keep trio searching chrome
+      reattachFriendToMainRemote();
+      setThirdSlotStream(null);
+      enableTrioLayout(true, { searching: true });
+    } else if (peerPcs.size === 1 && !isTeammateRole(keepPc._role)) {
+      collapseMultiPeerToSoloLayout([meta]);
+    } else {
+      reattachFriendToMainRemote();
+      setSplitRemote(false);
+      if (yourRole === "party") {
+        enableTrioLayout(true, { searching: true });
+        setThirdSlotStream(null);
+      }
+    }
+  } else if (peerPcs.size === 0 && matched && !wantSearch) {
+    setRemoteEmpty(true, { force: true });
+  } else if (peerPcs.size >= 2) {
+    setSplitRemote(
+      yourRole === "solo" &&
+        [...peerPcs.values()].filter(
+          (p) => p._role === "stranger" || p._role === "party"
+        ).length >= 2
+    );
+  }
+  try {
+    applyMultiPeerOutboundQuality();
+  } catch (_) {}
+  try {
+    updatePartyRoleStrip({ peers: lastMatchedPeers });
+  } catch (_) {}
 }
 
 /**
@@ -20976,10 +22447,11 @@ async function joinPeers(peers) {
   }
 
   const list = Array.isArray(peers) ? peers : [];
+  // Cap 3 opponents (solo 3v1). Was slice(0,2) which blocked third party member.
   const opponents = list
     .filter((p) => p.role === "stranger" || p.role === "party")
     .sort((a, b) => String(a.peer_id).localeCompare(String(b.peer_id)))
-    .slice(0, 2);
+    .slice(0, 3);
   const friendMeta = list.find((p) => isTeammateRole(p.role));
   const partyBrowsing =
     matchMode === "party_browse" &&
@@ -21194,11 +22666,12 @@ async function joinPeers(peers) {
     const strangerCount = [...peerPcs.values()].filter(
       (pc) => pc._role === "stranger" || pc._role === "party"
     ).length;
+    // Max 3 opponents (3v1). Encode cost handled via quality ceiling, not hard drop at 2.
     if (
       (p.role === "stranger" || p.role === "party") &&
-      strangerCount >= 2
+      strangerCount >= 3
     ) {
-      log(_t("log.partyCap") || "max 2 opponents — skipping extra peer");
+      log(_t("log.partyCap") || "max 3 opponents — skipping extra peer");
       continue;
     }
 
@@ -21264,6 +22737,24 @@ async function joinPeers(peers) {
             ) {
               setThirdSlotStream(pc.remoteStream, p.name || "");
               registerPeerUi(p, "remote-third");
+            }
+          }
+          if (s === "failed" || s === "closed" || s === "disconnected") {
+            // Soft recover first; only prune after hard fail (handleWebrtc may recover)
+            if (s === "failed" || s === "closed") {
+              // Defer slightly so soft ICE restart can win
+              setTimeout(() => {
+                try {
+                  const still = peerPcs.get(p.peer_id) === pc;
+                  const st = pc.pc?.connectionState || pc.pc?.iceConnectionState;
+                  if (
+                    still &&
+                    (st === "failed" || st === "closed" || !pc.pc)
+                  ) {
+                    onPeerPcEnded(pc);
+                  }
+                } catch (_) {}
+              }, 2800);
             }
           }
           handleWebrtcConnectionState(s, pc);
@@ -21376,6 +22867,13 @@ async function joinPeers(peers) {
   // After PCs are up: force full mic processing for multi-remote audio
   try {
     enterMultiPeerAudioMode(list);
+  } catch (_) {}
+  // Multi-party: primary stream stays sharp; extras encode lower res/bitrate
+  try {
+    applyMultiPeerOutboundQuality(list);
+  } catch (_) {}
+  try {
+    syncNextButtonCopy();
   } catch (_) {}
 
   // Find-3rd: if stranger still has no media after connect jobs, soft-retry once
@@ -25270,22 +26768,29 @@ function showPartnerReportReasons() {
   }
   const title = $("partner-menu-title");
   if (title) title.textContent = _t("partnerMenu.reportNext") || _t("partnerMenu.report") || "Report";
-  // 100+ → ×2, 250+ → ×3 (server report_weight_for)
+  // Status tier (trust / social health) — soft rank + gift caps. Reports are flat consensus.
   const trustedHint = $("partner-menu-trusted-hint");
   if (trustedHint) {
-    const w = reportWeightForStars(myStars);
+    const statusScore = Math.max(
+      0,
+      Number(mySocialHealth) ||
+        Number(myTrustEffective) ||
+        Number(myTrust) ||
+        0
+    );
+    const w = reportWeightForStars(statusScore); // tier ladder 1/2/3 from status score
     if (w >= 3) {
       trustedHint.hidden = false;
       trustedHint.removeAttribute("hidden");
       trustedHint.textContent =
         _t("stars.seniorReporterHint") ||
-        "You have 250+★ — senior reporter. Your report counts as 3.";
+        "You are Senior — soft match rank, gift up to 3★, stronger shield. Reports still need independent consensus.";
     } else if (w >= 2) {
       trustedHint.hidden = false;
       trustedHint.removeAttribute("hidden");
       trustedHint.textContent =
         _t("stars.trustedReporterHint") ||
-        "You have 100+★ — your report carries stronger weight (counts as 2).";
+        "You are Trusted — soft match rank and gift up to 2★. Reports still need independent consensus.";
     } else {
       trustedHint.hidden = true;
       trustedHint.setAttribute("hidden", "");
@@ -25362,11 +26867,19 @@ function openPartnerMenu() {
 
   const nameEl = $("partner-menu-name");
   if (nameEl) {
-    setNameOnTile(
-      nameEl,
-      lastMatchMeta?.name || _t("remote.tag"),
-      lastMatchMeta?.flag
-    );
+    const nm = lastMatchMeta?.name || _t("remote.tag") || "Partner";
+    const fl = normalizeFlagCode(lastMatchMeta?.flag || "");
+    const country = String(lastMatchMeta?.country || "").trim();
+    const city = String(lastMatchMeta?.city || "").trim();
+    const em = flagEmoji(fl);
+    // Menu: flag + name; subline country · city when not hide_ip
+    let label = nm;
+    if (em) label = `${em} ${nm}`;
+    nameEl.textContent = label;
+    const subBits = [];
+    if (country) subBits.push(country);
+    if (city && !lastMatchMeta?.hide_ip) subBits.push(city);
+    nameEl.title = subBits.length ? subBits.join(" · ") : label;
   }
 
   const friendBtn = $("btn-partner-friend");
@@ -26453,16 +27966,35 @@ on("btn-next", "click", () => {
     applySelfBlurPolicyForSession({ silent: true });
   } catch (_) {}
   schedulePostMatchFriendNudge("next");
+  hubSignalOrphanCall = false;
   trackEvent("next");
   send(nextPayload());
   updateConnFromState();
-  log(_t("log.next"));
+  try {
+    syncNextButtonCopy();
+  } catch (_) {}
+  log(
+    keepFriend
+      ? _t("log.nextKeepParty") || "next stranger (keeping friend)"
+      : _t("log.next")
+  );
+  if (!keepFriend) {
+    setTimeout(() => {
+      try {
+        maybeApplyPendingSoftReload();
+      } catch (_) {}
+    }, 700);
+  }
 });
 
 /** Stop: leave queue / end stranger match; do not auto-search again. */
 function doStopMatchmaking() {
   try {
     maybeAlmostGiftUnlockOnLeave("stop");
+  } catch (_) {}
+  try {
+    clearSwipeUndo();
+    resetPartnerSwipeVisual();
   } catch (_) {}
   maybeShowMatchPathSummary("stop");
   schedulePostMatchFriendNudge("stop");
@@ -26476,6 +28008,7 @@ function doStopMatchmaking() {
   matched = false;
   inQueue = false;
   inFriendCall = false;
+  hubSignalOrphanCall = false;
   matchMode = "solo";
   yourRole = "solo";
   trioBrowse = false;
@@ -26508,6 +28041,11 @@ function doStopMatchmaking() {
   setPhase("idle");
   setStatus(""); // no "stopped — idle" status pill
   updateConnFromState();
+  setTimeout(() => {
+    try {
+      maybeApplyPendingSoftReload();
+    } catch (_) {}
+  }, 700);
   updatePipButton();
   updateEmptyShareVisibility();
   trackEvent("stop");
@@ -26760,6 +28298,30 @@ $("chk-match-sound")?.addEventListener("change", (e) => {
 $("chk-chat-sound")?.addEventListener("change", (e) => {
   savePrefs({ chatSound: !!e.target.checked });
 });
+$("chk-swipe-skip")?.addEventListener("change", (e) => {
+  const on = !!e.target.checked;
+  savePrefs({ swipeSkip: on });
+  try {
+    trackEvent("swipe_skip_pref", { on: on ? 1 : 0 });
+  } catch (_) {}
+  // Cancel any in-flight swipe visual when turning off
+  if (!on) {
+    try {
+      partnerSwipe = null;
+      resetPartnerSwipeVisual();
+    } catch (_) {}
+  }
+  try {
+    setStatus(
+      on
+        ? _t("settings.swipeSkipOn") ||
+            "Swipe to next on — drag left or right on partner video"
+        : _t("settings.swipeSkipOff") ||
+            "Swipe to next off — use the Next button instead"
+    );
+  } catch (_) {}
+  syncSettingsSummary();
+});
 $("chk-friend-online-notif")?.addEventListener("change", (e) => {
   setFriendOnlineNotif(!!e.target.checked);
 });
@@ -26831,6 +28393,11 @@ $("chk-hide-ip")?.addEventListener("change", (e) => {
   const on = !!e.target.checked;
   setHideIpRelayOnly(on, { silent: false });
   syncPreferDirectToggle();
+  syncHideIpFlagSection();
+  // Tell hub so partners get cosmetic flag only / real geo
+  try {
+    sendMatchPrefs();
+  } catch (_) {}
   trackEvent("hide_ip_pref", { on: on ? 1 : 0 });
   log(
     on
@@ -27076,12 +28643,16 @@ const LANG_FLAGS = {
   en: "🇬🇧",
   ru: "🇷🇺",
   uk: "🇺🇦",
+  pl: "🇵🇱",
+  cs: "🇨🇿",
+  bg: "🇧🇬",
+  sr: "🇷🇸",
   es: "🇪🇸",
   de: "🇩🇪",
   fr: "🇫🇷",
   pt: "🇧🇷",
   tr: "🇹🇷",
-  pl: "🇵🇱",
+  ar: "🇸🇦",
   zh: "🇨🇳",
 };
 
@@ -27257,6 +28828,9 @@ document.addEventListener(
       syncBlurFirstUi();
     } catch (_) {}
   }
+  try {
+    syncSwipeSkipToggle();
+  } catch (_) {}
   // Name from URL ?name= or saved identity
   const nameQ = q.get("name");
   if (nameQ) saveIdentity({ name: nameQ.trim().slice(0, 32) });
@@ -27518,6 +29092,17 @@ window.addEventListener("online", () => {
     reconnectAttempt = 0;
     connect(true);
   }
+  // P2P media may need ICE restart after radio/Wi‑Fi return
+  if (matched) {
+    try {
+      resumeCallIceIfNeeded();
+    } catch (_) {}
+    setTimeout(() => {
+      try {
+        if (matched) resumeCallIceIfNeeded();
+      } catch (_) {}
+    }, 2000);
+  }
 });
 window.addEventListener("offline", () => {
   log(_t("log.offline"));
@@ -27542,6 +29127,16 @@ document.addEventListener("visibilitychange", () => {
   if (matched) {
     ensureMediaUnlocked();
     ensurePartnerVideoVisible();
+    // Mobile: ICE often stalls while backgrounded without firing "failed"
+    try {
+      resumeCallIceIfNeeded();
+    } catch (_) {}
+    // Second pass after browser reattaches media / radio wakes
+    setTimeout(() => {
+      try {
+        if (matched) resumeCallIceIfNeeded();
+      } catch (_) {}
+    }, 2500);
   } else {
     kickEmptyBrandMedia();
   }

@@ -387,6 +387,18 @@
       // bottom
       "btn.connect": "Connect",
       "btn.next": "Next",
+"btn.nextHunting": "Find stranger",
+      "btn.nextHuntingTitle": "Search for a stranger — your friend stays",
+      "btn.nextStranger": "Next stranger",
+      "btn.nextStrangerTitle": "Skip this stranger — keep your friend / pair",
+      "btn.stopPartyTitle": "Leave call and stop searching (ends party browse)",
+      "log.nextKeepParty": "next stranger (keeping friend)",
+      "trio.roleTeammate": "Teammate",
+      "trio.roleParty": "In a pair",
+      "trio.roleOpponentN": "Opponent {n}",
+      "trio.stripSoloVs3": "You · vs three people",
+      "trio.stripSoloVsOne": "You · vs one person",
+
       "btn.nextTitle": "Next partner",
       "btn.audio": "Audio",
       "btn.audioTitle": "Devices & speaker",
@@ -687,9 +699,11 @@
       "settings.themeHint": "Choose how the chat looks. Theme is saved on this device.",
       "settings.themeSet": "Theme: {theme}",
       "flag.label": "Flag",
+      "flag.labelHideIp": "Display flag",
       "flag.none": "None",
-      "flag.noneHint": "Hide flag on your name",
-      "flag.hint": "Optional label on your name. You choose it — we never use GPS or your IP to set a flag.",
+      "flag.noneHint": "No flag while hiding location",
+      "flag.hint": "Optional label when Hide my IP is on. Real location comes from the hub otherwise.",
+      "flag.hintHideIp": "Shown instead of your real country while Hide my IP is on. Pick any flag — partners won’t see your city.",
       "flag.search": "Search",
       "flag.searchPh": "Country or code…",
       "flag.set": "Flag: {flag}",
@@ -1562,9 +1576,11 @@
       "settings.themeHint": "Внешний вид чата. Тема сохраняется на этом устройстве.",
       "settings.themeSet": "Тема: {theme}",
       "flag.label": "Флаг",
+      "flag.labelHideIp": "Флаг на экране",
       "flag.none": "Нет",
-      "flag.noneHint": "Не показывать флаг у имени",
-      "flag.hint": "Необязательная метка у имени. Вы выбираете сами — GPS и IP не используются.",
+      "flag.noneHint": "Без флага при скрытии локации",
+      "flag.hint": "Метка при «Скрыть IP». Иначе страна и город определяются хабом.",
+      "flag.hintHideIp": "Вместо реальной страны, пока включено «Скрыть IP». Выберите флаг — город партнёрам не виден.",
       "flag.search": "Поиск",
       "flag.searchPh": "Страна или код…",
       "flag.set": "Флаг: {flag}",
@@ -1809,12 +1825,16 @@
       { code: "en", native: "English", dir: "ltr" },
       { code: "ru", native: "Русский", dir: "ltr" },
       { code: "uk", native: "Українська", dir: "ltr" },
+      { code: "pl", native: "Polski", dir: "ltr" },
+      { code: "cs", native: "Čeština", dir: "ltr" },
+      { code: "bg", native: "Български", dir: "ltr" },
+      { code: "sr", native: "Српски", dir: "ltr" },
       { code: "es", native: "Español", dir: "ltr" },
       { code: "de", native: "Deutsch", dir: "ltr" },
       { code: "fr", native: "Français", dir: "ltr" },
       { code: "pt", native: "Português", dir: "ltr" },
       { code: "tr", native: "Türkçe", dir: "ltr" },
-      { code: "pl", native: "Polski", dir: "ltr" },
+      { code: "ar", native: "العربية", dir: "rtl" },
       { code: "zh", native: "中文", dir: "ltr" },
     ],
     default: "ru",
@@ -1959,7 +1979,7 @@
     if (!BUNDLED.has(c) && STR[c]) return Promise.resolve(STR[c]);
     if (loading[c]) return loading[c];
     // Prefer sessionStorage pack cache (avoids re-downloading ~100KB JSON every navigation)
-    const packCacheKey = "ruletka-i18n-pack-v83-" + c;
+    const packCacheKey = "ruletka-i18n-pack-v88-" + c;
     try {
       const cached = sessionStorage.getItem(packCacheKey);
       if (cached) {
@@ -1974,7 +1994,7 @@
     } catch (_) {}
 
     // Always fetch /i18n/{code}.json and merge over built-ins (en/ru too)
-    loading[c] = fetch(`/i18n/${c}.json?v=119`, { cache: "force-cache" })
+    loading[c] = fetch(`/i18n/${c}.json?v=132`, { cache: "force-cache" })
       .then((r) => {
         if (!r.ok) throw new Error("lang pack " + c);
         return r.json();
@@ -2004,7 +2024,7 @@
   }
 
   function loadMeta() {
-    return fetch("/i18n/meta.json?v=119", { cache: "force-cache" })
+    return fetch("/i18n/meta.json?v=132", { cache: "force-cache" })
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
         if (j && Array.isArray(j.languages)) META = j;

@@ -345,9 +345,9 @@ function preferOrder(codecs, mimeOrder) {
 }
 
 /**
- * Apply outbound encoding limits (bps). Safe no-op if unsupported.
+ * Apply outbound encoding limits (bps / scale). Safe no-op if unsupported.
  * @param {RTCRtpSender} sender
- * @param {{ maxBitrate?: number, maxFramerate?: number, degradationPreference?: string }} opts
+ * @param {{ maxBitrate?: number, maxFramerate?: number, scaleResolutionDownBy?: number, degradationPreference?: string }} opts
  */
 async function applySenderEncoding(sender, opts = {}) {
   if (!sender || typeof sender.getParameters !== "function") return;
@@ -359,6 +359,11 @@ async function applySenderEncoding(sender, opts = {}) {
     const enc = params.encodings[0];
     if (opts.maxBitrate != null) enc.maxBitrate = opts.maxBitrate;
     if (opts.maxFramerate != null) enc.maxFramerate = opts.maxFramerate;
+    // Multi-party: send lower resolution on secondary links (saves encode + bandwidth)
+    if (opts.scaleResolutionDownBy != null) {
+      const scale = Math.max(1, Number(opts.scaleResolutionDownBy) || 1);
+      enc.scaleResolutionDownBy = scale;
+    }
     if (opts.degradationPreference && "degradationPreference" in params) {
       // @ts-ignore older TS libs
       params.degradationPreference = opts.degradationPreference;
@@ -373,13 +378,42 @@ async function applySenderEncoding(sender, opts = {}) {
   }
 }
 
-/** Default quality ladder (outbound). */
+/** Default quality ladder (outbound). scale >1 = lower res for multi-party extras. */
 const QUALITY_TIERS = {
-  high: { maxBitrate: 1_800_000, maxFramerate: 30, label: "high" },
-  mid: { maxBitrate: 900_000, maxFramerate: 28, label: "mid" },
-  low: { maxBitrate: 400_000, maxFramerate: 20, label: "low" },
-  min: { maxBitrate: 200_000, maxFramerate: 15, label: "min" },
+  high: {
+    maxBitrate: 1_800_000,
+    maxFramerate: 30,
+    scaleResolutionDownBy: 1,
+    label: "high",
+  },
+  mid: {
+    maxBitrate: 900_000,
+    maxFramerate: 28,
+    scaleResolutionDownBy: 1,
+    label: "mid",
+  },
+  low: {
+    maxBitrate: 400_000,
+    maxFramerate: 20,
+    scaleResolutionDownBy: 2,
+    label: "low",
+  },
+  min: {
+    maxBitrate: 200_000,
+    maxFramerate: 15,
+    scaleResolutionDownBy: 2,
+    label: "min",
+  },
 };
+
+const TIER_RANK = { high: 3, mid: 2, low: 1, min: 0 };
+
+/** Clamp tier name to the lower of `tier` and `ceiling`. */
+function clampQualityTier(tier, ceiling) {
+  const t = QUALITY_TIERS[tier] ? tier : "mid";
+  const c = QUALITY_TIERS[ceiling] ? ceiling : "high";
+  return (TIER_RANK[t] ?? 2) <= (TIER_RANK[c] ?? 3) ? t : c;
+}
 
 /**
  * @typedef {object} MediaDeviceChoices
@@ -584,6 +618,8 @@ class RouletteWebRtc {
     /** @type {HTMLVideoElement | null} */
     this._videoEl = null;
     this._qualityTier = "high";
+    /** Max tier allowed (multi-party secondary links use "mid"/"low"). */
+    this._qualityCeiling = "high";
     this._adaptTimer = 0;
     this._lastBytes = 0;
     this._lastTs = 0;
@@ -592,6 +628,20 @@ class RouletteWebRtc {
     /** @type {RTCDataChannel | null} */
     this._chatDc = null;
     this._chatDcOpen = false;
+  }
+
+  /**
+   * Cap adaptive quality (e.g. secondary multi-party link never goes above "low").
+   * @param {keyof typeof QUALITY_TIERS | string} ceiling
+   */
+  setQualityCeiling(ceiling) {
+    const c = QUALITY_TIERS[ceiling] ? ceiling : "high";
+    this._qualityCeiling = c;
+    const cur = this._qualityTier || "high";
+    const next = clampQualityTier(cur, c);
+    if (next !== cur) {
+      this.applyQualityTier(next).catch(() => {});
+    }
   }
 
   _emitSignal(kind, payload) {
@@ -702,7 +752,8 @@ class RouletteWebRtc {
    * @param {keyof typeof QUALITY_TIERS | string} tier
    */
   async applyQualityTier(tier) {
-    const t = QUALITY_TIERS[tier] || QUALITY_TIERS.mid;
+    const capped = clampQualityTier(tier, this._qualityCeiling || "high");
+    const t = QUALITY_TIERS[capped] || QUALITY_TIERS.mid;
     this._qualityTier = t.label;
     if (!this.pc) return;
     for (const sender of this.pc.getSenders()) {
@@ -711,6 +762,7 @@ class RouletteWebRtc {
         await applySenderEncoding(sender, {
           maxBitrate: t.maxBitrate,
           maxFramerate: t.maxFramerate,
+          scaleResolutionDownBy: t.scaleResolutionDownBy || 1,
           degradationPreference: "balanced",
         });
       } else if (sender.track.kind === "audio") {
@@ -834,6 +886,8 @@ class RouletteWebRtc {
         else if (lossP > 0.03 || rttMs > 180) next = "mid";
         else if (lossP < 0.015 && rttMs < 120) next = "high";
       }
+      // Multi-party ceiling (secondary streams stay cheaper to encode)
+      next = clampQualityTier(next, this._qualityCeiling || "high");
 
       if (next !== this._qualityTier) {
         await this.applyQualityTier(next);
@@ -864,17 +918,40 @@ class RouletteWebRtc {
 
   /**
    * Soft ICE restart (offerer creates a new offer). Safe no-op if not connected.
-   * Used by find-3rd recovery when a peer path fails without tearing the teammate link.
+   * Used by find-3rd / 1v1 soft-recover when a path fails without hanging up.
+   * @param {{ force?: boolean }} [opts]
+   * @returns {Promise<boolean>}
    */
-  async softIceRestart() {
+  async softIceRestart(opts = {}) {
     if (!this.pc) return false;
     try {
       // force: live soft-recover may race the auto-restart on ice=failed
-      return !!(await this._tryIceRestart({ force: true }));
+      return !!(await this._tryIceRestart({ force: opts.force !== false }));
     } catch (e) {
       console.warn("[webrtc] softIceRestart", e);
     }
     return false;
+  }
+
+  /**
+   * Current ICE / PC health for live soft-recover and tab-resume checks.
+   * @returns {{ ice: string, cs: string, ok: boolean, bad: boolean }}
+   */
+  iceHealth() {
+    const ice = this.pc?.iceConnectionState || "";
+    const cs = this.pc?.connectionState || "";
+    const ok =
+      ice === "connected" ||
+      ice === "completed" ||
+      cs === "connected";
+    const bad =
+      ice === "failed" ||
+      ice === "disconnected" ||
+      ice === "closed" ||
+      cs === "failed" ||
+      cs === "disconnected" ||
+      cs === "closed";
+    return { ice, cs, ok, bad };
   }
 
   /**
@@ -1098,15 +1175,15 @@ class RouletteWebRtc {
     const last = this._iceRestartAt || 0;
     const count = this._iceRestartCount || 0;
     // Restart already in flight — report success so callers don't hard-fail immediately
-    if (last && now - last < 2000 && count > 0) return true;
-    // Auto: every 5s, up to 4 restarts after connect flaps (was 2 — too few on mobile Wi‑Fi)
-    // Force: up to 5 attempts, 3s cooldown
+    if (last && now - last < 1800 && count > 0) return true;
+    // Auto: every 4s, up to 5 restarts (mobile Wi‑Fi / radio sleep flaps)
+    // Force (live soft-recover): up to 6 attempts, 2.5s cooldown
     if (!force) {
-      if (now - last < 5000) return false;
-      if (count >= 4) return false;
-    } else {
-      if (now - last < 3000) return count > 0;
+      if (now - last < 4000) return false;
       if (count >= 5) return false;
+    } else {
+      if (now - last < 2500) return count > 0;
+      if (count >= 6) return false;
     }
     this._iceRestartAt = now;
     this._iceRestartCount = count + 1;
@@ -1118,7 +1195,7 @@ class RouletteWebRtc {
         console.info("[webrtc] ICE restart offer sent", this._iceRestartCount);
         return true;
       }
-      // Answerer: restartIce + nudge offerer via a tiny signal if needed
+      // Answerer: restartIce so the remote offerer renegotiates
       if (typeof this.pc.restartIce === "function") {
         this.pc.restartIce();
         console.info("[webrtc] restartIce() (answerer)", this._iceRestartCount);
@@ -1131,35 +1208,36 @@ class RouletteWebRtc {
   }
 
   _scheduleDisconnectedIceProbe() {
-    if (this._discIceTimer) return;
-    // Fast first probe (2s) — mobile radio often recovers; then another at 6s
-    this._discIceTimer = setTimeout(() => {
-      this._discIceTimer = 0;
-      if (!this.pc) return;
-      const ice = this.pc.iceConnectionState;
-      const cs = this.pc.connectionState;
-      if (ice === "disconnected" || cs === "disconnected" || ice === "failed") {
-        this._tryIceRestart();
-        // Second chance if still down
-        this._discIceTimer2 = setTimeout(() => {
-          this._discIceTimer2 = 0;
-          if (!this.pc) return;
-          const ice2 = this.pc.iceConnectionState;
-          const cs2 = this.pc.connectionState;
-          if (
-            ice2 === "disconnected" ||
-            cs2 === "disconnected" ||
-            ice2 === "failed" ||
-            cs2 === "failed"
-          ) {
-            this._tryIceRestart({ force: true });
-          }
-        }, 4000);
-      }
-    }, 2000);
+    // One probe wave at a time (2s / 6s / 12s) — recover radio handoffs before hard rebuild
+    if (this._discIceProbing) return;
+    this._discIceProbing = true;
+    const clearSlot = (key) => {
+      this[key] = 0;
+    };
+    const probeAt = (delay, force, slotKey, isLast) => {
+      this[slotKey] = setTimeout(() => {
+        clearSlot(slotKey);
+        if (isLast) this._discIceProbing = false;
+        if (!this.pc) return;
+        const ice = this.pc.iceConnectionState;
+        const cs = this.pc.connectionState;
+        if (
+          ice === "disconnected" ||
+          cs === "disconnected" ||
+          ice === "failed" ||
+          cs === "failed"
+        ) {
+          this._tryIceRestart({ force: !!force });
+        }
+      }, delay);
+    };
+    probeAt(2000, false, "_discIceTimer", false);
+    probeAt(6000, true, "_discIceTimer2", false);
+    probeAt(12000, true, "_discIceTimer3", true);
   }
 
   _clearDisconnectedIceProbe() {
+    this._discIceProbing = false;
     if (this._discIceTimer) {
       clearTimeout(this._discIceTimer);
       this._discIceTimer = 0;
@@ -1167,6 +1245,10 @@ class RouletteWebRtc {
     if (this._discIceTimer2) {
       clearTimeout(this._discIceTimer2);
       this._discIceTimer2 = 0;
+    }
+    if (this._discIceTimer3) {
+      clearTimeout(this._discIceTimer3);
+      this._discIceTimer3 = 0;
     }
   }
 

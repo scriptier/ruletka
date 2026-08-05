@@ -18,13 +18,17 @@ const LANG_KEY = "ruletka-mobile-lang-v1";
 export const SUPPORTED_LANGS = [
   "en",
   "ru",
+  "uk",
+  "pl",
+  "cs",
+  "bg",
+  "sr",
   "de",
   "es",
   "fr",
-  "pl",
   "pt",
   "tr",
-  "uk",
+  "ar",
   "zh",
 ] as const;
 
@@ -33,13 +37,17 @@ export type LangCode = (typeof SUPPORTED_LANGS)[number];
 export const LANG_LABELS: Record<LangCode, string> = {
   en: "English",
   ru: "Русский",
+  uk: "Українська",
+  pl: "Polski",
+  cs: "Čeština",
+  bg: "Български",
+  sr: "Српски",
   de: "Deutsch",
   es: "Español",
   fr: "Français",
-  pl: "Polski",
   pt: "Português",
   tr: "Türkçe",
-  uk: "Українська",
+  ar: "العربية",
   zh: "中文",
 };
 
@@ -69,6 +77,14 @@ function loadWebPack(code: string): Pack {
         return require("./packs/uk.json") as Pack;
       case "zh":
         return require("./packs/zh.json") as Pack;
+      case "cs":
+        return require("./packs/cs.json") as Pack;
+      case "bg":
+        return require("./packs/bg.json") as Pack;
+      case "sr":
+        return require("./packs/sr.json") as Pack;
+      case "ar":
+        return require("./packs/ar.json") as Pack;
       default:
         return require("./packs/en.json") as Pack;
     }

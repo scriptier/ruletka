@@ -303,6 +303,18 @@
       removeUpdateBanner();
     });
     document.getElementById("pwa-update-go").addEventListener("click", function () {
+      // Prefer live.js deferred reload if a call is active (don't kill P2P)
+      try {
+        if (
+          typeof isInLiveCall === "function" &&
+          isInLiveCall() &&
+          typeof requestSoftReload === "function"
+        ) {
+          requestSoftReload("sw");
+          removeUpdateBanner();
+          return;
+        }
+      } catch (_) {}
       try {
         sessionStorage.setItem(RELOAD_ONCE_KEY, "pending");
       } catch (_) {}
@@ -342,6 +354,12 @@
     var check = function () {
       try {
         if (document.visibilityState === "visible") reg.update();
+      } catch (_) {}
+      // If a soft-reload was deferred mid-call, apply when idle
+      try {
+        if (typeof maybeApplyPendingSoftReload === "function") {
+          maybeApplyPendingSoftReload();
+        }
       } catch (_) {}
     };
     setInterval(check, 2 * 60 * 1000);

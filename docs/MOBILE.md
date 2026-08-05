@@ -80,13 +80,15 @@ Push for friend rings while killed is **post-first-submit** unless schedule allo
 - [x] Reuse packs under `ui/i18n/*.json` (synced to `mobile/src/i18n/packs/`)
 - [x] Mobile overlay for all app langs (en/ru/uk/es/de/fr/pt/tr/pl/zh) + Settings language picker
 
-## Explicit non-goals (v1)
+## Explicit non-goals (v1) / known gaps vs web
 
-- Trio / find-third, rooms, admin UI  
+- **Multi-party video** (1v2 / 2v2 / 3-way / find-third): web only for now — mobile binds the first peer  
+- **Post-call surface**: web has star review + Add friend + Report/Block reason picker; mobile is thinner (gift card only)  
+- Rooms, admin UI  
 - Full gift FX stack parity  
 - Capacitor / store PWA wrap  
 - LAN PeerRoulette protocol  
-- Multi-hub stars  
+- Multi-hub stars / location chips parity  
 
 ## Store notes
 

@@ -10,6 +10,7 @@
 mod config;
 mod federation;
 mod friends_store;
+mod geo;
 mod limits;
 mod protocol;
 mod push_tokens;
@@ -20,7 +21,7 @@ use axum::{
     body::Body,
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        State,
+        ConnectInfo, State,
     },
     http::{header, HeaderMap, HeaderValue, Method, StatusCode, Uri},
     response::{Html, IntoResponse, Response},
@@ -582,14 +583,20 @@ async fn flush_fed_outbox(state: &AppState, items: Vec<FedOutbound>) {
     }
 }
 
-async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
+async fn ws_handler(
+    ws: WebSocketUpgrade,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
     {
         let hub = state.hub.lock().await;
         if hub.online() >= hub.max_clients() {
             return (StatusCode::SERVICE_UNAVAILABLE, "server full").into_response();
         }
     }
-    ws.on_upgrade(move |socket| client_connection(socket, state))
+    let client_ip = geo::client_ip_from_headers(&headers, addr);
+    ws.on_upgrade(move |socket| client_connection(socket, state, client_ip))
         .into_response()
 }
 
@@ -598,8 +605,37 @@ async fn config_handler(State(state): State<AppState>) -> Json<PublicConfig> {
     Json(state.ice_config())
 }
 
+/// Process boot stamp — changes when bridge binary restarts (deploy).
+fn process_boot_id() -> &'static str {
+    static BOOT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    BOOT.get_or_init(|| {
+        std::env::var("ROULETTE_DEPLOY_ID")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| Uuid::new_v4().to_string())
+    })
+}
+
+/// UI deploy stamp from `ui/deploy.json` (written by push.sh). Empty if missing.
+fn read_ui_deploy_id(ui_dir: &std::path::Path) -> String {
+    let path = ui_dir.join("deploy.json");
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return String::new();
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return String::new();
+    };
+    v.get("v")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .chars()
+        .take(64)
+        .collect()
+}
+
 async fn health_handler(State(state): State<AppState>) -> impl IntoResponse {
     let peer_count = effective_claim_peers(&state).await.len();
+    let ui_deploy = read_ui_deploy_id(&state.ui_dir);
     let mut hub = state.hub.lock().await;
     let metrics = hub.metrics_snapshot();
     let today = metrics.get("today").cloned().unwrap_or(serde_json::json!({}));
@@ -617,6 +653,8 @@ async fn health_handler(State(state): State<AppState>) -> impl IntoResponse {
         "mode": state.public_config.mode,
         "mod_webhook": state.mod_webhook_set,
         "metrics_today": today,
+        "boot_id": process_boot_id(),
+        "ui_deploy": ui_deploy,
         "federation": {
             "protocol": PROTOCOL,
             "instance_id": state.fed.instance_id,
@@ -1411,7 +1449,11 @@ async fn federation_relay_handler(
     }
 }
 
-async fn client_connection(socket: WebSocket, state: AppState) {
+async fn client_connection(
+    socket: WebSocket,
+    state: AppState,
+    client_ip: std::net::IpAddr,
+) {
     let (mut sink, mut stream) = socket.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<ServerMsg>();
     let client_id = Uuid::new_v4();
@@ -1441,7 +1483,33 @@ async fn client_connection(socket: WebSocket, state: AppState) {
         let mut hub = state.hub.lock().await;
         hub.notify_join();
     }
-    tracing::info!(%client_id, "browser connected");
+    // Async IP→country/city for match location chips (skipped for private IPs).
+    {
+        let st = state.clone();
+        let cid = client_id;
+        tokio::spawn(async move {
+            if let Some(loc) = geo::lookup(client_ip).await {
+                // Prefer city; fall back to region/province if city DB is empty
+                let city = if loc.city.is_empty() {
+                    loc.region.clone()
+                } else {
+                    loc.city.clone()
+                };
+                tracing::info!(
+                    %cid,
+                    %client_ip,
+                    country = %loc.country,
+                    code = %loc.code,
+                    city = %city,
+                    region = %loc.region,
+                    "geo resolved"
+                );
+                let mut hub = st.hub.lock().await;
+                hub.set_client_geo(cid, loc.code, loc.country, city);
+            }
+        });
+    }
+    tracing::info!(%client_id, %client_ip, "browser connected");
 
     let writer = tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
@@ -1866,5 +1934,10 @@ async fn main() {
     print_access_hints(addr, limits.max_clients, &fed);
 
     let listener = tokio::net::TcpListener::bind(addr).await.expect("bind");
-    axum::serve(listener, app).await.expect("serve");
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .expect("serve");
 }

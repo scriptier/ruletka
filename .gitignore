@@ -50,3 +50,6 @@ ui/brand/*.prev.png
 # Node (if any tools added later)
 node_modules/
 mobile/node_modules/
+
+# i18n machine-translation cache
+ui/i18n/.mt-cache/

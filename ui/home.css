@@ -1865,3 +1865,11 @@ body.has-live-people .home-invite-hint {
   0%, 100% { filter: brightness(1); }
   50% { filter: brightness(1.06); }
 }
+/* === RTL site pages === */
+html[dir="rtl"] body.home-body {
+  font-family: "Noto Sans Arabic", "Noto Sans", Inter, system-ui, sans-serif;
+}
+html[dir="rtl"] .home-nav,
+html[dir="rtl"] .legal-nav {
+  direction: rtl;
+}

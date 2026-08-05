@@ -6,7 +6,7 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 i18n = root / "ui" / "i18n"
 en = json.loads((i18n / "en.json").read_text(encoding="utf-8"))
-langs = ["ru", "de", "es", "fr", "pl", "pt", "tr", "uk", "zh"]
+langs = ["ru", "de", "es", "fr", "pl", "pt", "tr", "uk", "zh", "cs", "bg", "sr", "ar"]
 fail = 0
 for lang in langs:
     path = i18n / f"{lang}.json"

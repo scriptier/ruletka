@@ -17,7 +17,8 @@ pub enum ClientMsg {
         /// Soft match: "any" | "man" | "woman" | "" (any)
         #[serde(default)]
         looking: String,
-        /// Cosmetic country/region flag (ISO 3166-1 alpha-2). Not geolocation.
+        /// Cosmetic flag when hide_ip is true (ISO 3166-1 alpha-2). Ignored for public
+        /// location when hide_ip is false (hub shows real geo instead).
         #[serde(default)]
         flag: String,
         /// Small self-chosen avatar as data URL (jpeg/png/webp). Empty = none.
@@ -26,6 +27,10 @@ pub enum ClientMsg {
         /// Soft interest tags (max 3). Prefer shared tags; never hard-filter.
         #[serde(default)]
         tags: Vec<String>,
+        /// When true: hide real IP path (client uses TURN) and do not publish real
+        /// country/city — only optional cosmetic flag is shown to partners.
+        #[serde(default)]
+        hide_ip: bool,
     },
     /// Update soft match preferences without re-hello.
     SetPrefs {
@@ -33,7 +38,7 @@ pub enum ClientMsg {
         gender: String,
         #[serde(default)]
         looking: String,
-        /// Cosmetic flag (ISO 3166-1 alpha-2) or "" to clear. Not geolocation.
+        /// Cosmetic flag when hide_ip (ISO 3166-1 alpha-2) or "" to clear.
         #[serde(default)]
         flag: String,
         /// Small self-chosen avatar data URL, or "" to clear.
@@ -42,6 +47,9 @@ pub enum ClientMsg {
         /// Soft interest tags (max 3). Prefer shared tags; never hard-filter.
         #[serde(default)]
         tags: Vec<String>,
+        /// Hide real location from partners (and use TURN on client).
+        #[serde(default)]
+        hide_ip: bool,
     },
     Spin {
         #[serde(default)]
@@ -236,9 +244,18 @@ pub struct MatchPeer {
     /// Stable friend code (for history / add-friend from match).
     #[serde(default)]
     pub friend_code: String,
-    /// Self-chosen cosmetic flag (ISO 3166-1 alpha-2). Empty = none. Not real location.
+    /// Display flag ISO code: real geo when not hiding; cosmetic when hide_ip.
     #[serde(default)]
     pub flag: String,
+    /// English country name from hub geo (empty when hide_ip or unknown).
+    #[serde(default)]
+    pub country: String,
+    /// City from hub geo (empty when hide_ip or unknown).
+    #[serde(default)]
+    pub city: String,
+    /// True when this peer is hiding real IP / location (cosmetic flag only).
+    #[serde(default)]
+    pub hide_ip: bool,
     /// Small self-chosen avatar data URL. Empty = none.
     #[serde(default)]
     pub avatar: String,
@@ -319,6 +336,19 @@ pub enum ServerMsg {
         /// How many more unique partners still unlock the shorter first-chat rate window.
         #[serde(default)]
         early_rates_left: u32,
+        /// Your approximate country (from connect IP). Always for self UI; partners
+        /// only see this when you are not hide_ip.
+        #[serde(default)]
+        country: String,
+        /// Your approximate city (from connect IP).
+        #[serde(default)]
+        city: String,
+        /// Your geo ISO flag code (or empty if unknown).
+        #[serde(default)]
+        flag: String,
+        /// Echo of your hide_ip preference (location privacy).
+        #[serde(default)]
+        hide_ip: bool,
     },
     Status {
         phase: String,
@@ -328,6 +358,15 @@ pub enum ServerMsg {
         online: usize,
         #[serde(default)]
         room: String,
+    },
+    /// Hub finished approximate IP→location lookup for *you* (self UI only).
+    Geo {
+        #[serde(default)]
+        country: String,
+        #[serde(default)]
+        city: String,
+        #[serde(default)]
+        flag: String,
     },
     /// 1:1 or multi-peer match. `peers` lists everyone you should connect to.
     Matched {

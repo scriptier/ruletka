@@ -30,6 +30,12 @@ rsync -a --delete \
   --exclude 'brand/loading-screen.full.mp4' \
   --exclude 'brand/og-1200.prev.jpg' \
   ui/ "$STAGE/ui/"
+# Deploy stamp — clients poll /health ui_deploy and soft-reload when idle
+# (not mid-call). boot_id on the binary also changes when the bridge restarts.
+DEPLOY_V="$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short HEAD 2>/dev/null || echo nogit)"
+printf '%s\n' "{\"v\":\"${DEPLOY_V}\",\"at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" \
+  >"$STAGE/ui/deploy.json"
+echo "UI deploy stamp: $DEPLOY_V"
 # Minify heavy JS/CSS before upload
 if [[ -x "$ROOT/scripts/deploy/optimize-ui.sh" ]]; then
   bash "$ROOT/scripts/deploy/optimize-ui.sh" "$STAGE/ui"

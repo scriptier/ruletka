@@ -8,15 +8,19 @@
     { code: "ru", native: "Русский" },
     { code: "en", native: "English" },
     { code: "uk", native: "Українська" },
+    { code: "pl", native: "Polski" },
+    { code: "cs", native: "Čeština" },
+    { code: "bg", native: "Български" },
+    { code: "sr", native: "Српски" },
     { code: "es", native: "Español" },
     { code: "de", native: "Deutsch" },
     { code: "fr", native: "Français" },
     { code: "pt", native: "Português" },
     { code: "tr", native: "Türkçe" },
-    { code: "pl", native: "Polski" },
+    { code: "ar", native: "العربية" },
     { code: "zh", native: "中文" },
   ];
-  var PACK_V = "42";
+  var PACK_V = "132";
   var packCache = {};
   var current = "ru";
 
@@ -66,6 +70,7 @@
   function applyDict(lang, dict) {
     current = lang;
     document.documentElement.lang = lang === "zh" ? "zh-CN" : lang;
+    document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
     try {
       localStorage.setItem(LANG_KEY, lang);
     } catch (_) {}

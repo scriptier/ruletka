@@ -40,11 +40,12 @@ Then either:
 
 ## Matchmaking rules
 
-- Party size is always **2** (friend pair only)  
-- Queue entries: `Solo` or `Party { a, b }` only  
-- Allowed pairs: solo–solo, solo–party, party–party  
-- Leader for queue actions: either member’s Next/Browse re-queues both  
-- Same **room** code scopes the public lobby as before  
+- Queue entries: **`Solo`**, **`Party` (2)**, or **`Party3` (3)**  
+- Allowed pairs: solo–solo, solo–party2 (**1v2**), solo–party3 (**3v1**), party2–party2 (**2v2**)  
+- Party3 does **not** match another party (only a solo)  
+- Stranger-formed parties (`stranger_party`) do not 2v2 each other  
+- Leader for queue actions: either member’s Next/Browse re-queues the party  
+- Same **room** code scopes the public lobby as before
 
 ## Signaling
 

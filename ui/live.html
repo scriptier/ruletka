@@ -48,12 +48,12 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
     rel="stylesheet"
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap"
     media="print"
     onload="this.media='all'"
   />
   <noscript>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </noscript>
   <!-- Shell CSS first; full stage CSS non-blocking (was ~250KB parse on main thread) -->
   <link rel="stylesheet" href="style.css?v=158" />
@@ -139,22 +139,47 @@
       pointer-events: auto !important; z-index: 50 !important;
       position: absolute !important; right: 0.4rem !important; bottom: 0.4rem !important;
     }
-    /* Avatar + flag + name top-left; ★ top-right — above video (z-index 20) */
+    /* Top-left: flag→country→city centered with name below; name slightly larger */
     #local-id-stack, .tile-local-id {
       display: flex !important;
       flex-direction: column !important;
+      flex-wrap: nowrap !important;
       align-items: center !important;
       position: absolute !important;
-      top: 0.45rem !important;
-      left: 0.5rem !important;
+      top: max(0.1rem, env(safe-area-inset-top, 0px)) !important;
+      left: 0.4rem !important;
       right: auto !important;
       z-index: 45 !important;
       opacity: 1 !important;
       visibility: visible !important;
       pointer-events: none !important;
-      max-width: min(46%, 11rem) !important;
+      max-width: min(48%, 12rem) !important;
+      gap: 0.18rem !important;
     }
-    #local-name, #local-name-tag {
+    #local-name.name-on-tile {
+      display: inline-flex !important;
+      position: relative !important;
+      top: auto !important; right: auto !important; left: auto !important;
+      background: rgba(12,16,28,0.92) !important;
+      color: #eef2f7 !important;
+      border: 1px solid rgba(255,255,255,0.22) !important;
+      border-radius: 999px !important;
+      padding: 0.3rem 0.7rem !important;
+      font-size: 0.92rem !important;
+      font-weight: 700 !important;
+      letter-spacing: 0.01em !important;
+      max-width: 100% !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+      white-space: nowrap !important;
+      pointer-events: none !important;
+      order: 20 !important;
+      margin-top: 0.22rem !important;
+      align-self: center !important;
+      justify-content: center !important;
+      text-align: center !important;
+    }
+    #local-loc, #local-loc-tag {
       display: inline-flex !important;
       background: rgba(12,16,28,0.92) !important;
       color: #eef2f7 !important;
@@ -164,24 +189,69 @@
       opacity: 1 !important;
       visibility: visible !important;
       z-index: 46 !important;
+      order: 1 !important;
+      align-self: center !important;
     }
-    #local-name-tag { background: transparent !important; border: none !important; padding: 0 !important; }
-    #local-name .name-flag { font-size: 1.05rem !important; margin-right: 0.2rem; }
-    #local-avatar.tile-avatar:not([hidden]) {
+    #local-loc-tag {
+      background: transparent !important; border: none !important; padding: 0 !important;
+      flex-direction: column !important; align-items: center !important;
+    }
+    .loc-on-tile {
+      display: inline-flex !important;
+      flex-direction: column !important;
+      align-items: center !important;
+      justify-content: flex-start !important;
+      gap: 0.12rem !important;
+      text-align: center !important;
+      line-height: 1.15 !important;
+      align-self: center !important;
+    }
+    .loc-on-tile .loc-flag { font-size: 1.35rem !important; line-height: 1 !important; }
+    .loc-on-tile .loc-country {
+      font-size: 0.72rem !important; font-weight: 650 !important;
+      max-width: 9rem !important; overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important;
+    }
+    .loc-on-tile .loc-city {
+      font-size: 0.66rem !important; font-weight: 500 !important; opacity: 0.88 !important;
+      max-width: 9rem !important; overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important;
+    }
+    /* Top-right: ★ (left, top-aligned) + avatar (right) — stars hug header */
+    #local-avatar-stars, .tile-avatar-stars-local,
+    #remote-avatar-stars, .tile-avatar-stars-remote {
+      display: flex !important;
+      flex-direction: row !important;
+      align-items: flex-start !important;
+      justify-content: flex-end !important;
+      gap: 0.4rem !important;
+      position: absolute !important;
+      top: 0.22rem !important;
+      right: 0.35rem !important;
+      left: auto !important;
+      z-index: 50 !important;
+      pointer-events: none !important;
+      max-width: min(52%, 14rem) !important;
+    }
+    #local-avatar.tile-avatar:not([hidden]),
+    #remote-avatar.tile-avatar:not([hidden]) {
       display: block !important;
       width: 4.25rem !important;
       height: 4.25rem !important;
       z-index: 46 !important;
       opacity: 1 !important;
       visibility: visible !important;
+      flex-shrink: 0 !important;
+      position: relative !important;
+      top: auto !important; right: auto !important; left: auto !important;
     }
     #local-stars-badge.stars-badge,
     #local-stars-badge,
-    .stars-badge-local {
+    .stars-badge-local,
+    #remote-stars-badge:not([hidden]),
+    .stars-badge-remote {
       display: inline-flex !important;
-      position: absolute !important;
-      top: 0.45rem !important;
-      right: 0.45rem !important;
+      position: relative !important;
+      top: auto !important;
+      right: auto !important;
       left: auto !important;
       z-index: 45 !important;
       opacity: 1 !important;
@@ -194,16 +264,46 @@
       padding: 0.28rem 0.55rem !important;
       border-radius: 999px !important;
       font-weight: 750 !important;
+      flex-shrink: 0 !important;
     }
-    /* Partner name/★ when live */
+    /* Partner: location tight to header; name below city; ★+avatar top-right */
     #remote-tile-tag:not([hidden]) {
-      position: absolute !important; top: 0.45rem !important; left: 0.5rem !important;
+      position: absolute !important;
+      top: max(0.1rem, env(safe-area-inset-top, 0px)) !important;
+      left: 0.4rem !important;
       z-index: 50 !important; opacity: 1 !important; visibility: visible !important;
     }
-    #remote-stars-badge:not([hidden]) {
-      position: absolute !important; top: 0.45rem !important; right: 0.45rem !important;
-      z-index: 50 !important; display: inline-flex !important;
+    .tile-remote-id {
+      display: flex !important;
+      flex-direction: column !important;
+      flex-wrap: nowrap !important;
+      align-items: center !important;
+      gap: 0.18rem !important;
     }
+    .tile-remote-id #remote-tag.loc-on-tile { order: 1 !important; align-self: center !important; }
+    .tile-remote-id #remote-name.name-on-tile { order: 20 !important; align-self: center !important; }
+    #remote-name.name-on-tile {
+      display: inline-flex !important;
+      justify-content: center !important;
+      background: rgba(12,16,28,0.9) !important;
+      color: #eef2f7 !important;
+      border: 1px solid rgba(255,255,255,0.2) !important;
+      border-radius: 999px !important;
+      padding: 0.3rem 0.7rem !important;
+      font-size: 0.92rem !important;
+      font-weight: 700 !important;
+      letter-spacing: 0.01em !important;
+      max-width: 100% !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+      white-space: nowrap !important;
+      margin-top: 0.22rem !important;
+      margin-bottom: 0 !important;
+      order: 20 !important;
+      align-self: center !important;
+      text-align: center !important;
+    }
+    #remote-name[hidden] { display: none !important; }
     /* HARD: local video always on top of empty/canvas (mobile + desktop) */
     #tile-local #local,
     #tile-local #local.vid.local {
@@ -228,9 +328,9 @@
     #tile-local .side-rail { z-index: 50 !important; }
 </style>
   <!-- Load stage CSS as all immediately — no media=print FOUC trick (was leaving rails opacity:0) -->
-  <link rel="stylesheet" href="live-stage.css?v=343" />
-  <link rel="preload" href="live.js?v=388" as="script" />
-  <link rel="preload" href="i18n.js?v=230" as="script" />
+  <link rel="stylesheet" href="live-stage.css?v=356" />
+  <link rel="preload" href="live.js?v=400" as="script" />
+  <link rel="preload" href="i18n.js?v=242" as="script" />
   <script src="brand.js?v=2" defer></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -246,7 +346,7 @@
         if (t === "light" || t === "saloon" || t === "pink" || t === "pixel") {
           var tc = document.createElement("link");
           tc.rel = "stylesheet";
-          tc.href = "live-themes.css?v=1";
+          tc.href = "live-themes.css?v=2";
           document.head.appendChild(tc);
         }
         if (t === "saloon" || t === "pixel") {
@@ -448,17 +548,21 @@
         <label class="lang-switch lang-top-right" title="Language / Язык">
           <svg class="icon icon-sm" aria-hidden="true"><use href="#i-globe"/></svg>
           <select id="sel-lang" aria-label="Language">
-            <option value="ru">Русский</option>
-            <option value="en">English</option>
-            <option value="uk">Українська</option>
-            <option value="es">Español</option>
-            <option value="de">Deutsch</option>
-            <option value="fr">Français</option>
-            <option value="pt">Português</option>
-            <option value="tr">Türkçe</option>
-            <option value="pl">Polski</option>
-            <option value="zh">中文</option>
-          </select>
+          <option value="ru">Русский</option>
+          <option value="en">English</option>
+          <option value="uk">Українська</option>
+          <option value="pl">Polski</option>
+          <option value="cs">Čeština</option>
+          <option value="bg">Български</option>
+          <option value="sr">Српски</option>
+          <option value="es">Español</option>
+          <option value="de">Deutsch</option>
+          <option value="fr">Français</option>
+          <option value="pt">Português</option>
+          <option value="tr">Türkçe</option>
+          <option value="ar">العربية</option>
+          <option value="zh">中文</option>
+</select>
         </label>
       </div>
     </header>
@@ -527,12 +631,12 @@
         <!-- Quick gift strip (long-press partner video) -->
         <div class="gift-strip" id="gift-strip" hidden role="toolbar" aria-label="Send a star gift">
           <button type="button" class="gift-strip-btn" data-gift="heart" title="Heart · 1★">💖</button>
-          <button type="button" class="gift-strip-btn" data-gift="bars" title="Behind bars · 5★ · dims video · stack ×3">🔒</button>
-          <button type="button" class="gift-strip-btn" data-gift="flowers" title="Flowers · 5★ · warm glow · stack ×3">🌸</button>
-          <button type="button" class="gift-strip-btn" data-gift="balloons" title="Balloons · 5★ · float party · stack ×3">🎈</button>
-          <button type="button" class="gift-strip-btn" data-gift="confetti" title="Confetti · 5★ · short burst · stack ×3">🎊</button>
-          <button type="button" class="gift-strip-btn" data-gift="fireworks" title="Fireworks · 15★ · multi-wave · stack ×3">🎆</button>
-          <button type="button" class="gift-strip-btn gift-strip-stay" data-gift="please_stay" title="Please stay · 30★ · 15s">🙏</button>
+          <button type="button" class="gift-strip-btn" data-gift="bars" title="Behind bars · 5★ · dims video · stacks up to 3">🔒</button>
+          <button type="button" class="gift-strip-btn" data-gift="flowers" title="Flowers · 5★ · warm glow · stacks up to 3">🌸</button>
+          <button type="button" class="gift-strip-btn" data-gift="balloons" title="Balloons · 5★ · float party · stacks up to 3">🎈</button>
+          <button type="button" class="gift-strip-btn" data-gift="confetti" title="Confetti · 5★ · short burst · stacks up to 3">🎊</button>
+          <button type="button" class="gift-strip-btn" data-gift="fireworks" title="Fireworks · 15★ · multi-wave · stacks up to 3">🎆</button>
+          <button type="button" class="gift-strip-btn gift-strip-stay" data-gift="please_stay" title="Please stay · 30★ · 15s no-Next">🙏</button>
           <button type="button" class="gift-strip-btn gift-strip-more" id="gift-strip-more" title="More">⋯</button>
         </div>
         <!-- Debate: partner mute/speak badges (visibility toggled in JS) -->
@@ -568,6 +672,8 @@
           </div>
         </div>
         <!-- Swipe left/right to skip (Next) -->
+        <div class="swipe-edge-glow swipe-edge-glow-left" id="swipe-edge-glow-left" aria-hidden="true"></div>
+        <div class="swipe-edge-glow swipe-edge-glow-right" id="swipe-edge-glow-right" aria-hidden="true"></div>
         <div class="swipe-skip-hint" id="swipe-skip-hint" hidden aria-hidden="true">
           <span class="swipe-skip-arrow swipe-skip-left" aria-hidden="true">‹</span>
           <span class="swipe-skip-label" data-i18n="swipe.next">Next</span>
@@ -627,10 +733,10 @@
             <div class="mobile-invite" id="mobile-invite" hidden aria-hidden="true"></div>
           </div>
         <div class="tile-tag tile-tag-remote" id="remote-tile-tag" hidden>
-          <!-- Identity stack: avatar above flag+name (matches local tile) -->
+          <!-- Top-left: flag → country → city, then name below -->
           <div class="tile-remote-id">
-            <span class="tile-avatar tile-avatar-remote" id="remote-avatar" hidden><img id="remote-avatar-img" alt="" /></span>
-            <span class="name-on-tile name-on-tile-stack" id="remote-tag"></span>
+            <span class="loc-on-tile" id="remote-tag"></span>
+            <span class="name-on-tile name-top-left" id="remote-name" hidden></span>
             <span class="peer-who-sub" id="remote-who-sub" hidden></span>
             <span class="trust-tier-chip" id="remote-trust-chip" hidden title="Reputation tier"></span>
             <span class="partner-praise-chip" id="remote-praise-chip" hidden title="Peer praise"></span>
@@ -658,12 +764,15 @@
             <span class="av-lag-chip" id="av-lag-chip" hidden title="Audio vs video playout lag">A/V</span>
           </div>
         </div>
-        <!-- Partner ★ — top-right of conversationalist window -->
-        <button type="button" class="stars-badge stars-badge-remote is-clickable" id="remote-stars-badge" hidden
-          aria-label="Partner stars — open Stars guide">
-          <span class="stars-icon" aria-hidden="true">★</span>
-          <span class="stars-count" id="remote-stars-count">0</span>
-        </button>
+        <!-- Top-right: ★ (slightly left) + avatar -->
+        <div class="tile-avatar-stars-stack tile-avatar-stars-remote" id="remote-avatar-stars">
+          <button type="button" class="stars-badge stars-badge-remote is-clickable" id="remote-stars-badge" hidden
+            aria-label="Partner stars — open Stars guide">
+            <span class="stars-icon" aria-hidden="true">★</span>
+            <span class="stars-count" id="remote-stars-count">0</span>
+          </button>
+          <span class="tile-avatar tile-avatar-remote" id="remote-avatar" hidden><img id="remote-avatar-img" alt="" /></span>
+        </div>
         <!-- Multi-party layout: stack (vertical) ↔ equal grid -->
         <button type="button" class="tile-corner-btn tile-layout-btn" id="btn-stage-layout" hidden
           data-i18n-title="layout.gridTitle" title="Equal grid layout" aria-label="Equal grid layout"
@@ -897,23 +1006,26 @@
             LED on but black? Pick <b>USB Camera</b> in Settings (not Razer Kiyo), or Restart.
           </p>
         </div>
-        <!-- Local identity: avatar + flag/name stacked top-left; ★ top-right -->
+        <!-- Local: flag→country→city then name below; ★ + avatar top-right -->
         <div class="tile-local-id" id="local-id-stack">
-          <span class="tile-avatar tile-avatar-local" id="local-avatar" hidden>
-            <img id="local-avatar-img" alt="" />
-          </span>
-          <div class="tile-tag tile-tag-local-name" id="local-name-tag">
-            <span class="name-on-tile name-on-tile-stack" id="local-name">anon</span>
+          <div class="tile-tag tile-tag-local-loc" id="local-loc-tag">
+            <span class="loc-on-tile" id="local-loc"></span>
             <span class="trust-tier-chip" id="local-trust-chip" hidden title="Your reputation tier"></span>
             <span class="stars-soft-rank-chip" id="local-soft-rank-chip" hidden title="Soft match rank on">↗</span>
             <span class="flair-chip" id="local-flair-chip" hidden title="Flair" aria-hidden="true"></span>
           </div>
+          <span class="name-on-tile name-top-left" id="local-name">anon</span>
         </div>
-        <button type="button" class="stars-badge stars-badge-local is-clickable" id="local-stars-badge"
-          aria-label="Your stars — open Stars guide">
-          <span class="stars-icon" aria-hidden="true">★</span>
-          <span class="stars-count" id="local-stars-count">0</span>
-        </button>
+        <div class="tile-avatar-stars-stack tile-avatar-stars-local" id="local-avatar-stars">
+          <button type="button" class="stars-badge stars-badge-local is-clickable" id="local-stars-badge"
+            aria-label="Your stars — open Stars guide">
+            <span class="stars-icon" aria-hidden="true">★</span>
+            <span class="stars-count" id="local-stars-count">0</span>
+          </button>
+          <span class="tile-avatar tile-avatar-local" id="local-avatar" hidden>
+            <img id="local-avatar-img" alt="" />
+          </span>
+        </div>
         <aside class="side-rail side-rail-right">
           <!-- Cam on/off fully removed — use Hide (self-blur) for privacy; camera stays on for preview -->
           <button type="button" class="side-btn" id="btn-flip-cam" data-i18n-title="btn.flipCamTitle" title="Flip video left / right (C)" aria-label="Flip video" aria-pressed="false">
@@ -1250,7 +1362,7 @@
           <span class="stars-sheet-hero-ico" aria-hidden="true">★</span>
           <div class="stars-hero-nums">
             <div class="stars-sheet-balance" id="stars-sheet-balance">0</div>
-            <span class="stars-tier-chip" id="stars-tier-chip" data-tier="0">×1</span>
+            <span class="stars-tier-chip" id="stars-tier-chip" data-tier="0">New</span>
           </div>
         </div>
         <div class="stars-hero-meta">
@@ -1611,7 +1723,7 @@
     <div class="partner-menu-actions" id="partner-menu-report" hidden>
       <p class="partner-menu-hint" data-i18n="partnerMenu.reportHint">Pick a reason → we block them for you, skip, and you will not match them again. Multiple independent reports can restrict their matchmaking.</p>
       <p class="partner-menu-hint partner-menu-trusted" id="partner-menu-trusted-hint" hidden data-i18n="stars.trustedReporterHint">
-        You have 100+★ — your report carries stronger weight (counts as 2).
+        You are Trusted — soft match rank and gift up to 2★. Reports still need independent consensus.
       </p>
       <button type="button" class="partner-menu-btn" data-report-reason="underage" data-i18n="partnerMenu.rUnderage">Underage concern</button>
       <button type="button" class="partner-menu-btn" data-report-reason="explicit" data-i18n="partnerMenu.rExplicit">Explicit content</button>
@@ -1746,13 +1858,6 @@
             </span>
             <span class="row-right"><span id="settings-theme-value" class="row-value">Dark</span> <span class="chev">›</span></span>
           </button>
-          <button type="button" class="settings-row" data-settings-open="flag">
-            <span class="row-left">
-              <span class="row-flag" id="settings-flag-emoji" aria-hidden="true">🏳️</span>
-              <span data-i18n="flag.label">Flag</span>
-            </span>
-            <span class="row-right"><span id="settings-flag-value" class="row-value">None</span> <span class="chev">›</span></span>
-          </button>
         </div>
 
         <p class="settings-section-label" data-i18n="settings.secMore">Preferences</p>
@@ -1836,14 +1941,18 @@
           <option value="ru">Русский</option>
           <option value="en">English</option>
           <option value="uk">Українська</option>
+          <option value="pl">Polski</option>
+          <option value="cs">Čeština</option>
+          <option value="bg">Български</option>
+          <option value="sr">Српски</option>
           <option value="es">Español</option>
           <option value="de">Deutsch</option>
           <option value="fr">Français</option>
           <option value="pt">Português</option>
           <option value="tr">Türkçe</option>
-          <option value="pl">Polski</option>
+          <option value="ar">العربية</option>
           <option value="zh">中文</option>
-        </select>
+</select>
         <select id="sel-camera" class="settings-hidden-select" hidden></select>
         <select id="sel-mic" class="settings-hidden-select" hidden></select>
         <select id="sel-speaker" class="settings-hidden-select" hidden></select>
@@ -1988,6 +2097,19 @@
           <button type="button" class="pref-tag" data-pref-tag="chat" data-i18n="prefs.tag.chat">Chat</button>
           <button type="button" class="pref-tag" data-pref-tag="langs" data-i18n="prefs.tag.langs">Languages</button>
           <button type="button" class="pref-tag" data-pref-tag="anime" data-i18n="prefs.tag.anime">Anime</button>
+        </div>
+        <p class="settings-section-label" data-i18n="settings.secControls">Controls</p>
+        <div class="settings-group">
+          <label class="settings-row settings-row-toggle">
+            <span class="row-left toggle-copy">
+              <span class="toggle-title" data-i18n="settings.swipeSkip">Swipe to next</span>
+              <span class="toggle-hint" data-i18n="settings.swipeSkipHint">Swipe left or right on the partner video to search for the next person (same as Next). Works with finger or mouse drag.</span>
+            </span>
+            <span class="switch">
+              <input type="checkbox" id="chk-swipe-skip" checked />
+              <span class="switch-ui" aria-hidden="true"></span>
+            </span>
+          </label>
         </div>
       </div>
     </div>
@@ -2410,6 +2532,19 @@
             <span class="toggle-ui" aria-hidden="true"></span>
           </span>
         </label>
+        <!-- Cosmetic flag only when Hide IP is on (real location is hub geo otherwise) -->
+        <div class="settings-group hide-ip-flag-group" id="hide-ip-flag-section" hidden>
+          <button type="button" class="settings-row" data-settings-open="flag">
+            <span class="row-left">
+              <span class="row-flag" id="settings-flag-emoji" aria-hidden="true">🏳️</span>
+              <span data-i18n="flag.labelHideIp">Display flag</span>
+            </span>
+            <span class="row-right"><span id="settings-flag-value" class="row-value">None</span> <span class="chev">›</span></span>
+          </button>
+          <p class="hint-inline" data-i18n="flag.hintHideIp">
+            Shown instead of your real country while Hide my IP is on. Pick any flag — partners won’t see your city.
+          </p>
+        </div>
         <label class="settings-toggle-row conn-prefer-direct-row">
           <span class="toggle-copy">
             <span class="toggle-title" data-i18n="settings.preferDirect">Prefer Direct only</span>
@@ -2492,16 +2627,16 @@
       </div>
     </div>
 
-    <!-- FLAG (cosmetic — not location) -->
+    <!-- FLAG (cosmetic — only while Hide my IP is on) -->
     <div class="settings-view" id="settings-view-flag" hidden>
       <header class="settings-header">
         <button type="button" class="sheet-nav-btn" data-settings-back aria-label="Back">‹</button>
-        <h3 data-i18n="flag.label">Flag</h3>
+        <h3 data-i18n="flag.labelHideIp">Display flag</h3>
         <span class="sheet-nav-spacer"></span>
       </header>
       <div class="sheet-body settings-body">
-        <p class="hint-inline" data-i18n="flag.hint">
-          Optional label on your name. You choose it — we never use GPS or your IP to set a flag.
+        <p class="hint-inline" data-i18n="flag.hintHideIp">
+          Shown instead of your real country while Hide my IP is on. Pick any flag — partners won’t see your city.
         </p>
         <div class="settings-group flag-search-sticky">
           <div class="settings-row settings-row-input">
@@ -2666,12 +2801,12 @@
 
   <!-- Critical path: defer app scripts. QR / invite-copy / live-window load on demand. -->
   <script src="analytics.js?v=3" defer></script>
-  <script src="pwa-install.js?v=11" defer></script>
-  <script src="i18n.js?v=230" defer></script>
+  <script src="pwa-install.js?v=12" defer></script>
+  <script src="i18n.js?v=242" defer></script>
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=156" defer></script>
-  <script src="webrtc.js?v=168" defer></script>
-  <script src="live.js?v=388" defer></script>
+  <script src="webrtc.js?v=170" defer></script>
+  <script src="live.js?v=400" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

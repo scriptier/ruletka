@@ -31,8 +31,12 @@
 | Piece | Status |
 |-------|--------|
 | Simple match bridge | `bridge/` — default product path |
-| Live UI (multi-language packs) | `ui/live.html`, `ui/i18n/` |
-| Safety / community | `ui/safety.html`, `ui/legal/` |
+| Live UI (10 languages, full pack parity) | `ui/live.html`, `ui/i18n/` |
+| Location chips (hub geo · hide-IP cosmetic flag) | bridge `geo.rs` + live tiles |
+| Multi-party (1v2 / 2v2 / 3v1) | web live stack · see `docs/FRIENDS_PARTY.md` |
+| Social score (wallet ★ vs status · bars soft stigma) | stars ledger + live Stars sheet |
+| Safety / community / updates | `ui/safety.html`, `ui/legal/`, `ui/updates.html` |
+| Deploy without killing P2P calls | `/health` `boot_id` + `ui_deploy` · deferred soft-reload |
 | Public hub directory | `ui/hubs.json` + `GET /v1/directory` |
 | Client multi-hub failover | `ui/hubs.js` |
 | Network helpers (Win/Mac/Linux) | `ui/download/rulet-helper*` — full island hub |
