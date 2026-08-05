@@ -1445,6 +1445,8 @@
   "settings.sumNsfw": "Пропустити",
   "settings.sumOff": "Усе вимк.",
   "settings.sumSound": "Звук",
+  "settings.sumSwipeOff": "Без свайпа",
+  "settings.sumSwipeOn": "Свайп",
   "settings.swipeSkip": "Свайп — наступний",
   "settings.swipeSkipHint": "Проведіть вліво або вправо по відео співрозмовника, щоб шукати наступного (як «Далі»). Працює пальцем або мишею.",
   "settings.swipeSkipOff": "Свайп вимкнено — використовуйте кнопку «Далі»",

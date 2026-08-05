@@ -136,8 +136,22 @@
     .side-rail .side-btn .lbl { display: block !important; opacity: 1 !important; color: #e8eef7 !important; font-size: 0.62rem !important; }
     #btn-fs-remote, .tile-fs-btn {
       opacity: 1 !important; visibility: visible !important; display: flex !important;
-      pointer-events: auto !important; z-index: 50 !important;
-      position: absolute !important; right: 0.4rem !important; bottom: 0.4rem !important;
+      pointer-events: auto !important; z-index: 52 !important;
+      position: absolute !important;
+      top: max(0.28rem, env(safe-area-inset-top, 0px)) !important;
+      right: 0.4rem !important;
+      bottom: auto !important;
+      left: auto !important;
+    }
+    .tile-layout-btn {
+      top: calc(max(0.28rem, env(safe-area-inset-top, 0px)) + 2.85rem) !important;
+      right: 0.4rem !important;
+      bottom: auto !important;
+      z-index: 51 !important;
+    }
+    /* Stars + avatar sit left of the top-right FS control */
+    #remote-avatar-stars, .tile-avatar-stars-remote {
+      right: 3.2rem !important;
     }
     /* Top-left: flag→country→city centered with name below; name slightly larger */
     #local-id-stack, .tile-local-id {
@@ -215,7 +229,7 @@
       font-size: 0.66rem !important; font-weight: 500 !important; opacity: 0.88 !important;
       max-width: 9rem !important; overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important;
     }
-    /* Top-right: ★ (left, top-aligned) + avatar (right) — stars hug header */
+    /* Top-right: ★ + avatar; partner stack sits left of FS */
     #local-avatar-stars, .tile-avatar-stars-local,
     #remote-avatar-stars, .tile-avatar-stars-remote {
       display: flex !important;
@@ -230,6 +244,9 @@
       z-index: 50 !important;
       pointer-events: none !important;
       max-width: min(52%, 14rem) !important;
+    }
+    #remote-avatar-stars, .tile-avatar-stars-remote {
+      right: 3.2rem !important;
     }
     #local-avatar.tile-avatar:not([hidden]),
     #remote-avatar.tile-avatar:not([hidden]) {
@@ -328,9 +345,9 @@
     #tile-local .side-rail { z-index: 50 !important; }
 </style>
   <!-- Load stage CSS as all immediately — no media=print FOUC trick (was leaving rails opacity:0) -->
-  <link rel="stylesheet" href="live-stage.css?v=356" />
-  <link rel="preload" href="live.js?v=400" as="script" />
-  <link rel="preload" href="i18n.js?v=242" as="script" />
+  <link rel="stylesheet" href="live-stage.css?v=359" />
+  <link rel="preload" href="live.js?v=401" as="script" />
+  <link rel="preload" href="i18n.js?v=243" as="script" />
   <script src="brand.js?v=2" defer></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -780,7 +797,7 @@
           <span class="layout-ico layout-ico-grid" aria-hidden="true">▦</span>
           <span class="layout-ico layout-ico-stack" aria-hidden="true" hidden>▤</span>
         </button>
-        <!-- Fullscreen — bottom-right of conversationalist window -->
+        <!-- Fullscreen — top-right of conversationalist window (near header) -->
         <button type="button" class="tile-corner-btn tile-fs-btn" id="btn-fs-remote" data-i18n-title="btn.fullTitle" title="Fullscreen (F)" aria-label="Fullscreen">
           <svg class="icon" aria-hidden="true"><use href="#i-expand"/></svg>
         </button>
@@ -2802,11 +2819,11 @@
   <!-- Critical path: defer app scripts. QR / invite-copy / live-window load on demand. -->
   <script src="analytics.js?v=3" defer></script>
   <script src="pwa-install.js?v=12" defer></script>
-  <script src="i18n.js?v=242" defer></script>
+  <script src="i18n.js?v=243" defer></script>
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=156" defer></script>
   <script src="webrtc.js?v=170" defer></script>
-  <script src="live.js?v=400" defer></script>
+  <script src="live.js?v=401" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

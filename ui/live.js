@@ -1963,10 +1963,15 @@ function syncMatchPrefsUi() {
       .map((t) => _t(`prefs.tag.${t}`) || t)
       .slice(0, 3)
       .join(", ");
+    const swipeBit = swipeSkipEnabled()
+      ? _t("settings.sumSwipeOn") || "Swipe"
+      : _t("settings.sumSwipeOff") || "No swipe";
     $("settings-match-summary").textContent =
       prefsLabel("looking", looking) +
       (gender ? " · " + prefsLabel("gender", gender) : "") +
-      (tagBits ? " · " + tagBits : "");
+      (tagBits ? " · " + tagBits : "") +
+      " · " +
+      swipeBit;
   }
 }
 

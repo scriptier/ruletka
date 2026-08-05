@@ -1445,6 +1445,8 @@
   "settings.sumNsfw": "Pomiń",
   "settings.sumOff": "Wszystko wył.",
   "settings.sumSound": "Dźwięk",
+  "settings.sumSwipeOff": "Bez przesuwania",
+  "settings.sumSwipeOn": "Przesunięcie",
   "settings.swipeSkip": "Przesuń do następnego",
   "settings.swipeSkipHint": "Przesuń w lewo lub w prawo po filmie partnera, aby wyszukać następną osobę (tak samo jak Dalej). Działa poprzez przeciągnięcie palcem lub myszą.",
   "settings.swipeSkipOff": "Przesuń do następnego — zamiast tego użyj przycisku Dalej",

@@ -1445,6 +1445,8 @@
   "settings.sumNsfw": "NSFW",
   "settings.sumOff": "Изкл",
   "settings.sumSound": "Звук",
+  "settings.sumSwipeOff": "Без плъзгане",
+  "settings.sumSwipeOn": "Плъзгане",
   "settings.swipeSkip": "Плъзнете до следващия",
   "settings.swipeSkipHint": "Плъзнете наляво или надясно върху партньорския видеоклип, за да потърсите следващия човек (същото като Next). Работи с плъзгане с пръст или мишка.",
   "settings.swipeSkipOff": "Плъзнете до следващо изключване — вместо това използвайте бутона Напред",

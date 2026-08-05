@@ -1445,6 +1445,8 @@
   "settings.sumNsfw": "Passer",
   "settings.sumOff": "Tout off",
   "settings.sumSound": "Son",
+  "settings.sumSwipeOff": "Sans glisser",
+  "settings.sumSwipeOn": "Glisser",
   "settings.swipeSkip": "Glisser vers suivant",
   "settings.swipeSkipHint": "Faites glisser votre doigt vers la gauche ou la droite sur la vidéo du partenaire pour rechercher la personne suivante (comme pour Suivant). Fonctionne avec le doigt ou la souris.",
   "settings.swipeSkipOff": "Faites glisser votre doigt vers Suivant – utilisez plutôt le bouton Suivant",

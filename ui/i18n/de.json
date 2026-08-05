@@ -1445,6 +1445,8 @@
   "settings.sumNsfw": "Überspringen",
   "settings.sumOff": "Alles aus",
   "settings.sumSound": "Ton",
+  "settings.sumSwipeOff": "Kein Wischen",
+  "settings.sumSwipeOn": "Wischen",
   "settings.swipeSkip": "Wischen Sie zum nächsten",
   "settings.swipeSkipHint": "Wischen Sie im Partnervideo nach links oder rechts, um nach der nächsten Person zu suchen (wie „Weiter“). Funktioniert durch Ziehen mit dem Finger oder der Maus.",
   "settings.swipeSkipOff": "Wischen Sie zum nächsten Schritt – verwenden Sie stattdessen die Schaltfläche „Weiter“.",

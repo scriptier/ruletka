@@ -1445,6 +1445,8 @@
   "settings.sumNsfw": "NSFW",
   "settings.sumOff": "Vypnuto",
   "settings.sumSound": "Zvuk",
+  "settings.sumSwipeOff": "Bez přejetí",
+  "settings.sumSwipeOn": "Přejetí",
   "settings.swipeSkip": "Přejetím na další",
   "settings.swipeSkipHint": "Přejetím prstem doleva nebo doprava na partnerském videu vyhledejte další osobu (stejně jako další). Funguje tažením prstem nebo myší.",
   "settings.swipeSkipOff": "Přejetím na další vypnuto — místo toho použijte tlačítko Další",

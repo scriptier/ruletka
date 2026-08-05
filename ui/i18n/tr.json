@@ -1445,6 +1445,8 @@
   "settings.sumNsfw": "Atla",
   "settings.sumOff": "Hepsi kapalı",
   "settings.sumSound": "Ses",
+  "settings.sumSwipeOff": "Kaydırma yok",
+  "settings.sumSwipeOn": "Kaydır",
   "settings.swipeSkip": "Sonrakine kaydır",
   "settings.swipeSkipHint": "Sonraki kişiyi aramak için ortak videoda sola veya sağa kaydırın (Sonraki ile aynı). Parmakla veya fareyle sürüklemeyle çalışır.",
   "settings.swipeSkipOff": "Sonraki kapalı için kaydırın; bunun yerine İleri düğmesini kullanın",

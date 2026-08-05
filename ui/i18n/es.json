@@ -1445,6 +1445,8 @@
   "settings.sumNsfw": "Saltar",
   "settings.sumOff": "Todo off",
   "settings.sumSound": "Sonido",
+  "settings.sumSwipeOff": "Sin deslizar",
+  "settings.sumSwipeOn": "Deslizar",
   "settings.swipeSkip": "Desliza al siguiente",
   "settings.swipeSkipHint": "Desliza el dedo hacia la izquierda o hacia la derecha en el video del socio para buscar a la siguiente persona (igual que Siguiente). Funciona arrastrando con el dedo o el ratón.",
   "settings.swipeSkipOff": "Deslízate al siguiente; usa el botón Siguiente en su lugar",

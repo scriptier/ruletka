@@ -1445,6 +1445,8 @@
   "settings.sumNsfw": "Pular",
   "settings.sumOff": "Tudo off",
   "settings.sumSound": "Som",
+  "settings.sumSwipeOff": "Sem deslizar",
+  "settings.sumSwipeOn": "Deslizar",
   "settings.swipeSkip": "Deslize para o próximo",
   "settings.swipeSkipHint": "Deslize para a esquerda ou para a direita no vídeo do parceiro para procurar a próxima pessoa (o mesmo que Próximo). Funciona arrastando o dedo ou o mouse.",
   "settings.swipeSkipOff": "Deslize para o próximo – use o botão Avançar",

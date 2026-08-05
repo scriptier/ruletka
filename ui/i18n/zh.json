@@ -1445,6 +1445,8 @@
   "settings.sumNsfw": "跳过",
   "settings.sumOff": "全部关闭",
   "settings.sumSound": "声音",
+  "settings.sumSwipeOff": "无滑动",
+  "settings.sumSwipeOn": "滑动",
   "settings.swipeSkip": "滑动到下一个",
   "settings.swipeSkipHint": "在合作伙伴视频上向左或向右滑动可搜索下一个人（与下一个相同）。用手指或鼠标拖动即可工作。",
   "settings.swipeSkipOff": "滑动到下一个 - 使用“下一步”按钮",

@@ -1445,6 +1445,8 @@
   "settings.sumNsfw": "NSFW",
   "settings.sumOff": "Off",
   "settings.sumSound": "Sound",
+  "settings.sumSwipeOff": "No swipe",
+  "settings.sumSwipeOn": "Swipe",
   "settings.swipeSkip": "Swipe to next",
   "settings.swipeSkipHint": "Swipe left or right on the partner video to search for the next person (same as Next). Works with finger or mouse drag.",
   "settings.swipeSkipOff": "Swipe to next off — use the Next button instead",

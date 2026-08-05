@@ -1445,6 +1445,8 @@
   "settings.sumNsfw": "НСФВ",
   "settings.sumOff": "Офф",
   "settings.sumSound": "Звук",
+  "settings.sumSwipeOff": "Без превлачења",
+  "settings.sumSwipeOn": "Превлачење",
   "settings.swipeSkip": "Превуците прстом до следећег",
   "settings.swipeSkipHint": "Превуците налево или надесно на видео снимку партнера да бисте потражили следећу особу (исто као Следећи). Ради са превлачењем прстом или мишем.",
   "settings.swipeSkipOff": "Превуците прстом до следећег искљученог — уместо тога користите дугме Следеће",

@@ -1445,6 +1445,8 @@
   "settings.sumNsfw": "NSFW",
   "settings.sumOff": "عن",
   "settings.sumSound": "صوت",
+  "settings.sumSwipeOff": "بدون سحب",
+  "settings.sumSwipeOn": "سحب",
   "settings.swipeSkip": "اسحب للتالي",
   "settings.swipeSkipHint": "اسحب يسارًا أو يمينًا على فيديو الشريك للبحث عن الشخص التالي (مثل زر التالي). يعمل بالإصبع أو بالماوس.",
   "settings.swipeSkipOff": "السحب للتالي متوقف — استخدم زر التالي",

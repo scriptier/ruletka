@@ -1445,6 +1445,8 @@
   "settings.sumNsfw": "НФВ",
   "settings.sumOff": "Выкл.",
   "settings.sumSound": "Звук",
+  "settings.sumSwipeOff": "Без свайпа",
+  "settings.sumSwipeOn": "Свайп",
   "settings.swipeSkip": "Свайп — следующий",
   "settings.swipeSkipHint": "Смахните влево или вправо по видео собеседника, чтобы искать следующего (как кнопка «Далее»). Работает пальцем или мышью.",
   "settings.swipeSkipOff": "Свайп выключен — используйте кнопку «Далее»",

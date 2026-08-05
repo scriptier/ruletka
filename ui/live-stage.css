@@ -2433,7 +2433,7 @@ a.brand:focus-visible {
   order: unset;
 }
 
-/* Fullscreen — bottom-right of conversationalist window (above floor tray) */
+/* Fullscreen / layout — top-right of partner tile (near header, not above Messages) */
 .tile-corner-btn {
   position: absolute;
   z-index: 8;
@@ -2463,12 +2463,13 @@ a.brand:focus-visible {
 .tile-corner-btn:active {
   transform: scale(0.96);
 }
-.tile-fs-btn {
-  top: auto;
-  left: auto;
-  right: 0.55rem;
-  /* Sit just above the partner floor tray */
-  bottom: calc(var(--tile-chrome-h, 3.4rem) + 0.5rem);
+.tile-fs-btn,
+#btn-fs-remote {
+  top: max(0.28rem, env(safe-area-inset-top, 0px)) !important;
+  left: auto !important;
+  right: 0.4rem !important;
+  bottom: auto !important;
+  z-index: 52 !important;
 }
 /* PiP control removed from UI */
 .tile-pip-btn {
@@ -6589,12 +6590,18 @@ html.rooms-disabled #btn-share-room-settings {
   .wait-tips {
     display: none !important;
   }
-  .tile-fs-btn {
-    top: auto;
-    right: 0.4rem;
-    bottom: calc(var(--tile-chrome-h, 3.2rem) + 0.4rem);
+  .tile-fs-btn,
+  #btn-fs-remote {
+    top: max(0.22rem, env(safe-area-inset-top, 0px)) !important;
+    right: 0.32rem !important;
+    bottom: auto !important;
     width: 2.35rem;
     height: 2.35rem;
+  }
+  .tile-layout-btn {
+    top: calc(max(0.22rem, env(safe-area-inset-top, 0px)) + 2.65rem) !important;
+    right: 0.32rem !important;
+    bottom: auto !important;
   }
   .next-big.next-in-tile {
     flex: 1 1 auto;
@@ -6720,10 +6727,11 @@ html.rooms-disabled #btn-share-room-settings {
     width: 2.35rem;
     height: 2.35rem;
   }
-  .tile-fs-btn {
-    top: auto;
-    right: 0.3rem;
-    bottom: calc(var(--tile-chrome-h, 3rem) + 0.35rem);
+  .tile-fs-btn,
+  #btn-fs-remote {
+    top: max(0.22rem, env(safe-area-inset-top, 0px)) !important;
+    right: 0.3rem !important;
+    bottom: auto !important;
     width: 2.1rem;
     height: 2.1rem;
   }
@@ -17544,10 +17552,11 @@ html.match-live .tile-remote .side-rail-left,
    ═══════════════════════════════════════════════════════════ */
 
 .tile-layout-btn {
-  /* near fullscreen control */
-  z-index: 14;
-  bottom: 3.4rem;
-  right: 0.45rem;
+  /* under fullscreen at top-right */
+  z-index: 51;
+  top: calc(max(0.28rem, env(safe-area-inset-top, 0px)) + 2.85rem) !important;
+  right: 0.4rem !important;
+  bottom: auto !important;
   font-size: 1.05rem;
   line-height: 1;
   min-width: 2.1rem;
@@ -17652,16 +17661,19 @@ html.match-live .tile-remote .side-rail-left,
   max-width: 56rem;
   margin: 0 auto;
 }
-/* Fullscreen + layout chips on partner face (top-right) */
+/* Fullscreen + layout chips stay top-right in stack layout */
 .stage.stage-layout-stack .tile-remote .tile-fs-btn,
-.stage.stage-layout-stack .tile-remote .tile-layout-btn {
+.stage.stage-layout-stack .tile-remote #btn-fs-remote {
   bottom: auto !important;
-  top: 0.45rem !important;
-  right: 0.45rem !important;
-  z-index: 48 !important;
+  top: max(0.28rem, env(safe-area-inset-top, 0px)) !important;
+  right: 0.4rem !important;
+  z-index: 52 !important;
 }
 .stage.stage-layout-stack .tile-remote .tile-layout-btn {
-  right: 2.85rem !important;
+  bottom: auto !important;
+  top: calc(max(0.28rem, env(safe-area-inset-top, 0px)) + 2.85rem) !important;
+  right: 0.4rem !important;
+  z-index: 51 !important;
 }
 /* Local rail above fixed dock */
 .stage.stage-layout-stack .tile-local .side-rail-right {
@@ -17855,8 +17867,9 @@ html.match-live .tile-remote .side-rail-left,
     grid-template-columns: 1fr 1fr !important;
   }
   .tile-layout-btn {
-    bottom: 3.6rem;
-    right: 0.35rem;
+    top: calc(max(0.22rem, env(safe-area-inset-top, 0px)) + 2.65rem) !important;
+    right: 0.35rem !important;
+    bottom: auto !important;
   }
 }
 
@@ -18080,19 +18093,24 @@ html.match-live .tile-remote .side-rail-left,
     transform-origin: top right;
   }
 
-  /* Layout toggle: smaller corner control */
+  /* Layout toggle: smaller corner control under FS */
   html.match-live .tile-layout-btn {
     width: 1.85rem;
     height: 1.85rem;
     min-width: 1.85rem;
     min-height: 1.85rem;
     font-size: 0.85rem;
-    bottom: 3.1rem;
-    right: 0.3rem;
+    top: calc(max(0.22rem, env(safe-area-inset-top, 0px)) + 2.35rem) !important;
+    right: 0.3rem !important;
+    bottom: auto !important;
   }
-  html.match-live .tile-fs-btn {
+  html.match-live .tile-fs-btn,
+  html.match-live #btn-fs-remote {
     width: 1.85rem;
     height: 1.85rem;
+    top: max(0.22rem, env(safe-area-inset-top, 0px)) !important;
+    right: 0.3rem !important;
+    bottom: auto !important;
   }
 
   /* Friends online strip never during live call */
@@ -18924,6 +18942,7 @@ html.match-live .tile-remote .side-rail-left,
   position: absolute !important;
   /* Pull closer to the window chrome / header */
   top: 0.18rem !important;
+  /* Partner: leave room for top-right fullscreen control */
   right: 0.32rem !important;
   left: auto !important;
   display: flex !important;
@@ -18935,6 +18954,11 @@ html.match-live .tile-remote .side-rail-left,
   z-index: 50 !important;
   pointer-events: none !important;
   max-width: min(52%, 14rem) !important;
+}
+/* Partner tile only: shift ★+avatar left of the fullscreen chip */
+#remote-avatar-stars,
+.tile-avatar-stars-remote {
+  right: 3.2rem !important;
 }
 .tile-avatar-stars-stack .stars-badge,
 .tile-avatar-stars-stack #local-stars-badge,
@@ -18978,6 +19002,10 @@ html.match-live .tile-remote .side-rail-left,
     right: 0.22rem !important;
     gap: 0.3rem !important;
     align-items: flex-start !important;
+  }
+  #remote-avatar-stars,
+  .tile-avatar-stars-remote {
+    right: 2.85rem !important; /* clear top-right fullscreen */
   }
   .tile-local .tile-local-id,
   #local-id-stack {
@@ -19156,6 +19184,54 @@ html[dir="rtl"] #remote-avatar-stars {
   left: 0.32rem !important;
   flex-direction: row-reverse !important;
 }
+html[dir="rtl"] #remote-avatar-stars,
+html[dir="rtl"] .tile-avatar-stars-remote {
+  left: 3.2rem !important; /* clear top-left FS in RTL */
+}
+html[dir="rtl"] .tile-fs-btn,
+html[dir="rtl"] #btn-fs-remote {
+  right: auto !important;
+  left: 0.4rem !important;
+}
+html[dir="rtl"] .tile-layout-btn {
+  right: auto !important;
+  left: 0.4rem !important;
+}
 html[dir="rtl"] body {
   font-family: "Noto Sans Arabic", "Noto Sans", Inter, system-ui, sans-serif;
+}
+
+/* === Final lock: fullscreen top-right === */
+.tile-fs-btn,
+#btn-fs-remote {
+  top: max(0.28rem, env(safe-area-inset-top, 0px)) !important;
+  right: 0.4rem !important;
+  bottom: auto !important;
+  left: auto !important;
+  z-index: 52 !important;
+}
+.tile-layout-btn {
+  top: calc(max(0.28rem, env(safe-area-inset-top, 0px)) + 2.85rem) !important;
+  right: 0.4rem !important;
+  bottom: auto !important;
+  left: auto !important;
+  z-index: 51 !important;
+}
+#remote-avatar-stars,
+.tile-avatar-stars-remote {
+  right: 3.2rem !important;
+}
+html[dir="rtl"] .tile-fs-btn,
+html[dir="rtl"] #btn-fs-remote {
+  left: 0.4rem !important;
+  right: auto !important;
+}
+html[dir="rtl"] .tile-layout-btn {
+  left: 0.4rem !important;
+  right: auto !important;
+}
+html[dir="rtl"] #remote-avatar-stars,
+html[dir="rtl"] .tile-avatar-stars-remote {
+  left: 3.2rem !important;
+  right: auto !important;
 }
