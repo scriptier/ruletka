@@ -267,6 +267,8 @@ pub struct SimpleHub {
     report_reporters: HashMap<String, HashSet<String>>,
     /// user_id → ban expiry (unix seconds)
     match_bans: HashMap<String, u64>,
+    /// target_user_id → recent report timestamps (unix secs). Memory-only raid detection.
+    report_recent: HashMap<String, Vec<u64>>,
     /// In-memory ring of recent matches for admin (not persisted across restart).
     recent_matches: VecDeque<serde_json::Value>,
     /// Friend DMs: conversation_key → messages (newest last)
@@ -592,6 +594,7 @@ impl SimpleHub {
             pending: stored.pending,
             report_reporters: stored.report_reporters,
             match_bans: stored.match_bans,
+            report_recent: HashMap::new(),
             recent_matches: VecDeque::new(),
             dms: stored.dms,
             star_counts,
@@ -2486,35 +2489,56 @@ impl SimpleHub {
             .unwrap_or(false)
     }
 
-    /// Fallback unique *weight* before auto match-ban (generic/other).
-    /// Weight: normal=1 · trusted (100+) =2 · senior (250+) =3.
-    const REPORT_BAN_THRESHOLD: usize = 3;
+    /// Fallback unique *reporter count* before auto match-ban (generic/other).
+    /// Brigade-resistant v1: ban score uses **1 point per independent reporter**
+    /// for non-underage reasons (stars/trust no longer buy ×2/×3 ban artillery).
+    const REPORT_BAN_THRESHOLD: usize = 4;
     /// Default ban length when generic threshold is hit (3 days).
     const REPORT_BAN_SECS: u64 = 3 * 24 * 3600;
-    /// Max reports one user may file per rolling hour (anti abuse).
-    const REPORT_RATE_PER_HOUR: usize = 12;
-    /// Reputation stars for trusted reporter (reports count ×2).
+    /// Max reports one user may file per rolling hour (anti abuse / raid).
+    const REPORT_RATE_PER_HOUR: usize = 8;
+    /// Reputation trust for trusted *label* (UI / soft rank — not ban ×2).
     const TRUSTED_REPORTER_STARS: u64 = 100;
-    /// How much a trusted reporter counts toward the ban threshold (normal = 1).
+    /// Historical trusted weight (UI only; ban scoring caps at 1 for non-underage).
     const TRUSTED_REPORT_WEIGHT: u32 = 2;
-    /// Reputation stars for senior reporter (reports count ×3 — bans faster).
+    /// Reputation trust for senior *label*.
     const SENIOR_REPORTER_STARS: u64 = 250;
-    /// How much a senior reporter counts toward the ban threshold.
+    /// Historical senior weight (UI only).
     const SENIOR_REPORT_WEIGHT: u32 = 3;
+    /// Raid: ≥N reports on one target within this window → soft-handle, no permanent.
+    const REPORT_RAID_WINDOW_SECS: u64 = 15 * 60;
+    const REPORT_RAID_SPIKE_N: usize = 6;
+    /// Cap ban length under raid spike (seconds).
+    const REPORT_RAID_BAN_CAP_SECS: u64 = 48 * 3600;
+    /// Permanent escalate needs at least this many unique reporters (not one feud).
+    const REPORT_PERMANENT_MIN_REPORTERS: usize = 3;
 
-    /// Severity → (weight needed, ban duration secs).
-    /// Underage: single independent report → long restriction (ops review via log).
-    /// Explicit (human or AI-flagged): 2 unique weighted reports → 90 days
-    /// (was 7d; jerks should not bounce back quickly). Permanent via admin.
+    /// Severity → (score needed, ban duration secs).
+    /// Underage: single report → long restriction (safety priority).
+    /// Explicit: 3 independent reporters → 90 days (was 2 weighted / easy brigade).
+    /// Permanent only via multi-reporter escalate or admin — not stream raids.
     fn report_severity(reason: &str) -> (usize, u64) {
         let r = reason.trim().to_ascii_lowercase();
         match r.as_str() {
             "underage" => (1, 30 * 24 * 3600),
-            // Human explicit: 90 days. AI path uses same base; threshold +1 elsewhere.
-            "explicit" | "explicit_ai" => (2, 90 * 24 * 3600),
-            "harassment" | "hate" => (2, 14 * 24 * 3600),
-            "spam" | "scam" => (3, 7 * 24 * 3600),
+            // Human/AI explicit: need broader consensus than a stream chat raid
+            "explicit" | "explicit_ai" => (3, 90 * 24 * 3600),
+            "harassment" | "hate" => (3, 14 * 24 * 3600),
+            "spam" | "scam" => (4, 7 * 24 * 3600),
+            // Politics / flags / "don't like them" land here — higher bar
             _ => (Self::REPORT_BAN_THRESHOLD, Self::REPORT_BAN_SECS),
+        }
+    }
+
+    /// Minimum distinct reporters required for auto-ban (in addition to score).
+    fn min_unique_reporters(reason: &str) -> usize {
+        let r = reason.trim().to_ascii_lowercase();
+        match r.as_str() {
+            "underage" => 1,
+            "explicit" | "explicit_ai" => 3,
+            "harassment" | "hate" => 3,
+            "spam" | "scam" => 4,
+            _ => 4,
         }
     }
 
@@ -2523,8 +2547,8 @@ impl SimpleHub {
     /// Max recent matches kept for /v1/admin/recent_matches.
     const MAX_RECENT_MATCHES: usize = 80;
 
-    /// Report weight from **effective trust** (decay + gifter floors):
-    /// 3 if ≥250, 2 if ≥100, else 1. Hour/admin balance mints do not raise power.
+    /// Display / audit weight from effective trust (1 / 2 / 3).
+    /// Ban scoring no longer multiplies by this for non-underage (brigade-resistant v1).
     fn report_weight_for(&self, reporter_uid: &str) -> u32 {
         let trust = self.effective_trust_for(reporter_uid);
         if trust >= Self::SENIOR_REPORTER_STARS {
@@ -2540,19 +2564,20 @@ impl SimpleHub {
     /// Not applied to underage reports (safety takes priority).
     fn target_reputation_shield(target_trust: u64) -> usize {
         if target_trust >= Self::SENIOR_REPORTER_STARS {
-            4 // 250+ need broad community consensus
+            3 // 250+ need broader consensus (with flat weights)
         } else if target_trust >= Self::TRUSTED_REPORTER_STARS {
-            2 // 100+ not easy to ban
+            1
         } else {
             0
         }
     }
 
     /// Weight this reporter contributes toward auto-banning this target.
-    /// Peer protection uses **effective trust**, not spendable balance.
-    /// - Two seniors (250+ trust) cannot auto-ban each other (weight 0 either way).
-    /// - Trusted (100+) reporting another 100+ counts only as 1 (not easy peer bans).
-    /// Underage reports always use full reporter weight (no peer dampening).
+    /// Brigade-resistant v1:
+    /// - Underage: full tier weight (1–3) — safety first.
+    /// - Other reasons: **max 1** per reporter (stars cannot buy ban power).
+    /// - Mutual feud (they already reported you): **0** toward auto-ban.
+    /// - Two seniors still cannot cancel each other via auto-ban (0).
     fn report_weight_against(
         &self,
         reporter_uid: &str,
@@ -2566,17 +2591,49 @@ impl SimpleHub {
         if underage {
             return base;
         }
+        // Mutual report war: if target already reported this reporter, no ban ammo
+        if self
+            .report_reporters
+            .get(reporter_uid)
+            .map(|s| s.contains(target_uid))
+            .unwrap_or(false)
+        {
+            return 0;
+        }
         let r_trust = self.effective_trust_for(reporter_uid);
         let t_trust = self.effective_trust_for(target_uid);
         // Seniors cannot cancel each other out via auto match-ban
         if r_trust >= Self::SENIOR_REPORTER_STARS && t_trust >= Self::SENIOR_REPORTER_STARS {
             return 0;
         }
-        // 100+ vs 100+ (incl. senior target): dampen to 1 so peers don't easily ban peers
-        if r_trust >= Self::TRUSTED_REPORTER_STARS && t_trust >= Self::TRUSTED_REPORTER_STARS {
-            return 1;
+        // Flat weight: trust is not ban artillery
+        1
+    }
+
+    /// Record a report timestamp for raid-spike detection (memory only).
+    fn note_report_time(&mut self, target_uid: &str, now: u64) -> usize {
+        let times = self.report_recent.entry(target_uid.to_string()).or_default();
+        times.push(now);
+        times.retain(|t| now.saturating_sub(*t) <= Self::REPORT_RAID_WINDOW_SECS);
+        // Cap memory per target
+        if times.len() > 64 {
+            let drop_n = times.len() - 64;
+            times.drain(0..drop_n);
         }
-        base
+        times.len()
+    }
+
+    fn is_raid_spike(&self, target_uid: &str, now: u64) -> bool {
+        self.report_recent
+            .get(target_uid)
+            .map(|times| {
+                times
+                    .iter()
+                    .filter(|t| now.saturating_sub(**t) <= Self::REPORT_RAID_WINDOW_SECS)
+                    .count()
+                    >= Self::REPORT_RAID_SPIKE_N
+            })
+            .unwrap_or(false)
     }
 
     /// Sum of unique reporters' effective weights against this target.
@@ -5900,10 +5957,10 @@ impl SimpleHub {
         } else {
             reason
         };
-        let (threshold, ban_secs) = Self::report_severity(&reason_s);
+        let (threshold, mut ban_secs) = Self::report_severity(&reason_s);
         let is_ai = reason_s.eq_ignore_ascii_case("explicit_ai");
         let is_underage = reason_s.eq_ignore_ascii_case("underage");
-        // Effective trust drives report weight / shields — not spendable balance
+        // Effective trust for labels/shields — ban score is mostly 1/reporter (v1)
         let reporter_stars = self.effective_trust_for(&reporter.0);
         let target_stars = self.effective_trust_for(&user_id);
         let reporter_weight = self.report_weight_for(&reporter.0);
@@ -5914,17 +5971,25 @@ impl SimpleHub {
         let peer_blocked = !is_underage
             && reporter_stars >= Self::SENIOR_REPORTER_STARS
             && target_stars >= Self::SENIOR_REPORTER_STARS;
+        let mutual_feud = !is_underage
+            && self
+                .report_reporters
+                .get(&reporter.0)
+                .map(|s| s.contains(&user_id))
+                .unwrap_or(false);
         let peer_damped = !is_underage
             && !peer_blocked
-            && applied_weight < reporter_weight
-            && reporter_stars >= Self::TRUSTED_REPORTER_STARS
-            && target_stars >= Self::TRUSTED_REPORTER_STARS;
+            && !mutual_feud
+            && applied_weight < reporter_weight;
 
         // Unique reporters → score with peer protection + target shield
         let reporters = self.report_reporters.entry(user_id.clone()).or_default();
         reporters.insert(reporter.0.clone());
         let report_count = reporters.len();
         let report_score = self.report_score_for_target(&user_id, is_underage);
+        let now_unix = Self::now_unix();
+        let recent_n = self.note_report_time(&user_id, now_unix);
+        let raid_spike = !is_underage && recent_n >= Self::REPORT_RAID_SPIKE_N;
         // AI-only: +1. High-rep targets: +shield (except underage).
         let mut effective_threshold = threshold;
         if is_ai {
@@ -5934,22 +5999,34 @@ impl SimpleHub {
             effective_threshold = effective_threshold
                 .saturating_add(Self::target_reputation_shield(target_stars));
         }
+        let min_reps = Self::min_unique_reporters(&reason_s);
+        let score_ok = report_score as usize >= effective_threshold;
+        let diversity_ok = report_count >= min_reps;
         let mut banned = false;
-        if report_score as usize >= effective_threshold {
-            let now = Self::now_unix();
+        let mut escalate_permanent = false;
+        let mut ban_until: u64 = 0;
+        if score_ok && diversity_ok {
             let prev = self.match_bans.get(&user_id).copied().unwrap_or(0);
-            // Explicit second strike (or still banned) → permanent
+            // Explicit second strike → permanent only with enough independent reporters
+            // and not during a raid spike (stream brigades).
             let is_explicit_kind = reason_s.eq_ignore_ascii_case("explicit")
                 || reason_s.eq_ignore_ascii_case("explicit_ai");
-            let escalate_permanent = is_explicit_kind && prev > 0;
+            escalate_permanent = is_explicit_kind
+                && prev > 0
+                && report_count >= Self::REPORT_PERMANENT_MIN_REPORTERS
+                && !raid_spike;
+            if raid_spike {
+                ban_secs = ban_secs.min(Self::REPORT_RAID_BAN_CAP_SECS);
+            }
             let until = if escalate_permanent {
                 Self::PERMANENT_BAN_UNTIL
             } else {
-                now.saturating_add(ban_secs)
+                now_unix.saturating_add(ban_secs)
             };
             if until > prev {
                 self.match_bans.insert(user_id.clone(), until);
                 banned = true;
+                ban_until = until;
                 // Strip some ★ / trust so banned accounts don't keep Senior power
                 self.clawback_on_ban(&user_id, &reason_s);
                 tracing::warn!(
@@ -5957,11 +6034,14 @@ impl SimpleHub {
                     reporters = report_count,
                     score = report_score,
                     threshold = effective_threshold,
+                    min_reps,
                     target_stars,
                     reason = %reason_s,
                     until,
                     permanent = escalate_permanent,
-                    "auto match-ban after weighted reports"
+                    raid_spike,
+                    recent_n,
+                    "auto match-ban after independent reports"
                 );
                 let short = if user_id.len() > 14 {
                     format!("{}…", &user_id[..12])
@@ -5969,9 +6049,9 @@ impl SimpleHub {
                     user_id.clone()
                 };
                 self.fire_mod_webhook(serde_json::json!({
-                    "event": "auto_ban",
+                    "event": if raid_spike { "auto_ban_raid" } else { "auto_ban" },
                     "text": format!(
-                        "ruletka auto-ban: {short} reason={reason_s} score={report_score}/{effective_threshold} reporters={report_count} ban_secs={ban_secs}"
+                        "ruletka auto-ban: {short} reason={reason_s} score={report_score}/{effective_threshold} reporters={report_count} ban_secs={ban_secs} raid={raid_spike}"
                     ),
                     "target_user_id": user_id,
                     "target_name": target_name,
@@ -5980,16 +6060,47 @@ impl SimpleHub {
                     "unique_reporters": report_count,
                     "report_score": report_score,
                     "threshold": effective_threshold,
+                    "min_unique_reporters": min_reps,
                     "ban_secs": ban_secs,
                     "until": until,
                     "ai_assisted": is_ai,
+                    "raid_spike": raid_spike,
+                    "recent_reports_window": recent_n,
+                    "permanent": escalate_permanent,
                     "last_reporter_trusted": trusted,
                     "last_reporter_senior": senior,
                     "last_reporter_weight": reporter_weight,
                     "last_reporter_applied_weight": applied_weight,
                     "last_reporter_stars": reporter_stars,
+                    "mutual_feud": mutual_feud,
                 }));
             }
+        } else if raid_spike && score_ok && !diversity_ok {
+            // Score high but not enough independent reporters — stream raid suspect
+            tracing::warn!(
+                target = %user_id,
+                reporters = report_count,
+                score = report_score,
+                recent_n,
+                reason = %reason_s,
+                "report raid spike — no auto-ban (await diversity / ops)"
+            );
+            self.fire_mod_webhook(serde_json::json!({
+                "event": "raid_spike",
+                "text": format!(
+                    "ruletka raid spike (no ban): {} reason={} score={}/{} reporters={}/{} recent={}",
+                    if user_id.len() > 14 { format!("{}…", &user_id[..12]) } else { user_id.clone() },
+                    reason_s, report_score, effective_threshold, report_count, min_reps, recent_n
+                ),
+                "target_user_id": user_id,
+                "target_name": target_name,
+                "reason": reason_s,
+                "unique_reporters": report_count,
+                "report_score": report_score,
+                "threshold": effective_threshold,
+                "min_unique_reporters": min_reps,
+                "recent_reports_window": recent_n,
+            }));
         }
         self.persist_friends();
 
@@ -6005,17 +6116,24 @@ impl SimpleHub {
             "reporter_senior": senior,
             "peer_blocked": peer_blocked,
             "peer_damped": peer_damped,
+            "mutual_feud": mutual_feud,
             "target_user_id": user_id,
             "target_name": target_name,
             "target_stars": target_stars,
             "target_shield": if is_underage { 0 } else { Self::target_reputation_shield(target_stars) },
             "reason": reason_s,
             "unique_reporters": report_count,
+            "min_unique_reporters": min_reps,
             "report_score": report_score,
             "threshold": effective_threshold,
             "ai_assisted": is_ai,
+            "raid_spike": raid_spike,
+            "recent_reports_window": recent_n,
             "auto_banned": banned,
+            "permanent": escalate_permanent,
             "ban_secs": if banned { ban_secs } else { 0 },
+            "until": ban_until,
+            "brigade_v1": true,
         });
         tracing::warn!(%line, "user report");
         if let Some(path) = self.reports_path() {
@@ -6039,18 +6157,22 @@ impl SimpleHub {
             }
         }
         self.metrics_inc_report();
-        let status_msg = if banned {
+        let status_msg = if banned && escalate_permanent {
+            "report received — user permanently restricted"
+        } else if banned && raid_spike {
+            "report received — user restricted (short; raid-like spike)"
+        } else if banned {
             "report received — user restricted"
+        } else if mutual_feud {
+            "report received — mutual reports don't auto-ban either side"
         } else if peer_blocked {
             "report received — seniors cannot auto-ban each other (needs broader consensus)"
+        } else if raid_spike {
+            "report received — many reports in a short window; needs more independent reporters"
         } else if peer_damped {
-            "report received — high-rep target; peer reports count less"
-        } else if senior {
-            "report received — senior trusted reporter (strongest weight ×3)"
-        } else if trusted {
-            "report received — trusted reporter (stronger weight ×2)"
+            "report received — each person counts as one toward restriction (stars don't amplify bans)"
         } else {
-            "report received — thank you"
+            "report received — thank you (flags/politics alone are not ban grounds)"
         };
         self.status(id, status_msg);
         // Structured feedback so the client can show weight / progress
