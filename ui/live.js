@@ -1868,76 +1868,30 @@ function log(line, cls = "sys") {
   }
 }
 
-/** Auto-hide the on-tile chat panel after idle (new messages re-open + reset). */
+/**
+ * Large on-tile #chat-panel retired — only the compact Messages sheet remains.
+ * showChatPanel() is kept as a no-op hide so call sites stay safe.
+ */
 let chatPanelHideTimer = 0;
 let chatPanelSticky = false;
 const CHAT_PANEL_AUTO_HIDE_MS = 5000;
 
-function showChatPanel(show, opts = {}) {
+function showChatPanel(show, _opts = {}) {
   const panel = $("chat-panel");
-  if (!panel) return;
   if (chatPanelHideTimer) {
     clearTimeout(chatPanelHideTimer);
     chatPanelHideTimer = 0;
   }
-  if (!show) {
-    chatPanelSticky = false;
+  chatPanelSticky = false;
+  if (panel) {
     panel.classList.remove("is-pinned");
     panel.hidden = true;
-    return;
+    panel.setAttribute("hidden", "");
+    panel.setAttribute("aria-hidden", "true");
   }
-  panel.hidden = false;
-  // Sticky = stay open until user closes (tap panel / pin)
-  if (opts.sticky) {
-    chatPanelSticky = true;
-    panel.classList.add("is-pinned");
-  }
-  if (chatPanelSticky || opts.sticky) return;
-
-  const armHide = () => {
-    if (chatPanelSticky) return;
-    if (chatPanelHideTimer) clearTimeout(chatPanelHideTimer);
-    chatPanelHideTimer = setTimeout(() => {
-      chatPanelHideTimer = 0;
-      if (chatPanelSticky) return;
-      try {
-        if (panel.matches(":hover")) {
-          armHide();
-          return;
-        }
-      } catch (_) {}
-      panel.hidden = true;
-    }, CHAT_PANEL_AUTO_HIDE_MS);
-  };
-  armHide();
-  // One-shot: hover pauses hide; click/tap pins open for reading
-  if (!panel.dataset.autoHideBound) {
-    panel.dataset.autoHideBound = "1";
-    panel.addEventListener("mouseenter", () => {
-      if (chatPanelHideTimer) {
-        clearTimeout(chatPanelHideTimer);
-        chatPanelHideTimer = 0;
-      }
-    });
-    panel.addEventListener("mouseleave", () => {
-      if (!panel.hidden && !chatPanelSticky) armHide();
-    });
-    panel.addEventListener("pointerdown", (e) => {
-      // Close button should still close
-      if (e.target?.closest?.("#btn-clear-chat, .chat-clear, .sheet-close")) {
-        return;
-      }
-      // Any interaction pins the panel so messages stay readable
-      if (!panel.hidden) {
-        chatPanelSticky = true;
-        panel.classList.add("is-pinned");
-        if (chatPanelHideTimer) {
-          clearTimeout(chatPanelHideTimer);
-          chatPanelHideTimer = 0;
-        }
-      }
-    });
-  }
+  // Never open the big panel again. Callers that need UI should use
+  // openMessages() / openInboxThread() (compact sheet).
+  void show;
 }
 
 function loadChatThreads() {
@@ -6380,17 +6334,16 @@ function recordChatMessage(msg) {
 
   if (isDup) return;
 
+  // Legacy #chat-messages kept in sync for any residual readers; UI is compact sheet only
   const box = $("chat-messages");
   if (box) {
-    // Keep compact tile panel for live match; inbox handles deeper nav
-    if (activeChat.live || activeChat.mode === "match" || activeChat.mode === "history") {
-      showChatPanel(true);
-    }
     updateChatHeader();
     box.appendChild(renderChatBubbleEl(entry));
     box.scrollTop = box.scrollHeight;
   }
   appendToInboxIfOpen(entry);
+  // Live match: if compact Messages is open on this thread, bubbles already append;
+  // if list is open, refresh so unread shows. Never pop the large on-tile panel.
   markThreadRead(activeChat.threadKey, ts);
   if (messagesSheetOpen && !messagesInThread) renderMessagesList();
   updateMessagesBadge();
@@ -6429,13 +6382,12 @@ function openMatchChatForPartner(peers) {
     };
     saveChatThreads(map);
   } else if (map[key].msgs && map[key].msgs.length) {
-    // Rematch same person — restore history
+    // Rematch same person — restore history into DOM (open via Messages envelope)
     renderThreadToDom(key);
-    showChatPanel(true);
   } else {
     clearChatDom();
-    showChatPanel(false);
   }
+  showChatPanel(false);
   updateChatHeader();
 }
 
@@ -6811,11 +6763,9 @@ function openInboxThread(threadKey, meta = {}) {
     saveChatThreads(map);
   }
 
-  // Also mirror to in-tile panel for live match convenience
+  // Mirror into legacy chat DOM for storage helpers; UI is compact Messages only
   renderThreadToDom(threadKey);
-  if (live && (mode === "match" || matched)) {
-    showChatPanel(true);
-  }
+  showChatPanel(false);
   updateChatHeader();
   updateInboxThreadHeader();
   renderInboxThreadBody();
@@ -6942,7 +6892,7 @@ function mergeFriendHistory(withUserId, messages) {
   saveChatThreads(map);
   if (activeChat.threadKey === key) {
     renderThreadToDom(key);
-    if (activeChat.live && activeChat.mode === "match") showChatPanel(true);
+    showChatPanel(false);
     renderInboxThreadBody();
     markThreadRead(key, Date.now());
   }
