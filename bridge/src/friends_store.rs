@@ -65,6 +65,12 @@ pub struct FriendsFile {
     /// spender|target → last please_stay spend unix (once per ~30 days per pair).
     #[serde(default)]
     pub please_stay_last: HashMap<String, u64>,
+    /// Directed bars stigma: "from|to" → last unix when a bars edge counted (≤1/day).
+    #[serde(default)]
+    pub bars_edges_last: HashMap<String, u64>,
+    /// user_id → unix until which their social force is muted (bars + rate-gift trust).
+    #[serde(default)]
+    pub social_force_muted_until: HashMap<String, u64>,
 }
 
 /// Cosmetic effect bought with stars (no money). Survives logout until `until`.

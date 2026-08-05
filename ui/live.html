@@ -228,9 +228,9 @@
     #tile-local .side-rail { z-index: 50 !important; }
 </style>
   <!-- Load stage CSS as all immediately — no media=print FOUC trick (was leaving rails opacity:0) -->
-  <link rel="stylesheet" href="live-stage.css?v=342" />
-  <link rel="preload" href="live.js?v=385" as="script" />
-  <link rel="preload" href="i18n.js?v=228" as="script" />
+  <link rel="stylesheet" href="live-stage.css?v=343" />
+  <link rel="preload" href="live.js?v=386" as="script" />
+  <link rel="preload" href="i18n.js?v=229" as="script" />
   <script src="brand.js?v=2" defer></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -1254,20 +1254,20 @@
           </div>
         </div>
         <div class="stars-hero-meta">
-          <span class="stars-sheet-balance-sub" data-i18n="stars.yours">Your balance</span>
+          <span class="stars-sheet-balance-sub" data-i18n="stars.walletHeroSub">Wallet to spend</span>
           <span class="stars-meta-dot" aria-hidden="true">·</span>
           <span class="stars-tier-name" id="stars-tier-name">New</span>
         </div>
         <div class="stars-balance-trust-row" id="stars-balance-trust-row">
           <span class="stars-dual-chip is-balance">
-            <span class="stars-dual-lbl" data-i18n="stars.balanceLabel">Balance</span>
+            <span class="stars-dual-lbl" data-i18n="stars.walletLabel">Wallet</span>
             <strong class="stars-dual-val">★ <span id="stars-sheet-balance-chip">0</span></strong>
             <span class="stars-dual-sub" data-i18n="stars.balanceSpends">for gifts</span>
           </span>
           <span class="stars-dual-chip is-trust">
-            <span class="stars-dual-lbl" data-i18n="stars.trustLabel">Trust</span>
+            <span class="stars-dual-lbl" data-i18n="stars.statusPointsLabel">Status</span>
             <strong class="stars-dual-val">★ <span id="stars-sheet-trust">0</span></strong>
-            <span class="stars-dual-sub"><span id="stars-sheet-gifters">0</span> <span data-i18n="stars.giftersLabel">gifters</span></span>
+            <span class="stars-dual-sub"><span id="stars-sheet-gifters">0</span> <span data-i18n="stars.giftersLabelShort">praised</span></span>
           </span>
         </div>
         <p class="stars-gifters-floor-hint" id="stars-gifters-floor-hint" hidden></p>
@@ -1300,29 +1300,30 @@
         </div>
         <div class="stars-rep-card" id="stars-rep-card" hidden>
           <div class="stars-rep-card-head">
-            <strong data-i18n="stars.repCardTitle">Your reputation</strong>
+            <strong data-i18n="stars.repCardTitle">Your status</strong>
             <span class="stars-rep-card-tier" id="stars-rep-card-tier"></span>
           </div>
           <div class="stars-rep-card-grid">
             <div class="stars-rep-stat">
-              <span class="stars-rep-stat-lbl" data-i18n="stars.balanceLabel">Balance</span>
+              <span class="stars-rep-stat-lbl" data-i18n="stars.walletLabel">Wallet</span>
               <span class="stars-rep-stat-val" id="stars-rep-card-bal">★0</span>
             </div>
             <div class="stars-rep-stat">
-              <span class="stars-rep-stat-lbl" data-i18n="stars.trustLabel">Trust</span>
+              <span class="stars-rep-stat-lbl" data-i18n="stars.statusPointsLabel">Status</span>
               <span class="stars-rep-stat-val" id="stars-rep-card-trust">0</span>
             </div>
             <div class="stars-rep-stat">
-              <span class="stars-rep-stat-lbl" data-i18n="stars.giftersLabel">gifters</span>
+              <span class="stars-rep-stat-lbl" data-i18n="stars.giftersLabel">Praised by</span>
               <span class="stars-rep-stat-val" id="stars-rep-card-gifters">0</span>
             </div>
             <div class="stars-rep-stat">
-              <span class="stars-rep-stat-lbl" data-i18n="stars.repPeakLbl">Peak</span>
-              <span class="stars-rep-stat-val" id="stars-rep-card-peak">0</span>
+              <span class="stars-rep-stat-lbl" data-i18n="stars.barsReceivedLabel">Barred by</span>
+              <span class="stars-rep-stat-val" id="stars-rep-card-bars">0</span>
             </div>
           </div>
           <p class="stars-rep-story" id="stars-rep-story" hidden></p>
           <p class="stars-rep-card-rank" id="stars-rep-card-rank" hidden></p>
+          <p class="stars-rep-muted" id="stars-rep-force-muted" hidden data-i18n="stars.forceMutedBody">Bars abuse limited — your actions don’t affect others’ reputation right now.</p>
         </div>
         <div class="stars-gifters-overview" id="stars-gifters-overview">
           <div class="stars-gifters-overview-head">
@@ -1428,22 +1429,29 @@
           <div class="stars-map-row" data-map="balance">
             <span class="stars-map-ico" aria-hidden="true">★</span>
             <div class="stars-map-copy">
-              <strong data-i18n="stars.mapBalanceTitle">Balance</strong>
+              <strong data-i18n="stars.mapBalanceTitle">Wallet</strong>
               <span id="stars-map-balance-body">Spend on gifts and FX</span>
             </div>
           </div>
           <div class="stars-map-row" data-map="trust">
             <span class="stars-map-ico" aria-hidden="true">◆</span>
             <div class="stars-map-copy">
-              <strong data-i18n="stars.mapTrustTitle">Trust</strong>
-              <span id="stars-map-trust-body">Peer ★ gifts after chats</span>
+              <strong data-i18n="stars.mapTrustTitle">Status</strong>
+              <span id="stars-map-trust-body">Peer ★ after chats · soft bars stigma</span>
             </div>
           </div>
           <div class="stars-map-row" data-map="gifters">
             <span class="stars-map-ico" aria-hidden="true">◎</span>
             <div class="stars-map-copy">
-              <strong data-i18n="stars.mapGiftersTitle">Gifters</strong>
-              <span id="stars-map-gifters-body">Unique people who praised you</span>
+              <strong data-i18n="stars.mapGiftersTitle">Praised by</strong>
+              <span id="stars-map-gifters-body">Unique people who gifted you ★</span>
+            </div>
+          </div>
+          <div class="stars-map-row" data-map="bars" id="stars-map-bars-row">
+            <span class="stars-map-ico" aria-hidden="true">🔒</span>
+            <div class="stars-map-copy">
+              <strong data-i18n="stars.mapBarsTitle">Bars stigma</strong>
+              <span id="stars-map-bars-body">Soft mark if peers put you behind bars</span>
             </div>
           </div>
           <div class="stars-map-row" data-map="decay">
@@ -2659,11 +2667,11 @@
   <!-- Critical path: defer app scripts. QR / invite-copy / live-window load on demand. -->
   <script src="analytics.js?v=3" defer></script>
   <script src="pwa-install.js?v=11" defer></script>
-  <script src="i18n.js?v=228" defer></script>
+  <script src="i18n.js?v=229" defer></script>
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=156" defer></script>
   <script src="webrtc.js?v=168" defer></script>
-  <script src="live.js?v=385" defer></script>
+  <script src="live.js?v=386" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

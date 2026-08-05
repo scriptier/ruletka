@@ -8961,6 +8961,20 @@ footer.stage-footer[hidden] {
 .settings-gear-badge[hidden] {
   display: none !important;
 }
+/* Status card: barred-by warning */
+#stars-rep-card-bars.is-warn {
+  color: color-mix(in srgb, #ff8a80 80%, #fff);
+}
+.stars-rep-muted {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: color-mix(in srgb, #ffb74d 70%, var(--muted, #9aa3b5));
+}
+.stars-rep-muted[hidden] {
+  display: none !important;
+}
+
 /* Soft nudge: friends exist but no profile export yet */
 #btn-settings-open-identity.needs-backup {
   box-shadow: inset 3px 0 0 0 rgba(255, 196, 55, 0.85);

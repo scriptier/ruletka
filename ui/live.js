@@ -502,12 +502,20 @@ let outgoingRequests = [];
 let primaryPartnerUserId = "";
 /** Last matched peer meta for history */
 let lastMatchMeta = null;
-/** Your spendable star balance (from hub). */
+/** Your spendable star balance / wallet (from hub). */
 let myStars = 0;
 /** Your raw trust score — peer rate-gifts (progress toward 100/250). */
 let myTrust = 0;
 /** Effective trust after decay + gifter floors (report tier / badge chrome). */
 let myTrustEffective = 0;
+/** Social health = effective trust − soft bars stigma (status / soft-rank / blur). */
+let mySocialHealth = 0;
+/** Unique peers who put you behind bars (30d). */
+let myBarsReceived = 0;
+/** Unique peers you put behind bars (30d). */
+let myBarsGiven = 0;
+/** Hub muted your social force (bars abuse). */
+let mySocialForceMuted = false;
 /** Distinct peers who gifted you post-chat stars. */
 let myTrustGifters = 0;
 /** Unix seconds of last trust activity (decay countdown). 0 = unknown. */
@@ -738,18 +746,21 @@ function blurFirstPrefEnabled() {
   }
 }
 
-/** Partner public score for intro-blur policy (balance or trust). */
+/**
+ * Partner score for intro-blur: social health (public trust field) or wallet ★.
+ * Hub sends peer.trust = social_health (praise − soft bars stigma).
+ */
 function partnerRepScoreForBlur(meta) {
   const m = meta || lastMatchMeta || {};
   const stars = Math.max(
     0,
     Number(m.stars != null ? m.stars : partnerStars) || 0
   );
-  const trust = Math.max(
+  const social = Math.max(
     0,
     Number(m.trust != null ? m.trust : partnerTrust) || 0
   );
-  return Math.max(stars, trust);
+  return Math.max(stars, social);
 }
 
 /** Below this score: stranger stays blurred until Unblur. At/above: 3s intro only. */
@@ -2858,7 +2869,7 @@ function setStarsBadge(which, count, opts = {}) {
   if (starsSheetIsOpen()) syncStarsSheetUi();
 }
 
-function setMyTrust(trust, gifters, effective) {
+function setMyTrust(trust, gifters, effective, opts = {}) {
   myTrust = Math.max(0, Math.floor(Number(trust) || 0));
   if (effective != null) {
     myTrustEffective = Math.max(0, Math.floor(Number(effective) || 0));
@@ -2872,8 +2883,24 @@ function setMyTrust(trust, gifters, effective) {
       myTrustEffective = clientEffectiveTrust(myTrust, myTrustGifters);
     }
   }
-  // Refresh local badge tier without changing displayed balance
-  setStarsBadge("local", myStars, { trust: myTrustEffective });
+  if (opts.social_health != null) {
+    mySocialHealth = Math.max(0, Math.floor(Number(opts.social_health) || 0));
+  } else if (mySocialHealth <= 0 || opts.forceHealthFromEff) {
+    mySocialHealth = myTrustEffective;
+  }
+  if (opts.bars_received != null) {
+    myBarsReceived = Math.max(0, Math.floor(Number(opts.bars_received) || 0));
+  }
+  if (opts.bars_given != null) {
+    myBarsGiven = Math.max(0, Math.floor(Number(opts.bars_given) || 0));
+  }
+  if (opts.social_force_muted != null) {
+    mySocialForceMuted = !!opts.social_force_muted;
+  }
+  // Status chrome uses social health (praise − soft bars stigma)
+  setStarsBadge("local", myStars, {
+    trust: mySocialHealth > 0 ? mySocialHealth : myTrustEffective,
+  });
   maybeStarsMilestones({ gifters: myTrustGifters, balance: myStars });
 }
 
@@ -2953,15 +2980,30 @@ function syncRepStory(state = {}) {
     Number(state.effN != null ? state.effN : myTrustEffective) ||
       clientEffectiveTrust(trustN, myTrustGifters)
   );
+  const healthN = Math.max(
+    0,
+    Number(
+      state.healthN != null
+        ? state.healthN
+        : mySocialHealth > 0
+          ? mySocialHealth
+          : effN
+    ) || 0
+  );
   const g = Math.max(
     0,
     Number(state.gifters != null ? state.gifters : myTrustGifters) || 0
   );
+  const barsR = Math.max(
+    0,
+    Number(state.barsR != null ? state.barsR : myBarsReceived) || 0
+  );
   const peak = Math.max(getPeakTrust(), notePeakTrust(trustN));
   const lastTs = Math.max(0, Number(myTrustLastTs) || 0);
-  const isSenior = effN >= STARS_SENIOR_GOAL;
-  const isTrusted = effN >= STARS_TRUSTED_GOAL;
-  const show = trustN > 0 || g > 0 || peak > 0 || balN > 0;
+  // Status ladder keys off social health (soft stigma applied)
+  const isSenior = healthN >= STARS_SENIOR_GOAL;
+  const isTrusted = healthN >= STARS_TRUSTED_GOAL;
+  const show = trustN > 0 || g > 0 || peak > 0 || balN > 0 || barsR > 0;
 
   if (card) {
     if (!show) {
@@ -2976,7 +3018,7 @@ function syncRepStory(state = {}) {
           ? _t("stars.chipSenior") || "Senior"
           : isTrusted
             ? _t("stars.chipTrusted") || "Trusted"
-            : trustN > 0
+            : trustN > 0 || healthN > 0
               ? _t("stars.chipKnown") || "Known"
               : _t("stars.chipNew") || "New";
         tierEl.className =
@@ -2987,13 +3029,19 @@ function syncRepStory(state = {}) {
       if (balEl) balEl.textContent = `★${balN}`;
       const trEl = $("stars-rep-card-trust");
       if (trEl) {
+        // Show social health as status points; raw praise in parens if different
         trEl.textContent =
-          effN !== trustN && trustN > 0 ? `${effN} (${trustN})` : String(effN || trustN);
+          healthN !== trustN && trustN > 0
+            ? `${healthN} (${trustN})`
+            : String(healthN || trustN);
       }
       const gEl = $("stars-rep-card-gifters");
       if (gEl) gEl.textContent = String(g);
-      const pEl = $("stars-rep-card-peak");
-      if (pEl) pEl.textContent = String(peak || trustN || 0);
+      const barsEl = $("stars-rep-card-bars");
+      if (barsEl) {
+        barsEl.textContent = String(barsR);
+        barsEl.classList.toggle("is-warn", barsR > 0);
+      }
       const rankEl = $("stars-rep-card-rank");
       if (rankEl) {
         if (isTrusted || isSenior) {
@@ -3006,6 +3054,16 @@ function syncRepStory(state = {}) {
           rankEl.hidden = true;
           rankEl.setAttribute("hidden", "");
           rankEl.textContent = "";
+        }
+      }
+      const muteEl = $("stars-rep-force-muted");
+      if (muteEl) {
+        if (mySocialForceMuted) {
+          muteEl.hidden = false;
+          muteEl.removeAttribute("hidden");
+        } else {
+          muteEl.hidden = true;
+          muteEl.setAttribute("hidden", "");
         }
       }
     }
@@ -3021,6 +3079,12 @@ function syncRepStory(state = {}) {
   el.hidden = false;
   el.removeAttribute("hidden");
   const bits = [];
+  if (barsR > 0) {
+    bits.push(
+      _t("stars.storyBarsReceived", { n: barsR }) ||
+        `barred by ${barsR} (soft stigma)`
+    );
+  }
   if (g > 0) {
     bits.push(
       _t("stars.storyGifters", { n: g }) || `${g} unique gifters`
@@ -3197,7 +3261,9 @@ function syncGiftersStrip(gifters) {
       trustN: myTrust,
       balN: myStars,
       effN: myTrustEffective,
+      healthN: mySocialHealth > 0 ? mySocialHealth : myTrustEffective,
       gifters: g,
+      barsR: myBarsReceived,
     });
   } catch (_) {}
 }
@@ -3227,12 +3293,30 @@ function trustDecayInfo(lastTs) {
   };
 }
 
-/** Power tab: balance / trust / gifters / decay / soft-rank map. */
+/** Power tab: wallet / status / gifters / bars / decay / soft-rank map. */
 function syncStarsPowerMap(state) {
   const balN = state.balN || 0;
   const trustN = state.trustN || 0;
   const effN = state.effN || 0;
+  const healthN = Math.max(
+    0,
+    Number(
+      state.healthN != null
+        ? state.healthN
+        : mySocialHealth > 0
+          ? mySocialHealth
+          : effN
+    ) || 0
+  );
   const g = state.gifters || 0;
+  const barsR = Math.max(
+    0,
+    Number(state.barsR != null ? state.barsR : myBarsReceived) || 0
+  );
+  const barsG = Math.max(
+    0,
+    Number(state.barsG != null ? state.barsG : myBarsGiven) || 0
+  );
   const isTrusted = !!state.isTrusted;
   const isSenior = !!state.isSenior;
 
@@ -3244,14 +3328,18 @@ function syncStarsPowerMap(state) {
   }
   const trustBody = $("stars-map-trust-body");
   if (trustBody) {
-    if (effN !== trustN && trustN > 0) {
+    if (healthN !== trustN && trustN > 0) {
       trustBody.textContent =
-        _t("stars.mapTrustBodyCapped", { raw: trustN, eff: effN, g }) ||
-        `Raw ${trustN} · effective ${effN} (gifter floors) · ${g} gifters`;
+        _t("stars.mapTrustBodyCapped", {
+          raw: trustN,
+          eff: healthN,
+          g,
+        }) ||
+        `Praise ${trustN} · status ${healthN} (soft bars) · ${g} gifters`;
     } else {
       trustBody.textContent =
-        _t("stars.mapTrustBody", { n: trustN, g }) ||
-        `★${trustN} from peer gifts · ${g} unique gifters`;
+        _t("stars.mapTrustBody", { n: healthN || trustN, g }) ||
+        `Status ${healthN || trustN} · ${g} unique gifters`;
     }
   }
   const gBody = $("stars-map-gifters-body");
@@ -3263,6 +3351,14 @@ function syncStarsPowerMap(state) {
         s: SENIOR_MIN_GIFTERS,
       }) ||
       `${g} people · need ${TRUSTED_MIN_GIFTERS} for Trusted · ${SENIOR_MIN_GIFTERS} for Senior`;
+  }
+  const barsBody = $("stars-map-bars-body");
+  if (barsBody) {
+    barsBody.textContent =
+      _t("stars.mapBarsBody", { r: barsR, g: barsG }) ||
+      (barsR || barsG
+        ? `Barred by ${barsR} · you barred ${barsG} (30d · soft only)`
+        : "No bars stigma yet — soft only, not a ban");
   }
   const decayBody = $("stars-map-decay-body");
   if (decayBody) {
@@ -3613,8 +3709,12 @@ function syncStarsSheetUi() {
     0,
     Number(myTrustEffective) || clientEffectiveTrust(trustN, myTrustGifters)
   );
-  /** Ladder / trust tier uses effective trust (peer gifts + floors) */
-  const n = effN;
+  const healthN = Math.max(
+    0,
+    Number(mySocialHealth > 0 ? mySocialHealth : effN) || 0
+  );
+  /** Ladder / status uses social health (praise − soft bars stigma) */
+  const n = healthN;
   const w = reportWeightForStars(n);
   const isSenior = n >= STARS_SENIOR_GOAL;
   const isTrusted = n >= STARS_TRUSTED_GOAL;
@@ -3632,8 +3732,11 @@ function syncStarsSheetUi() {
   } catch (_) {}
   const trustEl = $("stars-sheet-trust");
   if (trustEl) {
+    // Status points = social health; show raw praise if different
     trustEl.textContent =
-      effN !== trustN ? `${trustN}→${effN}` : String(trustN);
+      healthN !== trustN && trustN > 0
+        ? `${healthN} (${trustN})`
+        : String(healthN || trustN);
   }
   const giftersEl = $("stars-sheet-gifters");
   if (giftersEl) {
@@ -3775,7 +3878,7 @@ function syncStarsSheetUi() {
     } else {
       unlock.textContent =
         _t("stars.unlockNormalV2") ||
-        "Balance = gifts · Trust = peer ★ · 100 trust → Trusted status";
+        "Wallet = gifts · Status = peer ★ − soft bars · 100 → Trusted";
     }
   }
 
@@ -3944,7 +4047,10 @@ function syncStarsSheetUi() {
     syncStarsPowerMap({
       balN,
       trustN,
-      effN: n,
+      effN,
+      healthN: n,
+      barsR: myBarsReceived,
+      barsG: myBarsGiven,
       gifters: Math.max(0, Number(myTrustGifters) || 0),
       isTrusted,
       isSenior,
@@ -19478,13 +19584,30 @@ function handleServer(msg) {
         msg.trust_effective != null
           ? Math.max(0, Number(msg.trust_effective) || 0)
           : clientEffectiveTrust(myTrust, myTrustGifters);
+      mySocialHealth =
+        msg.social_health != null
+          ? Math.max(0, Number(msg.social_health) || 0)
+          : myTrustEffective;
+      myBarsReceived = Math.max(0, Number(msg.bars_received) || 0);
+      myBarsGiven = Math.max(0, Number(msg.bars_given) || 0);
+      mySocialForceMuted = !!msg.social_force_muted;
       notePeakTrust(myTrust);
       applyStarRateWindowFromHub(msg);
-      setStarsBadge("local", myStars, { trust: myTrustEffective });
+      setStarsBadge("local", myStars, {
+        trust: mySocialHealth > 0 ? mySocialHealth : myTrustEffective,
+      });
       maybeStarsMilestones({ gifters: myTrustGifters, balance: myStars });
       try {
         maybeWelcomeBackOnHello();
       } catch (_) {}
+      if (mySocialForceMuted) {
+        try {
+          setStatus(
+            _t("stars.forceMutedStatus") ||
+              "Bars abuse limited — your actions don't affect others' reputation right now."
+          );
+        } catch (_) {}
+      }
       // Bars (etc.) persist across logout — re-apply on hello
       setFxOverlay(
         "local",

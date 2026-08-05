@@ -291,6 +291,10 @@ pub struct SimpleHub {
     no_skip_until: HashMap<String, u64>,
     /// spender|target → last please_stay spend unix
     please_stay_last: HashMap<String, u64>,
+    /// from|to → last unix a bars stigma edge counted
+    bars_edges_last: HashMap<String, u64>,
+    /// user_id → social force muted until unix
+    social_force_muted_until: HashMap<String, u64>,
     queue: VecDeque<QueueEntry>,
     limits: LimitConfig,
     friends_path: PathBuf,
@@ -608,6 +612,8 @@ impl SimpleHub {
             hour_star_sessions: stored.hour_star_sessions,
             no_skip_until: stored.no_skip_until,
             please_stay_last: stored.please_stay_last,
+            bars_edges_last: stored.bars_edges_last,
+            social_force_muted_until: stored.social_force_muted_until,
             queue: VecDeque::new(),
             limits,
             friends_path,
@@ -714,6 +720,8 @@ impl SimpleHub {
             hour_star_sessions: self.hour_star_sessions.clone(),
             no_skip_until: self.no_skip_until.clone(),
             please_stay_last: self.please_stay_last.clone(),
+            bars_edges_last: self.bars_edges_last.clone(),
+            social_force_muted_until: self.social_force_muted_until.clone(),
         };
         if let Err(e) = friends_store::save(&self.friends_path, &data) {
             tracing::warn!(error = %e, "failed to save friends store");
@@ -915,7 +923,7 @@ impl SimpleHub {
         raw.saturating_mul(keep_pct) / 100
     }
 
-    /// Effective trust for report weight, shields, match rank, public tier.
+    /// Effective trust for report weight / shields (peer praise only — not bars stigma).
     /// Applies soft decay then gifter-diversity floors (cannot claim senior on 1 friend).
     fn effective_trust_for(&self, user_id: &str) -> u64 {
         let raw = self.trust_for(user_id);
@@ -929,6 +937,147 @@ impl SimpleHub {
             return decayed.min(Self::SENIOR_REPORTER_STARS.saturating_sub(1));
         }
         decayed
+    }
+
+    /// Soft stigma window (30d) for unique bars edges.
+    const BARS_WINDOW_SECS: u64 = 30 * 24 * 60 * 60;
+    /// At most one stigma edge per pair per day.
+    const BARS_EDGE_COOLDOWN_SECS: u64 = 24 * 60 * 60;
+    /// Soft hit per unique peer who barred you (capped).
+    const BARS_STIGMA_PER: u64 = 3;
+    const BARS_STIGMA_CAP: u64 = 30;
+    /// Mild tax per unique peer you barred (capped).
+    const BARS_GIVEN_TAX_PER: u64 = 1;
+    const BARS_GIVEN_TAX_CAP: u64 = 15;
+    /// Auto soft-mute bars abusers.
+    const BARS_ABUSE_24H: u32 = 8;
+    const BARS_ABUSE_7D: u32 = 20;
+    const BARS_ABUSE_MUTE_SECS: u64 = 7 * 24 * 60 * 60;
+
+    fn is_social_force_muted(&self, user_id: &str) -> bool {
+        if user_id.is_empty() {
+            return false;
+        }
+        let now = Self::unix_now();
+        self.social_force_muted_until
+            .get(user_id)
+            .copied()
+            .map(|u| u > now)
+            .unwrap_or(false)
+    }
+
+    fn social_force_muted_until_ts(&self, user_id: &str) -> u64 {
+        if user_id.is_empty() {
+            return 0;
+        }
+        let now = Self::unix_now();
+        self.social_force_muted_until
+            .get(user_id)
+            .copied()
+            .filter(|u| *u > now)
+            .unwrap_or(0)
+    }
+
+    /// Unique peers who barred `user_id` within the window (valid edges only).
+    fn bars_received_unique(&self, user_id: &str, window_secs: u64) -> u32 {
+        if user_id.is_empty() {
+            return 0;
+        }
+        let now = Self::unix_now();
+        let cutoff = now.saturating_sub(window_secs);
+        let suffix = format!("|{user_id}");
+        self.bars_edges_last
+            .iter()
+            .filter(|(k, ts)| {
+                **ts >= cutoff
+                    && k.ends_with(&suffix)
+                    && k.len() > suffix.len()
+                    && !self.is_social_force_muted(&k[..k.len() - suffix.len()])
+            })
+            .count() as u32
+    }
+
+    /// Unique peers `user_id` barred within the window.
+    fn bars_given_unique(&self, user_id: &str, window_secs: u64) -> u32 {
+        if user_id.is_empty() {
+            return 0;
+        }
+        let now = Self::unix_now();
+        let cutoff = now.saturating_sub(window_secs);
+        let prefix = format!("{user_id}|");
+        self.bars_edges_last
+            .iter()
+            .filter(|(k, ts)| **ts >= cutoff && k.starts_with(&prefix))
+            .count() as u32
+    }
+
+    /// Social health for soft rank, status UI, blur — praise minus soft bars stigma/tax.
+    fn social_health_for(&self, user_id: &str) -> u64 {
+        let base = self.effective_trust_for(user_id);
+        let received = self.bars_received_unique(user_id, Self::BARS_WINDOW_SECS);
+        let given = self.bars_given_unique(user_id, Self::BARS_WINDOW_SECS);
+        let stigma = (received as u64)
+            .saturating_mul(Self::BARS_STIGMA_PER)
+            .min(Self::BARS_STIGMA_CAP);
+        let tax = (given as u64)
+            .saturating_mul(Self::BARS_GIVEN_TAX_PER)
+            .min(Self::BARS_GIVEN_TAX_CAP);
+        base.saturating_sub(stigma).saturating_sub(tax)
+    }
+
+    /// Record bars stigma edge (1/day per pair). Skips if spender is muted.
+    /// Returns true if a new edge was counted this call.
+    fn record_bars_stigma_edge(&mut self, from: &str, to: &str) -> bool {
+        if from.is_empty() || to.is_empty() || from == to {
+            return false;
+        }
+        if self.is_social_force_muted(from) {
+            return false;
+        }
+        let now = Self::unix_now();
+        let key = friends_store::star_edge_key(from, to);
+        if let Some(last) = self.bars_edges_last.get(&key).copied() {
+            if now.saturating_sub(last) < Self::BARS_EDGE_COOLDOWN_SECS {
+                return false;
+            }
+        }
+        self.bars_edges_last.insert(key, now);
+        // Prune very old edges occasionally
+        if self.bars_edges_last.len() > 50_000 {
+            let cut = now.saturating_sub(Self::BARS_WINDOW_SECS.saturating_mul(2));
+            self.bars_edges_last.retain(|_, ts| *ts >= cut);
+        }
+        true
+    }
+
+    /// Auto soft-mute if unique bars targets flood thresholds.
+    fn maybe_flag_bars_abuser(&mut self, from: &str) {
+        if from.is_empty() || self.is_social_force_muted(from) {
+            return;
+        }
+        let n24 = self.bars_given_unique(from, 24 * 60 * 60);
+        let n7 = self.bars_given_unique(from, 7 * 24 * 60 * 60);
+        if n24 >= Self::BARS_ABUSE_24H || n7 >= Self::BARS_ABUSE_7D {
+            let until = Self::unix_now().saturating_add(Self::BARS_ABUSE_MUTE_SECS);
+            self.social_force_muted_until
+                .insert(from.to_string(), until);
+            tracing::warn!(
+                %from,
+                n24,
+                n7,
+                until,
+                "bars abuser soft-muted (social force 0)"
+            );
+            // Notify if online
+            if let Some(&cid) = self.by_user.get(from) {
+                self.send(
+                    cid,
+                    ServerMsg::Error {
+                        message: "Bars abuse limited — your actions no longer affect others' reputation for a while.".into(),
+                    },
+                );
+            }
+        }
     }
 
     /// Ban clawback: burn some balance + trust so banned users don't keep Senior power.
@@ -1860,6 +2009,13 @@ impl SimpleHub {
             } else {
                 format!("behind bars for {dur_secs}s{lvl_tag}")
             };
+            // Social stigma: count unique bars edges (not stack extensions alone)
+            if kind == "bars" {
+                let counted = self.record_bars_stigma_edge(&me_uid, &to_user_id);
+                if counted {
+                    self.maybe_flag_bars_abuser(&me_uid);
+                }
+            }
         }
         self.persist_friends();
 
@@ -2297,7 +2453,7 @@ impl SimpleHub {
     /// Max free stars a user may gift after a long chat (effective trust tier).
     /// Normal → 1 · Trusted (100+) → 2 · Senior (250+) → 3.
     fn max_post_chat_gift(&self, user_id: &str) -> u64 {
-        let s = self.effective_trust_for(user_id);
+        let s = self.social_health_for(user_id);
         if s >= Self::SENIOR_REPORTER_STARS {
             3
         } else if s >= Self::TRUSTED_REPORTER_STARS {
@@ -2412,8 +2568,15 @@ impl SimpleHub {
             self.vouch_edges
                 .insert(friends_store::star_edge_key(&me_uid, &target_uid));
         }
+        let muted = self.is_social_force_muted(&me_uid);
         let new_stars = if gift_n > 0 {
-            self.add_stars_from(&me_uid, &target_uid, gift_n, "mint:rate_partner")
+            // Muted bars abusers can still send wallet ★, but do not mint trust / edges.
+            let reason = if muted {
+                "mint:rate_partner_muted"
+            } else {
+                "mint:rate_partner"
+            };
+            self.add_stars_from(&me_uid, &target_uid, gift_n, reason)
         } else {
             self.stars_for(&target_uid)
         };
@@ -2909,19 +3072,19 @@ impl SimpleHub {
         }
     }
 
-    /// Representative **effective** trust for a queue entry (solo / party max).
+    /// Representative social health for soft match rank (solo / party max).
     fn entry_trust(&self, e: &QueueEntry) -> u64 {
         match e {
             QueueEntry::Solo(id) => self
                 .clients
                 .get(id)
-                .map(|c| self.effective_trust_for(&c.user_id))
+                .map(|c| self.social_health_for(&c.user_id))
                 .unwrap_or(0),
             QueueEntry::Party3 { a, b, c } => {
                 [*a, *b, *c]
                     .iter()
                     .filter_map(|id| self.clients.get(id))
-                    .map(|c| self.effective_trust_for(&c.user_id))
+                    .map(|c| self.social_health_for(&c.user_id))
                     .max()
                     .unwrap_or(0)
             }
@@ -2929,12 +3092,12 @@ impl SimpleHub {
                 let ta = self
                     .clients
                     .get(a)
-                    .map(|c| self.effective_trust_for(&c.user_id))
+                    .map(|c| self.social_health_for(&c.user_id))
                     .unwrap_or(0);
                 let tb = self
                     .clients
                     .get(b)
-                    .map(|c| self.effective_trust_for(&c.user_id))
+                    .map(|c| self.social_health_for(&c.user_id))
                     .unwrap_or(0);
                 ta.max(tb)
             }
@@ -3558,7 +3721,7 @@ impl SimpleHub {
             flag: String::new(),
             avatar: String::new(),
             stars: self.stars_for(&remote.user_id),
-            trust: self.effective_trust_for(&remote.user_id),
+            trust: self.social_health_for(&remote.user_id),
             trust_gifters: self.trust_gifters_for(&remote.user_id),
             effect: eff,
             effect_until: eff_until,
@@ -3772,6 +3935,10 @@ impl SimpleHub {
             trust_gifters: 0,
             trust_givers: Vec::new(),
             trust_last_ts: 0,
+            social_health: 0,
+            bars_received: 0,
+            bars_given: 0,
+            social_force_muted: false,
             effect: String::new(),
             effect_until: 0,
             effect_level: 1,
@@ -4302,7 +4469,7 @@ impl SimpleHub {
             flag: to.flag.clone(),
             avatar: to.avatar.clone(),
             stars: self.stars_for(&to.user_id),
-            trust: self.effective_trust_for(&to.user_id),
+            trust: self.social_health_for(&to.user_id),
             trust_gifters: self.trust_gifters_for(&to.user_id),
             effect,
             effect_until,
@@ -5827,6 +5994,10 @@ impl SimpleHub {
         let my_trust_gifters = self.trust_gifters_for(&user_id);
         let my_trust_givers = self.trust_giver_chips_for(&user_id, 8);
         let my_trust_last_ts = self.star_ledger.trust_last_ts(&user_id);
+        let my_social_health = self.social_health_for(&user_id);
+        let my_bars_received = self.bars_received_unique(&user_id, Self::BARS_WINDOW_SECS);
+        let my_bars_given = self.bars_given_unique(&user_id, Self::BARS_WINDOW_SECS);
+        let my_force_muted = self.is_social_force_muted(&user_id);
         let (my_eff, my_eff_until, my_eff_level) = self.active_effect_for(&user_id);
         let rate_min_secs = self.rate_min_secs_for(&user_id);
         let early_rates_left = self.early_rates_left_for(&user_id);
@@ -5847,6 +6018,10 @@ impl SimpleHub {
                 trust_gifters: my_trust_gifters,
                 trust_givers: my_trust_givers,
                 trust_last_ts: my_trust_last_ts,
+                social_health: my_social_health,
+                bars_received: my_bars_received,
+                bars_given: my_bars_given,
+                social_force_muted: my_force_muted,
                 effect: my_eff,
                 effect_until: my_eff_until,
                 effect_level: my_eff_level,

@@ -292,6 +292,18 @@ pub enum ServerMsg {
         /// Unix seconds of last trust activity (for soft-decay countdown UI). 0 = unknown.
         #[serde(default)]
         trust_last_ts: u64,
+        /// Social health = effective trust − soft bars stigma (status / soft-rank / blur).
+        #[serde(default)]
+        social_health: u64,
+        /// Unique peers who put you behind bars (30d window).
+        #[serde(default)]
+        bars_received: u32,
+        /// Unique peers you put behind bars (30d window).
+        #[serde(default)]
+        bars_given: u32,
+        /// True when your social force is muted (bars abuse).
+        #[serde(default)]
+        social_force_muted: bool,
         /// Effect currently on *you* ("bars", …). Empty = none.
         #[serde(default)]
         effect: String,
