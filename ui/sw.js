@@ -6,7 +6,7 @@
  * - Bump CACHE when shell list changes so activate cleans old entries.
  * - No skipWaiting on install (avoids mid-call takeover); client posts SKIP_WAITING on Reload.
  */
-const CACHE = "rulet-shell-v18";
+const CACHE = "rulet-shell-v19";
 
 /** Offline-safe shell only — keep small (no 250KB icons / mp4). Live stack is network-first. */
 const SHELL = [
