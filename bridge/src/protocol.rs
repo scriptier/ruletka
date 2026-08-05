@@ -263,6 +263,9 @@ pub enum ServerMsg {
         /// Distinct peers who gifted you post-chat stars.
         #[serde(default)]
         trust_gifters: u32,
+        /// Unix seconds of last trust activity (for soft-decay countdown UI). 0 = unknown.
+        #[serde(default)]
+        trust_last_ts: u64,
         /// Effect currently on *you* ("bars", …). Empty = none.
         #[serde(default)]
         effect: String,

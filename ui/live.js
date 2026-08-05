@@ -510,9 +510,19 @@ let myTrust = 0;
 let myTrustEffective = 0;
 /** Distinct peers who gifted you post-chat stars. */
 let myTrustGifters = 0;
+/** Unix seconds of last trust activity (decay countdown). 0 = unknown. */
+let myTrustLastTs = 0;
 /** Gifter floors (must match bridge). */
 const TRUSTED_MIN_GIFTERS = 5;
 const SENIOR_MIN_GIFTERS = 12;
+/** Soft idle decay (must match bridge TRUST_DECAY_*). */
+const TRUST_DECAY_START_DAYS = 45;
+const TRUST_DECAY_FULL_DAYS = 180;
+/** Milestone localStorage keys */
+const STARS_MS_G1_KEY = "rulet_stars_ms_g1";
+const STARS_MS_G5_KEY = "rulet_stars_ms_g5";
+const STARS_MS_W100_KEY = "rulet_stars_ms_w100";
+const STARS_MS_W250_KEY = "rulet_stars_ms_w250";
 /** Partner trust (public reputation) during current match. */
 let partnerStars = 0;
 /** Min chat length for star review (must match bridge STAR_MIN_SECS). */
@@ -2542,10 +2552,10 @@ function maybeStarsAlmostThereNudge(n) {
         localStorage.setItem(STARS_NUDGE_90_KEY, "1");
         const left = STARS_TRUSTED_GOAL - n;
         showStarFeedbackToast("gift", {
-          title: _t("stars.almostTrustedTitle") || "Almost trusted ★",
+          title: _t("stars.almostTrustedTitle") || "Almost Trusted ★",
           body:
             _t("stars.almostTrustedBody", { n: left }) ||
-            `${left} more ★ to Trusted reporter (reports ×2). Keep chatting!`,
+            `${left} more peer trust to Trusted status. Keep chatting!`,
         });
         trackEvent("stars_almost_there", { tier: "trusted", have: n, left });
       }
@@ -2555,10 +2565,10 @@ function maybeStarsAlmostThereNudge(n) {
         localStorage.setItem(STARS_NUDGE_240_KEY, "1");
         const left = STARS_SENIOR_GOAL - n;
         showStarFeedbackToast("gift", {
-          title: _t("stars.almostSeniorTitle") || "Almost senior ★",
+          title: _t("stars.almostSeniorTitle") || "Almost Senior ★",
           body:
             _t("stars.almostSeniorBody", { n: left }) ||
-            `${left} more ★ to Senior reporter (reports ×3).`,
+            `${left} more peer trust to Senior status.`,
         });
         trackEvent("stars_almost_there", { tier: "senior", have: n, left });
       }
@@ -2566,6 +2576,64 @@ function maybeStarsAlmostThereNudge(n) {
     // Reset nudges if they somehow drop below (edge case / account switch)
     if (n < 90) localStorage.removeItem(STARS_NUDGE_90_KEY);
     if (n < 240) localStorage.removeItem(STARS_NUDGE_240_KEY);
+  } catch (_) {}
+}
+
+/** Milestone toasts: first/5th gifter, wealth 100/250. */
+function maybeStarsMilestones(opts = {}) {
+  try {
+    const g = Math.max(
+      0,
+      Number(opts.gifters != null ? opts.gifters : myTrustGifters) || 0
+    );
+    const bal = Math.max(
+      0,
+      Number(opts.balance != null ? opts.balance : myStars) || 0
+    );
+    if (g >= 1 && !localStorage.getItem(STARS_MS_G1_KEY)) {
+      localStorage.setItem(STARS_MS_G1_KEY, "1");
+      showStarFeedbackToast("gift", {
+        title: _t("stars.msFirstGifterTitle") || "First peer ★",
+        body:
+          _t("stars.msFirstGifterBody") ||
+          "Someone gifted you after a chat — trust grows only this way.",
+      });
+      trackEvent("stars_milestone", { kind: "gifter_1" });
+    }
+    if (g >= TRUSTED_MIN_GIFTERS && !localStorage.getItem(STARS_MS_G5_KEY)) {
+      localStorage.setItem(STARS_MS_G5_KEY, "1");
+      showStarFeedbackToast("gift", {
+        title: _t("stars.msFiveGiftersTitle") || "5 unique gifters",
+        body:
+          _t("stars.msFiveGiftersBody") ||
+          "Gifter floor met for Trusted status (still need 100 trust).",
+      });
+      trackEvent("stars_milestone", { kind: "gifter_5" });
+    }
+    if (bal >= 100 && !localStorage.getItem(STARS_MS_W100_KEY)) {
+      localStorage.setItem(STARS_MS_W100_KEY, "1");
+      showStarFeedbackToast("gift", {
+        title: _t("stars.msWealth100Title") || "Rich balance ★100",
+        body:
+          _t("stars.msWealth100Body") ||
+          "Big spendable balance — trust still comes only from peer gifts.",
+      });
+      trackEvent("stars_milestone", { kind: "wealth_100" });
+    }
+    if (bal >= 250 && !localStorage.getItem(STARS_MS_W250_KEY)) {
+      localStorage.setItem(STARS_MS_W250_KEY, "1");
+      showStarFeedbackToast("gift", {
+        title: _t("stars.msWealth250Title") || "Legendary balance ★250",
+        body:
+          _t("stars.msWealth250Body") ||
+          "Legendary wallet for gifts — separate from Senior trust.",
+      });
+      trackEvent("stars_milestone", { kind: "wealth_250" });
+    }
+    if (g < 1) localStorage.removeItem(STARS_MS_G1_KEY);
+    if (g < TRUSTED_MIN_GIFTERS) localStorage.removeItem(STARS_MS_G5_KEY);
+    if (bal < 100) localStorage.removeItem(STARS_MS_W100_KEY);
+    if (bal < 250) localStorage.removeItem(STARS_MS_W250_KEY);
   } catch (_) {}
 }
 
@@ -2701,6 +2769,184 @@ function setMyTrust(trust, gifters, effective) {
   }
   // Refresh local badge tier without changing displayed balance
   setStarsBadge("local", myStars, { trust: myTrustEffective });
+  maybeStarsMilestones({ gifters: myTrustGifters, balance: myStars });
+}
+
+/** Render gifter floor dots (1…12) with marks at 5 and 12. */
+function syncGiftersStrip(gifters) {
+  const g = Math.max(0, Math.min(24, Math.floor(Number(gifters) || 0)));
+  const strip = $("stars-gifters-strip");
+  const countEl = $("stars-gifters-overview-count");
+  const note = $("stars-gifters-strip-note");
+  const slots = SENIOR_MIN_GIFTERS;
+  if (countEl) {
+    countEl.textContent = `${g} / ${slots}`;
+  }
+  if (strip) {
+    const prev = strip.dataset.g;
+    if (prev !== String(g) || !strip.childElementCount) {
+      strip.dataset.g = String(g);
+      strip.innerHTML = "";
+      for (let i = 1; i <= slots; i++) {
+        const dot = document.createElement("span");
+        dot.className = "stars-gifter-dot";
+        if (i <= g) dot.classList.add("is-filled");
+        if (i === TRUSTED_MIN_GIFTERS) dot.classList.add("is-mark-trusted");
+        if (i === SENIOR_MIN_GIFTERS) dot.classList.add("is-mark-senior");
+        dot.title =
+          i === TRUSTED_MIN_GIFTERS
+            ? _t("stars.gifterMarkTrusted") || "Trusted floor · 5 gifters"
+            : i === SENIOR_MIN_GIFTERS
+              ? _t("stars.gifterMarkSenior") || "Senior floor · 12 gifters"
+              : `Gifter ${i}`;
+        strip.appendChild(dot);
+      }
+    } else {
+      strip.querySelectorAll(".stars-gifter-dot").forEach((dot, idx) => {
+        dot.classList.toggle("is-filled", idx < g);
+      });
+    }
+    strip.setAttribute(
+      "aria-label",
+      _t("stars.giftersStripAria", { n: g, s: slots }) ||
+        `${g} of ${slots} unique gifters`
+    );
+  }
+  if (note) {
+    if (g >= SENIOR_MIN_GIFTERS) {
+      note.textContent =
+        _t("stars.giftersNoteSenior") ||
+        "12+ unique gifters — Senior floor met.";
+    } else if (g >= TRUSTED_MIN_GIFTERS) {
+      note.textContent =
+        _t("stars.giftersNoteTrusted", {
+          n: SENIOR_MIN_GIFTERS - g,
+        }) ||
+        `Trusted floor met · ${SENIOR_MIN_GIFTERS - g} more for Senior.`;
+    } else if (g > 0) {
+      note.textContent =
+        _t("stars.giftersNoteProgress", {
+          n: TRUSTED_MIN_GIFTERS - g,
+        }) ||
+        `${TRUSTED_MIN_GIFTERS - g} more unique gifters for Trusted floor.`;
+    } else {
+      note.textContent =
+        _t("stars.giftersNoteEmpty") ||
+        "Each person who gifts you after a chat fills one dot.";
+    }
+  }
+}
+
+/** Days until soft decay starts / how far into decay. */
+function trustDecayInfo(lastTs) {
+  const last = Math.max(0, Math.floor(Number(lastTs) || 0));
+  if (!last) {
+    return { kind: "unknown", daysLeft: TRUST_DECAY_START_DAYS, idleDays: 0 };
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const idleDays = Math.max(0, Math.floor((now - last) / 86400));
+  if (idleDays < TRUST_DECAY_START_DAYS) {
+    return {
+      kind: "fresh",
+      daysLeft: TRUST_DECAY_START_DAYS - idleDays,
+      idleDays,
+    };
+  }
+  if (idleDays >= TRUST_DECAY_FULL_DAYS) {
+    return { kind: "full", daysLeft: 0, idleDays };
+  }
+  return {
+    kind: "decaying",
+    daysLeft: TRUST_DECAY_FULL_DAYS - idleDays,
+    idleDays,
+  };
+}
+
+/** Power tab: balance / trust / gifters / decay / soft-rank map. */
+function syncStarsPowerMap(state) {
+  const balN = state.balN || 0;
+  const trustN = state.trustN || 0;
+  const effN = state.effN || 0;
+  const g = state.gifters || 0;
+  const isTrusted = !!state.isTrusted;
+  const isSenior = !!state.isSenior;
+
+  const balBody = $("stars-map-balance-body");
+  if (balBody) {
+    balBody.textContent =
+      _t("stars.mapBalanceBody", { n: balN }) ||
+      `★${balN} ready to spend on gifts and FX`;
+  }
+  const trustBody = $("stars-map-trust-body");
+  if (trustBody) {
+    if (effN !== trustN && trustN > 0) {
+      trustBody.textContent =
+        _t("stars.mapTrustBodyCapped", { raw: trustN, eff: effN, g }) ||
+        `Raw ${trustN} · effective ${effN} (gifter floors) · ${g} gifters`;
+    } else {
+      trustBody.textContent =
+        _t("stars.mapTrustBody", { n: trustN, g }) ||
+        `★${trustN} from peer gifts · ${g} unique gifters`;
+    }
+  }
+  const gBody = $("stars-map-gifters-body");
+  if (gBody) {
+    gBody.textContent =
+      _t("stars.mapGiftersBody", {
+        n: g,
+        t: TRUSTED_MIN_GIFTERS,
+        s: SENIOR_MIN_GIFTERS,
+      }) ||
+      `${g} people · need ${TRUSTED_MIN_GIFTERS} for Trusted · ${SENIOR_MIN_GIFTERS} for Senior`;
+  }
+  const decayBody = $("stars-map-decay-body");
+  if (decayBody) {
+    if (trustN <= 0) {
+      decayBody.textContent =
+        _t("stars.mapDecayNone") ||
+        "No trust yet — peer gifts start the clock.";
+    } else {
+      const info = trustDecayInfo(myTrustLastTs);
+      if (info.kind === "unknown") {
+        decayBody.textContent =
+          _t("stars.mapDecayUnknown") ||
+          "Stay active with peer gifts — soft decay after 45 idle days.";
+      } else if (info.kind === "fresh") {
+        decayBody.textContent =
+          _t("stars.mapDecayFresh", { d: info.daysLeft }) ||
+          `Soft decay starts in ${info.daysLeft} day(s) without peer gifts.`;
+      } else if (info.kind === "decaying") {
+        decayBody.textContent =
+          _t("stars.mapDecayActive", {
+            idle: info.idleDays,
+            d: info.daysLeft,
+          }) ||
+          `Soft decay active (${info.idleDays}d idle) · max at ${TRUST_DECAY_FULL_DAYS}d.`;
+      } else {
+        decayBody.textContent =
+          _t("stars.mapDecayFull") ||
+          "Idle decay at max (~50% soft cap). A peer gift refreshes you.";
+      }
+    }
+  }
+  const rankRow = $("stars-map-rank-row");
+  const rankBody = $("stars-map-rank-body");
+  if (rankRow) {
+    if (isTrusted || isSenior) {
+      rankRow.hidden = false;
+      rankRow.removeAttribute("hidden");
+      if (rankBody) {
+        rankBody.textContent = isSenior
+          ? _t("stars.mapRankSenior") ||
+            "Senior soft-rank on when 3+ solos wait"
+          : _t("stars.mapRankTrusted") ||
+            "Trusted soft-rank on when 3+ solos wait";
+      }
+    } else {
+      rankRow.hidden = true;
+      rankRow.setAttribute("hidden", "");
+    }
+  }
 }
 
 /** Mirror bridge gifter floors (decay is hub-only). */
@@ -2785,9 +3031,11 @@ function setTrustTierChip(which, trust, opts = {}) {
   el.dataset.tier = key;
   const tip =
     key === "senior"
-      ? _t("stars.chipSeniorTip") || "Senior · reports ×3 · harder to ban"
+      ? _t("stars.chipSeniorTip") ||
+        "Senior · soft match rank · gift up to 3★ · harder to auto-ban"
       : key === "trusted"
-        ? _t("stars.chipTrustedTip") || "Trusted · reports ×2"
+        ? _t("stars.chipTrustedTip") ||
+          "Trusted · soft match rank · gift up to 2★"
         : key === "known"
           ? _t("stars.chipKnownTip", { n }) || `Known · trust ${n}`
           : _t("stars.chipNewTip") || "New · no peer gifts yet";
@@ -2796,6 +3044,50 @@ function setTrustTierChip(which, trust, opts = {}) {
   el.hidden = !show;
   if (show) el.removeAttribute("hidden");
   else el.setAttribute("hidden", "");
+  if (which === "local") syncLocalSoftRankChip(n);
+  if (which === "remote") syncRemoteMutualChip();
+}
+
+/** Local cam: show soft-rank when Trusted/Senior (matchmaking boost). */
+function syncLocalSoftRankChip(trust) {
+  const el = $("local-soft-rank-chip");
+  if (!el) return;
+  const n = Math.max(0, Math.floor(Number(trust != null ? trust : myTrustEffective || myTrust) || 0));
+  const on = n >= STARS_TRUSTED_GOAL;
+  const live = !!(matched || inFriendCall);
+  const show = on && (live || n > 0);
+  el.hidden = !show;
+  if (show) el.removeAttribute("hidden");
+  else el.setAttribute("hidden", "");
+  el.classList.toggle("is-senior", n >= STARS_SENIOR_GOAL);
+  el.title =
+    _t("stars.softRankTip") ||
+    "Soft match rank on — better mix when the lobby is busy";
+  el.setAttribute("aria-label", el.title);
+}
+
+/** Remote: mutual-friend bond chip (graph signal, not stars). */
+function syncRemoteMutualChip() {
+  const el = $("remote-mutual-chip");
+  if (!el) return;
+  const uid = String(primaryPartnerUserId || lastMatchMeta?.user_id || "").trim();
+  const live = !!(matched || inFriendCall);
+  let mutual = false;
+  try {
+    mutual = !!(uid && typeof isMutualFriend === "function" && isMutualFriend(uid));
+  } catch (_) {
+    mutual = false;
+  }
+  const show = live && mutual;
+  el.hidden = !show;
+  if (show) el.removeAttribute("hidden");
+  else el.setAttribute("hidden", "");
+  if (show) {
+    el.textContent = _t("stars.mutualChip") || "↔ friend";
+    el.title =
+      _t("stars.mutualChipTip") || "Mutual friend — real social bond";
+    el.setAttribute("aria-label", el.title);
+  }
 }
 
 function clearTrustTierChips() {
@@ -2805,7 +3097,13 @@ function clearTrustTierChips() {
     remote.hidden = true;
     remote.setAttribute("hidden", "");
   }
+  const mutual = $("remote-mutual-chip");
+  if (mutual) {
+    mutual.hidden = true;
+    mutual.setAttribute("hidden", "");
+  }
   setTrustTierChip("local", myTrust);
+  syncLocalSoftRankChip(myTrustEffective || myTrust);
 }
 
 /** Spendable-balance “wealth” level for chrome (independent of trust tier). */
@@ -2884,14 +3182,19 @@ function syncStarsSheetUi() {
     }
   }
 
-  // Hero: trust chip + wealth chrome (balance can look premium even if trust is low)
+  // Hero: social status chip + wealth chrome (balance can look premium even if trust is low)
   const chip = $("stars-tier-chip");
   if (chip) {
-    if (isSenior || isTrusted) {
-      chip.textContent = `×${w}`;
+    if (isSenior) {
+      chip.textContent = _t("stars.chipSenior") || "Senior";
       chip.title =
-        _t("stars.chipTrustTip") ||
-        "Trust tier from peer gifts (not spendable balance)";
+        _t("stars.chipSeniorTip") ||
+        "Senior · soft match rank · gift up to 3★ · harder to auto-ban";
+    } else if (isTrusted) {
+      chip.textContent = _t("stars.chipTrusted") || "Trusted";
+      chip.title =
+        _t("stars.chipTrustedTip") ||
+        "Trusted · soft match rank · gift up to 2★";
     } else if (wealth >= 4) {
       // 250+ spendable ★ — unmistakable legend pill (trust may still be ×1)
       chip.textContent =
@@ -2930,10 +3233,10 @@ function syncStarsSheetUi() {
     } catch (_) {}
     if (isSenior) {
       tierName.textContent =
-        _t("stars.tierSenior") || "Senior reporter";
+        _t("stars.tierSenior") || "Senior";
     } else if (isTrusted) {
       tierName.textContent =
-        _t("stars.tierTrusted") || "Trusted reporter";
+        _t("stars.tierTrusted") || "Trusted";
     } else if (wealth >= 4) {
       tierName.textContent =
         _t("stars.tierWealthLegend") || "Legendary balance";
@@ -2943,9 +3246,10 @@ function syncStarsSheetUi() {
     } else if (wealth >= 2) {
       tierName.textContent =
         _t("stars.tierWealthSilver") || "Solid balance";
+    } else if (trustN > 0) {
+      tierName.textContent = _t("stars.chipKnown") || "Known";
     } else {
-      tierName.textContent =
-        _t("stars.tierNormal") || "Normal reporter";
+      tierName.textContent = _t("stars.chipNew") || "New";
     }
   }
   const hero = $("stars-sheet-hero");
@@ -2969,19 +3273,19 @@ function syncStarsSheetUi() {
     if (isSenior) {
       unlock.textContent =
         _t("stars.unlockSeniorV2") ||
-        "Senior trust · gift up to 3★ after long chats · hard to auto-ban";
+        "Senior · gift up to 3★ · soft match rank · stronger shield";
     } else if (isTrusted) {
       unlock.textContent =
         _t("stars.unlockTrustedV2") ||
-        "Trusted · gift up to 2★ · 250 trust + gifters → senior";
+        "Trusted · gift up to 2★ · soft match rank · 250 trust → Senior";
     } else if (balN >= 50 && trustN < STARS_TRUSTED_GOAL) {
       unlock.textContent =
         _t("stars.unlockWealthOnly", { n: balN }) ||
-        `★${balN} for gifts · get peer ★ gifts to build Trust (100 → Trusted)`;
+        `★${balN} for gifts · peer ★ gifts build Trust (100 → Trusted)`;
     } else {
       unlock.textContent =
         _t("stars.unlockNormalV2") ||
-        "Balance = gifts · Trust = peer ★ · 100 trust → Trusted look";
+        "Balance = gifts · Trust = peer ★ · 100 trust → Trusted status";
     }
   }
 
@@ -3062,10 +3366,10 @@ function syncStarsSheetUi() {
   }
   if (label) {
     label.textContent = isSenior
-      ? _t("stars.progressLabelSenior") || "Senior reporter"
+      ? _t("stars.progressLabelSenior") || "Senior status"
       : isTrusted
-        ? _t("stars.progressLabelNext") || "Next: senior reporter"
-        : _t("stars.progressLabel") || "Trusted reporter";
+        ? _t("stars.progressLabelNext") || "Next: Senior"
+        : _t("stars.progressLabel") || "Trusted status";
   }
   if (hintProg) {
     const g = Math.max(0, Number(myTrustGifters) || 0);
@@ -3133,25 +3437,65 @@ function syncStarsSheetUi() {
     el.classList.toggle("is-done", t < w);
   });
 
+  // Gifter progress strip (unique peers · floors at 5 and 12)
+  try {
+    syncGiftersStrip(Math.max(0, Number(myTrustGifters) || 0));
+  } catch (_) {}
+
+  // Soft-rank pill under hero
+  try {
+    const rankPill = $("stars-soft-rank-pill");
+    if (rankPill) {
+      if (isTrusted || isSenior) {
+        rankPill.hidden = false;
+        rankPill.removeAttribute("hidden");
+        rankPill.textContent =
+          _t("stars.softRankOn") ||
+          "↗ Soft match rank on · better mix when lobby is busy";
+        rankPill.classList.toggle("is-senior", isSenior);
+      } else {
+        rankPill.hidden = true;
+        rankPill.setAttribute("hidden", "");
+        rankPill.textContent = "";
+      }
+    }
+    syncLocalSoftRankChip(n);
+  } catch (_) {}
+
+  // Power tab social map
+  try {
+    syncStarsPowerMap({
+      balN,
+      trustN,
+      effN: n,
+      gifters: Math.max(0, Number(myTrustGifters) || 0),
+      isTrusted,
+      isSenior,
+    });
+  } catch (_) {}
+
+  // Milestones (safe to call often — one-shot keys)
+  maybeStarsMilestones({ gifters: myTrustGifters, balance: balN });
+
   // Trust body note
   const trust = $("stars-sheet-trust-body");
   if (trust) {
     if (isSenior) {
       trust.textContent =
         _t("stars.trustYouAreSeniorV2") ||
-        "Senior trust (250+) · gift up to 3★ · other seniors can’t auto-ban you.";
+        "Senior status · gift up to 3★ · soft match rank · stronger shield.";
     } else if (isTrusted) {
       trust.textContent =
         _t("stars.trustYouAreV2") ||
-        "Trusted (100+) · gift up to 2★ · 250+ trust for senior.";
+        "Trusted status · gift up to 2★ · soft match rank · 250 trust → Senior.";
     } else if (balN >= 50) {
       trust.textContent =
         _t("stars.trustWealthOnlyBody", { n: balN }) ||
-        `You have ★${balN} to spend on gifts. Trust (left chip path) only rises when others gift you after chats.`;
+        `You have ★${balN} to spend on gifts. Trust only rises when others gift you after chats.`;
     } else {
       trust.textContent =
         _t("stars.trustStepBodyV2") ||
-        "Balance spends on gifts. Trust from peer ★ unlocks Trusted/Senior looks and gift limits.";
+        "Balance spends on gifts. Trust from peer ★ unlocks status, gift limits, and soft match help.";
     }
   }
 
@@ -17549,6 +17893,7 @@ async function applyImportedProfile(data) {
     myTrust = 0;
     myTrustEffective = 0;
     myTrustGifters = 0;
+    myTrustLastTs = 0;
     partnerStars = 0;
     try {
       setStarsBadge("local", 0);
@@ -18215,12 +18560,14 @@ function handleServer(msg) {
       myStars = Math.max(0, Number(msg.stars) || 0);
       myTrust = Math.max(0, Number(msg.trust) || 0);
       myTrustGifters = Math.max(0, Number(msg.trust_gifters) || 0);
+      myTrustLastTs = Math.max(0, Number(msg.trust_last_ts) || 0);
       myTrustEffective =
         msg.trust_effective != null
           ? Math.max(0, Number(msg.trust_effective) || 0)
           : clientEffectiveTrust(myTrust, myTrustGifters);
       applyStarRateWindowFromHub(msg);
       setStarsBadge("local", myStars, { trust: myTrustEffective });
+      maybeStarsMilestones({ gifters: myTrustGifters, balance: myStars });
       // Bars (etc.) persist across logout — re-apply on hello
       setFxOverlay(
         "local",
@@ -18277,6 +18624,9 @@ function handleServer(msg) {
         outgoingRequests = dedupeByUserId(
           Array.isArray(msg.outgoing_requests) ? msg.outgoing_requests : []
         );
+        try {
+          syncRemoteMutualChip();
+        } catch (_) {}
         if (msg.friend_code) {
           myFriendCode = msg.friend_code;
           if ($("my-friend-code")) $("my-friend-code").textContent = myFriendCode;
@@ -18434,9 +18784,14 @@ function handleServer(msg) {
           if (trustIn != null && !hourBonus && !seniorTalk && !adminGrant) {
             if (trustIn > prevTrust) {
               myTrustGifters = Math.max(0, myTrustGifters) + 1;
+              myTrustLastTs = Math.floor(Date.now() / 1000);
             }
             myTrust = trustIn;
             myTrustEffective = clientEffectiveTrust(myTrust, myTrustGifters);
+            maybeStarsMilestones({
+              gifters: myTrustGifters,
+              balance: myStars,
+            });
           }
           setStarsBadge("local", myStars, {
             trust: myTrustEffective || myTrust,

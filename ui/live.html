@@ -228,9 +228,9 @@
     #tile-local .side-rail { z-index: 50 !important; }
 </style>
   <!-- Load stage CSS as all immediately — no media=print FOUC trick (was leaving rails opacity:0) -->
-  <link rel="stylesheet" href="live-stage.css?v=333" />
-  <link rel="preload" href="live.js?v=375" as="script" />
-  <link rel="preload" href="i18n.js?v=221" as="script" />
+  <link rel="stylesheet" href="live-stage.css?v=334" />
+  <link rel="preload" href="live.js?v=376" as="script" />
+  <link rel="preload" href="i18n.js?v=222" as="script" />
   <script src="brand.js?v=2" defer></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -633,6 +633,7 @@
             <span class="name-on-tile name-on-tile-stack" id="remote-tag"></span>
             <span class="peer-who-sub" id="remote-who-sub" hidden></span>
             <span class="trust-tier-chip" id="remote-trust-chip" hidden title="Reputation tier"></span>
+            <span class="mutual-bond-chip" id="remote-mutual-chip" hidden title="Mutual friend">↔</span>
             <span class="flair-chip" id="remote-flair-chip" hidden title="Flair" aria-hidden="true"></span>
           </div>
           <div class="tile-remote-meta">
@@ -897,6 +898,7 @@
           <div class="tile-tag tile-tag-local-name" id="local-name-tag">
             <span class="name-on-tile name-on-tile-stack" id="local-name">anon</span>
             <span class="trust-tier-chip" id="local-trust-chip" hidden title="Your reputation tier"></span>
+            <span class="stars-soft-rank-chip" id="local-soft-rank-chip" hidden title="Soft match rank on">↗</span>
             <span class="flair-chip" id="local-flair-chip" hidden title="Flair" aria-hidden="true"></span>
           </div>
         </div>
@@ -1240,7 +1242,7 @@
         <div class="stars-hero-meta">
           <span class="stars-sheet-balance-sub" data-i18n="stars.yours">Your balance</span>
           <span class="stars-meta-dot" aria-hidden="true">·</span>
-          <span class="stars-tier-name" id="stars-tier-name">Normal reporter</span>
+          <span class="stars-tier-name" id="stars-tier-name">New</span>
         </div>
         <div class="stars-balance-trust-row" id="stars-balance-trust-row">
           <span class="stars-dual-chip is-balance">
@@ -1256,13 +1258,14 @@
         </div>
         <p class="stars-gifters-floor-hint" id="stars-gifters-floor-hint" hidden></p>
         <p class="stars-unlock-line" id="stars-unlock-line"></p>
+        <p class="stars-soft-rank-pill" id="stars-soft-rank-pill" hidden></p>
       </div>
       <p class="stars-live-line" id="stars-live-line" hidden></p>
 
       <div class="stars-panel is-active" id="stars-panel-overview" role="tabpanel" data-stars-panel="overview">
         <div class="stars-progress-wrap" id="stars-progress-wrap">
           <div class="stars-progress-head">
-            <span class="stars-progress-label" id="stars-progress-label" data-i18n="stars.progressLabel">Trusted reporter</span>
+            <span class="stars-progress-label" id="stars-progress-label" data-i18n="stars.progressLabel">Trusted status</span>
             <span class="stars-progress-count" id="stars-progress-count">0 / 100</span>
           </div>
           <div class="stars-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="250" aria-valuenow="0" id="stars-progress-bar">
@@ -1277,6 +1280,14 @@
             Trust from peer gifts · 100 trust → Trusted status.
           </p>
           <p class="stars-progress-hint-sub" id="stars-progress-hint-sub" hidden></p>
+        </div>
+        <div class="stars-gifters-overview" id="stars-gifters-overview">
+          <div class="stars-gifters-overview-head">
+            <span data-i18n="stars.giftersStripTitle">Peer praise</span>
+            <span class="stars-gifters-overview-count" id="stars-gifters-overview-count">0 / 12</span>
+          </div>
+          <div class="stars-gifters-strip" id="stars-gifters-strip" role="img" aria-label="Unique gifters progress"></div>
+          <p class="stars-gifters-strip-note" id="stars-gifters-strip-note"></p>
         </div>
         <p class="settings-section-label" data-i18n="stars.earnTitle">Earn</p>
         <div class="settings-group stars-sheet-group stars-earn-group">
@@ -1308,12 +1319,12 @@
           </summary>
           <div class="stars-about-panel">
             <p class="stars-about-lead" data-i18n="stars.sheetIntro">
-              Free reputation, not money. Earn from long chats, spend on gifts, unlock stronger reports at 100★ and 250★.
+              Free reputation, not money. Earn from long chats, spend on gifts. Trust from peer praise unlocks status at 100 and 250.
             </p>
             <ul class="stars-about-list">
-              <li data-i18n="stars.aboutEarn">Earn: +1★ each after 1 hour. Talk to a senior (250+): normals get +3★ (15+ min), trusted get +2★ (1 hour). Gift once after 15+ min — up to 2★ at 100+, up to 3★ at 250+.</li>
+              <li data-i18n="stars.aboutEarn">Balance: +1★ each after 1 hour (spendable). Trust: only peer post-chat gifts count. First 3 partners unlock gift after 5+ min (then 15+). Gift once per person — up to 2★ at Trusted, 3★ at Senior.</li>
               <li data-i18n="stars.aboutSpend">Spend: Heart 1★ · Bars/Flowers/Balloons/Confetti 5★ · Fireworks 15★ · Please stay 30★ (they can’t Next for 15s, once/month per person).</li>
-              <li data-i18n="stars.aboutTrust">Trust: 100+★ reports ×2, 250+★ ×3. High-rep users are harder to ban — seniors cannot auto-ban each other.</li>
+              <li data-i18n="stars.aboutTrust">Trust (not balance): Trusted at 100 needs 5+ unique gifters; Senior at 250 needs 12+. Soft decay after 45 days idle. Soft match rank and gift limits — not ban artillery. Hour bonuses do not raise trust.</li>
               <li data-i18n="stars.aboutHub">Safe: stars stay on the server for your account — profile export never includes them.</li>
             </ul>
           </div>
@@ -1368,32 +1379,70 @@
       </div>
 
       <div class="stars-panel" id="stars-panel-power" role="tabpanel" data-stars-panel="power" hidden>
-        <p class="settings-section-label" data-i18n="stars.trustTitle">Report power</p>
+        <p class="settings-section-label" data-i18n="stars.powerMapTitle">Social map</p>
+        <div class="stars-power-map" id="stars-power-map">
+          <div class="stars-map-row" data-map="balance">
+            <span class="stars-map-ico" aria-hidden="true">★</span>
+            <div class="stars-map-copy">
+              <strong data-i18n="stars.mapBalanceTitle">Balance</strong>
+              <span id="stars-map-balance-body">Spend on gifts and FX</span>
+            </div>
+          </div>
+          <div class="stars-map-row" data-map="trust">
+            <span class="stars-map-ico" aria-hidden="true">◆</span>
+            <div class="stars-map-copy">
+              <strong data-i18n="stars.mapTrustTitle">Trust</strong>
+              <span id="stars-map-trust-body">Peer ★ gifts after chats</span>
+            </div>
+          </div>
+          <div class="stars-map-row" data-map="gifters">
+            <span class="stars-map-ico" aria-hidden="true">◎</span>
+            <div class="stars-map-copy">
+              <strong data-i18n="stars.mapGiftersTitle">Gifters</strong>
+              <span id="stars-map-gifters-body">Unique people who praised you</span>
+            </div>
+          </div>
+          <div class="stars-map-row" data-map="decay">
+            <span class="stars-map-ico" aria-hidden="true">⏱</span>
+            <div class="stars-map-copy">
+              <strong data-i18n="stars.mapDecayTitle">Active trust</strong>
+              <span id="stars-map-decay-body">Stays fresh with peer gifts</span>
+            </div>
+          </div>
+          <div class="stars-map-row" data-map="rank" id="stars-map-rank-row" hidden>
+            <span class="stars-map-ico" aria-hidden="true">↗</span>
+            <div class="stars-map-copy">
+              <strong data-i18n="stars.mapRankTitle">Match soft-rank</strong>
+              <span id="stars-map-rank-body">On when Trusted or Senior</span>
+            </div>
+          </div>
+        </div>
+        <p class="settings-section-label" data-i18n="stars.ladderTitle">Status ladder</p>
         <div class="stars-ladder" id="stars-ladder" role="list">
           <div class="stars-ladder-step" data-tier="1" role="listitem">
             <span class="stars-ladder-dot" aria-hidden="true">1</span>
             <span class="stars-ladder-copy">
-              <strong data-i18n="stars.ladderNormalTitle">0–99★ · ×1</strong>
-              <span data-i18n="stars.ladderNormalBody">Standard report weight</span>
+              <strong data-i18n="stars.ladderNormalTitle">New / Known</strong>
+              <span data-i18n="stars.ladderNormalBody">Gift up to 1★ after long chats</span>
             </span>
           </div>
           <div class="stars-ladder-step" data-tier="2" role="listitem">
             <span class="stars-ladder-dot" aria-hidden="true">2</span>
             <span class="stars-ladder-copy">
-              <strong data-i18n="stars.ladderTrustedTitle">100★ · ×2 trusted</strong>
-              <span data-i18n="stars.ladderTrustedBody">Stronger reports · gift up to 2★ after chats</span>
+              <strong data-i18n="stars.ladderTrustedTitle">Trusted · 100 trust</strong>
+              <span data-i18n="stars.ladderTrustedBody">Soft match rank · gift up to 2★ · needs 5+ gifters</span>
             </span>
           </div>
           <div class="stars-ladder-step" data-tier="3" role="listitem">
             <span class="stars-ladder-dot" aria-hidden="true">3</span>
             <span class="stars-ladder-copy">
-              <strong data-i18n="stars.ladderSeniorTitle">250★ · ×3 senior</strong>
-              <span data-i18n="stars.ladderSeniorBody">Strongest reports · gift up to 3★ · seniors can’t auto-ban each other</span>
+              <strong data-i18n="stars.ladderSeniorTitle">Senior · 250 trust</strong>
+              <span data-i18n="stars.ladderSeniorBody">Stronger shield · gift up to 3★ · needs 12+ gifters</span>
             </span>
           </div>
         </div>
         <p class="stars-ladder-note" id="stars-sheet-trust-body" data-i18n="stars.trustStepBody">
-          At 100★ reports ×2; at 250★ ×3. High-rep targets are shielded. One report per person.
+          Balance spends on gifts. Trust is peer praise — unlocks status, gift limits, and soft match help. Reports use independent consensus, not star weight.
         </p>
         <span id="stars-sheet-trust-title" hidden></span>
       </div>
@@ -2510,11 +2559,11 @@
   <!-- Critical path: defer app scripts. QR / invite-copy / live-window load on demand. -->
   <script src="analytics.js?v=3" defer></script>
   <script src="pwa-install.js?v=11" defer></script>
-  <script src="i18n.js?v=221" defer></script>
+  <script src="i18n.js?v=222" defer></script>
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=156" defer></script>
   <script src="webrtc.js?v=168" defer></script>
-  <script src="live.js?v=375" defer></script>
+  <script src="live.js?v=376" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

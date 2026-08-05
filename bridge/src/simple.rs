@@ -3638,6 +3638,7 @@ impl SimpleHub {
             trust: 0,
             trust_effective: 0,
             trust_gifters: 0,
+            trust_last_ts: 0,
             effect: String::new(),
             effect_until: 0,
             effect_level: 1,
@@ -5687,6 +5688,7 @@ impl SimpleHub {
         let my_trust = self.trust_for(&user_id);
         let my_trust_effective = self.effective_trust_for(&user_id);
         let my_trust_gifters = self.trust_gifters_for(&user_id);
+        let my_trust_last_ts = self.star_ledger.trust_last_ts(&user_id);
         let (my_eff, my_eff_until, my_eff_level) = self.active_effect_for(&user_id);
         let rate_min_secs = self.rate_min_secs_for(&user_id);
         let early_rates_left = self.early_rates_left_for(&user_id);
@@ -5705,6 +5707,7 @@ impl SimpleHub {
                 trust: my_trust,
                 trust_effective: my_trust_effective,
                 trust_gifters: my_trust_gifters,
+                trust_last_ts: my_trust_last_ts,
                 effect: my_eff,
                 effect_until: my_eff_until,
                 effect_level: my_eff_level,
