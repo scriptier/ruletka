@@ -2662,18 +2662,6 @@ function setStarsBadge(which, count, opts = {}) {
     } else badge.setAttribute("hidden", "");
     badge.classList.add("is-clickable");
     badge.classList.toggle("is-live-chat", live);
-    // Keep header ★ in sync (always-visible chrome)
-    if (which === "local") {
-      const topN = $("stars-top-count");
-      if (topN) topN.textContent = String(n);
-      const topBtn = $("btn-stars-top");
-      if (topBtn) {
-        topBtn.hidden = false;
-        topBtn.removeAttribute("hidden");
-        topBtn.title =
-          (_t("stars.yours") || "Your balance") + ` · ★ ${n}`;
-      }
-    }
     // Visual evolution by **trust** tier (report weight goals)
     const w = reportWeightForStars(tierScore);
     badge.classList.remove("tier-normal", "tier-trusted", "tier-senior");
@@ -17606,8 +17594,7 @@ function openSettings() {
   closeAllDockFlyouts("settings");
   const sheet = $("settings-sheet");
   const bd = $("sheet-backdrop");
-  // Prefer header Settings if present (always on screen)
-  const btn = $("btn-settings-top") || $("btn-settings");
+  const btn = $("btn-settings");
   // Re-apply strings so labels never stick as raw keys
   try {
     NextfaceI18n?.applyI18n?.(sheet || document);
@@ -23983,44 +23970,7 @@ on("btn-settings", "click", (e) => {
   e.stopPropagation();
   toggleSettings();
 });
-// Header Settings — always visible (tile rail can be lost over black camera)
-on("btn-settings-top", "click", (e) => {
-  e?.stopPropagation?.();
-  toggleSettings();
-});
-// Header Fullscreen
-on("btn-fs-top", "click", (e) => {
-  e?.stopPropagation?.();
-  try {
-    toggleFullscreenPartner();
-  } catch (_) {
-    $("btn-fs-remote")?.click?.();
-  }
-});
-// Header Cam restart
-on("btn-cam-top", "click", async (e) => {
-  e?.stopPropagation?.();
-  try {
-    clearFailedCameras();
-    mediaPermissionDenied = false;
-    stopLocalCanvasPreview();
-    if (previewStream) {
-      try {
-        previewStream.getTracks().forEach((t) => t.stop());
-      } catch (_) {}
-      previewStream = null;
-    }
-    mediaPreviewBusy = false;
-    setStatus(_t("status.previewStarting") || "starting camera…");
-    await startPreview();
-    if (localVideoTrackLive() && !localPreviewIsPainting()) {
-      await recoverBlackLocalCamera("header-cam");
-    }
-  } catch (err) {
-    log("cam-top: " + (err?.message || err));
-    showLocalCamRestart(true);
-  }
-});
+// Header Settings / Full / Cam / ★ removed — use tile rails + badges
 on("btn-conn-retry", "click", () => manualReconnect());
 on("sheet-close", "click", () => closeSettings());
 // Backdrop is transparent — click outside flyout closes it (no dim)
@@ -25458,19 +25408,6 @@ on("btn-restart-cam", "click", async (e) => {
   } catch (err) {
     log("restart-cam: " + (err?.message || err));
     showLocalCamRestart(true);
-  }
-});
-
-// Header ★ — always open Stars sheet (mirror tile badge)
-on("btn-stars-top", "click", (e) => {
-  e?.preventDefault?.();
-  e?.stopPropagation?.();
-  try {
-    openStarsSheet($("btn-stars-top") || $("local-stars-badge"));
-  } catch (_) {
-    try {
-      $("btn-settings-open-stars")?.click?.();
-    } catch (_) {}
   }
 });
 
