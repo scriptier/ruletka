@@ -228,8 +228,8 @@
     #tile-local .side-rail { z-index: 50 !important; }
 </style>
   <!-- Load stage CSS as all immediately — no media=print FOUC trick (was leaving rails opacity:0) -->
-  <link rel="stylesheet" href="live-stage.css?v=338" />
-  <link rel="preload" href="live.js?v=381" as="script" />
+  <link rel="stylesheet" href="live-stage.css?v=339" />
+  <link rel="preload" href="live.js?v=382" as="script" />
   <link rel="preload" href="i18n.js?v=224" as="script" />
   <script src="brand.js?v=2" defer></script>
   <script>
@@ -1149,6 +1149,12 @@
         </div>
 
         <!-- 4. Friends list -->
+        <div class="friends-list-toolbar" id="friends-list-toolbar" hidden>
+          <button type="button" class="pill tight ghost friends-filter-btn" id="btn-friends-filter-bonded" aria-pressed="false">
+            <span data-i18n="friends.filterBonded">Bonded only</span>
+            <span class="friends-filter-count" id="friends-bonded-count" hidden>0</span>
+          </button>
+        </div>
         <div id="friends-list" class="friends-list"></div>
         <div id="friends-recover" class="friends-list req-panel" hidden></div>
 
@@ -1292,6 +1298,32 @@
           </p>
           <p class="stars-progress-hint-sub" id="stars-progress-hint-sub" hidden></p>
         </div>
+        <div class="stars-rep-card" id="stars-rep-card" hidden>
+          <div class="stars-rep-card-head">
+            <strong data-i18n="stars.repCardTitle">Your reputation</strong>
+            <span class="stars-rep-card-tier" id="stars-rep-card-tier"></span>
+          </div>
+          <div class="stars-rep-card-grid">
+            <div class="stars-rep-stat">
+              <span class="stars-rep-stat-lbl" data-i18n="stars.balanceLabel">Balance</span>
+              <span class="stars-rep-stat-val" id="stars-rep-card-bal">★0</span>
+            </div>
+            <div class="stars-rep-stat">
+              <span class="stars-rep-stat-lbl" data-i18n="stars.trustLabel">Trust</span>
+              <span class="stars-rep-stat-val" id="stars-rep-card-trust">0</span>
+            </div>
+            <div class="stars-rep-stat">
+              <span class="stars-rep-stat-lbl" data-i18n="stars.giftersLabel">gifters</span>
+              <span class="stars-rep-stat-val" id="stars-rep-card-gifters">0</span>
+            </div>
+            <div class="stars-rep-stat">
+              <span class="stars-rep-stat-lbl" data-i18n="stars.repPeakLbl">Peak</span>
+              <span class="stars-rep-stat-val" id="stars-rep-card-peak">0</span>
+            </div>
+          </div>
+          <p class="stars-rep-story" id="stars-rep-story" hidden></p>
+          <p class="stars-rep-card-rank" id="stars-rep-card-rank" hidden></p>
+        </div>
         <div class="stars-gifters-overview" id="stars-gifters-overview">
           <div class="stars-gifters-overview-head">
             <span data-i18n="stars.giftersStripTitle">Peer praise</span>
@@ -1300,7 +1332,6 @@
           <div class="stars-giver-chips" id="stars-giver-chips" hidden aria-label="Recent gifters"></div>
           <div class="stars-gifters-strip" id="stars-gifters-strip" role="img" aria-label="Unique gifters progress"></div>
           <p class="stars-gifters-strip-note" id="stars-gifters-strip-note"></p>
-          <p class="stars-rep-story" id="stars-rep-story" hidden></p>
         </div>
         <p class="settings-section-label" data-i18n="stars.earnTitle">Earn</p>
         <div class="settings-group stars-sheet-group stars-earn-group">
@@ -2622,7 +2653,7 @@
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=156" defer></script>
   <script src="webrtc.js?v=168" defer></script>
-  <script src="live.js?v=381" defer></script>
+  <script src="live.js?v=382" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

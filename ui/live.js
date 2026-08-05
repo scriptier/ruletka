@@ -534,6 +534,15 @@ let recentPraiseBy = {};
 let myTrustGivers = [];
 const PEAK_TRUST_KEY = "rulet_peak_trust_v1";
 const FLAIR_STAR_BOND_MS = 7 * 24 * 3600 * 1000;
+const WELCOME_BACK_KEY = "rulet_welcome_back_v1";
+const FRIENDS_BONDED_FILTER_KEY = "rulet_friends_bonded_only";
+/** Client: welcome-back pending until first long chat after idle return */
+let welcomeBackPending = false;
+/** Friends list: show only mutual ★ / thanks bonds */
+let friendsBondedOnly = false;
+try {
+  friendsBondedOnly = localStorage.getItem(FRIENDS_BONDED_FILTER_KEY) === "1";
+} catch (_) {}
 /** Min chat length for star review (must match bridge STAR_MIN_SECS). */
 const STAR_MIN_SECS = 15 * 60;
 /** First unique partners use a shorter window (must match bridge STAR_FIRST_RATE_SECS). */
@@ -2847,18 +2856,77 @@ function syncGiverChips(chips) {
   });
 }
 
-/** One-line reputation story: peak · last praise · gifters. */
+/** Full reputation card + one-line story. */
 function syncRepStory(state = {}) {
   const el = $("stars-rep-story");
-  if (!el) return;
+  const card = $("stars-rep-card");
   const trustN = Math.max(0, Number(state.trustN != null ? state.trustN : myTrust) || 0);
+  const balN = Math.max(0, Number(state.balN != null ? state.balN : myStars) || 0);
+  const effN = Math.max(
+    0,
+    Number(state.effN != null ? state.effN : myTrustEffective) ||
+      clientEffectiveTrust(trustN, myTrustGifters)
+  );
   const g = Math.max(
     0,
     Number(state.gifters != null ? state.gifters : myTrustGifters) || 0
   );
   const peak = Math.max(getPeakTrust(), notePeakTrust(trustN));
   const lastTs = Math.max(0, Number(myTrustLastTs) || 0);
-  if (trustN <= 0 && g <= 0 && peak <= 0) {
+  const isSenior = effN >= STARS_SENIOR_GOAL;
+  const isTrusted = effN >= STARS_TRUSTED_GOAL;
+  const show = trustN > 0 || g > 0 || peak > 0 || balN > 0;
+
+  if (card) {
+    if (!show) {
+      card.hidden = true;
+      card.setAttribute("hidden", "");
+    } else {
+      card.hidden = false;
+      card.removeAttribute("hidden");
+      const tierEl = $("stars-rep-card-tier");
+      if (tierEl) {
+        tierEl.textContent = isSenior
+          ? _t("stars.chipSenior") || "Senior"
+          : isTrusted
+            ? _t("stars.chipTrusted") || "Trusted"
+            : trustN > 0
+              ? _t("stars.chipKnown") || "Known"
+              : _t("stars.chipNew") || "New";
+        tierEl.className =
+          "stars-rep-card-tier" +
+          (isSenior ? " is-senior" : isTrusted ? " is-trusted" : "");
+      }
+      const balEl = $("stars-rep-card-bal");
+      if (balEl) balEl.textContent = `★${balN}`;
+      const trEl = $("stars-rep-card-trust");
+      if (trEl) {
+        trEl.textContent =
+          effN !== trustN && trustN > 0 ? `${effN} (${trustN})` : String(effN || trustN);
+      }
+      const gEl = $("stars-rep-card-gifters");
+      if (gEl) gEl.textContent = String(g);
+      const pEl = $("stars-rep-card-peak");
+      if (pEl) pEl.textContent = String(peak || trustN || 0);
+      const rankEl = $("stars-rep-card-rank");
+      if (rankEl) {
+        if (isTrusted || isSenior) {
+          rankEl.hidden = false;
+          rankEl.removeAttribute("hidden");
+          rankEl.textContent =
+            _t("stars.softRankOn") ||
+            "↗ Soft match rank on · better mix when lobby is busy";
+        } else {
+          rankEl.hidden = true;
+          rankEl.setAttribute("hidden", "");
+          rankEl.textContent = "";
+        }
+      }
+    }
+  }
+
+  if (!el) return;
+  if (!show) {
     el.hidden = true;
     el.setAttribute("hidden", "");
     el.textContent = "";
@@ -2893,6 +2961,83 @@ function syncRepStory(state = {}) {
     );
   }
   el.textContent = bits.join(" · ");
+}
+
+/**
+ * Welcome-back after soft-decay idle: toast once per return, spark flair,
+ * pending flag until first long chat completes.
+ */
+function maybeWelcomeBackOnHello() {
+  const lastTs = Math.max(0, Number(myTrustLastTs) || 0);
+  const trustN = Math.max(0, Number(myTrust) || 0);
+  const peak = getPeakTrust();
+  if (!lastTs && trustN <= 0 && peak <= 0) return;
+  const info = trustDecayInfo(lastTs || 0);
+  // Only when idle long enough that decay would start (or is active)
+  const idleEnough =
+    info.kind === "decaying" ||
+    info.kind === "full" ||
+    (info.kind === "fresh" &&
+      lastTs > 0 &&
+      info.idleDays >= Math.max(14, Math.floor(TRUST_DECAY_START_DAYS / 2)));
+  // Prefer true decay window
+  const inDecayWindow =
+    info.kind === "decaying" ||
+    info.kind === "full" ||
+    (lastTs > 0 &&
+      Math.floor((Date.now() / 1000 - lastTs) / 86400) >= TRUST_DECAY_START_DAYS);
+  if (!inDecayWindow && !idleEnough) return;
+  if (!inDecayWindow) return; // stick to 45d+ for real welcome-back
+
+  let lastShown = 0;
+  try {
+    lastShown = Math.max(0, Number(localStorage.getItem(WELCOME_BACK_KEY)) || 0);
+  } catch (_) {}
+  // At most once per 14 days
+  if (lastShown && Date.now() - lastShown < 14 * 86400000) return;
+
+  welcomeBackPending = true;
+  try {
+    localStorage.setItem(WELCOME_BACK_KEY, String(Date.now()));
+  } catch (_) {}
+
+  // Soft spark flair for 24h (self) — balance-free cosmetic welcome
+  try {
+    const st = pruneFlairState(loadFlairState());
+    const now = Date.now();
+    st.selfUntil = Math.max(st.selfUntil || 0, now + FLAIR_SPARK_MS);
+    if (st.selfKind !== "duo" && st.selfKind !== "bond") st.selfKind = "spark";
+    saveFlairState(st);
+    refreshFlairUi();
+  } catch (_) {}
+
+  const days = info.idleDays || TRUST_DECAY_START_DAYS;
+  try {
+    showStarFeedbackToast("gift", {
+      title: _t("stars.welcomeBackTitle") || "Welcome back ★",
+      body:
+        _t("stars.welcomeBackBody", { n: days }) ||
+        `${days}d since last peer praise · trust softens when idle. Chat long and get ★ gifts to refresh.`,
+    });
+  } catch (_) {
+    setStatus(_t("stars.welcomeBackTitle") || "Welcome back ★");
+  }
+  trackEvent("stars_welcome_back", { idle_days: days, trust: trustN });
+}
+
+/** After first long chat while welcome-back pending — close the loop. */
+function maybeCompleteWelcomeBack() {
+  if (!welcomeBackPending) return;
+  welcomeBackPending = false;
+  try {
+    showStarFeedbackToast("gift", {
+      title: _t("stars.welcomeBackDoneTitle") || "You’re active again",
+      body:
+        _t("stars.welcomeBackDoneBody") ||
+        "Long chats refresh your path — peer ★ gifts rebuild trust.",
+    });
+  } catch (_) {}
+  trackEvent("stars_welcome_back_done", {});
 }
 
 /** Render gifter floor dots (1…12) with marks at 5 and 12 + initials chips. */
@@ -2962,7 +3107,12 @@ function syncGiftersStrip(gifters) {
     }
   }
   try {
-    syncRepStory({ trustN: myTrust, gifters: g });
+    syncRepStory({
+      trustN: myTrust,
+      balN: myStars,
+      effN: myTrustEffective,
+      gifters: g,
+    });
   } catch (_) {}
 }
 
@@ -19149,6 +19299,9 @@ function handleServer(msg) {
       applyStarRateWindowFromHub(msg);
       setStarsBadge("local", myStars, { trust: myTrustEffective });
       maybeStarsMilestones({ gifters: myTrustGifters, balance: myStars });
+      try {
+        maybeWelcomeBackOnHello();
+      } catch (_) {}
       // Bars (etc.) persist across logout — re-apply on hello
       setFxOverlay(
         "local",
@@ -21219,6 +21372,43 @@ function renderFriendsList() {
   // Identity recovery banner when list empty (or only recoverable codes)
   syncFriendsIdentityBanner(!!friendsCache.length, recoverable.length);
 
+  // Toolbar: bonded filter
+  const toolbar = $("friends-list-toolbar");
+  const bondedBtn = $("btn-friends-filter-bonded");
+  const bondedCountEl = $("friends-bonded-count");
+  const bondedN = friendsCache.filter(
+    (f) => f && (f.mutual_star || f.mutual_thanks)
+  ).length;
+  if (toolbar) {
+    if (friendsCache.length && bondedN > 0) {
+      toolbar.hidden = false;
+      toolbar.removeAttribute("hidden");
+    } else {
+      toolbar.hidden = true;
+      toolbar.setAttribute("hidden", "");
+      if (friendsBondedOnly && bondedN === 0) {
+        friendsBondedOnly = false;
+        try {
+          localStorage.removeItem(FRIENDS_BONDED_FILTER_KEY);
+        } catch (_) {}
+      }
+    }
+  }
+  if (bondedBtn) {
+    bondedBtn.classList.toggle("is-active", friendsBondedOnly);
+    bondedBtn.setAttribute("aria-pressed", friendsBondedOnly ? "true" : "false");
+  }
+  if (bondedCountEl) {
+    if (bondedN > 0) {
+      bondedCountEl.hidden = false;
+      bondedCountEl.removeAttribute("hidden");
+      bondedCountEl.textContent = String(bondedN);
+    } else {
+      bondedCountEl.hidden = true;
+      bondedCountEl.setAttribute("hidden", "");
+    }
+  }
+
   if (!friendsCache.length) {
     const hasBackup = recoverable.length > 0 || (backup && backup.length > 0);
     el.innerHTML = `<div class="sheet-empty friends-empty">
@@ -21258,7 +21448,7 @@ function renderFriendsList() {
     const read = loadChatRead();
     const nicks = loadFriendNicks();
     // Bonded first (mutual ★, then mutual thanks), then online, then name
-    const sortedFriends = [...friendsCache].sort((a, b) => {
+    let sortedFriends = [...friendsCache].sort((a, b) => {
       const ba = (a.mutual_star ? 2 : 0) + (a.mutual_thanks ? 1 : 0);
       const bb = (b.mutual_star ? 2 : 0) + (b.mutual_thanks ? 1 : 0);
       if (bb !== ba) return bb - ba;
@@ -21267,6 +21457,34 @@ function renderFriendsList() {
       const nb = friendDisplayName(b).toLowerCase();
       return na.localeCompare(nb);
     });
+    if (friendsBondedOnly) {
+      sortedFriends = sortedFriends.filter(
+        (f) => f && (f.mutual_star || f.mutual_thanks)
+      );
+    }
+    if (friendsBondedOnly && !sortedFriends.length) {
+      el.innerHTML = `<div class="sheet-empty friends-empty">
+        <div class="sheet-empty-icon" aria-hidden="true">★</div>
+        <div class="sheet-empty-title">${escapeHtml(
+          _t("friends.bondedEmptyTitle") || "No bonded friends yet"
+        )}</div>
+        <p class="sheet-empty-body">${escapeHtml(
+          _t("friends.bondedEmpty") ||
+            "Gift ★ each other after long chats — then ★↔ or 🙏↔ shows here."
+        )}</p>
+        <button type="button" class="pill tight accent" id="btn-friends-clear-bonded-filter">${escapeHtml(
+          _t("friends.filterShowAll") || "Show all friends"
+        )}</button>
+      </div>`;
+      $("btn-friends-clear-bonded-filter")?.addEventListener("click", () => {
+        friendsBondedOnly = false;
+        try {
+          localStorage.removeItem(FRIENDS_BONDED_FILTER_KEY);
+        } catch (_) {}
+        renderFriendsList();
+      });
+      return;
+    }
     el.innerHTML = sortedFriends
       .map((f) => {
         const online = f.online ? "online" : "";
@@ -22070,6 +22288,18 @@ function wireFriendsTabsOnce() {
     historyFilterMode = "friends";
     syncHistoryFilterUi();
     renderHistoryList();
+  });
+  $("btn-friends-filter-bonded")?.addEventListener("click", () => {
+    friendsBondedOnly = !friendsBondedOnly;
+    try {
+      if (friendsBondedOnly) {
+        localStorage.setItem(FRIENDS_BONDED_FILTER_KEY, "1");
+      } else {
+        localStorage.removeItem(FRIENDS_BONDED_FILTER_KEY);
+      }
+    } catch (_) {}
+    trackEvent("friends_filter_bonded", { on: friendsBondedOnly ? 1 : 0 });
+    renderFriendsList();
   });
 }
 
@@ -23051,12 +23281,16 @@ function noteLongChatForFlair(meta, secs) {
   const st = pruneFlairState(loadFlairState());
   const now = Date.now();
   st.selfUntil = Math.max(st.selfUntil || 0, now + FLAIR_SPARK_MS);
-  st.selfKind = st.selfKind === "duo" ? "duo" : "spark";
+  st.selfKind =
+    st.selfKind === "duo" || st.selfKind === "bond" ? st.selfKind : "spark";
   if (uid) {
     if (!st.longPartners) st.longPartners = {};
     st.longPartners[uid] = now + FLAIR_DUO_MS; // eligible for duo if they become friends
   }
   saveFlairState(st);
+  try {
+    maybeCompleteWelcomeBack();
+  } catch (_) {}
   refreshFlairUi();
   trackEvent("flair_spark", { secs: Math.floor(secs) });
 }

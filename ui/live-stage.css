@@ -18210,3 +18210,129 @@ html.match-live .tile-remote .side-rail-left,
   font-weight: 800;
   box-shadow: 0 4px 16px rgba(255, 140, 40, 0.35);
 }
+
+/* Reputation card */
+.stars-rep-card {
+  margin: 0.55rem 0 0.5rem;
+  padding: 0.65rem 0.75rem 0.55rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 200, 90, 0.22);
+  background:
+    radial-gradient(ellipse 90% 80% at 10% 0%, rgba(255, 190, 60, 0.12), transparent 55%),
+    rgba(255, 255, 255, 0.04);
+}
+.stars-rep-card[hidden] {
+  display: none !important;
+}
+.stars-rep-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.stars-rep-card-head strong {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: rgba(255, 236, 200, 0.95);
+  letter-spacing: 0.02em;
+}
+.stars-rep-card-tier {
+  font-size: 0.65rem;
+  font-weight: 800;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(220, 230, 245, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.stars-rep-card-tier.is-trusted {
+  background: rgba(255, 180, 40, 0.18);
+  border-color: rgba(255, 200, 80, 0.4);
+  color: #ffe9a0;
+}
+.stars-rep-card-tier.is-senior {
+  background: linear-gradient(180deg, #ffe08a, #e8a812);
+  border-color: rgba(255, 220, 100, 0.55);
+  color: #1a1200;
+}
+.stars-rep-card-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.35rem;
+}
+@media (max-width: 380px) {
+  .stars-rep-card-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+.stars-rep-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.35rem 0.3rem;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  min-width: 0;
+}
+.stars-rep-stat-lbl {
+  font-size: 0.58rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgba(170, 185, 210, 0.85);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stars-rep-stat-val {
+  font-size: 0.88rem;
+  font-weight: 850;
+  color: #ffe9a0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stars-rep-card .stars-rep-story {
+  margin-top: 0.45rem;
+}
+.stars-rep-card-rank {
+  margin: 0.4rem 0 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #ffe9a0;
+  line-height: 1.3;
+}
+.stars-rep-card-rank[hidden] {
+  display: none !important;
+}
+
+/* Friends bonded filter */
+.friends-list-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.35rem 0 0.5rem;
+  align-items: center;
+}
+.friends-list-toolbar[hidden] {
+  display: none !important;
+}
+.friends-filter-btn.is-active,
+.friends-filter-btn[aria-pressed="true"] {
+  border-color: rgba(255, 200, 80, 0.5) !important;
+  background: rgba(255, 180, 40, 0.16) !important;
+  color: #ffe9a0 !important;
+}
+.friends-filter-count {
+  display: inline-flex;
+  min-width: 1.1rem;
+  padding: 0 0.28rem;
+  margin-left: 0.25rem;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 800;
+  background: rgba(0, 0, 0, 0.25);
+}
