@@ -77,9 +77,10 @@ Package: **`me.ruletka.app`**. Production profile no longer ships `expo-dev-clie
 
 | Build | Version code | Status | Notes |
 |-------|--------------|--------|--------|
-| [c6bcf3de…](https://expo.dev/accounts/courtiers-team/projects/ruletka/builds/c6bcf3de-894e-4ecb-b1dc-fd44aa43c319) | **3** | finished | Older AAB |
+| [d6de984a…](https://expo.dev/accounts/courtiers-team/projects/ruletka/builds/d6de984a-72d7-48ee-a59f-24e2da3b8785) | **6** | finished | Prefer · [AAB](https://expo.dev/artifacts/eas/GfChIFs_P8ZgFKav1jqyZ9mnBWlOUJg1ixepxDo6IN8.aab) · `mobile/artifacts/ruletka-0.1.0-vc6.aab` · commit `896e6be` |
+| [9d626558…](https://expo.dev/accounts/courtiers-team/projects/ruletka/builds/9d626558-8b8c-465b-b7e1-4b2f05e0d101) | **5** | finished | `mobile/artifacts/ruletka-0.1.0-vc5.aab` |
 | [3e43e238…](https://expo.dev/accounts/courtiers-team/projects/ruletka/builds/3e43e238-cb1d-44ae-adc4-e40367cb23c3) | **4** | finished | [AAB download](https://expo.dev/artifacts/eas/1Zg9q_UtLbeKCEmXeyY4rVKZMStgPOne51jZS36NQKE.aab) · `mobile/artifacts/ruletka-0.1.0-vc4.aab` |
-| [9d626558…](https://expo.dev/accounts/courtiers-team/projects/ruletka/builds/9d626558-8b8c-465b-b7e1-4b2f05e0d101) | **5** | building | Latest `main` (liquidity + layout polish) |
+| [c6bcf3de…](https://expo.dev/accounts/courtiers-team/projects/ruletka/builds/c6bcf3de-894e-4ecb-b1dc-fd44aa43c319) | **3** | finished | Older AAB |
 
 **Two-person web test (friend_calls):** see [`LIQUIDITY_TEST.md`](LIQUIDITY_TEST.md). Today’s hub may show `matches > 0` but `friend_calls: 0` until you complete Path A once.
 
