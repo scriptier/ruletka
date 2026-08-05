@@ -12665,11 +12665,197 @@ function uniqueDevices(list) {
   return out;
 }
 
-function fillSelect(sel, devices, kindLabel, prefKey) {
+/** Last enumerateDevices snapshot — restore prefs even before <select> is filled. */
+let lastDeviceEnum = {
+  videoinput: [],
+  audioinput: [],
+  audiooutput: [],
+  at: 0,
+};
+
+function rememberDeviceEnum(cameras, mics, speakers) {
+  lastDeviceEnum = {
+    videoinput: uniqueDevices(cameras || []),
+    audioinput: uniqueDevices(mics || []),
+    audiooutput: uniqueDevices(speakers || []),
+    at: Date.now(),
+  };
+}
+
+function normalizeDeviceLabel(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/^(default|communications)\s*[-–—:]\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Loose match for “same camera as last time” when browser rotates deviceIds. */
+function deviceLabelsMatch(a, b) {
+  const x = normalizeDeviceLabel(a);
+  const y = normalizeDeviceLabel(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  if (x.length >= 4 && y.length >= 4 && (x.includes(y) || y.includes(x))) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Resolve saved deviceId for a kind using live enum + label fallback.
+ * @param {"videoinput"|"audioinput"|"audiooutput"} kind
+ * @param {string} idKey prefs key (cameraId / micId / speakerId)
+ * @param {string} labelKey prefs key (cameraLabel / micLabel / speakerLabel)
+ * @returns {string|null}
+ */
+function resolveSavedDeviceId(kind, idKey, labelKey) {
+  const prefs = loadPrefs();
+  const wantId = prefs[idKey] ? String(prefs[idKey]) : "";
+  const wantLabel = prefs[labelKey] ? String(prefs[labelKey]) : "";
+  let list =
+    kind === "videoinput"
+      ? lastDeviceEnum.videoinput
+      : kind === "audioinput"
+        ? lastDeviceEnum.audioinput
+        : lastDeviceEnum.audiooutput;
+  // Fallback: options already in the matching select
+  if (!list?.length) {
+    const selId =
+      kind === "videoinput"
+        ? "sel-camera"
+        : kind === "audioinput"
+          ? "sel-mic"
+          : "sel-speaker";
+    const sel = $(selId);
+    if (sel?.options?.length) {
+      list = [...sel.options]
+        .filter((o) => o.value && !String(o.value).startsWith("no-"))
+        .map((o) => ({ deviceId: o.value, label: o.textContent || "" }));
+    }
+  }
+  if (!list?.length) {
+    // Still return raw id so GUM can try { ideal } before enum labels exist
+    return wantId || null;
+  }
+  if (wantId && list.some((d) => d.deviceId === wantId)) return wantId;
+  if (wantLabel) {
+    const hit = list.find((d) => deviceLabelsMatch(d.label, wantLabel));
+    if (hit?.deviceId) return hit.deviceId;
+  }
+  return null;
+}
+
+function isKnownDeviceId(deviceId, kind) {
+  if (!deviceId) return false;
+  const list =
+    kind === "videoinput"
+      ? lastDeviceEnum.videoinput
+      : kind === "audioinput"
+        ? lastDeviceEnum.audioinput
+        : lastDeviceEnum.audiooutput;
+  if (list?.some((d) => d.deviceId === deviceId)) return true;
+  const selId =
+    kind === "videoinput"
+      ? "sel-camera"
+      : kind === "audioinput"
+        ? "sel-mic"
+        : "sel-speaker";
+  const sel = $(selId);
+  if (sel?.options?.length) {
+    return [...sel.options].some((o) => o.value === deviceId);
+  }
+  return false;
+}
+
+/**
+ * Persist last-used devices (id + human label) so next visit can reopen them.
+ * @param {MediaStream|null|undefined} stream
+ * @param {{ speakerId?: string|null }} [extra]
+ */
+function persistLastMediaDevices(stream, extra = {}) {
+  try {
+    const patch = {};
+    const v = stream?.getVideoTracks?.()?.[0];
+    const a = stream?.getAudioTracks?.()?.[0];
+    const vId = v?.getSettings?.()?.deviceId || null;
+    const aId = a?.getSettings?.()?.deviceId || null;
+    if (vId) {
+      patch.cameraId = vId;
+      if (v?.label) patch.cameraLabel = v.label;
+    }
+    if (aId) {
+      patch.micId = aId;
+      if (a?.label) patch.micLabel = a.label;
+    }
+    if (extra.speakerId != null) {
+      const sid = String(extra.speakerId || "");
+      patch.speakerId = sid;
+      if (sid) {
+        const sp = lastDeviceEnum.audiooutput.find((d) => d.deviceId === sid);
+        if (sp?.label) patch.speakerLabel = sp.label;
+        else {
+          const opt = [...($("sel-speaker")?.options || [])].find(
+            (o) => o.value === sid
+          );
+          if (opt?.textContent) patch.speakerLabel = opt.textContent;
+        }
+      }
+    }
+    if (Object.keys(patch).length) savePrefs(patch);
+  } catch (_) {}
+}
+
+/**
+ * Apply volume / mirror / speaker / select values from localStorage.
+ * Call after refreshDevices so selects have options.
+ */
+function restoreMediaUiFromPrefs() {
+  const prefs = loadPrefs();
+  try {
+    if (typeof prefs.volume === "number" && Number.isFinite(prefs.volume)) {
+      syncVolumeSliders(prefs.volume);
+      peerVolByEl.remote = Math.max(0, Math.min(100, prefs.volume));
+      applyRemoteVolume();
+    }
+  } catch (_) {}
+  try {
+    applyLocalMirrorClass();
+  } catch (_) {}
+  // Re-select saved devices (id → label rematch inside fillSelect already ran)
+  try {
+    const camId = resolveSavedDeviceId("videoinput", "cameraId", "cameraLabel");
+    if (camId && $("sel-camera") && isKnownDeviceId(camId, "videoinput")) {
+      $("sel-camera").value = camId;
+      forceCameraDeviceId = camId;
+    }
+    const micId = resolveSavedDeviceId("audioinput", "micId", "micLabel");
+    if (micId && $("sel-mic") && isKnownDeviceId(micId, "audioinput")) {
+      $("sel-mic").value = micId;
+    }
+    const spkId = resolveSavedDeviceId(
+      "audiooutput",
+      "speakerId",
+      "speakerLabel"
+    );
+    if (spkId && $("sel-speaker") && isKnownDeviceId(spkId, "audiooutput")) {
+      $("sel-speaker").value = spkId;
+    }
+  } catch (_) {}
+  try {
+    applySpeaker();
+  } catch (_) {}
+  try {
+    syncLowLatencyAudioToggles?.();
+  } catch (_) {}
+}
+
+function fillSelect(sel, devices, kindLabel, prefKey, labelKey) {
   if (!sel) return;
   const prev = sel.value;
   const prefs = loadPrefs();
   const preferred = prefs[prefKey];
+  const preferredLabel = labelKey ? prefs[labelKey] : "";
   const list = uniqueDevices(devices);
 
   sel.disabled = false;
@@ -12684,9 +12870,13 @@ function fillSelect(sel, devices, kindLabel, prefKey) {
         .join("")
     : `<option value="">${escapeHtml(_t("device.none", { kind: kindLabel }))}</option>`;
 
-  if (prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;
-  else if (preferred && [...sel.options].some((o) => o.value === preferred))
-    sel.value = preferred;
+  const has = (id) => id && [...sel.options].some((o) => o.value === id);
+  if (prev && has(prev)) sel.value = prev;
+  else if (preferred && has(preferred)) sel.value = preferred;
+  else if (preferredLabel) {
+    const hit = list.find((d) => deviceLabelsMatch(d.label, preferredLabel));
+    if (hit && has(hit.deviceId)) sel.value = hit.deviceId;
+  }
 }
 
 async function refreshDevices() {
@@ -12695,19 +12885,28 @@ async function refreshDevices() {
     // Show all real cameras (do not hide Kiyo — user may only have that device,
     // or USB may be busy with PipeWire). Ranking demotes black-prone labels.
     const camList = cameras || [];
-    fillSelect($("sel-camera"), camList, _t("device.camera"), "cameraId");
-    fillSelect($("sel-mic"), mics, _t("device.mic"), "micId");
-    fillSelect($("sel-speaker"), speakers, _t("device.speaker"), "speakerId");
+    rememberDeviceEnum(camList, mics, speakers);
+    fillSelect(
+      $("sel-camera"),
+      camList,
+      _t("device.camera"),
+      "cameraId",
+      "cameraLabel"
+    );
+    fillSelect($("sel-mic"), mics, _t("device.mic"), "micId", "micLabel");
+    fillSelect(
+      $("sel-speaker"),
+      speakers,
+      _t("device.speaker"),
+      "speakerId",
+      "speakerLabel"
+    );
     if (!speakers?.length && $("sel-speaker")) {
       $("sel-speaker").innerHTML = `<option value="">${escapeHtml(
         _t("device.defaultSpeaker")
       )}</option>`;
     }
-    const prefs = loadPrefs();
-    if (typeof prefs.volume === "number") {
-      syncVolumeSliders(prefs.volume);
-      applyRemoteVolume();
-    }
+    restoreMediaUiFromPrefs();
     syncSettingsSummary();
     log(
       _t("log.devices", {
@@ -14156,10 +14355,7 @@ async function attachLocalStream(stream) {
   const aTrack = previewStream.getAudioTracks()[0];
   const vId = vTrack?.getSettings?.().deviceId || null;
   const aId = aTrack?.getSettings?.().deviceId || null;
-  const patch = {};
-  if (vId) patch.cameraId = vId;
-  if (aId) patch.micId = aId;
-  if (Object.keys(patch).length) savePrefs(patch);
+  persistLastMediaDevices(previewStream);
   try {
     if (vTrack?.label) {
       setStatus((_t("status.previewOn") || "Camera on") + " · " + String(vTrack.label).slice(0, 32));
@@ -14272,10 +14468,12 @@ function applyCameraChoice(deviceId) {
     localCameraCycleTried.delete(id);
   }
   try {
-    savePrefs({
+    const patch = {
       cameraId: id || "",
       cameraFacing: cameraFacing === "environment" ? "environment" : "user",
-    });
+    };
+    if (label) patch.cameraLabel = label;
+    savePrefs(patch);
   } catch (_) {}
   try {
     syncCamFacingButtons?.();
@@ -14283,12 +14481,12 @@ function applyCameraChoice(deviceId) {
   return { id, label, face: cameraFacing };
 }
 
-/** True if this deviceId is in the live camera select (safe for GUM on this device). */
+/** True if this deviceId is known for GUM on this device (select or last enum). */
 function isKnownCameraId(deviceId) {
-  if (!deviceId) return false;
-  const sel = $("sel-camera");
-  if (!sel?.options?.length) return false;
-  return [...sel.options].some((o) => o.value === deviceId);
+  return isKnownDeviceId(deviceId, "videoinput");
+}
+function isKnownMicId(deviceId) {
+  return isKnownDeviceId(deviceId, "audioinput");
 }
 
 /** Prefer mirrored selfie preview (true) or natural left/right (false). Reverse toggles this. */
@@ -14765,19 +14963,59 @@ async function startPreview() {
     let { videoDeviceId, audioDeviceId } = selectedDevices();
     const prefs = loadPrefs();
     const mobile = isLikelyMobile();
-    // Restore saved devices when they still appear in the live select (safe on iPhone).
-    // Never use a stale id that is not in the current enumerateDevices list.
-    if (!videoDeviceId && prefs.cameraId && isKnownCameraId(prefs.cameraId)) {
-      videoDeviceId = prefs.cameraId;
+    // Warm device list so saved id/label restore works before Settings was opened
+    try {
+      if (!lastDeviceEnum.at || Date.now() - lastDeviceEnum.at > 15000) {
+        const { cameras, mics, speakers } = await listMediaDevices();
+        rememberDeviceEnum(cameras, mics, speakers);
+      }
+    } catch (_) {}
+    // Explicit force (user just picked) wins; else restore last session devices
+    if (forceCameraDeviceId) {
+      videoDeviceId = forceCameraDeviceId;
+    } else if (!videoDeviceId) {
+      const savedCam = resolveSavedDeviceId(
+        "videoinput",
+        "cameraId",
+        "cameraLabel"
+      );
+      if (savedCam) videoDeviceId = savedCam;
     }
-    if (!audioDeviceId && prefs.micId) {
-      audioDeviceId = prefs.micId;
+    if (!audioDeviceId) {
+      const savedMic = resolveSavedDeviceId("audioinput", "micId", "micLabel");
+      if (savedMic) audioDeviceId = savedMic;
+    }
+    // Drop ids that are not in the live enum (stale after OS reinstall / other machine)
+    if (
+      videoDeviceId &&
+      lastDeviceEnum.videoinput.length &&
+      !isKnownCameraId(videoDeviceId)
+    ) {
+      // Keep trying via GUM ideal if we only have a label-less empty enum
+      if (lastDeviceEnum.videoinput.some((d) => d.label)) {
+        videoDeviceId = null;
+      }
+    }
+    if (
+      audioDeviceId &&
+      lastDeviceEnum.audioinput.length &&
+      !isKnownMicId(audioDeviceId) &&
+      lastDeviceEnum.audioinput.some((d) => d.label)
+    ) {
+      audioDeviceId = null;
     }
     if (mobile && videoDeviceId && !isKnownCameraId(videoDeviceId)) {
       videoDeviceId = null;
     }
-    // Desktop Linux: prefer USB over black Kiyo (labels available after prior permission)
-    if (!mobile && /Linux/i.test(navigator.userAgent || "") && !forceCameraDeviceId) {
+    // Desktop Linux: prefer USB over black Kiyo ONLY when user has no saved cam
+    // (do not steal the camera they used last time)
+    if (
+      !mobile &&
+      /Linux/i.test(navigator.userAgent || "") &&
+      !forceCameraDeviceId &&
+      !prefs.cameraId &&
+      !prefs.cameraLabel
+    ) {
       try {
         const all = await navigator.mediaDevices.enumerateDevices();
         const usb = all.find(
@@ -14788,15 +15026,11 @@ async function startPreview() {
             !/kiyo/i.test(d.label) &&
             /usb|webcam|vitade|microdia|c9\d\d|hd /i.test(d.label)
         );
-        if (usb) {
-          const cur = all.find((d) => d.deviceId === videoDeviceId);
-          if (!videoDeviceId || (cur && /kiyo/i.test(cur.label || ""))) {
-            videoDeviceId = usb.deviceId;
-            try {
-              if ($("sel-camera")) $("sel-camera").value = usb.deviceId;
-              savePrefs({ cameraId: usb.deviceId });
-            } catch (_) {}
-          }
+        if (usb && !videoDeviceId) {
+          videoDeviceId = usb.deviceId;
+          try {
+            if ($("sel-camera")) $("sel-camera").value = usb.deviceId;
+          } catch (_) {}
         }
       } catch (_) {}
     }
@@ -14957,16 +15191,20 @@ async function startPreview() {
       if (audioDeviceId && gotA && gotA !== audioDeviceId) {
         log(_t("device.micFallback") || "mic fell back to another device");
       }
-      // Persist what we actually opened
+      // Persist what we actually opened (id + label for next visit)
       try {
-        const patch = {
-          cameraFacing: cameraFacing === "environment" ? "environment" : "user",
-        };
-        if (gotV) patch.cameraId = gotV;
-        savePrefs(patch);
+        savePrefs({
+          cameraFacing:
+            cameraFacing === "environment" ? "environment" : "user",
+        });
+        persistLastMediaDevices(stream);
         if (gotV && $("sel-camera")) {
           const sel = $("sel-camera");
           if ([...sel.options].some((o) => o.value === gotV)) sel.value = gotV;
+        }
+        if (gotA && $("sel-mic")) {
+          const sel = $("sel-mic");
+          if ([...sel.options].some((o) => o.value === gotA)) sel.value = gotA;
         }
       } catch (_) {}
     }
@@ -15067,13 +15305,28 @@ function toggleCam() {
 
 async function applySpeaker() {
   const remote = $("remote");
-  const id = $("sel-speaker")?.value;
-  savePrefs({ speakerId: id || null });
-  if (id && typeof remote.setSinkId === "function") {
-    try {
-      await remote.setSinkId(id);
-    } catch (e) {
-      log(_t("log.speakerFail", { e: e.message || e }));
+  let id = $("sel-speaker")?.value || "";
+  if (!id) {
+    id =
+      resolveSavedDeviceId("audiooutput", "speakerId", "speakerLabel") || "";
+    if (id && $("sel-speaker") && isKnownDeviceId(id, "audiooutput")) {
+      $("sel-speaker").value = id;
+    }
+  }
+  persistLastMediaDevices(null, { speakerId: id || "" });
+  const targets = ["remote", "remote2", "remote-third", "local"]
+    .map((elId) => $(elId))
+    .filter(Boolean);
+  if (id) {
+    for (const el of targets) {
+      if (typeof el.setSinkId !== "function") continue;
+      try {
+        await el.setSinkId(id);
+      } catch (e) {
+        if (el === remote) {
+          log(_t("log.speakerFail", { e: e.message || e }));
+        }
+      }
     }
   }
 }
@@ -24347,13 +24600,19 @@ on("btn-flip-cam", "click", () => flipCamera());
 on("sel-mic", "change", async () => {
   const id = $("sel-mic")?.value || "";
   if (!id) return;
-  savePrefs({ micId: id });
+  const label =
+    [...($("sel-mic")?.options || [])].find((o) => o.value === id)
+      ?.textContent || "";
+  savePrefs({ micId: id, micLabel: label || undefined });
   setStatus(_t("device.switchingMic") || "switching mic…");
   await startPreview();
 });
 on("sel-speaker", "change", () => {
   const id = $("sel-speaker")?.value || "";
-  savePrefs({ speakerId: id || "" });
+  const label =
+    [...($("sel-speaker")?.options || [])].find((o) => o.value === id)
+      ?.textContent || "";
+  savePrefs({ speakerId: id || "", speakerLabel: label || "" });
   applySpeaker();
 });
 // Partner video click → friend / block / report (fullscreen stays on Full button / F)
@@ -25304,10 +25563,16 @@ updateSideIcons();
 updateMicPill(0);
 updateFriendActionButtons();
 
-/** Open cam/mic as soon as possible. */
+/** Open cam/mic as soon as possible (restores last cam/mic/speaker prefs). */
 async function ensurePreview() {
   if (previewStream?.active) return true;
+  try {
+    await refreshDevices();
+  } catch (_) {}
   await startPreview();
+  try {
+    await applySpeaker();
+  } catch (_) {}
   return !!(previewStream && previewStream.active);
 }
 
@@ -25454,6 +25719,17 @@ on("btn-enable-cam", "click", async (e) => {
 // Rules gate first (does not block WS forever — session starts after accept or if already ok)
 wireRulesGate();
 const gateBlocks = showRulesGate();
+
+// Paint last volume / mirror / audio toggles immediately (devices after permission)
+try {
+  const earlyPrefs = loadPrefs();
+  if (typeof earlyPrefs.volume === "number") {
+    syncVolumeSliders(earlyPrefs.volume);
+    peerVolByEl.remote = Math.max(0, Math.min(100, earlyPrefs.volume));
+  }
+  applyLocalMirrorClass();
+  syncLowLatencyAudioToggles();
+} catch (_) {}
 
 // Immediate boot — media waits for rules accept if first visit
 startSession({ forceMedia: !gateBlocks });
