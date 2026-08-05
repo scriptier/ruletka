@@ -1745,6 +1745,8 @@
   "stars.trustedSeniorBody": "Вы получили ★ {n} за полный час со старшим. Баланс: ★ {bal}. Можно подарить ещё.",
   "stars.trustedSeniorStatus": "Час со старшим · ★ {n}",
   "stars.trustedSeniorTitle": "Час со старшим ★★",
+  "stars.leaveAlmostTitle": "Почти разблокировали ★",
+  "stars.leaveAlmostBody": "Было {pct}% — останьтесь ещё ~{t} в следующий раз, чтобы открыть подарок ★.",
   "stars.unlockBarLeft": "★ {t}",
   "stars.unlockBarReady": "★ готово",
   "stars.unlockNormal": "Баланс на подарки · доверие от ★ · 100 → Доверенный · 250 → Старший",

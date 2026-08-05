@@ -2535,13 +2535,14 @@ function updateFirstRunEmptyHint() {
  * @param {"local"|"remote"} which
  * @param {number} count
  */
-/** Apply tier ring classes to avatar only (name/flag stay plain — no gold border). */
+/** Apply tier rings: avatar (subtle) + full cam tile frame for Trusted/Senior. */
 function applyStarsTierFrames(which, n) {
   const w = reportWeightForStars(n);
   const tierClass =
     w >= 3 ? "tier-senior" : w >= 2 ? "tier-trusted" : "tier-normal";
   // Name chips no longer get tier glow — user asked for clean flag+name.
   // Avatars keep a subtle tier ring when photo is set.
+  // Full tiles get a gold cam frame only at Trusted / Senior.
   const targets =
     which === "local" ? ["local-avatar"] : ["remote-avatar"];
   // Clear any leftover classes on name chips from older deploys
@@ -2561,6 +2562,28 @@ function applyStarsTierFrames(which, n) {
       el.classList.add("has-star-tier", tierClass);
     }
   });
+  // Full-tile cam frame (Trusted / Senior status chrome)
+  const tileId = which === "local" ? "tile-local" : "tile-remote";
+  const tile = $(tileId);
+  if (tile) {
+    tile.classList.remove(
+      "tier-normal",
+      "tier-trusted",
+      "tier-senior",
+      "has-star-tier",
+      "cam-tier-trusted",
+      "cam-tier-senior"
+    );
+    const showCam =
+      w >= 2 && (which === "local" || n >= STARS_TRUSTED_GOAL);
+    if (showCam) {
+      tile.classList.add(
+        "has-star-tier",
+        tierClass,
+        w >= 3 ? "cam-tier-senior" : "cam-tier-trusted"
+      );
+    }
+  }
 }
 
 /** One-shot nudge when close to Trusted (90–99) or Senior (240–249). */
@@ -5929,6 +5952,53 @@ function maybeStarChatProgress(elapsedSec) {
       early: early ? 1 : 0,
     });
   }
+}
+
+/**
+ * On Next / Stop: if chat was ≥80% of gift-unlock need but not yet there,
+ * nudge once so users know they left early.
+ * Call while match is still live (before timer teardown).
+ */
+function maybeAlmostGiftUnlockOnLeave(reason) {
+  try {
+    if (!matched && !inFriendCall) return;
+    // Friend party-browse next keeps the friend — no leave tip for that path
+    if (reason === "next" && (inFriendCall || matchMode === "friend") && yourRole === "party") {
+      return;
+    }
+    const need = Math.max(60, Number(starRateMinSecs) || STAR_MIN_SECS);
+    let secs = 0;
+    if (matchTimerStartedAt) {
+      secs = Math.max(0, Math.floor((Date.now() - matchTimerStartedAt) / 1000));
+    } else {
+      secs = Math.max(0, Math.floor(Number(lastMatchDurationSec) || 0));
+    }
+    if (secs < need * 0.8 || secs >= need) return;
+    const left = Math.max(1, need - secs);
+    const leftM = Math.max(1, Math.ceil(left / 60));
+    const leftS = left % 60;
+    const leftStr =
+      left >= 60
+        ? `${leftM} min`
+        : `${leftS}s`;
+    const pct = Math.round((secs / need) * 100);
+    showStarFeedbackToast("gift", {
+      title: _t("stars.leaveAlmostTitle") || "Almost unlocked ★",
+      body:
+        _t("stars.leaveAlmostBody", { t: leftStr, pct }) ||
+        `You were ${pct}% there — stay ~${leftStr} next time to unlock a star gift.`,
+      corner: true,
+      ico: "★",
+      level: 1,
+    });
+    trackEvent("star_leave_almost", {
+      need,
+      secs,
+      pct,
+      reason: String(reason || "leave"),
+      friend: inFriendCall || matchMode === "friend" ? 1 : 0,
+    });
+  } catch (_) {}
 }
 
 function hideStarUnlockBar() {
@@ -22679,7 +22749,8 @@ function startMatchTimer() {
   peekRemoteMeta(REMOTE_META_PEEK_MS);
   matchTimerInterval = setInterval(() => {
     const el2 = $("match-timer");
-    if (!el2 || !matched) return;
+    // Friend calls set inFriendCall; matched may stay false — still tick progress
+    if (!el2 || (!matched && !inFriendCall)) return;
     const elapsedMs = Date.now() - matchTimerStartedAt;
     el2.textContent = formatMatchDuration(elapsedMs);
     try {
@@ -25674,6 +25745,9 @@ on("btn-find-third-cancel", "click", () => {
   updateFriendActionButtons();
 });
 on("btn-hangup-friend", "click", () => {
+  try {
+    maybeAlmostGiftUnlockOnLeave("hangup_friend");
+  } catch (_) {}
   send({ type: "hangup_friend" });
   inFriendCall = false;
   matchMode = "solo";
@@ -25984,6 +26058,10 @@ on("btn-next", "click", () => {
     } catch (_) {}
     return;
   }
+  // ≥80% of unlock window but not yet there — tip before teardown
+  try {
+    maybeAlmostGiftUnlockOnLeave("next");
+  } catch (_) {}
   // Capture path/quality before tearing down the match
   maybeShowMatchPathSummary("next");
   pendingSignals.length = 0;
@@ -26021,6 +26099,9 @@ on("btn-next", "click", () => {
 
 /** Stop: leave queue / end stranger match; do not auto-search again. */
 function doStopMatchmaking() {
+  try {
+    maybeAlmostGiftUnlockOnLeave("stop");
+  } catch (_) {}
   maybeShowMatchPathSummary("stop");
   schedulePostMatchFriendNudge("stop");
   aloneInviteToastShown = false;

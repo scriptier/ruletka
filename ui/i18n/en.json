@@ -1746,6 +1746,8 @@
   "stars.trustedSeniorBody": "You earned ★ {n} for a full hour with a senior. Balance: ★ {bal}. You can still gift more.",
   "stars.trustedSeniorStatus": "Hour with senior · ★ {n}",
   "stars.trustedSeniorTitle": "Hour with a senior ★★",
+  "stars.leaveAlmostTitle": "Almost unlocked ★",
+  "stars.leaveAlmostBody": "You were {pct}% there — stay ~{t} next time to unlock a star gift.",
   "stars.unlockBarLeft": "★ {t}",
   "stars.unlockBarReady": "★ ready",
   "stars.unlockNormal": "Balance for gifts · trust from peer ★ · 100 trust → Trusted · 250 → Senior",
