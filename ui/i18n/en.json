@@ -1624,6 +1624,7 @@
   "friends.safetyNudgeBodyAdd": "{n} — Add as friend to Call later, or Report / Block if needed. Also under Friends → Call history.",
   "stars.wealthNoTrust": "★{n} ready to spend · Trust grows only from peer gifts (need {need} trust for Trusted).",
   "stars.chipWealthRich": "✦ rich",
+  "stars.chipWealthLegend": "✦✦ legend",
   "stars.chipWealthUp": "✦",
   "stars.chipWealthTip": "High balance for gifts — peer ★ still build Trust separately",
   "stars.chipTrustTip": "Trust tier from peer gifts (not spendable balance)",

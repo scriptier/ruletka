@@ -2616,9 +2616,9 @@ function setStarsBadge(which, count, opts = {}) {
     } else badge.setAttribute("hidden", "");
     badge.classList.add("is-clickable");
     badge.classList.toggle("is-live-chat", live);
-    // Trust tier + spendable wealth chrome (high balance can still look gold)
+    // Trust tier from peer gifts; wealth chrome from spendable balance (local only)
     const w = reportWeightForStars(tierScore);
-    const wealth = starsWealthLevel(n);
+    const wealth = starsWealthLevel(which === "local" ? n : 0);
     badge.classList.remove(
       "tier-normal",
       "tier-trusted",
@@ -2892,6 +2892,13 @@ function syncStarsSheetUi() {
       chip.title =
         _t("stars.chipTrustTip") ||
         "Trust tier from peer gifts (not spendable balance)";
+    } else if (wealth >= 4) {
+      // 250+ spendable ★ — unmistakable legend pill (trust may still be ×1)
+      chip.textContent =
+        _t("stars.chipWealthLegend") || "✦✦ legend";
+      chip.title =
+        _t("stars.chipWealthTip") ||
+        "High balance for gifts — peer ★ still build Trust separately";
     } else if (wealth >= 3) {
       chip.textContent =
         _t("stars.chipWealthRich") || "✦ rich";
@@ -2917,6 +2924,10 @@ function syncStarsSheetUi() {
   }
   const tierName = $("stars-tier-name");
   if (tierName) {
+    // Dynamic label — strip data-i18n so a later applyI18n cannot clobber wealth text
+    try {
+      tierName.removeAttribute("data-i18n");
+    } catch (_) {}
     if (isSenior) {
       tierName.textContent =
         _t("stars.tierSenior") || "Senior reporter";
@@ -2950,6 +2961,7 @@ function syncStarsSheetUi() {
     );
     if (wealth >= 1) hero.classList.add(`is-wealth-${wealth}`);
     hero.dataset.wealth = String(wealth);
+    hero.dataset.balance = String(balN);
   }
   // One-line “what this unlocks” — dual system after brigade v1
   const unlock = $("stars-unlock-line");

@@ -228,9 +228,9 @@
     #tile-local .side-rail { z-index: 50 !important; }
 </style>
   <!-- Load stage CSS as all immediately — no media=print FOUC trick (was leaving rails opacity:0) -->
-  <link rel="stylesheet" href="live-stage.css?v=332" />
-  <link rel="preload" href="live.js?v=374" as="script" />
-  <link rel="preload" href="i18n.js?v=220" as="script" />
+  <link rel="stylesheet" href="live-stage.css?v=333" />
+  <link rel="preload" href="live.js?v=375" as="script" />
+  <link rel="preload" href="i18n.js?v=221" as="script" />
   <script src="brand.js?v=2" defer></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -1240,7 +1240,7 @@
         <div class="stars-hero-meta">
           <span class="stars-sheet-balance-sub" data-i18n="stars.yours">Your balance</span>
           <span class="stars-meta-dot" aria-hidden="true">·</span>
-          <span class="stars-tier-name" id="stars-tier-name" data-i18n="stars.tierNormal">Normal reporter</span>
+          <span class="stars-tier-name" id="stars-tier-name">Normal reporter</span>
         </div>
         <div class="stars-balance-trust-row" id="stars-balance-trust-row">
           <span class="stars-dual-chip is-balance">
@@ -2510,11 +2510,11 @@
   <!-- Critical path: defer app scripts. QR / invite-copy / live-window load on demand. -->
   <script src="analytics.js?v=3" defer></script>
   <script src="pwa-install.js?v=11" defer></script>
-  <script src="i18n.js?v=220" defer></script>
+  <script src="i18n.js?v=221" defer></script>
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=156" defer></script>
   <script src="webrtc.js?v=168" defer></script>
-  <script src="live.js?v=374" defer></script>
+  <script src="live.js?v=375" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {
