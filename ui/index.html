@@ -52,7 +52,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </noscript>
   <link rel="preload" href="/brand/logo-hero.jpg?v=12" as="image" fetchpriority="high" />
-  <link rel="stylesheet" href="home.css?v=99" />
+  <link rel="stylesheet" href="home.css?v=100" />
   <script src="brand.js?v=2" defer></script>
   <script src="live-window.js?v=1" defer></script>
   <script src="analytics.js?v=3" defer></script>
@@ -271,18 +271,53 @@
           <span data-i18n="home.p4d">Report, block, blur-first, on-device AI skip — multi-report auto-restricts</span>
         </div>
       </li>
-      <li class="home-point-stars" id="stars">
+      <li class="home-point-stars">
         <span class="pt-ico pt-ico-stars" aria-hidden="true">
           <svg class="pt-svg" viewBox="0 0 24 24" fill="currentColor" stroke="none">
             <path d="M12 2.5l2.6 6.3 6.9.6-5.2 4.5 1.6 6.7L12 16.9 6.1 20.6l1.6-6.7L2.5 9.4l6.9-.6L12 2.5z"/>
           </svg>
         </span>
         <div>
-          <strong data-i18n="home.p5t">Stars</strong>
-          <span data-i18n="home.p5d">Reputation from real chats — not money, never for sale</span>
+          <strong data-i18n="home.p5t">Reputation</strong>
+          <span data-i18n="home.p5d">Free status from real chats — wallet for gifts, never for sale</span>
         </div>
       </li>
     </ul>
+
+    <!-- Reputation / Stars — free social score (not money) -->
+    <section class="home-stars" id="stars" aria-labelledby="home-stars-heading">
+      <div class="home-stars-head">
+        <span class="home-stars-badge" data-i18n="home.starsBadge">Free · Not for sale · Not cash</span>
+        <h2 id="home-stars-heading" data-i18n="home.starsTitle">Reputation &amp; stars</h2>
+      </div>
+      <p class="home-stars-lead" data-i18n-html="home.starsLead">
+        <strong>Status</strong> from peer praise after long chats · <strong>Wallet ★</strong> for fun gifts — not money, never for sale.
+      </p>
+      <p class="home-diff-body home-stars-body" data-i18n-html="home.starsBody">
+        After good long chats, people can gift you ★ — that builds <strong>status</strong> (Trusted at 100, Senior at 250, with enough unique praisers).
+        Your <strong>wallet</strong> spends on hearts, bars, flowers, fireworks — play only.
+        Soft match rank and gift limits follow status; <strong>reports stay separate</strong> (not star-weight ban guns).
+        Putting people “behind bars” is a soft social mark; abusing it stops affecting others. Nothing to buy. Nothing to withdraw.
+      </p>
+      <ul class="home-stars-grid">
+        <li>
+          <strong data-i18n="home.starsEarnT">Status</strong>
+          <span data-i18n="home.starsEarnD">Peer ★ after long chats · 100 Trusted · 250 Senior · unique praisers matter</span>
+        </li>
+        <li>
+          <strong data-i18n="home.starsSpendT">Wallet</strong>
+          <span data-i18n="home.starsSpendD">Spend ★ on gifts in chat — hearts, confetti, fireworks · never cash</span>
+        </li>
+        <li>
+          <strong data-i18n="home.starsTrustT">Fair play</strong>
+          <span data-i18n="home.starsTrustD">Soft rank when busy · bars stigma is soft · reports independent · free forever</span>
+        </li>
+      </ul>
+      <p class="home-open-links" style="margin-top:1rem">
+        <a class="chip-link chip-link-primary" href="/live.html" data-i18n="home.cta">Start chatting</a>
+        <a class="chip-link chip-link-muted" href="/updates.html" data-i18n="home.updates">Updates</a>
+      </p>
+    </section>
 
     <section class="home-diff" id="why">
       <h2 data-i18n="home.diffTitle">How we’re different</h2>
@@ -331,7 +366,7 @@
   <footer class="home-foot">
     <span data-i18n="home.foot">18+ · Be respectful · Use Block if needed</span>
     <span class="foot-links">
-      <a href="#stars" class="foot-link" data-i18n="home.starsFoot">Stars reputation</a>
+      <a href="#stars" class="foot-link" data-i18n="home.starsFoot">Reputation</a>
       <a href="#why" class="foot-link" data-i18n="home.diffTitle">How we’re different</a>
       <a href="#open" class="foot-link" data-i18n="home.openTitle">Open source</a>
       <a href="https://github.com/scriptier/ruletka" class="foot-link" target="_blank" rel="noopener" data-i18n="home.openSrc">GitHub</a>
@@ -397,12 +432,22 @@
           "home.p3d": "Share a code, accept requests, call when online",
           "home.p4t": "Safety tools",
           "home.p4d": "Report, block, blur-first, on-device AI skip — multi-report auto-restricts",
-          "home.p5t": "Stars",
-          "home.p5d": "Reputation from real chats — not money, never for sale",
-          "home.starsFoot": "Stars",
+          "home.p5t": "Reputation",
+          "home.p5d": "Free status from real chats — wallet for gifts, never for sale",
+          "home.starsBadge": "Free · Not for sale · Not cash",
+          "home.starsTitle": "Reputation & stars",
+          "home.starsLead": "<strong>Status</strong> from peer praise after long chats · <strong>Wallet ★</strong> for fun gifts — not money, never for sale.",
+          "home.starsBody": "After good long chats, people can gift you ★ — that builds <strong>status</strong> (Trusted at 100, Senior at 250, with enough unique praisers). Your <strong>wallet</strong> spends on hearts, bars, flowers, fireworks — play only. Soft match rank and gift limits follow status; <strong>reports stay separate</strong> (not star-weight ban guns). Putting people “behind bars” is a soft social mark; abusing it stops affecting others. Nothing to buy. Nothing to withdraw.",
+          "home.starsEarnT": "Status",
+          "home.starsEarnD": "Peer ★ after long chats · 100 Trusted · 250 Senior · unique praisers matter",
+          "home.starsSpendT": "Wallet",
+          "home.starsSpendD": "Spend ★ on gifts in chat — hearts, confetti, fireworks · never cash",
+          "home.starsTrustT": "Fair play",
+          "home.starsTrustD": "Soft rank when busy · bars stigma is soft · reports independent · free forever",
+          "home.starsFoot": "Reputation",
           "home.diffTitle": "How we’re different",
           "home.diffBody":
-            "Most chat roulettes route your video through their servers and push accounts or ads. On <strong>ruletka.vip</strong>, video goes browser to browser (peer-to-peer) — no signup. Friends, block, report, and on-device safety tools are built in.",
+            "Most chat roulettes route your video through their servers and push accounts or ads. On <strong>ruletka.vip</strong>, video goes browser to browser (peer-to-peer) — no signup. Friends, block, report, and on-device safety tools are built in. <strong>Reputation</strong> is free social status from real chats — not money.",
           "home.openTitle": "Open source & multi-hub",
           "home.openBody":
             "This software is <strong>open source</strong> (LGPL-2.1). Anyone can run their own hub. This site is a public seed — not the only network. If a hub goes down, the live app can try other hubs from a public directory. Helpers run a full chat node you can share.",
@@ -469,9 +514,19 @@
           "home.p3d": "Код, подтверждение запроса, звонок онлайн",
           "home.p4t": "Безопасность",
           "home.p4d": "Жалоба, блок, блюр, ИИ на устройстве — несколько жалоб ограничивают матчинг",
-          "home.p5t": "Звёзды",
-          "home.p5d": "Репутация за живые чаты — не деньги и не продаётся",
-          "home.starsFoot": "Звёзды",
+          "home.p5t": "Репутация",
+          "home.p5d": "Свободный статус за живые чаты — кошелёк на подарки, не продаётся",
+          "home.starsBadge": "Бесплатно · Не продаётся · Не деньги",
+          "home.starsTitle": "Репутация и звёзды",
+          "home.starsLead": "<strong>Статус</strong> от похвалы после длинных чатов · <strong>Кошелёк ★</strong> на подарки — не деньги и не продаётся.",
+          "home.starsBody": "После хороших длинных чатов вам могут подарить ★ — так растёт <strong>статус</strong> (Доверенный на 100, Старший на 250, нужны разные люди). <strong>Кошелёк</strong> тратится на сердца, «решётку», цветы, фейерверк — только игра. Мягкий приоритет в матчах и лимиты подарков идут от статуса; <strong>жалобы отдельно</strong> (не «бан-пушки» от звёзд). «За решёткой» — мягкая метка; злоупотребление не влияет на репутацию других. Ничего не купить. Ничего не вывести.",
+          "home.starsEarnT": "Статус",
+          "home.starsEarnD": "★ от людей после длинных чатов · 100 Доверенный · 250 Старший · важны разные люди",
+          "home.starsSpendT": "Кошелёк",
+          "home.starsSpendD": "★ на подарки в чате — сердца, конфетти, фейерверк · не деньги",
+          "home.starsTrustT": "Честная игра",
+          "home.starsTrustD": "Мягкий приоритет при очереди · «решётка» мягко · жалобы отдельно · бесплатно",
+          "home.starsFoot": "Репутация",
           "home.openTitle": "Open source и мульти-хаб",
           "home.openBody":
             "Софт <strong>открытый</strong> (LGPL-2.1). Любой может поднять свой хаб. Этот сайт — публичное семя, не единственная сеть. Если хаб упал, live-клиент может взять другой из каталога. Helper — полноценная нода, которой можно делиться.",
@@ -575,7 +630,7 @@
             online: 0,
           });
         } catch (_) {}
-        fetch("/i18n/" + lang + ".json?v=73", { cache: "force-cache" })
+        fetch("/i18n/" + lang + ".json?v=118", { cache: "force-cache" })
           .then(function (r) {
             if (!r.ok) throw new Error("pack");
             return r.json();

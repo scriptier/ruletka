@@ -850,6 +850,13 @@ body.has-live-people .home-cta {
   line-height: 1.4;
   color: rgba(210, 200, 175, 0.88);
 }
+.home-stars .home-open-links {
+  position: relative;
+  z-index: 1;
+}
+.home-stars .home-stars-body {
+  margin-top: 0.15rem;
+}
 
 /* —— Story sections —— */
 .home-diff {
