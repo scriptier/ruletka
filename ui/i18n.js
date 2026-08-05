@@ -1979,7 +1979,7 @@
     if (!BUNDLED.has(c) && STR[c]) return Promise.resolve(STR[c]);
     if (loading[c]) return loading[c];
     // Prefer sessionStorage pack cache (avoids re-downloading ~100KB JSON every navigation)
-    const packCacheKey = "ruletka-i18n-pack-v89-" + c;
+    const packCacheKey = "ruletka-i18n-pack-v90-" + c;
     try {
       const cached = sessionStorage.getItem(packCacheKey);
       if (cached) {
@@ -1994,7 +1994,7 @@
     } catch (_) {}
 
     // Always fetch /i18n/{code}.json and merge over built-ins (en/ru too)
-    loading[c] = fetch(`/i18n/${c}.json?v=133`, { cache: "force-cache" })
+    loading[c] = fetch(`/i18n/${c}.json?v=134`, { cache: "force-cache" })
       .then((r) => {
         if (!r.ok) throw new Error("lang pack " + c);
         return r.json();
@@ -2024,7 +2024,7 @@
   }
 
   function loadMeta() {
-    return fetch("/i18n/meta.json?v=133", { cache: "force-cache" })
+    return fetch("/i18n/meta.json?v=134", { cache: "force-cache" })
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
         if (j && Array.isArray(j.languages)) META = j;

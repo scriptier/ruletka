@@ -4,26 +4,30 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Updates — ruletka.vip</title>
-  <meta name="description" content="Major product updates for ruletka.vip — stars reputation, safety, multi-party, mobile, and more." />
+  <meta name="description" content="What’s new on ruletka.vip — call stability, languages, stars, safety, multi-party, and Android." />
   <meta name="theme-color" content="#07080c" />
   <meta name="robots" content="index, follow" />
   <link rel="canonical" href="https://ruletka.vip/updates.html" />
   <link rel="icon" href="/brand/favicon-32.png" type="image/png" />
   <meta property="og:title" content="Updates — ruletka.vip" />
-  <meta property="og:description" content="What’s new on peer-to-peer chat roulette: reputation, safety, friends, multi-party, and apps." />
+  <meta property="og:description" content="What’s new on peer-to-peer chat roulette: stability, languages, reputation, safety, and apps." />
   <meta property="og:url" content="https://ruletka.vip/updates.html" />
   <meta property="og:type" content="website" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="home.css?v=79" />
-  <link rel="stylesheet" href="legal/legal.css?v=8" />
+  <link rel="stylesheet" href="home.css?v=101" />
+  <link rel="stylesheet" href="legal/legal.css?v=9" />
   <script src="brand.js?v=2"></script>
-  <script src="site-i18n.js?v=133" defer></script>
+  <script src="site-i18n.js?v=134" defer></script>
   <script src="analytics.js?v=1" defer></script>
 </head>
 <body class="home-body" data-i18n-title-key="page.updates.title">
-  <div class="home-bg" aria-hidden="true"><div class="home-bg-grid"></div><div class="home-bg-orb home-bg-orb-a"></div><div class="home-bg-orb home-bg-orb-b"></div></div>
+  <div class="home-bg" aria-hidden="true">
+    <div class="home-bg-grid"></div>
+    <div class="home-bg-orb home-bg-orb-a"></div>
+    <div class="home-bg-orb home-bg-orb-b"></div>
+  </div>
   <div class="legal-wrap legal-wrap-wide">
     <nav class="legal-nav">
       <a href="/" data-keep-lang data-i18n="nav.home">Home</a>
@@ -48,88 +52,85 @@
           <option value="tr">Türkçe</option>
           <option value="ar">العربية</option>
           <option value="zh">中文</option>
-</select>
+        </select>
       </label>
     </nav>
 
     <article class="legal-card updates-card">
+      <p class="updates-kicker" data-i18n="page.updates.kicker">Changelog</p>
       <h1 data-i18n="page.updates.h1">What’s new</h1>
-      <p class="updated" data-i18n="page.updates.updated">Last updated: 2026-08-05 · Location, multi-party, deploys, social score</p>
-      <div class="legal-pill-row">
-        <span class="legal-pill" data-i18n="page.updates.pillStars">Stars &amp; reputation</span>
-        <span class="legal-pill" data-i18n="page.updates.pillSafety">Safety</span>
+      <p class="updated" data-i18n="page.updates.updated">Last updated: 2026-08-05 · Calls, swipe, 14 languages, Android 0.1.1</p>
+
+      <div class="legal-pill-row updates-pills">
         <span class="legal-pill" data-i18n="page.updates.pillLive">Live chat</span>
+        <span class="legal-pill" data-i18n="page.updates.pillStars">Stars</span>
+        <span class="legal-pill" data-i18n="page.updates.pillSafety">Safety</span>
         <span class="legal-pill" data-i18n="page.updates.pillMobile">Apps</span>
+        <span class="legal-pill" data-i18n="page.updates.pillLangs">14 languages</span>
       </div>
+
       <p class="updates-intro" data-i18n="page.updates.intro">
-        Highlights only — not every commit. Newest first. Peer-to-peer video, no classic account, free social score (not money).
+        Product highlights only — not every commit. Newest first. Peer-to-peer video, no classic account, free social score (not money).
       </p>
 
-      <!-- ───────── August 2026 ───────── -->
-      <h2 class="updates-month" data-i18n="page.updates.m202608">August 2026</h2>
+      <nav class="updates-toc" aria-label="On this page">
+        <a href="#u-latest" data-i18n="page.updates.tocLatest">Latest</a>
+        <a href="#u-live" data-i18n="page.updates.tocLive">Live</a>
+        <a href="#u-stars" data-i18n="page.updates.tocStars">Stars</a>
+        <a href="#u-safety" data-i18n="page.updates.tocSafety">Safety</a>
+        <a href="#u-mobile" data-i18n="page.updates.tocMobile">Mobile</a>
+        <a href="#u-core" data-i18n="page.updates.tocCore">Core</a>
+      </nav>
+
+      <!-- ───────── Latest ───────── -->
+      <h2 class="updates-month" id="u-latest" data-i18n="page.updates.mLatest">Latest · August 2026</h2>
+
+      <section class="update-block update-block-featured" id="u-2026-08-05-latest">
+        <header class="update-head">
+          <time datetime="2026-08-05">2026-08-05</time>
+          <span class="update-badge" data-i18n="page.updates.badgeNew">New</span>
+          <h3 data-i18n="page.updates.uLatestTitle">Call stability, swipe &amp; polish</h3>
+        </header>
+        <ul>
+          <li data-i18n-html="page.updates.uLatest1"><strong>Fewer random drops</strong> — multi-retry ICE soft recover before hangup; resume when you return to the tab or come back online.</li>
+          <li data-i18n-html="page.updates.uLatest2"><strong>Swipe to next</strong> — optional left/right swipe on partner video (Settings → Match prefs). Coach tip, edge glow, haptic, short Undo.</li>
+          <li data-i18n-html="page.updates.uLatest3"><strong>14 languages</strong> — Czech, Bulgarian, Serbian, Arabic (RTL) plus existing packs.</li>
+          <li data-i18n-html="page.updates.uLatest4"><strong>Identity chips</strong> — flag → country → city, then name below; ★ + avatar top-right; fullscreen control near the header.</li>
+          <li data-i18n-html="page.updates.uLatest5"><strong>Deploys mid-call</strong> — P2P video keeps going if the hub restarts; UI soft-reloads when you’re idle.</li>
+          <li data-i18n-html="page.updates.uLatest6"><strong>Android 0.1.1</strong> — Play internal test AAB (versionCode 8); hub + 14 languages wired in the app packs.</li>
+        </ul>
+      </section>
 
       <section class="update-block" id="u-2026-08-05-product">
         <header class="update-head">
           <time datetime="2026-08-05">2026-08-05</time>
-          <h3 data-i18n="page.updates.uProdTitle">Location, multi-party &amp; live polish</h3>
+          <h3 data-i18n="page.updates.uProdTitle">Location, multi-party &amp; post-call</h3>
         </header>
         <ul>
-          <li data-i18n="page.updates.uProd1"><strong>Real location chips</strong> — flag → country → city from hub IP geo (not GPS). Hide my IP → cosmetic flag only.</li>
-          <li data-i18n="page.updates.uProd2"><strong>Smarter geo</strong> — multi-provider vote + ISP site hints (e.g. Calgary vs wrong metro tags).</li>
-          <li data-i18n="page.updates.uProd3"><strong>Identity layout</strong> — flag→country→city then name below top-left; ★ beside avatar top-right.</li>
-          <li data-i18n="page.updates.uProd4"><strong>Multi-party</strong> — clearer Next/role copy; extra streams auto-downscale; 2v2 leave → 1v2 reshape; 3v1 third peer fixed.</li>
-          <li data-i18n="page.updates.uProd5"><strong>Post-call cards</strong> — star review → Add friend; Report with reason picker; no popup stack fight.</li>
-          <li data-i18n="page.updates.uProd6"><strong>Stars sheet</strong> — taller Overview; Status shows full numbers; Power/map copy wraps cleanly.</li>
-          <li data-i18n="page.updates.uProd7"><strong>Deploys without killing P2P</strong> — hub WS drop keeps live video; UI soft-reloads when you leave the call.</li>
-          <li data-i18n="page.updates.uProd8"><strong>Social score language</strong> — status/soft rank (not “report ×N ban power”); Hide IP off by default.</li>
+          <li data-i18n-html="page.updates.uProd1"><strong>Real location chips</strong> — flag → country → city from hub IP geo (not GPS). Hide my IP → cosmetic flag only.</li>
+          <li data-i18n-html="page.updates.uProd2"><strong>Smarter geo</strong> — multi-provider vote + ISP site hints (e.g. Calgary vs wrong metro tags).</li>
+          <li data-i18n-html="page.updates.uProd4"><strong>Multi-party</strong> — clearer Next/role copy; extra streams auto-downscale; leave/reshape fixes for 2v2 and 3v1.</li>
+          <li data-i18n-html="page.updates.uProd5"><strong>Post-call cards</strong> — star review → Add friend; Report with reason picker.</li>
+          <li data-i18n-html="page.updates.uProd6"><strong>Stars sheet</strong> — taller Overview; Status shows full numbers; map copy wraps cleanly.</li>
+          <li data-i18n-html="page.updates.uProd8"><strong>Social score language</strong> — status &amp; soft rank (not “report ×N ban power”); Hide IP off by default.</li>
         </ul>
       </section>
 
-      <section class="update-block" id="u-2026-08-05">
+      <section class="update-block" id="u-2026-08-05-ops">
         <header class="update-head">
           <time datetime="2026-08-05">2026-08-05</time>
-          <h3 data-i18n="page.updates.uHostTitle">Server hardening &amp; ops</h3>
+          <h3 data-i18n="page.updates.uHostTitle">Server hardening</h3>
         </header>
         <ul>
-          <li data-i18n="page.updates.uHost1"><strong>Firewall</strong> — UFW deny-by-default; only SSH, HTTPS, and TURN open.</li>
-          <li data-i18n="page.updates.uHost2"><strong>SSH</strong> — keys only, no passwords; root key-only; fail2ban on login storms.</li>
-          <li data-i18n="page.updates.uHost3"><strong>Deploy user</strong> — non-root <code>deploy</code> account for day-to-day ops.</li>
-          <li data-i18n="page.updates.uHost4"><strong>Backups</strong> — daily data backups + operator pull script for off-box copies.</li>
-          <li data-i18n="page.updates.uHost5"><strong>Auto security reboot</strong> — unattended upgrades can reboot off-peak when a kernel needs it.</li>
+          <li data-i18n-html="page.updates.uHost1"><strong>Firewall</strong> — deny-by-default; only SSH, HTTPS, and TURN open.</li>
+          <li data-i18n-html="page.updates.uHost2"><strong>SSH</strong> — keys only; fail2ban on login storms.</li>
+          <li data-i18n-html="page.updates.uHost3"><strong>Deploy user</strong> — non-root account for day-to-day ops.</li>
+          <li data-i18n-html="page.updates.uHost4"><strong>Backups</strong> — daily data backups + off-box pull script.</li>
         </ul>
       </section>
 
-      <section class="update-block" id="u-2026-08-04-rep">
-        <header class="update-head">
-          <time datetime="2026-08-04">2026-08-04</time>
-          <h3 data-i18n="page.updates.uRepTitle">Stars reputation — social score v2</h3>
-        </header>
-        <ul>
-          <li data-i18n="page.updates.uRep1"><strong>Dual system</strong> — <em>Balance</em> (spend on gifts) vs <em>Trust</em> (peer ★ gifts only). Hour bonuses raise balance, not trust.</li>
-          <li data-i18n="page.updates.uRep2"><strong>Wealth chrome</strong> — high spendable ★ (e.g. 250+) looks legendary even if trust is still low.</li>
-          <li data-i18n="page.updates.uRep3"><strong>Status ladder</strong> — New / Known / Trusted / Senior language (not “reporter ×N ban power”).</li>
-          <li data-i18n="page.updates.uRep4"><strong>Social map</strong> — Power/Status tab: balance, trust, gifters, decay countdown, soft match-rank.</li>
-          <li data-i18n="page.updates.uRep5"><strong>Gifter strip</strong> — progress dots to 5 (Trusted floor) and 12 (Senior floor).</li>
-          <li data-i18n="page.updates.uRep6"><strong>Gift unlock bar</strong> — mid-chat ★ progress (50% / 80% / ready) next to the timer.</li>
-          <li data-i18n="page.updates.uRep7"><strong>Thanks</strong> — post-chat Thanks/vouch (no trust mint) alongside gift / skip.</li>
-          <li data-i18n="page.updates.uRep8"><strong>Mutual bonds</strong> — friends list ★↔ / 🙏↔ chips; bonded friends sorted first.</li>
-          <li data-i18n="page.updates.uRep9"><strong>Partner praise</strong> — “praised by N” on the partner tile; gift-back reciprocity nudge.</li>
-          <li data-i18n="page.updates.uRep10"><strong>Stuck CTA</strong> — clear next step when wealth is high but trust/gifters block tier.</li>
-        </ul>
-      </section>
-
-      <section class="update-block" id="u-2026-08-04-safety">
-        <header class="update-head">
-          <time datetime="2026-08-04">2026-08-04</time>
-          <h3 data-i18n="page.updates.uBrigTitle">Brigade-resistant reports</h3>
-        </header>
-        <ul>
-          <li data-i18n="page.updates.uBrig1"><strong>Stars ≠ ban guns</strong> — non-underage auto-bans use independent reporters, not ×2/×3 star weight.</li>
-          <li data-i18n="page.updates.uBrig2"><strong>Higher consensus</strong> — explicit needs 3 independent reports; spam/other need 4; underage stays 1 for safety.</li>
-          <li data-i18n="page.updates.uBrig3"><strong>Mutual feud</strong> — A↔B report wars don’t auto-ban either side.</li>
-          <li data-i18n="page.updates.uBrig4"><strong>Raid soft-handle</strong> — spike windows cap permanent escalate; ops webhook for raid events.</li>
-        </ul>
-      </section>
+      <!-- ───────── Live & product (Aug 4) ───────── -->
+      <h2 class="updates-month" id="u-live" data-i18n="page.updates.mLive">Live chat · August 2026</h2>
 
       <section class="update-block" id="u-2026-08-04-live">
         <header class="update-head">
@@ -137,71 +138,104 @@
           <h3 data-i18n="page.updates.uLiveTitle">Live chat UX</h3>
         </header>
         <ul>
-          <li data-i18n="page.updates.uLive1"><strong>3-way / multi-party layout</strong> — real vertical stack + 2×2 grid toggle.</li>
-          <li data-i18n="page.updates.uLive2"><strong>Compose dock</strong> — partner chat pinned to the viewport bottom in stack mode.</li>
-          <li data-i18n="page.updates.uLive3"><strong>Camera &amp; identity</strong> — fixed local tile nesting; name/flag/avatar paint immediately and stay above video.</li>
-          <li data-i18n="page.updates.uLive4"><strong>Remember devices</strong> — last camera, mic, speaker, and volume across visits.</li>
-          <li data-i18n="page.updates.uLive5"><strong>Audio modes</strong> — clearer low-delay vs noise-reduction; multi-peer NS/AGC for parties.</li>
-          <li data-i18n="page.updates.uLive6"><strong>Cleaner Start</strong> — removed under-Start invite coaching clutter while searching.</li>
-          <li data-i18n="page.updates.uLive7"><strong>History Block</strong> — block past partners from history without needing a live call.</li>
-          <li data-i18n="page.updates.uLive8"><strong>Friend invites</strong> — share links always open <code>/live.html</code>; last-partner popup can Add friend.</li>
+          <li data-i18n-html="page.updates.uLive1"><strong>3-way / multi-party layout</strong> — vertical stack + equal grid toggle.</li>
+          <li data-i18n-html="page.updates.uLive2"><strong>Compose dock</strong> — partner chat pinned to the viewport bottom in stack mode.</li>
+          <li data-i18n-html="page.updates.uLive3"><strong>Camera &amp; identity</strong> — local tile nesting fixed; name/flag/avatar stay above video.</li>
+          <li data-i18n-html="page.updates.uLive4"><strong>Remember devices</strong> — last camera, mic, speaker, and volume across visits.</li>
+          <li data-i18n-html="page.updates.uLive5"><strong>Audio modes</strong> — low-delay vs noise-reduction; multi-peer NS/AGC for parties.</li>
+          <li data-i18n-html="page.updates.uLive7"><strong>History Block</strong> — block past partners without a live call.</li>
+          <li data-i18n-html="page.updates.uLive8"><strong>Friend invites</strong> — share links open live; last-partner popup can Add friend.</li>
         </ul>
       </section>
 
-      <section class="update-block" id="u-2026-08-mobile">
+      <!-- ───────── Stars ───────── -->
+      <h2 class="updates-month" id="u-stars" data-i18n="page.updates.mStars">Stars &amp; reputation</h2>
+
+      <section class="update-block" id="u-2026-08-04-rep">
         <header class="update-head">
-          <time datetime="2026-08-01">2026-08-01 → 08-04</time>
-          <h3 data-i18n="page.updates.uMobTitle">Mobile app &amp; store path</h3>
+          <time datetime="2026-08-04">2026-08-04</time>
+          <h3 data-i18n="page.updates.uRepTitle">Social score v2</h3>
         </header>
         <ul>
-          <li data-i18n="page.updates.uMob1"><strong>Expo app</strong> — scaffold + WebRTC media session; stranger prefs, report/block, friends, call.</li>
-          <li data-i18n="page.updates.uMob2"><strong>Stars on mobile</strong> — gifts, rate prompt, profile backup (Phase 3).</li>
-          <li data-i18n="page.updates.uMob3"><strong>Push foundation</strong> — register tokens + offline friend ring webhook path.</li>
-          <li data-i18n="page.updates.uMob4"><strong>App Links</strong> — Universal Links / Android App Links endpoints live for friend invites.</li>
-          <li data-i18n="page.updates.uMob5"><strong>i18n</strong> — full overlay packs for all app languages.</li>
-          <li data-i18n="page.updates.uMob6"><strong>Play / App Store</strong> — EAS profiles, store assets, AAB upload docs (vc4/vc5 path).</li>
+          <li data-i18n-html="page.updates.uRep1"><strong>Dual system</strong> — Balance (gifts) vs Trust (peer ★ only). Hour bonuses raise balance, not trust.</li>
+          <li data-i18n-html="page.updates.uRep3"><strong>Status ladder</strong> — New / Known / Trusted / Senior (not “reporter ban power”).</li>
+          <li data-i18n-html="page.updates.uRep4"><strong>Social map</strong> — balance, trust, gifters, decay, soft match-rank.</li>
+          <li data-i18n-html="page.updates.uRep6"><strong>Gift unlock bar</strong> — mid-chat ★ progress next to the timer.</li>
+          <li data-i18n-html="page.updates.uRep7"><strong>Thanks</strong> — post-chat Thanks/vouch without minting trust.</li>
+          <li data-i18n-html="page.updates.uRep8"><strong>Mutual bonds</strong> — friends list ★↔ / 🙏↔; bonded friends sorted first.</li>
         </ul>
       </section>
-
-      <!-- ───────── July / earlier major ───────── -->
-      <h2 class="updates-month" data-i18n="page.updates.m202607">July 2026 &amp; earlier foundations</h2>
 
       <section class="update-block" id="u-stars-foundation">
         <header class="update-head">
-          <time datetime="2026-07">2026 · Stars phases A–D</time>
+          <time datetime="2026-07">2026 · Foundation</time>
           <h3 data-i18n="page.updates.uStarFoundTitle">Stars foundation</h3>
         </header>
         <ul>
-          <li data-i18n="page.updates.uStarFound1"><strong>Post-chat gifts</strong> — after long chats, gift ★ once per person (15 min; first partners 5 min early ramp).</li>
-          <li data-i18n="page.updates.uStarFound2"><strong>Hour reward</strong> — both get +1★ balance after a full hour together.</li>
-          <li data-i18n="page.updates.uStarFound3"><strong>Spend gifts</strong> — hearts, bars, flowers, balloons, confetti, fireworks, Please stay.</li>
-          <li data-i18n="page.updates.uStarFound4"><strong>Trust vs balance</strong> — ledger split; gifter floors; soft idle decay; ban clawback.</li>
-          <li data-i18n="page.updates.uStarFound5"><strong>Soft match rank</strong> — Trusted/Senior lightly preferred when the lobby is busy (never blocks matches).</li>
-          <li data-i18n="page.updates.uStarFound6"><strong>Never for sale</strong> — stars stay hub-side; profile export never includes balances.</li>
+          <li data-i18n-html="page.updates.uStarFound1"><strong>Post-chat gifts</strong> — after long chats, gift ★ once per person.</li>
+          <li data-i18n-html="page.updates.uStarFound2"><strong>Hour reward</strong> — both get +1★ balance after a full hour together.</li>
+          <li data-i18n-html="page.updates.uStarFound3"><strong>Spend gifts</strong> — hearts, bars, flowers, balloons, confetti, fireworks, Please stay.</li>
+          <li data-i18n-html="page.updates.uStarFound5"><strong>Soft match rank</strong> — Trusted/Senior lightly preferred when the lobby is busy.</li>
+          <li data-i18n-html="page.updates.uStarFound6"><strong>Never for sale</strong> — stars stay hub-side; profile export never includes balances.</li>
         </ul>
       </section>
 
-      <section class="update-block" id="u-core">
+      <!-- ───────── Safety ───────── -->
+      <h2 class="updates-month" id="u-safety" data-i18n="page.updates.mSafety">Safety</h2>
+
+      <section class="update-block" id="u-2026-08-04-safety">
         <header class="update-head">
-          <time datetime="2026">2026 · Core product</time>
-          <h3 data-i18n="page.updates.uCoreTitle">Core chat roulette</h3>
+          <time datetime="2026-08-04">2026-08-04</time>
+          <h3 data-i18n="page.updates.uBrigTitle">Brigade-resistant reports</h3>
         </header>
         <ul>
-          <li data-i18n="page.updates.uCore1"><strong>P2P WebRTC</strong> — video browser-to-browser; hub for match + signaling only.</li>
-          <li data-i18n="page.updates.uCore2"><strong>No classic account</strong> — browser identity + export/import profile (QR / share / file).</li>
-          <li data-i18n="page.updates.uCore3"><strong>Friends</strong> — codes, requests, DMs, call when online; party / find-third paths.</li>
-          <li data-i18n="page.updates.uCore4"><strong>Safety tools</strong> — Next, Block, Report, blur-first strangers, optional on-device NSFW skip.</li>
-          <li data-i18n="page.updates.uCore5"><strong>Hide my IP</strong> — force TURN relay-only ICE when you want extra path privacy.</li>
-          <li data-i18n="page.updates.uCore6"><strong>Languages</strong> — 14 UI languages at full parity (Czech, Bulgarian, Serbian, Arabic + existing).</li>
-          <li data-i18n="page.updates.uCore7"><strong>Open source</strong> — self-host docs, Docker, desktop helper ZIPs (Windows / macOS / Linux).</li>
-          <li data-i18n="page.updates.uCore8"><strong>Speed</strong> — lean first paint, SW update banner, live stack no-stale deploys.</li>
+          <li data-i18n-html="page.updates.uBrig1"><strong>Stars ≠ ban guns</strong> — auto-bans use independent reporters, not star weight.</li>
+          <li data-i18n-html="page.updates.uBrig2"><strong>Higher consensus</strong> — explicit needs 3 reports; spam/other need 4; underage stays 1.</li>
+          <li data-i18n-html="page.updates.uBrig3"><strong>Mutual feud</strong> — A↔B report wars don’t auto-ban either side.</li>
+          <li data-i18n-html="page.updates.uBrig4"><strong>Raid soft-handle</strong> — spike windows cap permanent escalate.</li>
+        </ul>
+      </section>
+
+      <!-- ───────── Mobile ───────── -->
+      <h2 class="updates-month" id="u-mobile" data-i18n="page.updates.mMobile">Mobile</h2>
+
+      <section class="update-block" id="u-2026-08-mobile">
+        <header class="update-head">
+          <time datetime="2026-08">2026-08</time>
+          <h3 data-i18n="page.updates.uMobTitle">Android &amp; store path</h3>
+        </header>
+        <ul>
+          <li data-i18n-html="page.updates.uMob1"><strong>Expo app</strong> — WebRTC media; stranger prefs, report/block, friends, call.</li>
+          <li data-i18n-html="page.updates.uMob2"><strong>Stars on mobile</strong> — gifts, rate prompt, profile backup.</li>
+          <li data-i18n-html="page.updates.uMob4"><strong>App Links</strong> — Universal Links / Android App Links for friend invites.</li>
+          <li data-i18n-html="page.updates.uMob5"><strong>i18n</strong> — full packs including new Slavic languages + Arabic.</li>
+          <li data-i18n-html="page.updates.uMob6"><strong>Play testing</strong> — production AAB 0.1.1 (versionCode 8) for internal track.</li>
+        </ul>
+      </section>
+
+      <!-- ───────── Core ───────── -->
+      <h2 class="updates-month" id="u-core" data-i18n="page.updates.mCore">Core product</h2>
+
+      <section class="update-block" id="u-core-product">
+        <header class="update-head">
+          <time datetime="2026">2026</time>
+          <h3 data-i18n="page.updates.uCoreTitle">Chat roulette foundations</h3>
+        </header>
+        <ul>
+          <li data-i18n-html="page.updates.uCore1"><strong>P2P WebRTC</strong> — video browser-to-browser; hub for match + signaling only.</li>
+          <li data-i18n-html="page.updates.uCore2"><strong>No classic account</strong> — browser identity + export/import profile.</li>
+          <li data-i18n-html="page.updates.uCore3"><strong>Friends</strong> — codes, requests, DMs, call when online; party paths.</li>
+          <li data-i18n-html="page.updates.uCore4"><strong>Safety tools</strong> — Next, Block, Report, blur-first, optional NSFW skip.</li>
+          <li data-i18n-html="page.updates.uCore5"><strong>Hide my IP</strong> — TURN relay-only when you want path privacy.</li>
+          <li data-i18n-html="page.updates.uCore6"><strong>Languages</strong> — 14 UI languages at full parity.</li>
+          <li data-i18n-html="page.updates.uCore7"><strong>Open source</strong> — self-host docs, Docker, desktop helpers.</li>
         </ul>
       </section>
 
       <p class="updates-note" data-i18n-html="page.updates.note">
-        Full commit history on
+        Full history on
         <a href="https://github.com/scriptier/ruletka" target="_blank" rel="noopener">GitHub</a>.
-        Report issues there or via in-app report during a call.
+        Report issues there or with in-app Report during a call.
       </p>
 
       <div class="legal-foot-links">

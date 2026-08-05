@@ -638,7 +638,7 @@
             online: 0,
           });
         } catch (_) {}
-        fetch("/i18n/" + lang + ".json?v=133", { cache: "force-cache" })
+        fetch("/i18n/" + lang + ".json?v=134", { cache: "force-cache" })
           .then(function (r) {
             if (!r.ok) throw new Error("pack");
             return r.json();
