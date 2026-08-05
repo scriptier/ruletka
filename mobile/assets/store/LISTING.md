@@ -25,6 +25,8 @@ You must be 18 or older. Partners can screenshot or record — never share secre
 Privacy: https://ruletka.vip/legal/privacy.html
 Terms: https://ruletka.vip/legal/terms.html
 Safety: https://ruletka.vip/safety.html
+Data deletion: https://ruletka.vip/legal/delete.html
+Support: support@ruletka.me · Privacy: privacy@ruletka.me
 ```
 
 ## Keywords (Apple)
@@ -39,8 +41,11 @@ video chat,roulette,friends,webrtc,p2p,random chat,adult
 |-------|-----|
 | Privacy | https://ruletka.vip/legal/privacy.html |
 | Terms | https://ruletka.vip/legal/terms.html |
+| Data deletion | https://ruletka.vip/legal/delete.html |
 | Support / Safety | https://ruletka.vip/safety.html |
-| Marketing | https://ruletka.vip |
+| Support email | support@ruletka.me |
+| Privacy email | privacy@ruletka.me |
+| Marketing | https://ruletka.vip · https://ruletka.me |
 
 ## Screenshot shot list (capture on device)
 

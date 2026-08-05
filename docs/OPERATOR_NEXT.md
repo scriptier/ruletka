@@ -71,6 +71,21 @@ export ROULETTE_PUSH_WEBHOOK_URL=https://your-relay.example/ruletka-push
 
 [`STORE.md`](STORE.md) · assets in `mobile/assets/store/` · listing copy `LISTING.md`.
 
+### Android production AAB (current)
+
+Package: **`me.ruletka.app`**. Production profile no longer ships `expo-dev-client` or OTA `channel` (no `expo-updates` yet). RN aligned to **0.76.9**; WebRTC `pickFirst` packaging set for EAS Gradle.
+
+```bash
+cd mobile
+npm run preflight
+npx eas-cli build --profile production --platform android --non-interactive
+# when FINISHED:
+npx eas-cli submit --profile production --platform android --latest
+```
+
+Submit needs **`mobile/secrets/google-play.json`** (Play service account). See `mobile/secrets/README.md`.  
+Without it, download the AAB from the Expo build page and upload manually in Play Console → **Internal testing**.
+
 ```bash
 npx eas build --profile production --platform all
 npx eas submit --profile production --platform android

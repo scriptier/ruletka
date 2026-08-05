@@ -35,9 +35,9 @@
   <link rel="alternate" hreflang="pl" href="https://ruletka.vip/?lang=pl" />
   <link rel="alternate" hreflang="zh" href="https://ruletka.vip/?lang=zh" />
   <link rel="alternate" hreflang="x-default" href="https://ruletka.vip/" />
-  <link rel="icon" href="/brand/favicon-32.png" type="image/png" sizes="32x32" />
+  <link rel="icon" href="/brand/favicon-32.png?v=10" type="image/png" sizes="32x32" />
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="/brand/apple-touch-icon-180.png" />
+  <link rel="apple-touch-icon" href="/brand/apple-touch-icon-180.png?v=10" />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -51,8 +51,8 @@
   <noscript>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </noscript>
-  <link rel="preload" href="/brand/logo-hero.jpg?v=2" as="image" fetchpriority="high" />
-  <link rel="stylesheet" href="home.css?v=94" />
+  <link rel="preload" href="/brand/logo-hero.jpg?v=12" as="image" fetchpriority="high" />
+  <link rel="stylesheet" href="home.css?v=99" />
   <script src="brand.js?v=2" defer></script>
   <script src="live-window.js?v=1" defer></script>
   <script src="analytics.js?v=3" defer></script>
@@ -110,7 +110,7 @@
 
   <header class="home-nav">
     <a class="home-brand" href="/" aria-label="ruletka.vip home">
-      <img class="home-brand-logo" src="/brand/logo-mark.png" width="36" height="36" alt="" />
+      <img class="home-brand-logo" src="/brand/logo-mark.png?v=10" width="36" height="36" alt="" />
       <span>ruletka.vip</span>
     </a>
     <div class="home-nav-right">
@@ -150,7 +150,7 @@
           <img
             class="home-logo home-hero-fallback"
             id="home-hero-fallback"
-            src="/brand/logo-hero.jpg?v=2"
+            src="/brand/logo-hero.jpg?v=12"
             width="360"
             height="360"
             alt="ruletka.vip"
@@ -161,7 +161,7 @@
             class="home-logo home-hero-video"
             id="home-hero-video"
             data-src="/brand/homepage-hero.mp4?v=3"
-            poster="/brand/logo-hero.jpg?v=2"
+            poster="/brand/logo-hero.jpg?v=12"
             width="360"
             height="360"
             muted
@@ -186,10 +186,7 @@
         </p>
 
         <div class="home-cta-row">
-          <a class="home-cta" id="btn-enter" href="/live.html">
-            <span data-i18n="home.cta">Start chatting</span>
-            <span class="cta-arrow" aria-hidden="true">→</span>
-          </a>
+          <!-- Hero “Start chatting” removed — keep header + footer CTAs; Join now stays in stats -->
           <button type="button" class="home-secondary home-invite-btn" id="btn-home-invite" data-i18n="home.invite">
             Invite friends
           </button>
@@ -209,15 +206,10 @@
             <a href="/live.html" id="home-join-now" data-i18n="home.joinNow">Join now →</a>
           </span>
         </div>
-        <!-- Liquidity: dynamic “tonight live” window (local time) + bring-a-friend -->
+        <!-- Invite hints only (Tonight live chip/copy removed) -->
         <div class="home-liquidity" id="home-liquidity" role="status">
-          <p class="home-window-chip" id="home-window-chip" hidden>
-            <span class="home-window-dot" aria-hidden="true"></span>
-            <span id="home-window-chip-text">Tonight live · 18:00–23:00</span>
-          </p>
-          <p class="home-busy-hours" id="home-busy-hours">
-            Best odds: evenings (18:00–23:00 local) — bring a friend online at the same time.
-          </p>
+          <p class="home-window-chip" id="home-window-chip" hidden aria-hidden="true"></p>
+          <p class="home-busy-hours" id="home-busy-hours" hidden aria-hidden="true"></p>
           <p class="home-invite-hint" id="home-invite-hint" data-i18n="home.inviteHint">
             Quiet right now? Invite a friend — Call works when both of you are online.
           </p>
@@ -624,47 +616,20 @@
         return s;
       }
 
-      /** Dynamic “tonight live” chip + busy line from local time + pool state. */
+      /** Tonight-live chip/copy removed from homepage (keep invite hints only). */
       function updateHomeLiveWindow(dict, ctx) {
-        ctx = ctx || {};
         var busyEl = document.getElementById("home-busy-hours");
         var chip = document.getElementById("home-window-chip");
-        var chipText = document.getElementById("home-window-chip-text");
-        var LW = window.RuletLiveWindow;
-        if (!busyEl) return;
-
-        if (LW && LW.homeBusyLine) {
-          var line = LW.homeBusyLine(function (k, fb, vars) {
-            return tHome(dict, k, fb, vars);
-          }, ctx);
-          busyEl.textContent = line.text;
-          busyEl.classList.remove(
-            "is-live",
-            "is-window-open",
-            "is-window-soon",
-            "is-window-later"
-          );
-          if (line.className) busyEl.classList.add(line.className);
-        } else {
-          busyEl.textContent =
-            tHome(
-              dict,
-              "home.busyHours",
-              "Best odds: evenings (18:00–23:00 local) — bring a friend online at the same time."
-            );
+        if (busyEl) {
+          busyEl.hidden = true;
+          busyEl.setAttribute("hidden", "");
+          busyEl.setAttribute("aria-hidden", "true");
+          busyEl.textContent = "";
         }
-
-        if (chip && chipText && LW && LW.getState) {
-          var st = LW.getState();
-          chip.hidden = false;
-          chip.classList.toggle("is-open", !!st.inWindow);
-          chipText.textContent = st.inWindow
-            ? tHome(dict, "home.windowChipOpen", "Tonight live · open now · {range}", {
-                range: st.rangeLabel,
-              })
-            : tHome(dict, "home.windowChipNext", "Tonight live · {range} local", {
-                range: st.rangeLabel,
-              });
+        if (chip) {
+          chip.hidden = true;
+          chip.setAttribute("hidden", "");
+          chip.setAttribute("aria-hidden", "true");
         }
       }
 
@@ -716,11 +681,15 @@
                 !hasPeople || !st.inWindow
               );
             }
-            var cta = document.getElementById("btn-enter");
-            if (cta && hasPeople && online > 0) {
+            // Optional title on remaining Start chatting links (header + bottom)
+            if (hasPeople && online > 0) {
               var base = (dict && dict["home.cta"]) || "Start chatting";
-              cta.title = base + " · " + online + " online";
-              cta.setAttribute("data-online", String(online));
+              document
+                .querySelectorAll(".nav-live-link, .home-final-cta .home-cta")
+                .forEach(function (cta) {
+                  cta.title = base + " · " + online + " online";
+                  cta.setAttribute("data-online", String(online));
+                });
             }
           })
           .catch(function () {
@@ -769,77 +738,24 @@
         });
       }, 60000);
 
-      // Hero video: poster is LCP; load mp4 only when in view (saves mobile data)
+      // Hero art: keep the fire brand still (logo-hero) next to "Meet someone new".
+      // Cylinder mp4 used to replace it — disabled so the classic picture stays.
       (function setupHeroVideo() {
         var vid = document.getElementById("home-hero-video");
         var fb = document.getElementById("home-hero-fallback");
-        if (!vid) return;
-        var reduce =
-          window.matchMedia &&
-          window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        var saveData =
-          (navigator.connection && navigator.connection.saveData) ||
-          (navigator.connection &&
-            /2g/i.test(navigator.connection.effectiveType || ""));
-        function showFallback() {
-          if (fb) {
-            fb.hidden = false;
-            fb.removeAttribute("hidden");
-          }
+        if (fb) {
+          fb.hidden = false;
+          fb.removeAttribute("hidden");
+        }
+        if (vid) {
           vid.hidden = true;
+          vid.setAttribute("hidden", "");
           try {
             vid.pause();
             vid.removeAttribute("src");
+            vid.removeAttribute("data-src");
             vid.load();
           } catch (_) {}
-        }
-        function showVideo() {
-          if (fb) fb.hidden = true;
-          vid.hidden = false;
-          vid.removeAttribute("hidden");
-        }
-        if (reduce || saveData) {
-          showFallback();
-          return;
-        }
-        function startVideo() {
-          if (vid.dataset.loaded === "1") return;
-          var src = vid.getAttribute("data-src");
-          if (!src) return;
-          vid.dataset.loaded = "1";
-          vid.src = src;
-          vid.addEventListener("error", showFallback);
-          showVideo();
-          var p = vid.play();
-          if (p && typeof p.catch === "function") {
-            p.catch(function () {
-              var once = function () {
-                document.removeEventListener("pointerdown", once);
-                vid.play().catch(showFallback);
-              };
-              document.addEventListener("pointerdown", once, { passive: true });
-            });
-          }
-        }
-        // Defer until hero is near viewport (or idle)
-        if ("IntersectionObserver" in window) {
-          var io = new IntersectionObserver(
-            function (entries) {
-              for (var i = 0; i < entries.length; i++) {
-                if (entries[i].isIntersecting) {
-                  io.disconnect();
-                  startVideo();
-                  break;
-                }
-              }
-            },
-            { rootMargin: "120px", threshold: 0.05 }
-          );
-          io.observe(vid.parentElement || vid);
-        } else if (window.requestIdleCallback) {
-          requestIdleCallback(startVideo, { timeout: 2000 });
-        } else {
-          setTimeout(startVideo, 800);
         }
       })();
 

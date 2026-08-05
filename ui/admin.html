@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="robots" content="noindex,nofollow" />
   <title>ruletka.vip — admin reports</title>
-  <link rel="icon" href="/brand/favicon-32.png" type="image/png" />
+  <link rel="icon" href="/brand/favicon-32.png?v=10" type="image/png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -443,7 +443,7 @@
 <body>
   <div class="wrap">
     <header>
-      <img src="/brand/logo-mark.png" width="32" height="32" alt="" style="border-radius:8px;box-shadow:0 0 0 1px rgba(255,255,255,0.12)" />
+      <img src="/brand/logo-mark.png?v=10" width="32" height="32" alt="" style="border-radius:8px;box-shadow:0 0 0 1px rgba(255,255,255,0.12)" />
       <h1>ruletka.vip admin</h1>
       <span class="badge">reports</span>
       <span style="flex:1"></span>
@@ -461,10 +461,11 @@
     <p class="hint">
       <strong>Auto-moderation (no admin required):</strong>
       underage → 1 report / 30d ban;
-      explicit·harassment·hate → 2 / 7d;
-      spam·other → 3 / 3d;
+      explicit → 2 reports / <strong>90d</strong> (2nd strike → permanent);
+      harassment·hate → 2 / 14d;
+      spam·other → 3 / 7d;
       AI NSFW reports (<code>explicit_ai</code>) need one extra unique reporter.
-      Clients also block + skip immediately. Review logs below for edge cases.
+      Clients also block + skip immediately. Review logs / recent matches below.
       Optional alerts: set <code>ROULETTE_MOD_WEBHOOK_URL</code> (Telegram
       <code>…/sendMessage?chat_id=…</code>, Slack, or Discord) in
       <code>data/mod.env</code> — see <code>docs/OPS.md</code>.
@@ -773,8 +774,27 @@
     <h2>Manual ban</h2>
     <div class="auth">
       <input id="ban-uid" type="text" placeholder="user_id to ban" autocomplete="off" />
-      <input id="ban-days" type="number" min="1" max="365" value="7" style="flex:0 0 5rem" title="Days" />
+      <input id="ban-days" type="number" min="0" max="3650" value="7" style="flex:0 0 5rem" title="Days (0 = permanent)" />
       <button type="button" class="danger" id="btn-ban">Ban days</button>
+      <button type="button" class="danger" id="btn-ban-perm" title="Permanent match ban">Ban permanent</button>
+    </div>
+    <p class="hint">Days <code>0</code> or the Permanent button = permanent restriction (~year 2200). Use Recent matches below to ban both sides of a call.</p>
+
+    <h2>Recent matches</h2>
+    <div class="card" id="recent-matches-card">
+      <div class="empty" id="recent-matches-empty">Sign in to load recent matches (in-memory, last ~80 since hub restart)</div>
+      <table id="recent-matches-table" hidden>
+        <thead>
+          <tr>
+            <th>When</th>
+            <th>Mode</th>
+            <th>A</th>
+            <th>B</th>
+            <th>Ban</th>
+          </tr>
+        </thead>
+        <tbody id="recent-matches-body"></tbody>
+      </table>
     </div>
 
     <h2>Recent reports</h2>
@@ -1934,6 +1954,7 @@
         $("st-bans").textContent = (data.bans || []).length;
         $("st-seeders").textContent = (data.seeders || []).length;
         renderBans(data.bans || []);
+        renderRecentMatches(data.recent_matches || []);
         renderReports(data.reports || []);
         renderTargets(data.targets || []);
         renderSeeders(data.seeders || []);
@@ -1981,8 +2002,12 @@
 
     async function ban(uid, days) {
       if (!uid) return;
-      const secs = Math.max(1, Number(days) || 7) * 86400;
-      if (!confirm("Ban " + uid + " for " + (days || 7) + " days?")) return;
+      const d = Number(days);
+      // 0 days → permanent (secs: 0)
+      const permanent = !Number.isFinite(d) ? false : d === 0;
+      const secs = permanent ? 0 : Math.max(1, d || 7) * 86400;
+      const label = permanent ? "PERMANENTLY" : "for " + (d || 7) + " days";
+      if (!confirm("Ban " + uid + " " + label + "?")) return;
       try {
         await api("/v1/admin/ban", {
           method: "POST",
@@ -1992,6 +2017,68 @@
       } catch (e) {
         showErr(e.message || String(e));
       }
+    }
+
+    function renderRecentMatches(list) {
+      const body = $("recent-matches-body");
+      const empty = $("recent-matches-empty");
+      const table = $("recent-matches-table");
+      if (!body || !empty || !table) return;
+      if (!list || !list.length) {
+        empty.hidden = false;
+        table.hidden = true;
+        empty.textContent = "No matches since hub restart";
+        body.innerHTML = "";
+        return;
+      }
+      empty.hidden = true;
+      table.hidden = false;
+      const fmt = (ts) => {
+        try {
+          return new Date(Number(ts) * 1000).toLocaleString();
+        } catch {
+          return String(ts || "");
+        }
+      };
+      body.innerHTML = list
+        .map((m) => {
+          const ua = m.user_a || "";
+          const ub = m.user_b || "";
+          const na = m.name_a || "—";
+          const nb = m.name_b || "—";
+          return `<tr>
+            <td>${escapeHtml(fmt(m.ts))}</td>
+            <td>${escapeHtml(m.mode || "solo")}</td>
+            <td>
+              <div>${escapeHtml(na)}</div>
+              <div class="uid" title="${escapeAttr(ua)}">${escapeHtml(shortId(ua))}</div>
+            </td>
+            <td>
+              <div>${escapeHtml(nb)}</div>
+              <div class="uid" title="${escapeAttr(ub)}">${escapeHtml(shortId(ub))}</div>
+            </td>
+            <td style="white-space:nowrap">
+              ${
+                ua
+                  ? `<button type="button" class="danger" data-ban="${escapeAttr(ua)}" data-days="7">A 7d</button>
+                     <button type="button" class="danger" data-ban="${escapeAttr(ua)}" data-days="0">A ∞</button>`
+                  : ""
+              }
+              ${
+                ub
+                  ? `<button type="button" class="danger" data-ban="${escapeAttr(ub)}" data-days="7">B 7d</button>
+                     <button type="button" class="danger" data-ban="${escapeAttr(ub)}" data-days="0">B ∞</button>`
+                  : ""
+              }
+            </td>
+          </tr>`;
+        })
+        .join("");
+      body.querySelectorAll("[data-ban]").forEach((btn) => {
+        btn.addEventListener("click", () =>
+          ban(btn.getAttribute("data-ban"), btn.getAttribute("data-days"))
+        );
+      });
     }
 
     $("btn-load").addEventListener("click", refresh);
@@ -2011,6 +2098,9 @@
     });
     $("btn-ban").addEventListener("click", () => {
       ban($("ban-uid").value.trim(), $("ban-days").value);
+    });
+    $("btn-ban-perm")?.addEventListener("click", () => {
+      ban($("ban-uid").value.trim(), 0);
     });
     $("btn-grant-stars")?.addEventListener("click", () => grantStars());
     $("token").addEventListener("keydown", (e) => {

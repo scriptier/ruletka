@@ -29,7 +29,7 @@ This Code applies in GitHub issues/PRs, discussions, and any official project ch
 
 ## Enforcement
 
-Report conduct concerns to **support@ruletka.vip** (or GitHub maintainers for repo-only issues). Maintainers may warn, moderate, or ban contributors who violate this Code.
+Report conduct concerns to **support@ruletka.me** (or GitHub maintainers for repo-only issues). Maintainers may warn, moderate, or ban contributors who violate this Code.
 
 ## Attribution
 

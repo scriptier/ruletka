@@ -869,6 +869,7 @@ async fn admin_reports_handler(
     let targets = hub.admin_report_targets();
     let seeders = read_seeders_unique(&seeders_path_from_reports(&path), 40);
     let metrics = hub.metrics_snapshot();
+    let recent_matches = hub.admin_recent_matches(50);
     Json(serde_json::json!({
         "ok": true,
         "reports_path": path.display().to_string(),
@@ -876,9 +877,30 @@ async fn admin_reports_handler(
         "bans": bans,
         "targets": targets,
         "seeders": seeders,
+        "recent_matches": recent_matches,
         "online": hub.online(),
         "waiting": hub.waiting_count(),
         "metrics": metrics,
+    }))
+    .into_response()
+}
+
+async fn admin_recent_matches_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if !admin_token_ok(&state, &headers) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"ok": false, "error": "unauthorized"})),
+        )
+            .into_response();
+    }
+    let hub = state.hub.lock().await;
+    let matches = hub.admin_recent_matches(80);
+    Json(serde_json::json!({
+        "ok": true,
+        "matches": matches,
     }))
     .into_response()
 }
@@ -1756,6 +1778,10 @@ async fn main() {
         .route("/v1/admin/ban", post(admin_ban_handler))
         .route("/v1/admin/unban", post(admin_unban_handler))
         .route("/v1/admin/stars", post(admin_stars_handler))
+        .route(
+            "/v1/admin/recent_matches",
+            get(admin_recent_matches_handler),
+        )
         .route("/v1/seeder/request", post(seeder_request_handler))
         .route("/v1/funnel", post(funnel_handler))
         // Mobile Universal Links / App Links (JSON content-type, no HTML branding)

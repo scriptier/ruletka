@@ -32,7 +32,7 @@ Deployed with the hub: `https://ruletka.vip/.well-known/…` returns **200** + `
 
 ```bash
 export ROULETTE_IOS_TEAM_ID=XXXXXXXXXX
-export ROULETTE_IOS_BUNDLE_ID=vip.ruletka.app
+export ROULETTE_IOS_BUNDLE_ID=me.ruletka.app
 # restart roulette-bridge
 ```
 
@@ -40,7 +40,7 @@ export ROULETTE_IOS_BUNDLE_ID=vip.ruletka.app
 
 ```bash
 curl -s https://ruletka.vip/.well-known/apple-app-site-association | jq .
-# details[0].appID should be TEAMID.vip.ruletka.app
+# details[0].appID should be TEAMID.me.ruletka.app
 ```
 
 4. Rebuild app with associated domains (already in config).
@@ -52,7 +52,7 @@ curl -s https://ruletka.vip/.well-known/apple-app-site-association | jq .
 
 ```bash
 export ROULETTE_ANDROID_SHA256="AA:BB:CC:..."
-export ROULETTE_ANDROID_PACKAGE=vip.ruletka.app
+export ROULETTE_ANDROID_PACKAGE=me.ruletka.app
 ```
 
 3. Confirm:
@@ -64,7 +64,7 @@ curl -s https://ruletka.vip/.well-known/assetlinks.json | jq .
 4. Install a release/preview build; verify with:
 
 ```bash
-adb shell pm get-app-links vip.ruletka.app
+adb shell pm get-app-links me.ruletka.app
 ```
 
 ## Push for killed-app rings

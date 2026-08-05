@@ -124,6 +124,14 @@ export default function FriendsScreen() {
   }
 
   function call(f: FriendInfo | { user_id: string; name?: string; short_id?: string }) {
+    // Only mutual friends may place a ring (hub also enforces).
+    if (!friends.some((x) => x.user_id === f.user_id)) {
+      Alert.alert(
+        t("friends.callOnlyFriends") || "Only friends can call",
+        t("mobile.friends.empty")
+      );
+      return;
+    }
     try {
       hub.callFriend(f.user_id);
       setOutboundCall({
@@ -136,8 +144,15 @@ export default function FriendsScreen() {
   }
 
   function callFromHistory(h: CallHistoryEntry) {
-    const online = friends.find((f) => f.user_id === h.user_id)?.online;
-    if (!online) {
+    const fr = friends.find((f) => f.user_id === h.user_id);
+    if (!fr) {
+      Alert.alert(
+        t("friends.callOnlyFriends") || "Only friends can call",
+        t("mobile.friends.empty")
+      );
+      return;
+    }
+    if (!fr.online) {
       // Still try — hub may deliver offline ring via push token
       Alert.alert(
         t("mobile.history.offline"),
@@ -252,7 +267,9 @@ export default function FriendsScreen() {
             </Pressable>
           </View>
           {history.slice(0, 12).map((h) => {
-            const online = friends.find((f) => f.user_id === h.user_id)?.online;
+            const fr = friends.find((f) => f.user_id === h.user_id);
+            const online = !!fr?.online;
+            // Call only if still a mutual friend — never re-ring non-friends.
             return (
               <View key={h.id} style={styles.row}>
                 <View style={styles.rowMain}>
@@ -262,14 +279,16 @@ export default function FriendsScreen() {
                     {online ? ` · ${t("mobile.common.online")}` : ""}
                   </Text>
                 </View>
-                <Pressable
-                  style={online ? styles.callBtn : styles.ghostBtn}
-                  onPress={() => callFromHistory(h)}
-                >
-                  <Text style={online ? styles.btnText : styles.btnTextMuted}>
-                    {t("mobile.history.callBack")}
-                  </Text>
-                </Pressable>
+                {fr ? (
+                  <Pressable
+                    style={online ? styles.callBtn : styles.ghostBtn}
+                    onPress={() => callFromHistory(h)}
+                  >
+                    <Text style={online ? styles.btnText : styles.btnTextMuted}>
+                      {t("friends.call")}
+                    </Text>
+                  </Pressable>
+                ) : null}
               </View>
             );
           })}

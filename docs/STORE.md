@@ -11,7 +11,9 @@ Companion to [`MOBILE.md`](MOBILE.md). Code lives in `mobile/`.
 | Expo account + EAS | `npm i -g eas-cli` · `eas login` |
 | Privacy Policy URL | https://ruletka.vip/legal/privacy.html |
 | Terms / EULA URL | https://ruletka.vip/legal/terms.html · eula |
-| Support email | e.g. support@ruletka.vip |
+| Data deletion URL | https://ruletka.vip/legal/delete.html |
+| Support email | support@ruletka.me |
+| Privacy email | privacy@ruletka.me |
 | App icons 1024 / Play feature graphic | Generated under `mobile/assets/` + `mobile/assets/store/` (from `ui/brand/`) |
 
 ## One-time EAS project setup
@@ -22,7 +24,7 @@ npm install
 npx eas-cli login
 npx eas init
 # Pastes real projectId into app.json extra.eas.projectId
-# Confirm bundleIdentifier / package: vip.ruletka.app
+# Confirm bundleIdentifier / package: me.ruletka.app
 ```
 
 Optional env when not using `eas init` edit:

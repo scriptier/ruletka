@@ -16,7 +16,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "vip.ruletka.app",
+      "bundleIdentifier": "me.ruletka.app",
       "buildNumber": "1",
       "infoPlist": {
         "NSCameraUsageDescription": "ruletka needs the camera for peer-to-peer video chat. Video goes device-to-device and is not uploaded to our servers.",
@@ -29,8 +29,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#07080c"
       },
-      "package": "vip.ruletka.app",
-      "versionCode": 1,
+      "package": "me.ruletka.app",
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",

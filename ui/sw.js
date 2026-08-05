@@ -6,7 +6,7 @@
  * - Bump CACHE when shell list changes so activate cleans old entries.
  * - No skipWaiting on install (avoids mid-call takeover); client posts SKIP_WAITING on Reload.
  */
-const CACHE = "rulet-shell-v7";
+const CACHE = "rulet-shell-v15";
 
 /** Offline-safe shell only — keep small (no 250KB icons / mp4). Live stack is network-first. */
 const SHELL = [
@@ -31,6 +31,8 @@ function isVolatilePath(pathname) {
   return (
     pathname === "/live.js" ||
     pathname === "/live.html" ||
+    pathname === "/live-stage.css" ||
+    pathname === "/live-themes.css" ||
     pathname === "/webrtc.js" ||
     pathname === "/identity.js" ||
     pathname === "/hubs.js" ||

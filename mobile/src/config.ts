@@ -49,6 +49,20 @@ export function termsUrl(): string {
   return String(extra().termsUrl || "") || `${hubBase()}/legal/terms.html`;
 }
 
+export function deleteDataUrl(): string {
+  return (
+    String(extra().deleteDataUrl || "") || `${hubBase()}/legal/delete.html`
+  );
+}
+
+export function supportEmail(): string {
+  return String(extra().supportEmail || "") || "support@ruletka.me";
+}
+
+export function privacyEmail(): string {
+  return String(extra().privacyEmail || "") || "privacy@ruletka.me";
+}
+
 export function wsUrl(base = hubBase()): string {
   const u = new URL(base);
   u.protocol = u.protocol === "https:" ? "wss:" : "ws:";

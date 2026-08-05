@@ -15,6 +15,14 @@ const friendsOnly =
   process.env.EXPO_PUBLIC_FRIENDS_ONLY === "1" ||
   process.env.EXPO_PUBLIC_FRIENDS_ONLY === "true";
 
+// Store / preview AABs must not ship expo-dev-client (Gradle + Play policy noise).
+// Only wire it for the development EAS profile (or local when profile unset).
+const easProfile = process.env.EAS_BUILD_PROFILE || "";
+const wantDevClient =
+  easProfile === "development" ||
+  easProfile === "" ||
+  process.env.EXPO_DEV_CLIENT === "1";
+
 /** @type {import('expo/config').ExpoConfig} */
 const expo = {
   ...base.expo,
@@ -22,11 +30,21 @@ const expo = {
   plugins: [
     "expo-router",
     "expo-secure-store",
+    "expo-asset",
+    "expo-font",
+    ...(wantDevClient ? ["expo-dev-client"] : []),
     [
       "expo-build-properties",
       {
         android: {
           minSdkVersion: 24,
+          // RN WebRTC + modern AGP: keep packaging predictable on EAS
+          packagingOptions: {
+            pickFirst: [
+              "**/libc++_shared.so",
+              "**/libjingle_peerconnection_so.so",
+            ],
+          },
         },
         ios: {
           deploymentTarget: "15.1",
@@ -110,7 +128,10 @@ const expo = {
     privacyPolicyUrl: `${hubBase}/legal/privacy.html`,
     termsUrl: `${hubBase}/legal/terms.html`,
     eulaUrl: `${hubBase}/legal/eula.html`,
+    deleteDataUrl: `${hubBase}/legal/delete.html`,
     supportUrl: `${hubBase}/safety.html`,
+    supportEmail: "support@ruletka.me",
+    privacyEmail: "privacy@ruletka.me",
     eas: {
       ...(base.expo.extra?.eas || {}),
       // Expo project (eas init --id …)

@@ -4,16 +4,17 @@
 
 1. **Add friends** via a short friend code  
 2. **Call when online** (1:1 WebRTC through the bridge)  
-3. **Browse strangers together** as a party of **exactly 2**  
-4. Match shapes **only** (hard caps — nothing larger):
+3. **Browse strangers together** as a party of **2 or 3**  
+4. Match shapes (hard caps — max **4** people in a stranger session):
 
 | Mode | Layout | How |
 |------|--------|-----|
 | **1v1** | You ↔ one stranger | Solo Next vs solo |
-| **1v2** | You ↔ two party members (vertical split) | Solo matches a browsing party |
-| **2v2** | Your party of 2 ↔ their party of 2 | Two parties match each other |
+| **1v2** | You ↔ two party members | Solo matches a browsing party of 2 |
+| **3v1** | You ↔ three party members | Solo matches a browsing party of 3 |
+| **2v2** | Your party of 2 ↔ their party of 2 | Two parties of 2 match each other |
 
-No 3-person parties, no 3v1, no 3v2, etc. Max **4** people in a stranger session.
+Party of 3 forms after a 3-way mesh (Find 3rd / friend joins your call). Then **Find stranger together (3v1)** queues all three for one solo.
 
 ## Roles
 

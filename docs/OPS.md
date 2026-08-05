@@ -150,7 +150,7 @@ Edit addresses on the droplet (or in the repo UI) then redeploy / rsync:
   "eth": "0x…your-ethereum…",
   "eth_note": "Ethereum mainnet",
   "updated": "2026-07-31",
-  "contact": "support@ruletka.vip"
+  "contact": "support@ruletka.me"
 }
 ```
 

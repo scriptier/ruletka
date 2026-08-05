@@ -19,7 +19,6 @@
     },
     "preview": {
       "distribution": "internal",
-      "channel": "preview",
       "env": {
         "EXPO_PUBLIC_HUB_BASE": "https://ruletka.vip"
       },
@@ -36,7 +35,6 @@
     },
     "production": {
       "autoIncrement": true,
-      "channel": "production",
       "env": {
         "EXPO_PUBLIC_HUB_BASE": "https://ruletka.vip"
       },

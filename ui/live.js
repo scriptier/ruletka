@@ -437,6 +437,48 @@ let nsfwModel = null;
 let nsfwLoadPromise = null;
 let nsfwTimer = 0;
 let nsfwHitCooldown = false;
+/** Formal debate: alternating speaking turns (P2P-synced). */
+const DEBATE_TURN_MS = 30_000;
+const DEBATE_TURN_CHOICES_S = [15, 30, 45, 60];
+/** @type {AudioContext | null} */
+let debateAudioCtx = null;
+/** @type {{
+ *   active: boolean,
+ *   pending: null | "out" | "in",
+ *   partnerId: string,
+ *   hostId: string,
+ *   speakerId: string,
+ *   inviteId: string,
+ *   turnMs: number,
+ *   turnEndsAt: number,
+ *   turnIndex: number,
+ *   tickIv: number,
+ *   inviteTimer: number,
+ *   topic: string,
+ *   urgentBeeped: boolean,
+ *   lastUrgentHapticSec: number,
+ *   lastChimeSpeaker: string,
+ *   composeTurnSecs: number
+ * }} */
+let debate = {
+  active: false,
+  pending: null,
+  partnerId: "",
+  hostId: "",
+  speakerId: "",
+  inviteId: "",
+  turnMs: DEBATE_TURN_MS,
+  turnEndsAt: 0,
+  turnIndex: 0,
+  tickIv: 0,
+  inviteTimer: 0,
+  topic: "",
+  urgentBeeped: false,
+  lastUrgentHapticSec: -1,
+  lastChimeSpeaker: "",
+  composeTurnSecs: 30,
+};
+
 /** Prefer staying in queue across reconnects (Next / Spin / waiting). */
 let wantSearch = false;
 /** True while phase is waiting (also used across reconnect). */
@@ -539,7 +581,8 @@ let swipeSkipSuppressClick = false;
 let lastWaitingCount = 0;
 const RULES_KEY = "nextface-rules-v1";
 const HISTORY_KEY = "nextface-history-v1";
-const MAX_HISTORY = 40;
+/** Keep many encounter rows so short/bad matches are not dropped. */
+const MAX_HISTORY = 80;
 /** Local match + friend chat threads (survive hangup / reload). */
 const CHAT_THREADS_KEY = "ruletka-chat-threads-v1";
 /** last-read timestamps per thread key (for friend unread badges). */
@@ -653,12 +696,15 @@ function setBlurStarterLeft(n) {
   } catch (_) {}
 }
 
-/** True when Settings forces blur-first (not just starter budget). */
+/** True when Settings forces blur-first (not just starter budget). Default ON. */
 function blurFirstPrefEnabled() {
   try {
-    return loadPrefs().blurFirst === true;
+    const v = loadPrefs().blurFirst;
+    // Default on for new users; only off when user explicitly disabled
+    if (v === false) return false;
+    return true;
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -688,7 +734,7 @@ function maybeShowBlurStarterTip() {
   }
   const body =
     _t("safety.blurStarterTip") ||
-    "Strangers start blurred for your first chats. Tap “Blur them” to reveal when ready.";
+    "Strangers start blurred for your first chats. Tap “Unblur” to reveal when ready.";
   setStatus(body);
   try {
     if ($("blur-starter-tip")) return;
@@ -712,8 +758,65 @@ function maybeShowBlurStarterTip() {
   } catch (_) {}
 }
 
+const UNBLUR_COACH_SESSION_KEY = "ruletka-unblur-coach-session-v1";
+
+/**
+ * Coach toast when always-blur is on: point at Unblur button + tap-to-reveal.
+ * Once per browser tab session so it does not spam every Next.
+ */
+function maybeShowUnblurCoach() {
+  try {
+    if (sessionStorage.getItem(UNBLUR_COACH_SESSION_KEY) === "1") return;
+    sessionStorage.setItem(UNBLUR_COACH_SESSION_KEY, "1");
+  } catch {
+    /* still show once if storage blocked */
+  }
+  const body =
+    _t("safety.unblurCoach") ||
+    "Partner is blurred for privacy. Tap Unblur (side button) or their video to reveal.";
+  setStatus(body);
+  try {
+    if ($("unblur-coach-tip")) return;
+    const tip = document.createElement("div");
+    tip.id = "unblur-coach-tip";
+    tip.className = "weak-conn-tip unblur-coach-tip";
+    tip.setAttribute("role", "status");
+    tip.style.pointerEvents = "auto";
+    tip.innerHTML = `
+      <span>${escapeHtml(body)}</span>
+      <button type="button" class="pill tight accent" id="btn-unblur-coach-ok">${escapeHtml(
+        _t("btn.unblur") || "Unblur"
+      )}</button>
+      <button type="button" class="pill tight ghost" id="btn-unblur-coach-dismiss">${escapeHtml(
+        _t("pwa.iosGotIt") || "Got it"
+      )}</button>`;
+    document.body.appendChild(tip);
+    const dismiss = () => {
+      if (tip.parentNode) tip.remove();
+    };
+    $("btn-unblur-coach-dismiss")?.addEventListener("click", dismiss);
+    $("btn-unblur-coach-ok")?.addEventListener("click", () => {
+      dismiss();
+      try {
+        if (partnerBlurred) {
+          clearIntroBlurTimer();
+          introBlurGen++;
+          setPartnerBlur(false);
+          syncPartnerBlurButtonLabels();
+          log(_t("log.blurOff") || "partner video unblurred");
+          setStatus(
+            _t("log.blurOffTap") || "Partner revealed — tap again for more options"
+          );
+        }
+      } catch (_) {}
+    });
+    setTimeout(dismiss, 10000);
+    trackEvent("unblur_coach_show");
+  } catch (_) {}
+}
+
 /** Timed safety blur on new stranger matches (then auto-clear unless blur-first). */
-const INTRO_BLUR_MS = 2000;
+const INTRO_BLUR_MS = 3000;
 let introBlurTimer = 0;
 let introBlurGen = 0;
 
@@ -744,14 +847,16 @@ function applyStrangerIntroBlur() {
       );
     } else {
       log(_t("log.blurFirst") || "partner stays blurred until you unblur");
+      maybeShowUnblurCoach();
     }
     // Sync settings checkbox so user sees permanent option is separate
     try {
       syncBlurFirstUi();
+      syncPartnerBlurButtonLabels();
     } catch (_) {}
     return;
   }
-  log(_t("log.blurIntro") || "partner blurred 2s — Next if needed");
+  log(_t("log.blurIntro") || "partner blurred 3s — Next if needed");
   const gen = ++introBlurGen;
   introBlurTimer = setTimeout(() => {
     introBlurTimer = 0;
@@ -771,13 +876,48 @@ function syncBlurFirstUi() {
   const hint = chk
     .closest(".settings-row")
     ?.querySelector?.(".toggle-hint");
-  if (hint && !blurFirstPrefEnabled()) {
-    const left = blurStarterLeft();
-    if (left > 0) {
-      hint.textContent =
-        _t("settings.blurFirstHintStarter", { n: left }) ||
-        `First ${left} stranger matches stay blurred until you unblur · then 2s intro blur`;
-    }
+  if (!hint) return;
+  if (blurFirstPrefEnabled()) {
+    hint.textContent =
+      _t("settings.blurFirstHintOn") ||
+      "On: every new conversationalist stays blurred until you tap Unblur";
+    return;
+  }
+  const left = blurStarterLeft();
+  if (left > 0) {
+    hint.textContent =
+      _t("settings.blurFirstHintStarter", { n: left }) ||
+      `First ${left} stranger matches stay blurred until you unblur · then 3s intro blur`;
+  } else {
+    hint.textContent =
+      _t("settings.blurFirstHint") ||
+      "Off: only 3s intro blur on new matches (then auto-unblur)";
+  }
+}
+
+/** Update blur button labels for current partner blur state. */
+function syncPartnerBlurButtonLabels() {
+  const lbl = $("btn-blur-remote")?.querySelector(".lbl");
+  if (lbl) {
+    lbl.textContent = partnerBlurred
+      ? _t("btn.unblur") || "Unblur"
+      : _t("btn.blur") || "Blur them";
+  }
+  const btn = $("btn-blur-remote");
+  if (btn) {
+    const title = partnerBlurred
+      ? _t("btn.unblurTitle") ||
+        "Show partner video — you chose to reveal them"
+      : blurFirstPrefEnabled()
+        ? _t("btn.blurTitleAlways") ||
+          "Blur partner video (B) · always blur new matches until you Unblur"
+        : _t("btn.blurTitle") ||
+          "Blur partner video (B) · auto 3s on new match";
+    btn.title = title;
+    btn.setAttribute("aria-label", title);
+    // Accent "Unblur" state so the reveal action stands out
+    btn.classList.toggle("is-unblur", !!partnerBlurred);
+    btn.classList.toggle("active", !!partnerBlurred);
   }
 }
 
@@ -2136,6 +2276,15 @@ let postMatchFriendSnap = null;
 /** Min match seconds before post-match friend CTA (lowered for Week-2 funnel). */
 const POST_MATCH_FRIEND_MIN_SEC = 8;
 
+/**
+ * After any stranger call: let user Report / Block last partner even if they
+ * forgot in-call (and even if Call history is hard to find).
+ */
+const safetyNudgeShown = new Set();
+let postMatchSafetyNudgeTimer = 0;
+/** @type {{ uid: string, name: string, short_id: string, friend_code: string, reason: string } | null} */
+let postMatchSafetySnap = null;
+
 /** Last call duration in seconds (survives stopMatchTimer zeroing the clock). */
 let lastMatchDurationSec = 0;
 
@@ -2480,30 +2629,51 @@ function setStarsBadge(which, count, opts = {}) {
   const prevLocalTrust = myTrust;
   if (which === "local") myStars = n;
   if (which === "remote") partnerStars = n;
-  // Tier chrome: local uses effective trust; remote count *is* effective trust
-  const tierScore =
-    which === "local"
-      ? Math.max(
-          0,
-          Math.floor(
-            Number(
-              opts.trust != null
-                ? opts.trust
-                : myTrustEffective || myTrust
-            ) || 0
-          )
-        )
-      : n;
+  // Tier chrome: prefer explicit trust (local + remote). Remote number is spendable balance.
+  const tierScore = Math.max(
+    0,
+    Math.floor(
+      Number(
+        opts.trust != null
+          ? opts.trust
+          : which === "local"
+            ? myTrustEffective || myTrust
+            : 0
+      ) || 0
+    )
+  );
   if (badge) {
     const live = !!(matched || inFriendCall);
     // Your ★ always visible (even 0) so you can open the guide anytime.
     // Partner ★ when they have trust, or during live chat (shows 0).
     const show = which === "local" ? true : n > 0 || live;
     badge.hidden = !show;
-    if (show) badge.removeAttribute("hidden");
-    else badge.setAttribute("hidden", "");
+    if (show) {
+      badge.removeAttribute("hidden");
+      // Defeat leftover display:none from races / old CSS
+      try {
+        badge.style.removeProperty("display");
+        if (which === "local") {
+          badge.style.setProperty("display", "inline-flex", "important");
+          badge.style.setProperty("opacity", "1", "important");
+          badge.style.setProperty("visibility", "visible", "important");
+        }
+      } catch (_) {}
+    } else badge.setAttribute("hidden", "");
     badge.classList.add("is-clickable");
     badge.classList.toggle("is-live-chat", live);
+    // Keep header ★ in sync (always-visible chrome)
+    if (which === "local") {
+      const topN = $("stars-top-count");
+      if (topN) topN.textContent = String(n);
+      const topBtn = $("btn-stars-top");
+      if (topBtn) {
+        topBtn.hidden = false;
+        topBtn.removeAttribute("hidden");
+        topBtn.title =
+          (_t("stars.yours") || "Your balance") + ` · ★ ${n}`;
+      }
+    }
     // Visual evolution by **trust** tier (report weight goals)
     const w = reportWeightForStars(tierScore);
     badge.classList.remove("tier-normal", "tier-trusted", "tier-senior");
@@ -2554,7 +2724,7 @@ function setStarsBadge(which, count, opts = {}) {
   applyStarsTierFrames(which, tierScore);
   // Match-time tier chip (New / Known / Trusted / Senior)
   try {
-    setTrustTierChip(which, which === "local" ? tierScore : n);
+    setTrustTierChip(which, tierScore);
   } catch (_) {}
   if (which === "local" && (n !== prevLocalBal || tierScore !== prevLocalTrust)) {
     maybeStarsAlmostThereNudge(tierScore);
@@ -2702,6 +2872,8 @@ function syncStarsSheetUi() {
 
   const bal = $("stars-sheet-balance");
   if (bal) bal.textContent = String(balN);
+  const balChip = $("stars-sheet-balance-chip");
+  if (balChip) balChip.textContent = String(balN);
   const trustEl = $("stars-sheet-trust");
   if (trustEl) {
     trustEl.textContent =
@@ -2862,41 +3034,57 @@ function syncStarsSheetUi() {
   }
   if (hintProg) {
     const g = Math.max(0, Number(myTrustGifters) || 0);
-    // Progress bar targets raw milestones; tier uses effective
     const rawLeftTrusted = Math.max(0, STARS_TRUSTED_GOAL - trustN);
     const rawLeftSenior = Math.max(0, STARS_SENIOR_GOAL - trustN);
+    const hintSub = $("stars-progress-hint-sub");
+    const setSub = (text) => {
+      if (!hintSub) return;
+      if (text) {
+        hintSub.textContent = text;
+        hintSub.hidden = false;
+        hintSub.removeAttribute("hidden");
+      } else {
+        hintSub.textContent = "";
+        hintSub.hidden = true;
+        hintSub.setAttribute("hidden", "");
+      }
+    };
     if (isSenior) {
       hintProg.textContent =
         _t("stars.progressSenior", { g }) ||
-        `Senior reporter — reports ×3 · ${g} gifters. Other seniors can’t auto-ban you.`;
+        `Senior reporter — reports ×3 · ${g} gifters.`;
+      setSub(
+        _t("stars.progressSeniorSub") ||
+          "Other seniors can’t auto-ban you."
+      );
     } else if (isTrusted) {
-      const needG =
+      hintProg.textContent =
+        _t("stars.progressHintSeniorLeft", { n: rawLeftSenior, g }) ||
+        `Trusted (×2) · ${rawLeftSenior} more trust to senior (×3).`;
+      setSub(
         g < SENIOR_MIN_GIFTERS
-          ? _t("stars.needGiftersSenior", {
+          ? _t("stars.needGiftersSeniorClean", {
               n: SENIOR_MIN_GIFTERS - g,
               have: g,
-            }) || ` · need ${SENIOR_MIN_GIFTERS - g} more gifters`
-          : "";
-      hintProg.textContent =
-        (_t("stars.progressHintSeniorLeft", { n: rawLeftSenior, g }) ||
-          `Trusted (×2). ${rawLeftSenior} more trust to senior (×3) · ${g} gifters.`) +
-        needG;
+            }) ||
+              `Need ${SENIOR_MIN_GIFTERS - g} more unique gifters (have ${g}).`
+          : ""
+      );
     } else {
-      const needG =
+      // Keep balance out of this line — hero already shows it
+      hintProg.textContent =
+        _t("stars.progressHintLeftShort", { n: rawLeftTrusted }) ||
+        `${rawLeftTrusted} more trust to trusted (reports ×2).`;
+      setSub(
         g < TRUSTED_MIN_GIFTERS
-          ? _t("stars.needGiftersTrusted", {
+          ? _t("stars.needGiftersTrustedClean", {
               n: TRUSTED_MIN_GIFTERS - g,
               have: g,
-            }) || ` · need ${TRUSTED_MIN_GIFTERS - g} more gifters`
-          : "";
-      hintProg.textContent =
-        (_t("stars.progressHintLeft", {
-          n: rawLeftTrusted,
-          g,
-          bal: balN,
-        }) ||
-          `${rawLeftTrusted} more trust to trusted (reports ×2). Balance ★ ${balN}.`) +
-        needG;
+            }) ||
+              `Need ${TRUSTED_MIN_GIFTERS - g} more unique gifters (have ${g}).`
+          : _t("stars.progressHintTrustOnly") ||
+              "Trust comes only from peer ★ gifts after chat."
+      );
     }
   }
 
@@ -3171,6 +3359,74 @@ function clearPartnerStarsBadge() {
   } catch (_) {}
   try {
     closeStarGiftPop();
+  } catch (_) {}
+}
+
+/**
+ * Post-call star gift: keep partner ★ badge off (they're gone) and play a
+ * short award animation in the conversationalist / empty partner window.
+ * @param {{ amount?: number, name?: string, total?: number }} [opts]
+ */
+function playPostCallStarAwardFx(opts = {}) {
+  try {
+    // Never leave their ★ chip on an empty tile after hangup
+    clearPartnerStarsBadge();
+    const tile = $("tile-remote");
+    if (!tile) return;
+    tile.querySelectorAll(".star-award-fx").forEach((n) => n.remove());
+    const amount = Math.max(1, Math.min(5, Number(opts.amount) || 1));
+    const name = String(opts.name || "").trim().slice(0, 24);
+    const total = Math.max(0, Number(opts.total) || 0);
+    const fx = document.createElement("div");
+    // Intensity scales with gift amount (1–3 common; up to 5 for big gifts)
+    const intensity = amount >= 3 ? 3 : amount >= 2 ? 2 : 1;
+    fx.className = `star-award-fx star-award-lv${intensity}`;
+    fx.setAttribute("aria-hidden", "true");
+    fx.dataset.amount = String(amount);
+    const sparkCount = intensity === 3 ? 14 : intensity === 2 ? 10 : 7;
+    let sparkles = "";
+    for (let i = 0; i < sparkCount; i++) {
+      sparkles += `<span class="star-award-spark" style="--i:${i};--n:${sparkCount}" aria-hidden="true">★</span>`;
+    }
+    const plus =
+      amount > 1
+        ? `★ +${amount}`
+        : _t("stars.awardFxTitle") || "★ Awarded";
+    const sub = total
+      ? _t("stars.awardFxBody", { n: total, name: name || "them" }) ||
+        (name ? `${name} · total ★ ${total}` : `Total ★ ${total}`)
+      : name || "";
+    const burstGlyph = intensity >= 3 ? "★★★" : intensity === 2 ? "★★" : "★";
+    fx.innerHTML = `
+      <div class="star-award-core">
+        <span class="star-award-burst" aria-hidden="true">${burstGlyph}</span>
+        <span class="star-award-label">${escapeHtml(plus)}</span>
+        ${sub ? `<span class="star-award-sub">${escapeHtml(sub)}</span>` : ""}
+      </div>
+      <div class="star-award-sparks">${sparkles}</div>`;
+    tile.appendChild(fx);
+    // Haptic scales with amount
+    try {
+      softHaptic?.(
+        intensity >= 3
+          ? [18, 28, 22, 28, 40]
+          : intensity === 2
+            ? [14, 28, 22]
+            : [12, 30, 18]
+      );
+    } catch (_) {}
+    const holdMs = intensity >= 3 ? 2000 : 1600;
+    const outMs = holdMs + 500;
+    setTimeout(() => {
+      try {
+        fx.classList.add("is-out");
+      } catch (_) {}
+    }, holdMs);
+    setTimeout(() => {
+      try {
+        fx.remove();
+      } catch (_) {}
+    }, outMs);
   } catch (_) {}
 }
 /** Keep your ★ visible/clickable during a live chat. */
@@ -4299,6 +4555,7 @@ function canSwipeSkipPartner() {
 function partnerSwipeChromeSelector() {
   return (
     ".side-rail, .tile-dock, .tile-floor, .partner-menu, .gift-strip, " +
+    ".debate-overlay, .debate-mobile-bar, .debate-card, " +
     ".swipe-skip-hint, button, a, input, select, textarea, label, " +
     ".stars-badge, .tile-corner-btn, .tile-tag, .chat-panel"
   );
@@ -4508,7 +4765,7 @@ function wireGiftStrip() {
       if (e.button != null && e.button !== 0) return;
       if (
         e.target?.closest?.(
-          ".side-rail, .tile-dock, .tile-floor, .partner-menu, .gift-strip, button, a, input, select, textarea, label, .fx-overlay"
+          ".side-rail, .tile-dock, .tile-floor, .partner-menu, .gift-strip, .debate-overlay, .debate-mobile-bar, button, a, input, select, textarea, label, .fx-overlay"
         )
       ) {
         return;
@@ -4933,11 +5190,167 @@ function showStarReviewPrompt(msg) {
 }
 
 /**
- * Capture partner identity while still available, then show Add-friend toast
- * (delayed after long chats so star-review can appear first).
+ * Capture last stranger so user can Report/Block after hangup or drop.
+ * Always schedules for strangers with a user id (no min duration).
+ * Friend-add nudge still lives in schedulePostMatchFriendNudge.
  */
+function schedulePostMatchSafetyNudge(reason) {
+  try {
+    if (matchMode === "friend" || inFriendCall) return;
+    const uid = String(
+      primaryPartnerUserId || lastMatchMeta?.user_id || ""
+    ).trim();
+    if (!uid || uid === myUserId) return;
+    if ((blockedCache || []).includes(uid)) return;
+    if (safetyNudgeShown.has(uid)) return;
+    postMatchSafetySnap = {
+      uid,
+      name:
+        lastMatchMeta?.name ||
+        lastMatchMeta?.short_id ||
+        _t("remote.tag") ||
+        "Partner",
+      short_id: lastMatchMeta?.short_id || "",
+      friend_code: lastMatchMeta?.friend_code || "",
+      reason: reason || "",
+    };
+    // Ensure they appear in Call history for later Block
+    try {
+      pushHistory({
+        kind: "stranger",
+        name: postMatchSafetySnap.name,
+        user_id: uid,
+        friend_code: postMatchSafetySnap.friend_code,
+        short_id: postMatchSafetySnap.short_id,
+      });
+    } catch (_) {}
+    if (postMatchSafetyNudgeTimer) {
+      clearTimeout(postMatchSafetyNudgeTimer);
+      postMatchSafetyNudgeTimer = 0;
+    }
+    postMatchSafetyNudgeTimer = setTimeout(() => {
+      postMatchSafetyNudgeTimer = 0;
+      maybeShowPostMatchSafetyNudge(reason);
+    }, 450);
+  } catch (_) {}
+}
+
+function maybeShowPostMatchSafetyNudge(reason) {
+  try {
+    const snap = postMatchSafetySnap;
+    const uid = String(snap?.uid || "").trim();
+    if (!uid) return;
+    if (safetyNudgeShown.has(uid)) return;
+    if ((blockedCache || []).includes(uid)) return;
+    if ($("post-match-safety-nudge")) return;
+    // Don't fight star review / friend nudge — wait a beat
+    if ($("star-review-toast") || $("post-match-friend-nudge")) {
+      postMatchSafetyNudgeTimer = setTimeout(() => {
+        postMatchSafetyNudgeTimer = 0;
+        maybeShowPostMatchSafetyNudge(reason || snap?.reason);
+      }, 2800);
+      return;
+    }
+    safetyNudgeShown.add(uid);
+    postMatchSafetySnap = null;
+    const name = snap?.name || "Partner";
+    const toast = document.createElement("div");
+    toast.id = "post-match-safety-nudge";
+    toast.className =
+      "friend-soft-toast post-match-friend-nudge post-match-safety-nudge is-force";
+    toast.setAttribute("role", "dialog");
+    toast.style.pointerEvents = "auto";
+    toast.innerHTML = `
+      <strong>${escapeHtml(
+        _t("friends.safetyNudgeTitle") || "Last partner"
+      )}</strong>
+      <span>${escapeHtml(
+        _t("friends.safetyNudgeBody", { n: name }) ||
+          `${name} — Report or Block if they broke the rules. Also under Friends → Call history → All.`
+      )}</span>
+      <div class="export-nudge-actions post-match-actions post-match-actions-force" style="margin-top:0.55rem">
+        <button type="button" class="pill tight danger post-match-primary" id="btn-post-safety-report">${escapeHtml(
+          _t("partnerMenu.reportNext") || "Report · Block"
+        )}</button>
+        <button type="button" class="pill tight danger" id="btn-post-safety-block">${escapeHtml(
+          _t("friends.blockFromHistory") || "Block"
+        )}</button>
+        <button type="button" class="pill tight ghost" id="btn-post-safety-history">${escapeHtml(
+          _t("friends.openHistory") || "Call history"
+        )}</button>
+        <button type="button" class="pill tight ghost" id="btn-post-safety-dismiss">${escapeHtml(
+          _t("friends.postMatchNo") || "Dismiss"
+        )}</button>
+      </div>`;
+    document.body.appendChild(toast);
+    trackEvent("safety_nudge_show", { reason: reason || snap?.reason || "" });
+    const dismiss = () => {
+      if (toast.parentNode) toast.remove();
+    };
+    $("btn-post-safety-dismiss")?.addEventListener("click", () => {
+      trackEvent("safety_nudge_dismiss");
+      dismiss();
+    });
+    $("btn-post-safety-history")?.addEventListener("click", () => {
+      trackEvent("safety_nudge_history");
+      dismiss();
+      try {
+        openFriends();
+        historyFilterMode = "all";
+        try {
+          syncHistoryFilterUi();
+        } catch (_) {}
+        setFriendsSheetTab("history");
+        renderHistoryList();
+      } catch (_) {}
+    });
+    $("btn-post-safety-block")?.addEventListener("click", () => {
+      trackEvent("safety_nudge_block");
+      dismiss();
+      try {
+        blockUserId(uid, { fromHistory: true, removeFromHistory: false });
+      } catch (_) {}
+    });
+    $("btn-post-safety-report")?.addEventListener("click", () => {
+      trackEvent("safety_nudge_report");
+      dismiss();
+      try {
+        // Offline report + block (no live match required)
+        saveLocalReport({
+          t: Date.now(),
+          user_id: uid,
+          name: snap?.name || "",
+          short_id: snap?.short_id || "",
+          friend_code: snap?.friend_code || "",
+          reason: "explicit",
+        });
+        send({
+          type: "report_user",
+          user_id: uid,
+          reason: "explicit",
+        });
+        blockUserId(uid, {
+          silent: true,
+          skipToast: false,
+          fromHistory: true,
+          removeFromHistory: false,
+        });
+        setStatus(
+          _t("partnerMenu.reportOkFull") ||
+            "Reported · blocked. You will not match them again."
+        );
+      } catch (_) {}
+    });
+    setTimeout(dismiss, 28000);
+  } catch (_) {}
+}
+
 function schedulePostMatchFriendNudge(reason) {
   try {
+    // Always offer Report/Block for last stranger (safety > retention)
+    try {
+      schedulePostMatchSafetyNudge(reason);
+    } catch (_) {}
     if (matchMode === "friend" || inFriendCall) return;
     const code = String(lastMatchMeta?.friend_code || "").toUpperCase();
     const uid = primaryPartnerUserId || lastMatchMeta?.user_id || "";
@@ -5368,9 +5781,399 @@ function chatPeerPcs() {
  * @param {{ asFriend?: boolean, peerUserId?: string }} [opts]
  * @returns {"p2p"|"hub"|false}
  */
+/* ── Typing indicators (P2P datachannel) ── */
+const TYPING_IDLE_MS = 2500;
+const TYPING_REMOTE_HOLD_MS = 3200;
+let typingLocalOn = false;
+let typingIdleTimer = 0;
+let typingRemoteTimer = 0;
+/** @type {{ userId: string, name: string, until: number } | null} */
+let typingRemote = null;
+
+function sendTypingP2p(on) {
+  const payload = {
+    v: 1,
+    type: on ? "typing" : "typing_stop",
+    user_id: myUserId || "",
+    name: getDisplayName() || "anon",
+    ts: Date.now(),
+  };
+  let ok = false;
+  for (const pc of chatPeerPcs()) {
+    if (pc?.sendChatMessage?.(payload)) ok = true;
+  }
+  // Fallback: primary rtc if chatPeerPcs empty mid-handshake
+  if (!ok && rtc?.sendChatMessage?.(payload)) ok = true;
+  return ok;
+}
+
+function notifyLocalTyping() {
+  // Only while live match/friend call with a partner
+  if (!matched && !inFriendCall) return;
+  if (!primaryPartnerUserId && !activeChat?.peerUserId) return;
+  if (!anyChatDcOpen() && !rtc?.isChatDcOpen?.()) return;
+  if (!typingLocalOn) {
+    typingLocalOn = true;
+    sendTypingP2p(true);
+  }
+  if (typingIdleTimer) clearTimeout(typingIdleTimer);
+  typingIdleTimer = setTimeout(() => {
+    typingIdleTimer = 0;
+    stopLocalTyping();
+  }, TYPING_IDLE_MS);
+}
+
+function stopLocalTyping() {
+  if (typingIdleTimer) {
+    clearTimeout(typingIdleTimer);
+    typingIdleTimer = 0;
+  }
+  if (!typingLocalOn) return;
+  typingLocalOn = false;
+  try {
+    sendTypingP2p(false);
+  } catch (_) {}
+}
+
+function clearRemoteTyping(fromUserId) {
+  if (
+    fromUserId &&
+    typingRemote?.userId &&
+    fromUserId !== typingRemote.userId
+  ) {
+    return;
+  }
+  typingRemote = null;
+  if (typingRemoteTimer) {
+    clearTimeout(typingRemoteTimer);
+    typingRemoteTimer = 0;
+  }
+  updateTypingUi();
+}
+
+function handleTypingP2pMessage(msg) {
+  const uid = String(msg.user_id || "").slice(0, 64);
+  if (!uid || uid === myUserId) return;
+  // Only show for current live partner (or active friend thread)
+  const partner =
+    primaryPartnerUserId ||
+    (activeChat?.live ? activeChat.peerUserId : "") ||
+    "";
+  if (partner && uid !== partner) return;
+  const name = String(
+    msg.name ||
+      lastMatchMeta?.name ||
+      friendDisplayName(friendsCache.find((f) => f.user_id === uid)) ||
+      _t("remote.tag") ||
+      "Partner"
+  ).slice(0, 32);
+  if (msg.type === "typing_stop") {
+    clearRemoteTyping(uid);
+    return;
+  }
+  typingRemote = {
+    userId: uid,
+    name,
+    until: Date.now() + TYPING_REMOTE_HOLD_MS,
+  };
+  if (typingRemoteTimer) clearTimeout(typingRemoteTimer);
+  typingRemoteTimer = setTimeout(() => {
+    typingRemoteTimer = 0;
+    if (typingRemote && Date.now() >= typingRemote.until) {
+      typingRemote = null;
+      updateTypingUi();
+    }
+  }, TYPING_REMOTE_HOLD_MS);
+  updateTypingUi();
+}
+
+function updateTypingUi() {
+  const show = !!(typingRemote && Date.now() < typingRemote.until);
+  const label =
+    show && typingRemote
+      ? _t("chat.typing", { n: typingRemote.name }) ||
+        `${typingRemote.name} is typing…`
+      : "";
+  const setEl = (wrapId, labelId) => {
+    const wrap = $(wrapId);
+    const lab = $(labelId);
+    if (!wrap) return;
+    if (show && label) {
+      wrap.hidden = false;
+      wrap.removeAttribute("hidden");
+      if (lab) lab.textContent = label;
+    } else {
+      wrap.hidden = true;
+      wrap.setAttribute("hidden", "");
+    }
+  };
+  setEl("chat-typing", "chat-typing-label");
+  setEl("compose-typing", "compose-typing-label");
+  setEl("msg-typing", "msg-typing-label");
+}
+
+function wireTypingInputs() {
+  const onInput = () => notifyLocalTyping();
+  const onBlur = () => stopLocalTyping();
+  for (const id of ["msg", "msg-compose-input"]) {
+    const el = $(id);
+    if (!el || el.dataset.typingWired) continue;
+    el.dataset.typingWired = "1";
+    el.addEventListener("input", onInput);
+    el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") stopLocalTyping();
+    });
+    el.addEventListener("blur", onBlur);
+  }
+}
+
+/** Curated emoji set for dock + messages compose (no external CDN). */
+const EMOJI_PICKER_SET = [
+  "😀", "😃", "😄", "😁", "😅", "😂", "🤣", "😊", "😇", "🙂", "😉", "😍", "🥰", "😘", "😗", "😋",
+  "😜", "🤪", "😝", "🤑", "🤗", "🤭", "🤫", "🤔", "😐", "😑", "😶", "🙄", "😏", "😣", "😥", "😮",
+  "😯", "😪", "😫", "🥱", "😴", "😌", "😛", "😢", "😭", "😤", "😠", "😡", "🤬", "😈", "👿", "💀",
+  "💩", "🤡", "👻", "👽", "🤖", "🎃", "😺", "😸", "😹", "😻", "👋", "🤚", "✋", "🖖", "👌", "🤌",
+  "🤏", "✌️", "🤞", "🤟", "🤘", "🤙", "👈", "👉", "👆", "👇", "👍", "👎", "✊", "👊", "👏", "🙌",
+  "👐", "🤲", "🤝", "🙏", "💪", "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍", "🤎", "💔", "❣️",
+  "💕", "💞", "💓", "💗", "💖", "💘", "💝", "🔥", "⭐", "🌟", "✨", "💫", "💥", "🎉", "🎊", "🎈",
+  "🎁", "🏆", "🥇", "⚽", "🏀", "🎮", "🎵", "🎶", "🍕", "🍔", "🍟", "🌮", "🍣", "🍩", "☕", "🍺",
+  "🍻", "🥂", "🍷", "🍸", "🍹", "🌍", "🏠", "🚗", "✈️", "🚀", "☀️", "🌙", "⭐", "🌈", "❄️", "☔",
+  "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯", "🦁", "🐮", "🐷", "🐸", "🐵", "🦄",
+];
+
+const EMOJI_RECENTS_KEY = "ruletka-emoji-recents-v1";
+const EMOJI_RECENTS_MAX = 16;
+
+/** @returns {string[]} */
+function loadEmojiRecents() {
+  try {
+    const raw = localStorage.getItem(EMOJI_RECENTS_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .map((e) => String(e || "").trim())
+      .filter(Boolean)
+      .slice(0, EMOJI_RECENTS_MAX);
+  } catch {
+    return [];
+  }
+}
+
+function pushEmojiRecent(emoji) {
+  const em = String(emoji || "").trim();
+  if (!em) return;
+  try {
+    const next = [em, ...loadEmojiRecents().filter((x) => x !== em)].slice(
+      0,
+      EMOJI_RECENTS_MAX
+    );
+    localStorage.setItem(EMOJI_RECENTS_KEY, JSON.stringify(next));
+  } catch (_) {}
+  // Refresh recents row if picker is open
+  try {
+    paintEmojiRecentsRow();
+  } catch (_) {}
+}
+
+/** @type {HTMLInputElement | HTMLTextAreaElement | null} */
+let emojiPickerInput = null;
+let emojiPickerBuilt = false;
+let emojiOutsideWired = false;
+
+function insertEmojiAtCursor(input, emoji) {
+  if (!input || !emoji) return;
+  try {
+    input.focus();
+  } catch (_) {}
+  const start = typeof input.selectionStart === "number" ? input.selectionStart : input.value.length;
+  const end = typeof input.selectionEnd === "number" ? input.selectionEnd : start;
+  const val = String(input.value || "");
+  const max = Number(input.maxLength) > 0 ? Number(input.maxLength) : 500;
+  const next = (val.slice(0, start) + emoji + val.slice(end)).slice(0, max);
+  input.value = next;
+  const caret = Math.min(start + emoji.length, next.length);
+  try {
+    input.setSelectionRange(caret, caret);
+  } catch (_) {}
+  try {
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  } catch (_) {}
+  notifyLocalTyping();
+  pushEmojiRecent(emoji);
+}
+
+function onEmojiPickerItemClick(e, em) {
+  e.preventDefault();
+  e.stopPropagation();
+  if (emojiPickerInput) insertEmojiAtCursor(emojiPickerInput, em);
+  // Keep open for multi-insert; user closes via outside tap or Esc
+}
+
+function paintEmojiRecentsRow() {
+  const row = $("emoji-picker-recents");
+  if (!row) return;
+  const recents = loadEmojiRecents();
+  row.hidden = recents.length === 0;
+  if (recents.length === 0) {
+    row.setAttribute("hidden", "");
+    row.innerHTML = "";
+    return;
+  }
+  row.hidden = false;
+  row.removeAttribute("hidden");
+  row.innerHTML = "";
+  const frag = document.createDocumentFragment();
+  for (const em of recents) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "emoji-picker-item emoji-picker-recent";
+    btn.textContent = em;
+    btn.setAttribute("aria-label", em);
+    btn.addEventListener("click", (e) => onEmojiPickerItemClick(e, em));
+    frag.appendChild(btn);
+  }
+  row.appendChild(frag);
+}
+
+function ensureEmojiPickerBuilt() {
+  if (emojiPickerBuilt) return;
+  const grid = $("emoji-picker-grid");
+  if (!grid) return;
+  emojiPickerBuilt = true;
+  // Recents strip above full grid (injected once)
+  let recents = $("emoji-picker-recents");
+  if (!recents) {
+    const wrap = grid.parentElement;
+    recents = document.createElement("div");
+    recents.id = "emoji-picker-recents";
+    recents.className = "emoji-picker-recents";
+    recents.setAttribute("role", "group");
+    recents.setAttribute(
+      "aria-label",
+      _t("chat.emojiRecents") || "Recent emoji"
+    );
+    recents.hidden = true;
+    if (wrap) wrap.insertBefore(recents, grid);
+    else grid.parentNode?.insertBefore(recents, grid);
+  }
+  const frag = document.createDocumentFragment();
+  for (const em of EMOJI_PICKER_SET) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "emoji-picker-item";
+    btn.textContent = em;
+    btn.setAttribute("aria-label", em);
+    btn.addEventListener("click", (e) => onEmojiPickerItemClick(e, em));
+    frag.appendChild(btn);
+  }
+  grid.appendChild(frag);
+  paintEmojiRecentsRow();
+}
+
+function positionEmojiPicker(anchorBtn) {
+  const picker = $("emoji-picker");
+  if (!picker || !anchorBtn) return;
+  const r = anchorBtn.getBoundingClientRect();
+  const pad = 8;
+  const vw = window.innerWidth || 360;
+  const vh = window.innerHeight || 640;
+  // Measure after unhiding
+  picker.style.visibility = "hidden";
+  picker.hidden = false;
+  picker.removeAttribute("hidden");
+  const pr = picker.getBoundingClientRect();
+  let left = r.left + r.width / 2 - pr.width / 2;
+  left = Math.max(pad, Math.min(left, vw - pr.width - pad));
+  // Prefer above the button; if no room, place below
+  let top = r.top - pr.height - 6;
+  if (top < pad) top = Math.min(r.bottom + 6, vh - pr.height - pad);
+  top = Math.max(pad, top);
+  picker.style.left = `${Math.round(left)}px`;
+  picker.style.top = `${Math.round(top)}px`;
+  picker.style.visibility = "";
+}
+
+function openEmojiPicker(anchorBtn, inputEl) {
+  ensureEmojiPickerBuilt();
+  try {
+    paintEmojiRecentsRow();
+  } catch (_) {}
+  const picker = $("emoji-picker");
+  if (!picker) return;
+  emojiPickerInput = inputEl || $("msg") || $("msg-compose-input");
+  positionEmojiPicker(anchorBtn);
+  picker.hidden = false;
+  picker.removeAttribute("hidden");
+  try {
+    const label = _t("chat.emoji") || "Emoji";
+    picker.setAttribute("aria-label", label);
+  } catch (_) {}
+  if (!emojiOutsideWired) {
+    emojiOutsideWired = true;
+    document.addEventListener(
+      "pointerdown",
+      (e) => {
+        const picker = $("emoji-picker");
+        if (!picker || picker.hidden) return;
+        if (e.target?.closest?.("#emoji-picker")) return;
+        if (e.target?.closest?.("#btn-emoji-dock, #btn-emoji-msg")) return;
+        closeEmojiPicker();
+      },
+      true
+    );
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") closeEmojiPicker();
+    });
+    window.addEventListener(
+      "resize",
+      () => {
+        if ($("emoji-picker") && !$("emoji-picker").hidden) closeEmojiPicker();
+      },
+      { passive: true }
+    );
+  }
+}
+
+function closeEmojiPicker() {
+  const picker = $("emoji-picker");
+  if (!picker) return;
+  picker.hidden = true;
+  picker.setAttribute("hidden", "");
+  emojiPickerInput = null;
+}
+
+function wireEmojiPicker() {
+  const pairs = [
+    ["btn-emoji-dock", "msg"],
+    ["btn-emoji-msg", "msg-compose-input"],
+  ];
+  for (const [btnId, inputId] of pairs) {
+    const btn = $(btnId);
+    if (!btn || btn.dataset.emojiWired) continue;
+    btn.dataset.emojiWired = "1";
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const picker = $("emoji-picker");
+      const input = $(inputId);
+      if (picker && !picker.hidden && emojiPickerInput === input) {
+        closeEmojiPicker();
+        return;
+      }
+      openEmojiPicker(btn, input);
+      try {
+        input?.focus();
+      } catch (_) {}
+    });
+  }
+}
+
 function sendLiveChat(body, opts = {}) {
   const text = String(body || "").trim().slice(0, 500);
   if (!text) return false;
+  // Sending a message ends our typing state
+  stopLocalTyping();
   const id =
     `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
   const ts = Date.now();
@@ -5444,7 +6247,23 @@ function sendLiveChat(body, opts = {}) {
  * @param {InstanceType<typeof RouletteWebRtc>} [fromPc]
  */
 function handleP2pDataMessage(msg, fromPc) {
-  if (!msg || (msg.type !== "chat" && msg.type !== "friend_chat")) return;
+  if (!msg || typeof msg !== "object") return;
+  const t = msg.type;
+  // Formal debate control plane (invite / turns / end)
+  if (typeof t === "string" && t.startsWith("debate_")) {
+    handleDebateP2pMessage(msg, fromPc);
+    return;
+  }
+  // Typing indicators (no body)
+  if (t === "typing" || t === "typing_stop") {
+    handleTypingP2pMessage(msg);
+    return;
+  }
+  if (t !== "chat" && t !== "friend_chat") return;
+  // Incoming text → clear their typing pill
+  try {
+    clearRemoteTyping(String(msg.user_id || "").slice(0, 64));
+  } catch (_) {}
   const body = String(msg.body || "").trim();
   if (!body) return;
   const uid = String(msg.user_id || primaryPartnerUserId || "").slice(0, 64);
@@ -5558,6 +6377,12 @@ function recordChatMessage(msg) {
   if (!isDup) {
     thr.msgs.push(entry);
     while (thr.msgs.length > MAX_THREAD_MSGS) thr.msgs.shift();
+    // Soft ping for inbound messages (not our own optimistic sends)
+    if (!entry.mine && entry.cls !== "sys") {
+      try {
+        playChatMessageChime();
+      } catch (_) {}
+    }
   }
   thr.updated = ts;
   thr.title = activeChat.peerName || thr.title;
@@ -5731,10 +6556,8 @@ function buildInboxEntries(tab) {
   }
 
   out.sort((a, b) => {
-    // Unread first, then online, then recent
-    if (a.unread !== b.unread) return a.unread ? -1 : 1;
-    if (a.online !== b.online) return a.online ? -1 : 1;
-    return (b.updated || 0) - (a.updated || 0);
+    // Newest activity first (date/time). Unread is shown with a badge, not reordering.
+    return (Number(b.updated) || 0) - (Number(a.updated) || 0);
   });
   return out;
 }
@@ -6495,6 +7318,8 @@ function hideCallCoach() {
  * @returns {boolean} true if we just flipped the pref off
  */
 let preferDirectAutoOffDone = false;
+/** One-shot VPN/hard-NAT recovery: force TURN relay then rebuild PC. */
+let vpnRelayRecoveryDone = false;
 
 function setPreferDirectOnly(on, { silent = false } = {}) {
   const want = !!on;
@@ -6505,6 +7330,12 @@ function setPreferDirectOnly(on, { silent = false } = {}) {
     if (hideChk) hideChk.checked = false;
   } else {
     savePrefs({ preferDirectOnly: want });
+  }
+  // Prefer Direct cannot use session VPN force-relay
+  if (want && typeof setSessionForceRelay === "function") {
+    try {
+      setSessionForceRelay(false);
+    } catch (_) {}
   }
   const chk = $("chk-prefer-direct");
   if (chk) chk.checked = !!loadPrefs().preferDirectOnly;
@@ -6703,11 +7534,22 @@ function handleWebrtcConnectionState(s, pcHint) {
   setStatus(_t("status.webrtc", { s }));
   if (s === "connected") {
     webrtcConnectedOk = true;
+    // Allow another soft-ICE cycle after a successful recovery
+    if (pcHint) {
+      try {
+        pcHint._softIceTried = false;
+        pcHint._softReconnectScheduled = false;
+        pcHint._iceRestartCount = 0;
+      } catch (_) {}
+    }
     clearWebrtcWatch();
     hideCallCoach();
     startStats();
     setRemoteEmpty(false);
     ensurePartnerVideoVisible();
+    try {
+      watchPartnerVideoFrames();
+    } catch (_) {}
     setArchPill("p2p");
     setConnStrip(
       "call",
@@ -6740,6 +7582,7 @@ function handleWebrtcConnectionState(s, pcHint) {
       liveChip.hidden = true;
     }
   } else if (s === "failed") {
+    webrtcConnectedOk = false;
     // Soft-recover find-3rd / multi-peer without killing the first partner
     if (pcHint && trySoftRecoverPeer(pcHint)) {
       return;
@@ -6750,13 +7593,23 @@ function handleWebrtcConnectionState(s, pcHint) {
       /* toast + Next scheduled */
       return;
     }
-    // 1v1 / friend: soft ICE restart once before coach
+    // 1v1 / friend: soft ICE restart then hard PC rebuild before coach
     if (pcHint && trySoftRecoverAny(pcHint, { reason: "failed" })) {
       return;
     }
     showCallCoach("coach.failed");
   } else if (s === "disconnected") {
-    setConnStrip("warn", _t("coach.unstable"), "");
+    // Brief network blip — stay in call and try to recover (do not tear down)
+    webrtcConnectedOk = false;
+    setConnStrip(
+      "warn",
+      _t("conn.reconnectingMedia") || "Connection weak — reconnecting…",
+      "",
+      { reconnecting: true }
+    );
+    if (pcHint && trySoftRecoverAny(pcHint, { reason: "disconnected" })) {
+      return;
+    }
   }
 }
 
@@ -6826,51 +7679,160 @@ function trySoftRecoverAny(pc, opts = {}) {
   if (trioBrowse || matchMode === "party_browse" || peerPcs.size > 1) {
     return trySoftRecoverPeer(pc);
   }
-  if (pc._softIceTried) return false;
-  // Prefer Direct still on → caller should autoDisable + Next instead
+  // Prefer Direct still on + failed → need new PC with TURN (handled by caller)
   if (
+    opts.reason === "failed" &&
     typeof preferDirectOnlyEnabled === "function" &&
     preferDirectOnlyEnabled()
   ) {
     return false;
   }
-  pc._softIceTried = true;
-  setStatus(_t("trio.iceRestart") || "Reconnecting…");
-  setConnStrip("warn", _t("conn.retrying") || "Reconnecting…", "");
-  trackEvent("solo_soft_ice", {
-    reason: opts.reason || "",
-    mode: matchMode || "",
-    friend: inFriendCall ? 1 : 0,
-  });
-  Promise.resolve(pc.softIceRestart?.()).catch(() => {});
-  // If still no media after restart window → coach (once)
-  setTimeout(() => {
-    try {
-      if (!matched || webrtcConnectedOk || hasLiveRemoteMedia()) return;
-      if (autoDisablePreferDirectOnFail({ autoNext: true })) return;
-      showCallCoach("coach.failed");
-    } catch (_) {}
-  }, 5500);
+  const peerId =
+    pc.remotePeerId ||
+    [...peerPcs.entries()].find(([, v]) => v === pc)?.[0] ||
+    "";
+
+  // Step 1: ICE restart (once per drop cycle)
+  if (!pc._softIceTried) {
+    pc._softIceTried = true;
+    setStatus(_t("trio.iceRestart") || "Reconnecting…");
+    setConnStrip(
+      "warn",
+      _t("conn.reconnectingMedia") || "Connection weak — reconnecting…",
+      "",
+      { reconnecting: true }
+    );
+    trackEvent("solo_soft_ice", {
+      reason: opts.reason || "",
+      mode: matchMode || "",
+      friend: inFriendCall ? 1 : 0,
+    });
+    Promise.resolve(pc.softIceRestart?.({ force: true })).catch(() => {});
+    // If still dead after restart window → rebuild PeerConnection (same match)
+    setTimeout(() => {
+      try {
+        if (!matched) return;
+        if (hasLiveRemoteMedia() || webrtcConnectedOk) return;
+        const cur =
+          (peerId && peerPcs.get(peerId)) ||
+          [...peerPcs.values()][0] ||
+          pc;
+        const ice = cur?.pc?.iceConnectionState || "";
+        const cs = cur?.pc?.connectionState || "";
+        if (
+          ice === "connected" ||
+          ice === "completed" ||
+          cs === "connected"
+        ) {
+          return;
+        }
+        if (peerId) schedulePeerHardReconnect(peerId, cur);
+        else if (lastMatchedPeers?.length) {
+          schedulePeerHardReconnect(
+            lastMatchedPeers[0]?.peer_id || "legacy",
+            cur
+          );
+        }
+      } catch (_) {}
+    }, 6000);
+    return true;
+  }
+
+  // Step 2: already tried ICE — hard rebuild once
+  if (pc._softReconnectScheduled) return true;
+  if (peerId || lastMatchedPeers?.length) {
+    schedulePeerHardReconnect(
+      peerId || lastMatchedPeers[0]?.peer_id || "legacy",
+      pc
+    );
+    return true;
+  }
+  return false;
+}
+
+/**
+ * VPN / strict networks: if direct ICE keeps failing, force TURN relay for this
+ * session and rebuild the PeerConnection so media still works.
+ * @returns {boolean} true if relay mode was just enabled (caller should rebuild)
+ */
+function tryVpnRelayRecovery() {
+  if (vpnRelayRecoveryDone) return false;
+  if (typeof preferDirectOnlyEnabled === "function" && preferDirectOnlyEnabled()) {
+    return false; // prefer-direct auto-off handles its own rematch
+  }
+  if (typeof hideIpRelayOnlyEnabled === "function" && hideIpRelayOnlyEnabled()) {
+    return false; // already relay-only by user choice
+  }
+  if (typeof sessionForceRelayEnabled === "function" && sessionForceRelayEnabled()) {
+    return false;
+  }
+  const hasTurn =
+    !!(window.__hasTurn || window.__iceMeta?.has_turn) ||
+    !!(typeof getIceMeta === "function" && getIceMeta()?.has_turn);
+  if (!hasTurn) return false;
+  if (typeof setSessionForceRelay !== "function") return false;
+  vpnRelayRecoveryDone = true;
+  setSessionForceRelay(true);
+  setStatus(
+    _t("conn.vpnRelayOn") ||
+      "Hard network/VPN — switching to secure relay…"
+  );
+  trackEvent("vpn_relay_recovery");
+  log(_t("conn.vpnRelayOnLog") || "VPN/hard network: forced TURN relay");
   return true;
 }
 
 function schedulePeerHardReconnect(peerId, oldPc) {
-  if (!peerId || !matched) return;
+  if (!matched) return;
   if (oldPc) oldPc._softReconnectScheduled = true;
   if (schedulePeerHardReconnect._busy) return;
+  // Before rebuild: force TURN if still failing (VPN / CGNAT / corporate)
+  try {
+    tryVpnRelayRecovery();
+  } catch (_) {}
   schedulePeerHardReconnect._busy = true;
-  setStatus(_t("trio.peerRetry") || "Retrying third person connection…");
-  trackEvent("peer_soft_reconnect", { mode: matchMode || "" });
+  setStatus(
+    _t("conn.reconnectingMedia") ||
+      _t("trio.peerRetry") ||
+      "Reconnecting media…"
+  );
+  setConnStrip(
+    "warn",
+    _t("conn.reconnectingMedia") || "Reconnecting media…",
+    "",
+    { reconnecting: true }
+  );
+  trackEvent("peer_soft_reconnect", {
+    mode: matchMode || "",
+    peer: String(peerId || "").slice(0, 12),
+  });
   (async () => {
     try {
-      const existing = peerPcs.get(peerId);
-      if (existing) {
+      const existing =
+        (peerId && peerPcs.get(peerId)) ||
+        (oldPc &&
+          [...peerPcs.entries()].find(([, v]) => v === oldPc)?.[0] &&
+          oldPc) ||
+        null;
+      const key =
+        peerId ||
+        (existing &&
+          [...peerPcs.entries()].find(([, v]) => v === existing)?.[0]) ||
+        "";
+      if (key && peerPcs.has(key)) {
+        try {
+          peerPcs.get(key).closeCall({ keepLocal: true, sendBye: false });
+        } catch (_) {}
+        peerPcs.delete(key);
+      } else if (existing) {
         try {
           existing.closeCall({ keepLocal: true, sendBye: false });
         } catch (_) {}
-        peerPcs.delete(peerId);
+        for (const [k, v] of [...peerPcs.entries()]) {
+          if (v === existing) peerPcs.delete(k);
+        }
       }
-      // Rebuild only from last matched peer list (keeps teammate)
+      // Rebuild from last matched peer list (same conversation — no hub rematch)
       const peers =
         (lastMatchedPeers && lastMatchedPeers.length
           ? lastMatchedPeers
@@ -6896,6 +7858,13 @@ function wireCallCoach() {
   on("btn-coach-allow-turn", "click", () => {
     preferDirectAutoOffDone = true;
     setPreferDirectOnly(false, { silent: false });
+    // Also enable session relay so the next match works through VPN
+    try {
+      if (typeof setSessionForceRelay === "function") {
+        vpnRelayRecoveryDone = true;
+        setSessionForceRelay(true);
+      }
+    } catch (_) {}
     hideCallCoach();
     trackEvent("prefer_direct_coach_off");
     $("btn-next")?.click();
@@ -6954,10 +7923,201 @@ function setSplitRemote(on) {
   if (trioBrowse) on = false;
   const stack = $("remote-stack");
   const v2 = $("remote2");
+  const wrap = $("remote2-wrap");
   stack?.classList.toggle("split", !!on);
-  if (v2) v2.hidden = !on;
-  if (!on && v2) v2.srcObject = null;
+  if (wrap) {
+    wrap.hidden = !on;
+    if (!on) wrap.setAttribute("hidden", "");
+    else wrap.removeAttribute("hidden");
+  }
+  if (v2) {
+    v2.hidden = !on;
+    if (!on) {
+      try {
+        v2.srcObject = null;
+      } catch (_) {}
+    }
+  }
+  if (!on) {
+    setWhoLabel("remote2", "", "");
+    setPeerConnChip("remote2", "");
+    setPeerMuteUi("remote2", false);
+  }
+  try {
+    applyStageLayoutMode();
+  } catch (_) {}
 }
+
+const STAGE_LAYOUT_KEY = "ruletka-stage-layout-v1";
+/** @type {"stack"|"grid"} stack = vertical conversationalists; grid = equal windows */
+let stageLayoutMode = "stack";
+
+function loadStageLayoutPref() {
+  try {
+    const v = localStorage.getItem(STAGE_LAYOUT_KEY);
+    if (v === "grid" || v === "stack") stageLayoutMode = v;
+  } catch (_) {}
+}
+
+function saveStageLayoutPref() {
+  try {
+    localStorage.setItem(STAGE_LAYOUT_KEY, stageLayoutMode);
+  } catch (_) {}
+}
+
+/** Live remote panes currently shown (not counting local). */
+function countLiveRemotePanes() {
+  let n = 0;
+  const r = $("remote");
+  if (r && !r.hidden && r.srcObject) {
+    const live = (r.srcObject.getTracks?.() || []).some(
+      (t) => t.readyState === "live"
+    );
+    if (live) n++;
+  }
+  const r2 = $("remote2");
+  const wrap = $("remote2-wrap");
+  if (r2 && wrap && !wrap.hidden && !r2.hidden && r2.srcObject) {
+    const live = (r2.srcObject.getTracks?.() || []).some(
+      (t) => t.readyState === "live"
+    );
+    if (live) n++;
+  }
+  const r3 = $("remote-third");
+  const t3 = $("tile-third");
+  if (r3 && t3 && !t3.hidden && !r3.hidden && r3.srcObject) {
+    const live = (r3.srcObject.getTracks?.() || []).some(
+      (t) => t.readyState === "live"
+    );
+    if (live) n++;
+  }
+  return n;
+}
+
+function isMultiPartyStage() {
+  if (peerPcs.size >= 2) return true;
+  if (trioBrowse) return true;
+  if ($("remote-stack")?.classList.contains("split")) return true;
+  if (document.querySelector("main.stage")?.classList.contains("stage-trio")) {
+    return true;
+  }
+  return countLiveRemotePanes() >= 2;
+}
+
+/**
+ * Apply stack (vertical conversationalists) or equal grid layout.
+ * Default stack; user can toggle to 2×2 equal windows.
+ */
+function applyStageLayoutMode() {
+  const stage = document.querySelector("main.stage");
+  if (!stage) return;
+  const multi = isMultiPartyStage();
+  const remotes = countLiveRemotePanes();
+  // Windows including you when multi
+  const total = multi ? Math.min(4, remotes + 1) : 1;
+  stage.classList.toggle("stage-multi", multi);
+  stage.classList.toggle(
+    "stage-layout-stack",
+    multi && stageLayoutMode === "stack"
+  );
+  stage.classList.toggle(
+    "stage-layout-grid",
+    multi && stageLayoutMode === "grid"
+  );
+  stage.classList.toggle("stage-count-2", multi && total === 2);
+  stage.classList.toggle("stage-count-3", multi && total === 3);
+  stage.classList.toggle("stage-count-4", multi && total >= 4);
+
+  const btn = $("btn-stage-layout");
+  if (btn) {
+    const wasHidden = btn.hidden;
+    btn.hidden = !multi;
+    if (multi) btn.removeAttribute("hidden");
+    else btn.setAttribute("hidden", "");
+    const gridOn = stageLayoutMode === "grid";
+    btn.setAttribute("aria-pressed", gridOn ? "true" : "false");
+    const gridIco = btn.querySelector(".layout-ico-grid");
+    const stackIco = btn.querySelector(".layout-ico-stack");
+    if (gridIco) {
+      gridIco.hidden = gridOn;
+      if (gridOn) gridIco.setAttribute("hidden", "");
+      else gridIco.removeAttribute("hidden");
+    }
+    if (stackIco) {
+      stackIco.hidden = !gridOn;
+      if (!gridOn) stackIco.setAttribute("hidden", "");
+      else stackIco.removeAttribute("hidden");
+    }
+    const title = gridOn
+      ? _t("layout.stackTitle") ||
+        "Vertical stack — conversationalists lined up"
+      : _t("layout.gridTitle") || "Equal grid — up to 4 equal windows";
+    btn.title = title;
+    btn.setAttribute("aria-label", title);
+    // First multi-party reveal: one soft tip so icon-only control is discoverable
+    if (multi && wasHidden) {
+      try {
+        maybeShowLayoutTip();
+      } catch (_) {}
+    }
+  }
+}
+
+const LAYOUT_TIP_SESSION_KEY = "ruletka-layout-tip-v1";
+
+/** Once per tab session when multi-party layout control first appears. */
+function maybeShowLayoutTip() {
+  try {
+    if (sessionStorage.getItem(LAYOUT_TIP_SESSION_KEY) === "1") return;
+    sessionStorage.setItem(LAYOUT_TIP_SESSION_KEY, "1");
+  } catch {
+    /* still show once if storage blocked */
+  }
+  const msg =
+    _t("layout.tip") ||
+    "Tap ▦ to switch vertical stack ↔ equal grid";
+  try {
+    setStatus(msg);
+  } catch (_) {}
+  try {
+    if ($("layout-tip-toast")) return;
+    const tip = document.createElement("div");
+    tip.id = "layout-tip-toast";
+    tip.className = "layout-tip-toast";
+    tip.setAttribute("role", "status");
+    tip.textContent = msg;
+    document.body.appendChild(tip);
+    setTimeout(() => {
+      try {
+        tip.classList.add("is-out");
+      } catch (_) {}
+      setTimeout(() => {
+        try {
+          tip.remove();
+        } catch (_) {}
+      }, 320);
+    }, 4200);
+  } catch (_) {}
+}
+
+function toggleStageLayoutMode() {
+  stageLayoutMode = stageLayoutMode === "grid" ? "stack" : "grid";
+  saveStageLayoutPref();
+  applyStageLayoutMode();
+  try {
+    trackEvent("stage_layout", { mode: stageLayoutMode });
+  } catch (_) {}
+  setStatus(
+    stageLayoutMode === "grid"
+      ? _t("layout.gridOn") || "Equal grid layout"
+      : _t("layout.stackOn") || "Vertical stack layout"
+  );
+}
+
+// Load pref early
+try {
+  loadStageLayoutPref();
+} catch (_) {}
 
 /** Sync local preview into mobile partner PiP (portrait trio). */
 function syncLocalPipMirror() {
@@ -7060,16 +8220,45 @@ function collapseMultiPeerToSoloLayout(peers) {
   });
 }
 
+/** Delayed forceThirdBrandLoop timers — must cancel when 3rd video attaches. */
+let thirdBrandLoopTimers = [];
+
+function clearThirdBrandLoopTimers() {
+  for (const t of thirdBrandLoopTimers) {
+    try {
+      clearTimeout(t);
+    } catch (_) {}
+  }
+  thirdBrandLoopTimers = [];
+}
+
+/** True when #remote-third already has a live stranger stream. */
+function thirdSlotHasLiveMedia() {
+  const r3 = $("remote-third");
+  if (!r3?.srcObject) return false;
+  try {
+    return (r3.srcObject.getTracks?.() || []).some(
+      (t) => t.readyState === "live" && (t.kind === "video" || t.kind === "audio")
+    );
+  } catch {
+    return false;
+  }
+}
+
 function enableTrioLayout(on, { searching = false } = {}) {
   trioBrowse = !!on;
   const stage = document.querySelector("main.stage");
   stage?.classList.toggle("stage-trio", !!on);
   stage?.classList.toggle("stage-trio-searching", !!(on && searching));
+  try {
+    applyStageLayoutMode();
+  } catch (_) {}
   const third = $("tile-third");
   if (third) third.hidden = !on;
   const empty = $("third-empty");
   const r3 = $("remote-third");
   if (!on) {
+    clearThirdBrandLoopTimers();
     if (empty) empty.hidden = true;
     syncThirdEmptyBrand(false);
     if (r3) {
@@ -7080,6 +8269,16 @@ function enableTrioLayout(on, { searching = false } = {}) {
     }
     const pip = $("local-in-partner-pip");
     if (pip) pip.hidden = true;
+    return;
+  }
+  // Never wipe a live 3rd stream when re-entering layout (rematch / renegotiate)
+  if (thirdSlotHasLiveMedia()) {
+    clearThirdBrandLoopTimers();
+    if (empty) empty.hidden = true;
+    if (r3) r3.hidden = false;
+    stage?.classList.remove("stage-trio-searching");
+    bindFirstPartnerToMain(null);
+    syncTrioLayout();
     return;
   }
   if (empty) {
@@ -7093,12 +8292,18 @@ function enableTrioLayout(on, { searching = false } = {}) {
       r3.srcObject = null;
     } catch (_) {}
   }
-  // Brand loop in middle pane while hunting for 3rd (was stuck as static poster)
+  // Brand loop while hunting — cancel these if the 3rd connects mid-delay
+  clearThirdBrandLoopTimers();
   if (searching) {
     forceThirdBrandLoop();
-    setTimeout(() => forceThirdBrandLoop(), 100);
-    setTimeout(() => forceThirdBrandLoop(), 400);
-    setTimeout(() => forceThirdBrandLoop(), 1000);
+    for (const ms of [100, 400, 1000]) {
+      thirdBrandLoopTimers.push(
+        setTimeout(() => {
+          if (!trioBrowse || thirdSlotHasLiveMedia()) return;
+          forceThirdBrandLoop();
+        }, ms)
+      );
+    }
   } else {
     syncThirdEmptyBrand(false);
   }
@@ -7110,8 +8315,12 @@ function enableTrioLayout(on, { searching = false } = {}) {
 /**
  * Middle pane while find-3rd: play loading-screen.mp4 loop (not static logo-hero).
  * Must run after #tile-third is un-hidden — browsers block play on display:none parents.
+ * Never runs when a live 3rd stream is already attached (audio-only or video).
  */
 function forceThirdBrandLoop() {
+  // Critical: delayed timers used to re-run this after the 3rd connected,
+  // clearing #remote-third and leaving “Looking for a 3rd…” while audio played.
+  if (thirdSlotHasLiveMedia()) return;
   const tile = $("tile-third");
   const empty = $("third-empty");
   const v = $("third-empty-video");
@@ -7123,9 +8332,9 @@ function forceThirdBrandLoop() {
     empty.hidden = false;
     empty.removeAttribute("hidden");
   }
-  // Hide live stranger slot while hunting
+  // Hide live stranger slot while hunting (only when no live media)
   const r3 = $("remote-third");
-  if (r3) {
+  if (r3 && !thirdSlotHasLiveMedia()) {
     r3.hidden = true;
     try {
       r3.srcObject = null;
@@ -7160,18 +8369,43 @@ function syncTrioLayout() {
 }
 
 function setThirdSlotStream(stream, label) {
+  try {
+    setTimeout(() => applyStageLayoutMode(), 0);
+  } catch (_) {}
   const r3 = $("remote-third");
   const empty = $("third-empty");
   const tag = $("third-tag");
   const wrap = $("third-tile-tag");
   if (stream && r3) {
+    clearThirdBrandLoopTimers();
     prepareVideoEl(r3, { muted: false });
     r3.srcObject = stream;
     r3.hidden = false;
+    r3.removeAttribute("hidden");
     playVideoEl(r3);
-    if (empty) empty.hidden = true;
+    // Hide “Looking for a 3rd…” completely (brand loop + empty layer)
+    if (empty) {
+      empty.hidden = true;
+      empty.setAttribute("hidden", "");
+    }
+    try {
+      const bv = $("third-empty-video");
+      if (bv) {
+        bv.pause?.();
+        bv.hidden = true;
+      }
+      const poster = $("third-empty-poster");
+      if (poster) poster.hidden = true;
+    } catch (_) {}
     syncThirdEmptyBrand(false);
     document.querySelector("main.stage")?.classList.remove("stage-trio-searching");
+    // Ensure audio/video play after autoplay policies
+    try {
+      ensureMediaUnlocked();
+    } catch (_) {}
+    applyRemoteVolume();
+    setPeerMuteUi("remote-third", !!peerMutedByEl["remote-third"]);
+    startThirdSlotWatchdog();
   } else {
     if (r3) {
       r3.hidden = true;
@@ -7198,6 +8432,500 @@ function setThirdSlotStream(stream, label) {
 function syncThirdEmptyBrand(showEmpty) {
   if (showEmpty) forceThirdBrandLoop();
   else playBrandLoopVideo($("third-empty-video"), $("third-empty-poster"), false);
+}
+
+/* ——— Multi-party polish: who-labels, role strip, per-peer mute, conn chips, 3rd watchdog ——— */
+
+/** Per video-element mute / blur / volume (remote / remote2 / remote-third). */
+const peerMutedByEl = {
+  remote: false,
+  remote2: false,
+  "remote-third": false,
+};
+const peerBlurredByEl = {
+  remote: false,
+  remote2: false,
+  "remote-third": false,
+};
+const peerVolByEl = {
+  remote: 100,
+  remote2: 100,
+  "remote-third": 100,
+};
+
+/** peer_id → { elId, role, name, short, code, ice, conn } */
+const peerUiMeta = new Map();
+
+const PEER_SLOT_TILE = {
+  remote: "tile-remote",
+  remote2: "remote2-wrap",
+  "remote-third": "tile-third",
+};
+const PEER_SLOT_CANVAS = {
+  remote: "partner-blur-canvas",
+  remote2: "remote2-blur-canvas",
+  "remote-third": "third-blur-canvas",
+};
+/** @type {Record<string, number>} */
+const peerBlurRafByEl = {};
+
+let thirdSlotWatchTimer = 0;
+
+function startThirdSlotWatchdog() {
+  stopThirdSlotWatchdog();
+  thirdSlotWatchTimer = setInterval(() => {
+    try {
+      if (!trioBrowse || yourRole !== "party") return;
+      // Any stranger PC with live media should own the middle tile
+      for (const [pid, pc] of peerPcs.entries()) {
+        if (!(pc._role === "stranger" || pc._role === "party")) continue;
+        const stream = pc.remoteStream;
+        if (!stream) continue;
+        const live = (stream.getTracks?.() || []).some(
+          (t) => t.readyState === "live"
+        );
+        if (!live) continue;
+        const r3 = $("remote-third");
+        const empty = $("third-empty");
+        const emptyOn = empty && !empty.hidden;
+        const r3Ok =
+          r3 &&
+          r3.srcObject === stream &&
+          !r3.hidden &&
+          (r3.srcObject.getTracks?.() || []).some((t) => t.readyState === "live");
+        if (!r3Ok || emptyOn) {
+          const meta = peerUiMeta.get(pid);
+          setThirdSlotStream(
+            stream,
+            meta?.name || pc._displayName || _t("trio.partner") || "Partner"
+          );
+          if (meta) {
+            setWhoLabel(
+              "remote-third",
+              meta.name,
+              formatWhoSub(meta.role, meta.short, meta.code)
+            );
+          }
+          setPeerConnChip(
+            "remote-third",
+            pc.pc?.connectionState || pc.pc?.iceConnectionState || "connected"
+          );
+        }
+      }
+    } catch (_) {}
+  }, 2000);
+}
+
+function stopThirdSlotWatchdog() {
+  if (thirdSlotWatchTimer) {
+    clearInterval(thirdSlotWatchTimer);
+    thirdSlotWatchTimer = 0;
+  }
+}
+
+function formatWhoSub(role, shortId, friendCode) {
+  const roleLabel =
+    role === "friend" || role === "teammate"
+      ? _t("trio.roleFriend") || "Friend"
+      : role === "stranger" || role === "party"
+        ? _t("trio.roleStranger") || "Stranger"
+        : _t("trio.rolePartner") || "Partner";
+  const idBit = (friendCode || shortId || "").toString().slice(0, 10);
+  return idBit ? `${roleLabel} · ${idBit}` : roleLabel;
+}
+
+function setWhoLabel(slot, name, sub) {
+  // slot: "remote" | "remote2" | "remote-third"
+  if (slot === "remote") {
+    const subEl = $("remote-who-sub");
+    if (subEl) {
+      if (sub) {
+        subEl.hidden = false;
+        subEl.removeAttribute("hidden");
+        subEl.textContent = sub;
+      } else {
+        subEl.hidden = true;
+        subEl.textContent = "";
+      }
+    }
+    return;
+  }
+  if (slot === "remote2") {
+    const nameEl = $("remote2-tag");
+    const subEl = $("remote2-who-sub");
+    if (nameEl) nameEl.textContent = name || "";
+    if (subEl) {
+      subEl.textContent = sub || "";
+      subEl.hidden = !sub;
+    }
+    return;
+  }
+  if (slot === "remote-third") {
+    const subEl = $("third-who-sub");
+    if (subEl) {
+      if (sub) {
+        subEl.hidden = false;
+        subEl.removeAttribute("hidden");
+        subEl.textContent = sub;
+      } else {
+        subEl.hidden = true;
+        subEl.textContent = "";
+      }
+    }
+  }
+}
+
+function setPeerConnChip(slot, state) {
+  const id =
+    slot === "remote"
+      ? "remote-peer-conn-chip"
+      : slot === "remote2"
+        ? "remote2-conn-chip"
+        : slot === "remote-third"
+          ? "third-conn-chip"
+          : "";
+  const el = id ? $(id) : null;
+  if (!el) return;
+  const s = String(state || "").toLowerCase();
+  if (!s || s === "closed") {
+    el.hidden = true;
+    el.textContent = "";
+    el.classList.remove("is-ok", "is-mid", "is-bad");
+    return;
+  }
+  el.hidden = false;
+  el.removeAttribute("hidden");
+  el.classList.remove("is-ok", "is-mid", "is-bad");
+  let label = s;
+  let cls = "is-mid";
+  if (s === "connected" || s === "completed") {
+    label = _t("trio.connOk") || "Live";
+    cls = "is-ok";
+  } else if (s === "connecting" || s === "checking" || s === "new") {
+    label = _t("trio.connConnecting") || "Connecting";
+    cls = "is-mid";
+  } else if (s === "disconnected" || s === "failed") {
+    label = s === "failed" ? _t("trio.connFailed") || "Failed" : _t("trio.connWeak") || "Weak";
+    cls = "is-bad";
+  }
+  el.textContent = label;
+  el.classList.add(cls);
+  el.title = state;
+}
+
+function peerSlotLive() {
+  return !!(matched || inFriendCall || trioBrowse || peerPcs.size > 0);
+}
+
+function setPeerMuteUi(slot, muted) {
+  const btnId =
+    slot === "remote"
+      ? "btn-mute-remote-main"
+      : slot === "remote2"
+        ? "btn-mute-remote2"
+        : slot === "remote-third"
+          ? "btn-mute-remote-third"
+          : "";
+  const btn = btnId ? $(btnId) : null;
+  if (!btn) return;
+  const live = peerSlotLive();
+  btn.hidden = !live;
+  if (live) btn.removeAttribute("hidden");
+  btn.classList.toggle("is-muted", !!muted);
+  btn.textContent = muted ? "🔇" : "🔊";
+  btn.title = muted
+    ? _t("trio.unmuteThis") || "Unmute this person"
+    : _t("trio.muteThis") || "Mute this person";
+}
+
+function setPeerBlurUi(slot, blurred) {
+  const btnId =
+    slot === "remote"
+      ? "btn-blur-remote-main"
+      : slot === "remote2"
+        ? "btn-blur-remote2"
+        : slot === "remote-third"
+          ? "btn-blur-remote-third"
+          : "";
+  const btn = btnId ? $(btnId) : null;
+  if (btn) {
+    const live = peerSlotLive();
+    btn.hidden = !live;
+    if (live) btn.removeAttribute("hidden");
+    btn.classList.toggle("is-active", !!blurred);
+    btn.title = blurred
+      ? _t("trio.unblurThis") || "Unblur this person"
+      : _t("trio.blurThis") || "Blur this person";
+  }
+  const tileId = PEER_SLOT_TILE[slot];
+  const tile = tileId ? $(tileId) : null;
+  tile?.classList.toggle("peer-slot-blurred", !!blurred);
+  // Keep legacy class on main tile for side-rail blur button styling
+  if (slot === "remote") {
+    $("tile-remote")?.classList.toggle("partner-blurred", !!blurred);
+    partnerBlurred = !!blurred;
+    try {
+      updateSideIcons();
+    } catch (_) {}
+  }
+}
+
+function setPeerVolUi(slot, vol) {
+  const inputId =
+    slot === "remote"
+      ? "vol-remote"
+      : slot === "remote2"
+        ? "vol-remote2"
+        : slot === "remote-third"
+          ? "vol-remote-third"
+          : "";
+  const wrapId =
+    slot === "remote"
+      ? "vol-remote-wrap"
+      : slot === "remote2"
+        ? "vol-remote2-wrap"
+        : slot === "remote-third"
+          ? "vol-remote-third-wrap"
+          : "";
+  const pctId =
+    slot === "remote"
+      ? "vol-remote-pct"
+      : slot === "remote2"
+        ? "vol-remote2-pct"
+        : slot === "remote-third"
+          ? "vol-remote-third-pct"
+          : "";
+  const input = inputId ? $(inputId) : null;
+  const wrap = wrapId ? $(wrapId) : null;
+  const pctEl = pctId ? $(pctId) : null;
+  const n = Math.max(0, Math.min(100, Math.round(Number(vol) || 0)));
+  const live = peerSlotLive();
+  if (wrap) {
+    wrap.hidden = !live;
+    if (live) wrap.removeAttribute("hidden");
+  }
+  if (input && Number(input.value) !== n) input.value = String(n);
+  if (pctEl) pctEl.textContent = `${n}%`;
+  if (wrap) wrap.style.setProperty("--vol-pct", String(n));
+}
+
+function togglePeerElMute(slot) {
+  if (!peerMutedByEl.hasOwnProperty(slot)) return;
+  peerMutedByEl[slot] = !peerMutedByEl[slot];
+  // Global partner mute follows primary remote
+  if (slot === "remote") {
+    partnerMuted = peerMutedByEl.remote;
+    updateSideIcons();
+  }
+  applyRemoteVolume();
+  setPeerMuteUi(slot, peerMutedByEl[slot]);
+  trackEvent("peer_mute_toggle", { slot, muted: peerMutedByEl[slot] ? 1 : 0 });
+}
+
+function togglePeerElBlur(slot) {
+  if (!peerBlurredByEl.hasOwnProperty(slot)) return;
+  // User control — cancel intro auto-unblur when touching main remote
+  if (slot === "remote") {
+    clearIntroBlurTimer();
+    introBlurGen++;
+  }
+  setPeerElBlur(slot, !peerBlurredByEl[slot]);
+  trackEvent("peer_blur_toggle", {
+    slot,
+    blurred: peerBlurredByEl[slot] ? 1 : 0,
+  });
+}
+
+function setPeerElBlur(slot, on) {
+  if (!peerBlurredByEl.hasOwnProperty(slot)) return;
+  peerBlurredByEl[slot] = !!on;
+  setPeerBlurUi(slot, peerBlurredByEl[slot]);
+  if (peerBlurredByEl[slot]) startPeerBlurCanvas(slot);
+  else stopPeerBlurCanvas(slot);
+  if (slot === "remote") {
+    log(peerBlurredByEl[slot] ? _t("log.blurOn") : _t("log.blurOff"));
+  }
+}
+
+function setPeerElVolume(slot, vol) {
+  if (!peerVolByEl.hasOwnProperty(slot)) return;
+  const v = Math.max(0, Math.min(100, Number(vol) || 0));
+  peerVolByEl[slot] = v;
+  setPeerVolUi(slot, v);
+  applyRemoteVolume();
+  // Keep global slider in sync when adjusting main remote
+  if (slot === "remote") {
+    syncVolumeSliders(v);
+    savePrefs({ volume: v });
+  }
+}
+
+function stopPeerBlurCanvas(slot) {
+  if (peerBlurRafByEl[slot]) {
+    cancelAnimationFrame(peerBlurRafByEl[slot]);
+    peerBlurRafByEl[slot] = 0;
+  }
+  const canvasId = PEER_SLOT_CANVAS[slot];
+  const c = canvasId ? $(canvasId) : null;
+  if (c) {
+    c.classList.remove("is-active");
+    c.hidden = true;
+  }
+}
+
+function startPeerBlurCanvas(slot) {
+  if (!needsCanvasVideoBlur()) {
+    // Desktop: CSS filter on .peer-slot-blurred is enough
+    stopPeerBlurCanvas(slot);
+    return;
+  }
+  const tileId = PEER_SLOT_TILE[slot];
+  const canvasId = PEER_SLOT_CANVAS[slot];
+  const video = $(slot);
+  if (!tileId || !canvasId || !video) return;
+  const canvas = ensureVideoBlurCanvas(tileId, canvasId);
+  if (!canvas) return;
+  canvas.hidden = false;
+  canvas.classList.add("is-active");
+  const ctx = canvas.getContext("2d", { alpha: false });
+  if (!ctx) return;
+  const tick = () => {
+    if (!peerBlurredByEl[slot]) {
+      stopPeerBlurCanvas(slot);
+      return;
+    }
+    drawSoftBlurredVideo(ctx, video, canvas, { mirror: false });
+    peerBlurRafByEl[slot] = requestAnimationFrame(tick);
+  };
+  if (peerBlurRafByEl[slot]) cancelAnimationFrame(peerBlurRafByEl[slot]);
+  peerBlurRafByEl[slot] = requestAnimationFrame(tick);
+}
+
+function syncAllPeerMediaChrome() {
+  for (const slot of ["remote", "remote2", "remote-third"]) {
+    setPeerMuteUi(slot, !!peerMutedByEl[slot]);
+    setPeerBlurUi(slot, !!peerBlurredByEl[slot]);
+    setPeerVolUi(slot, peerVolByEl[slot] ?? 100);
+    if (peerBlurredByEl[slot]) startPeerBlurCanvas(slot);
+    else stopPeerBlurCanvas(slot);
+  }
+}
+
+/**
+ * Extra conversationalists (2nd/3rd video slots) start blurred when always-blur
+ * is on — same safety default as the main partner intro, but never blur friends.
+ */
+function shouldDefaultBlurExtraPeer(peerMeta, elId) {
+  if (elId !== "remote2" && elId !== "remote-third") return false;
+  if (!blurFirstEnabled()) return false;
+  if (isTeammateRole(peerMeta?.role)) return false;
+  return true;
+}
+
+function registerPeerUi(peerMeta, elId) {
+  if (!peerMeta?.peer_id || !elId) return;
+  peerUiMeta.set(peerMeta.peer_id, {
+    elId,
+    role: peerMeta.role || "",
+    name: peerMeta.name || peerMeta.short_id || "",
+    short: peerMeta.short_id || "",
+    code: peerMeta.friend_code || "",
+  });
+  const sub = formatWhoSub(
+    peerMeta.role,
+    peerMeta.short_id,
+    peerMeta.friend_code
+  );
+  setWhoLabel(elId === "remote-third" ? "remote-third" : elId, peerMeta.name, sub);
+  if (elId === "remote" || elId === "remote2" || elId === "remote-third") {
+    setPeerMuteUi(elId, !!peerMutedByEl[elId]);
+    if (shouldDefaultBlurExtraPeer(peerMeta, elId)) {
+      setPeerElBlur(elId, true);
+    } else {
+      setPeerBlurUi(elId, !!peerBlurredByEl[elId]);
+    }
+    setPeerVolUi(elId, peerVolByEl[elId] ?? 100);
+  }
+}
+
+function updatePartyRoleStrip(msg) {
+  const strip = $("party-role-strip");
+  const text = $("party-role-text");
+  if (!strip || !text) return;
+  const peers = Array.isArray(msg?.peers)
+    ? msg.peers
+    : Array.isArray(lastMatchedPeers)
+      ? lastMatchedPeers
+      : [];
+  const hasStranger = peers.some(
+    (p) => p.role === "stranger" || p.role === "party"
+  );
+  const hasMate = peers.some((p) => isTeammateRole(p.role));
+  let line = "";
+  let searching = false;
+  if (trioBrowse && yourRole === "party") {
+    if (hasStranger) {
+      line =
+        _t("trio.stripWithThird") ||
+        "You + friend · with stranger";
+    } else {
+      line =
+        _t("trio.stripHunting") ||
+        "You + friend · finding a stranger…";
+      searching = true;
+    }
+  } else if (matchMode === "party_browse" && yourRole === "solo" && hasMate) {
+    line =
+      _t("trio.stripSoloVsParty") ||
+      "You · vs two people";
+  } else if (
+    matchMode === "party_browse" &&
+    yourRole === "party" &&
+    hasStranger
+  ) {
+    // 2v2-ish party member with strangers
+    const nOpp = peers.filter(
+      (p) => p.role === "stranger" || p.role === "party"
+    ).length;
+    line =
+      nOpp >= 2
+        ? _t("trio.strip2v2") || "Your pair · vs their pair"
+        : _t("trio.stripWithThird") || "You + friend · with stranger";
+  } else if (inFriendCall && matchMode === "friend" && !trioBrowse) {
+    line = _t("trio.stripFriendCall") || "Friend call";
+  } else {
+    strip.hidden = true;
+    strip.classList.remove("is-searching");
+    return;
+  }
+  text.textContent = line;
+  strip.hidden = false;
+  strip.removeAttribute("hidden");
+  strip.classList.toggle("is-searching", searching);
+}
+
+function clearMultiPartyChrome() {
+  stopThirdSlotWatchdog();
+  peerUiMeta.clear();
+  for (const slot of ["remote", "remote2", "remote-third"]) {
+    peerMutedByEl[slot] = false;
+    peerBlurredByEl[slot] = false;
+    peerVolByEl[slot] = 100;
+    stopPeerBlurCanvas(slot);
+  }
+  partnerBlurred = false;
+  setWhoLabel("remote", "", "");
+  setWhoLabel("remote2", "", "");
+  setWhoLabel("remote-third", "", "");
+  setPeerConnChip("remote", "");
+  setPeerConnChip("remote2", "");
+  setPeerConnChip("remote-third", "");
+  syncAllPeerMediaChrome();
+  const strip = $("party-role-strip");
+  if (strip) {
+    strip.hidden = true;
+    strip.classList.remove("is-searching");
+  }
 }
 
 function showFriendPip(show) {
@@ -7358,8 +9086,9 @@ function rekeyPeerPc(peerId, pc) {
 }
 
 /**
- * Bind first conversationalist (teammate) onto #remote and force video visible.
+ * Bind first conversationalist (teammate/friend) onto #remote and force video visible.
  * Call on find-third accept and whenever trio layout is active.
+ * Never steals the 3rd (stranger) stream onto the main tile.
  */
 function bindFirstPartnerToMain(meta) {
   const remote = $("remote");
@@ -7376,25 +9105,30 @@ function bindFirstPartnerToMain(meta) {
     }
   }
   if (!pc && peerPcs.size === 1) {
-    // Only safe fallback when there is exactly one peer (1v1 / searching for 3rd)
+    // Only safe when the sole peer is already a friend/teammate (hunting for 3rd).
+    // If the sole peer is the stranger, leave main alone — 3rd belongs on #remote-third.
     const only = [...peerPcs.values()][0];
-    if (only?.remoteStream) pc = only;
+    if (only && isTeammateRole(only._role) && only.remoteStream) pc = only;
   }
   if (!pc) return null;
-  if (peerId) rekeyPeerPc(peerId, pc);
-  // Keep stranger role if this is somehow the third's PC (do not rebrand)
-  if (!isTeammateRole(pc._role) && (pc._role === "stranger" || pc._role === "party")) {
-    // Wrong PC for "first partner" — abort rather than freeze main onto 3rd
-    if (peerPcs.size > 1) return null;
+  // Never promote stranger/party onto the main “friend” tile
+  if (
+    !isTeammateRole(pc._role) &&
+    (pc._role === "stranger" || pc._role === "party")
+  ) {
+    return null;
   }
-  pc._role = "teammate";
+  if (peerId) rekeyPeerPc(peerId, pc);
+  if (!pc._role || pc._role === "stranger" || pc._role === "party") {
+    pc._role = "teammate";
+  }
   // Detach from friend-pip if still there
   showFriendPip(false);
   bindPcVideo(pc, remote);
   const stream = pc.remoteStream;
   if (stream) {
     prepareVideoEl(remote, { muted: false });
-    remote.srcObject = stream;
+    if (remote.srcObject !== stream) remote.srcObject = stream;
     playVideoEl(remote);
     setRemoteEmpty(false);
     applyRemoteVolume();
@@ -7496,28 +9230,85 @@ function updateFriendActionButtons() {
     // Hang only for real friend parties; stranger find-third uses Stop
     if (hang) hang.hidden = !inFriendCall || trioBrowse;
   }
-  // Find 3rd: stranger 1v1 only (same rules as partner menu)
+  // Multi-party entry:
+  // - Friend 1v1: primary CTA = "Find stranger together" (browse_together, instant)
+  //   secondary = "Find 3rd" (invite confirm, then search)
+  // - Stranger 1v1: only "Find 3rd" (invite)
   const hasLivePeer =
     peerPcs.size >= 1 ||
     (typeof partnerHasLiveVideo === "function" && partnerHasLiveVideo());
-  const canFindThird =
-    TRIO_FIND_ENABLED &&
+  const pureFriend1v1 =
+    !!inFriendCall &&
+    (matchMode === "friend" || matchMode === "solo") &&
+    !trioBrowse &&
+    yourRole !== "party";
+  const pureStranger1v1 =
     !!matched &&
     !inFriendCall &&
     matchMode === "solo" &&
     yourRole === "solo" &&
-    !trioBrowse &&
+    !trioBrowse;
+  const canFindThird =
+    TRIO_FIND_ENABLED &&
+    (pureStranger1v1 || pureFriend1v1) &&
     hasLivePeer &&
     findThirdPending !== "out" &&
     findThirdPending !== "in";
+  // Browse together:
+  // - Friend 1v1 → party of 2 hunting solo (1v2)
+  // - Already 3 people mesh → party of 3 hunting solo (3v1)
+  const live3mesh =
+    !!matched &&
+    peerPcs.size >= 2 &&
+    (matchMode === "party_browse" ||
+      matchMode === "solo" ||
+      matchMode === "friend" ||
+      inFriendCall);
+  if (browse) {
+    const showBrowse =
+      (pureFriend1v1 && hasLivePeer) || live3mesh;
+    browse.hidden = !showBrowse;
+    browse.disabled = !showBrowse;
+    if (showBrowse) {
+      if (live3mesh) {
+        browse.textContent =
+          _t("trio.findFourth") || "Find stranger together (3v1)";
+        browse.title =
+          _t("trio.findFourthHint") ||
+          "All three of you search for one more stranger — keeps your group";
+      } else {
+        browse.textContent =
+          _t("trio.findStrangerTogether") || "Find stranger together";
+        browse.title =
+          _t("trio.findStrangerTogetherHint") ||
+          "You both search for a stranger now — no invite step";
+      }
+    }
+  }
   if (findThird) {
-    findThird.hidden = !canFindThird;
-    findThird.disabled = !canFindThird;
-    findThird.classList.toggle("accent", canFindThird);
+    // Friend: secondary invite path; Stranger 1v1: only path
+    const showFind =
+      canFindThird && (pureStranger1v1 || pureFriend1v1);
+    findThird.hidden = !showFind;
+    findThird.disabled = !showFind;
+    findThird.classList.toggle("accent", showFind && pureStranger1v1);
+    findThird.classList.toggle("ghost", showFind && pureFriend1v1);
+    if (showFind) {
+      findThird.textContent = pureFriend1v1
+        ? _t("trio.inviteThenSearch") || "Ask friend · Find 3rd"
+        : _t("trio.invite") || "Find 3rd";
+      findThird.title = pureFriend1v1
+        ? _t("trio.inviteFriendTitle") ||
+          "Ask your friend first, then search together"
+        : _t("trio.invite") || "Find a third person together";
+    }
   }
   if (findCancel) {
     findCancel.hidden = findThirdPending !== "out";
   }
+  try {
+    updatePartyRoleStrip();
+  } catch (_) {}
   // Block / Report when in a call with a known partner user_id
   const canMod =
     !!matched &&
@@ -7910,25 +9701,49 @@ function startCallTimeout() {
 /** Outbound “Calling…” toast with Cancel (Week-4 ring UX). */
 function hideOutgoingCallToast() {
   try {
-    $("outgoing-call-toast")?.remove?.();
+    const el = document.getElementById("outgoing-call-toast");
+    if (el) el.remove();
+  } catch (_) {}
+  // Extra: any leftover class clones
+  try {
+    document.querySelectorAll(".outgoing-call-toast").forEach((n) => {
+      try {
+        n.remove();
+      } catch (_) {}
+    });
   } catch (_) {}
 }
 
-function showOutgoingCallToast(peer) {
+/** Connected (media or friend match) — never leave ring UI over the call. */
+function dismissFriendRingUi() {
+  clearCallTimeout();
+  hideOutgoingCallToast();
+  lastOutgoingCallPeer = null;
+  try {
+    hideIncomingCall();
+  } catch (_) {}
+}
+
+function showOutgoingCallToast(peer, opts = {}) {
   hideOutgoingCallToast();
   const name = peer?.name || peer?.short_id || "Friend";
   const uid = peer?.user_id || "";
+  const isJoin = !!opts.join;
   const toast = document.createElement("div");
   toast.id = "outgoing-call-toast";
-  toast.className = "call-toast outgoing-call-toast";
+  toast.className =
+    "call-toast outgoing-call-toast" + (isJoin ? " is-join-invite" : "");
   toast.setAttribute("role", "status");
   toast.setAttribute("aria-live", "polite");
+  const statusLine = isJoin
+    ? _t("friends.invitingJoinToast") ||
+      _t("friends.invitingJoin") ||
+      "Adding to this call…"
+    : _t("status.calling") || "Calling…";
   toast.innerHTML = `
     <div class="call-toast-body">
       <strong>${escapeHtml(name)}</strong>
-      <span class="outgoing-call-dots">${escapeHtml(
-        _t("status.calling") || "Calling…"
-      )}</span>
+      <span class="outgoing-call-dots">${escapeHtml(statusLine)}</span>
     </div>
     <div class="call-toast-actions">
       <button type="button" class="pill danger" id="btn-cancel-call">${escapeHtml(
@@ -7936,7 +9751,7 @@ function showOutgoingCallToast(peer) {
       )}</button>
     </div>`;
   document.body.appendChild(toast);
-  trackEvent("outgoing_call_show");
+  trackEvent("outgoing_call_show", { join: isJoin ? 1 : 0 });
   $("btn-cancel-call")?.addEventListener("click", () => {
     trackEvent("outgoing_call_cancel");
     cancelOutgoingCall(uid);
@@ -8316,6 +10131,28 @@ function wireRulesGate() {
 
 function setLocalEmpty(show) {
   $("local-empty")?.classList.toggle("hidden", !show);
+  // Belt-and-suspenders: when we have a live feed, never leave the empty card up
+  if (!show) {
+    try {
+      $("tile-local")?.classList.add("has-local-feed");
+    } catch (_) {}
+  } else if (!localVideoTrackLive()) {
+    try {
+      $("tile-local")?.classList.remove("has-local-feed");
+    } catch (_) {}
+  }
+}
+
+/** Mark tile as having a live local feed (CSS forces empty overlay off). */
+function markLocalFeedActive(on) {
+  try {
+    $("tile-local")?.classList.toggle("has-local-feed", !!on);
+  } catch (_) {}
+  if (on) {
+    try {
+      $("local-empty")?.classList.add("hidden");
+    } catch (_) {}
+  }
 }
 
 /** Live video tracks on partner surfaces (main remotes). */
@@ -8345,6 +10182,71 @@ function partnerHasLiveVideo() {
     } catch (_) {}
   }
   return false;
+}
+
+/**
+ * True when partner video element is actually painting frames (not blank/white void).
+ * A live MediaStreamTrack can exist before first decoded frame → empty light canvas.
+ */
+function partnerVideoHasFrames() {
+  const el = $("remote");
+  if (!el) return false;
+  try {
+    // videoWidth/Height stay 0 until first frame
+    if (el.videoWidth > 8 && el.videoHeight > 8) return true;
+  } catch (_) {}
+  return false;
+}
+
+/** Watch for blank partner feed after match and surface a clear status (not a crash). */
+let blankVideoWatchTimer = 0;
+function watchPartnerVideoFrames() {
+  if (blankVideoWatchTimer) {
+    clearInterval(blankVideoWatchTimer);
+    blankVideoWatchTimer = 0;
+  }
+  if (!matched && !inFriendCall) return;
+  let ticks = 0;
+  blankVideoWatchTimer = setInterval(() => {
+    ticks++;
+    if (!matched && !inFriendCall) {
+      clearInterval(blankVideoWatchTimer);
+      blankVideoWatchTimer = 0;
+      return;
+    }
+    if (partnerVideoHasFrames()) {
+      clearInterval(blankVideoWatchTimer);
+      blankVideoWatchTimer = 0;
+      return;
+    }
+    // After ~3s with a "live" track but no frames, tell the user what's going on
+    if (ticks === 6 && partnerHasLiveVideo()) {
+      setStatus(
+        _t("conn.waitingPartnerVideo") ||
+          "Connected — waiting for their camera…"
+      );
+      trackEvent("partner_video_blank", { t: 3 });
+    }
+    // After ~10s still blank: soft recovery nudge
+    if (ticks >= 20) {
+      clearInterval(blankVideoWatchTimer);
+      blankVideoWatchTimer = 0;
+      if (!partnerVideoHasFrames() && (matched || inFriendCall)) {
+        setStatus(
+          _t("conn.partnerVideoBlank") ||
+            "Their video is blank — they may have camera off, or Next for someone else."
+        );
+        trackEvent("partner_video_blank", { t: 10 });
+        // Try soft ICE once in case path is stuck
+        try {
+          const pc = rtc || [...peerPcs.values()][0];
+          if (pc && !webrtcConnectedOk) {
+            trySoftRecoverAny(pc, { reason: "blank_video" });
+          }
+        } catch (_) {}
+      }
+    }
+  }, 500);
 }
 
 /**
@@ -8429,14 +10331,18 @@ function playBrandLoopVideo(v, poster, showEmpty) {
   // Critical: never leave [hidden] on the brand loop
   v.hidden = false;
   v.removeAttribute("hidden");
+  // Inline styles must not dim the brand clip (CSS already tunes opacity)
   v.style.cssText =
-    "position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1;display:block!important;opacity:1!important;visibility:visible!important;pointer-events:none;";
+    "position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;z-index:1;display:block!important;opacity:1!important;visibility:visible!important;pointer-events:none;filter:none!important;";
 
   // Lazy-load brand loop (preload=none in HTML) so JS/ICE win first bytes
-  if (!v.getAttribute("src")) {
-    const src =
-      v.getAttribute("data-src") || "/brand/loading-screen.mp4?v=6";
-    v.src = src;
+  const wantSrc =
+    v.getAttribute("data-src") || "/brand/loading-screen.mp4?v=8";
+  if (!v.getAttribute("src") || !String(v.src || "").includes("loading-screen")) {
+    v.src = wantSrc;
+    try {
+      v.load?.();
+    } catch (_) {}
   }
 
   try {
@@ -8628,209 +10534,43 @@ function updateEmptyShareVisibility() {
 }
 
 /**
- * Idle empty card: always surface friend code + Share (growth without waiting).
- * Hidden while alone-search panel is up (that panel already shows the code).
+ * Idle empty card: friend code + Share under Start.
+ * Disabled — cleaner idle: Start only (code lives in Friends sheet).
  */
 function updateEmptyIdleInvite() {
   const row = $("empty-idle-invite");
-  const codeBtn = $("btn-empty-idle-code");
-  if (!row) return;
-  const empty = $("remote-empty");
-  const emptyOpen =
-    !!empty &&
-    !empty.classList.contains("hidden") &&
-    !matched &&
-    !inFriendCall &&
-    !trioBrowse;
-  const alonePanel = $("empty-alone-actions");
-  const aloneUp = alonePanel && !alonePanel.hidden;
-  const show = emptyOpen && !aloneUp && !!myFriendCode;
-  row.hidden = !show;
-  if (show) {
-    row.removeAttribute("hidden");
-    if (codeBtn) {
-      codeBtn.textContent = myFriendCode;
-      codeBtn.title =
-        (_t("friends.copyCode") || "Copy code") + ` · ${myFriendCode}`;
-    }
-  } else {
+  if (row) {
+    row.hidden = true;
     row.setAttribute("hidden", "");
-  }
-  if (codeBtn && !codeBtn.dataset.wired) {
-    codeBtn.dataset.wired = "1";
-    codeBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      trackEvent("empty_idle_copy_code");
-      shareFriendInvite({ preferShare: false, liveNow: false });
-    });
-  }
-  const shareBtn = $("btn-empty-idle-share");
-  if (shareBtn && !shareBtn.dataset.wired) {
-    shareBtn.dataset.wired = "1";
-    shareBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      trackEvent("empty_idle_share");
-      shareFriendInvite({ preferShare: true, liveNow: false });
-    });
   }
 }
 
 /**
- * Recent partners on empty card — Call back (friend online) or Add by code.
+ * Empty card strip: mutual friends only (call / message).
+ * Disabled — open Friends sheet instead (cleaner idle empty card).
  */
 function updateEmptyRecentStrip() {
   const strip = $("empty-recent-strip");
   const row = $("empty-recent-row");
-  if (!strip || !row) return;
-  const empty = $("remote-empty");
-  const emptyOpen =
-    !!empty &&
-    !empty.classList.contains("hidden") &&
-    !matched &&
-    !inFriendCall &&
-    !trioBrowse;
-  if (!emptyOpen) {
+  if (strip) {
     strip.hidden = true;
-    row.innerHTML = "";
-    return;
+    strip.setAttribute("hidden", "");
   }
-  const friendIds = new Set(
-    (friendsCache || []).map((f) => f.user_id).filter(Boolean)
-  );
-  const seen = new Set();
-  const items = [];
-  for (const h of loadHistory()) {
-    if (!h) continue;
-    const key = h.user_id || h.friend_code || h.short_id;
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    const isFriend = !!(h.user_id && friendIds.has(h.user_id));
-    const fr = isFriend
-      ? friendsCache.find((f) => f.user_id === h.user_id)
-      : null;
-    const online = !!(fr && fr.online);
-    // Prefer actionable rows: online friend call-back, or stranger with code
-    if (!online && !(h.friend_code && !isFriend) && !(isFriend && h.user_id)) {
-      continue;
-    }
-    items.push({ h, fr, isFriend, online });
-    if (items.length >= 4) break;
-  }
-  if (!items.length) {
-    strip.hidden = true;
-    row.innerHTML = "";
-    return;
-  }
-  strip.hidden = false;
-  strip.removeAttribute("hidden");
-  row.innerHTML = items
-    .map(({ h, fr, isFriend, online }) => {
-      const rawName =
-        (fr && friendDisplayName(fr)) || h.name || h.short_id || "…";
-      const name = escapeHtml(rawName);
-      const nameAttr = escapeAttr(rawName);
-      const uid = escapeAttr(h.user_id || "");
-      const code = escapeAttr(h.friend_code || "");
-      if (online && h.user_id) {
-        return `<button type="button" class="empty-recent-chip is-call" data-recent-call="${uid}" title="${escapeAttr(
-          _t("friends.redial") || "Call back"
-        )}"><span class="empty-recent-dot" aria-hidden="true"></span><span class="empty-recent-name">${name}</span><span class="empty-recent-act">${escapeHtml(
-          _t("friends.redial") || "Call back"
-        )}</span></button>`;
-      }
-      if (isFriend && h.user_id) {
-        return `<button type="button" class="empty-recent-chip is-msg" data-recent-msg="${uid}" data-name="${nameAttr}" title="${escapeAttr(
-          _t("friends.message") || "Message"
-        )}"><span class="empty-recent-name">${name}</span><span class="empty-recent-act">${escapeHtml(
-          _t("friends.message") || "Msg"
-        )}</span></button>`;
-      }
-      if (h.friend_code) {
-        return `<button type="button" class="empty-recent-chip is-add" data-recent-add="${code}" title="${escapeAttr(
-          _t("friends.addFromHistory") || "Add friend"
-        )}"><span class="empty-recent-name">${name}</span><span class="empty-recent-act">${escapeHtml(
-          _t("friends.addFromHistory") || "Add"
-        )}</span></button>`;
-      }
-      return "";
-    })
-    .join("");
-  row.querySelectorAll("[data-recent-call]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const uid = btn.getAttribute("data-recent-call");
-      if (!uid) return;
-      trackEvent("empty_recent_call");
-      placeFriendCall(uid, { closePanel: false });
-    });
-  });
-  row.querySelectorAll("[data-recent-msg]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      trackEvent("empty_recent_msg");
-      openFriendChat(btn.getAttribute("data-recent-msg"), {
-        name: btn.getAttribute("data-name") || "",
-      });
-    });
-  });
-  row.querySelectorAll("[data-recent-add]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const code = btn.getAttribute("data-recent-add");
-      if (!code) return;
-      trackEvent("empty_recent_add");
-      requestAddFriend(code);
-    });
-  });
+  if (row) row.innerHTML = "";
 }
 
 /**
  * While idle/searching: chip strip of online friends (call / open chat).
+ * Disabled on empty card — use Friends sheet.
  */
 function updateFriendsOnlineStrip() {
   const strip = $("friends-online-strip");
   const row = $("friends-online-row");
-  if (!strip || !row) return;
-  const empty = $("remote-empty");
-  const emptyOpen =
-    !!empty &&
-    !empty.classList.contains("hidden") &&
-    !matched &&
-    !inFriendCall &&
-    !trioBrowse;
-  const online = (friendsCache || []).filter(
-    (f) => f && f.online && f.user_id && f.user_id !== myUserId
-  );
-  if (!emptyOpen || !online.length) {
+  if (strip) {
     strip.hidden = true;
-    row.innerHTML = "";
-    return;
+    strip.setAttribute("hidden", "");
   }
-  strip.hidden = false;
-  row.innerHTML = online
-    .slice(0, 8)
-    .map((f) => {
-      const name = escapeHtml(
-        friendDisplayName(f) || f.name || f.short_id || "friend"
-      );
-      const av =
-        isValidAvatarDataUrl(f.avatar) && f.avatar
-          ? `<img class="fos-av" src="${escapeAttr(f.avatar)}" alt="" />`
-          : `<span class="fos-av fos-av-fallback" aria-hidden="true">${escapeHtml(
-              (name || "?").slice(0, 1).toUpperCase()
-            )}</span>`;
-      return `<button type="button" class="friends-online-chip" data-friend-online="${escapeAttr(
-        f.user_id
-      )}" title="${escapeAttr(
-        _t("friends.call") || "Call"
-      )}">${av}<span class="fos-name">${name}</span></button>`;
-    })
-    .join("");
-  row.querySelectorAll("[data-friend-online]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const uid = btn.getAttribute("data-friend-online");
-      if (!uid) return;
-      trackEvent("friends_online_strip_call");
-      placeFriendCall(uid, { closePanel: false });
-    });
-  });
+  if (row) row.innerHTML = "";
 }
 
 /** After ~12s alone in queue, emphasize invite + one-tap share toast. */
@@ -9271,48 +11011,14 @@ function setSearchingEmptyCopy() {
 let aloneQrAutoTimer = 0;
 
 /**
- * Tonight-live chip on empty card (idle or alone search).
+ * Tonight-live chip on empty card.
+ * Disabled — quieter idle (just Start).
  */
 function updateEmptyWindowChip() {
   const chip = $("empty-window-chip");
-  const text = $("empty-window-chip-text");
-  if (!chip || !text) return;
-  const empty = $("remote-empty");
-  const emptyOpen =
-    !!empty &&
-    !empty.classList.contains("hidden") &&
-    !matched &&
-    !inFriendCall &&
-    !trioBrowse;
-  if (!emptyOpen) {
+  if (chip) {
     chip.hidden = true;
-    return;
-  }
-  const paint = () => {
-    if (typeof RuletLiveWindow === "undefined") {
-      chip.hidden = true;
-      return;
-    }
-    const st = RuletLiveWindow.getState();
-    const t = (k, fb, vars) => {
-      let s = _t(k) || fb;
-      if (s === k) s = fb;
-      return RuletLiveWindow.fill ? RuletLiveWindow.fill(s, vars) : s;
-    };
-    chip.hidden = false;
-    chip.classList.toggle("is-open", !!st.inWindow);
-    text.textContent = RuletLiveWindow.idleChipLine
-      ? RuletLiveWindow.idleChipLine(t)
-      : st.inWindow
-        ? `Tonight live · open · ${st.rangeLabel}`
-        : `Tonight live · ${st.rangeLabel}`;
-  };
-  if (typeof RuletLiveWindow !== "undefined") {
-    paint();
-  } else {
-    ensureLiveWindow().then((ok) => {
-      if (ok) paint();
-    });
+    chip.setAttribute("hidden", "");
   }
 }
 
@@ -9657,8 +11363,30 @@ function isMutualFriend(userId) {
   return (friendsCache || []).some((f) => f && f.user_id === uid);
 }
 
-/** Place a friend call (ring). Only mutual friends — never strangers. */
-function placeFriendCall(userId, { closePanel = true } = {}) {
+/**
+ * True when we can invite a friend into the *current* 1v1 without hanging up.
+ * (Not already 3+ people, not hunting party queue alone.)
+ */
+function canInviteJoinToCall() {
+  if (trioBrowse && peerPcs.size >= 2) return false;
+  if (peerPcs.size >= 2) return false;
+  // Active friend 1v1 or stranger 1v1
+  if (inFriendCall && matchMode === "friend") return true;
+  if (matched && matchMode === "solo" && yourRole === "solo") return true;
+  if (
+    matched &&
+    matchMode === "friend" &&
+    peerPcs.size <= 1
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Place a friend call (ring). Only mutual friends — never strangers.
+ *  While already in a 1v1, defaults to join:true so we don't drop the other person.
+ */
+function placeFriendCall(userId, { closePanel = true, join = null } = {}) {
   const uid = (userId || "").trim();
   if (!uid) return false;
   if (!isMutualFriend(uid)) {
@@ -9671,6 +11399,16 @@ function placeFriendCall(userId, { closePanel = true } = {}) {
     log(_t("friends.callOnlyFriends") || "only friends can call");
     return false;
   }
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    clearCallTimeout();
+    hideOutgoingCallToast();
+    setStatus(_t("status.disconnected") || "disconnected — reconnecting…");
+    log(_t("status.disconnected") || "not connected");
+    try {
+      if (typeof connect === "function") connect(true);
+    } catch (_) {}
+    return false;
+  }
   const fr = (friendsCache || []).find((f) => f && f.user_id === uid);
   lastOutgoingCallPeer = {
     user_id: uid,
@@ -9678,7 +11416,21 @@ function placeFriendCall(userId, { closePanel = true } = {}) {
     friend_code: fr?.friend_code || "",
     short_id: fr?.short_id || "",
   };
-  if (!send({ type: "call_friend", user_id: uid })) {
+  // Join current 1v1 as 3rd when already talking — never hang up the other person
+  const wantJoin = join === null ? canInviteJoinToCall() : !!join;
+  if (!wantJoin && matched && !inFriendCall) {
+    // Classic private call: leave stranger match first
+    try {
+      send({ type: "stop" });
+    } catch (_) {}
+  }
+  if (
+    !send({
+      type: "call_friend",
+      user_id: uid,
+      join: wantJoin,
+    })
+  ) {
     clearCallTimeout();
     hideOutgoingCallToast();
     lastOutgoingCallPeer = null;
@@ -9686,11 +11438,21 @@ function placeFriendCall(userId, { closePanel = true } = {}) {
     log(_t("status.disconnected") || "not connected");
     return false;
   }
-  setStatus(_t("status.calling") || "Calling…");
-  showOutgoingCallToast(lastOutgoingCallPeer);
+  const offlineHint =
+    fr && !fr.online
+      ? ` · ${_t("friends.mayBeOffline") || "may be offline"}`
+      : "";
+  const joinHint = wantJoin
+    ? ` · ${_t("friends.invitingJoin") || "adding to this call (won't drop partner)"}`
+    : "";
+  setStatus((_t("status.calling") || "Calling…") + joinHint + offlineHint);
+  showOutgoingCallToast(lastOutgoingCallPeer, { join: wantJoin });
   startCallTimeout();
-  log(_t("status.calling") || "Calling…");
-  trackEvent("friend_call_place");
+  log((_t("status.calling") || "Calling…") + joinHint + offlineHint);
+  trackEvent("friend_call_place", {
+    offline: fr && !fr.online ? 1 : 0,
+    join: wantJoin ? 1 : 0,
+  });
   if (closePanel) closeFriends();
   return true;
 }
@@ -9826,6 +11588,15 @@ function matchSoundEnabled() {
   return true;
 }
 
+/** Soft chime for inbound text chat (separate from match ring). Default on. */
+function chatSoundEnabled() {
+  const prefs = loadPrefs();
+  if (typeof prefs.chatSound === "boolean") return prefs.chatSound;
+  // Fall back to match sound preference if never set
+  if (typeof prefs.matchSound === "boolean") return prefs.matchSound;
+  return true;
+}
+
 /** Soft phone haptic when match/friend events fire (no-op if unsupported). */
 function softHaptic(pattern) {
   try {
@@ -9889,6 +11660,63 @@ function syncScreenWakeLock() {
 function playMatchChime() {
   softHaptic([18, 40, 28]);
   if (!matchSoundEnabled()) return;
+  playToneSequence(
+    [
+      { f: 660, t: 0, d: 0.09, type: "sine", gain: 0.12 },
+      { f: 880, t: 0.08, d: 0.12, type: "sine", gain: 0.12 },
+    ]
+  );
+}
+
+/**
+ * Soft single blip for inbound chat (quieter than match chime).
+ * Rate-limited so spam doesn't hammer the speaker.
+ * Rules:
+ *  - Respect chatSound pref
+ *  - Mute during active debate (timer/turn audio already busy)
+ *  - When tab is hidden: always chime (if enabled) so background pings land
+ *  - When visible: skip if compose already focused (user is typing)
+ */
+let lastChatChimeAt = 0;
+function playChatMessageChime() {
+  if (!chatSoundEnabled()) return;
+  try {
+    if (debate && debate.active) return;
+  } catch (_) {}
+  const hidden =
+    typeof document !== "undefined" && document.visibilityState === "hidden";
+  if (!hidden) {
+    try {
+      const active = document.activeElement;
+      if (
+        active &&
+        (active.id === "msg" ||
+          active.id === "chat-compose-input" ||
+          active.classList?.contains("tile-compose-input") ||
+          (active.tagName === "INPUT" &&
+            active.closest?.("#compose, .tile-compose, .chat-compose")))
+      ) {
+        return;
+      }
+    } catch (_) {}
+  }
+  const now = Date.now();
+  // Slightly longer gap when tab visible; snappier when backgrounded
+  const minGap = hidden ? 350 : 450;
+  if (now - lastChatChimeAt < minGap) return;
+  lastChatChimeAt = now;
+  softHaptic(hidden ? 18 : 12);
+  const gainBoost = hidden ? 1.35 : 1;
+  playToneSequence([
+    { f: 920, t: 0, d: 0.055, type: "sine", gain: 0.055 * gainBoost },
+    { f: 1240, t: 0.04, d: 0.07, type: "sine", gain: 0.04 * gainBoost },
+  ]);
+}
+
+/**
+ * @param {{ f: number, t: number, d: number, type?: string, gain?: number }[]} tones
+ */
+function playToneSequence(tones) {
   try {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
@@ -9896,17 +11724,14 @@ function playMatchChime() {
     const ctx = chimeCtx;
     if (ctx.state === "suspended") ctx.resume().catch(() => {});
     const now = ctx.currentTime;
-    const tones = [
-      { f: 660, t: 0, d: 0.09 },
-      { f: 880, t: 0.08, d: 0.12 },
-    ];
-    for (const { f, t, d } of tones) {
+    for (const { f, t, d, type, gain } of tones || []) {
       const o = ctx.createOscillator();
       const g = ctx.createGain();
-      o.type = "sine";
+      o.type = type || "sine";
       o.frequency.value = f;
+      const peak = Math.max(0.01, Number(gain) || 0.1);
       g.gain.setValueAtTime(0.0001, now + t);
-      g.gain.exponentialRampToValueAtTime(0.12, now + t + 0.02);
+      g.gain.exponentialRampToValueAtTime(peak, now + t + 0.015);
       g.gain.exponentialRampToValueAtTime(0.0001, now + t + d);
       o.connect(g);
       g.connect(ctx.destination);
@@ -9925,32 +11750,11 @@ let activeCallNotification = null;
 
 function playRingBurst() {
   if (!matchSoundEnabled()) return;
-  try {
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) return;
-    if (!chimeCtx || chimeCtx.state === "closed") chimeCtx = new AC();
-    const ctx = chimeCtx;
-    if (ctx.state === "suspended") ctx.resume().catch(() => {});
-    const now = ctx.currentTime;
-    const tones = [
-      { f: 520, t: 0, d: 0.14 },
-      { f: 780, t: 0.16, d: 0.16 },
-      { f: 520, t: 0.36, d: 0.14 },
-    ];
-    for (const { f, t, d } of tones) {
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.type = "triangle";
-      o.frequency.value = f;
-      g.gain.setValueAtTime(0.0001, now + t);
-      g.gain.exponentialRampToValueAtTime(0.14, now + t + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, now + t + d);
-      o.connect(g);
-      g.connect(ctx.destination);
-      o.start(now + t);
-      o.stop(now + t + d + 0.02);
-    }
-  } catch (_) {}
+  playToneSequence([
+    { f: 520, t: 0, d: 0.14, type: "triangle", gain: 0.14 },
+    { f: 780, t: 0.16, d: 0.16, type: "triangle", gain: 0.14 },
+    { f: 520, t: 0.36, d: 0.14, type: "triangle", gain: 0.14 },
+  ]);
 }
 
 function startIncomingRing(name) {
@@ -10900,7 +12704,10 @@ function fillSelect(sel, devices, kindLabel, prefKey) {
 async function refreshDevices() {
   try {
     const { cameras, mics, speakers } = await listMediaDevices();
-    fillSelect($("sel-camera"), cameras, _t("device.camera"), "cameraId");
+    // Show all real cameras (do not hide Kiyo — user may only have that device,
+    // or USB may be busy with PipeWire). Ranking demotes black-prone labels.
+    const camList = cameras || [];
+    fillSelect($("sel-camera"), camList, _t("device.camera"), "cameraId");
     fillSelect($("sel-mic"), mics, _t("device.mic"), "micId");
     fillSelect($("sel-speaker"), speakers, _t("device.speaker"), "speakerId");
     if (!speakers?.length && $("sel-speaker")) {
@@ -10938,9 +12745,24 @@ function escapeAttr(s) {
 }
 
 function syncVolumeSliders(val) {
-  const v = String(val);
+  const n = Math.max(0, Math.min(100, Math.round(Number(val) || 0)));
+  const v = String(n);
   if ($("remote-vol")) $("remote-vol").value = v;
   if ($("remote-vol-sheet")) $("remote-vol-sheet").value = v;
+  paintVolumePct(n);
+}
+
+/** Side-rail + sheet volume percentage label. */
+function paintVolumePct(val) {
+  const n = Math.max(0, Math.min(100, Math.round(Number(val) || 0)));
+  const label = `${n}%`;
+  const pct = $("remote-vol-pct");
+  if (pct) pct.textContent = label;
+  const sheetPct = $("remote-vol-sheet-pct");
+  if (sheetPct) sheetPct.textContent = label;
+  // CSS custom prop for filled track height on vertical slider
+  const volWrap = $("remote-vol")?.closest?.(".side-vol");
+  if (volWrap) volWrap.style.setProperty("--vol-pct", String(n));
 }
 
 function stopMeter() {
@@ -11083,6 +12905,10 @@ function updateSideIcons() {
   $("tile-remote")?.classList.toggle("partner-blurred", partnerBlurred);
   $("btn-blur-self")?.classList.toggle("active", selfBlurred);
   $("tile-local")?.classList.toggle("self-blurred", selfBlurred);
+  // Partner blur: Blur them ↔ Unblur
+  try {
+    syncPartnerBlurButtonLabels();
+  } catch (_) {}
   // Label on self-blur button
   const selfLbl = $("btn-blur-self")?.querySelector(".lbl");
   if (selfLbl) {
@@ -11121,9 +12947,14 @@ function getBlackVideoTrack() {
 async function pushOutboundVideoTracks() {
   const real = previewStream?.getVideoTracks()?.[0] || null;
   // Local element always uses real preview stream (CSS handles self-blur look)
+  // Never attach the privacy black canvas track to #local — only outbound PC.
   const local = $("local");
   if (local && previewStream) {
-    if (local.srcObject !== previewStream) local.srcObject = previewStream;
+    if (local.srcObject !== previewStream) {
+      local.srcObject = previewStream;
+      prepareVideoEl(local, { muted: true });
+      playVideoEl(local);
+    }
   }
   for (const pc of peerPcs.values()) {
     try {
@@ -11270,39 +13101,13 @@ function drawSoftBlurredVideo(ctx, video, canvas, opts = {}) {
 }
 
 function stopPartnerBlurCanvas() {
-  if (partnerBlurRaf) {
-    cancelAnimationFrame(partnerBlurRaf);
-    partnerBlurRaf = 0;
-  }
-  const c = $("partner-blur-canvas");
-  if (c) {
-    c.classList.remove("is-active");
-    c.hidden = true;
-  }
+  stopPeerBlurCanvas("remote");
+  partnerBlurRaf = 0;
 }
 
 function startPartnerBlurCanvas() {
-  if (!needsCanvasVideoBlur()) {
-    stopPartnerBlurCanvas();
-    return;
-  }
-  const canvas = ensureVideoBlurCanvas("tile-remote", "partner-blur-canvas");
-  const video = $("remote");
-  if (!canvas || !video) return;
-  canvas.hidden = false;
-  canvas.classList.add("is-active");
-  const ctx = canvas.getContext("2d", { alpha: false });
-  if (!ctx) return;
-  const tick = () => {
-    if (!partnerBlurred) {
-      stopPartnerBlurCanvas();
-      return;
-    }
-    drawSoftBlurredVideo(ctx, video, canvas, { mirror: false });
-    partnerBlurRaf = requestAnimationFrame(tick);
-  };
-  if (partnerBlurRaf) cancelAnimationFrame(partnerBlurRaf);
-  partnerBlurRaf = requestAnimationFrame(tick);
+  startPeerBlurCanvas("remote");
+  partnerBlurRaf = peerBlurRafByEl.remote || 0;
 }
 
 function stopSelfBlurCanvas() {
@@ -11344,18 +13149,23 @@ function startSelfBlurCanvas() {
 }
 
 function setPartnerBlur(on) {
-  partnerBlurred = !!on;
-  updateSideIcons();
-  if (partnerBlurred) startPartnerBlurCanvas();
-  else stopPartnerBlurCanvas();
+  // Side-rail blur = main remote only (3rd/4th use per-tile blur buttons)
+  setPeerElBlur("remote", on);
 }
 
 function togglePartnerBlur() {
   // User took control — cancel pending auto-unblur
   clearIntroBlurTimer();
   introBlurGen++;
-  setPartnerBlur(!partnerBlurred);
-  log(partnerBlurred ? _t("log.blurOn") : _t("log.blurOff"));
+  togglePeerElBlur("remote");
+  try {
+    syncPartnerBlurButtonLabels();
+  } catch (_) {}
+  log(
+    partnerBlurred
+      ? _t("log.blurOn") || "partner video blurred"
+      : _t("log.blurOff") || "partner video unblurred"
+  );
 }
 
 function setSelfBlur(on) {
@@ -11528,24 +13338,808 @@ async function handleNsfwDetected(scores) {
 }
 
 /**
- * Attach a MediaStream to the local preview UI (shared by auto + settings paths).
+ * Camera LED can be on while the <video> stays black (wrong /dev/video* on Linux,
+ * muted track, GPU paint bug, stuck overlay). Heal by re-bind, canvas mirror,
+ * then cycle cameras.
+ */
+let localPreviewHealthTimer = 0;
+let localPreviewHealthTries = 0;
+let localCanvasRaf = 0;
+let localBlackStreak = 0;
+let localCameraCycleTried = new Set();
+let localCameraCycleBusy = false;
+/** When set, startPreview must open this deviceId (user pick) — never silent-fallback to another cam. */
+let forceCameraDeviceId = null;
+
+function localVideoTrackLive() {
+  try {
+    return (previewStream?.getVideoTracks?.() || []).some(
+      (t) => t && t.readyState === "live" && t.enabled !== false
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+function localVideoTrackMuted() {
+  try {
+    const t = previewStream?.getVideoTracks?.()?.[0];
+    return !!(t && t.muted);
+  } catch (_) {
+    return false;
+  }
+}
+
+/** True when the local element has decoded frames (may still be all-black pixels). */
+function localPreviewHasFrames() {
+  const local = $("local");
+  if (!local?.srcObject) return false;
+  if (local.paused) return false;
+  if ((local.videoWidth || 0) < 2 || (local.videoHeight || 0) < 2) return false;
+  if (local.readyState < 2) return false;
+  return true;
+}
+
+/** Sample average luma of current local frame (0–255). -1 if unreadable. */
+function sampleLocalPreviewLuma() {
+  const local = $("local");
+  if (!local || (local.videoWidth || 0) < 2) return -1;
+  try {
+    const w = 48;
+    const h = 36;
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return -1;
+    ctx.drawImage(local, 0, 0, w, h);
+    const data = ctx.getImageData(0, 0, w, h).data;
+    let sum = 0;
+    let n = 0;
+    for (let i = 0; i < data.length; i += 16) {
+      // Rec. 601 luma
+      sum += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+      n++;
+    }
+    return n ? sum / n : -1;
+  } catch (_) {
+    return -1;
+  }
+}
+
+function localPreviewIsPainting() {
+  if (!localPreviewHasFrames()) return false;
+  // All-black frames still count as "not painting" for UX
+  const luma = sampleLocalPreviewLuma();
+  if (luma >= 0 && luma < 6) return false;
+  return true;
+}
+
+function clearStuckLocalBlurCanvas() {
+  if (selfBlurred) return;
+  try {
+    $("tile-local")?.classList.remove("self-blurred");
+    const c = $("self-blur-canvas");
+    if (c) {
+      c.classList.remove("is-active");
+      c.style.display = "none";
+    }
+  } catch (_) {}
+}
+
+function ensureLocalPreviewCanvas() {
+  let c = $("local-preview-canvas");
+  if (c) return c;
+  const tile = $("tile-local");
+  const local = $("local");
+  if (!tile || !local) return null;
+  c = document.createElement("canvas");
+  c.id = "local-preview-canvas";
+  c.className = "local-preview-canvas";
+  c.setAttribute("aria-hidden", "true");
+  c.hidden = true;
+  local.insertAdjacentElement("afterend", c);
+  return c;
+}
+
+/** Abort handle for MediaStreamTrackProcessor read loop */
+let localTrackProcessorAbort = null;
+
+function stopLocalCanvasPreview() {
+  if (localCanvasRaf) {
+    cancelAnimationFrame(localCanvasRaf);
+    localCanvasRaf = 0;
+  }
+  if (localTrackProcessorAbort) {
+    try {
+      localTrackProcessorAbort.abort();
+    } catch (_) {}
+    localTrackProcessorAbort = null;
+  }
+  const c = $("local-preview-canvas");
+  if (c) {
+    c.hidden = true;
+    c.classList.remove("is-active");
+  }
+  $("tile-local")?.classList.remove("local-canvas-preview");
+}
+
+/** Offscreen <video> used only for decode (main #local can stay GPU-black on Linux). */
+function ensureLocalDecodeVideo() {
+  let v = $("local-decode-video");
+  if (v) return v;
+  v = document.createElement("video");
+  v.id = "local-decode-video";
+  v.muted = true;
+  v.defaultMuted = true;
+  v.playsInline = true;
+  v.setAttribute("playsinline", "");
+  v.setAttribute("webkit-playsinline", "");
+  v.autoplay = true;
+  v.setAttribute("muted", "");
+  // Must be in DOM and non-zero size or some Chrome builds never decode
+  v.style.cssText =
+    "position:fixed;left:0;top:0;width:160px;height:120px;opacity:0.001;pointer-events:none;z-index:-1;";
+  document.body.appendChild(v);
+  return v;
+}
+
+/**
+ * Local preview strategy:
+ * - Mobile / normal: show <video id="local"> only (works everywhere).
+ * - Desktop Linux when <video> stays black: optional canvas mirror.
+ * Never leave a blank black canvas covering the video (broke mobile + desktop).
+ */
+function startLocalCanvasPreview() {
+  try { stopLocalCanvasPreview(); } catch (_) {}
+}
+
+
+
+/** Session devices that delivered black frames (LED on, no picture). */
+const LOCAL_CAM_FAILED_KEY = "ruletka-cam-black-ids-v1";
+
+function loadFailedCameraIds() {
+  try {
+    const raw = sessionStorage.getItem(LOCAL_CAM_FAILED_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch (_) {
+    return new Set();
+  }
+}
+
+function markCameraFailed(deviceId) {
+  if (!deviceId) return;
+  try {
+    const s = loadFailedCameraIds();
+    s.add(deviceId);
+    sessionStorage.setItem(LOCAL_CAM_FAILED_KEY, JSON.stringify([...s]));
+  } catch (_) {}
+  localCameraCycleTried.add(deviceId);
+}
+
+function clearFailedCameras() {
+  try {
+    sessionStorage.removeItem(LOCAL_CAM_FAILED_KEY);
+  } catch (_) {}
+  localCameraCycleTried.clear();
+}
+
+function isBlackProneCameraLabel(label) {
+  return /kiyo|razer\s*kiyo/i.test(String(label || ""));
+}
+
+function isDesktopLinuxCam() {
+  try {
+    return !isLikelyMobile() && /Linux/i.test(navigator.userAgent || "");
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * Sample average luma of a MediaStream via a temporary <video> (and ImageCapture).
+ * Returns 0–255, or -1 if unreadable.
+ */
+async function sampleStreamLuma(stream, waitMs = 550) {
+  if (!stream?.getVideoTracks?.()?.length) return -1;
+  const v = document.createElement("video");
+  v.muted = true;
+  v.defaultMuted = true;
+  v.playsInline = true;
+  v.setAttribute("playsinline", "");
+  v.autoplay = true;
+  v.style.cssText =
+    "position:fixed;left:-9999px;top:0;width:160px;height:120px;opacity:0;pointer-events:none";
+  document.body.appendChild(v);
+  try {
+    v.srcObject = stream;
+    try {
+      await v.play();
+    } catch (_) {}
+    await new Promise((r) => setTimeout(r, waitMs));
+    let luma = -1;
+    if ((v.videoWidth || 0) >= 2 && (v.videoHeight || 0) >= 2) {
+      try {
+        const w = 48;
+        const h = 36;
+        const c = document.createElement("canvas");
+        c.width = w;
+        c.height = h;
+        const ctx = c.getContext("2d", { willReadFrequently: true });
+        if (ctx) {
+          ctx.drawImage(v, 0, 0, w, h);
+          const data = ctx.getImageData(0, 0, w, h).data;
+          let sum = 0;
+          let n = 0;
+          for (let i = 0; i < data.length; i += 16) {
+            sum += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+            n++;
+          }
+          luma = n ? sum / n : -1;
+        }
+      } catch (_) {}
+    }
+    // ImageCapture fallback when <video> GPU path is black/zero size
+    if (luma < 5) {
+      try {
+        const track = stream.getVideoTracks()[0];
+        if (track && typeof ImageCapture === "function") {
+          const bmp = await new ImageCapture(track).grabFrame();
+          const w = 48;
+          const h = 36;
+          const c = document.createElement("canvas");
+          c.width = w;
+          c.height = h;
+          const ctx = c.getContext("2d", { willReadFrequently: true });
+          if (ctx) {
+            ctx.drawImage(bmp, 0, 0, w, h);
+            const data = ctx.getImageData(0, 0, w, h).data;
+            let sum = 0;
+            let n = 0;
+            for (let i = 0; i < data.length; i += 16) {
+              sum += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+              n++;
+            }
+            luma = n ? sum / n : luma;
+          }
+          try {
+            bmp.close?.();
+          } catch (_) {}
+        }
+      } catch (_) {}
+    }
+    return luma;
+  } finally {
+    try {
+      v.srcObject = null;
+      v.remove();
+    } catch (_) {}
+  }
+}
+
+/**
+ * Open a single camera by deviceId (video only). Returns stream or null.
+ */
+async function openVideoDeviceOnly(deviceId) {
+  if (!deviceId) return null;
+  const tries = [
+    {
+      video: {
+        deviceId: { exact: deviceId },
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+      },
+      audio: false,
+    },
+    { video: { deviceId: { exact: deviceId } }, audio: false },
+    { video: { deviceId: { ideal: deviceId } }, audio: false },
+  ];
+  for (const c of tries) {
+    try {
+      return await navigator.mediaDevices.getUserMedia(c);
+    } catch (_) {}
+  }
+  return null;
+}
+
+/**
+ * Desktop Linux: open cameras that actually paint.
+ * NEVER falls back to Razer Kiyo when any non-Kiyo device exists (Kiyo = LED on, black frames).
+ */
+async function probeOpenBestCamera(audioDeviceId) {
+  const ranked = await listVideoCameras();
+  if (!ranked.length) return null;
+
+  const good = ranked.filter((c) => !isBlackProneCameraLabel(c.label));
+  const bad = ranked.filter((c) => isBlackProneCameraLabel(c.label));
+  // If we have USB/etc, never try Kiyo at all
+  const order = good.length ? good : bad;
+
+  let best = null; // { stream, id, label, luma }
+  for (const cam of order) {
+    const s = await openVideoDeviceOnly(cam.id);
+    if (!s) {
+      log("cam probe fail open: " + (cam.label || cam.id).slice(0, 32));
+      continue;
+    }
+    const luma = await sampleStreamLuma(s, 700);
+    log(
+      "cam probe: " +
+        (cam.label || cam.id.slice(0, 8)).slice(0, 40) +
+        " luma=" +
+        (luma >= 0 ? Math.round(luma) : "?")
+    );
+    // Reject solid-black immediately when better options exist
+    if (luma >= 0 && luma < 5 && good.length > 0 && isBlackProneCameraLabel(cam.label)) {
+      try {
+        s.getTracks().forEach((t) => t.stop());
+      } catch (_) {}
+      continue;
+    }
+    if (!best || luma > best.luma) {
+      if (best?.stream) {
+        try {
+          best.stream.getTracks().forEach((t) => t.stop());
+        } catch (_) {}
+      }
+      best = { stream: s, id: cam.id, label: cam.label, luma };
+    } else {
+      try {
+        s.getTracks().forEach((t) => t.stop());
+      } catch (_) {}
+    }
+    if (best && best.luma >= 10) break;
+  }
+  if (!best?.stream) return null;
+
+  // If best is still nearly black and we only tried "good" list, return it anyway
+  // (dim room) — caller uses luma threshold.
+  try {
+    const a = await navigator.mediaDevices.getUserMedia({
+      video: false,
+      audio: audioDeviceId
+        ? {
+            deviceId: { ideal: audioDeviceId },
+            echoCancellation: true,
+            noiseSuppression: true,
+          }
+        : {
+            echoCancellation: true,
+            noiseSuppression: true,
+          },
+    });
+    a.getAudioTracks().forEach((t) => best.stream.addTrack(t));
+  } catch (_) {}
+  return best;
+}
+
+/**
+ * After GUM: if we got Kiyo while a normal webcam exists, drop Kiyo and open that cam.
+ * Desktop Linux only. Always stops tracks first so USB is free.
+ */
+async function rejectBlackProneIfAlternatives(stream, audioDeviceId) {
+  if (!stream || !isDesktopLinuxCam()) return stream;
+  const track = stream.getVideoTracks?.()?.[0];
+  const label = track?.label || "";
+  if (!isBlackProneCameraLabel(label)) return stream;
+
+  let devices = [];
+  try {
+    devices = await navigator.mediaDevices.enumerateDevices();
+  } catch (_) {
+    return stream;
+  }
+  const videos = (devices || []).filter(
+    (d) => d.kind === "videoinput" && d.deviceId
+  );
+  const alt = videos.find(
+    (d) =>
+      !isBlackProneCameraLabel(d.label || "") &&
+      /usb|webcam|vitade|microdia|c9\d\d|hd |integrated|face/i.test(
+        d.label || ""
+      )
+  ) || videos.find((d) => !isBlackProneCameraLabel(d.label || ""));
+  if (!alt) return stream;
+
+  log("switch off Kiyo → " + (alt.label || alt.deviceId).slice(0, 40));
+  try {
+    stream.getTracks().forEach((t) => t.stop());
+  } catch (_) {}
+  await new Promise((r) => setTimeout(r, 350));
+
+  const tries = [
+    {
+      video: {
+        deviceId: { exact: alt.deviceId },
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+      },
+      audio: true,
+    },
+    { video: { deviceId: { exact: alt.deviceId } }, audio: true },
+    { video: { deviceId: { ideal: alt.deviceId } }, audio: true },
+  ];
+  for (const c of tries) {
+    try {
+      const s = await navigator.mediaDevices.getUserMedia(c);
+      try {
+        savePrefs({ cameraId: alt.deviceId });
+        if ($("sel-camera")) $("sel-camera").value = alt.deviceId;
+      } catch (_) {}
+      return s;
+    } catch (_) {}
+  }
+  return null;
+}
+
+async function listVideoCameras() {
+  try {
+    const all = await navigator.mediaDevices.enumerateDevices();
+    const failed = loadFailedCameraIds();
+    const desktopLinux = isDesktopLinuxCam();
+    // List every videoinput — never hide devices (after unplug/replug Chrome
+    // needs every node; hard-banning Kiyo made "no camera" when USB was busy).
+    const cams = (all || []).filter(
+      (d) => d.kind === "videoinput" && d.deviceId
+    );
+    // Prefer working webcams; demote black-prone / IR / virtual (still tryable)
+    return cams
+      .map((d) => {
+        const l = (d.label || "").toLowerCase();
+        let score = 10;
+        if (/integrated|webcam|usb 2\.0|usb camera|hd |face|c920|c922|brill|vitade|microdia/.test(l))
+          score += 20;
+        // Kiyo often black on Linux UVC — demote, do not remove
+        if (/kiyo/.test(l)) score += desktopLinux ? -25 : 1;
+        if (/razer/.test(l) && desktopLinux) score -= 10;
+        if (/logitech|hd pro|c9\d\d/.test(l)) score += 8;
+        if (/ir\b|infrared|depth|meta|virtual|obs|snap|manycam|ndi|dummy/.test(l))
+          score -= 20;
+        if (failed.has(d.deviceId) || localCameraCycleTried.has(d.deviceId))
+          score -= 50;
+        if (!l) score -= 2;
+        return { id: d.deviceId, label: d.label || "Camera", score };
+      })
+      .sort((a, b) => b.score - a.score);
+  } catch (_) {
+    return [];
+  }
+}
+
+/** Nudge auto-exposure / gain when the stream is live but frames are black. */
+async function tryBoostCameraExposure(track) {
+  if (!track?.applyConstraints) return false;
+  const tries = [
+    {
+      advanced: [
+        { exposureMode: "continuous" },
+        { whiteBalanceMode: "continuous" },
+        { focusMode: "continuous" },
+      ],
+    },
+    {
+      advanced: [
+        { exposureMode: "manual", exposureCompensation: 1.5 },
+        { brightness: 128 },
+        { contrast: 32 },
+      ],
+    },
+    { advanced: [{ exposureTime: 100 }, { iso: 800 }] },
+  ];
+  for (const c of tries) {
+    try {
+      await track.applyConstraints(c);
+      return true;
+    } catch (_) {}
+  }
+  return false;
+}
+
+/**
+ * Wait for non-black frames. Returns true if preview looks usable.
+ * Autoexposure often needs 0.5–2s after open.
+ */
+async function waitForLocalPreviewPaint(maxMs = 2200) {
+  const start = Date.now();
+  let best = -1;
+  while (Date.now() - start < maxMs) {
+    await ensureLocalPreviewVisible("wait-paint");
+    if (localPreviewIsPainting()) {
+      const luma = sampleLocalPreviewLuma();
+      if (luma > best) best = luma;
+      if (luma >= 10) return true;
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  // Soft pass if we got any real brightness (dim room)
+  return best >= 8 || localPreviewIsPainting();
+}
+
+/**
+ * If current camera stays black, mark it failed and open the next device.
+ */
+async function recoverBlackLocalCamera(reason = "") {
+  const track = previewStream?.getVideoTracks?.()?.[0];
+  const id = track?.getSettings?.()?.deviceId || "";
+  if (id) markCameraFailed(id);
+  // One shot: try exposure boost on current device first
+  if (track) {
+    await tryBoostCameraExposure(track);
+    if (await waitForLocalPreviewPaint(900)) {
+      // recovery without switch
+      showLocalCamRestart(false);
+      return true;
+    }
+  }
+  showLocalCamRestart(true);
+  return tryNextLocalCamera(reason || "black");
+}
+
+function showLocalCamRestart(show) {
+  const btn = $("btn-restart-cam");
+  const wrap = $("local-cam-restart");
+  if (wrap) {
+    wrap.hidden = !show;
+    if (show) wrap.removeAttribute("hidden");
+    else wrap.setAttribute("hidden", "");
+  }
+  if (btn) btn.hidden = !show;
+  if (show) {
+    // Keep video/canvas visible under a floating chip — do NOT cover the tile
+    // with the full empty card (that made "cam on, still black" look like no video).
+    if (localVideoTrackLive()) {
+      setLocalEmpty(false);
+      const sub = $("local-empty-sub");
+      if (sub) {
+        sub.textContent =
+          _t("local.camBlackHint") ||
+          "Camera on but black — try another camera";
+      }
+      const enableBtn = $("btn-enable-cam");
+      if (enableBtn) enableBtn.hidden = true;
+    } else {
+      setLocalEmpty(true);
+      showEnableCamButton(
+        true,
+        _t("local.camBlackHint") ||
+          "Camera on but black — try another camera"
+      );
+    }
+  }
+}
+
+/** Fully release camera hardware so the next getUserMedia can open a different /dev/video*. */
+async function hardReleaseLocalCamera(ms = 280) {
+  try {
+    stopLocalCanvasPreview();
+  } catch (_) {}
+  if (previewStream) {
+    try {
+      previewStream.getTracks().forEach((tr) => {
+        try {
+          tr.stop();
+        } catch (_) {}
+      });
+    } catch (_) {}
+    previewStream = null;
+  }
+  const local = $("local");
+  if (local) {
+    try {
+      local.srcObject = null;
+    } catch (_) {}
+    try {
+      local.removeAttribute("src");
+      local.load?.();
+    } catch (_) {}
+  }
+  mediaPreviewBusy = false;
+  if (ms > 0) await new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * Stop current preview and open the next camera device (skip already tried).
+ * Fixes Linux multi-/dev/video* black feeds.
+ */
+async function tryNextLocalCamera(reason = "") {
+  if (localCameraCycleBusy) return false;
+  localCameraCycleBusy = true;
+  try {
+    const cams = await listVideoCameras();
+    if (!cams.length) return false;
+    const cur =
+      previewStream?.getVideoTracks?.()?.[0]?.getSettings?.()?.deviceId || "";
+    if (cur) localCameraCycleTried.add(cur);
+    const next = cams.find((c) => !localCameraCycleTried.has(c.id));
+    if (!next) {
+      // Exhausted list — reset and show help
+      localCameraCycleTried.clear();
+      setStatus(
+        _t("local.camBlackAll") ||
+          "All cameras look black — close other apps using the camera, then Enable again"
+      );
+      showEnableCamButton(
+        true,
+        _t("local.camBlackHint") ||
+          "Camera is on but preview is blank — try Enable again"
+      );
+      return false;
+    }
+    localCameraCycleTried.add(next.id);
+    log(
+      (_t("local.camSwitch") || "Trying camera") +
+        ": " +
+        (next.label || next.id.slice(0, 8))
+    );
+    setStatus(
+      (_t("local.camSwitch") || "Trying camera") +
+        ": " +
+        (next.label || "…")
+    );
+    savePrefs({ cameraId: next.id });
+    try {
+      if ($("sel-camera")) {
+        const sel = $("sel-camera");
+        if (![...sel.options].some((o) => o.value === next.id)) {
+          const opt = document.createElement("option");
+          opt.value = next.id;
+          opt.textContent = next.label || next.id.slice(0, 12);
+          sel.appendChild(opt);
+        }
+        sel.value = next.id;
+      }
+    } catch (_) {}
+    stopLocalCanvasPreview();
+    // Don't call stopPreview→startPreview recursion through mediaPreviewBusy; open directly
+    if (previewStream) {
+      try {
+        previewStream.getTracks().forEach((tr) => tr.stop());
+      } catch (_) {}
+      previewStream = null;
+    }
+    if ($("local")) $("local").srcObject = null;
+    // Clear busy so startPreview can run
+    mediaPreviewBusy = false;
+    await startPreview();
+    const ok = await waitForLocalPreviewPaint(2000);
+    if (ok) {
+      showLocalCamRestart(false);
+      showEnableCamButton(false, _t("local.emptySub"));
+      setLocalEmpty(false);
+      return true;
+    }
+    // Still black — mark this one failed too and continue chain once
+    const tid = previewStream?.getVideoTracks?.()?.[0]?.getSettings?.()?.deviceId;
+    if (tid) markCameraFailed(tid);
+    return false;
+  } catch (e) {
+    console.warn("[cam-cycle]", e);
+    return false;
+  } finally {
+    localCameraCycleBusy = false;
+  }
+}
+
+/**
+ * Rebind stream → force play → hide empty overlay → canvas if needed.
+ * @returns {Promise<boolean>} true if painting or no live video track to show
+ */
+async function ensureLocalPreviewVisible(reason = "") {
+  const local = $("local");
+  if (!local) return false;
+  if (!previewStream) return false;
+
+  try {
+    if (local.srcObject !== previewStream) local.srcObject = previewStream;
+  } catch (_) {}
+
+  previewStream.getVideoTracks?.().forEach((t) => {
+    try {
+      if (t.readyState === "live") t.enabled = !camOff;
+    } catch (_) {}
+  });
+
+  clearStuckLocalBlurCanvas();
+  if (localVideoTrackLive()) {
+    setLocalEmpty(false);
+    markLocalFeedActive(true);
+    // Hide canvas overlay unless desktop linux needs it later
+    try {
+      const c = $("local-preview-canvas");
+      if (c && !c.classList.contains("is-active")) {
+        c.hidden = true;
+        c.style.display = "none";
+      }
+    } catch (_) {}
+  }
+
+  prepareVideoEl(local, { muted: true });
+  try {
+    local.muted = true;
+    local.defaultMuted = true;
+    local.playsInline = true;
+    await local.play();
+  } catch (_) {
+    setTimeout(() => playVideoEl(local), 80);
+  }
+
+  // Desktop Linux only: canvas fallback if still black after play
+  if (isDesktopLinuxCam() && localVideoTrackLive() && !localPreviewIsPainting()) {
+    try {
+      startLocalCanvasPreview();
+    } catch (_) {}
+  }
+
+  if (localPreviewIsPainting()) {
+    showEnableCamButton(false, _t("local.emptySub"));
+    setLocalEmpty(false);
+    showLocalCamRestart(false);
+    localBlackStreak = 0;
+  } else if (localVideoTrackLive() && isDesktopLinuxCam()) {
+    showLocalCamRestart(true);
+  }
+
+  if (reason) {
+    try {
+      trackEvent("local_preview_heal", { reason: String(reason).slice(0, 40) });
+    } catch (_) {}
+  }
+  return localPreviewIsPainting() || !localVideoTrackLive();
+}
+
+function wireLocalPreviewHealth(stream) {
+  /* disabled */
+}
+
+
+function startLocalPreviewHealthWatch() {
+  if (localPreviewHealthTimer) {
+    clearInterval(localPreviewHealthTimer);
+    localPreviewHealthTimer = 0;
+  }
+}
+
+
+function startLocalCanvasPreview() {
+  try { stopLocalCanvasPreview(); } catch (_) {}
+}
+
+
+/**
+ * Attach a MediaStream to the local preview UI.
+ * Restored simple path (HEAD) — experimental canvas/recreate broke all platforms.
  */
 async function attachLocalStream(stream) {
-  // Stop previous tracks
   if (previewStream && previewStream !== stream) {
     previewStream.getTracks().forEach((t) => {
-      try {
-        t.stop();
-      } catch (_) {}
+      try { t.stop(); } catch (_) {}
     });
   }
   previewStream = stream;
-  previewStream.getAudioTracks().forEach((t) => {
-    t.enabled = !micMuted;
-  });
+  try {
+    applyMicTracks();
+  } catch (_) {
+    previewStream.getAudioTracks().forEach((t) => {
+      t.enabled = !micMuted;
+    });
+  }
   previewStream.getVideoTracks().forEach((t) => {
-    t.enabled = !camOff; // local preview; outbound privacy via pushOutboundVideoTracks
+    t.enabled = !camOff;
   });
+
+  try { stopLocalCanvasPreview(); } catch (_) {}
+  try {
+    const c = $("local-preview-canvas");
+    if (c) {
+      c.hidden = true;
+      c.classList.remove("is-active");
+      c.style.cssText = "display:none!important;visibility:hidden!important;z-index:-1!important;";
+    }
+    $("tile-local")?.classList.remove("local-canvas-preview");
+  } catch (_) {}
+
   const local = $("local");
   if (local) {
     prepareVideoEl(local, { muted: true });
@@ -11554,18 +14148,17 @@ async function attachLocalStream(stream) {
     try {
       await local.play();
     } catch (_) {
-      // iOS/Android: retry play after a tick / next gesture
       setTimeout(() => playVideoEl(local), 100);
     }
   }
   showEnableCamButton(false, _t("local.emptySub"));
   setLocalEmpty(false);
+  try { markLocalFeedActive(true); } catch (_) {}
+  try { clearStuckLocalBlurCanvas(); } catch (_) {}
+
   await startMeter(previewStream);
   updateSideIcons();
-  // Keep "connected" if socket is already up
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    /* leave status as connected / whatever the server last said for match */
-  } else {
+  if (!(ws && ws.readyState === WebSocket.OPEN)) {
     setStatus(_t("status.previewOn"));
   }
   log(_t("log.previewStart"));
@@ -11575,17 +14168,28 @@ async function attachLocalStream(stream) {
   const aTrack = previewStream.getAudioTracks()[0];
   const vId = vTrack?.getSettings?.().deviceId || null;
   const aId = aTrack?.getSettings?.().deviceId || null;
-  // Persist what actually opened (so next load matches reality)
   const patch = {};
   if (vId) patch.cameraId = vId;
   if (aId) patch.micId = aId;
   if (Object.keys(patch).length) savePrefs(patch);
+  try {
+    if (vTrack?.label) {
+      setStatus((_t("status.previewOn") || "Camera on") + " · " + String(vTrack.label).slice(0, 32));
+    }
+  } catch (_) {}
 
   for (const pc of peerPcs.values()) {
     pc.setLocalStream(previewStream);
     await pc.syncLocalTracksToPc();
   }
   await pushOutboundVideoTracks();
+  try {
+    const el = $("local");
+    if (el && previewStream) {
+      if (el.srcObject !== previewStream) el.srcObject = previewStream;
+      playVideoEl(el);
+    }
+  } catch (_) {}
 
   await refreshDevices().catch(() => {});
   if (vId && $("sel-camera") && [...$("sel-camera").options].some((o) => o.value === vId)) {
@@ -11595,6 +14199,7 @@ async function attachLocalStream(stream) {
     $("sel-mic").value = aId;
   }
 }
+
 
 /** Android / iOS — stale desktop deviceIds often break getUserMedia. */
 function isLikelyMobile() {
@@ -11654,6 +14259,7 @@ function cameraOptionLabel(deviceId) {
 function applyCameraChoice(deviceId) {
   const id = String(deviceId || "").trim();
   const label = cameraOptionLabel(id);
+  // Prefer non-Kiyo on Linux when user picked nothing useful — but honor explicit pick
   const face = inferFacingFromLabel(label);
   if (face === "environment" || face === "user") {
     cameraFacing = face;
@@ -11661,6 +14267,21 @@ function applyCameraChoice(deviceId) {
   } else if (id) {
     // Unknown label but explicit pick — prefer deviceId path, keep last facing
     facingModeStrict = false;
+  }
+  // Explicit pick: force this device next startPreview
+  forceCameraDeviceId = id || null;
+  if (id) {
+    try {
+      const failed = loadFailedCameraIds();
+      if (failed.has(id)) {
+        failed.delete(id);
+        sessionStorage.setItem(
+          LOCAL_CAM_FAILED_KEY,
+          JSON.stringify([...failed])
+        );
+      }
+    } catch (_) {}
+    localCameraCycleTried.delete(id);
   }
   try {
     savePrefs({
@@ -11705,6 +14326,8 @@ function applyLocalMirrorClass() {
       }
     } catch (_) {}
   }
+  const canvas = $("local-preview-canvas");
+  if (canvas) canvas.classList.toggle("is-unmirrored", !mirrored);
   const pip = $("local-pip-mirror");
   if (pip) pip.classList.toggle("is-unmirrored", !mirrored);
   const btn = $("btn-flip-cam");
@@ -12165,6 +14788,31 @@ async function startPreview() {
     if (mobile && videoDeviceId && !isKnownCameraId(videoDeviceId)) {
       videoDeviceId = null;
     }
+    // Desktop Linux: prefer USB over black Kiyo (labels available after prior permission)
+    if (!mobile && /Linux/i.test(navigator.userAgent || "") && !forceCameraDeviceId) {
+      try {
+        const all = await navigator.mediaDevices.enumerateDevices();
+        const usb = all.find(
+          (d) =>
+            d.kind === "videoinput" &&
+            d.deviceId &&
+            d.label &&
+            !/kiyo/i.test(d.label) &&
+            /usb|webcam|vitade|microdia|c9\d\d|hd /i.test(d.label)
+        );
+        if (usb) {
+          const cur = all.find((d) => d.deviceId === videoDeviceId);
+          if (!videoDeviceId || (cur && /kiyo/i.test(cur.label || ""))) {
+            videoDeviceId = usb.deviceId;
+            try {
+              if ($("sel-camera")) $("sel-camera").value = usb.deviceId;
+              savePrefs({ cameraId: usb.deviceId });
+            } catch (_) {}
+          }
+        }
+      } catch (_) {}
+    }
+
     // Restore last facing preference (rear cam) when prefs have it
     try {
       const savedFace = prefs.cameraFacing;
@@ -12210,6 +14858,42 @@ async function startPreview() {
       }
     }
     if (!stream) throw lastErr || new Error("getUserMedia failed");
+
+    // Linux: if stream is Kiyo and USB exists, reopen USB
+    if (!mobile && /Linux/i.test(navigator.userAgent || "") && !forceCameraDeviceId) {
+      try {
+        const lab = stream.getVideoTracks()?.[0]?.label || "";
+        if (/kiyo/i.test(lab)) {
+          const all = await navigator.mediaDevices.enumerateDevices();
+          const usb = all.find(
+            (d) =>
+              d.kind === "videoinput" &&
+              d.deviceId &&
+              d.label &&
+              !/kiyo/i.test(d.label) &&
+              /usb|webcam|vitade|microdia|c9\d\d|hd /i.test(d.label)
+          );
+          if (usb) {
+            stream.getTracks().forEach((t) => {
+              try { t.stop(); } catch (_) {}
+            });
+            await new Promise((r) => setTimeout(r, 300));
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: {
+                deviceId: { exact: usb.deviceId },
+                width: { ideal: 640 },
+                height: { ideal: 480 },
+              },
+              audio: true,
+            });
+            try {
+              savePrefs({ cameraId: usb.deviceId });
+              if ($("sel-camera")) $("sel-camera").value = usb.deviceId;
+            } catch (_) {}
+          }
+        }
+      } catch (_) {}
+    }
 
     // If we only got one kind, try to add the other
     if (!stream.getVideoTracks().length) {
@@ -12321,13 +15005,18 @@ async function startPreview() {
   }
 }
 
+
+
 function stopPreview() {
   stopMeter();
+  try {
+    stopLocalCanvasPreview();
+  } catch (_) {}
   if (previewStream) {
     previewStream.getTracks().forEach((tr) => tr.stop());
     previewStream = null;
   }
-  $("local").srcObject = null;
+  if ($("local")) $("local").srcObject = null;
   setLocalEmpty(true);
   updateSideIcons();
   log(_t("log.previewStop"));
@@ -12335,17 +15024,44 @@ function stopPreview() {
 }
 
 function toggleMicMute() {
-  micMuted = !micMuted;
-  const tracks = previewStream?.getAudioTracks() || [];
-  tracks.forEach((tr) => {
-    tr.enabled = !micMuted;
-  });
-  for (const pc of peerPcs.values()) {
-    pc.setMicEnabled?.(!micMuted);
+  // During debate, non-speakers cannot unmute
+  if (debate.active && debate.speakerId && !debateUidEq(debate.speakerId, myUserId)) {
+    if (!micMuted) {
+      // Allow intentional mute preference while locked, but keep track off
+      micMuted = true;
+      applyMicTracks();
+      updateMicPill(0);
+      log(_t("log.micMuted"));
+      return;
+    }
+    setStatus(
+      _t("debate.waitTurn") || "Muted until your debate turn"
+    );
+    return;
   }
-  updateSideIcons();
+  micMuted = !micMuted;
+  applyMicTracks();
   updateMicPill(0);
   log(micMuted ? _t("log.micMuted") : _t("log.micUnmuted"));
+}
+
+/** Apply mic track enable state (user mute + debate lock). */
+function applyMicTracks() {
+  const debateLocked =
+    !!(debate.active && debate.speakerId && !debateUidEq(debate.speakerId, myUserId));
+  const enabled = !micMuted && !debateLocked;
+  const tracks = previewStream?.getAudioTracks() || [];
+  tracks.forEach((tr) => {
+    tr.enabled = enabled;
+  });
+  for (const pc of peerPcs.values()) {
+    pc.setMicEnabled?.(enabled);
+  }
+  updateSideIcons();
+  try {
+    document.body.classList.toggle("debate-active", !!debate.active);
+    document.body.classList.toggle("debate-muted-turn", debateLocked);
+  } catch (_) {}
 }
 
 /** Camera on/off UI removed — always keep preview on; use Hide for privacy. */
@@ -12376,15 +15092,28 @@ async function applySpeaker() {
 
 function applyRemoteVolume() {
   const el = $("remote-vol") || $("remote-vol-sheet");
-  const vol = Number(el?.value ?? 100);
-  syncVolumeSliders(vol);
-  savePrefs({ volume: vol });
+  // Side-rail slider drives main remote volume (and legacy prefs)
+  const railVol = Number(el?.value ?? peerVolByEl.remote ?? 100);
+  if (el) {
+    peerVolByEl.remote = railVol;
+    syncVolumeSliders(railVol);
+    savePrefs({ volume: railVol });
+  }
   for (const id of ["remote", "remote2", "remote-third"]) {
     const remote = $(id);
     if (!remote) continue;
-    remote.volume = partnerMuted ? 0 : vol / 100;
-    remote.muted = partnerMuted;
+    const tileMuted =
+      !!peerMutedByEl[id] || (id === "remote" && partnerMuted);
+    const vol = peerVolByEl[id] ?? 100;
+    remote.volume = tileMuted ? 0 : vol / 100;
+    remote.muted = tileMuted;
   }
+  // Keep per-peer volume inputs painted
+  try {
+    setPeerVolUi("remote", peerVolByEl.remote);
+    setPeerVolUi("remote2", peerVolByEl.remote2);
+    setPeerVolUi("remote-third", peerVolByEl["remote-third"]);
+  } catch (_) {}
 }
 
 /** Last match session that already got a full-volume reset (avoid re-blast on party re-search Matched). */
@@ -12418,15 +15147,25 @@ function resetPartnerVolumeForNewMatch(msg) {
   }
   lastVolumeResetKey = key;
   partnerMuted = false;
+  peerMutedByEl.remote = false;
+  peerMutedByEl.remote2 = false;
+  peerMutedByEl["remote-third"] = false;
+  peerVolByEl.remote = 100;
+  peerVolByEl.remote2 = 100;
+  peerVolByEl["remote-third"] = 100;
+  // Don't force-clear blur (intro blur may still apply)
   syncVolumeSliders(100);
   applyRemoteVolume();
   updateSideIcons();
+  syncAllPeerMediaChrome();
 }
 
 function togglePartnerMute() {
   partnerMuted = !partnerMuted;
+  peerMutedByEl.remote = partnerMuted;
   updateSideIcons();
   applyRemoteVolume();
+  setPeerMuteUi("remote", partnerMuted);
   log(partnerMuted ? _t("log.partnerMuted") : _t("log.partnerUnmuted"));
 }
 
@@ -12652,8 +15391,9 @@ function enterMultiPeerAudioMode(peers) {
   }
   const was = multiPeerAudioActive;
   multiPeerAudioActive = true;
+  // applyConstraints only — do NOT restart getUserMedia mid-call (that
+  // stops tracks, glitches senders, and often "craps out" partner audio).
   applyFullAudioProcessingToLocal().catch(() => {});
-  // If user had low-latency on, restart capture with full processing
   if (!was && isLowLatencyAudioPref()) {
     try {
       setStatus(
@@ -12661,10 +15401,16 @@ function enterMultiPeerAudioMode(peers) {
           "Group call — noise reduction on for clearer audio"
       );
     } catch (_) {}
-    try {
-      startPreview().catch(() => {});
-    } catch (_) {}
   }
+  // Slightly safer receive buffer when 2+ remotes share one device
+  try {
+    for (const pc of peerPcs.values()) {
+      if (pc?.pc && typeof applyLowLatencyPlayout === "function") {
+        applyLowLatencyPlayout(pc.pc, 70);
+        pc._lastPlayoutTarget = 70;
+      }
+    }
+  } catch (_) {}
   maybeShowMultiPeerHeadphonesTip();
   trackEvent("multi_audio_mode", { peers: countRemoteAudioPeers() });
 }
@@ -12675,12 +15421,7 @@ function leaveMultiPeerAudioMode() {
   if (typeof setForceFullAudioProcessing === "function") {
     setForceFullAudioProcessing(false);
   }
-  // Restore user low-latency preference if they had it on
-  if (isLowLatencyAudioPref()) {
-    try {
-      startPreview().catch(() => {});
-    } catch (_) {}
-  }
+  // Leave capture alone mid-session — next Start / device change re-reads prefs.
 }
 
 function syncLowLatencyAudioToggles() {
@@ -13077,7 +15818,7 @@ function syncSettingsSummary() {
   if ($("settings-safety-summary")) {
     const prefs = loadPrefs();
     const parts = [];
-    if (prefs.blurFirst === true) parts.push(_t("settings.sumBlur"));
+    if (prefs.blurFirst !== false) parts.push(_t("settings.sumBlur"));
     if (prefs.nsfwAuto !== false) parts.push(_t("settings.sumNsfw"));
     if (typeof prefs.matchSound === "boolean" ? prefs.matchSound : true) {
       parts.push(_t("settings.sumSound"));
@@ -13135,9 +15876,19 @@ function renderDeviceChoiceList(kind) {
       if (k === "camera") {
         applyCameraChoice(id);
         setStatus(_t("device.switchingCam") || "switching camera…");
+        mediaPreviewBusy = false;
+        await hardReleaseLocalCamera(300);
         await startPreview();
         applyLocalMirrorClass();
         syncSettingsSummary();
+        await ensureLocalPreviewVisible("settings-cam");
+        if (localVideoTrackLive() && !localPreviewIsPainting()) {
+          setStatus(
+            _t("local.camBlackHint") ||
+              "Camera on but black — pick USB Camera or tap Restart"
+          );
+          showLocalCamRestart(true);
+        }
       } else if (k === "mic") {
         savePrefs({ micId: id });
         setStatus(_t("device.switchingMic") || "switching mic…");
@@ -14738,8 +17489,8 @@ const DOCK_FLYOUT_MARGIN = 8;
 
 function friendsFlyoutMaxHeight() {
   const vh = window.innerHeight || 640;
-  // Use most of the viewport so Friends / Call history can scroll fully
-  return Math.min(vh * 0.88, 720);
+  // Tall sheet: most of the viewport so name → code → pending → friends fit without tiny scroll
+  return Math.min(vh * 0.94, 900);
 }
 
 function settingsFlyoutMaxHeight() {
@@ -14765,14 +17516,18 @@ function positionDockFlyout(sheet, anchor, opts = {}) {
         : Math.min(vh * 0.72, 560));
   const spaceAbove = rect.top - DOCK_FLYOUT_MARGIN;
   const spaceBelow = vh - rect.bottom - DOCK_FLYOUT_MARGIN;
-  // Prefer opening upward for Friends/Settings so we get more vertical room above the dock
+  // Friends: always open upward from dock when possible (taller + sits lower on screen)
   const placeAbove =
-    isFriends || isSettings
-      ? spaceAbove >= Math.min(preferH * 0.55, 280) || spaceAbove >= spaceBelow
-      : spaceAbove >= Math.min(preferH, 240) || spaceAbove >= spaceBelow;
+    isFriends
+      ? spaceAbove >= 160 || spaceAbove >= spaceBelow
+      : isSettings
+        ? spaceAbove >= Math.min(preferH * 0.55, 280) || spaceAbove >= spaceBelow
+        : spaceAbove >= Math.min(preferH, 240) || spaceAbove >= spaceBelow;
+  // Friends: snug to dock icon (2–4px) so the sheet sits lower / taller into the stage
+  const gap = isFriends ? 4 : DOCK_FLYOUT_GAP;
   const maxH = Math.max(
-    isFriends || isSettings ? 320 : 160,
-    Math.min(preferH, placeAbove ? spaceAbove - DOCK_FLYOUT_GAP : spaceBelow - DOCK_FLYOUT_GAP)
+    isFriends ? 420 : isSettings ? 320 : 160,
+    Math.min(preferH, placeAbove ? spaceAbove - gap : spaceBelow - gap)
   );
 
   // Horizontal: start = left-align to icon, end = right-align, center = mid
@@ -14799,11 +17554,12 @@ function positionDockFlyout(sheet, anchor, opts = {}) {
   sheet.style.right = "auto";
   if (placeAbove) {
     sheet.style.top = "auto";
-    sheet.style.bottom = `${Math.round(vh - rect.top + DOCK_FLYOUT_GAP)}px`;
+    // Friends sits snug above the dock icon (lower on the screen, taller body)
+    sheet.style.bottom = `${Math.round(vh - rect.top + gap)}px`;
     sheet.style.transformOrigin = opts.align === "end" ? "bottom right" : opts.align === "start" ? "bottom left" : "bottom center";
   } else {
     sheet.style.bottom = "auto";
-    sheet.style.top = `${Math.round(rect.bottom + DOCK_FLYOUT_GAP)}px`;
+    sheet.style.top = `${Math.round(rect.bottom + gap)}px`;
     sheet.style.transformOrigin = opts.align === "end" ? "top right" : opts.align === "start" ? "top left" : "top center";
   }
 }
@@ -14850,7 +17606,8 @@ function openSettings() {
   closeAllDockFlyouts("settings");
   const sheet = $("settings-sheet");
   const bd = $("sheet-backdrop");
-  const btn = $("btn-settings");
+  // Prefer header Settings if present (always on screen)
+  const btn = $("btn-settings-top") || $("btn-settings");
   // Re-apply strings so labels never stick as raw keys
   try {
     NextfaceI18n?.applyI18n?.(sheet || document);
@@ -15467,12 +18224,13 @@ function handleServer(msg) {
         const trustedSenior = /trusted with senior/i.test(msgText);
         const trustIn = msg.trust != null ? Math.max(0, Number(msg.trust) || 0) : null;
         if (msg.ok && msg.star && uid && uid === myUserId) {
-          // Someone starred us OR auto hour / senior-talk bonus
+          // Someone starred us OR auto hour / senior-talk bonus / admin grant push
           const prev = myStars;
           const prevTrust = myTrust;
+          const adminGrant = /admin grant/i.test(msgText);
           myStars = n;
           // Peer gifts raise trust; hour/senior bonuses only raise balance
-          if (trustIn != null && !hourBonus && !seniorTalk) {
+          if (trustIn != null && !hourBonus && !seniorTalk && !adminGrant) {
             if (trustIn > prevTrust) {
               myTrustGifters = Math.max(0, myTrustGifters) + 1;
             }
@@ -15483,6 +18241,20 @@ function handleServer(msg) {
             trust: myTrustEffective || myTrust,
           });
           syncAccountSettingsSummary();
+          if (adminGrant) {
+            const title =
+              _t("stars.adminGrantTitle") || `Balance updated · ★ ${myStars}`;
+            setStatus(title);
+            showStarFeedbackToast("gift", {
+              title,
+              body:
+                _t("stars.earnedBody", { n: myStars }) ||
+                `Balance: ★ ${myStars}. Tap ★ for the Stars guide.`,
+            });
+            pulseStarsBadge("local");
+            trackEvent("star_admin_grant", { n: myStars, amount: amt });
+            break;
+          }
           if (hourBonus || seniorTalk) {
             let title =
               _t("stars.hourRewardTitle") || "1 hour reward ★";
@@ -15550,16 +18322,28 @@ function handleServer(msg) {
             );
           }
         } else if (msg.ok && msg.star && uid) {
-          // We gifted them (optional after 15+ min)
-          if (uid === primaryPartnerUserId || uid === lastMatchMeta?.user_id) {
-            setStarsBadge("remote", n);
-            pulseStarsBadge("remote");
-          }
+          // We gifted them (optional after 15+ min chat)
           const name =
             lastMatchMeta?.name ||
             lastMatchMeta?.short_id ||
             _t("remote.tag") ||
             "Partner";
+          const forThisPartner =
+            uid === primaryPartnerUserId || uid === lastMatchMeta?.user_id;
+          if (forThisPartner) {
+            if (matched || inFriendCall) {
+              // Live call: update partner ★ on their video
+              setStarsBadge("remote", n);
+              pulseStarsBadge("remote");
+            } else {
+              // Call already ended: no lingering badge — award FX in their window
+              playPostCallStarAwardFx({
+                amount: amt,
+                name,
+                total: n,
+              });
+            }
+          }
           if (uid !== myUserId) {
             const title =
               amt > 1
@@ -15790,9 +18574,7 @@ function handleServer(msg) {
       const detailRaw = msg.detail || "";
       const detailRu = _srv(detailRaw);
       if (msg.phase === "friend_call") {
-        hideOutgoingCallToast();
-        clearCallTimeout();
-        lastOutgoingCallPeer = null;
+        dismissFriendRingUi();
         clearLastMissedCall();
         inFriendCall = true;
         matched = true;
@@ -15965,14 +18747,53 @@ function handleServer(msg) {
     case "error":
       {
         const em = String(msg.message || "");
-        // Friend-call failures should cancel the "calling…" timeout UI
+        // Friend-call failures should cancel the "calling…" toast + timeout UI
         if (
-          /friend offline|not friends|only friends can call|friend request|friend is busy|cannot call|caller offline|accept their friend/i.test(
+          /friend offline|not friends|only friends can call|friend request|friend is busy|cannot call|caller offline|accept their friend|blocked|notification sent|ring notification|group call|busy in/i.test(
             em
           )
         ) {
           clearCallTimeout();
+          hideOutgoingCallToast();
+          lastOutgoingCallPeer = null;
           hideIncomingCall();
+        }
+        // Humanize common call failures (log/status already set below)
+        if (/friend offline/i.test(em)) {
+          try {
+            showStarFeedbackToast?.("gift", {
+              title: _t("friends.offlineTitle") || "Friend offline",
+              body:
+                _t("friends.offlineBody") ||
+                "They need live.html open in one tab. Multi-tab kicks the old window.",
+            });
+          } catch (_) {}
+        } else if (/busy/i.test(em)) {
+          try {
+            showStarFeedbackToast?.("gift", {
+              title: _t("friends.busyTitle") || "Friend busy",
+              body:
+                _t("friends.busyBody") ||
+                "They’re in another call or group. They must hang up first.",
+            });
+          } catch (_) {}
+        }
+        // Multi-tab / second browser with same identity
+        if (/opened in another tab|opened elsewhere|another browser/i.test(em)) {
+          setStatus(
+            _t("status.sessionElsewhere") ||
+              "This tab was disconnected — use only one live window"
+          );
+          try {
+            showStarFeedbackToast?.("gift", {
+              title:
+                _t("status.sessionElsewhereTitle") ||
+                "Opened in another window",
+              body:
+                _t("status.sessionElsewhereBody") ||
+                "Close extra tabs of ruletka.vip/live.html. One identity = one live window, or each person sees different people.",
+            });
+          } catch (_) {}
         }
         // Server re-pushes friends list on "friend offline"; re-render if already cached
         if (/friend offline/i.test(em)) {
@@ -15993,7 +18814,19 @@ function handleServer(msg) {
 function handleMatched(msg) {
   matched = true;
   inQueue = false;
-  clearCallTimeout();
+  // Friend answered (or any match) — never leave "Calling…" toast stuck over the call
+  dismissFriendRingUi();
+  // Layout mode applies after peer tiles settle
+  setTimeout(() => {
+    try {
+      applyStageLayoutMode();
+    } catch (_) {}
+  }, 80);
+  setTimeout(() => {
+    try {
+      applyStageLayoutMode();
+    } catch (_) {}
+  }, 600);
   clearWaitTipsWatch();
   hideWaitTips();
   clearLongWaitBoost();
@@ -16129,7 +18962,13 @@ function handleMatched(msg) {
         friend_code: primary.friend_code || "",
         flag: normalizeFlagCode(primary.flag || ""),
         avatar: isValidAvatarDataUrl(primary.avatar) ? primary.avatar : "",
+        // spendable balance (badge number)
         stars: Math.max(0, Number(primary.stars) || 0),
+        // reputation for tier chrome
+        trust: Math.max(
+          0,
+          Number(primary.trust != null ? primary.trust : primary.stars) || 0
+        ),
       }
     : {
         user_id: "",
@@ -16139,12 +18978,16 @@ function handleMatched(msg) {
         flag: "",
         avatar: "",
         stars: 0,
+        trust: 0,
       };
   partnerStars = lastMatchMeta.stars || 0;
   try {
     refreshFlairUi();
   } catch (_) {}
-  setStarsBadge("remote", partnerStars);
+  // Remote badge: number = spendable ★; tier = trust
+  setStarsBadge("remote", partnerStars, {
+    trust: lastMatchMeta.trust || 0,
+  });
   setStarsBadge("local", myStars, { trust: myTrust }); // balance + trust tier
   // Partner may already be behind bars from a prior gift
   {
@@ -16165,11 +19008,19 @@ function handleMatched(msg) {
       maybeShowStarsIntroTip();
     } catch (_) {}
   }, 2800);
-  pushHistory({
-    kind: matchMode === "friend" ? "friend" : "stranger",
-    ...lastMatchMeta,
-  });
-  // Strangers: 2s intro blur (auto-clear) or permanent if blur-first is on.
+  // Record every peer on this Matched (primary + multi-party strangers).
+  try {
+    recordMatchHistoryFromPeers(peers, {
+      mode: matchMode,
+      friendCall: !!inFriendCall || matchMode === "friend",
+    });
+  } catch (_) {
+    pushHistory({
+      kind: matchMode === "friend" ? "friend" : "stranger",
+      ...lastMatchMeta,
+    });
+  }
+  // Strangers: 3s intro blur (auto-clear) or permanent if blur-first is on.
   // Friends / known teammates start clear.
   const isFriendMatch =
     matchMode === "friend" || inFriendCall || onlyTeammate;
@@ -16186,10 +19037,11 @@ function handleMatched(msg) {
   closePartnerMenu();
   clearIcePathBadge();
 
-  // Opponents only (exclude friend/teammate). Cap 2 remotes → 1v1 / 1v2 / 2v2 only.
+  // Opponents only (exclude friend/teammate).
+  // Cap 3 remotes: 1v1 / 1v2 / 3v1 (solo sees up to 3 party members) / 2v2.
   const opponents = peers
     .filter((p) => p.role === "stranger" || p.role === "party")
-    .slice(0, 2);
+    .slice(0, 3);
   const split = opponents.length >= 2 && !trioBrowse;
   setSplitRemote(split);
   // 1v2 / 2v2 / party+stranger: force full mic processing (NS+AGC)
@@ -16251,6 +19103,9 @@ function handleMatched(msg) {
   flashPartnerTile();
   showMatchFoundToast({ connecting: true });
   updateFriendActionButtons();
+  try {
+    updatePartyRoleStrip(msg);
+  } catch (_) {}
   trackEvent("match", {
     mode: matchMode || "solo",
     role: yourRole || "solo",
@@ -16261,6 +19116,9 @@ function handleMatched(msg) {
       .then(() => {
         // Rebind path may not re-fire ontrack — force empty off + play
         ensurePartnerVideoVisible();
+        try {
+          updatePartyRoleStrip(msg);
+        } catch (_) {}
       })
       .catch((e) => log(String(e)));
   }, 300);
@@ -16291,6 +19149,14 @@ function closeAllPeers({ keepFriend = false } = {}) {
   stopMatchTimer();
   clearIntroBlurTimer();
   introBlurGen++;
+  // Debate is per-match — tear down without notifying (peer is already leaving)
+  try {
+    endDebate({ notify: false, silent: true });
+  } catch (_) {}
+  try {
+    stopLocalTyping();
+    clearRemoteTyping();
+  } catch (_) {}
   // Gift overlays belong to the current conversationalist window — drop on teardown
   // (covers Next / Stop / Spin / partner left / block / NSFW skip, etc.)
   clearRemoteMatchFx();
@@ -16315,8 +19181,12 @@ function closeAllPeers({ keepFriend = false } = {}) {
   }
   rtc = peerPcs.size ? [...peerPcs.values()][0] : null;
   if (!keepFriend) {
+    try {
+      clearMultiPartyChrome();
+    } catch (_) {}
     if ($("remote")) $("remote").srcObject = null;
     if ($("remote2")) $("remote2").srcObject = null;
+    if ($("remote2-wrap")) $("remote2-wrap").hidden = true;
     if ($("remote-third")) {
       try {
         $("remote-third").srcObject = null;
@@ -16417,28 +19287,71 @@ async function joinPeers(peers) {
       list.find((p) => isTeammateRole(p.role)) ||
       null;
     bindFirstPartnerToMain(mate);
+    if (mate) registerPeerUi(mate, "remote");
     setRemoteEmpty(false);
     if (opponents[0]) {
       const opc = findPcForPeer(opponents[0].peer_id);
       videoSlotsTrioBind(opponents[0], opc);
+      registerPeerUi(opponents[0], "remote-third");
+      if (opc?.remoteStream) {
+        setThirdSlotStream(opc.remoteStream, opponents[0].name || "");
+      }
     } else {
       setThirdSlotStream(null);
     }
+    startThirdSlotWatchdog();
   } else {
+    // Solo vs party of 2 → split stack; solo vs party of 3 → stack + third tile
     setSplitRemote(opponents.length >= 2);
+    if (opponents.length >= 3 && yourRole === "solo") {
+      enableTrioLayout(true, { searching: false });
+      setThirdSlotStream(null); // filled when stream arrives
+    } else if (!useTrio) {
+      stopThirdSlotWatchdog();
+    }
   }
 
   const videoSlots = new Map();
   if (useTrio && yourRole === "party") {
     if (friendMeta) videoSlots.set(friendMeta.peer_id, $("remote"));
-    if (opponents[0]) videoSlots.set(opponents[0].peer_id, $("remote-third") || $("remote2"));
+    if (opponents[0])
+      videoSlots.set(opponents[0].peer_id, $("remote-third") || $("remote2"));
+  } else if (opponents.length >= 3 && yourRole === "solo") {
+    // 3v1: three party members on remote / remote2 / remote-third
+    videoSlots.set(opponents[0].peer_id, $("remote"));
+    videoSlots.set(opponents[1].peer_id, $("remote2"));
+    videoSlots.set(opponents[2].peer_id, $("remote-third") || $("remote2"));
+    const wrap = $("remote2-wrap");
+    if (wrap) {
+      wrap.hidden = false;
+      wrap.removeAttribute("hidden");
+    }
+    if ($("remote2")) $("remote2").hidden = false;
+    registerPeerUi(opponents[0], "remote");
+    registerPeerUi(opponents[1], "remote2");
+    registerPeerUi(opponents[2], "remote-third");
+    enableTrioLayout(true, { searching: false });
   } else if (opponents.length >= 2) {
     videoSlots.set(opponents[0].peer_id, $("remote"));
     videoSlots.set(opponents[1].peer_id, $("remote2"));
+    const wrap = $("remote2-wrap");
+    if (wrap) {
+      wrap.hidden = false;
+      wrap.removeAttribute("hidden");
+    }
     if ($("remote2")) $("remote2").hidden = false;
+    registerPeerUi(opponents[0], "remote");
+    registerPeerUi(opponents[1], "remote2");
   } else if (opponents.length === 1) {
     videoSlots.set(opponents[0].peer_id, $("remote"));
+    registerPeerUi(opponents[0], "remote");
   }
+  if (friendMeta && !(useTrio && yourRole === "party")) {
+    registerPeerUi(friendMeta, "remote");
+  }
+  try {
+    updatePartyRoleStrip({ peers: list, mode: matchMode });
+  } catch (_) {}
 
   if (!useTrio && partyBrowsing && yourRole === "party" && friendMeta) {
     // Classic friend party: stranger on main, friend PiP
@@ -16563,13 +19476,17 @@ async function joinPeers(peers) {
           send(body);
         },
         onRemoteStream: (stream) => {
+          // Live video = call connected — drop "Calling…" / ring toast
+          dismissFriendRingUi();
           paintRemoteFromPc(pc, stream);
           if (
             useTrio &&
             yourRole === "party" &&
             (p.role === "stranger" || p.role === "party")
           ) {
+            // Always paint third column + kill “Looking for a 3rd…” overlay
             setThirdSlotStream(stream, p.name || "");
+            videoSlotsTrioBind(p, pc);
           }
           // Solo matched a party (1v2): keep both party feeds painted
           if (
@@ -16581,11 +19498,50 @@ async function joinPeers(peers) {
           }
         },
         onConnectionState: (s) => {
+          const slotEl = videoSlots.get(p.peer_id);
+          const slot =
+            slotEl?.id === "remote-third"
+              ? "remote-third"
+              : slotEl?.id === "remote2"
+                ? "remote2"
+                : "remote";
+          setPeerConnChip(slot, s);
+          if (s === "connected") {
+            dismissFriendRingUi();
+            // ICE connected but ontrack may lag — re-paint third if we have stream
+            if (
+              useTrio &&
+              yourRole === "party" &&
+              (p.role === "stranger" || p.role === "party") &&
+              pc.remoteStream
+            ) {
+              setThirdSlotStream(pc.remoteStream, p.name || "");
+              registerPeerUi(p, "remote-third");
+            }
+          }
           handleWebrtcConnectionState(s, pc);
         },
         onIceConnectionState: (ice) => {
+          const slotEl = videoSlots.get(p.peer_id);
+          const slot =
+            slotEl?.id === "remote-third"
+              ? "remote-third"
+              : slotEl?.id === "remote2"
+                ? "remote2"
+                : "remote";
+          setPeerConnChip(slot, ice);
           if (ice === "failed") handleWebrtcConnectionState("failed", pc);
           else if (ice === "connected" || ice === "completed") {
+            dismissFriendRingUi();
+            if (
+              useTrio &&
+              yourRole === "party" &&
+              (p.role === "stranger" || p.role === "party") &&
+              pc.remoteStream
+            ) {
+              setThirdSlotStream(pc.remoteStream, p.name || "");
+              registerPeerUi(p, "remote-third");
+            }
             // Stranger in find-3rd connected — clear soft-retry flags
             try {
               pc._softIceTried = false;
@@ -16889,8 +19845,12 @@ function updateConnChip(rtt, loss, iceKind) {
     clearWeakConnWatch();
     return;
   }
+  const pathReady = iceKind === "direct" || iceKind === "relay";
   let grade = "ok";
-  if (
+  // Don't claim "Good" while ICE path is still unknown — that reads as "Good · Connecting…"
+  if (!pathReady) {
+    grade = "ok";
+  } else if (
     (rtt != null && rtt > 450) ||
     (loss != null && loss > 4) ||
     lastQualityTier === "low" ||
@@ -16914,8 +19874,9 @@ function updateConnChip(rtt, loss, iceKind) {
       : iceKind === "relay"
         ? _t("conn.chipRelay") || "Relay"
         : _t("conn.chipConnecting") || "Connecting…";
-  const label =
-    grade === "good"
+  const label = !pathReady
+    ? _t("conn.chipLinking") || "Linking"
+    : grade === "good"
       ? _t("conn.chipGood") || "Good"
       : grade === "weak"
         ? _t("conn.chipWeak") || "Weak"
@@ -16923,7 +19884,11 @@ function updateConnChip(rtt, loss, iceKind) {
 
   const prevGrade = lastConnGrade;
   lastConnGrade = grade;
-  chip.className = "conn-chip grade-" + grade + (iceKind === "relay" ? " path-relay" : "");
+  chip.className =
+    "conn-chip grade-" +
+    (pathReady ? grade : "ok") +
+    (iceKind === "relay" ? " path-relay" : "") +
+    (!pathReady ? " path-unknown" : "");
   chip.textContent = label + " · " + path;
   // Partner tile live frame grade (visual border)
   const remoteTile = $("tile-remote");
@@ -17104,11 +20069,28 @@ function renderFriendsList() {
         const display = friendDisplayName(f);
         const hasNick = !!(nicks[f.user_id] || "").trim();
         const realName = (f.name || f.short_id || "").toString();
-        const callBtn = f.online
-          ? `<button type="button" class="pill tight btn-call-friend" data-uid="${escapeAttr(
-              f.user_id
-            )}">${escapeHtml(_t("friends.call"))}</button>`
-          : "";
+        // Always offer Call — offline still tries ring (hub may push / clear stale online)
+        // While in a 1v1, Call = invite to join (won't drop current conversationalist)
+        const joinMode = canInviteJoinToCall();
+        const callLbl = joinMode
+          ? _t("friends.inviteJoin") ||
+            _t("friends.addToCall") ||
+            "Add to call"
+          : f.online
+            ? _t("friends.call") || "Call"
+            : _t("friends.ringAnyway") || "Ring";
+        const callTitle = joinMode
+          ? _t("friends.inviteJoinHint") ||
+            "Add them to this call — current partner stays"
+          : f.online
+            ? _t("friends.call") || "Call"
+            : _t("friends.callOfflineHint") ||
+              "They look offline — try ringing anyway";
+        const callBtn = `<button type="button" class="pill tight ${
+          joinMode ? "accent " : f.online ? "" : "ghost "
+        }btn-call-friend" data-uid="${escapeAttr(
+          f.user_id
+        )}" title="${escapeAttr(callTitle)}">${escapeHtml(callLbl)}</button>`;
         const flairE = partnerFlairEmoji(f.user_id);
         const flairChip = flairE
           ? `<span class="friend-flair" title="${escapeAttr(
@@ -17434,11 +20416,118 @@ function blockUserId(uid, opts = {}) {
 function loadHistory() {
   try {
     const raw = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
-    return Array.isArray(raw) ? raw : [];
+    const list = Array.isArray(raw) ? raw : [];
+    // One-shot scrub of near-duplicate rows (double Matched / reconnect noise)
+    return scrubHistoryDuplicates(list);
   } catch {
     return [];
   }
 }
+
+/**
+ * Report + permanently block the last stranger conversationalist in history.
+ * @param {number} [n=1] only last N strangers (default 1)
+ * @returns {number} how many were actioned
+ */
+function banLastStrangersFromHistory(n = 1) {
+  const want = Math.max(1, Math.min(5, Number(n) || 1));
+  const friendIds = new Set(
+    (friendsCache || []).map((f) => f.user_id).filter(Boolean)
+  );
+  const seen = new Set();
+  const targets = [];
+  // Use full encounter list (newest first), not collapsed-by-person
+  const raw = [...loadHistory()].sort(
+    (a, b) => (Number(b.t) || 0) - (Number(a.t) || 0)
+  );
+  for (const h of raw) {
+    if (!h || !h.user_id) continue;
+    if (friendIds.has(h.user_id)) continue;
+    if (h.kind === "friend" || h.kind === "missed") continue;
+    if (seen.has(h.user_id)) continue;
+    if ((blockedCache || []).includes(h.user_id)) continue;
+    seen.add(h.user_id);
+    targets.push(h);
+    if (targets.length >= want) break;
+  }
+  if (!targets.length) {
+    setStatus(
+      _t("friends.blockLastEmpty") ||
+        "No recent stranger in Call history to block (need All filter + a match with id)."
+    );
+    return 0;
+  }
+  const h0 = targets[0];
+  const ok = confirm(
+    (_t("friends.blockLastConfirm", {
+      n: targets.length,
+      name: (h0.name || "stranger").slice(0, 32),
+    }) ||
+      `Report and permanently block last conversationalist${
+        targets.length > 1 ? `s (${targets.length})` : ""
+      }?\n\n${(h0.name || "anon").slice(0, 32)}`) +
+      (targets.length > 1
+        ? "\n" +
+          targets
+            .slice(1)
+            .map((h) => (h.name || "anon").slice(0, 24))
+            .join("\n")
+        : "")
+  );
+  if (!ok) return 0;
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    setStatus(
+      _t("friends.blockNeedConn") ||
+        "Not connected to hub — wait for reconnect, then try again"
+    );
+    return 0;
+  }
+  let done = 0;
+  for (const h of targets) {
+    const uid = String(h.user_id).trim();
+    if (!uid) continue;
+    try {
+      saveLocalReport({
+        t: Date.now(),
+        user_id: uid,
+        name: h.name || "",
+        short_id: h.short_id || "",
+        friend_code: h.friend_code || "",
+        reason: "explicit",
+      });
+      send({ type: "report_user", user_id: uid, reason: "explicit" });
+      blockUserId(uid, {
+        silent: true,
+        skipToast: true,
+        fromHistory: true,
+        removeFromHistory: false,
+      });
+      done++;
+    } catch (_) {}
+  }
+  setStatus(
+    _t("friends.blockLastOk", { n: done }) ||
+      `Reported & blocked last conversationalist. You will not match them again.`
+  );
+  showBlockCertaintyToast({
+    title: _t("friends.blockOkTitle") || "Blocked",
+    body:
+      _t("friends.blockLastOk", { n: done }) ||
+      "Reported & blocked. Not again.",
+  });
+  try {
+    setFriendsSheetTab("blocked");
+  } catch (_) {
+    renderHistoryList();
+  }
+  trackEvent("block_last_stranger", { n: done });
+  return done;
+}
+
+// Emergency console: ruletkaBanLast() → last 1
+try {
+  window.ruletkaBanLast = banLastStrangersFromHistory;
+} catch (_) {}
 
 function saveHistory(list) {
   try {
@@ -17446,31 +20535,209 @@ function saveHistory(list) {
   } catch (_) {}
 }
 
+/** Stable key for “same person” in history (user_id > friend_code > short_id+name). */
+function historyPersonKey(h) {
+  if (!h) return "";
+  const uid = String(h.user_id || "").trim();
+  if (uid) return "u:" + uid;
+  const code = String(h.friend_code || "")
+    .trim()
+    .toUpperCase();
+  if (code) return "c:" + code;
+  const sid = String(h.short_id || "")
+    .trim()
+    .toUpperCase();
+  if (sid) return "s:" + sid;
+  const name = String(h.name || "")
+    .trim()
+    .toLowerCase();
+  if (name && name !== "anon") return "n:" + name + "|" + (h.kind || "");
+  return "";
+}
+
 /**
- * @param {{ kind: string, name?: string, user_id?: string, friend_code?: string, short_id?: string }} entry
+ * Drop near-duplicate rows (same person, same kind, within window).
+ * Keeps the richer/newer row (duration, ice_path, grade).
+ * @param {Array} list
+ * @param {number} [windowMs]
+ */
+function scrubHistoryDuplicates(list, windowMs = 90_000) {
+  if (!Array.isArray(list) || list.length < 2) return list || [];
+  const out = [];
+  let changed = false;
+  for (const h of list) {
+    if (!h) {
+      changed = true;
+      continue;
+    }
+    const key = historyPersonKey(h);
+    if (!key) {
+      out.push(h);
+      continue;
+    }
+    const prevIdx = out.findIndex(
+      (x) =>
+        historyPersonKey(x) === key &&
+        (x.kind || "stranger") === (h.kind || "stranger") &&
+        Math.abs((x.t || 0) - (h.t || 0)) < windowMs
+    );
+    if (prevIdx < 0) {
+      out.push(h);
+      continue;
+    }
+    changed = true;
+    // Merge into the existing row — prefer higher duration / newer timestamp
+    const prev = out[prevIdx];
+    out[prevIdx] = mergeHistoryRows(prev, h, { addCount: false });
+  }
+  if (changed) {
+    try {
+      localStorage.setItem(
+        HISTORY_KEY,
+        JSON.stringify(out.slice(0, MAX_HISTORY))
+      );
+    } catch (_) {}
+  }
+  return out;
+}
+
+/**
+ * Prefer non-empty fields; max duration; latest t.
+ * @param {object} a
+ * @param {object} b
+ * @param {{ addCount?: boolean }} [opts] addCount=true when collapsing distinct calls
+ */
+function mergeHistoryRows(a, b, opts = {}) {
+  const addCount = opts.addCount === true;
+  const newer = (b.t || 0) >= (a.t || 0) ? b : a;
+  const older = newer === b ? a : b;
+  return {
+    ...older,
+    ...newer,
+    t: Math.max(a.t || 0, b.t || 0),
+    name: newer.name || older.name || "anon",
+    user_id: newer.user_id || older.user_id || "",
+    friend_code: newer.friend_code || older.friend_code || "",
+    short_id: newer.short_id || older.short_id || "",
+    kind: newer.kind || older.kind || "stranger",
+    duration_secs: Math.max(a.duration_secs || 0, b.duration_secs || 0),
+    ice_path: newer.ice_path || older.ice_path || "",
+    conn_grade: newer.conn_grade || older.conn_grade || "",
+    // Same-session merge: keep count; distinct calls: sum
+    call_count: addCount
+      ? (a.call_count || 1) + (b.call_count || 1)
+      : Math.max(a.call_count || 1, b.call_count || 1),
+  };
+}
+
+/**
+ * Collapse history for display: one row per person (latest call), with call_count.
+ * @param {Array} list
+ * @returns {Array}
+ */
+function collapseHistoryByPerson(list) {
+  if (!Array.isArray(list) || !list.length) return [];
+  /** @type {Map<string, object>} */
+  const byKey = new Map();
+  const order = [];
+  for (const h of list) {
+    if (!h) continue;
+    const key = historyPersonKey(h) || `solo:${h.t || 0}:${Math.random()}`;
+    const prev = byKey.get(key);
+    if (!prev) {
+      const row = { ...h, call_count: h.call_count || 1 };
+      byKey.set(key, row);
+      order.push(key);
+    } else {
+      // Distinct stored rows for same person → one display row + summed count
+      byKey.set(key, mergeHistoryRows(prev, h, { addCount: true }));
+    }
+  }
+  // Return newest-first by last call time (order array alone is first-seen, not time).
+  return order
+    .map((k) => byKey.get(k))
+    .filter(Boolean)
+    .sort((a, b) => (Number(b.t) || 0) - (Number(a.t) || 0));
+}
+
+/**
+ * Log every Matched peer into call history (one row per encounter).
+ * @param {Array} peers
+ * @param {{ mode?: string, friendCall?: boolean }} [opts]
+ */
+function recordMatchHistoryFromPeers(peers, opts = {}) {
+  const list = Array.isArray(peers) ? peers : [];
+  const friendCall = !!opts.friendCall;
+  const mode = opts.mode || matchMode || "solo";
+  let wrote = 0;
+  const seen = new Set();
+  for (const p of list) {
+    if (!p) continue;
+    const uid = String(p.user_id || "").trim();
+    const code = String(p.friend_code || "").trim();
+    const sid = String(p.short_id || "").trim();
+    if (!uid && !code && !sid && !p.name) continue;
+    // Skip pure teammates when logging strangers (friend is still logged as friend)
+    const role = String(p.role || "");
+    const isTeammate = role === "teammate" || role === "friend";
+    if (isTeammate && !friendCall && mode !== "friend") continue;
+    const dedupe = uid || code || sid || String(p.name || "");
+    if (dedupe && seen.has(dedupe)) continue;
+    if (dedupe) seen.add(dedupe);
+    const kind =
+      friendCall || mode === "friend" || isTeammate ? "friend" : "stranger";
+    pushHistory({
+      kind,
+      name: p.name || lastMatchMeta?.name || "",
+      user_id: uid,
+      friend_code: code || lastMatchMeta?.friend_code || "",
+      short_id: sid || lastMatchMeta?.short_id || "",
+    });
+    wrote++;
+  }
+  // Fallback: primary meta if peers empty / no ids yet
+  if (!wrote && lastMatchMeta) {
+    pushHistory({
+      kind: friendCall || mode === "friend" ? "friend" : "stranger",
+      ...lastMatchMeta,
+    });
+  }
+}
+
+/**
+ * @param {{ kind: string, name?: string, user_id?: string, friend_code?: string, short_id?: string, t?: number, duration_secs?: number }} entry
  */
 function pushHistory(entry) {
   if (!entry) return;
   const list = loadHistory();
   const row = {
-    t: Date.now(),
+    t: Number(entry.t) || Date.now(),
     kind: entry.kind || "stranger",
     name: (entry.name || entry.short_id || "anon").slice(0, 32),
     user_id: entry.user_id || "",
     friend_code: entry.friend_code || "",
     short_id: entry.short_id || "",
+    call_count: 1,
+    duration_secs: Number(entry.duration_secs) || 0,
   };
-  // Dedupe consecutive same user
-  if (
-    list[0] &&
-    list[0].user_id &&
-    row.user_id &&
-    list[0].user_id === row.user_id &&
-    list[0].kind === row.kind &&
-    Date.now() - list[0].t < 60000
-  ) {
-    list[0] = row;
-  } else {
+  const key = historyPersonKey(row);
+  // Only merge true double-Matched noise (~12s). Every real encounter stays a row.
+  const DEDUPE_MS = 12_000;
+  let merged = false;
+  if (key) {
+    for (let i = 0; i < Math.min(list.length, 8); i++) {
+      const prev = list[i];
+      if (!prev) continue;
+      if (historyPersonKey(prev) !== key) continue;
+      if ((prev.kind || "stranger") !== row.kind) continue;
+      if (Math.abs((prev.t || 0) - row.t) > DEDUPE_MS) continue;
+      list.splice(i, 1);
+      list.unshift(mergeHistoryRows(prev, row, { addCount: false }));
+      merged = true;
+      break;
+    }
+  }
+  if (!merged) {
     list.unshift(row);
   }
   saveHistory(list);
@@ -17547,6 +20814,7 @@ function setFriendsSheetTab(tab) {
 
 function syncFriendsTabCounts() {
   const nFriends = (friendsCache || []).length;
+  // Badge = encounter rows (every match)
   const nHist = loadHistory().length;
   const nBlock = (blockedCache || []).length;
   const setCount = (id, n) => {
@@ -17621,24 +20889,21 @@ function renderHistoryList() {
         h.kind === "missed"
     );
   }
-  // Friends (esp. online) float to the top for quick redial
-  list = [...list].sort((a, b) => {
-    const aFr = a.user_id && friendIds.has(a.user_id);
-    const bFr = b.user_id && friendIds.has(b.user_id);
-    const aOn = aFr
-      ? !!(friendsCache.find((f) => f.user_id === a.user_id)?.online)
-      : false;
-    const bOn = bFr
-      ? !!(friendsCache.find((f) => f.user_id === b.user_id)?.online)
-      : false;
-    if (aOn !== bOn) return aOn ? -1 : 1;
-    if (aFr !== bFr) return aFr ? -1 : 1;
-    return (b.t || 0) - (a.t || 0);
-  });
+  // One row per encounter (newest first). Do not collapse — every match is listed.
+  list = [...list].sort((a, b) => (Number(b.t) || 0) - (Number(a.t) || 0));
   el.hidden = false;
   const head = `<div class="hint-inline history-head"><strong>${escapeHtml(
     _t("friends.historyTitle") || "Call history"
   )}</strong>
+      <button type="button" class="pill tight danger" id="btn-block-last-strangers" data-i18n="friends.blockLastStrangers" data-i18n-title="friends.blockLastStrangersTitle" title="${escapeAttr(
+        _t("friends.blockLastStrangersTitle") ||
+          "Report + permanently block the last stranger"
+      )}">${escapeHtml(
+        (_t("friends.blockLastStrangers") &&
+          _t("friends.blockLastStrangers") !== "friends.blockLastStrangers"
+          ? _t("friends.blockLastStrangers")
+          : "Block last stranger")
+      )}</button>
       <button type="button" class="pill tight ghost" id="btn-clear-history">${escapeHtml(
         _t("friends.historyClear")
       )}</button>
@@ -17655,6 +20920,9 @@ function renderHistoryList() {
       saveHistory([]);
       renderHistoryList();
       syncFriendsTabCounts();
+    });
+    $("btn-block-last-strangers")?.addEventListener("click", () => {
+      banLastStrangersFromHistory(1);
     });
     syncFriendsTabCounts();
     return;
@@ -17681,17 +20949,23 @@ function renderHistoryList() {
         const gradeBit =
           h.conn_grade === "good"
             ? _t("conn.chipGood") || "Good"
-            : h.conn_grade === "weak"
+          : h.conn_grade === "weak"
               ? _t("conn.chipWeak") || "Weak"
               : h.conn_grade === "ok"
                 ? _t("conn.chipOk") || "OK"
                 : "";
+        const count = Math.max(1, Number(h.call_count) || 1);
+        const countBit =
+          count > 1
+            ? _t("friends.historyCallCount", { n: count }) || `${count} calls`
+            : "";
         const metaBits = [
           isFriend ? _t("friends.kindFriend") || "Friend" : kindLabel(h.kind),
           formatHistoryTime(h.t),
           dur ? dur : "",
           pathBit,
           gradeBit,
+          countBit,
           isFriend && !onlineFriend ? _t("friends.offline") : "",
           onlineFriend ? _t("friends.online") || "Online" : "",
         ]
@@ -17699,15 +20973,16 @@ function renderHistoryList() {
           .join(" · ");
         const isBlocked =
           !!(h.user_id && (blockedCache || []).includes(h.user_id));
+        // Call / Message only for mutual friends. Past strangers: Add friend or Block — never ring.
         let actions = "";
-        if (onlineFriend) {
+        if (isFriend && onlineFriend) {
           actions = `<button type="button" class="pill tight accent btn-hist-call hist-call-primary" data-uid="${escapeAttr(
             h.user_id
           )}">${escapeHtml(
-            _t("friends.redial") || "Call back"
+            _t("friends.call") || "Call"
           )}</button>`;
         } else if (isFriend && h.user_id) {
-          // Offline friend: Message + muted Call hint (ring when they come online)
+          // Offline friend: Message + muted wait hint (ring when they come online)
           actions = `<button type="button" class="pill tight ghost btn-hist-msg" data-uid="${escapeAttr(
             h.user_id
           )}" data-name="${escapeAttr(display)}">${escapeHtml(
@@ -17756,10 +21031,27 @@ function renderHistoryList() {
     renderHistoryList();
     syncFriendsTabCounts();
   });
+  $("btn-block-last-strangers")?.addEventListener("click", () => {
+    banLastStrangersFromHistory(1);
+  });
+  // Re-apply i18n so pack strings replace any stale fallback
+  try {
+    if (typeof applyI18n === "function") applyI18n(el);
+    else if (typeof NextfaceI18n?.applyI18n === "function")
+      NextfaceI18n.applyI18n(el);
+  } catch (_) {}
   el.querySelectorAll(".btn-hist-call").forEach((btn) => {
     btn.addEventListener("click", () => {
+      const uid = btn.getAttribute("data-uid");
+      if (!uid || !isMutualFriend(uid)) {
+        setStatus(
+          _t("friends.callOnlyFriends") ||
+            "Only friends can call — add them by code first"
+        );
+        return;
+      }
       trackEvent("history_call_back");
-      placeFriendCall(btn.getAttribute("data-uid"));
+      placeFriendCall(uid);
     });
   });
   el.querySelectorAll(".btn-hist-msg").forEach((btn) => {
@@ -17888,9 +21180,8 @@ function renderRequestLists() {
           <span class="dot pending"></span>
           <div class="meta">
             <strong>${escapeHtml(f.name || f.short_id || f.friend_code || "friend")}</strong>
-            <span class="friend-wait-badge">${waitLbl}</span>
-            <span class="friend-wait-sub">${waitSub}</span>
-            <span>${escapeHtml(f.friend_code || "")}</span>
+            <span class="friend-wait-badge" title="${waitSub}">${waitLbl}</span>
+            <span class="friend-code-muted">${escapeHtml(f.friend_code || "")}</span>
           </div>
           <div class="friend-actions">
             <button type="button" class="pill tight ghost btn-cancel-req" data-uid="${escapeAttr(
@@ -17978,8 +21269,22 @@ function stopMatchTimer() {
 function patchHistoryDuration(userId, secs) {
   if (!userId || secs < 1) return;
   const list = loadHistory();
-  const row = list.find((h) => h.user_id === userId);
-  if (!row) return;
+  // Newest encounter for this person (list is newest-first)
+  const row = list.find((h) => h && h.user_id === userId);
+  if (!row) {
+    // Still record a stub so the encounter is never missing
+    try {
+      pushHistory({
+        kind: "stranger",
+        user_id: userId,
+        name: lastMatchMeta?.name || "",
+        friend_code: lastMatchMeta?.friend_code || "",
+        short_id: lastMatchMeta?.short_id || "",
+        duration_secs: secs,
+      });
+    } catch (_) {}
+    return;
+  }
   row.duration_secs = Math.max(row.duration_secs || 0, secs);
   // Best-effort path quality for this match (local only)
   if (lastIceKind === "direct" || lastIceKind === "relay") {
@@ -18271,147 +21576,26 @@ function wireTileChromeAutohide() {
   const local = $("tile-local");
   if (!remote && !local) return;
 
-  const coarse =
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(hover: none), (pointer: coarse)").matches;
-  if (coarse) {
-    // Always-on via CSS media query
-    document.documentElement.classList.add("chrome-always");
-    return;
-  }
-  document.documentElement.classList.add("chrome-autohide");
-
-  /** @type {WeakMap<Element, number>} */
-  const hideTimers = new WeakMap();
-
-  const flyoutOpenOn = (tile) => {
-    if (!tile) return false;
-    if (tile.querySelector?.(".is-flyout-open")) return true;
-    if (tile.querySelector?.("#match-more-menu:not([hidden])")) return true;
-    // Settings flyout is portaled in body but triggered from local rail
-    if (
-      tile.id === "tile-local" &&
-      $("settings-sheet") &&
-      !$("settings-sheet").hidden &&
-      $("settings-sheet").classList.contains("is-open")
-    ) {
-      return true;
-    }
-    if (
-      tile.id === "tile-remote" &&
-      (($("friends-sheet") &&
-        !$("friends-sheet").hidden &&
-        $("friends-sheet").classList.contains("is-open")) ||
-        ($("messages-sheet") &&
-          !$("messages-sheet").hidden &&
-          $("messages-sheet").classList.contains("is-open")))
-    ) {
-      return true;
-    }
-    return false;
+  // Always show tile chrome (Flip/Mic/Hide/Blur/Settings/name/stars) fixed in-tile.
+  // Autohide made controls vanish over black local preview.
+  document.documentElement.classList.add("chrome-always");
+  document.documentElement.classList.remove("chrome-autohide");
+  document.documentElement.classList.remove("chrome-touch-autohide");
+  try {
+    remote?.classList.add("is-chrome-open");
+    local?.classList.add("is-chrome-open");
+  } catch (_) {}
+  // Keep both tiles' chrome permanently open (no 3s hide timer)
+  const pin = () => {
+    try {
+      remote?.classList.add("is-chrome-open");
+      local?.classList.add("is-chrome-open");
+      document.documentElement.classList.add("chrome-always");
+      document.documentElement.classList.remove("chrome-autohide");
+    } catch (_) {}
   };
-
-  const clearHide = (tile) => {
-    const t = hideTimers.get(tile);
-    if (t) {
-      clearTimeout(t);
-      hideTimers.delete(tile);
-    }
-  };
-
-  const scheduleHide = (tile) => {
-    if (!tile) return;
-    clearHide(tile);
-    const id = setTimeout(() => {
-      hideTimers.delete(tile);
-      if (flyoutOpenOn(tile)) {
-        // Keep open while flyout is up; re-check soon
-        scheduleHide(tile);
-        return;
-      }
-      tile.classList.remove("is-chrome-open");
-    }, CHROME_AUTOHIDE_MS);
-    hideTimers.set(tile, id);
-  };
-
-  const showChrome = (tile) => {
-    if (!tile) return;
-    // Only one tile chrome at a time
-    if (remote && remote !== tile) {
-      remote.classList.remove("is-chrome-open");
-      clearHide(remote);
-    }
-    if (local && local !== tile) {
-      local.classList.remove("is-chrome-open");
-      clearHide(local);
-    }
-    tile.classList.add("is-chrome-open");
-    scheduleHide(tile);
-  };
-
-  const hideChromeSoon = (tile) => {
-    if (!tile) return;
-    // Short delay so moving between rail buttons doesn't flicker
-    clearHide(tile);
-    const id = setTimeout(() => {
-      hideTimers.delete(tile);
-      if (flyoutOpenOn(tile)) {
-        scheduleHide(tile);
-        return;
-      }
-      // Still inside tile? keep until full autohide timer from last move
-      if (tile.matches?.(":hover")) {
-        scheduleHide(tile);
-        return;
-      }
-      tile.classList.remove("is-chrome-open");
-    }, 200);
-    hideTimers.set(tile, id);
-  };
-
-  [remote, local].forEach((tile) => {
-    if (!tile) return;
-    tile.addEventListener(
-      "pointerenter",
-      () => {
-        showChrome(tile);
-      },
-      { passive: true }
-    );
-    tile.addEventListener(
-      "pointermove",
-      () => {
-        // Any movement restarts the 3s clock
-        if (!tile.classList.contains("is-chrome-open")) showChrome(tile);
-        else scheduleHide(tile);
-      },
-      { passive: true }
-    );
-    tile.addEventListener(
-      "pointerdown",
-      () => {
-        showChrome(tile);
-      },
-      { passive: true }
-    );
-    tile.addEventListener(
-      "pointerleave",
-      () => {
-        hideChromeSoon(tile);
-      },
-      { passive: true }
-    );
-  });
-
-  // Activity on controls also resets timer
-  document.addEventListener(
-    "pointerdown",
-    (e) => {
-      const tile = e.target?.closest?.(".tile-remote, .tile-local");
-      if (tile) showChrome(tile);
-    },
-    { passive: true }
-  );
+  pin();
+  setInterval(pin, 2000);
 }
 
 function showFriendRequestToast(msg) {
@@ -18799,6 +21983,11 @@ function openFriends() {
     });
     void sheet.offsetWidth;
     sheet.classList.add("is-open");
+    // Land on Display name → code → pending → friends (not mid-scroll leftovers)
+    try {
+      const body = sheet.querySelector(".sheet-body");
+      if (body) body.scrollTop = 0;
+    } catch (_) {}
   }
   if (bd) {
     bd.hidden = false;
@@ -18865,19 +22054,45 @@ function showIncomingCall(msg) {
   hideIncomingCall();
   incomingCallFrom = msg.from_user_id;
   const name = msg.from_name || msg.from_short || "Friend";
+  const isJoin = !!msg.join;
+  const withName = msg.with_name || "";
+  // join:true from hub means either (a) they invite you into *their* call, or
+  // (b) they are ringing you while *you* are already in a 1v1 — accept adds them
+  // without dropping your current conversationalist.
+  const iAmInLive1v1 =
+    !!matched &&
+    (matchMode === "solo" || matchMode === "friend" || inFriendCall) &&
+    peerPcs.size <= 1 &&
+    !trioBrowse;
+  const addToMyCall = isJoin && iAmInLive1v1 && !!withName;
+  const body = addToMyCall
+    ? _t("friends.incomingAddToCall", { n: name }) ||
+      `${name} wants to join your call — accept to add them (keep current partner)`
+    : isJoin
+      ? withName
+        ? _t("friends.incomingJoinWith", { n: name, w: withName }) ||
+          `${name} invites you to join their call with ${withName}`
+        : _t("friends.incomingJoin", { n: name }) ||
+          `${name} invites you to join their call`
+      : _t("friends.incoming") || "is calling…";
+  const acceptLbl = addToMyCall
+    ? _t("friends.addToCall") || "Add to call"
+    : isJoin
+      ? _t("friends.joinCall") || "Join"
+      : _t("friends.accept") || "Accept";
 
   const toast = document.createElement("div");
   toast.id = "call-toast";
-  toast.className = "call-toast";
+  toast.className = "call-toast" + (isJoin ? " is-join-invite" : "");
   toast.setAttribute("role", "dialog");
   toast.setAttribute("aria-live", "assertive");
   toast.innerHTML = `
     <div class="call-toast-body">
       <strong id="call-toast-name">${escapeHtml(name)}</strong>
-      <span>${escapeHtml(_t("friends.incoming"))}</span>
+      <span>${escapeHtml(body)}</span>
     </div>
     <div class="call-toast-actions">
-      <button type="button" class="pill primary" id="btn-accept-call">${escapeHtml(_t("friends.accept"))}</button>
+      <button type="button" class="pill primary" id="btn-accept-call">${escapeHtml(acceptLbl)}</button>
       <button type="button" class="pill danger" id="btn-decline-call">${escapeHtml(_t("friends.decline"))}</button>
     </div>`;
   document.body.appendChild(toast);
@@ -18895,19 +22110,21 @@ function showIncomingCall(msg) {
       hideIncomingCall();
       return;
     }
-    recordMissedCall({
-      name,
-      user_id: incomingCallFrom,
-      short_id: msg.from_short || "",
-      friend_code: msg.from_code || "",
-    });
+    if (!isJoin) {
+      recordMissedCall({
+        name,
+        user_id: incomingCallFrom,
+        short_id: msg.from_short || "",
+        friend_code: msg.from_code || "",
+      });
+    }
     send({ type: "call_respond", user_id: incomingCallFrom, accept: false });
     hideIncomingCall();
   });
 
   startIncomingRing(name);
-  log(`${name} calling…`);
-  setStatus(_t("friends.incoming"));
+  log(isJoin ? `${name} · join invite` : `${name} calling…`);
+  setStatus(body);
 }
 
 function toggleFullscreenPartner() {
@@ -18936,6 +22153,1157 @@ function maybeAutoPipOnHide() {}
 
 const REPORTS_KEY = "rulet.reports.v1";
 
+/* ─── Formal debate (30s alternating turns, P2P-synced) ─── */
+
+function debatePartnerName() {
+  return (
+    lastMatchMeta?.name ||
+    friendDisplayName(
+      friendsCache.find((f) => f.user_id === primaryPartnerUserId)
+    ) ||
+    _t("remote.tag") ||
+    "Partner"
+  );
+}
+
+/** Send a debate_* control message over the primary P2P data channel. */
+function sendDebateP2p(obj) {
+  if (!obj || typeof obj !== "object") return false;
+  const payload = {
+    v: 1,
+    ...obj,
+    user_id: myUserId || "",
+    name: getDisplayName() || "anon",
+    ts: typeof obj.ts === "number" ? obj.ts : Date.now(),
+  };
+  let ok = false;
+  // Prefer primary peer; fall back to any open chat channel
+  const pcs = [];
+  if (rtc) pcs.push(rtc);
+  for (const pc of chatPeerPcs()) {
+    if (pc && !pcs.includes(pc)) pcs.push(pc);
+  }
+  for (const pc of pcs) {
+    if (pc?.sendChatMessage?.(payload)) {
+      ok = true;
+      break;
+    }
+  }
+  return ok;
+}
+
+function canStartDebate() {
+  return !!(
+    matched &&
+    primaryPartnerUserId &&
+    primaryPartnerUserId !== myUserId &&
+    !debate.active &&
+    !debate.pending
+  );
+}
+
+function normalizeDebateTurnMs(ms) {
+  const n = Number(ms) || DEBATE_TURN_MS;
+  // Snap to known choices when close; clamp otherwise
+  const secs = Math.round(n / 1000);
+  if (DEBATE_TURN_CHOICES_S.includes(secs)) return secs * 1000;
+  return Math.min(120_000, Math.max(10_000, Math.round(n / 1000) * 1000));
+}
+
+function normalizeDebateTopic(raw) {
+  return String(raw || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+}
+
+/**
+ * A round = both people get one turn each.
+ * turnIndex 0–1 → Round 1, 2–3 → Round 2, …
+ * @param {number} [turnIndex]
+ * @returns {number}
+ */
+function debateRoundNumber(turnIndex = debate.turnIndex) {
+  const idx = Math.max(0, Number(turnIndex) || 0);
+  return Math.floor(idx / 2) + 1;
+}
+
+/** 1 = first half of round (inviter side of the pair), 2 = second half */
+function debateHalfInRound(turnIndex = debate.turnIndex) {
+  return (Math.max(0, Number(turnIndex) || 0) % 2) + 1;
+}
+
+function debateRoundLabel(turnIndex = debate.turnIndex) {
+  const r = debateRoundNumber(turnIndex);
+  return _t("debate.round", { n: r }) || `Round ${r}`;
+}
+
+/** Soft tones for turn change / 5s warning (respects reduced motion). */
+function debateSoundsAllowed() {
+  try {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      return false;
+    }
+  } catch (_) {}
+  return true;
+}
+
+function ensureDebateAudioCtx() {
+  if (debateAudioCtx) return debateAudioCtx;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    debateAudioCtx = new AC();
+  } catch (_) {
+    return null;
+  }
+  return debateAudioCtx;
+}
+
+/**
+ * @param {number} freq
+ * @param {number} durMs
+ * @param {number} [gain]
+ * @param {number} [delayMs]
+ */
+function playDebateTone(freq, durMs, gain = 0.05, delayMs = 0) {
+  if (!debateSoundsAllowed()) return;
+  try {
+    const ctx = ensureDebateAudioCtx();
+    if (!ctx) return;
+    if (ctx.state === "suspended") ctx.resume?.().catch?.(() => {});
+    const t0 = ctx.currentTime + delayMs / 1000;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(gain, t0 + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + durMs / 1000);
+    osc.connect(g);
+    g.connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + durMs / 1000 + 0.02);
+  } catch (_) {}
+}
+
+function playDebateTurnChime() {
+  // Two soft notes — new speaker
+  playDebateTone(660, 90, 0.045, 0);
+  playDebateTone(880, 110, 0.04, 90);
+}
+
+function playDebateRoundChime() {
+  // Three rising notes — new round
+  playDebateTone(523, 80, 0.04, 0);
+  playDebateTone(659, 90, 0.045, 90);
+  playDebateTone(784, 120, 0.05, 190);
+}
+
+function playDebateUrgentBeep() {
+  // Short low tick — 5s remaining
+  playDebateTone(520, 70, 0.05, 0);
+  playDebateTone(520, 70, 0.04, 120);
+}
+
+/**
+ * Partner menu → open compose (length + topic) or end/cancel.
+ */
+function invitePartnerDebate() {
+  if (debate.active) {
+    endDebate({ notify: true, reason: "user" });
+    closePartnerMenu();
+    return;
+  }
+  if (debate.pending === "out") {
+    sendDebateP2p({
+      type: "debate_cancel",
+      invite_id: debate.inviteId,
+    });
+    clearDebatePending();
+    setStatus(_t("debate.inviteCancelled") || "Debate invite cancelled");
+    closePartnerMenu();
+    return;
+  }
+  if (!canStartDebate()) {
+    setStatus(
+      _t("debate.needLive") || "Debate only works during a live 1:1 call"
+    );
+    closePartnerMenu();
+    return;
+  }
+  const dcOpen =
+    rtc?.isChatDcOpen?.() ||
+    [...peerPcs.values()].some((pc) => pc?.isChatDcOpen?.());
+  if (!dcOpen) {
+    setStatus(
+      _t("debate.needP2p") ||
+        "Wait until the connection is ready, then invite again"
+    );
+    closePartnerMenu();
+    return;
+  }
+  showPartnerDebateCompose();
+}
+
+function showPartnerDebateCompose() {
+  const main = $("partner-menu-main");
+  const rep = $("partner-menu-report");
+  const deb = $("partner-menu-debate");
+  if (main) {
+    main.hidden = true;
+    main.setAttribute("hidden", "");
+  }
+  if (rep) {
+    rep.hidden = true;
+    rep.setAttribute("hidden", "");
+  }
+  if (deb) {
+    deb.hidden = false;
+    deb.removeAttribute("hidden");
+  }
+  const title = $("partner-menu-title");
+  if (title) title.textContent = _t("debate.composeTitle") || "Formal debate";
+  // Restore last length selection
+  const secs = debate.composeTurnSecs || 30;
+  $("debate-turn-picks")
+    ?.querySelectorAll("[data-turn-secs]")
+    .forEach((btn) => {
+      const s = Number(btn.getAttribute("data-turn-secs"));
+      btn.classList.toggle("is-selected", s === secs);
+    });
+  const topicIn = $("debate-topic-input");
+  if (topicIn && !topicIn.value) topicIn.value = "";
+  setTimeout(() => topicIn?.focus?.(), 40);
+}
+
+function hidePartnerDebateCompose() {
+  const deb = $("partner-menu-debate");
+  if (deb) {
+    deb.hidden = true;
+    deb.setAttribute("hidden", "");
+  }
+}
+
+function sendDebateInviteFromCompose() {
+  if (!canStartDebate()) {
+    setStatus(
+      _t("debate.needLive") || "Debate only works during a live 1:1 call"
+    );
+    closePartnerMenu();
+    return;
+  }
+  const dcOpen =
+    rtc?.isChatDcOpen?.() ||
+    [...peerPcs.values()].some((pc) => pc?.isChatDcOpen?.());
+  if (!dcOpen) {
+    setStatus(
+      _t("debate.needP2p") ||
+        "Wait until the connection is ready, then invite again"
+    );
+    closePartnerMenu();
+    return;
+  }
+  const pick =
+    $("debate-turn-picks")?.querySelector(".debate-turn-pick.is-selected") ||
+    $("debate-turn-picks")?.querySelector('[data-turn-secs="30"]');
+  const secs = Number(pick?.getAttribute("data-turn-secs")) || 30;
+  const turnMs = normalizeDebateTurnMs(secs * 1000);
+  const topic = normalizeDebateTopic($("debate-topic-input")?.value);
+  debate.composeTurnSecs = Math.round(turnMs / 1000);
+  debate.turnMs = turnMs;
+  debate.topic = topic;
+
+  const inviteId = `d-${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+  debate.pending = "out";
+  debate.inviteId = inviteId;
+  debate.partnerId = primaryPartnerUserId;
+  debate.hostId = myUserId || "";
+  const sent = sendDebateP2p({
+    type: "debate_invite",
+    invite_id: inviteId,
+    turn_ms: turnMs,
+    topic,
+    from_name: getDisplayName() || "anon",
+  });
+  if (!sent) {
+    clearDebatePending();
+    setStatus(
+      _t("debate.needP2p") ||
+        "Wait until the connection is ready, then invite again"
+    );
+    closePartnerMenu();
+    return;
+  }
+  setStatus(
+    _t("debate.inviteSent", { n: debatePartnerName() }) ||
+      `Debate invite sent to ${debatePartnerName()}…`
+  );
+  log(_t("debate.inviteSentLog") || "debate invite sent");
+  trackEvent("debate_invite", {
+    turn_s: Math.round(turnMs / 1000),
+    has_topic: topic ? 1 : 0,
+  });
+  if (debate.inviteTimer) clearTimeout(debate.inviteTimer);
+  debate.inviteTimer = setTimeout(() => {
+    if (debate.pending === "out" && debate.inviteId === inviteId) {
+      sendDebateP2p({ type: "debate_cancel", invite_id: inviteId });
+      clearDebatePending();
+      setStatus(_t("debate.inviteExpired") || "Debate invite expired");
+    }
+  }, 35_000);
+  closePartnerMenu();
+}
+
+function clearDebatePending() {
+  debate.pending = null;
+  debate.inviteId = "";
+  // Keep topic/turnMs for accepted start; only clear if fully idle
+  if (!debate.active) {
+    /* topic retained until start or cancel — cleared on endDebate */
+  }
+  if (debate.inviteTimer) {
+    clearTimeout(debate.inviteTimer);
+    debate.inviteTimer = 0;
+  }
+  dismissDebateInviteToast();
+}
+
+function dismissDebateInviteToast() {
+  const t = $("debate-invite-toast");
+  if (t?.parentNode) t.remove();
+}
+
+function handleDebateP2pMessage(msg, _fromPc) {
+  if (!msg || !msg.type) return;
+  const fromUid = String(msg.user_id || "").slice(0, 64);
+  switch (msg.type) {
+    case "debate_invite":
+      handleDebateInviteIncoming(msg, fromUid);
+      break;
+    case "debate_accept":
+      handleDebateAccept(msg, fromUid);
+      break;
+    case "debate_decline":
+      handleDebateDecline(msg, fromUid);
+      break;
+    case "debate_cancel":
+      if (debate.pending === "in" && msg.invite_id === debate.inviteId) {
+        clearDebatePending();
+        setStatus(
+          _t("debate.inviteCancelled") || "Debate invite cancelled"
+        );
+      }
+      break;
+    case "debate_start":
+      applyDebateStart(msg, fromUid);
+      break;
+    case "debate_turn":
+      applyDebateTurn(msg);
+      break;
+    case "debate_end":
+      if (debate.active || debate.pending) {
+        endDebate({ notify: false, reason: msg.reason || "peer", silent: false });
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+function handleDebateInviteIncoming(msg, fromUid) {
+  if (debate.active) {
+    sendDebateP2p({
+      type: "debate_decline",
+      invite_id: msg.invite_id,
+      reason: "busy",
+    });
+    return;
+  }
+  if (debate.pending) {
+    // Already waiting on another invite
+    sendDebateP2p({
+      type: "debate_decline",
+      invite_id: msg.invite_id,
+      reason: "busy",
+    });
+    return;
+  }
+  if (!matched || !primaryPartnerUserId) return;
+  // Only accept from current primary partner
+  if (fromUid && primaryPartnerUserId && fromUid !== primaryPartnerUserId) {
+    return;
+  }
+  debate.pending = "in";
+  debate.inviteId = String(msg.invite_id || "");
+  debate.partnerId = fromUid || primaryPartnerUserId;
+  debate.hostId = fromUid || primaryPartnerUserId;
+  debate.turnMs = normalizeDebateTurnMs(msg.turn_ms || DEBATE_TURN_MS);
+  debate.topic = normalizeDebateTopic(msg.topic);
+  dismissDebateInviteToast();
+  const toast = document.createElement("div");
+  toast.id = "debate-invite-toast";
+  toast.className = "friend-soft-toast debate-invite-toast";
+  toast.setAttribute("role", "dialog");
+  toast.style.pointerEvents = "auto";
+  const name =
+    String(msg.from_name || msg.name || "").slice(0, 32) || debatePartnerName();
+  const secs = Math.round(debate.turnMs / 1000);
+  const topicHtml = debate.topic
+    ? `<div class="debate-invite-topic">${escapeHtml(debate.topic)}</div>`
+    : "";
+  toast.innerHTML = `
+    <strong>${escapeHtml(_t("debate.incomingTitle") || "Formal debate?")}</strong>
+    <span>${escapeHtml(
+      _t("debate.incomingBody", { n: name, s: secs }) ||
+        `${name} invites you to a formal debate — ${secs}s turns, one speaker at a time.`
+    )}</span>
+    <div class="debate-invite-meta">${escapeHtml(
+      _t("debate.incomingMeta", { s: secs }) || `${secs}s turns · you go second`
+    )}</div>
+    ${topicHtml}
+    <div class="export-nudge-actions" style="margin-top:0.45rem">
+      <button type="button" class="pill tight ghost" id="btn-debate-no">${escapeHtml(
+        _t("debate.decline") || "Decline"
+      )}</button>
+      <button type="button" class="pill tight accent" id="btn-debate-yes">${escapeHtml(
+        _t("debate.accept") || "Accept"
+      )}</button>
+    </div>`;
+  document.body.appendChild(toast);
+  $("btn-debate-no")?.addEventListener("click", () => {
+    sendDebateP2p({
+      type: "debate_decline",
+      invite_id: debate.inviteId,
+    });
+    clearDebatePending();
+    setStatus(_t("debate.youDeclined") || "Debate declined");
+    trackEvent("debate_decline");
+  });
+  $("btn-debate-yes")?.addEventListener("click", () => {
+    const inviteId = debate.inviteId;
+    sendDebateP2p({
+      type: "debate_accept",
+      invite_id: inviteId,
+    });
+    // Host (inviter) will send debate_start; stay pending until then
+    dismissDebateInviteToast();
+    setStatus(_t("debate.acceptedWait") || "Accepted — starting debate…");
+    trackEvent("debate_accept");
+    // Safety: if start never arrives, clear pending
+    if (debate.inviteTimer) clearTimeout(debate.inviteTimer);
+    debate.inviteTimer = setTimeout(() => {
+      if (!debate.active && debate.pending === "in") {
+        clearDebatePending();
+        setStatus(
+          _t("debate.startTimeout") || "Debate did not start — try again"
+        );
+      }
+    }, 12_000);
+  });
+  if (debate.inviteTimer) clearTimeout(debate.inviteTimer);
+  debate.inviteTimer = setTimeout(() => {
+    if (debate.pending === "in") {
+      sendDebateP2p({
+        type: "debate_decline",
+        invite_id: debate.inviteId,
+        reason: "timeout",
+      });
+      clearDebatePending();
+    }
+  }, 35_000);
+  setStatus(
+    _t("debate.incomingStatus", { n: name }) ||
+      `${name} invited you to a debate`
+  );
+}
+
+function handleDebateAccept(msg, fromUid) {
+  if (debate.pending !== "out") return;
+  if (msg.invite_id && debate.inviteId && msg.invite_id !== debate.inviteId) {
+    return;
+  }
+  // Host starts the clock with length/topic from invite
+  const turnMs = normalizeDebateTurnMs(debate.turnMs || DEBATE_TURN_MS);
+  const topic = normalizeDebateTopic(debate.topic);
+  const now = Date.now();
+  const firstSpeaker = myUserId || "";
+  const turnEndsAt = now + turnMs;
+  const startMsg = {
+    type: "debate_start",
+    invite_id: debate.inviteId,
+    host_id: myUserId || "",
+    first_speaker_id: firstSpeaker,
+    partner_id: fromUid || primaryPartnerUserId,
+    turn_ms: turnMs,
+    topic,
+    turn_index: 0,
+    turn_ends_at: turnEndsAt,
+    started_at: now,
+  };
+  sendDebateP2p(startMsg);
+  applyDebateStart(startMsg, myUserId);
+  trackEvent("debate_start", {
+    host: 1,
+    turn_s: Math.round(turnMs / 1000),
+    has_topic: topic ? 1 : 0,
+  });
+}
+
+function handleDebateDecline(msg, _fromUid) {
+  if (debate.pending !== "out") return;
+  if (msg.invite_id && debate.inviteId && msg.invite_id !== debate.inviteId) {
+    return;
+  }
+  clearDebatePending();
+  setStatus(_t("debate.theyDeclined") || "They declined the debate");
+  log(_t("debate.theyDeclined") || "debate declined");
+  trackEvent("debate_declined");
+}
+
+function applyDebateStart(msg, _fromUid) {
+  clearDebatePending();
+  const turnMs = normalizeDebateTurnMs(msg.turn_ms || debate.turnMs || DEBATE_TURN_MS);
+  const topic = normalizeDebateTopic(
+    msg.topic != null ? msg.topic : debate.topic
+  );
+  const first =
+    String(msg.first_speaker_id || msg.host_id || "").slice(0, 64) ||
+    primaryPartnerUserId;
+  const partner =
+    String(msg.partner_id || "").slice(0, 64) ||
+    (first === myUserId ? primaryPartnerUserId : first);
+  debate.active = true;
+  debate.pending = null;
+  debate.hostId = String(msg.host_id || first).slice(0, 64);
+  debate.partnerId = partner || primaryPartnerUserId;
+  debate.speakerId = first;
+  debate.inviteId = String(msg.invite_id || debate.inviteId || "");
+  debate.turnMs = turnMs;
+  debate.topic = topic;
+  debate.turnIndex = Number(msg.turn_index) || 0;
+  debate.turnEndsAt = Number(msg.turn_ends_at) || Date.now() + turnMs;
+  debate.urgentBeeped = false;
+  debate.lastUrgentHapticSec = -1;
+  debate.lastChimeSpeaker = "";
+  showDebateOverlay(true);
+  startDebateTick();
+  applyMicTracks();
+  updateDebateUi({ chime: true, newRound: true });
+  const iSpeak = iAmDebateSpeaker();
+  const secs = Math.round(turnMs / 1000);
+  const r = debateRoundNumber(0);
+  setStatus(
+    iSpeak
+      ? _t("debate.yourTurnRound", { n: r, s: secs }) ||
+          `Round ${r} — your turn (${secs}s)`
+      : _t("debate.theirTurnRound", { n: r }) ||
+          `Round ${r} — their turn (you're muted)`
+  );
+  log((_t("debate.startedLog") || "debate started") + ` · ${debateRoundLabel(0)}`);
+  try {
+    document.body.classList.add("debate-active");
+  } catch (_) {}
+}
+
+function applyDebateTurn(msg) {
+  if (!debate.active) return;
+  const speaker = String(msg.speaker_id || "").slice(0, 64);
+  if (!speaker) return;
+  const idx = Number(msg.turn_index);
+  // Ignore stale turn packets (e.g. after local fallback already advanced further)
+  if (Number.isFinite(idx) && idx < debate.turnIndex) return;
+  const speakerChanged = speaker !== debate.speakerId;
+  debate.speakerId = speaker;
+  debate.turnIndex = Number.isFinite(idx) ? idx : debate.turnIndex + 1;
+  debate.turnEndsAt =
+    Number(msg.turn_ends_at) || Date.now() + (debate.turnMs || DEBATE_TURN_MS);
+  if (msg.turn_ms) {
+    debate.turnMs = normalizeDebateTurnMs(msg.turn_ms);
+  }
+  if (speakerChanged) {
+    debate.urgentBeeped = false;
+    debate.lastUrgentHapticSec = -1;
+  }
+  // Even turnIndex (0, 2, 4…) starts a new round after both have spoken
+  const startsNewRound =
+    speakerChanged && debate.turnIndex % 2 === 0;
+  applyMicTracks();
+  updateDebateUi({
+    chime: speakerChanged,
+    newRound: startsNewRound,
+  });
+  const iSpeak = iAmDebateSpeaker();
+  const r = debateRoundNumber();
+  setStatus(
+    iSpeak
+      ? _t("debate.yourTurnRound", { n: r }) || `Round ${r} — your turn`
+      : _t("debate.theirTurnRound", { n: r }) ||
+          `Round ${r} — their turn (you're muted)`
+  );
+}
+
+function otherDebateSpeaker() {
+  if (iAmDebateSpeaker()) {
+    return (
+      String(debate.partnerId || primaryPartnerUserId || "").trim() ||
+      myUserId
+    );
+  }
+  return String(myUserId || "").trim();
+}
+
+/** Host advances the turn and broadcasts; guest uses local-only fallback if host lags. */
+function advanceDebateTurn({ force = false, yieldTurn = false } = {}) {
+  if (!debate.active) return;
+  const now = Date.now();
+  if (!force && !yieldTurn && now < debate.turnEndsAt - 40) return;
+  const isHost = debateUidEq(debate.hostId, myUserId);
+  const iAmSpeaker = iAmDebateSpeaker();
+  // Guest may only flip locally after a grace period (or when yielding their own turn)
+  if (!isHost && !(yieldTurn && iAmSpeaker)) {
+    if (!force || now < debate.turnEndsAt + 900) return;
+  }
+  const nextSpeaker = otherDebateSpeaker();
+  if (!nextSpeaker) {
+    setStatus(_t("debate.noPartner") || "No partner for next turn");
+    return;
+  }
+  const turnMs = debate.turnMs || DEBATE_TURN_MS;
+  const turnEndsAt = now + turnMs;
+  const turnIndex = (debate.turnIndex || 0) + 1;
+  const startsNewRound = turnIndex % 2 === 0; // 0,2,4… start rounds 1,2,3
+  debate.speakerId = nextSpeaker;
+  debate.turnIndex = turnIndex;
+  debate.turnEndsAt = turnEndsAt;
+  debate.urgentBeeped = false;
+  debate.lastUrgentHapticSec = -1;
+  // Broadcast: host clock, or speaker yielding early (always try; hub not required)
+  if (isHost || (yieldTurn && iAmSpeaker)) {
+    const sent = sendDebateP2p({
+      type: "debate_turn",
+      speaker_id: nextSpeaker,
+      turn_index: turnIndex,
+      turn_ends_at: turnEndsAt,
+      turn_ms: turnMs,
+      round: debateRoundNumber(turnIndex),
+      invite_id: debate.inviteId,
+    });
+    if (!sent && yieldTurn) {
+      // Still flip local UI; partner timer may catch up via host tick
+      try {
+        log(_t("debate.passLocalOnly") || "Pass sent locally — waiting for peer path");
+      } catch (_) {}
+    }
+  }
+  applyMicTracks();
+  updateDebateUi({ chime: true, newRound: startsNewRound });
+  const iSpeak = iAmDebateSpeaker();
+  const r = debateRoundNumber(turnIndex);
+  setStatus(
+    iSpeak
+      ? _t("debate.yourTurnRound", { n: r }) || `Round ${r} — your turn`
+      : _t("debate.theirTurnRound", { n: r }) ||
+          `Round ${r} — their turn (you're muted)`
+  );
+}
+
+/** Normalize user ids for debate speaker checks (mobile often has casing/trim drift). */
+function debateUidEq(a, b) {
+  const x = String(a || "").trim().toLowerCase();
+  const y = String(b || "").trim().toLowerCase();
+  if (!x || !y) return false;
+  return x === y;
+}
+
+function iAmDebateSpeaker() {
+  return debateUidEq(debate.speakerId, myUserId);
+}
+
+function passDebateTurn(ev) {
+  try {
+    ev?.preventDefault?.();
+    ev?.stopPropagation?.();
+  } catch (_) {}
+  if (!debate.active) {
+    setStatus(_t("debate.needLive") || "Debate only works during a live 1:1 call");
+    return;
+  }
+  const me = String(myUserId || "").trim();
+  const speaker = String(debate.speakerId || "").trim();
+  if (!me) {
+    setStatus(_t("debate.needId") || "Still connecting — try Pass again in a moment");
+    return;
+  }
+  if (!speaker || !debateUidEq(speaker, me)) {
+    setStatus(_t("debate.notYourTurn") || "Not your turn");
+    try {
+      softHaptic?.(20);
+    } catch (_) {}
+    return;
+  }
+  trackEvent("debate_pass");
+  // Unlock audio context for chime on mobile (gesture)
+  try {
+    ensureDebateAudioCtx()?.resume?.();
+  } catch (_) {}
+  // Immediate press feedback on mobile (before P2P / UI tick)
+  try {
+    ["btn-debate-pass", "btn-debate-pass-mobile"].forEach((id) => {
+      const b = $(id);
+      if (b && !b.hidden) {
+        b.disabled = true;
+        b.classList.add("is-pressed");
+      }
+    });
+  } catch (_) {}
+  try {
+    softHaptic?.([12, 24, 18]);
+  } catch (_) {}
+  advanceDebateTurn({ yieldTurn: true });
+  // Re-enable after turn flip (updateDebateUi will hide Pass when not speaker)
+  setTimeout(() => {
+    try {
+      ["btn-debate-pass", "btn-debate-pass-mobile"].forEach((id) => {
+        const b = $(id);
+        if (b) {
+          b.disabled = false;
+          b.classList.remove("is-pressed");
+        }
+      });
+      // Keep Pass wired if DOM was re-rendered
+      wireDebateControl("btn-debate-pass", passDebateTurn);
+      wireDebateControl("btn-debate-pass-mobile", passDebateTurn);
+    } catch (_) {}
+  }, 280);
+}
+
+function endDebateFromUi(ev) {
+  try {
+    ev?.preventDefault?.();
+    ev?.stopPropagation?.();
+  } catch (_) {}
+  endDebate({ notify: true, reason: "user" });
+}
+
+/** True for phones / touch UIs that need the fixed Pass bar. */
+function isDebateMobileUi() {
+  try {
+    if (typeof window.matchMedia === "function") {
+      if (window.matchMedia("(max-width: 900px)").matches) return true;
+      if (window.matchMedia("(pointer: coarse)").matches) return true;
+      if (window.matchMedia("(hover: none)").matches) return true;
+    }
+  } catch (_) {}
+  return (
+    typeof navigator !== "undefined" &&
+    (navigator.maxTouchPoints > 0 || "ontouchstart" in window)
+  );
+}
+
+/**
+ * Mobile debate chrome:
+ * - Pass lives only on the timer chip (#btn-debate-pass) — no big bottom Pass.
+ * - Fixed bar is End-only so it stays small and clear of the floor tray.
+ */
+function syncDebateMobileBar(iSpeak) {
+  const bar = $("debate-mobile-bar");
+  if (!bar) return;
+  const mobile = isDebateMobileUi();
+  // Pass is chip-only on mobile — always keep the duplicate bar button hidden
+  const passM = $("btn-debate-pass-mobile");
+  if (passM) {
+    passM.hidden = true;
+    passM.setAttribute("hidden", "");
+  }
+  if (!debate.active || !mobile) {
+    bar.hidden = true;
+    bar.setAttribute("hidden", "");
+    try {
+      document.body.classList.remove("debate-mobile-bar-on");
+    } catch (_) {}
+    return;
+  }
+  // Park under body so position:fixed is viewport-stable (stage transform / stack)
+  try {
+    if (bar.parentElement !== document.body) {
+      document.body.appendChild(bar);
+    }
+  } catch (_) {}
+  bar.hidden = false;
+  bar.removeAttribute("hidden");
+  try {
+    document.body.classList.add("debate-mobile-bar-on");
+  } catch (_) {}
+  // Force visible — CSS display:none base must not win
+  bar.hidden = false;
+  bar.style.display = "flex";
+  bar.style.pointerEvents = "auto";
+  bar.style.zIndex = "12050";
+  bar.classList.add("debate-mobile-bar-end-only");
+  // Chip Pass must stay tappable when it's your turn (primary control)
+  const passChip = $("btn-debate-pass");
+  if (passChip) {
+    if (iSpeak) {
+      passChip.hidden = false;
+      passChip.removeAttribute("hidden");
+      passChip.disabled = false;
+      passChip.style.pointerEvents = "auto";
+      passChip.style.touchAction = "manipulation";
+    }
+  }
+  // Ensure handlers exist (defensive after reparent)
+  try {
+    wireDebateControl("btn-debate-pass", passDebateTurn);
+    wireDebateControl("btn-debate-end-mobile", endDebateFromUi);
+  } catch (_) {}
+}
+
+function startDebateTick() {
+  if (debate.tickIv) clearInterval(debate.tickIv);
+  debate.tickIv = setInterval(() => {
+    if (!debate.active) {
+      clearInterval(debate.tickIv);
+      debate.tickIv = 0;
+      return;
+    }
+    if (!matched && !inFriendCall) {
+      endDebate({ notify: false, silent: true });
+      return;
+    }
+    updateDebateUi();
+    const now = Date.now();
+    if (now >= debate.turnEndsAt) {
+      // Same id normalize as advanceDebateTurn (trim/case) — raw === stalled Pass on mobile
+      const isHost = debateUidEq(debate.hostId, myUserId);
+      if (isHost) {
+        advanceDebateTurn({ force: true });
+      } else {
+        // Guest: wait briefly for host message, then local fallback
+        if (now >= debate.turnEndsAt + 900) {
+          advanceDebateTurn({ force: true });
+        }
+      }
+    }
+  }, 100);
+}
+
+function showDebateOverlay(show) {
+  const el = $("debate-overlay");
+  if (!el) return;
+  if (show) {
+    el.hidden = false;
+    el.removeAttribute("hidden");
+    // Park on current speaker tile immediately
+    placeDebateOverlayOnSpeaker(debate.speakerId === myUserId);
+  } else {
+    el.hidden = true;
+    el.setAttribute("hidden", "");
+    // Return to remote tile as default home when idle
+    placeDebateOverlayOnSpeaker(false, { force: true });
+  }
+}
+
+/**
+ * Move the timer card onto the speaking person's video tile (desktop).
+ * On phones, keep a fixed right-side chip (same idea as browser side placement)
+ * so it never sits on the face or tiny local PiP.
+ * @param {boolean} iSpeak — true → local tile (you), false → remote tile (partner)
+ * @param {{ force?: boolean }} [opts]
+ */
+function placeDebateOverlayOnSpeaker(iSpeak, opts = {}) {
+  const overlay = $("debate-overlay");
+  if (!overlay) return;
+  const mobile =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(max-width: 720px)").matches;
+  const wasLocal = overlay.classList.contains("on-local");
+  const wasRemote = overlay.classList.contains("on-remote");
+  const speakerChanged =
+    debate.active &&
+    ((iSpeak && !wasLocal) || (!iSpeak && !wasRemote));
+
+  if (mobile) {
+    // Fixed side chip — parent under body so position:fixed is viewport-stable
+    try {
+      if (overlay.parentElement !== document.body) {
+        document.body.appendChild(overlay);
+      }
+    } catch (_) {}
+    overlay.classList.toggle("on-local", !!iSpeak);
+    overlay.classList.toggle("on-remote", !iSpeak);
+    if (speakerChanged && !opts.force) {
+      overlay.classList.remove("debate-hop");
+      void overlay.offsetWidth;
+      overlay.classList.add("debate-hop");
+      setTimeout(() => overlay.classList.remove("debate-hop"), 380);
+    }
+    return;
+  }
+
+  const target = iSpeak ? $("tile-local") : $("tile-remote");
+  if (!target) return;
+  if (!opts.force && overlay.parentElement === target) {
+    overlay.classList.toggle("on-local", !!iSpeak);
+    overlay.classList.toggle("on-remote", !iSpeak);
+    return;
+  }
+  // Animate hop: brief scale when reparenting
+  const hop =
+    !opts.force &&
+    debate.active &&
+    overlay.parentElement &&
+    overlay.parentElement !== target;
+  try {
+    target.appendChild(overlay);
+  } catch (_) {
+    return;
+  }
+  overlay.classList.toggle("on-local", !!iSpeak);
+  overlay.classList.toggle("on-remote", !iSpeak);
+  if (hop) {
+    overlay.classList.remove("debate-hop");
+    // Force reflow so animation restarts
+    void overlay.offsetWidth;
+    overlay.classList.add("debate-hop");
+    setTimeout(() => overlay.classList.remove("debate-hop"), 380);
+  }
+}
+
+/**
+ * @param {{ chime?: boolean, newRound?: boolean }} [opts]
+ */
+function updateDebateUi(opts = {}) {
+  const overlay = $("debate-overlay");
+  if (!overlay || !debate.active) return;
+  const now = Date.now();
+  const remMs = Math.max(0, debate.turnEndsAt - now);
+  const secs = Math.ceil(remMs / 1000);
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  const timerEl = $("debate-timer");
+  if (timerEl) {
+    timerEl.textContent =
+      m > 0
+        ? `${m}:${String(s).padStart(2, "0")}`
+        : `0:${String(s).padStart(2, "0")}`;
+  }
+  const iSpeak = iAmDebateSpeaker();
+  // Timer lives on the person who is speaking
+  placeDebateOverlayOnSpeaker(iSpeak);
+  const roundEl = $("debate-round-label");
+  if (roundEl) {
+    roundEl.textContent = debateRoundLabel();
+    roundEl.setAttribute("aria-label", debateRoundLabel());
+  }
+  if (opts.newRound) {
+    overlay.classList.remove("is-new-round");
+    void overlay.offsetWidth;
+    overlay.classList.add("is-new-round");
+    setTimeout(() => overlay.classList.remove("is-new-round"), 500);
+    // Slightly stronger cue when a full new round begins
+    if (opts.chime !== false) playDebateRoundChime();
+  }
+  const turnEl = $("debate-turn-label");
+  if (turnEl) {
+    const r = debateRoundNumber();
+    turnEl.textContent = iSpeak
+      ? _t("debate.yourTurnRoundShort", { n: r }) || `Round ${r} · your turn`
+      : _t("debate.theirTurnRoundShort", {
+          n: r,
+          name: debatePartnerName(),
+        }) ||
+        _t("debate.theirTurnRoundShortAlt", {
+          n: r,
+          name: debatePartnerName(),
+        }) ||
+        `Round ${r} · ${debatePartnerName()}`;
+  }
+  const topicEl = $("debate-topic");
+  if (topicEl) {
+    if (debate.topic) {
+      topicEl.textContent = debate.topic;
+      topicEl.hidden = false;
+      topicEl.removeAttribute("hidden");
+      topicEl.title = debate.topic;
+    } else {
+      topicEl.textContent = "";
+      topicEl.hidden = true;
+      topicEl.setAttribute("hidden", "");
+    }
+  }
+  const bar = $("debate-progress-bar");
+  if (bar) {
+    const pct = Math.max(
+      0,
+      Math.min(1, remMs / (debate.turnMs || DEBATE_TURN_MS))
+    );
+    bar.style.transform = `scaleX(${pct})`;
+  }
+  overlay.classList.toggle("is-my-turn", iSpeak);
+  overlay.classList.toggle("is-their-turn", !iSpeak);
+  const urgent = remMs > 0 && remMs <= 5000;
+  overlay.classList.toggle("is-urgent", urgent);
+  // Speaker video highlight + mute badges on non-speaker
+  try {
+    document.body.classList.toggle("debate-i-speak", iSpeak);
+    document.body.classList.toggle("debate-they-speak", !iSpeak);
+  } catch (_) {}
+  updateDebateMuteBadges(iSpeak);
+  // Sounds + haptics: turn change (skip if new-round chime already fired)
+  if (
+    opts.chime &&
+    !opts.newRound &&
+    debate.speakerId !== debate.lastChimeSpeaker
+  ) {
+    debate.lastChimeSpeaker = debate.speakerId;
+    try {
+      softHaptic([16, 36, 22]);
+    } catch (_) {}
+    playDebateTurnChime();
+  } else if (opts.newRound) {
+    debate.lastChimeSpeaker = debate.speakerId;
+    try {
+      softHaptic([14, 30, 14, 30, 28]);
+    } catch (_) {}
+  }
+  if (urgent && !debate.urgentBeeped) {
+    debate.urgentBeeped = true;
+    try {
+      softHaptic([40, 50, 40, 50, 60]);
+    } catch (_) {}
+    playDebateUrgentBeep();
+  }
+  // Pulse each whole second in the last 5s (once per second)
+  if (urgent && secs > 0 && secs <= 5 && debate.lastUrgentHapticSec !== secs) {
+    debate.lastUrgentHapticSec = secs;
+    try {
+      softHaptic(secs <= 2 ? [28, 40, 28] : 22);
+    } catch (_) {}
+  }
+  if (!urgent) {
+    debate.lastUrgentHapticSec = -1;
+  }
+  // Only flip Pass visibility when it actually changes (avoids thrashing on mobile taps)
+  const passBtn = $("btn-debate-pass");
+  if (passBtn) {
+    const wantShow = !!iSpeak;
+    const isHidden = passBtn.hidden || passBtn.hasAttribute("hidden");
+    if (wantShow && isHidden) {
+      passBtn.hidden = false;
+      passBtn.removeAttribute("hidden");
+      passBtn.disabled = false;
+    } else if (!wantShow && !isHidden) {
+      passBtn.hidden = true;
+      passBtn.setAttribute("hidden", "");
+    }
+  }
+  syncDebateMobileBar(iSpeak);
+}
+
+/**
+ * Show who can / cannot be heard: muted badge on non-speaker, speaking on speaker.
+ * @param {boolean} iSpeak
+ */
+function updateDebateMuteBadges(iSpeak) {
+  const setVis = (id, show) => {
+    const el = $(id);
+    if (!el) return;
+    if (show) {
+      el.hidden = false;
+      el.removeAttribute("hidden");
+    } else {
+      el.hidden = true;
+      el.setAttribute("hidden", "");
+    }
+  };
+  if (!debate.active) {
+    setVis("debate-badge-local-muted", false);
+    setVis("debate-badge-local-speaking", false);
+    setVis("debate-badge-remote-muted", false);
+    setVis("debate-badge-remote-speaking", false);
+    return;
+  }
+  // You
+  setVis("debate-badge-local-muted", !iSpeak);
+  setVis("debate-badge-local-speaking", iSpeak);
+  // Partner
+  setVis("debate-badge-remote-muted", iSpeak); // they muted when you speak
+  setVis("debate-badge-remote-speaking", !iSpeak);
+}
+
+function clearDebateMuteBadges() {
+  updateDebateMuteBadges(false);
+  // Force hide all (updateDebateMuteBadges only works when active)
+  for (const id of [
+    "debate-badge-local-muted",
+    "debate-badge-local-speaking",
+    "debate-badge-remote-muted",
+    "debate-badge-remote-speaking",
+  ]) {
+    const el = $(id);
+    if (!el) continue;
+    el.hidden = true;
+    el.setAttribute("hidden", "");
+  }
+}
+
+/**
+ * End debate mode and restore mic freedom.
+ * @param {{ notify?: boolean, reason?: string, silent?: boolean }} [opts]
+ */
+function endDebate(opts = {}) {
+  const notify = opts.notify !== false;
+  const wasActive = debate.active || debate.pending;
+  if (debate.tickIv) {
+    clearInterval(debate.tickIv);
+    debate.tickIv = 0;
+  }
+  if (debate.inviteTimer) {
+    clearTimeout(debate.inviteTimer);
+    debate.inviteTimer = 0;
+  }
+  if (notify && debate.active) {
+    sendDebateP2p({
+      type: "debate_end",
+      reason: opts.reason || "user",
+      invite_id: debate.inviteId,
+    });
+  }
+  debate.active = false;
+  debate.pending = null;
+  debate.speakerId = "";
+  debate.hostId = "";
+  debate.partnerId = "";
+  debate.inviteId = "";
+  debate.turnEndsAt = 0;
+  debate.turnIndex = 0;
+  debate.topic = "";
+  debate.urgentBeeped = false;
+  debate.lastUrgentHapticSec = -1;
+  debate.lastChimeSpeaker = "";
+  dismissDebateInviteToast();
+  showDebateOverlay(false);
+  clearDebateMuteBadges();
+  syncDebateMobileBar(false);
+  try {
+    document.body.classList.remove(
+      "debate-active",
+      "debate-muted-turn",
+      "debate-i-speak",
+      "debate-they-speak"
+    );
+  } catch (_) {}
+  applyMicTracks();
+  if (wasActive && !opts.silent) {
+    setStatus(_t("debate.ended") || "Debate ended — free talk");
+    log(_t("debate.ended") || "debate ended");
+    trackEvent("debate_end", { reason: opts.reason || "user" });
+  }
+}
+
 function partnerMenuOpen() {
   const menu = $("partner-menu");
   return menu && !menu.hidden;
@@ -18944,6 +23312,7 @@ function partnerMenuOpen() {
 function showPartnerMenuMain() {
   const main = $("partner-menu-main");
   const rep = $("partner-menu-report");
+  const deb = $("partner-menu-debate");
   if (main) {
     main.hidden = false;
     main.removeAttribute("hidden");
@@ -18952,6 +23321,10 @@ function showPartnerMenuMain() {
     rep.hidden = true;
     rep.setAttribute("hidden", "");
   }
+  if (deb) {
+    deb.hidden = true;
+    deb.setAttribute("hidden", "");
+  }
   const title = $("partner-menu-title");
   if (title) title.textContent = _t("partnerMenu.title") || "Partner";
 }
@@ -18959,9 +23332,14 @@ function showPartnerMenuMain() {
 function showPartnerReportReasons() {
   const main = $("partner-menu-main");
   const rep = $("partner-menu-report");
+  const deb = $("partner-menu-debate");
   if (main) {
     main.hidden = true;
     main.setAttribute("hidden", "");
+  }
+  if (deb) {
+    deb.hidden = true;
+    deb.setAttribute("hidden", "");
   }
   if (rep) {
     rep.hidden = false;
@@ -19092,19 +23470,51 @@ function openPartnerMenu() {
     }
   }
 
-  // Find 3rd: same rules as footer button (stranger 1v1)
+  // Find 3rd: stranger 1v1 or friend call (same as dock)
   const findBtn = $("btn-partner-find-third");
   if (findBtn) {
-    const canFind =
-      TRIO_FIND_ENABLED &&
+    const friend1v1 =
+      !!inFriendCall &&
+      (matchMode === "friend" || matchMode === "solo") &&
+      !trioBrowse;
+    const stranger1v1 =
       !!matched &&
       !inFriendCall &&
       matchMode === "solo" &&
       yourRole === "solo" &&
-      !trioBrowse &&
+      !trioBrowse;
+    const canFind =
+      TRIO_FIND_ENABLED &&
+      (stranger1v1 || friend1v1) &&
       !findThirdPending;
     findBtn.hidden = !canFind;
     findBtn.disabled = !canFind;
+  }
+
+  // Formal debate invite / end
+  const debateBtn = $("btn-partner-debate");
+  if (debateBtn) {
+    const live1v1 =
+      !!matched &&
+      !!primaryPartnerUserId &&
+      !trioBrowse &&
+      (matchMode === "solo" ||
+        matchMode === "friend" ||
+        inFriendCall);
+    debateBtn.hidden = !live1v1;
+    debateBtn.disabled = !live1v1;
+    debateBtn.classList.toggle("is-active", !!debate.active);
+    const label = $("btn-partner-debate-label");
+    if (label) {
+      if (debate.active) {
+        label.textContent = _t("debate.end") || "End debate";
+      } else if (debate.pending === "out") {
+        label.textContent =
+          _t("debate.cancelInvite") || "Cancel debate invite";
+      } else {
+        label.textContent = _t("debate.invite") || "Invite to debate";
+      }
+    }
   }
 
   // Star gifts (5★ / 15s, extendable)
@@ -19345,17 +23755,51 @@ function on(id, event, handler) {
 }
 
 // Connect is automatic on load; no Connect button in the UI.
-on("btn-restart-cam", "click", async () => {
-  endCallKeepPreview();
-  stopPreview();
-  await startPreview();
-});
+// (restart-cam handler is wired once below with clearFailedCameras + hard release)
 on("btn-mute-mic", "click", () => toggleMicMute());
 // btn-mute-cam removed from DOM — cam on/off feature retired
 on("btn-mute-remote", "click", () => togglePartnerMute());
+on("btn-mute-remote-main", "click", (e) => {
+  e?.stopPropagation?.();
+  togglePeerElMute("remote");
+});
+on("btn-mute-remote2", "click", (e) => {
+  e?.stopPropagation?.();
+  togglePeerElMute("remote2");
+});
+on("btn-mute-remote-third", "click", (e) => {
+  e?.stopPropagation?.();
+  togglePeerElMute("remote-third");
+});
+on("btn-blur-remote-main", "click", (e) => {
+  e?.stopPropagation?.();
+  togglePeerElBlur("remote");
+});
+on("btn-blur-remote2", "click", (e) => {
+  e?.stopPropagation?.();
+  togglePeerElBlur("remote2");
+});
+on("btn-blur-remote-third", "click", (e) => {
+  e?.stopPropagation?.();
+  togglePeerElBlur("remote-third");
+});
+$("vol-remote")?.addEventListener("input", () => {
+  setPeerElVolume("remote", $("vol-remote")?.value);
+});
+$("vol-remote2")?.addEventListener("input", () => {
+  setPeerElVolume("remote2", $("vol-remote2")?.value);
+});
+$("vol-remote-third")?.addEventListener("input", () => {
+  setPeerElVolume("remote-third", $("vol-remote-third")?.value);
+});
 on("btn-blur-remote", "click", () => togglePartnerBlur());
 on("btn-blur-self", "click", () => toggleSelfBlur());
 on("btn-fs-remote", "click", () => toggleFullscreenPartner());
+on("btn-stage-layout", "click", (e) => {
+  e?.preventDefault?.();
+  e?.stopPropagation?.();
+  toggleStageLayoutMode();
+});
 document.addEventListener("enterpictureinpicture", () => updatePipButton());
 document.addEventListener("leavepictureinpicture", () => updatePipButton());
 on("btn-partner-friend", "click", () => invitePartnerFriend());
@@ -19365,15 +23809,126 @@ on("btn-partner-balloons", "click", () => spendBalloonsOnPartner());
 on("btn-partner-confetti", "click", () => spendConfettiOnPartner());
 on("btn-partner-find-third", "click", () => {
   closePartnerMenu();
-  if (!TRIO_FIND_ENABLED || findThirdPending || !matched) return;
+  if (!TRIO_FIND_ENABLED || findThirdPending) return;
+  if (!matched && !inFriendCall) return;
   findThirdPending = "out";
   send({ type: "find_third_invite" });
   setStatus(_t("trio.inviteSent") || "Invite sent — waiting for them…");
-  trackEvent("find_third_invite", { via: "partner_menu" });
+  trackEvent("find_third_invite", {
+    via: "partner_menu",
+    friend: inFriendCall || matchMode === "friend" ? 1 : 0,
+  });
   updateFriendActionButtons();
 });
 on("btn-partner-block", "click", () => blockPartnerFromMenu());
 on("btn-partner-report", "click", () => showPartnerReportReasons());
+on("btn-partner-debate", "click", () => invitePartnerDebate());
+on("btn-debate-send-invite", "click", () => sendDebateInviteFromCompose());
+on("btn-debate-compose-back", "click", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  showPartnerMenuMain();
+});
+$("debate-turn-picks")?.addEventListener("click", (e) => {
+  const btn = e.target?.closest?.("[data-turn-secs]");
+  if (!btn) return;
+  const secs = Number(btn.getAttribute("data-turn-secs"));
+  if (!DEBATE_TURN_CHOICES_S.includes(secs)) return;
+  debate.composeTurnSecs = secs;
+  $("debate-turn-picks")
+    ?.querySelectorAll("[data-turn-secs]")
+    .forEach((el) => {
+      el.classList.toggle(
+        "is-selected",
+        Number(el.getAttribute("data-turn-secs")) === secs
+      );
+    });
+});
+function wireDebateControl(id, handler) {
+  const el = $(id);
+  if (!el) return;
+  // Allow re-bind after reparent (mobile bar → body)
+  if (el.dataset.debateWired === "1" && el.dataset.debateWireGen === "2") return;
+  el.dataset.debateWired = "1";
+  el.dataset.debateWireGen = "2";
+  // Mobile Safari / WebView: fire on pointerup + touchend (more reliable than
+  // pointerdown alone when parent swipe/stack handlers run). Debounce duplicates.
+  let lastFire = 0;
+  const fire = (e) => {
+    const now = Date.now();
+    if (now - lastFire < 380) {
+      try {
+        e.preventDefault?.();
+        e.stopPropagation?.();
+      } catch (_) {}
+      return;
+    }
+    lastFire = now;
+    try {
+      e.preventDefault?.();
+      e.stopPropagation?.();
+    } catch (_) {}
+    try {
+      e.stopImmediatePropagation?.();
+    } catch (_) {}
+    try {
+      handler(e);
+    } catch (err) {
+      try {
+        console.warn("[debate] control error", id, err);
+      } catch (_) {}
+    }
+  };
+  // Capture phase so stage/tile swipe never sees the gesture first
+  el.addEventListener("pointerdown", fire, { passive: false, capture: true });
+  el.addEventListener("pointerup", fire, { passive: false, capture: true });
+  el.addEventListener(
+    "touchend",
+    (e) => {
+      try {
+        e.preventDefault();
+        e.stopPropagation();
+      } catch (_) {}
+      fire(e);
+    },
+    { passive: false, capture: true }
+  );
+  el.addEventListener(
+    "touchstart",
+    (e) => {
+      try {
+        e.stopPropagation();
+      } catch (_) {}
+    },
+    { passive: true, capture: true }
+  );
+  el.addEventListener("click", fire, { capture: true });
+  el.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") fire(e);
+  });
+}
+wireDebateControl("btn-debate-pass", passDebateTurn);
+wireDebateControl("btn-debate-end", endDebateFromUi);
+wireDebateControl("btn-debate-pass-mobile", passDebateTurn);
+wireDebateControl("btn-debate-end-mobile", endDebateFromUi);
+// Re-wire if nodes were replaced (defensive)
+try {
+  window.addEventListener(
+    "orientationchange",
+    () => {
+      try {
+        if (debate.active) syncDebateMobileBar(debate.speakerId === myUserId);
+      } catch (_) {}
+    },
+    { passive: true }
+  );
+} catch (_) {}
+try {
+  wireTypingInputs();
+} catch (_) {}
+try {
+  wireEmojiPicker();
+} catch (_) {}
 on("btn-report-dock", "click", () => {
   // One-tap Report · Next (default reason); open menu for other reasons via partner video
   closeMatchMoreMenu();
@@ -19427,6 +23982,44 @@ $("partner-menu-report")?.querySelectorAll("[data-report-reason]").forEach((btn)
 on("btn-settings", "click", (e) => {
   e.stopPropagation();
   toggleSettings();
+});
+// Header Settings — always visible (tile rail can be lost over black camera)
+on("btn-settings-top", "click", (e) => {
+  e?.stopPropagation?.();
+  toggleSettings();
+});
+// Header Fullscreen
+on("btn-fs-top", "click", (e) => {
+  e?.stopPropagation?.();
+  try {
+    toggleFullscreenPartner();
+  } catch (_) {
+    $("btn-fs-remote")?.click?.();
+  }
+});
+// Header Cam restart
+on("btn-cam-top", "click", async (e) => {
+  e?.stopPropagation?.();
+  try {
+    clearFailedCameras();
+    mediaPermissionDenied = false;
+    stopLocalCanvasPreview();
+    if (previewStream) {
+      try {
+        previewStream.getTracks().forEach((t) => t.stop());
+      } catch (_) {}
+      previewStream = null;
+    }
+    mediaPreviewBusy = false;
+    setStatus(_t("status.previewStarting") || "starting camera…");
+    await startPreview();
+    if (localVideoTrackLive() && !localPreviewIsPainting()) {
+      await recoverBlackLocalCamera("header-cam");
+    }
+  } catch (err) {
+    log("cam-top: " + (err?.message || err));
+    showLocalCamRestart(true);
+  }
 });
 on("btn-conn-retry", "click", () => manualReconnect());
 on("sheet-close", "click", () => closeSettings());
@@ -19584,14 +24177,28 @@ on("btn-copy-code", "click", async () => {
 on("btn-browse-together", "click", () => {
   send({ type: "browse_together", room: currentRoom() });
   wantSearch = true;
-  log("browse together…");
+  const nPeers = peerPcs.size;
+  log(
+    nPeers >= 2
+      ? _t("log.browseParty3") || "party of 3 — searching for a stranger (3v1)…"
+      : _t("log.browseTogether") || "browse together…"
+  );
+  setStatus(
+    nPeers >= 2
+      ? _t("trio.searchingFourth") || "Searching for a stranger as a group of 3…"
+      : _t("trio.searchingTogether") || "Searching for a stranger together…"
+  );
 });
 on("btn-find-third", "click", () => {
-  if (!TRIO_FIND_ENABLED || findThirdPending || !matched) return;
+  if (!TRIO_FIND_ENABLED || findThirdPending) return;
+  // Friend call or stranger match both allowed (server checks 1v1)
+  if (!matched && !inFriendCall) return;
   findThirdPending = "out";
   send({ type: "find_third_invite" });
   setStatus(_t("trio.inviteSent") || "Invite sent — waiting for them…");
-  trackEvent("find_third_invite");
+  trackEvent("find_third_invite", {
+    friend: inFriendCall || matchMode === "friend" ? 1 : 0,
+  });
   updateFriendActionButtons();
 });
 on("btn-find-third-cancel", "click", () => {
@@ -19744,16 +24351,29 @@ function onVolInput(e) {
   applyRemoteVolume();
 }
 on("remote-vol", "input", onVolInput);
+on("remote-vol", "change", onVolInput);
 on("remote-vol-sheet", "input", onVolInput);
+on("remote-vol-sheet", "change", onVolInput);
 
 on("sel-camera", "change", async () => {
   const id = $("sel-camera")?.value || "";
   if (!id) return;
   applyCameraChoice(id);
   setStatus(_t("device.switchingCam") || "switching camera…");
+  mediaPreviewBusy = false;
+  await hardReleaseLocalCamera(300);
   await startPreview();
   applyLocalMirrorClass();
   syncSettingsSummary();
+  // Force paint after switch (Chrome often leaves black until re-bind)
+  await ensureLocalPreviewVisible("sel-camera");
+  if (localVideoTrackLive() && !localPreviewIsPainting()) {
+    setStatus(
+      _t("local.camBlackHint") ||
+        "Camera on but black — pick USB Camera or tap Restart"
+    );
+    showLocalCamRestart(true);
+  }
 });
 
 /**
@@ -19797,7 +24417,7 @@ $("remote-tile-tag")?.addEventListener("click", (e) => {
 });
 $("tile-remote")?.addEventListener("click", (e) => {
   if (e.target.closest(
-    ".side-rail, .tile-dock, .chat-panel, .partner-menu, .gift-strip, button, a, input, select, textarea, label"
+    ".side-rail, .tile-dock, .tile-floor, .chat-panel, .partner-menu, .gift-strip, .debate-overlay, .debate-mobile-bar, .star-award-fx, button, a, input, select, textarea, label"
   )) {
     return;
   }
@@ -19819,6 +24439,22 @@ $("tile-remote")?.addEventListener("click", (e) => {
   const gs = $("gift-strip");
   if (gs && !gs.hidden && gs.classList.contains("is-open")) {
     giftStripClose();
+    return;
+  }
+  // First tap on a blurred partner = Unblur only (always-blur / intro blur).
+  // Second tap opens partner menu (Find 3rd, debate, report, …).
+  if (partnerBlurred) {
+    clearIntroBlurTimer();
+    introBlurGen++;
+    setPartnerBlur(false);
+    try {
+      syncPartnerBlurButtonLabels();
+    } catch (_) {}
+    log(_t("log.blurOff") || "partner video unblurred");
+    setStatus(_t("log.blurOffTap") || "Partner revealed — tap again for more options");
+    trackEvent("partner_tap_unblur", {
+      always: blurFirstPrefEnabled() ? 1 : 0,
+    });
     return;
   }
   openPartnerMenu();
@@ -20149,6 +24785,11 @@ function syncFriendsIdentityBanner(hasFriends, recoverableN) {
   // Show when no friends OR we have recoverable codes (likely identity split)
   const show = !hasFriends || recoverableN > 0;
   ban.hidden = !show;
+  // Banner lives under More options — expand so Import is visible when needed
+  if (show) {
+    const more = $("friends-more-opts");
+    if (more) more.open = true;
+  }
 }
 
 /** One-shot soft toast: empty friends + local backup codes → suggest Import */
@@ -20202,6 +24843,9 @@ $("chk-match-sound")?.addEventListener("change", (e) => {
   savePrefs({ matchSound: !!e.target.checked });
   syncSettingsSummary();
 });
+$("chk-chat-sound")?.addEventListener("change", (e) => {
+  savePrefs({ chatSound: !!e.target.checked });
+});
 $("chk-friend-online-notif")?.addEventListener("change", (e) => {
   setFriendOnlineNotif(!!e.target.checked);
 });
@@ -20215,11 +24859,39 @@ $("chk-nsfw-auto")?.addEventListener("change", (e) => {
 $("chk-blur-first")?.addEventListener("change", (e) => {
   const on = !!e.target.checked;
   savePrefs({ blurFirst: on });
-  // Opting into permanent blur-first ends the starter budget (already covered)
-  // Opting out clears permanent; starter may still apply if left > 0
+  // Always-blur mode: every new stranger stays blurred until user taps Unblur
   try {
     trackEvent("blur_first_pref", { on: on ? 1 : 0, starter: blurStarterLeft() });
     syncBlurFirstUi();
+    syncPartnerBlurButtonLabels();
+  } catch (_) {}
+  // Apply immediately to current stranger call (not friends)
+  try {
+    if (matched && matchMode !== "friend" && !inFriendCall) {
+      if (on) {
+        clearIntroBlurTimer();
+        introBlurGen++;
+        setPartnerBlur(true);
+        setStatus(
+          _t("settings.blurFirstOnNow") ||
+            "Always blur on — this partner is blurred. Tap Unblur when ready."
+        );
+      } else {
+        // Leaving always-blur: keep current blur state; next match uses 3s intro
+        setStatus(
+          _t("settings.blurFirstOffNow") ||
+            "Always blur off — next matches use 3s intro blur only."
+        );
+      }
+    } else {
+      setStatus(
+        on
+          ? _t("settings.blurFirstOn") ||
+              "Always blur new conversationalists until you Unblur"
+          : _t("settings.blurFirstOff") ||
+              "Always blur off — new matches auto-unblur after 3s"
+      );
+    }
   } catch (_) {}
   syncSettingsSummary();
 });
@@ -20455,8 +25127,28 @@ document.addEventListener("keydown", (e) => {
 });
 
 if (navigator.mediaDevices?.addEventListener) {
+  let deviceChangeTimer = 0;
   navigator.mediaDevices.addEventListener("devicechange", () => {
-    refreshDevices().catch(() => {});
+    // Debounce unplug/replug storms
+    if (deviceChangeTimer) clearTimeout(deviceChangeTimer);
+    deviceChangeTimer = setTimeout(() => {
+      deviceChangeTimer = 0;
+      refreshDevices()
+        .then(async () => {
+          // After unplug/replug: if no live preview, clear fail list and reopen
+          if (!localVideoTrackLive() && rulesAccepted?.()) {
+            clearFailedCameras();
+            localCameraCycleTried.clear();
+            mediaPreviewBusy = false;
+            mediaPermissionDenied = false;
+            try {
+              await hardReleaseLocalCamera(200);
+            } catch (_) {}
+            startPreview().catch(() => {});
+          }
+        })
+        .catch(() => {});
+    }, 400);
   });
 }
 
@@ -20624,6 +25316,14 @@ document.addEventListener(
     $("chk-match-sound").checked =
       typeof prefs.matchSound === "boolean" ? prefs.matchSound : true;
   }
+  if ($("chk-chat-sound")) {
+    $("chk-chat-sound").checked =
+      typeof prefs.chatSound === "boolean"
+        ? prefs.chatSound
+        : typeof prefs.matchSound === "boolean"
+          ? prefs.matchSound
+          : true;
+  }
   syncFriendOnlineNotifUi();
   try {
     refreshFlairUi();
@@ -20632,7 +25332,7 @@ document.addEventListener(
     $("chk-nsfw-auto").checked = prefs.nsfwAuto !== false;
   }
   if ($("chk-blur-first")) {
-    $("chk-blur-first").checked = prefs.blurFirst === true;
+    $("chk-blur-first").checked = prefs.blurFirst !== false;
     try {
       syncBlurFirstUi();
     } catch (_) {}
@@ -20700,14 +25400,84 @@ window.__nextfaceBooted = window.__ruletBooted;
 document.addEventListener(
   "pointerdown",
   () => {
+    // Always try to revive brand loop behind Start (autoplay often blocked until click)
+    try {
+      kickEmptyBrandMedia();
+    } catch (_) {}
     if (!rulesAccepted()) return;
-    if (previewStream?.active) return;
+    // Stream exists but local tile still black → heal on tap (LED on, no picture)
+    if (previewStream?.active || localVideoTrackLive()) {
+      if (!localPreviewIsPainting()) {
+        ensureLocalPreviewVisible("gesture").catch(() => {});
+      }
+      return;
+    }
     // User tap can clear a soft denial; hard denial needs the Enable button
     if (mediaPermissionDenied) return;
     startSession({ forceMedia: true });
   },
   { capture: true, passive: true }
 );
+
+// Black camera: restart / cycle devices
+on("btn-restart-cam", "click", async (e) => {
+  e?.preventDefault?.();
+  e?.stopPropagation?.();
+  try {
+    endCallKeepPreview?.();
+  } catch (_) {}
+  clearFailedCameras();
+  mediaPermissionDenied = false;
+  setStatus(_t("status.previewStarting") || "starting camera…");
+  try {
+    // Prefer ranked non-Kiyo when restarting after black
+    forceCameraDeviceId = null;
+    mediaPreviewBusy = false;
+    await hardReleaseLocalCamera(350);
+    // Point select at best-ranked camera (USB over black Kiyo on Linux)
+    try {
+      const ranked = await listVideoCameras();
+      const best = ranked[0];
+      if (best?.id && $("sel-camera")) {
+        const sel = $("sel-camera");
+        if (![...sel.options].some((o) => o.value === best.id)) {
+          const opt = document.createElement("option");
+          opt.value = best.id;
+          opt.textContent = best.label || best.id.slice(0, 12);
+          sel.appendChild(opt);
+        }
+        sel.value = best.id;
+        savePrefs({ cameraId: best.id });
+      }
+    } catch (_) {}
+    await startPreview();
+    await ensureLocalPreviewVisible("manual-restart");
+    if (!localPreviewIsPainting()) {
+      await recoverBlackLocalCamera("manual-restart");
+    }
+  } catch (err) {
+    log("restart-cam: " + (err?.message || err));
+    showLocalCamRestart(true);
+  }
+});
+
+// Header ★ — always open Stars sheet (mirror tile badge)
+on("btn-stars-top", "click", (e) => {
+  e?.preventDefault?.();
+  e?.stopPropagation?.();
+  try {
+    openStarsSheet($("btn-stars-top") || $("local-stars-badge"));
+  } catch (_) {
+    try {
+      $("btn-settings-open-stars")?.click?.();
+    } catch (_) {}
+  }
+});
+
+// Ensure local ★ painted on boot (even if hub stars arrive later)
+try {
+  setStarsBadge("local", myStars || 0, { trust: myTrust || 0 });
+} catch (_) {}
 
 on("btn-enable-cam", "click", async (e) => {
   e?.preventDefault?.();
@@ -20716,12 +25486,31 @@ on("btn-enable-cam", "click", async (e) => {
   showEnableCamButton(false, _t("local.emptySub"));
   setStatus(_t("status.previewStarting") || "starting camera…");
   try {
+    // Fresh cycle — don't stick on a black Linux /dev/video node
+    clearFailedCameras();
+    stopLocalCanvasPreview();
+    stopPreview();
+    mediaPreviewBusy = false;
     await startPreview();
+    await ensureLocalPreviewVisible("enable-btn");
+    // If still black, jump to another camera immediately
+    if (localVideoTrackLive() && !localPreviewIsPainting()) {
+      await recoverBlackLocalCamera("enable-btn");
+    }
   } catch (err) {
     log("enable-cam: " + (err?.message || err));
   }
   if (!previewStream?.active) {
     showEnableCamButton(true, _t("local.enableHint"));
+  } else if (!localPreviewIsPainting()) {
+    showEnableCamButton(
+      true,
+      _t("local.camBlackHint") ||
+        "Camera on but blank — tap Enable / Restart to try another camera"
+    );
+    showLocalCamRestart(true);
+  } else {
+    showLocalCamRestart(false);
   }
 });
 

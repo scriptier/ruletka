@@ -11,7 +11,7 @@
 
 Please report security issues privately:
 
-- Email: **support@ruletka.vip** (or open a private advisory if this repo is on GitHub)
+- Email: **support@ruletka.me** (or open a private advisory if this repo is on GitHub)
 
 Include: affected component (`bridge`, `ui`, federation), version/commit, and a minimal reproduction.
 

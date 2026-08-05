@@ -841,12 +841,13 @@ a.brand:focus-visible {
   display: inline-block;
 }
 .brand-logo {
-  width: 1.7rem;
-  height: 1.7rem;
-  border-radius: 0.4rem;
+  width: 1.85rem;
+  height: 1.85rem;
+  border-radius: 0.45rem;
   object-fit: cover;
   flex-shrink: 0;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
+  background: #07080c;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14);
 }
 
 .pool-bar {
@@ -1664,6 +1665,7 @@ a.brand:focus-visible {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   flex: 0 0 auto;
   background: rgba(12, 14, 20, 0.92);
+  align-items: center;
 }
 .msg-compose input {
   flex: 1;
@@ -1685,6 +1687,127 @@ a.brand:focus-visible {
 .msg-compose .pill {
   flex: 0 0 auto;
 }
+.msg-compose-emoji,
+.tile-compose-emoji {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  min-width: 2.35rem;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.12s, transform 0.1s, border-color 0.12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.msg-compose-emoji:hover,
+.tile-compose-emoji:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+.msg-compose-emoji:active,
+.tile-compose-emoji:active {
+  transform: scale(0.94);
+}
+.tile-compose-emoji {
+  height: var(--tile-chrome-h, 2.35rem);
+  width: var(--tile-chrome-h, 2.35rem);
+  min-width: var(--tile-chrome-h, 2.35rem);
+  background: rgba(0, 0, 0, 0.28);
+  border-color: var(--tile-chrome-border, rgba(255, 255, 255, 0.14));
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+/* Shared emoji picker (fixed above compose) */
+.emoji-picker {
+  position: fixed;
+  z-index: 9200;
+  width: min(20.5rem, calc(100vw - 1rem));
+  max-height: min(16.5rem, 48vh);
+  padding: 0.45rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(14, 16, 24, 0.96);
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.emoji-picker[hidden] {
+  display: none !important;
+}
+.emoji-picker-recents {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 0.15rem;
+  padding: 0.15rem 0.1rem 0.35rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
+}
+.emoji-picker-recents[hidden] {
+  display: none !important;
+}
+.emoji-picker-recents .emoji-picker-recent {
+  background: rgba(255, 190, 70, 0.08);
+}
+.emoji-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 0.15rem;
+  max-height: min(12.2rem, 36vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 0.1rem;
+  flex: 1;
+  min-height: 0;
+}
+.emoji-picker-item {
+  appearance: none;
+  border: none;
+  background: transparent;
+  border-radius: 0.45rem;
+  width: 100%;
+  aspect-ratio: 1;
+  min-height: 2rem;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background 0.1s, transform 0.08s;
+  -webkit-tap-highlight-color: transparent;
+}
+.emoji-picker-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.emoji-picker-item:active {
+  transform: scale(0.9);
+  background: rgba(91, 157, 255, 0.22);
+}
+@media (max-width: 420px) {
+  .emoji-picker-grid {
+    grid-template-columns: repeat(7, 1fr);
+  }
+  .emoji-picker-item {
+    font-size: 1.15rem;
+    min-height: 1.85rem;
+  }
+}
 .dock-icon .msg-badge {
   /* same badge style as friends */
 }
@@ -1697,6 +1820,89 @@ a.brand:focus-visible {
   gap: 0.4rem;
   min-height: 80px;
   max-height: min(32vh, 260px);
+}
+
+/* Typing indicator (P2P) */
+.chat-typing,
+.compose-typing,
+.msg-typing {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.28rem 0.55rem 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: rgba(180, 200, 230, 0.92);
+  min-width: 0;
+}
+.chat-typing[hidden],
+.compose-typing[hidden],
+.msg-typing[hidden] {
+  display: none !important;
+}
+.chat-typing {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.15);
+}
+.compose-typing {
+  position: absolute;
+  left: 0.35rem;
+  right: 0.35rem;
+  bottom: calc(100% + 0.15rem);
+  z-index: 6;
+  width: auto;
+  max-width: min(70vw, 280px);
+  padding: 0.28rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(8, 12, 22, 0.88);
+  border: 1px solid rgba(120, 170, 255, 0.28);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+.tile-tray-partner {
+  position: relative; /* anchor compose-typing */
+}
+.msg-typing {
+  padding: 0.35rem 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.chat-typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.chat-typing-dots i {
+  display: block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(140, 180, 255, 0.9);
+  animation: chat-typing-bounce 1.1s ease-in-out infinite;
+}
+.chat-typing-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.chat-typing-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes chat-typing-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-typing-dots i {
+    animation: none;
+    opacity: 0.75;
+  }
 }
 .chat-bubble {
   max-width: 92%;
@@ -1926,7 +2132,8 @@ a.brand:focus-visible {
     grid-template-columns: 1fr 1fr;
     grid-template-rows: 1fr;
   }
-  .stage.stage-trio .tile-local {
+  /* Only collapse local into PiP when multi-party is actually active */
+  .stage.stage-multi.stage-trio .tile-local {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -2341,14 +2548,131 @@ a.brand:focus-visible {
   height: 100%;
   object-fit: cover;
   background: #0a0d12;
+  z-index: 1; /* above tile bg; empty overlay is z-index 2 when shown */
 }
 
 /* Selfie mirror by default; Reverse button toggles .is-unmirrored (same cam, left↔right) */
 .vid.local {
   transform: scaleX(-1);
+  /* Never stay invisible unless mobile self-blur intentionally hides raw video under canvas */
+  min-width: 1px;
+  min-height: 1px;
+  background: #0a0d12;
 }
 .vid.local.is-unmirrored {
   transform: none;
+}
+/* Canvas path disabled site-wide (see #tile-local rules) */
+.local-preview-canvas,
+.local-preview-canvas.is-active,
+.local-preview-canvas.is-unmirrored {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+/*
+ * LOCAL CAMERA PREVIEW — hard layer order (mobile + desktop)
+ * Video must win. Empty card and canvas have covered a LIVE stream for weeks.
+ */
+#tile-local #local,
+#tile-local #local.vid.local {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 100% !important;
+  min-height: 100% !important;
+  object-fit: cover !important;
+  z-index: 20 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  display: block !important;
+  background: #0a0d12 !important;
+  pointer-events: none !important;
+}
+/* Canvas path DISABLED — was painting black over working <video> */
+#tile-local #local-preview-canvas,
+#tile-local .local-preview-canvas,
+#tile-local #local-preview-canvas.is-active,
+#tile-local.has-local-feed #local-preview-canvas,
+#tile-local.has-local-feed #local-preview-canvas.is-active {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  z-index: -1 !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+/* Empty overlay always under the video (not on top) */
+#local-empty,
+#tile-local #local-empty {
+  z-index: 1 !important;
+  pointer-events: none !important;
+  background: transparent !important;
+}
+#local-empty.hidden,
+#tile-local.has-local-feed #local-empty,
+#tile-local #local-empty.hidden {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  z-index: -1 !important;
+}
+#tile-local.has-local-feed #local,
+#tile-local.has-local-feed #local.vid.local {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  z-index: 20 !important;
+}
+#local-empty .enable-cam-btn,
+#local-empty #btn-enable-cam {
+  pointer-events: auto !important;
+}
+#tile-local .local-cam-restart,
+#tile-local #btn-restart-cam {
+  pointer-events: auto !important;
+}
+/* Dim underexposed cams */
+#tile-local.is-local-dim #local,
+#tile-local.is-local-dim .local-preview-canvas.is-active {
+  filter: brightness(1.65) contrast(1.14);
+}
+/* Canvas fallback only when .is-active — never cover working <video> */
+#tile-local.local-canvas-preview #local {
+  opacity: 1 !important;
+  z-index: 2 !important;
+}
+#tile-local #local-preview-canvas:not(.is-active),
+#tile-local #local-preview-canvas[hidden] {
+  display: none !important;
+}
+#tile-local.local-canvas-preview .local-preview-canvas.is-active {
+  z-index: 3 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  display: block !important;
+  pointer-events: none !important;
+}
+/* Partner empty: brand loop always behind Start on desktop browsers */
+#remote-empty:not(.hidden) #remote-empty-video,
+#remote-empty:not(.hidden) .empty-bg-video {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  z-index: 1 !important;
+  filter: none !important;
+}
+#remote-empty .empty-bg-scrim {
+  z-index: 2;
+  background:
+    radial-gradient(ellipse 78% 68% at 50% 42%, rgba(6, 8, 12, 0.02) 0%, rgba(6, 8, 12, 0.18) 100%),
+    linear-gradient(180deg, rgba(6, 8, 12, 0.04) 0%, rgba(6, 8, 12, 0.2) 100%) !important;
+}
+/* Stuck blur canvas without self-blur class — never cover preview */
+#tile-local:not(.self-blurred) > .video-blur-canvas {
+  display: none !important;
 }
 /* Rear-cam class no longer forces orientation; Reverse controls .is-unmirrored */
 
@@ -2759,15 +3083,15 @@ a.brand:focus-visible {
   opacity: 0;
   transition: opacity 0.35s ease;
 }
-/* Soft scrim so title stays readable over the looping brand video */
+/* Soft scrim so title stays readable — keep brand video clearly visible */
 .empty-bg-scrim {
   position: absolute;
   inset: 0;
   z-index: 2;
   pointer-events: none;
   background:
-    radial-gradient(ellipse 70% 60% at 50% 45%, rgba(8, 10, 14, 0.12) 0%, rgba(8, 10, 14, 0.48) 100%),
-    linear-gradient(180deg, rgba(6, 8, 12, 0.15) 0%, rgba(6, 8, 12, 0.4) 100%);
+    radial-gradient(ellipse 70% 60% at 50% 45%, rgba(8, 10, 14, 0.04) 0%, rgba(8, 10, 14, 0.28) 100%),
+    linear-gradient(180deg, rgba(6, 8, 12, 0.06) 0%, rgba(6, 8, 12, 0.28) 100%);
 }
 #remote-empty.is-searching .empty-bg-video {
   display: block !important;
@@ -3519,6 +3843,23 @@ html.start-idle #btn-spin {
   background: #f5a524;
   box-shadow: 0 0 0 3px rgba(245, 165, 36, 0.25);
 }
+.friend-code-muted {
+  display: block;
+  font-size: 0.68rem;
+  color: rgba(140, 155, 175, 0.85);
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.friend-row-pending .meta {
+  gap: 0.15rem;
+}
+.friend-row-pending .friend-wait-badge {
+  margin-top: 0.12rem;
+}
+/* Pending sub-line moved to badge title — keep class harmless if reintroduced */
+.friend-wait-sub {
+  display: none !important;
+}
 .friend-wait-badge {
   display: inline-block !important;
   margin-top: 0.15rem;
@@ -3529,13 +3870,6 @@ html.start-idle #btn-spin {
   color: #f5c842 !important;
   background: rgba(245, 165, 36, 0.14);
   border: 1px solid rgba(245, 165, 36, 0.35);
-}
-.friend-wait-sub {
-  display: block !important;
-  font-size: 0.68rem !important;
-  color: #9aa8bc !important;
-  margin-top: 0.12rem;
-  line-height: 1.3;
 }
 /* Collapsible “how codes work” inside Friends sheet — optional, not a nag */
 .friends-how-codes {
@@ -3848,6 +4182,33 @@ html.rooms-disabled #btn-share-room-settings {
   flex: 1 1 12rem;
 }
 
+/* Unblur coach: privacy cue (not amber weak-conn chrome) */
+.unblur-coach-tip {
+  border-color: rgba(91, 157, 255, 0.45);
+  background: rgba(16, 28, 48, 0.96);
+  color: #dce9ff;
+  box-shadow: 0 12px 36px rgba(0, 20, 50, 0.45);
+}
+.unblur-coach-tip .pill.accent {
+  flex: 0 0 auto;
+}
+
+/* Compact friends primary blocks */
+#friends-sheet .friends-name-block .hint-inline {
+  font-size: 0.74rem;
+  margin: 0.25rem 0 0;
+  opacity: 0.78;
+}
+#friends-sheet .friends-code-actions {
+  margin-top: 0.35rem;
+}
+#friends-sheet .friends-pending-block:empty {
+  display: none;
+}
+#friends-sheet .friends-secondary details.friends-how-codes {
+  margin-top: 0.25rem;
+}
+
 @media (max-width: 720px) {
   .empty-share {
     width: min(100%, 22rem);
@@ -3938,6 +4299,15 @@ html.rooms-disabled #btn-share-room-settings {
   border-color: rgba(126, 182, 255, 0.28);
 }
 /* Week-2: retention-critical post-match Add friend */
+.post-match-safety-nudge {
+  border-color: rgba(255, 90, 100, 0.45);
+  box-shadow: 0 12px 40px rgba(80, 0, 20, 0.45);
+}
+.post-match-safety-nudge .pill.danger {
+  background: rgba(220, 50, 70, 0.92);
+  color: #fff;
+  border-color: transparent;
+}
 .post-match-friend-nudge.is-force {
   z-index: 60;
   border-color: rgba(255, 140, 100, 0.45);
@@ -4035,6 +4405,13 @@ html.rooms-disabled #btn-share-room-settings {
   .call-toast { animation: none; }
 }
 /* Outbound calling toast */
+.outgoing-call-toast.is-join-invite {
+  border-color: rgba(61, 214, 140, 0.45);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(61, 214, 140, 0.12);
+}
+.outgoing-call-toast.is-join-invite .outgoing-call-dots {
+  color: #9ee8c0;
+}
 .outgoing-call-toast {
   border-color: rgba(120, 160, 255, 0.4);
 }
@@ -5038,12 +5415,15 @@ html.rooms-disabled #btn-share-room-settings {
   flex-shrink: 0;
 }
 
-/* Friends flyout: tall + always scrollable body */
+/* Friends flyout: taller + lower (snug to dock) + scrollable body */
 #friends-sheet {
-  max-height: min(88dvh, 720px);
+  max-height: min(96dvh, 920px);
+  min-height: min(58dvh, 480px);
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  /* fallback before JS pin — sit just above dock (~3rem) so sheet is lower + taller */
+  bottom: max(3rem, env(safe-area-inset-bottom, 0px));
 }
 #friends-sheet.is-open {
   display: flex !important;
@@ -5057,6 +5437,87 @@ html.rooms-disabled #btn-share-room-settings {
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   padding-bottom: max(0.85rem, env(safe-area-inset-bottom));
+}
+/* Compact primary blocks so friends list shows sooner */
+#friends-sheet .friends-name-block {
+  display: block;
+  margin: 0 0 0.65rem;
+}
+#friends-sheet .friends-name-block .display-name-input {
+  width: 100%;
+  margin-top: 0.25rem;
+}
+#friends-sheet .friends-code-hero {
+  margin: 0 0 0.75rem;
+  padding: 0.65rem 0.75rem;
+}
+#friends-sheet .friends-code-label {
+  font-size: 0.78rem;
+  margin: 0 0 0.4rem;
+  opacity: 0.88;
+}
+#friends-sheet .friends-pending-block {
+  margin: 0 0 0.5rem;
+}
+#friends-sheet #friends-list {
+  margin-bottom: 0.55rem;
+}
+#friends-sheet .friends-add-block {
+  margin: 0.35rem 0 0.55rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+#friends-sheet .friends-add-block label {
+  margin: 0;
+}
+/* Collapsed “More options” keeps friends list above the fold */
+#friends-sheet .friends-more-opts {
+  margin: 0.15rem 0 0.35rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.16);
+  overflow: hidden;
+}
+#friends-sheet .friends-more-opts > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: rgba(210, 220, 240, 0.9);
+  user-select: none;
+  -webkit-user-select: none;
+}
+#friends-sheet .friends-more-opts > summary::-webkit-details-marker {
+  display: none;
+}
+#friends-sheet .friends-more-opts > summary::after {
+  content: "▾";
+  float: right;
+  opacity: 0.55;
+  font-size: 0.75rem;
+  transition: transform 0.15s ease;
+}
+#friends-sheet .friends-more-opts[open] > summary::after {
+  transform: rotate(-180deg);
+}
+#friends-sheet .friends-more-opts > summary:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+#friends-sheet .friends-secondary {
+  margin: 0;
+  padding: 0.15rem 0.75rem 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  opacity: 0.95;
+}
+#friends-sheet .friends-secondary .hint-inline {
+  font-size: 0.78rem;
+}
+#friends-sheet .friends-notif-opt {
+  margin: 0.45rem 0 0.55rem;
+}
+#friends-sheet .friends-hint-foot {
+  margin-top: 0.65rem;
 }
 #friends-sheet .friends-tabs {
   flex-shrink: 0;
@@ -5080,7 +5541,9 @@ html.rooms-disabled #btn-share-room-settings {
     border-radius: 14px;
   }
   #friends-sheet {
-    max-height: min(88dvh, 680px);
+    max-height: min(96dvh, 900px);
+    min-height: min(62dvh, 520px);
+    bottom: max(2.75rem, env(safe-area-inset-bottom));
   }
   #friends-sheet .sheet-body {
     max-height: none;
@@ -8707,18 +9170,19 @@ html[data-theme="matrix"] .tile-match-actions .next-in-tile-floor .icon-next {
   max-width: min(19rem, 90%);
 }
 #remote-empty .empty-bg-scrim {
+  /* Light scrim — brand loop must stay visible (was nearly black) */
   background:
-    radial-gradient(ellipse 78% 68% at 50% 42%, rgba(6, 8, 12, 0.2) 0%, rgba(6, 8, 12, 0.58) 100%),
-    linear-gradient(180deg, rgba(6, 8, 12, 0.18) 0%, rgba(6, 8, 12, 0.5) 100%);
+    radial-gradient(ellipse 78% 68% at 50% 42%, rgba(6, 8, 12, 0.05) 0%, rgba(6, 8, 12, 0.28) 100%),
+    linear-gradient(180deg, rgba(6, 8, 12, 0.08) 0%, rgba(6, 8, 12, 0.32) 100%);
 }
 #remote-empty .empty-bg-video,
 #remote-empty .empty-bg-poster {
-  opacity: 0.72;
-  filter: saturate(0.92) brightness(0.92);
+  opacity: 0.92 !important;
+  filter: none !important;
 }
 #remote-empty.is-searching .empty-bg-video,
 #remote-empty.is-searching .empty-bg-poster {
-  opacity: 0.55;
+  opacity: 0.78 !important;
 }
 #remote-empty .empty-icon {
   width: 2.85rem;
@@ -9222,6 +9686,42 @@ html[data-theme="matrix"].start-idle .start-match-btn {
   letter-spacing: 0.01em;
   transition: transform 0.1s, filter 0.12s, box-shadow 0.12s;
 }
+/* Float over local video — not inside #local-empty (so empty.hidden doesn't kill it) */
+.local-cam-restart {
+  position: absolute;
+  left: 50%;
+  bottom: 4.5rem;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  z-index: 12;
+  pointer-events: auto;
+  padding: 0.65rem 0.85rem;
+  border-radius: 16px;
+  background: rgba(8, 10, 16, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  max-width: min(18rem, 92%);
+}
+.local-cam-restart[hidden] {
+  display: none !important;
+}
+.local-cam-restart .enable-cam-btn {
+  min-height: 2.75rem;
+  padding: 0.7rem 1.25rem;
+  font-size: 0.95rem;
+}
+.local-cam-restart-hint {
+  max-width: 16rem;
+  font-size: 0.78rem;
+  color: rgba(200, 210, 230, 0.88);
+  text-align: center;
+  margin: 0;
+}
 .enable-cam-btn:hover {
   filter: brightness(1.06);
   transform: translateY(-1px);
@@ -9651,13 +10151,13 @@ html.match-live .tile-remote::after {
 }
 #remote-empty .empty-bg-video,
 #remote-empty .empty-bg-poster {
-  opacity: 0.62 !important;
-  filter: saturate(0.88) brightness(0.88) !important;
+  opacity: 0.92 !important;
+  filter: none !important;
 }
 #remote-empty .empty-bg-scrim {
   background:
-    radial-gradient(ellipse 75% 65% at 50% 40%, rgba(6, 8, 12, 0.15) 0%, rgba(6, 8, 12, 0.62) 100%),
-    linear-gradient(180deg, rgba(6, 8, 12, 0.12) 0%, rgba(6, 8, 12, 0.55) 100%) !important;
+    radial-gradient(ellipse 75% 65% at 50% 40%, rgba(6, 8, 12, 0.06) 0%, rgba(6, 8, 12, 0.3) 100%),
+    linear-gradient(180deg, rgba(6, 8, 12, 0.06) 0%, rgba(6, 8, 12, 0.34) 100%) !important;
 }
 .start-match-btn {
   margin-top: 0.75rem !important;
@@ -10668,13 +11168,23 @@ html.alone-searching .empty-alone-actions:not([hidden]) {
 /* ═══════════════════════════════════════════════════════════
    Chrome autohide (JS: .is-chrome-open + 3s idle timer)
    Partner tile → partner mute / volume / blur (+ floor tray)
-   Local tile   → reverse / mic / hide / settings
+   Local tile   → reverse / mic / hide / settings — ALWAYS on
+     (Settings was “gone” when rail autohid over a black preview)
    Touch: always show (.chrome-always / coarse media)
    ═══════════════════════════════════════════════════════════ */
 html.chrome-autohide .tile-remote .side-rail-left,
 html.chrome-autohide .tile-remote .tile-floor-partner,
-html.chrome-autohide .tile-remote .tile-corner-btn,
-html.chrome-autohide .tile-local .side-rail-right,
+/* Layout toggle may soft-hide; fullscreen is pinned below (never gone) */
+html.chrome-autohide .tile-remote .tile-layout-btn {
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.22s ease,
+    visibility 0.22s ease,
+    transform 0.22s ease;
+  pointer-events: none !important;
+}
+/* Local invite floor may still hide when empty; rail itself stays up */
 html.chrome-autohide .tile-local .tile-floor-local {
   opacity: 0;
   visibility: hidden;
@@ -10684,8 +11194,7 @@ html.chrome-autohide .tile-local .tile-floor-local {
     transform 0.22s ease;
   pointer-events: none !important;
 }
-html.chrome-autohide .tile-remote .side-rail-left,
-html.chrome-autohide .tile-local .side-rail-right {
+html.chrome-autohide .tile-remote .side-rail-left {
   transform: translateY(6px);
 }
 html.chrome-autohide .tile-remote .tile-floor-partner,
@@ -10693,26 +11202,79 @@ html.chrome-autohide .tile-local .tile-floor-local {
   transform: translateY(8px);
 }
 
+/* YOUR controls (Flip · Mic · Hide · Settings) never autohide */
+html.chrome-autohide .tile-local .side-rail-right,
+html.chrome-autohide .tile-local .side-rail-right > * {
+  opacity: 1 !important;
+  visibility: visible !important;
+  transform: none !important;
+  pointer-events: auto !important;
+}
+/* High-contrast local rail on black camera (dark glass was invisible) */
+.tile-local .side-rail-right .side-btn {
+  background: rgba(28, 36, 52, 0.92) !important;
+  border: 1px solid rgba(255, 255, 255, 0.28) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55) !important;
+  color: #f2f6ff !important;
+}
+.tile-local .side-rail-right .side-btn .lbl {
+  color: #e8eef7 !important;
+  opacity: 1 !important;
+}
+#btn-settings.side-btn-settings {
+  background: linear-gradient(145deg, rgba(50, 70, 110, 0.95), rgba(24, 32, 48, 0.95)) !important;
+  border-color: rgba(120, 170, 255, 0.45) !important;
+}
+
 /* Shown only while JS marks the tile open (mouse enter/move; hides after 3s) */
 html.chrome-autohide .tile-remote.is-chrome-open .side-rail-left,
 html.chrome-autohide .tile-remote.is-chrome-open .tile-floor-partner,
-html.chrome-autohide .tile-remote.is-chrome-open .tile-corner-btn,
-html.chrome-autohide .tile-local.is-chrome-open .side-rail-right,
+html.chrome-autohide .tile-remote.is-chrome-open .tile-layout-btn,
 html.chrome-autohide .tile-local.is-chrome-open .tile-floor-local {
   opacity: 1;
   visibility: visible;
   transform: none;
   pointer-events: auto !important;
 }
+
+/* Fullscreen always available (user request — was swallowed by chrome-autohide) */
+html.chrome-autohide .tile-fs-btn,
+.tile-fs-btn,
+#btn-fs-remote {
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  display: flex !important;
+  z-index: 16 !important;
+}
+
+/* Name / flag / avatar / stars always above video & canvas */
+.tile-remote-id,
+.tile-local-id,
+#local-id-stack,
+#remote-tile-tag,
+.stars-badge,
+.stars-badge-local,
+.stars-badge-remote {
+  z-index: 18 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+/* Name chips: keep readable on black/idle tiles */
+.tile-local #local-name.name-on-tile,
+.tile-remote #remote-tag.name-on-tile,
+.tile-local .tile-tag-local-name,
+.tile-remote-id .name-on-tile {
+  opacity: 1 !important;
+  visibility: visible !important;
+}
 html.chrome-autohide .tile-remote.is-chrome-open .side-rail-left > *,
 html.chrome-autohide .tile-remote.is-chrome-open .tile-floor-partner > *,
-html.chrome-autohide .tile-local.is-chrome-open .side-rail-right > *,
 html.chrome-autohide .tile-local.is-chrome-open .tile-floor-local > * {
   pointer-events: auto !important;
 }
 
 /* Flyouts force chrome visible */
-html.chrome-autohide .tile-local:has(.side-btn-settings.is-flyout-open) .side-rail-right,
 html.chrome-autohide .tile-remote:has(.tile-dock-messages.is-flyout-open) .tile-floor-partner,
 html.chrome-autohide .tile-remote:has(.tile-dock-friends.is-flyout-open) .tile-floor-partner,
 html.chrome-autohide .tile-remote:has(#match-more-menu:not([hidden])) .tile-floor-partner {
@@ -10721,8 +11283,15 @@ html.chrome-autohide .tile-remote:has(#match-more-menu:not([hidden])) .tile-floo
   transform: none !important;
   pointer-events: auto !important;
 }
+/* Settings button: belt-and-suspenders pin (even if other rules fight) */
+#btn-settings.side-btn-settings {
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  display: flex !important;
+}
 
-/* Touch / always-on */
+/* Touch / always-on (desktop preference only) */
 html.chrome-always .tile-remote .side-rail-left,
 html.chrome-always .tile-remote .tile-floor-partner,
 html.chrome-always .tile-remote .tile-corner-btn,
@@ -10733,17 +11302,19 @@ html.chrome-always .tile-local .tile-floor-local {
   transform: none !important;
   pointer-events: auto !important;
 }
+/* Idle / searching on touch: keep chrome visible so Start/Spin/Friends stay findable */
 @media (hover: none), (pointer: coarse) {
-  .tile-remote .side-rail-left,
-  .tile-remote .tile-floor-partner,
-  .tile-remote .tile-corner-btn,
-  .tile-local .side-rail-right,
-  .tile-local .tile-floor-local {
+  html:not(.match-live) .tile-remote .side-rail-left,
+  html:not(.match-live) .tile-remote .tile-floor-partner,
+  html:not(.match-live) .tile-remote .tile-corner-btn,
+  html:not(.match-live) .tile-local .side-rail-right,
+  html:not(.match-live) .tile-local .tile-floor-local {
     opacity: 1 !important;
     visibility: visible !important;
     transform: none !important;
     pointer-events: auto !important;
   }
+  /* During a live call: chrome-autohide wins (tap video to show rails/floor) */
 }
 
 /* Empty card: no green online chip clutter */
@@ -10773,13 +11344,15 @@ html.alone-searching #remote-empty .empty-sub:not([hidden]) {
   left: 0.5rem;
   right: auto;
   bottom: auto;
-  z-index: 5;
-  display: flex;
+  z-index: 18;
+  display: flex !important;
   flex-direction: column;
   align-items: center; /* avatar sits centered over flag+name */
   gap: 0.28rem;
   max-width: min(46%, 11rem);
   pointer-events: none;
+  opacity: 1 !important;
+  visibility: visible !important;
 }
 .tile-local .tile-avatar-local {
   position: relative;
@@ -10823,7 +11396,7 @@ html.alone-searching #remote-empty .empty-sub:not([hidden]) {
 }
 .tile-local .name-on-tile-stack,
 .tile-local #local-name.name-on-tile {
-  display: inline-flex;
+  display: inline-flex !important;
   flex-direction: column;
   align-items: center; /* flag centered over name */
   justify-content: flex-start;
@@ -10831,6 +11404,14 @@ html.alone-searching #remote-empty .empty-sub:not([hidden]) {
   padding: 0.38rem 0.6rem 0.42rem;
   border-radius: 12px;
   white-space: normal;
+  /* Readable even when local camera is black */
+  background: rgba(8, 12, 20, 0.82) !important;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  color: #eef2f7 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  min-height: 1.5rem;
   max-width: 100%;
   overflow: hidden;
   background: rgba(0, 0, 0, 0.5);
@@ -11299,21 +11880,22 @@ html.alone-searching #remote-empty .empty-sub:not([hidden]) {
 
 /* Hero balance + tier
    <100 normal (plain) · 100+ trusted (warm gold) · 250+ senior (full bling)
-   Column layout: top row (★ + number + chip) → meta → unlock */
+   Column layout: top row (★ + number + chip) → meta → dual chips → unlock */
 .stars-sheet-hero {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 0.22rem;
-  padding: 0.7rem 0.85rem 0.65rem;
-  margin-bottom: 0.15rem;
+  gap: 0.35rem;
+  padding: 0.75rem 0.85rem 0.7rem;
+  margin-bottom: 0.35rem;
   border-radius: 14px;
   overflow: hidden;
+  isolation: isolate; /* keep sheen / bling from washing the balance number */
   /* Default = normal / under 100 — quiet, no gold flex */
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
   transition:
     border-color 0.25s ease,
     background 0.25s ease,
@@ -11322,7 +11904,7 @@ html.alone-searching #remote-empty .empty-sub:not([hidden]) {
 /* Top: star + big balance + tier chip — never stack text over the number */
 .stars-hero-top {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 0.55rem;
@@ -11331,17 +11913,17 @@ html.alone-searching #remote-empty .empty-sub:not([hidden]) {
 .stars-hero-nums {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.45rem;
   min-width: 0;
   flex: 1 1 auto;
 }
 .stars-hero-meta {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 0.15rem 0.3rem;
+  gap: 0.2rem 0.35rem;
   min-width: 0;
 }
 .stars-meta-dot {
@@ -11352,50 +11934,74 @@ html.alone-searching #remote-empty .empty-sub:not([hidden]) {
 /* Balance (spend) vs Trust (mod power) dual readout */
 .stars-balance-trust-row {
   position: relative;
-  z-index: 1;
-  display: flex;
-  flex-wrap: wrap;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 0.4rem;
-  margin-top: 0.45rem;
+  margin-top: 0.15rem;
 }
 .stars-dual-chip {
-  display: inline-flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 0.2rem 0.35rem;
-  padding: 0.28rem 0.55rem;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.12rem;
+  min-width: 0;
+  padding: 0.4rem 0.55rem 0.38rem;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.22);
   border: 1px solid rgba(255, 255, 255, 0.1);
   font-size: 0.72rem;
-  line-height: 1.2;
+  line-height: 1.25;
+}
+.stars-dual-chip.is-balance {
+  border-color: rgba(160, 200, 255, 0.22);
+  background: rgba(60, 100, 180, 0.1);
 }
 .stars-dual-chip.is-trust {
   border-color: rgba(255, 200, 70, 0.35);
-  background: rgba(255, 196, 60, 0.08);
+  background: rgba(255, 196, 60, 0.1);
 }
 .stars-dual-lbl {
-  opacity: 0.72;
-  font-weight: 600;
+  opacity: 0.75;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  font-size: 0.62rem;
+  letter-spacing: 0.05em;
+  font-size: 0.58rem;
+  color: rgba(220, 230, 245, 0.85);
 }
 .stars-dual-val {
-  font-weight: 700;
-  font-size: 0.8rem;
+  font-weight: 800;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+  color: #f2f6ff;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+}
+.stars-dual-chip.is-trust .stars-dual-val {
+  color: #ffe9a0;
 }
 .stars-dual-sub {
-  opacity: 0.65;
-  font-size: 0.65rem;
+  opacity: 0.72;
+  font-size: 0.62rem;
+  font-weight: 550;
+  color: rgba(180, 195, 215, 0.9);
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 .stars-gifters-floor-hint {
   position: relative;
-  z-index: 1;
-  margin: 0.35rem 0 0;
-  font-size: 0.72rem;
+  z-index: 2;
+  margin: 0.1rem 0 0;
+  padding: 0.35rem 0.5rem;
+  border-radius: 10px;
+  font-size: 0.68rem;
   line-height: 1.35;
-  color: rgba(255, 210, 120, 0.9);
+  color: rgba(255, 220, 140, 0.95);
+  background: rgba(255, 180, 40, 0.08);
+  border: 1px solid rgba(255, 200, 70, 0.22);
 }
 .stars-gifters-floor-hint[hidden] {
   display: none !important;
@@ -11447,17 +12053,18 @@ html.alone-searching #remote-empty .empty-sub:not([hidden]) {
     0 8px 24px rgba(0, 0, 0, 0.4);
   animation: stars-hero-senior-aura 2.6s ease-in-out infinite;
 }
-/* Sliding metallic sheen for senior only */
+/* Sliding metallic sheen for senior only — under text (z-index 0) */
 .stars-sheet-hero.is-senior::before {
   content: "";
   position: absolute;
   inset: -20% -40%;
+  z-index: 0;
   background: linear-gradient(
     105deg,
     transparent 40%,
-    rgba(255, 245, 200, 0.08) 46%,
-    rgba(255, 255, 255, 0.22) 50%,
-    rgba(255, 220, 100, 0.1) 54%,
+    rgba(255, 245, 200, 0.06) 46%,
+    rgba(255, 255, 255, 0.12) 50%,
+    rgba(255, 220, 100, 0.08) 54%,
     transparent 62%
   );
   animation: stars-hero-sheen 3.2s ease-in-out infinite;
@@ -11520,18 +12127,23 @@ html.alone-searching #remote-empty .empty-sub:not([hidden]) {
 /* Star glyph */
 .stars-sheet-hero-ico {
   position: relative;
-  z-index: 1;
+  z-index: 2;
+  flex: 0 0 auto;
   font-size: 1.85rem;
   line-height: 1;
   color: #c8b86a;
+  -webkit-text-fill-color: currentColor;
+  background: none;
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
   transition: font-size 0.2s, filter 0.2s, color 0.2s;
 }
-/* Normal: plain muted star */
+/* Normal: plain muted star — always reset gradient text fill */
 .stars-sheet-hero.is-normal .stars-sheet-hero-ico,
 .stars-sheet-hero:not(.is-trusted):not(.is-senior) .stars-sheet-hero-ico {
   font-size: 1.75rem;
-  color: #d4c48a;
+  color: #e0c86a;
+  -webkit-text-fill-color: #e0c86a;
+  background: none;
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
 }
 /* Trusted: solid gold star */
@@ -11584,38 +12196,50 @@ html.alone-searching #remote-empty .empty-sub:not([hidden]) {
 
 .stars-sheet-balance-row {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 0.45rem;
 }
 .stars-sheet-balance {
-  font-size: 1.85rem;
+  position: relative;
+  z-index: 2;
+  font-size: 2rem;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
-  line-height: 1;
-  color: #e8eef7;
-  text-shadow: none;
+  line-height: 1.05;
+  color: #f4f7fc;
+  -webkit-text-fill-color: #f4f7fc;
+  background: none;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   transition: color 0.2s, text-shadow 0.2s, font-size 0.2s;
   letter-spacing: -0.02em;
+  /* Prevent any parent opacity / sheen washout */
+  isolation: isolate;
 }
-/* Normal: clean white-ish number */
+/* Normal: clean solid number (never gradient / transparent fill) */
 .stars-sheet-hero.is-normal .stars-sheet-balance,
 .stars-sheet-hero:not(.is-trusted):not(.is-senior) .stars-sheet-balance {
-  color: #e8eef7;
-  font-size: 1.65rem;
-  text-shadow: none;
+  color: #f4f7fc;
+  -webkit-text-fill-color: #f4f7fc;
+  background: none;
+  font-size: 1.95rem;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 /* Trusted: warm gold number */
 .stars-sheet-hero.is-trusted .stars-sheet-balance {
   color: #ffe9a0;
+  -webkit-text-fill-color: #ffe9a0;
+  background: none;
   text-shadow: 0 0 12px rgba(255, 190, 50, 0.35);
 }
-/* Senior: big glowing gold number */
+/* Senior: big glowing gold number — solid fill, glow via shadow only */
 .stars-sheet-hero.is-senior .stars-sheet-balance {
-  font-size: 1.9rem;
+  font-size: 2.05rem;
   font-weight: 900;
   color: #fff6d0;
+  -webkit-text-fill-color: #fff6d0;
+  background: none;
   text-shadow:
     0 0 16px rgba(255, 200, 60, 0.65),
     0 0 28px rgba(255, 160, 20, 0.35),
@@ -11732,11 +12356,11 @@ html.alone-searching #remote-empty .empty-sub:not([hidden]) {
 
 /* Dual-milestone progress */
 .stars-progress-wrap {
-  margin: 0 0 0.25rem;
-  padding: 0.5rem 0.65rem 0.5rem;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 215, 80, 0.16);
+  margin: 0 0 0.4rem;
+  padding: 0.6rem 0.7rem 0.55rem;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 215, 80, 0.18);
 }
 .stars-progress-wrap.is-trusted {
   border-color: rgba(255, 210, 70, 0.42);
@@ -11828,11 +12452,25 @@ html.alone-searching #remote-empty .empty-sub:not([hidden]) {
   font-variant-numeric: tabular-nums;
 }
 .stars-progress-hint {
-  margin: 0.3rem 0 0;
+  margin: 0.4rem 0 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: rgba(200, 212, 228, 0.95);
+  font-weight: 550;
+}
+.stars-progress-hint-sub {
+  margin: 0.22rem 0 0;
   font-size: 0.66rem;
-  line-height: 1.35;
-  color: rgba(154, 168, 188, 0.92);
-  font-weight: 500;
+  line-height: 1.4;
+  color: rgba(255, 210, 120, 0.9);
+  font-weight: 550;
+  padding: 0.28rem 0.4rem;
+  border-radius: 8px;
+  background: rgba(255, 180, 40, 0.07);
+  border: 1px solid rgba(255, 200, 70, 0.16);
+}
+.stars-progress-hint-sub[hidden] {
+  display: none !important;
 }
 
 /* Report power ladder */
@@ -12045,13 +12683,14 @@ html.alone-searching #remote-empty .empty-sub:not([hidden]) {
 
 /* Earn compact rows */
 .stars-earn-group {
-  padding: 0.25rem 0.15rem !important;
+  padding: 0.2rem 0.1rem !important;
+  margin-bottom: 0.35rem !important;
 }
 .stars-earn-row {
   display: flex;
   align-items: flex-start;
-  gap: 0.45rem;
-  padding: 0.4rem 0.55rem;
+  gap: 0.5rem;
+  padding: 0.48rem 0.6rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 .stars-earn-row:last-child {
@@ -12145,8 +12784,86 @@ html.alone-searching #remote-empty .empty-sub:not([hidden]) {
 /* Light theme */
 
 /* Always show your ★ chip so click works even at 0 */
-.stars-badge-local:not([hidden]) {
-  opacity: 1;
+.stars-badge-local:not([hidden]),
+#local-stars-badge {
+  opacity: 1 !important;
+  visibility: visible !important;
+  display: inline-flex !important;
+  z-index: 40 !important;
+}
+/* Override [hidden] on local only — balance must stay tappable */
+#local-stars-badge[hidden] {
+  display: inline-flex !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+/* Header chrome cluster (Settings / Full / Cam / ★) — never autohide */
+.stage-top-actions .top-chrome-btn {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 0.28rem;
+  padding: 0.32rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(28, 36, 52, 0.95);
+  color: #eef2f7;
+  font-weight: 700;
+  font-size: 0.78rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  z-index: 50;
+}
+.stage-top-actions .top-chrome-btn:hover {
+  filter: brightness(1.1);
+}
+.stage-top-actions .top-chrome-cam {
+  border-color: rgba(255, 120, 90, 0.5);
+  background: rgba(48, 22, 16, 0.95);
+  color: #ffd0c0;
+}
+@media (max-width: 720px) {
+  .stage-top-actions .top-chrome-lbl {
+    display: none;
+  }
+  .stage-top-actions .top-chrome-btn {
+    padding: 0.4rem 0.55rem;
+  }
+}
+
+/* Header ★ next to name */
+.stars-top-chip {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 0.28rem;
+  margin: 0;
+  padding: 0.28rem 0.62rem 0.28rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 210, 70, 0.5);
+  background: linear-gradient(145deg, rgba(48, 36, 10, 0.95), rgba(22, 16, 6, 0.95));
+  color: #ffe9a0;
+  font-weight: 750;
+  font-size: 0.9rem;
+  cursor: pointer;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+  flex-shrink: 0;
+  line-height: 1;
+  z-index: 50;
+}
+.stars-top-chip:hover,
+.stars-top-chip:focus-visible {
+  filter: brightness(1.08);
+  border-color: rgba(255, 230, 140, 0.9);
+  outline: none;
+}
+.stars-top-ico {
+  color: #ffd54a;
+  font-size: 1.05rem;
+  line-height: 1;
+  text-shadow: 0 0 10px rgba(255, 200, 60, 0.45);
+}
+.stars-top-count {
+  font-variant-numeric: tabular-nums;
+  min-width: 0.75rem;
 }
 button.stars-badge {
   appearance: none;
@@ -12174,6 +12891,188 @@ button.stars-badge {
   100% {
     transform: scale(1);
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* Post-call star gift — celebration in partner window (no leftover ★ badge) */
+.star-award-fx {
+  position: absolute;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  overflow: hidden;
+  border-radius: inherit;
+  background: radial-gradient(
+    ellipse 55% 45% at 50% 48%,
+    rgba(255, 210, 80, 0.22) 0%,
+    rgba(0, 0, 0, 0.15) 55%,
+    transparent 75%
+  );
+  animation: star-award-in 0.35s ease-out both;
+}
+/* Intensity by gift amount */
+.star-award-fx.star-award-lv2 {
+  background: radial-gradient(
+    ellipse 60% 50% at 50% 48%,
+    rgba(255, 200, 60, 0.32) 0%,
+    rgba(255, 140, 40, 0.12) 45%,
+    transparent 75%
+  );
+}
+.star-award-fx.star-award-lv2 .star-award-burst {
+  font-size: 3.1rem;
+  letter-spacing: -0.12em;
+}
+.star-award-fx.star-award-lv2 .star-award-core {
+  border-color: rgba(255, 210, 80, 0.55);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.25) inset,
+    0 14px 40px rgba(0, 0, 0, 0.45),
+    0 0 50px rgba(255, 190, 50, 0.4);
+}
+.star-award-fx.star-award-lv3 {
+  background: radial-gradient(
+    ellipse 70% 58% at 50% 48%,
+    rgba(255, 220, 90, 0.42) 0%,
+    rgba(255, 120, 40, 0.18) 40%,
+    transparent 78%
+  );
+}
+.star-award-fx.star-award-lv3 .star-award-burst {
+  font-size: 3.4rem;
+  letter-spacing: -0.14em;
+  filter: drop-shadow(0 0 22px rgba(255, 210, 80, 1));
+}
+.star-award-fx.star-award-lv3 .star-award-core {
+  border-color: rgba(255, 230, 120, 0.7);
+  transform: scale(1.06);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.25) inset,
+    0 16px 48px rgba(0, 0, 0, 0.5),
+    0 0 64px rgba(255, 180, 40, 0.55);
+}
+.star-award-fx.star-award-lv3 .star-award-label {
+  font-size: 1.2rem;
+}
+.star-award-spark[style*="--n"] {
+  --a: calc(var(--i) * (360deg / var(--n, 7)));
+}
+.star-award-fx.is-out {
+  animation: star-award-out 0.45s ease-in both;
+}
+.star-award-core {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  z-index: 2;
+  text-align: center;
+  padding: 0.75rem 1rem;
+  border-radius: 1rem;
+  background: rgba(10, 12, 20, 0.55);
+  border: 1px solid rgba(255, 220, 100, 0.4);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.25) inset,
+    0 12px 36px rgba(0, 0, 0, 0.4),
+    0 0 40px rgba(255, 200, 60, 0.25);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.star-award-burst {
+  font-size: 2.75rem;
+  line-height: 1;
+  filter: drop-shadow(0 0 16px rgba(255, 210, 80, 0.9));
+  animation: star-award-spin 1.1s ease-out both;
+}
+.star-award-label {
+  font-size: 1.05rem;
+  font-weight: 850;
+  letter-spacing: 0.02em;
+  color: #ffe9a0;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.55);
+}
+.star-award-sub {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: rgba(240, 245, 255, 0.88);
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.star-award-sparks {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.star-award-spark {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  font-size: 0.95rem;
+  color: #ffd86a;
+  opacity: 0;
+  --a: calc(var(--i) * 51.4deg);
+  animation: star-award-spark 1.35s ease-out both;
+  animation-delay: calc(var(--i) * 0.04s);
+  text-shadow: 0 0 10px rgba(255, 200, 60, 0.8);
+}
+@keyframes star-award-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes star-award-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes star-award-spin {
+  0% {
+    transform: scale(0.2) rotate(-40deg);
+    opacity: 0;
+  }
+  45% {
+    transform: scale(1.25) rotate(12deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+}
+@keyframes star-award-spark {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(var(--a)) translateY(0) scale(0.4);
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(var(--a)) translateY(-5.5rem)
+      scale(1.1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .star-award-fx,
+  .star-award-burst,
+  .star-award-spark {
+    animation: none !important;
+  }
+  .star-award-fx {
+    opacity: 1;
+  }
+  .star-award-burst {
+    transform: none;
+    opacity: 1;
   }
 }
 .star-feedback-toast strong {
@@ -13158,6 +14057,698 @@ html.has-duo-flair .flair-chip {
 .partner-menu-btn.star-gift:disabled {
   opacity: 0.45;
 }
+.partner-menu-btn.debate {
+  border-color: rgba(120, 180, 255, 0.4);
+  background: rgba(80, 140, 255, 0.1);
+}
+.partner-menu-btn.debate:hover:not(:disabled) {
+  background: rgba(80, 140, 255, 0.2);
+}
+.partner-menu-btn.debate:disabled {
+  opacity: 0.45;
+}
+.partner-menu-btn.debate.is-active {
+  border-color: rgba(255, 120, 90, 0.5);
+  background: rgba(255, 90, 60, 0.12);
+}
+
+/* Debate mute / speaking badges on each person's tile */
+.debate-person-badge {
+  position: absolute;
+  left: 50%;
+  bottom: 0.7rem;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: min(92%, 280px);
+  padding: 0.38rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.debate-person-badge[hidden] {
+  display: none !important;
+}
+.debate-person-ico {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+.debate-person-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.debate-person-muted {
+  color: #ffe8e0;
+  background: rgba(40, 12, 10, 0.88);
+  border: 1px solid rgba(255, 120, 90, 0.55);
+}
+.debate-person-speaking {
+  color: #e8fff0;
+  background: rgba(10, 40, 22, 0.88);
+  border: 1px solid rgba(90, 220, 140, 0.55);
+}
+/* Non-speaker tile: soft mute veil so "can't hear them" reads at a glance */
+body.debate-active.debate-they-speak #tile-local::after,
+body.debate-active.debate-i-speak #tile-remote::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  background: linear-gradient(
+    to top,
+    rgba(8, 6, 10, 0.45) 0%,
+    rgba(8, 6, 10, 0.12) 42%,
+    transparent 70%
+  );
+  box-shadow: inset 0 0 0 2px rgba(255, 100, 70, 0.22);
+}
+/* Big crossed-mic watermark on muted tile */
+body.debate-active.debate-they-speak #tile-local::before,
+body.debate-active.debate-i-speak #tile-remote::before {
+  content: "🔇";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 6;
+  transform: translate(-50%, -50%);
+  font-size: clamp(2.2rem, 8vw, 3.4rem);
+  line-height: 1;
+  opacity: 0.28;
+  pointer-events: none;
+  filter: grayscale(0.2);
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
+}
+@media (max-width: 720px) {
+  .debate-person-badge {
+    bottom: 0.45rem;
+    font-size: 0.7rem;
+    padding: 0.3rem 0.55rem;
+    max-width: min(94%, 240px);
+  }
+  body.debate-active.debate-they-speak #tile-local::before,
+  body.debate-active.debate-i-speak #tile-remote::before {
+    font-size: 2rem;
+    opacity: 0.22;
+  }
+}
+
+/* Formal debate timer — compact chip on the speaking tile (avoids covering the face) */
+.debate-overlay {
+  position: absolute;
+  /* Top-right corner: keeps center/head of the video clear */
+  top: 0.4rem;
+  right: 0.4rem;
+  left: auto;
+  transform: none;
+  z-index: 80;
+  pointer-events: auto;
+  max-width: min(46%, 11.5rem);
+  width: max-content;
+  transition: top 0.2s ease, right 0.2s ease, opacity 0.2s ease;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.debate-overlay.on-local {
+  top: 0.3rem;
+  right: 0.3rem;
+  max-width: min(52%, 10.5rem);
+}
+/* During debate, don't clip the floating chip on either tile */
+body.debate-active #tile-remote,
+body.debate-active #tile-local {
+  overflow: visible;
+}
+.debate-overlay.debate-hop {
+  animation: debate-hop-in 0.32s ease-out;
+}
+@keyframes debate-hop-in {
+  0% {
+    opacity: 0.35;
+    transform: scale(0.9) translateY(-4px);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.03) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+.debate-overlay[hidden] {
+  display: none !important;
+}
+#tile-remote,
+#tile-local {
+  position: relative;
+}
+/* Compact chip: timer + meta in a tight stack (not a big centered card) */
+.debate-card {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.12rem;
+  padding: 0.32rem 0.45rem 0.3rem;
+  border-radius: 10px;
+  background: rgba(6, 10, 18, 0.72);
+  border: 1px solid rgba(120, 170, 255, 0.28);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #f2f6ff;
+  text-align: right;
+  min-width: 0;
+  max-width: 100%;
+  touch-action: manipulation;
+}
+.debate-round-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.28rem;
+  flex-wrap: nowrap;
+  max-width: 100%;
+}
+.debate-badge {
+  font-size: 0.48rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: rgba(160, 200, 255, 0.88);
+  line-height: 1;
+}
+.debate-badge-mini {
+  opacity: 0.8;
+}
+.debate-round {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #e8f0ff;
+  padding: 0.06rem 0.32rem;
+  border-radius: 999px;
+  background: rgba(100, 150, 255, 0.16);
+  border: 1px solid rgba(140, 180, 255, 0.3);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+.debate-overlay.is-my-turn .debate-round {
+  color: #c8ffd8;
+  background: rgba(60, 200, 120, 0.16);
+  border-color: rgba(100, 230, 150, 0.38);
+}
+.debate-overlay.is-their-turn .debate-round {
+  color: #ffe0c0;
+  background: rgba(255, 150, 80, 0.14);
+  border-color: rgba(255, 170, 100, 0.35);
+}
+.debate-overlay.is-new-round .debate-round {
+  animation: debate-round-pop 0.4s ease-out;
+}
+@keyframes debate-round-pop {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.5;
+  }
+  55% {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+/* Timer is the hero — still readable, not face-sized */
+.debate-timer {
+  font-size: 1.15rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: #fff;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.65);
+}
+.debate-overlay.is-my-turn .debate-timer {
+  color: #9dffb0;
+  text-shadow: 0 0 12px rgba(80, 255, 140, 0.4), 0 1px 6px rgba(0, 0, 0, 0.5);
+}
+.debate-overlay.is-their-turn .debate-timer {
+  color: #ffc89a;
+  text-shadow: 0 0 12px rgba(255, 160, 80, 0.35), 0 1px 6px rgba(0, 0, 0, 0.5);
+}
+.debate-overlay.is-urgent .debate-timer {
+  animation: debate-pulse 0.7s ease-in-out infinite;
+}
+@keyframes debate-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+.debate-turn {
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: rgba(230, 236, 255, 0.88);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.15;
+}
+.debate-topic {
+  font-size: 0.58rem;
+  font-weight: 600;
+  color: rgba(200, 220, 255, 0.82);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.15;
+  opacity: 0.92;
+}
+.debate-progress {
+  width: 100%;
+  height: 2px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+  margin-top: 0.06rem;
+}
+.debate-progress-bar {
+  height: 100%;
+  width: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #5a9cff, #8fd0ff);
+  transform-origin: left center;
+  transition: transform 0.1s linear;
+}
+.debate-overlay.is-my-turn .debate-progress-bar {
+  background: linear-gradient(90deg, #3dcc7a, #9dffb0);
+}
+.debate-overlay.is-their-turn .debate-progress-bar {
+  background: linear-gradient(90deg, #ff8a4a, #ffc89a);
+}
+/* Desktop-only actions on the chip; phones use fixed mobile bar */
+.debate-actions {
+  display: none;
+  flex-wrap: wrap;
+  gap: 0.28rem;
+  justify-content: flex-end;
+  margin-top: 0.15rem;
+  pointer-events: auto;
+  position: relative;
+  z-index: 2;
+  width: 100%;
+}
+@media (min-width: 721px) {
+  .debate-actions {
+    display: flex;
+  }
+  .debate-actions .pill {
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 0.28rem 0.55rem;
+    min-height: 1.85rem;
+    min-width: 0;
+    pointer-events: auto;
+    touch-action: manipulation;
+    cursor: pointer;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .debate-actions .pill:active {
+    transform: scale(0.97);
+  }
+  #btn-debate-pass:not([hidden]) {
+    background: rgba(60, 200, 120, 0.28);
+    border: 1px solid rgba(100, 230, 150, 0.55);
+    color: #e8fff0;
+  }
+  #btn-debate-end {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+  }
+}
+/* Mobile debate bar — base styles (not only in a media query) so phones always get them */
+.debate-mobile-bar {
+  display: none;
+  position: fixed;
+  left: 50%;
+  /* Sit above floor tray + optional local strip (stack layout) */
+  bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 12050; /* above stage stack / floor / toasts */
+  gap: 0.5rem;
+  width: min(94vw, 360px);
+  padding: 0.5rem;
+  border-radius: 16px;
+  background: rgba(8, 12, 22, 0.98);
+  border: 1px solid rgba(120, 170, 255, 0.5);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
+  pointer-events: auto !important;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  isolation: isolate;
+}
+/* JS adds body.debate-mobile-bar-on + removes [hidden] — force flex on any phone/touch */
+body.debate-mobile-bar-on .debate-mobile-bar:not([hidden]),
+.debate-mobile-bar:not([hidden]) {
+  display: flex !important;
+}
+.debate-mobile-bar[hidden] {
+  display: none !important;
+}
+.debate-mobile-bar .pill {
+  flex: 1 1 0;
+  min-height: 3.15rem;
+  font-size: 0.95rem;
+  font-weight: 800;
+  pointer-events: auto !important;
+  touch-action: manipulation;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  position: relative;
+  z-index: 1;
+}
+/* Pass is chip-only — never show the big bottom Pass button */
+.debate-mobile-bar #btn-debate-pass-mobile,
+.debate-mobile-bar #btn-debate-pass-mobile:not([hidden]) {
+  display: none !important;
+}
+/* End-only bar: single compact control */
+.debate-mobile-bar.debate-mobile-bar-end-only {
+  width: min(70vw, 220px);
+  padding: 0.4rem;
+}
+.debate-mobile-bar.debate-mobile-bar-end-only #btn-debate-end-mobile {
+  flex: 1 1 auto;
+  min-height: 2.75rem;
+}
+.debate-mobile-bar .pill.is-pressed,
+#btn-debate-pass.is-pressed,
+#btn-debate-pass-mobile.is-pressed {
+  transform: scale(0.96);
+  filter: brightness(1.1);
+}
+
+@media (max-width: 900px), (pointer: coarse) {
+  /*
+   * Phones / touch: pin timer chip to the right edge; Pass/End in fixed bar.
+   * Also keep compact Pass on the chip as a backup hit target.
+   */
+  .debate-overlay,
+  .debate-overlay.on-local,
+  .debate-overlay.on-remote {
+    position: fixed !important;
+    top: max(0.55rem, env(safe-area-inset-top, 0px));
+    right: max(0.45rem, env(safe-area-inset-right, 0px));
+    left: auto !important;
+    transform: none !important;
+    max-width: min(44vw, 10rem);
+    width: max-content;
+    z-index: 12040;
+    pointer-events: none; /* card chrome doesn't steal; buttons re-enable */
+  }
+  .debate-card {
+    padding: 0.28rem 0.4rem 0.32rem;
+    gap: 0.12rem;
+    border-radius: 10px;
+    align-items: flex-end;
+    text-align: right;
+    background: rgba(6, 10, 18, 0.88);
+    border: 1px solid rgba(120, 170, 255, 0.4);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+    pointer-events: auto;
+  }
+  .debate-timer {
+    font-size: 1.1rem;
+  }
+  .debate-turn,
+  .debate-topic {
+    font-size: 0.56rem;
+    max-width: 8.5rem;
+  }
+  .debate-round {
+    font-size: 0.58rem;
+  }
+  /* Pass primary control on timer chip (bottom bar is End-only) */
+  .debate-actions {
+    display: flex !important;
+    flex-direction: column;
+    gap: 0.25rem;
+    width: 100%;
+    margin-top: 0.15rem;
+    pointer-events: auto !important;
+  }
+  .debate-actions .pill {
+    min-height: 2.15rem;
+    font-size: 0.72rem;
+    font-weight: 800;
+    width: 100%;
+    pointer-events: auto !important;
+    touch-action: manipulation;
+  }
+  /* Hide End on chip on mobile — End lives in the compact bottom bar */
+  .debate-actions #btn-debate-end {
+    display: none !important;
+  }
+  #btn-debate-pass:not([hidden]) {
+    display: block !important;
+    background: rgba(60, 200, 120, 0.55);
+    border: 1px solid rgba(100, 230, 150, 0.75);
+    color: #e8fff0;
+    animation: unblur-cta-pulse 2s ease-in-out infinite;
+  }
+  .debate-mobile-bar:not([hidden]) {
+    display: flex !important;
+  }
+  /* Hop animation for fixed side chip */
+  .debate-overlay.debate-hop {
+    animation: debate-hop-in-side 0.32s ease-out;
+  }
+}
+@keyframes debate-hop-in-side {
+  0% {
+    opacity: 0.35;
+    transform: translateX(8px) scale(0.92);
+  }
+  60% {
+    opacity: 1;
+    transform: translateX(-2px) scale(1.03);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Short phones: keep bar clear of the home indicator + floor */
+@media (max-width: 900px) and (max-height: 700px) {
+  .debate-mobile-bar {
+    bottom: calc(6.25rem + env(safe-area-inset-bottom, 0px));
+  }
+  body:has(.stage.stage-multi.stage-layout-stack) .debate-mobile-bar {
+    bottom: calc(8rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+/* Vertical multi-party stack: local strip sits low — lift Pass bar higher */
+.stage.stage-multi.stage-layout-stack ~ * .debate-mobile-bar,
+body:has(.stage.stage-multi.stage-layout-stack) .debate-mobile-bar,
+body.debate-mobile-bar-on:has(.stage.stage-multi.stage-layout-stack) .debate-mobile-bar {
+  bottom: calc(7.75rem + env(safe-area-inset-bottom, 0px));
+}
+
+/* Multi-party layout first-use tip */
+.layout-tip-toast {
+  position: fixed;
+  left: 50%;
+  bottom: max(6.5rem, calc(env(safe-area-inset-bottom, 0px) + 5.5rem));
+  transform: translateX(-50%);
+  z-index: 85;
+  max-width: min(20rem, 90vw);
+  padding: 0.55rem 0.85rem;
+  border-radius: 12px;
+  background: rgba(14, 22, 38, 0.96);
+  border: 1px solid rgba(91, 157, 255, 0.4);
+  color: #dce9ff;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-align: center;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  animation: layout-tip-in 0.22s ease-out;
+}
+.layout-tip-toast.is-out {
+  opacity: 0;
+  transform: translateX(-50%) translateY(8px);
+  transition: opacity 0.28s ease, transform 0.28s ease;
+}
+@keyframes layout-tip-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%);
+  }
+}
+body.debate-active.debate-muted-turn #btn-mute-mic {
+  position: relative;
+  opacity: 0.55;
+  outline: 1px solid rgba(255, 140, 80, 0.55);
+}
+body.debate-active.debate-muted-turn #btn-mute-mic::after {
+  content: "⏱";
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  font-size: 0.65rem;
+  line-height: 1;
+  pointer-events: none;
+}
+.debate-invite-toast {
+  z-index: 90;
+  max-width: min(92vw, 340px);
+}
+/* Topic on chip is already styled above (compact); keep [hidden] rule */
+.debate-topic[hidden] {
+  display: none !important;
+}
+@media (min-width: 721px) {
+  .debate-topic:not([hidden])::before {
+    content: "“";
+    opacity: 0.5;
+  }
+  .debate-topic:not([hidden])::after {
+    content: "”";
+    opacity: 0.5;
+  }
+}
+
+/* Compose sheet (partner menu) */
+.partner-menu-debate .debate-compose-label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: rgba(210, 220, 240, 0.85);
+  margin: 0.35rem 0 0.25rem;
+  text-align: left;
+  width: 100%;
+}
+.debate-topic-input {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.28);
+  color: #eef2ff;
+  font: inherit;
+  font-size: 0.88rem;
+  padding: 0.5rem 0.65rem;
+  outline: none;
+}
+.debate-topic-input:focus {
+  border-color: rgba(120, 170, 255, 0.55);
+  box-shadow: 0 0 0 2px rgba(80, 140, 255, 0.2);
+}
+.debate-topic-input::placeholder {
+  color: rgba(200, 210, 230, 0.45);
+}
+.debate-turn-picks {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.35rem;
+  width: 100%;
+  margin-bottom: 0.35rem;
+}
+.debate-turn-pick {
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: #eef2ff;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 0.45rem 0.2rem;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, transform 0.08s;
+}
+.debate-turn-pick:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.debate-turn-pick:active {
+  transform: scale(0.97);
+}
+.debate-turn-pick.is-selected {
+  border-color: rgba(100, 170, 255, 0.65);
+  background: rgba(70, 130, 255, 0.28);
+  color: #fff;
+  box-shadow: 0 0 0 1px rgba(100, 170, 255, 0.25) inset;
+}
+.debate-invite-meta {
+  font-size: 0.78rem;
+  color: rgba(210, 220, 240, 0.85);
+  margin-top: 0.2rem;
+}
+.debate-invite-topic {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #dce8ff;
+  margin-top: 0.15rem;
+}
+
+/* Speaker video highlight during debate (tile sections) */
+body.debate-active #tile-remote,
+body.debate-active #tile-local {
+  transition: box-shadow 0.25s ease, outline-color 0.25s ease, filter 0.25s ease;
+}
+/* Partner speaking: glow their tile */
+body.debate-active.debate-they-speak #tile-remote {
+  box-shadow: 0 0 0 2px rgba(255, 170, 90, 0.9), 0 0 28px rgba(255, 140, 60, 0.4) !important;
+  z-index: 2;
+}
+body.debate-active.debate-they-speak #tile-local {
+  filter: brightness(0.78);
+}
+/* You speaking: glow your tile */
+body.debate-active.debate-i-speak #tile-local {
+  box-shadow: 0 0 0 2px rgba(90, 230, 140, 0.95), 0 0 28px rgba(60, 220, 120, 0.4) !important;
+  z-index: 2;
+}
+body.debate-active.debate-i-speak #tile-remote {
+  filter: brightness(0.82);
+}
+@media (prefers-reduced-motion: reduce) {
+  .debate-overlay.is-urgent .debate-timer {
+    animation: none;
+  }
+  .debate-overlay.debate-hop {
+    animation: none;
+  }
+  body.debate-active #tile-remote,
+  body.debate-active #tile-local {
+    transition: none;
+  }
+}
+/* (mobile debate chip sizes are set in the earlier max-width:720 block) */
 
 /*
   Flowers gift — many blooms/hearts along a HEART outline around the window.
@@ -14334,12 +15925,14 @@ html.has-duo-flair .flair-chip {
 }
 .stars-unlock-line {
   position: relative;
-  z-index: 1;
-  margin: 0.08rem 0 0;
-  font-size: 0.66rem;
-  line-height: 1.3;
+  z-index: 2;
+  margin: 0.05rem 0 0;
+  padding-top: 0.2rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 0.68rem;
+  line-height: 1.35;
   font-weight: 600;
-  color: rgba(200, 210, 225, 0.78);
+  color: rgba(200, 210, 225, 0.82);
 }
 .stars-unlock-line:empty {
   display: none;
@@ -14756,4 +16349,1057 @@ html.alone-searching .empty-alone-actions:not([hidden]) {
   .gift-corner-toast.is-stack {
     animation: none;
   }
+}
+
+/* ——— Multi-party: role strip, who-is-who, per-peer mute / conn ——— */
+.party-role-strip {
+  position: absolute;
+  left: 50%;
+  top: 0.55rem;
+  transform: translateX(-50%);
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: min(92%, 28rem);
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(8, 10, 16, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #e8eef7;
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+}
+.party-role-strip[hidden] {
+  display: none !important;
+}
+.party-role-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: #6dffa8;
+  box-shadow: 0 0 8px rgba(109, 255, 168, 0.65);
+  flex-shrink: 0;
+}
+.party-role-strip.is-searching .party-role-dot {
+  background: #ffc857;
+  animation: party-role-pulse 1.2s ease-in-out infinite;
+}
+@keyframes party-role-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.peer-who-sub {
+  display: block;
+  color: rgba(232, 238, 247, 0.72);
+  font-size: 0.68rem;
+  font-weight: 600;
+  margin-top: 0.1rem;
+  letter-spacing: 0.02em;
+}
+.peer-who-sub[hidden] {
+  display: none !important;
+}
+
+.peer-conn-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #c5d0e0;
+}
+.peer-conn-chip[hidden] {
+  display: none !important;
+}
+.peer-conn-chip.is-ok {
+  color: #6dffa8;
+  border-color: rgba(109, 255, 168, 0.35);
+}
+.peer-conn-chip.is-mid {
+  color: #ffc857;
+  border-color: rgba(255, 200, 87, 0.4);
+}
+.peer-conn-chip.is-bad {
+  color: #ff7a8a;
+  border-color: rgba(255, 122, 138, 0.4);
+}
+
+.peer-mute-btn {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  border-radius: 999px;
+  width: 1.7rem;
+  height: 1.7rem;
+  font-size: 0.75rem;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+}
+.peer-mute-btn:hover {
+  background: rgba(255, 45, 85, 0.35);
+  border-color: rgba(255, 45, 85, 0.5);
+}
+.peer-mute-btn.is-muted {
+  background: rgba(255, 45, 85, 0.45);
+  border-color: rgba(255, 45, 85, 0.65);
+}
+.peer-mute-btn[hidden] {
+  display: none !important;
+}
+.peer-mute-inline {
+  margin-left: 0.25rem;
+}
+
+.remote-b-wrap {
+  position: relative;
+  flex: 1 1 50%;
+  min-height: 0;
+  display: flex;
+}
+.remote-b-wrap[hidden] {
+  display: none !important;
+}
+.remote-b-wrap .vid {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.remote-b-wrap .peer-tile-chrome {
+  position: absolute;
+  left: 0.45rem;
+  right: 0.45rem;
+  bottom: 0.45rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  z-index: 4;
+  pointer-events: auto;
+}
+.remote-b-wrap .peer-who {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.2rem 0.45rem;
+  border-radius: 0.5rem;
+  background: rgba(0, 0, 0, 0.5);
+}
+.remote-b-wrap .peer-who-name {
+  display: block;
+  color: #fff;
+  font-weight: 750;
+  font-size: 0.82rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#tile-third .tile-tag {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+/* Per-peer volume + blur controls */
+.peer-vol-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  max-width: 7.2rem;
+  padding: 0.1rem 0.35rem 0.1rem 0.25rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.peer-vol-wrap[hidden] {
+  display: none !important;
+}
+.peer-vol {
+  width: 4.5rem;
+  height: 0.9rem;
+  accent-color: #ff2d55;
+  cursor: pointer;
+}
+.peer-vol-pct {
+  flex: 0 0 auto;
+  min-width: 2.1rem;
+  font-size: 0.68rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: rgba(230, 236, 248, 0.92);
+  text-align: right;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.peer-blur-btn.is-active {
+  background: rgba(61, 126, 255, 0.5);
+  border-color: rgba(61, 126, 255, 0.75);
+}
+
+/* Per-tile blur (CSS path on desktop) */
+.tile-remote.peer-slot-blurred .vid#remote,
+.remote-b-wrap.peer-slot-blurred .vid,
+.tile-third.peer-slot-blurred .vid#remote-third {
+  filter: blur(18px) saturate(0.85);
+  transform: scale(1.06);
+}
+.tile-remote.peer-slot-blurred .video-blur-canvas.is-active,
+.remote-b-wrap.peer-slot-blurred .video-blur-canvas.is-active,
+.tile-third.peer-slot-blurred .video-blur-canvas.is-active {
+  display: block;
+  opacity: 1;
+}
+.remote-b-wrap {
+  position: relative;
+}
+.remote-b-wrap .video-blur-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+  pointer-events: none;
+  display: none;
+}
+.tile-third .video-blur-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+  pointer-events: none;
+  display: none;
+}
+
+/* ── Partner chrome polish (side mute / volume / blur + bottom tray) ── */
+/* From live UI screenshot: dark-on-dark slider + muddy buttons */
+
+.tile-remote .side-rail-left {
+  gap: 0.4rem !important;
+  padding: 0.2rem !important;
+  z-index: 12;
+}
+
+.tile-remote .side-rail-left .side-btn {
+  width: 2.85rem !important;
+  height: auto !important;
+  min-height: 2.85rem;
+  padding: 0.35rem 0.2rem 0.3rem !important;
+  border-radius: 14px !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  background: linear-gradient(
+    165deg,
+    rgba(36, 42, 56, 0.92) 0%,
+    rgba(14, 16, 24, 0.88) 100%
+  ) !important;
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  color: #f2f6ff !important;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s,
+    transform 0.1s !important;
+}
+.tile-remote .side-rail-left .side-btn:hover {
+  border-color: rgba(255, 255, 255, 0.32) !important;
+  background: linear-gradient(
+    165deg,
+    rgba(50, 58, 76, 0.95) 0%,
+    rgba(22, 26, 36, 0.92) 100%
+  ) !important;
+  box-shadow:
+    0 8px 22px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.06) inset !important;
+}
+.tile-remote .side-rail-left .side-btn:active {
+  transform: scale(0.95);
+}
+.tile-remote .side-rail-left .side-btn .ico .icon {
+  width: 1.15rem !important;
+  height: 1.15rem !important;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
+}
+.tile-remote .side-rail-left .side-btn .lbl {
+  font-size: 0.52rem !important;
+  font-weight: 750 !important;
+  letter-spacing: 0.03em;
+  color: rgba(230, 236, 248, 0.92) !important;
+  margin-top: 0.12rem !important;
+  max-width: 3.1rem;
+  opacity: 1 !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+}
+/* Mute partner active */
+.tile-remote .side-rail-left #btn-mute-remote.muted-on {
+  border-color: rgba(255, 90, 120, 0.55) !important;
+  background: linear-gradient(
+    165deg,
+    rgba(90, 28, 42, 0.95) 0%,
+    rgba(40, 12, 20, 0.92) 100%
+  ) !important;
+  box-shadow:
+    0 0 0 1px rgba(255, 80, 110, 0.2) inset,
+    0 6px 18px rgba(120, 20, 40, 0.35) !important;
+}
+.tile-remote .side-rail-left #btn-mute-remote.muted-on .lbl {
+  color: #ffb3c4 !important;
+}
+/* Blur active (manual blur while clear) */
+.tile-remote .side-rail-left #btn-blur-remote.active:not(.is-unblur) {
+  border-color: rgba(120, 170, 255, 0.55) !important;
+  background: linear-gradient(
+    165deg,
+    rgba(40, 70, 120, 0.95) 0%,
+    rgba(18, 28, 48, 0.92) 100%
+  ) !important;
+  box-shadow:
+    0 0 0 1px rgba(100, 160, 255, 0.2) inset,
+    0 6px 18px rgba(30, 60, 120, 0.35) !important;
+}
+.tile-remote .side-rail-left #btn-blur-remote.active:not(.is-unblur) .lbl {
+  color: #b8d4ff !important;
+}
+/* Unblur CTA — high-contrast accent so reveal is obvious */
+.tile-remote .side-rail-left #btn-blur-remote.is-unblur,
+.tile-remote .side-rail-left #btn-blur-remote.active.is-unblur {
+  border-color: rgba(255, 190, 70, 0.85) !important;
+  background: linear-gradient(
+    165deg,
+    rgba(255, 170, 40, 0.98) 0%,
+    rgba(220, 90, 30, 0.95) 100%
+  ) !important;
+  box-shadow:
+    0 0 0 1px rgba(255, 230, 140, 0.35) inset,
+    0 0 18px rgba(255, 160, 40, 0.45),
+    0 8px 22px rgba(180, 60, 10, 0.4) !important;
+  animation: unblur-cta-pulse 1.8s ease-in-out infinite;
+}
+.tile-remote .side-rail-left #btn-blur-remote.is-unblur .lbl,
+.tile-remote .side-rail-left #btn-blur-remote.active.is-unblur .lbl {
+  color: #fff8e8 !important;
+  font-weight: 850 !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+.tile-remote .side-rail-left #btn-blur-remote.is-unblur .ico .icon {
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.4)) brightness(1.15);
+}
+@keyframes unblur-cta-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(255, 230, 140, 0.35) inset,
+      0 0 14px rgba(255, 160, 40, 0.4),
+      0 8px 22px rgba(180, 60, 10, 0.35);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(255, 240, 180, 0.5) inset,
+      0 0 26px rgba(255, 190, 60, 0.65),
+      0 8px 26px rgba(200, 80, 10, 0.45);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tile-remote .side-rail-left #btn-blur-remote.is-unblur {
+    animation: none !important;
+  }
+}
+
+/* Volume capsule — clear track + accent fill + thumb + % */
+.tile-remote .side-vol {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.12rem;
+  width: 2.85rem;
+  padding: 0.4rem 0.28rem 0.45rem !important;
+  border-radius: 16px !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  background: linear-gradient(
+    180deg,
+    rgba(36, 42, 56, 0.94) 0%,
+    rgba(12, 14, 22, 0.9) 100%
+  ) !important;
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  max-height: none !important;
+}
+.tile-remote .side-vol-pct {
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #ffe0ea;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+  line-height: 1.1;
+  min-width: 2rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.tile-remote .side-vol::before {
+  content: "🔊";
+  font-size: 0.7rem;
+  line-height: 1;
+  opacity: 0.85;
+  margin-bottom: 0;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+}
+.settings-vol-pct {
+  margin-left: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 750;
+  color: var(--muted, #9aa4b8);
+  font-variant-numeric: tabular-nums;
+}
+.tile-remote .side-vol input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 1.35rem !important;
+  height: 5.75rem !important;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  accent-color: var(--tile-accent, #ff2d55);
+}
+/* WebKit track */
+.tile-remote .side-vol input[type="range"]::-webkit-slider-runnable-track {
+  width: 0.38rem;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(
+    to top,
+    rgba(255, 45, 85, 0.15) 0%,
+    rgba(255, 255, 255, 0.14) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+.tile-remote .side-vol input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1.05rem;
+  height: 1.05rem;
+  margin-left: -0.34rem;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #ff6b8a 0%, #ff2d55 55%, #e01840 100%);
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  box-shadow:
+    0 2px 8px rgba(255, 45, 85, 0.55),
+    0 0 0 1px rgba(0, 0, 0, 0.25);
+  cursor: grab;
+}
+.tile-remote .side-vol input[type="range"]::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  transform: scale(1.08);
+}
+/* Firefox */
+.tile-remote .side-vol input[type="range"]::-moz-range-track {
+  width: 0.38rem;
+  height: 100%;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+.tile-remote .side-vol input[type="range"]::-moz-range-thumb {
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #ff6b8a, #ff2d55);
+  border: 2px solid #fff;
+  box-shadow: 0 2px 8px rgba(255, 45, 85, 0.5);
+}
+
+/* Bottom tray: clearer Messages / Stop / Friends */
+.tile-remote .tile-tray-partner {
+  gap: 0.45rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: linear-gradient(
+    180deg,
+    rgba(22, 26, 36, 0.88) 0%,
+    rgba(10, 12, 18, 0.9) 100%
+  );
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.tile-remote .tile-dock-btn {
+  width: 2.65rem;
+  height: 2.65rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.07);
+  color: #eef2f7;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  transition: background 0.12s, border-color 0.12s, transform 0.1s, box-shadow 0.12s;
+}
+.tile-remote .tile-dock-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.28);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.tile-remote .tile-dock-btn:active {
+  transform: scale(0.95);
+}
+.tile-remote .tile-dock-btn .icon {
+  width: 1.15rem;
+  height: 1.15rem;
+  opacity: 0.95;
+}
+/* Stop — stronger danger pill */
+.tile-remote .tile-match-actions #btn-stop,
+.tile-remote .tile-match-actions .dock-pill.danger {
+  min-height: 2.65rem;
+  padding: 0 1.05rem;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 0.88rem;
+  letter-spacing: 0.02em;
+  border: 1px solid rgba(255, 90, 120, 0.5) !important;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 55, 95, 0.42) 0%,
+    rgba(180, 20, 50, 0.55) 100%
+  ) !important;
+  color: #ffe8ee !important;
+  box-shadow:
+    0 4px 16px rgba(255, 40, 80, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+.tile-remote .tile-match-actions #btn-stop:hover,
+.tile-remote .tile-match-actions .dock-pill.danger:hover {
+  filter: brightness(1.08);
+  border-color: rgba(255, 120, 150, 0.65) !important;
+  box-shadow:
+    0 6px 20px rgba(255, 40, 80, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+/* Lift side rail slightly above floor tray so volume isn’t buried */
+html.match-live .tile-remote .side-rail-left,
+.tile-remote:has(#remote-empty.hidden) .side-rail-left,
+.tile-remote:not(:has(#remote-empty:not(.hidden))) .side-rail-left {
+  bottom: calc(var(--tile-chrome-h, 2.55rem) + 0.55rem) !important;
+}
+
+@media (max-width: 720px) {
+  .tile-remote .side-rail-left {
+    gap: 0.5rem !important;
+    padding: 0.25rem !important;
+  }
+  .tile-remote .side-rail-left .side-btn {
+    width: 3.15rem !important;
+    min-height: 3.15rem;
+    padding: 0.4rem 0.22rem 0.35rem !important;
+    border-radius: 15px !important;
+  }
+  .tile-remote .side-rail-left .side-btn .ico .icon {
+    width: 1.28rem !important;
+    height: 1.28rem !important;
+  }
+  .tile-remote .side-rail-left .side-btn .lbl {
+    font-size: 0.56rem !important;
+    max-width: 3.3rem;
+  }
+  .tile-remote .side-vol {
+    width: 3.15rem;
+    padding: 0.5rem 0.28rem !important;
+    border-radius: 18px !important;
+  }
+  .tile-remote .side-vol-pct {
+    font-size: 0.64rem;
+  }
+  .tile-remote .side-vol input[type="range"] {
+    height: 5.6rem !important;
+    width: 1.5rem !important;
+  }
+  .tile-remote .side-vol input[type="range"]::-webkit-slider-runnable-track {
+    width: 0.48rem;
+  }
+  .tile-remote .side-vol input[type="range"]::-webkit-slider-thumb {
+    width: 1.15rem;
+    height: 1.15rem;
+    margin-left: -0.34rem;
+  }
+  .tile-remote .side-vol input[type="range"]::-moz-range-thumb {
+    width: 1.15rem;
+    height: 1.15rem;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Multi-party stage layouts
+   - stack (default): conversationalists lined up vertically
+   - grid: equal 2×2 (or 1×2 / 2×2) windows including you
+   ═══════════════════════════════════════════════════════════ */
+
+.tile-layout-btn {
+  /* near fullscreen control */
+  z-index: 14;
+  bottom: 3.4rem;
+  right: 0.45rem;
+  font-size: 1.05rem;
+  line-height: 1;
+  min-width: 2.1rem;
+  min-height: 2.1rem;
+}
+.tile-layout-btn .layout-ico-stack[hidden],
+.tile-layout-btn .layout-ico-grid[hidden] {
+  display: none !important;
+}
+.tile-layout-btn[aria-pressed="true"] {
+  border-color: rgba(255, 190, 70, 0.65);
+  background: linear-gradient(
+    165deg,
+    rgba(80, 60, 20, 0.9),
+    rgba(30, 22, 10, 0.92)
+  );
+  color: #ffe9a0;
+}
+
+/* —— Vertical stack: remotes + you in one column —— */
+.stage.stage-multi.stage-layout-stack {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: none !important;
+  grid-template-rows: none !important;
+  gap: 0;
+}
+.stage.stage-multi.stage-layout-stack > .tile {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  border-left: none !important;
+  border-right: none !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.stage.stage-multi.stage-layout-stack > .tile:last-child {
+  border-bottom: none;
+}
+/* Conversationalists get more height; you stay a compact strip */
+.stage.stage-multi.stage-layout-stack .tile-remote {
+  flex: 2.2 1 0;
+  order: 1;
+}
+.stage.stage-multi.stage-layout-stack .tile-third:not([hidden]) {
+  display: block !important;
+  flex: 2.2 1 0;
+  order: 2;
+}
+.stage.stage-multi.stage-layout-stack .tile-local {
+  flex: 0 0 clamp(5.5rem, 18vh, 9.5rem);
+  order: 3;
+  max-height: 28%;
+}
+/* Stack all remotes inside partner column when split (1v2 / 3v1) */
+.stage.stage-multi.stage-layout-stack .remote-stack {
+  flex-direction: column !important;
+}
+.stage.stage-multi.stage-layout-stack .remote-stack.split .vid,
+.stage.stage-multi.stage-layout-stack .remote-stack.split .remote-b-wrap {
+  flex: 1 1 0;
+  min-height: 0;
+  height: auto !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.stage.stage-multi.stage-layout-stack .remote-stack.split .remote-b-wrap {
+  position: relative;
+  display: block !important;
+  width: 100%;
+}
+.stage.stage-multi.stage-layout-stack .remote-stack.split .vid.remote-b {
+  display: block !important;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-bottom: none;
+}
+/* Undo trio “hide remote-b” in stack mode — show vertical conversationalists */
+.stage.stage-multi.stage-layout-stack.stage-trio .remote-stack .vid.remote-b,
+.stage.stage-multi.stage-layout-stack.stage-trio .remote-b-wrap {
+  display: block !important;
+}
+.stage.stage-multi.stage-layout-stack.stage-trio .local-in-partner-pip {
+  display: none !important; /* full local strip instead */
+}
+.stage.stage-multi.stage-layout-stack .tile-third .vid {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.stage.stage-multi.stage-layout-stack .tile-local .vid {
+  object-fit: cover;
+}
+
+/* —— Equal grid: up to 4 equal windows —— */
+.stage.stage-multi.stage-layout-grid {
+  display: grid !important;
+  gap: 0;
+  grid-template-columns: 1fr 1fr !important;
+  grid-template-rows: 1fr 1fr !important;
+}
+.stage.stage-multi.stage-layout-grid > .tile {
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.stage.stage-multi.stage-layout-grid .tile-third:not([hidden]) {
+  display: block !important;
+}
+.stage.stage-multi.stage-layout-grid .tile-local {
+  max-height: none;
+  flex: none;
+}
+/* 2 windows: side by side equal */
+.stage.stage-multi.stage-layout-grid.stage-count-2 {
+  grid-template-columns: 1fr 1fr !important;
+  grid-template-rows: 1fr !important;
+}
+.stage.stage-multi.stage-layout-grid.stage-count-2 .tile-third[hidden] {
+  display: none !important;
+}
+/* 3 windows: 2 top + 1 bottom spanning (or 2+1) */
+.stage.stage-multi.stage-layout-grid.stage-count-3 {
+  grid-template-columns: 1fr 1fr !important;
+  grid-template-rows: 1fr 1fr !important;
+}
+.stage.stage-multi.stage-layout-grid.stage-count-3 .tile-local {
+  grid-column: 1 / -1;
+}
+/* When third is hidden (2 remotes + local in stack split): treat as 3 panes in grid */
+.stage.stage-multi.stage-layout-grid .remote-stack.split {
+  flex-direction: column;
+  height: 100%;
+}
+.stage.stage-multi.stage-layout-grid .remote-stack.split .vid {
+  flex: 1 1 50%;
+  height: 50%;
+}
+.stage.stage-multi.stage-layout-grid.stage-trio .remote-stack .vid.remote-b,
+.stage.stage-multi.stage-layout-grid.stage-trio .remote-b-wrap {
+  display: block !important;
+}
+.stage.stage-multi.stage-layout-grid.stage-trio .local-in-partner-pip {
+  display: none !important;
+}
+.stage.stage-multi.stage-layout-grid .tile-third .vid,
+.stage.stage-multi.stage-layout-grid .tile-remote .vid,
+.stage.stage-multi.stage-layout-grid .tile-local .vid {
+  object-fit: cover;
+  width: 100%;
+  height: 100%;
+}
+/* 4 windows: strict 2×2 equal */
+.stage.stage-multi.stage-layout-grid.stage-count-4 {
+  grid-template-columns: 1fr 1fr !important;
+  grid-template-rows: 1fr 1fr !important;
+}
+.stage.stage-multi.stage-layout-grid.stage-count-4 .tile-local {
+  grid-column: auto;
+}
+
+/* Prefer vertical conversationalists on mobile in stack mode */
+@media (max-width: 900px) {
+  .stage.stage-multi.stage-layout-stack {
+    flex-direction: column !important;
+  }
+  .stage.stage-multi.stage-layout-stack .tile-local {
+    flex: 0 0 clamp(4.5rem, 16vh, 7.5rem);
+  }
+  .stage.stage-multi.stage-layout-grid {
+    grid-template-columns: 1fr 1fr !important;
+  }
+  .tile-layout-btn {
+    bottom: 3.6rem;
+    right: 0.35rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage.stage-multi > .tile {
+    transition: none;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Mobile minimal chrome (match-live / debate)
+   From Telegram screenshots: cut stacked badges, fat rails, dual
+   debate UI, and always-on floor tray.
+   ═══════════════════════════════════════════════════════════ */
+@media (max-width: 900px), (pointer: coarse) {
+  /* —— Header: logo + status only —— */
+  html.match-live .stage-top {
+    padding: 0.28rem 0.45rem !important;
+    min-height: 0;
+    gap: 0.35rem;
+  }
+  html.match-live .stage-top .brand span[data-i18n="brand.name"],
+  html.match-live .stage-top .brand .badge,
+  html.match-live .stage-top .name-chip,
+  html.match-live .stage-top .pool-stat,
+  html.match-live .stage-top .arch-pill,
+  html.match-live .stage-top .pool-hint,
+  html.match-live .stage-top .hub-chip,
+  html.match-live .stage-top .fed-chip,
+  html.match-live .stage-top .ice-path,
+  html.match-live .stage-top .room-chip {
+    display: none !important;
+  }
+  html.match-live .stage-top .brand {
+    gap: 0.25rem;
+    font-size: 0.78rem;
+  }
+  html.match-live .stage-top .brand-logo {
+    width: 22px !important;
+    height: 22px !important;
+  }
+  html.match-live .stage-top .live-compact-chip {
+    font-size: 0.68rem;
+    padding: 0.18rem 0.45rem;
+    max-width: 9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  html.match-live .stage-top-actions .lang-switch span,
+  html.match-live .stage-top-actions .lang-switch .icon {
+    /* keep globe only */
+  }
+  html.match-live .stage-top-actions #sel-lang {
+    font-size: 0;
+    width: 1.6rem;
+    padding: 0.15rem;
+    border: none;
+    background: transparent;
+    color: transparent;
+  }
+  html.match-live .lang-top-right {
+    padding: 0.2rem;
+    min-width: 0;
+  }
+
+  /* —— Partner face: less identity stack noise —— */
+  html.match-live #remote-who-sub,
+  html.match-live .peer-who-sub {
+    display: none !important;
+  }
+  html.match-live .tile-remote-id .tile-avatar {
+    width: 2rem !important;
+    height: 2rem !important;
+  }
+  html.match-live .tile-remote-id #remote-tag.name-on-tile {
+    font-size: 0.78rem !important;
+    max-width: 7.5rem;
+  }
+  html.match-live .tile-remote-id #remote-tag .name-flag {
+    font-size: 0.95rem !important;
+  }
+  /* Party / friend role strip: one thin line or hide when redundant */
+  html.match-live .party-role-strip {
+    top: 0.35rem;
+    font-size: 0.62rem;
+    padding: 0.15rem 0.4rem;
+    opacity: 0.88;
+  }
+  html.match-live.debate-active .party-role-strip {
+    display: none !important; /* debate chip already says the mode */
+  }
+
+  /* —— Side rails: compact icons; volume collapsed —— */
+  html.match-live .tile-remote .side-rail-left {
+    gap: 0.28rem !important;
+    padding: 0.15rem !important;
+  }
+  html.match-live .tile-remote .side-rail-left .side-btn {
+    width: 2.35rem !important;
+    min-height: 2.35rem !important;
+    padding: 0.28rem 0.12rem !important;
+    border-radius: 12px !important;
+  }
+  html.match-live .tile-remote .side-rail-left .side-btn .lbl {
+    display: none !important;
+  }
+  html.match-live .tile-remote .side-rail-left .side-btn .ico .icon {
+    width: 1.05rem !important;
+    height: 1.05rem !important;
+  }
+  /* Hide tall volume capsule on mobile match — mute is enough; expand via settings */
+  html.match-live .tile-remote .side-vol {
+    display: none !important;
+  }
+  html.match-live .tile-local .side-rail-right .side-btn {
+    width: 2.35rem !important;
+    min-height: 2.35rem !important;
+  }
+  html.match-live .tile-local .side-rail-right .side-btn .lbl {
+    display: none !important;
+  }
+
+  /* —— Floor tray: icon-only, tighter —— */
+  html.match-live .tile-floor-partner {
+    padding: 0.28rem 0.35rem max(0.28rem, env(safe-area-inset-bottom)) !important;
+    padding-left: calc(2.5rem + 0.45rem) !important;
+  }
+  html.match-live .tile-tray-partner {
+    gap: 0.28rem !important;
+    padding: 0.28rem 0.32rem !important;
+    min-height: 2.55rem !important;
+  }
+  html.match-live .tile-compose input,
+  html.match-live .tile-compose #msg {
+    font-size: 0.8rem !important;
+    min-width: 0;
+    flex: 1 1 4rem;
+  }
+  html.match-live .tile-compose-send {
+    padding: 0.35rem 0.5rem !important;
+    font-size: 0.72rem !important;
+  }
+  html.match-live .next-in-tile-floor span[data-i18n],
+  html.match-live .stop-in-tile span[data-i18n] {
+    font-size: 0.72rem !important;
+  }
+  /* Hide compose row when debate is active — focus on Pass */
+  html.debate-active .tile-compose {
+    display: none !important;
+  }
+
+  /* —— Badges: hide mute/speaking overlays during debate (chip covers it) —— */
+  html.debate-active .debate-person-badge,
+  html.debate-active #debate-badge-remote-muted,
+  html.debate-active #debate-badge-remote-speaking,
+  html.debate-active #debate-badge-local-muted,
+  html.debate-active #debate-badge-local-speaking {
+    display: none !important;
+  }
+  /* Center mute pill on partner (non-debate) slightly quieter */
+  html.match-live .tile-remote .muted-partner-pill,
+  html.match-live #partner-mute-pill {
+    font-size: 0.68rem;
+    padding: 0.2rem 0.45rem;
+    opacity: 0.9;
+  }
+
+  /* —— Debate: one compact chip; bar thinner —— */
+  html.debate-active .debate-overlay {
+    max-width: min(38vw, 8.2rem) !important;
+  }
+  html.debate-active .debate-card {
+    padding: 0.22rem 0.35rem 0.28rem !important;
+    gap: 0.06rem !important;
+  }
+  html.debate-active .debate-timer {
+    font-size: 0.98rem !important;
+  }
+  html.debate-active .debate-turn,
+  html.debate-active .debate-topic,
+  html.debate-active .debate-round {
+    font-size: 0.52rem !important;
+  }
+  /* Chip actions only when your turn; smaller Pass */
+  html.debate-active .debate-actions .pill {
+    min-height: 1.85rem !important;
+    font-size: 0.65rem !important;
+    padding: 0.2rem 0.4rem !important;
+  }
+  /* Bottom bar: slim, single visual weight */
+  body.debate-mobile-bar-on .debate-mobile-bar {
+    bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px)) !important;
+    width: min(92vw, 320px);
+    padding: 0.35rem !important;
+    gap: 0.35rem !important;
+    border-radius: 14px;
+  }
+  body.debate-mobile-bar-on .debate-mobile-bar .pill {
+    min-height: 2.55rem !important;
+    font-size: 0.82rem !important;
+  }
+  /* Prefer chip Pass; hide big End label noise when not needed — keep End compact */
+  body.debate-mobile-bar-on.debate-i-speak .debate-mobile-bar #btn-debate-end-mobile {
+    flex: 0 0 auto;
+    min-width: 2.6rem;
+    padding: 0.35rem 0.55rem;
+    font-size: 0.72rem !important;
+  }
+
+  /* —— Local identity quieter —— */
+  html.match-live .tile-local-id .tile-avatar {
+    width: 1.85rem !important;
+    height: 1.85rem !important;
+  }
+  html.match-live #local-name.name-on-tile {
+    font-size: 0.72rem !important;
+  }
+  html.match-live .stars-badge {
+    transform: scale(0.9);
+    transform-origin: top right;
+  }
+
+  /* Layout toggle: smaller corner control */
+  html.match-live .tile-layout-btn {
+    width: 1.85rem;
+    height: 1.85rem;
+    min-width: 1.85rem;
+    min-height: 1.85rem;
+    font-size: 0.85rem;
+    bottom: 3.1rem;
+    right: 0.3rem;
+  }
+  html.match-live .tile-fs-btn {
+    width: 1.85rem;
+    height: 1.85rem;
+  }
+
+  /* Friends online strip never during live call */
+  html.match-live #friends-online-strip {
+    display: none !important;
+  }
+}
+
+/* Extra: when chrome hidden mid-call, keep a tiny “tap for controls” affordance optional — skip */
+
+/* Idle empty card: force-hide growth chrome (user request — cleaner Start) */
+#empty-window-chip,
+#empty-idle-invite,
+#empty-recent-strip,
+#friends-online-strip {
+  display: none !important;
 }

@@ -82,8 +82,13 @@ pub enum ClientMsg {
         user_id: String,
     },
     /// Ring a friend who is online.
+    /// `join: true` = invite them into your current 1v1 (do not hang up the other person).
+    /// `join: false` / omitted = classic private call (ends any current match first).
     CallFriend {
         user_id: String,
+        /// Invite into current live 1v1 as a 3rd (mesh). Default false = replace call.
+        #[serde(default)]
+        join: bool,
     },
     CallRespond {
         user_id: String,
@@ -217,9 +222,12 @@ pub struct MatchPeer {
     /// Small self-chosen avatar data URL. Empty = none.
     #[serde(default)]
     pub avatar: String,
-    /// Public reputation trust (peer rate-gifts; not spendable balance).
+    /// Spendable ★ balance (what the badge number shows).
     #[serde(default)]
     pub stars: u64,
+    /// Public reputation trust (peer rate-gifts) — used for tier chrome, not the number.
+    #[serde(default)]
+    pub trust: u64,
     /// Active star-bought effect on this peer ("bars", …). Empty = none.
     #[serde(default)]
     pub effect: String,
@@ -372,6 +380,14 @@ pub enum ServerMsg {
         /// Caller friend code (for local history / re-add).
         #[serde(default)]
         from_code: String,
+        /// True = join their existing call as a 3rd (they will not hang up the other person).
+        #[serde(default)]
+        join: bool,
+        /// The other person already in the call (when join=true).
+        #[serde(default)]
+        with_user_id: String,
+        #[serde(default)]
+        with_name: String,
     },
     CallEnded {
         reason: String,

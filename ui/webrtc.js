@@ -52,6 +52,44 @@ let iceRefreshTimer = 0;
 /** @type {object | null} */
 let lastIceMeta = null;
 
+/**
+ * Session-only force-relay (VPN / hard NAT recovery).
+ * Not persisted — survives until reload or Prefer Direct is turned on.
+ * Differs from hideIpRelayOnly (user privacy pref) but uses the same ICE path.
+ */
+let sessionForceRelay = false;
+
+/** @returns {boolean} */
+function sessionForceRelayEnabled() {
+  return !!sessionForceRelay;
+}
+
+/**
+ * Force TURN relay for the rest of this browser session (VPN-friendly recovery).
+ * @param {boolean} on
+ * @returns {RTCConfiguration}
+ */
+function setSessionForceRelay(on) {
+  sessionForceRelay = !!on;
+  if (sessionForceRelay) {
+    // Prefer Direct is incompatible with relay recovery
+    try {
+      const raw = JSON.parse(
+        localStorage.getItem("freenet-roulette-media-prefs-v1") || "{}"
+      );
+      if (raw.preferDirectOnly) {
+        raw.preferDirectOnly = false;
+        localStorage.setItem(
+          "freenet-roulette-media-prefs-v1",
+          JSON.stringify(raw)
+        );
+      }
+    } catch (_) {}
+  }
+  applyIceDirectPreference();
+  return iceConfig;
+}
+
 /** Raw servers from last config.json (before prefer-direct filter). */
 let lastRawIceServers = DEFAULT_ICE.iceServers;
 
@@ -114,37 +152,42 @@ function filterIceServersByMode(raw, mode) {
 
 /**
  * Apply ICE policy from prefs:
- * - hideIpRelayOnly → iceTransportPolicy "relay" + TURN servers only
+ * - hideIpRelayOnly or sessionForceRelay → iceTransportPolicy "relay" + TURN only
  * - preferDirectOnly → STUN only (no TURN)
- * - default → all servers, policy "all"
+ * - default → all servers, policy "all" (VPN OK — browser picks TURN when needed)
  */
 function applyIceDirectPreference() {
   const raw = lastRawIceServers?.length
     ? lastRawIceServers
     : DEFAULT_ICE.iceServers;
-  const hideIp = hideIpRelayOnlyEnabled();
+  const hideIp = hideIpRelayOnlyEnabled() || sessionForceRelayEnabled();
   const directOnly = !hideIp && preferDirectOnlyEnabled();
   let servers = raw;
   /** @type {RTCIceTransportPolicy} */
   let iceTransportPolicy = "all";
 
   if (hideIp) {
-    // Force relay: partner never sees host/srflx candidates from us
+    // Force relay: partner never sees host/srflx; also best path for many VPNs
     const turnOnly = filterIceServersByMode(raw, "turn");
     if (turnOnly.length) {
-      servers = turnOnly;
+      // Prefer TCP TURN first when forcing relay — some VPNs block UDP entirely
+      servers = preferTcpTurnFirst(turnOnly);
       iceTransportPolicy = "relay";
     } else {
       // No TURN configured — cannot hide IP; fall back to all (UI should warn)
       servers = raw;
       iceTransportPolicy = "all";
       console.warn(
-        "[webrtc] Hide IP needs TURN, but no turn: servers in config — using default ICE"
+        "[webrtc] Hide IP / VPN relay needs TURN, but no turn: servers in config — using default ICE"
       );
     }
   } else if (directOnly) {
     servers = filterIceServersByMode(raw, "stun");
     if (!servers.length) servers = DEFAULT_ICE.iceServers;
+    iceTransportPolicy = "all";
+  } else {
+    // Default: STUN + TURN. Keep TCP TURN available for VPN users who block UDP.
+    servers = preferTcpTurnFirst(raw);
     iceTransportPolicy = "all";
   }
 
@@ -156,6 +199,31 @@ function applyIceDirectPreference() {
     iceTransportPolicy,
   };
   return iceConfig;
+}
+
+/**
+ * Within each iceServer entry, list TCP/TLS TURN URLs before UDP so browsers
+ * that try in order recover faster on UDP-blocked VPN paths.
+ * @param {RTCIceServer[]} servers
+ * @returns {RTCIceServer[]}
+ */
+function preferTcpTurnFirst(servers) {
+  return (servers || []).map((s) => {
+    const urls = Array.isArray(s.urls) ? s.urls.slice() : s.urls ? [s.urls] : [];
+    if (urls.length < 2) return s;
+    const score = (u) => {
+      const x = String(u).toLowerCase();
+      if (x.startsWith("turns:")) return 0;
+      if (x.includes("transport=tcp")) return 1;
+      if (x.startsWith("turn:")) return 2;
+      return 3; // stun etc.
+    };
+    urls.sort((a, b) => score(a) - score(b));
+    const entry = { urls: urls.length === 1 ? urls[0] : urls };
+    if (s.username) entry.username = s.username;
+    if (s.credential) entry.credential = s.credential;
+    return entry;
+  });
 }
 
 async function loadRtcConfig(base = "") {
@@ -342,9 +410,10 @@ const CHAT_DC_LABEL = "ruletka-chat";
  * @param {RTCPeerConnection | null | undefined} pc
  * @param {number} [targetMs]
  */
-function applyLowLatencyPlayout(pc, targetMs = 40) {
+function applyLowLatencyPlayout(pc, targetMs = 70) {
   if (!pc || typeof pc.getReceivers !== "function") return;
-  const ms = Math.max(0, Math.min(200, Number(targetMs) || 40));
+  // Never go below ~55ms — ultra-low targets underrun and sound crackly.
+  const ms = Math.max(55, Math.min(220, Number(targetMs) || 70));
   for (const receiver of pc.getReceivers()) {
     try {
       // Spec: DOMHighResTimeStamp in milliseconds
@@ -452,6 +521,7 @@ function lowLatencyAudioConstraints(extra = {}) {
  */
 function isRelayMediaMode() {
   try {
+    if (sessionForceRelayEnabled()) return true;
     if (typeof hideIpRelayOnlyEnabled === "function" && hideIpRelayOnlyEnabled()) {
       return true;
     }
@@ -473,25 +543,28 @@ function isRelayMediaMode() {
 function playoutTargetForTier(tier, opts = {}) {
   const low = isLowLatencyAudioEnabled();
   const relay = opts.relay === true || isRelayMediaMode();
+  // Floors kept conservative — too-low jitter targets underrun on Wi‑Fi/mobile
+  // and sound like crackle / dropouts ("crapping out").
   if (relay) {
     // Matched higher floor: hide-IP / TURN path — sync > absolute min delay
     if (low) {
-      if (tier === "min" || tier === "low") return 95;
-      if (tier === "mid") return 72;
-      return 58;
+      if (tier === "min" || tier === "low") return 130;
+      if (tier === "mid") return 105;
+      return 90;
     }
-    if (tier === "min" || tier === "low") return 110;
-    if (tier === "mid") return 85;
-    return 70;
+    if (tier === "min" || tier === "low") return 150;
+    if (tier === "mid") return 120;
+    return 100;
   }
   if (low) {
-    if (tier === "min" || tier === "low") return 55;
-    if (tier === "mid") return 40;
-    return 28;
+    // Low-latency mode: still keep a safe floor (was 48 — crackled on some links)
+    if (tier === "min" || tier === "low") return 90;
+    if (tier === "mid") return 70;
+    return 60;
   }
-  if (tier === "min" || tier === "low") return 80;
-  if (tier === "mid") return 55;
-  return 40;
+  if (tier === "min" || tier === "low") return 110;
+  if (tier === "mid") return 85;
+  return 70;
 }
 
 class RouletteWebRtc {
@@ -770,14 +843,19 @@ class RouletteWebRtc {
       let target = playoutTargetForTier(next, { relay });
 
       // If measured audio lags video (or reverse), raise *both* targets together
+      // — but don't thrash (smooth toward last target; cap so we don't balloon).
       try {
         const lag = await this.estimateAvPlayoutLag();
-        if (lag && lag.lagMs != null && Math.abs(lag.lagMs) > 55) {
-          // Pull the leading media up toward the lagging one via higher shared buffer
-          const bump = Math.min(45, Math.abs(lag.lagMs) * 0.35);
-          target = Math.min(140, target + bump);
+        if (lag && lag.lagMs != null && Math.abs(lag.lagMs) > 70) {
+          const bump = Math.min(35, Math.abs(lag.lagMs) * 0.28);
+          target = Math.min(160, target + bump);
         }
       } catch (_) {}
+      // Smooth playout changes — abrupt jitterBufferTarget jumps cause glitches
+      const prev = Number(this._lastPlayoutTarget) || target;
+      if (Math.abs(target - prev) > 8) {
+        target = prev + Math.sign(target - prev) * Math.min(12, Math.abs(target - prev));
+      }
 
       applyLowLatencyPlayout(this.pc, target);
       this._lastPlayoutTarget = target;
@@ -1020,15 +1098,15 @@ class RouletteWebRtc {
     const last = this._iceRestartAt || 0;
     const count = this._iceRestartCount || 0;
     // Restart already in flight — report success so callers don't hard-fail immediately
-    if (last && now - last < 2500 && count > 0) return true;
-    // Auto path: at most every 6s, max 2 restarts until connected again
-    // Force path: allow one more attempt (max 3) after cooldown of 4s
+    if (last && now - last < 2000 && count > 0) return true;
+    // Auto: every 5s, up to 4 restarts after connect flaps (was 2 — too few on mobile Wi‑Fi)
+    // Force: up to 5 attempts, 3s cooldown
     if (!force) {
-      if (now - last < 6000) return false;
-      if (count >= 2) return false;
+      if (now - last < 5000) return false;
+      if (count >= 4) return false;
     } else {
-      if (now - last < 4000) return count > 0; // still in flight or too soon
-      if (count >= 3) return false;
+      if (now - last < 3000) return count > 0;
+      if (count >= 5) return false;
     }
     this._iceRestartAt = now;
     this._iceRestartCount = count + 1;
@@ -1037,13 +1115,13 @@ class RouletteWebRtc {
         const offer = await this.pc.createOffer({ iceRestart: true });
         await this.pc.setLocalDescription(offer);
         this._emitSignal("offer", JSON.stringify(this.pc.localDescription));
-        console.info("[webrtc] ICE restart offer sent");
+        console.info("[webrtc] ICE restart offer sent", this._iceRestartCount);
         return true;
       }
-      // Answerer: mark for restart; Chromium will regenerate ufrag on next offer path
+      // Answerer: restartIce + nudge offerer via a tiny signal if needed
       if (typeof this.pc.restartIce === "function") {
         this.pc.restartIce();
-        console.info("[webrtc] restartIce() (answerer)");
+        console.info("[webrtc] restartIce() (answerer)", this._iceRestartCount);
         return true;
       }
     } catch (e) {
@@ -1054,21 +1132,41 @@ class RouletteWebRtc {
 
   _scheduleDisconnectedIceProbe() {
     if (this._discIceTimer) return;
+    // Fast first probe (2s) — mobile radio often recovers; then another at 6s
     this._discIceTimer = setTimeout(() => {
       this._discIceTimer = 0;
       if (!this.pc) return;
       const ice = this.pc.iceConnectionState;
       const cs = this.pc.connectionState;
-      if (ice === "disconnected" || cs === "disconnected") {
+      if (ice === "disconnected" || cs === "disconnected" || ice === "failed") {
         this._tryIceRestart();
+        // Second chance if still down
+        this._discIceTimer2 = setTimeout(() => {
+          this._discIceTimer2 = 0;
+          if (!this.pc) return;
+          const ice2 = this.pc.iceConnectionState;
+          const cs2 = this.pc.connectionState;
+          if (
+            ice2 === "disconnected" ||
+            cs2 === "disconnected" ||
+            ice2 === "failed" ||
+            cs2 === "failed"
+          ) {
+            this._tryIceRestart({ force: true });
+          }
+        }, 4000);
       }
-    }, 4000);
+    }, 2000);
   }
 
   _clearDisconnectedIceProbe() {
     if (this._discIceTimer) {
       clearTimeout(this._discIceTimer);
       this._discIceTimer = 0;
+    }
+    if (this._discIceTimer2) {
+      clearTimeout(this._discIceTimer2);
+      this._discIceTimer2 = 0;
     }
   }
 
@@ -1170,6 +1268,8 @@ if (typeof window !== "undefined") {
   window.applyIceDirectPreference = applyIceDirectPreference;
   window.preferDirectOnlyEnabled = preferDirectOnlyEnabled;
   window.hideIpRelayOnlyEnabled = hideIpRelayOnlyEnabled;
+  window.sessionForceRelayEnabled = sessionForceRelayEnabled;
+  window.setSessionForceRelay = setSessionForceRelay;
   window.isRelayMediaMode = isRelayMediaMode;
   window.QUALITY_TIERS = QUALITY_TIERS;
   window.applyLowLatencyPlayout = applyLowLatencyPlayout;

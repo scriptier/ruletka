@@ -18,5 +18,6 @@ npm-debug.*
 .DS_Store
 secrets/*
 !secrets/.gitkeep
+!secrets/README.md
 google-play.json
 *.keystore

@@ -37,9 +37,9 @@
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
   }
   </script>
-  <link rel="icon" href="/brand/favicon-32.png" type="image/png" sizes="32x32" />
+  <link rel="icon" href="/brand/favicon-32.png?v=10" type="image/png" sizes="32x32" />
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="/brand/apple-touch-icon-180.png" />
+  <link rel="apple-touch-icon" href="/brand/apple-touch-icon-180.png?v=10" />
   <link rel="manifest" href="manifest.webmanifest" />
   <!-- Fonts: Inter + Noto only on first paint; theme fonts load on demand -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -56,7 +56,7 @@
   <!-- Shell CSS first; full stage CSS non-blocking (was ~250KB parse on main thread) -->
   <link rel="stylesheet" href="style.css?v=158" />
   <style id="live-critical">
-    /* Minimal first-paint: dark stage + age gate (full rules in live-stage.css) */
+    /* Minimal first-paint + pin ALL tile chrome (rails/name/stars/fs) so later CSS can't erase them */
     html.stage-html, body.stage-body {
       margin: 0; min-height: 100%; background: #07080c; color: #e8eef7;
       font-family: system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -77,20 +77,164 @@
     .age-gate-btn.ghost { background: rgba(255,255,255,0.08); color: #c5d0e0; }
     .age-gate-logo { width: 96px; height: 96px; border-radius: 20px; object-fit: cover; }
     .stage-body > .stage, .stage-root { min-height: 100vh; }
-    .top-bar, .side-rail, .tile-dock, .chat-panel { opacity: 0; }
     .rules-overlay[hidden], .age-gate[hidden] { display: none !important; }
-  </style>
-  <link rel="preload" href="live-stage.css?v=272" as="style" />
-  <link
-    rel="stylesheet"
-    href="live-stage.css?v=272"
-    media="print"
-    onload="this.media='all';var c=document.getElementById('live-critical');if(c)c.remove();"
-  />
-  <noscript><link rel="stylesheet" href="live-stage.css?v=272" /></noscript>
-  <!-- Warm the big app chunk early without blocking HTML parse -->
-  <link rel="preload" href="live.js?v=283" as="script" />
-  <link rel="preload" href="i18n.js?v=200" as="script" />
+    /* Stage layout — do NOT force 1fr 1fr on mobile (that crushed the local tile) */
+    main.stage {
+      display: grid !important;
+      min-height: 0 !important;
+      flex: 1 1 auto !important;
+    }
+    #tile-remote, #tile-local {
+      position: relative !important;
+      min-width: 0 !important;
+      min-height: 0 !important;
+      overflow: hidden !important;
+      opacity: 1 !important;
+    }
+    /* Side rails INSIDE both tiles — never opacity:0 / display:none */
+    .side-rail,
+    .side-rail-right,
+    .side-rail-left,
+    #tile-local > .side-rail.side-rail-right,
+    #tile-remote > .side-rail.side-rail-left {
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: center !important;
+      gap: 0.4rem !important;
+      position: absolute !important;
+      bottom: 0.4rem !important;
+      z-index: 50 !important;
+      opacity: 1 !important;
+      visibility: visible !important;
+      pointer-events: auto !important;
+      transform: none !important;
+    }
+    #tile-local > .side-rail.side-rail-right { right: 0.4rem !important; left: auto !important; top: auto !important; }
+    #tile-remote > .side-rail.side-rail-left { left: 0.4rem !important; right: auto !important; top: auto !important; }
+    .side-rail .side-btn,
+    #btn-settings, #btn-blur-self, #btn-flip-cam, #btn-mute-mic,
+    #btn-mute-remote, #btn-blur-remote {
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: center !important;
+      justify-content: center !important;
+      width: 48px !important;
+      min-height: 48px !important;
+      height: auto !important;
+      opacity: 1 !important;
+      visibility: visible !important;
+      pointer-events: auto !important;
+      z-index: 51 !important;
+      background: rgba(28, 36, 52, 0.94) !important;
+      border: 1px solid rgba(255,255,255,0.28) !important;
+      color: #f2f6ff !important;
+      border-radius: 999px !important;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.55) !important;
+    }
+    .side-rail .side-btn .lbl { display: block !important; opacity: 1 !important; color: #e8eef7 !important; font-size: 0.62rem !important; }
+    #btn-fs-remote, .tile-fs-btn {
+      opacity: 1 !important; visibility: visible !important; display: flex !important;
+      pointer-events: auto !important; z-index: 50 !important;
+      position: absolute !important; right: 0.4rem !important; bottom: 0.4rem !important;
+    }
+    /* Avatar + flag + name top-left; ★ top-right — always on local tile */
+    #local-id-stack, .tile-local-id {
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: center !important;
+      position: absolute !important;
+      top: 0.45rem !important;
+      left: 0.5rem !important;
+      right: auto !important;
+      z-index: 50 !important;
+      opacity: 1 !important;
+      visibility: visible !important;
+      pointer-events: none !important;
+      max-width: min(46%, 11rem) !important;
+    }
+    #local-name {
+      display: inline-flex !important;
+      background: rgba(12,16,28,0.92) !important;
+      color: #eef2f7 !important;
+      border: 1px solid rgba(255,255,255,0.22) !important;
+      border-radius: 12px !important;
+      padding: 0.35rem 0.55rem !important;
+      opacity: 1 !important;
+      visibility: visible !important;
+    }
+    #local-stars-badge.stars-badge,
+    #local-stars-badge,
+    .stars-badge-local {
+      display: inline-flex !important;
+      position: absolute !important;
+      top: 0.45rem !important;
+      right: 0.45rem !important;
+      left: auto !important;
+      z-index: 50 !important;
+      opacity: 1 !important;
+      visibility: visible !important;
+      pointer-events: auto !important;
+      background: rgba(20, 16, 6, 0.92) !important;
+      border: 1px solid rgba(255, 210, 70, 0.55) !important;
+      color: #ffe9a0 !important;
+      min-height: 1.75rem;
+      padding: 0.28rem 0.55rem !important;
+      border-radius: 999px !important;
+      font-weight: 750 !important;
+    }
+    /* Partner name/★ when live */
+    #remote-tile-tag:not([hidden]) {
+      position: absolute !important; top: 0.45rem !important; left: 0.5rem !important;
+      z-index: 50 !important; opacity: 1 !important; visibility: visible !important;
+    }
+    #remote-stars-badge:not([hidden]) {
+      position: absolute !important; top: 0.45rem !important; right: 0.45rem !important;
+      z-index: 50 !important; display: inline-flex !important;
+    }
+    /* HARD: local video always on top of empty/canvas (mobile + desktop) */
+    #tile-local #local,
+    #tile-local #local.vid.local {
+      position: absolute !important; inset: 0 !important;
+      width: 100% !important; height: 100% !important;
+      object-fit: cover !important; display: block !important;
+      opacity: 1 !important; visibility: visible !important; z-index: 20 !important;
+      background: #0a0d12 !important;
+    }
+    #tile-local #local-preview-canvas,
+    #tile-local .local-preview-canvas {
+      display: none !important; visibility: hidden !important; opacity: 0 !important;
+      z-index: -1 !important; pointer-events: none !important; width: 0 !important; height: 0 !important;
+    }
+    #tile-local #local-empty {
+      z-index: 1 !important; pointer-events: none !important; background: transparent !important;
+    }
+    #tile-local.has-local-feed #local-empty,
+    #tile-local #local-empty.hidden {
+      display: none !important;
+    }
+    #tile-local .side-rail { z-index: 50 !important; }
+    .stars-top-chip {
+      display: inline-flex !important; align-items: center; gap: 0.28rem;
+      margin: 0; padding: 0.28rem 0.6rem 0.28rem 0.5rem; border-radius: 999px;
+      border: 1px solid rgba(255, 210, 70, 0.5); background: rgba(28, 22, 8, 0.92);
+      color: #ffe9a0; font-weight: 750; font-size: 0.9rem; cursor: pointer;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.35); flex-shrink: 0;
+    }
+    .stars-top-chip:hover { filter: brightness(1.08); border-color: rgba(255, 230, 120, 0.85); }
+    .stars-top-ico { color: #ffd54a; font-size: 1rem; line-height: 1; }
+    .top-chrome-btn {
+      display: inline-flex !important; align-items: center; gap: 0.28rem;
+      margin: 0; padding: 0.32rem 0.65rem; border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.22); background: rgba(28,36,52,0.95);
+      color: #eef2f7; font: inherit; font-size: 0.78rem; font-weight: 700;
+      cursor: pointer; flex-shrink: 0; box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+    }
+    .top-chrome-cam { border-color: rgba(255,120,90,0.45); background: rgba(48,22,16,0.95); color: #ffd0c0; }
+</style>
+  <!-- Load stage CSS as all immediately — no media=print FOUC trick (was leaving rails opacity:0) -->
+  <link rel="stylesheet" href="live-stage.css?v=320" />
+  <link rel="preload" href="live.js?v=359" as="script" />
+  <link rel="preload" href="i18n.js?v=219" as="script" />
   <script src="brand.js?v=2" defer></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -262,7 +406,7 @@
     <!-- Top chrome -->
     <header class="stage-top">
       <a class="brand" href="/" title="Home" data-i18n-title="brand.homeTitle">
-        <img class="brand-logo" src="/brand/logo-mark.png" width="28" height="28" alt="" />
+        <img class="brand-logo" src="/brand/logo-mark.png?v=10" width="28" height="28" alt="" />
         <span data-i18n="brand.name">ruletka.vip</span>
         <span class="badge" data-i18n="brand.badge" data-i18n-title="brand.badgeTitle" title="Matchmaking + P2P video">live</span>
       </a>
@@ -297,6 +441,23 @@
         <button type="button" class="conn-retry" id="btn-conn-retry" hidden data-i18n="conn.retry">Retry</button>
       </div>
       <div class="stage-top-actions">
+        <!-- Always-visible chrome in the HEADER (tile rails can fail over black camera) -->
+        <button type="button" class="top-chrome-btn" id="btn-settings-top" title="Settings" aria-label="Settings">
+          <svg class="icon icon-sm" aria-hidden="true"><use href="#i-settings"/></svg>
+          <span class="top-chrome-lbl">Settings</span>
+        </button>
+        <button type="button" class="top-chrome-btn" id="btn-fs-top" title="Fullscreen partner (F)" aria-label="Fullscreen">
+          <svg class="icon icon-sm" aria-hidden="true"><use href="#i-expand"/></svg>
+          <span class="top-chrome-lbl">Full</span>
+        </button>
+        <button type="button" class="top-chrome-btn top-chrome-cam" id="btn-cam-top" title="Restart camera" aria-label="Restart camera">
+          <svg class="icon icon-sm" aria-hidden="true"><use href="#i-camera"/></svg>
+          <span class="top-chrome-lbl">Cam</span>
+        </button>
+        <button type="button" class="stars-top-chip" id="btn-stars-top" title="Your stars" aria-label="Your stars — open Stars">
+          <span class="stars-top-ico" aria-hidden="true">★</span>
+          <span class="stars-top-count" id="stars-top-count">0</span>
+        </button>
         <label class="name-chip" title="Your display name">
           <span class="name-chip-lbl" data-i18n="name.you">You</span>
           <input id="display-name-top" type="text" maxlength="32" placeholder="anon" autocomplete="nickname" spellcheck="false" />
@@ -328,7 +489,27 @@
       <section class="tile tile-remote" id="tile-remote">
         <div class="remote-stack" id="remote-stack">
           <video id="remote" class="vid remote" autoplay playsinline playsInline webkit-playsinline></video>
-          <video id="remote2" class="vid remote remote-b" autoplay playsinline playsInline webkit-playsinline hidden></video>
+          <div class="remote-b-wrap" id="remote2-wrap" hidden>
+            <video id="remote2" class="vid remote remote-b" autoplay playsinline playsInline webkit-playsinline></video>
+            <div class="peer-tile-chrome" id="remote2-chrome">
+              <span class="peer-conn-chip" id="remote2-conn-chip" hidden title="Connection">…</span>
+              <button type="button" class="peer-mute-btn" id="btn-mute-remote2" title="Mute this person" aria-label="Mute this person">🔊</button>
+              <button type="button" class="peer-mute-btn peer-blur-btn" id="btn-blur-remote2" title="Blur this person" aria-label="Blur this person">💧</button>
+              <label class="peer-vol-wrap" id="vol-remote2-wrap" title="Volume">
+                <input type="range" class="peer-vol" id="vol-remote2" min="0" max="100" value="100" aria-label="Volume for this person" />
+                <span class="peer-vol-pct" id="vol-remote2-pct" aria-hidden="true">100%</span>
+              </label>
+              <div class="peer-who">
+                <span class="peer-who-name" id="remote2-tag"></span>
+                <span class="peer-who-sub" id="remote2-who-sub"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Multi-party role strip (friend + hunting 3rd / 1v2 / 2v2) -->
+        <div class="party-role-strip" id="party-role-strip" hidden role="status" aria-live="polite">
+          <span class="party-role-dot" aria-hidden="true"></span>
+          <span id="party-role-text"></span>
         </div>
         <!-- Star gifts: bars / flowers (server-timed) -->
         <div class="fx-overlay fx-bars" id="remote-fx-bars" hidden aria-hidden="true">
@@ -374,6 +555,38 @@
           <button type="button" class="gift-strip-btn gift-strip-stay" data-gift="please_stay" title="Please stay · 30★ · 15s">🙏</button>
           <button type="button" class="gift-strip-btn gift-strip-more" id="gift-strip-more" title="More">⋯</button>
         </div>
+        <!-- Debate: partner mute/speak badges (visibility toggled in JS) -->
+        <div class="debate-person-badge debate-person-muted" id="debate-badge-remote-muted" hidden aria-live="polite">
+          <span class="debate-person-ico" aria-hidden="true">🔇</span>
+          <span class="debate-person-text" data-i18n="debate.theyMutedBadge">Muted · can't be heard</span>
+        </div>
+        <div class="debate-person-badge debate-person-speaking" id="debate-badge-remote-speaking" hidden>
+          <span class="debate-person-ico" aria-hidden="true">🎙</span>
+          <span class="debate-person-text" data-i18n="debate.theySpeakingBadge">Speaking</span>
+        </div>
+        <!-- Formal debate timer (alternating turns) — hops to speaker tile -->
+        <div class="debate-overlay" id="debate-overlay" hidden aria-live="polite">
+          <div class="debate-card">
+            <div class="debate-round-row">
+              <div class="debate-badge debate-badge-mini" data-i18n="debate.badge">DEBATE</div>
+              <div class="debate-round" id="debate-round-label">Round 1</div>
+            </div>
+            <div class="debate-topic" id="debate-topic" hidden></div>
+            <div class="debate-timer" id="debate-timer" aria-label="Turn timer">0:30</div>
+            <div class="debate-turn" id="debate-turn-label">Your turn</div>
+            <div class="debate-progress" aria-hidden="true">
+              <div class="debate-progress-bar" id="debate-progress-bar"></div>
+            </div>
+            <div class="debate-actions">
+              <button type="button" class="pill tight ghost" id="btn-debate-pass" hidden data-i18n="debate.pass">
+                Pass turn
+              </button>
+              <button type="button" class="pill tight ghost" id="btn-debate-end" data-i18n="debate.end">
+                End debate
+              </button>
+            </div>
+          </div>
+        </div>
         <!-- Swipe left/right to skip (Next) -->
         <div class="swipe-skip-hint" id="swipe-skip-hint" hidden aria-hidden="true">
           <span class="swipe-skip-arrow swipe-skip-left" aria-hidden="true">‹</span>
@@ -390,7 +603,7 @@
           <video
             class="empty-bg-video is-brand-loop"
             id="remote-empty-video"
-            data-src="/brand/loading-screen.mp4?v=8"
+            data-src="/brand/loading-screen.mp4?v=9"
             muted
             defaultMuted
             loop
@@ -414,12 +627,7 @@
               <svg class="icon icon-empty"><use href="#i-pointer"/></svg>
             </div>
             <div class="empty-title" data-i18n="remote.emptyTitle">Tap Start to begin</div>
-            <!-- Tonight live window chip (local time) -->
-            <p class="empty-window-chip" id="empty-window-chip" hidden>
-              <span class="empty-window-dot" aria-hidden="true"></span>
-              <span id="empty-window-chip-text">Tonight live · 18:00–23:00</span>
-            </p>
-            <!-- empty-sub kept for connecting status only — alone-tips disabled -->
+<!-- empty-sub kept for connecting status only — alone-tips disabled -->
             <div class="empty-sub" id="remote-empty-sub" hidden></div>
             <!-- Week-6 cold-start: one-screen path (not a soft-popup nag) -->
             <ol class="empty-first-hint" id="empty-first-hint" hidden>
@@ -433,13 +641,7 @@
             <p class="empty-cam-why" id="empty-cam-why" hidden data-i18n="remote.camWhy">
               Camera is only used for live chat — video goes browser-to-browser, not uploaded to us.
             </p>
-            <!-- Idle growth: always show your code under Start (share anytime) -->
-            <div class="empty-idle-invite" id="empty-idle-invite" hidden>
-              <span class="empty-idle-lbl" data-i18n="friends.yourCode">Your code</span>
-              <button type="button" class="empty-idle-code" id="btn-empty-idle-code" title="Copy code">—</button>
-              <button type="button" class="empty-idle-share" id="btn-empty-idle-share" data-i18n="friends.shareInviteShort">Share</button>
-            </div>
-            <!-- Alone / quiet pool: one dominant Share (Week-1 liquidity) -->
+<!-- Alone / quiet pool: one dominant Share (Week-1 liquidity) -->
             <div class="empty-alone-actions" id="empty-alone-actions" hidden>
               <p class="empty-alone-lead" data-i18n="friends.aloneInviteLead">
                 Pool is quiet — a friend online fills it faster than waiting.
@@ -475,15 +677,7 @@
                 </div>
               </details>
             </div>
-            <!-- Recent partners: Call back / Add without opening Friends -->
-            <div class="empty-recent-strip" id="empty-recent-strip" hidden>
-              <div class="empty-recent-label" data-i18n="friends.recentStrip">Recent — tap to call back</div>
-              <div class="empty-recent-row" id="empty-recent-row"></div>
-            </div>
-            <!-- Friends online strip while idle (still available; hidden when empty) -->
-            <div class="friends-online-strip" id="friends-online-strip" hidden>
-              <div class="friends-online-label" data-i18n="friends.onlineStrip">Friends online — tap to call</div>
-              <div class="friends-online-row" id="friends-online-row"></div>
+<div class="friends-online-row" id="friends-online-row"></div>
             </div>
             <!-- Mobile alone-pool: friend invite (rooms share only if rooms enabled) -->
             <div class="mobile-invite" id="mobile-invite" hidden>
@@ -491,12 +685,12 @@
               <button type="button" class="mobile-invite-btn accent" id="btn-mobile-invite-friend" data-i18n="friends.inviteNow" hidden>Invite friend</button>
             </div>
           </div>
-        </div>
         <div class="tile-tag tile-tag-remote" id="remote-tile-tag" hidden>
           <!-- Identity stack: avatar above flag+name (matches local tile) -->
           <div class="tile-remote-id">
             <span class="tile-avatar tile-avatar-remote" id="remote-avatar" hidden><img id="remote-avatar-img" alt="" /></span>
             <span class="name-on-tile name-on-tile-stack" id="remote-tag"></span>
+            <span class="peer-who-sub" id="remote-who-sub" hidden></span>
             <span class="trust-tier-chip" id="remote-trust-chip" hidden title="Reputation tier"></span>
             <span class="flair-chip" id="remote-flair-chip" hidden title="Flair" aria-hidden="true"></span>
           </div>
@@ -504,6 +698,13 @@
             <span class="match-timer" id="match-timer" hidden title="Time with partner">0:00</span>
             <!-- Human path + quality (Good / OK / Weak) during live call -->
             <span class="conn-chip" id="conn-chip" hidden title="Connection quality"></span>
+            <span class="peer-conn-chip" id="remote-peer-conn-chip" hidden title="This peer connection">…</span>
+            <button type="button" class="peer-mute-btn peer-mute-inline" id="btn-mute-remote-main" title="Mute this person" aria-label="Mute this person" hidden>🔊</button>
+            <button type="button" class="peer-mute-btn peer-mute-inline peer-blur-btn" id="btn-blur-remote-main" title="Blur this person" aria-label="Blur this person" hidden>💧</button>
+            <label class="peer-vol-wrap peer-vol-inline" id="vol-remote-wrap" hidden title="Volume">
+              <input type="range" class="peer-vol" id="vol-remote" min="0" max="100" value="100" aria-label="Volume for this person" />
+              <span class="peer-vol-pct" id="vol-remote-pct" aria-hidden="true">100%</span>
+            </label>
             <span class="quality" id="call-quality" hidden title="RTT · bitrate · loss"></span>
             <span class="av-lag-chip" id="av-lag-chip" hidden title="Audio vs video playout lag">A/V</span>
           </div>
@@ -513,6 +714,13 @@
           aria-label="Partner stars — open Stars guide">
           <span class="stars-icon" aria-hidden="true">★</span>
           <span class="stars-count" id="remote-stars-count">0</span>
+        </button>
+        <!-- Multi-party layout: stack (vertical) ↔ equal grid -->
+        <button type="button" class="tile-corner-btn tile-layout-btn" id="btn-stage-layout" hidden
+          data-i18n-title="layout.gridTitle" title="Equal grid layout" aria-label="Equal grid layout"
+          aria-pressed="false">
+          <span class="layout-ico layout-ico-grid" aria-hidden="true">▦</span>
+          <span class="layout-ico layout-ico-stack" aria-hidden="true" hidden>▤</span>
         </button>
         <!-- Fullscreen — bottom-right of conversationalist window -->
         <button type="button" class="tile-corner-btn tile-fs-btn" id="btn-fs-remote" data-i18n-title="btn.fullTitle" title="Fullscreen (F)" aria-label="Fullscreen">
@@ -526,12 +734,13 @@
             </span>
             <span class="lbl" data-i18n="btn.partner">Partner</span>
           </button>
-          <div class="side-vol">
+          <div class="side-vol" style="--vol-pct:100">
+            <span class="side-vol-pct" id="remote-vol-pct" aria-hidden="true">100%</span>
             <input id="remote-vol" type="range" min="0" max="100" value="100" orient="vertical"
               data-i18n-title="vol.partner" data-i18n-aria="vol.partnerAria"
               title="Partner volume" aria-label="Partner volume" />
           </div>
-          <button type="button" class="side-btn" id="btn-blur-remote" data-i18n-title="btn.blurTitle" title="Blur partner video (B) — 2s auto-blur on new matches">
+          <button type="button" class="side-btn" id="btn-blur-remote" data-i18n-title="btn.blurTitle" title="Blur partner · or Unblur when always-blur is on">
             <span class="ico" id="ico-blur" aria-hidden="true">
               <svg class="icon icon-on"><use href="#i-blur"/></svg>
               <svg class="icon icon-off"><use href="#i-blur-on"/></svg>
@@ -546,7 +755,12 @@
               <svg class="icon" aria-hidden="true"><use href="#i-mail"/></svg>
               <span class="friends-badge msg-badge" id="messages-badge" hidden>0</span>
             </button>
+            <div class="compose-typing" id="compose-typing" hidden aria-live="polite">
+              <span class="chat-typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="compose-typing-label" id="compose-typing-label">Partner is typing…</span>
+            </div>
             <form class="tile-compose" id="compose">
+              <button type="button" class="tile-compose-emoji" id="btn-emoji-dock" aria-label="Emoji" data-i18n-aria="chat.emoji" data-i18n-title="chat.emoji" title="Emoji">😊</button>
               <input id="msg" type="text" data-i18n-placeholder="chat.placeholder" placeholder="Say something…" autocomplete="off" inputmode="text" enterkeyhint="send" spellcheck="true" maxlength="500" />
               <button type="submit" class="tile-compose-send" data-i18n="chat.send">Send</button>
             </form>
@@ -573,11 +787,13 @@
                   <span class="match-more-ico" aria-hidden="true">⋯</span>
                 </button>
                 <div class="match-more-menu" id="match-more-menu" hidden role="menu">
-                  <button type="button" role="menuitem" id="btn-browse-together" class="match-more-item accent" hidden data-i18n="friends.browseTogether">Browse together</button>
+                  <!-- Friend call: one primary CTA to hunt a stranger together -->
+                  <button type="button" role="menuitem" id="btn-browse-together" class="match-more-item accent" hidden data-i18n="trio.findStrangerTogether" title="Both search for a stranger now (no invite)">Find stranger together</button>
                   <button type="button" role="menuitem" id="btn-hangup-friend" class="match-more-item danger" hidden data-i18n="friends.hangup">Hang up</button>
                   <button type="button" role="menuitem" id="btn-block" class="match-more-item danger" hidden data-i18n="friends.blockNext" title="Block — you will not match them again">Block · Next</button>
                   <button type="button" role="menuitem" id="btn-report-dock" class="match-more-item danger" hidden data-i18n="partnerMenu.reportNext" title="Report, block, and find someone else">Report · Next</button>
-                  <button type="button" role="menuitem" id="btn-find-third" class="match-more-item accent" hidden data-i18n="trio.invite" title="Find a third person together">Find 3rd</button>
+                  <!-- Stranger 1v1 or friend 1v1: invite partner then search -->
+                  <button type="button" role="menuitem" id="btn-find-third" class="match-more-item accent" hidden data-i18n="trio.invite" title="Ask them, then search for a 3rd together">Find 3rd</button>
                   <button type="button" role="menuitem" id="btn-find-third-cancel" class="match-more-item ghost" hidden data-i18n="trio.cancel" title="Cancel invite">Cancel</button>
                   <button type="button" role="menuitem" id="btn-spin" class="match-more-item ghost" hidden data-i18n="btn.spin">Spin</button>
                   <p class="match-more-hint" data-i18n="dock.moreHint">Or tap the partner video for the full menu</p>
@@ -609,6 +825,10 @@
             </div>
           </header>
           <div class="chat-messages" id="chat-messages" aria-live="polite"></div>
+          <div class="chat-typing" id="chat-typing" hidden aria-live="polite">
+            <span class="chat-typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span id="chat-typing-label">Partner is typing…</span>
+          </div>
         </aside>
       </section>
 
@@ -619,7 +839,7 @@
           <video
             class="empty-bg-video is-brand-loop"
             id="third-empty-video"
-            data-src="/brand/loading-screen.mp4?v=8"
+            data-src="/brand/loading-screen.mp4?v=9"
             muted
             defaultMuted
             loop
@@ -639,12 +859,31 @@
         </div>
         <div class="tile-tag" id="third-tile-tag" hidden>
           <span class="name-on-tile" id="third-tag"></span>
+          <span class="peer-who-sub" id="third-who-sub" hidden></span>
+          <span class="peer-conn-chip" id="third-conn-chip" hidden title="Connection">…</span>
+          <button type="button" class="peer-mute-btn peer-mute-inline" id="btn-mute-remote-third" title="Mute this person" aria-label="Mute this person" hidden>🔊</button>
+          <button type="button" class="peer-mute-btn peer-mute-inline peer-blur-btn" id="btn-blur-remote-third" title="Blur this person" aria-label="Blur this person" hidden>💧</button>
+          <label class="peer-vol-wrap peer-vol-inline" id="vol-remote-third-wrap" hidden title="Volume">
+            <input type="range" class="peer-vol" id="vol-remote-third" min="0" max="100" value="100" aria-label="Volume for this person" />
+            <span class="peer-vol-pct" id="vol-remote-third-pct" aria-hidden="true">100%</span>
+          </label>
         </div>
       </section>
 
       <!-- YOU (right / middle in trio) -->
       <section class="tile tile-local" id="tile-local">
         <video id="local" class="vid local" autoplay playsinline playsInline webkit-playsinline muted></video>
+        <!-- Canvas mirror: paints when <video> stays black (Linux/Chrome GPU quirks) -->
+        <canvas id="local-preview-canvas" class="local-preview-canvas" aria-hidden="true" hidden></canvas>
+        <!-- Debate: you muted / speaking badges -->
+        <div class="debate-person-badge debate-person-muted" id="debate-badge-local-muted" hidden aria-live="polite">
+          <span class="debate-person-ico" aria-hidden="true">🔇</span>
+          <span class="debate-person-text" data-i18n="debate.youMutedBadge">You're muted · they can't hear you</span>
+        </div>
+        <div class="debate-person-badge debate-person-speaking" id="debate-badge-local-speaking" hidden>
+          <span class="debate-person-ico" aria-hidden="true">🎙</span>
+          <span class="debate-person-text" data-i18n="debate.youSpeakingBadge">You're speaking</span>
+        </div>
         <!-- Star gifts on you (bars / flowers) -->
         <div class="fx-overlay fx-bars" id="local-fx-bars" hidden aria-hidden="true">
           <div class="fx-bars-mesh" aria-hidden="true"></div>
@@ -695,6 +934,15 @@
           <button type="button" class="enable-cam-btn" id="btn-enable-cam" hidden data-i18n="local.enableCam">
             Enable camera
           </button>
+        </div>
+        <!-- Outside local-empty so it can float over a live (or black) preview -->
+        <div class="local-cam-restart" id="local-cam-restart" hidden>
+          <button type="button" class="enable-cam-btn accent" id="btn-restart-cam">
+            Restart camera
+          </button>
+          <p class="hint-inline local-cam-restart-hint">
+            LED on but black? Pick <b>USB Camera</b> in Settings (not Razer Kiyo), or Restart.
+          </p>
         </div>
         <!-- Local identity: avatar + flag/name stacked top-left; ★ top-right -->
         <div class="tile-local-id" id="local-id-stack">
@@ -820,7 +1068,7 @@
         <li data-i18n="coach.t1">Use Wi‑Fi if possible (some mobile networks block WebRTC)</li>
         <li data-i18n="coach.t2">Allow camera &amp; mic for this site, then reload</li>
         <li data-i18n="coach.t3">Tap Next to find someone else (their network may be blocked)</li>
-        <li data-i18n="coach.t4">VPN or corporate networks often break peer video — try without VPN</li>
+        <li data-i18n="coach.t4">VPN is supported — leave Prefer Direct off so TURN relay can carry video</li>
       </ul>
       <p class="call-coach-meta muted" id="call-coach-meta"></p>
       <div class="call-coach-actions">
@@ -871,7 +1119,12 @@
         <button type="button" class="sheet-close ghost" id="msg-thread-clear" data-i18n-title="chat.clear" title="Clear this chat">🗑</button>
       </header>
       <div class="msg-thread-body" id="msg-thread-messages" aria-live="polite"></div>
+      <div class="chat-typing msg-typing" id="msg-typing" hidden aria-live="polite">
+        <span class="chat-typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span id="msg-typing-label">Partner is typing…</span>
+      </div>
       <form class="msg-compose" id="msg-compose">
+        <button type="button" class="msg-compose-emoji" id="btn-emoji-msg" aria-label="Emoji" data-i18n-aria="chat.emoji" data-i18n-title="chat.emoji" title="Emoji">😊</button>
         <input id="msg-compose-input" type="text" maxlength="500" autocomplete="off" inputmode="text" enterkeyhint="send" spellcheck="true" data-i18n-placeholder="chat.placeholder" placeholder="Say something…" />
         <button type="submit" class="pill" data-i18n="chat.send">Send</button>
       </form>
@@ -900,8 +1153,20 @@
       </button>
     </div>
     <div class="sheet-body">
-      <!-- Friends list tab -->
+      <!-- Friends list tab: name → code → pending → friends → secondary -->
       <div class="friends-panel" id="friends-panel-list" role="tabpanel" aria-labelledby="friends-tab-list">
+        <!-- 1. Display name first -->
+        <div class="friends-name-block">
+          <label>
+            <span data-i18n="friends.yourName">Display name</span>
+            <input id="display-name" class="display-name-input" type="text" maxlength="32" placeholder="anon" autocomplete="nickname" />
+          </label>
+          <p class="hint-inline" data-i18n="friends.nameHint">
+            This name is what strangers and friends see in chat and when you match.
+          </p>
+        </div>
+
+        <!-- 2. Your friend code -->
         <div class="friends-code-hero" id="friends-code-hero">
           <p class="friends-code-label" data-i18n="friends.yourCodeLead">
             Your friend code — share this so others can Request you
@@ -918,61 +1183,70 @@
             New here? Copy your code, send it to a friend, then they tap Request — you Accept.
           </p>
         </div>
-        <label>
-          <span data-i18n="friends.yourName">Display name</span>
-          <input id="display-name" class="display-name-input" type="text" maxlength="32" placeholder="anon" autocomplete="nickname" />
-        </label>
-        <p class="hint-inline" data-i18n="friends.nameHint">
-          This name is what strangers and friends see in chat and when you match.
-        </p>
-        <p class="hint-inline" data-i18n="friends.mutualHint">
-          Only friends can Call. Requests need Accept on both sides — then Call when they are Online.
-        </p>
-        <label class="settings-toggle friends-notif-opt" style="margin:0.35rem 0 0.55rem">
-          <span class="settings-toggle-copy">
-            <span class="settings-row-title" data-i18n="friends.notifOnline">Alerts for calls & friends online</span>
-            <span class="settings-row-sub" data-i18n="friends.notifOnlineHint">Optional · when this tab is in the background (incoming Call + friend online)</span>
-          </span>
-          <input type="checkbox" id="chk-friend-online-notif" />
-        </label>
-        <details class="friends-how-codes">
-          <summary data-i18n="friends.codesHelp">How friend codes work</summary>
-          <p class="hint-inline" data-i18n="friends.howCodes">
-            Both of you open the site once so codes appear. Share your code or invite link → they Request → you Accept → Call when online.
+
+        <!-- 3. Pending requests -->
+        <div class="friends-pending-block">
+          <p class="hint-inline friends-pending-banner" id="friends-pending-banner" hidden data-i18n="friends.pendingBanner">
+            Waiting for them to Accept — you can Call only after both sides approve.
           </p>
-        </details>
-        <label>
-          <span data-i18n="friends.addCode">Add friend by code</span>
-          <div class="row-inline">
-            <input id="add-friend-code" type="text" maxlength="16" autocomplete="off" spellcheck="false" />
-            <button type="button" class="pill" id="btn-add-friend" data-i18n="friends.add">Request</button>
-          </div>
-        </label>
-        <p class="hint-inline friends-pending-banner" id="friends-pending-banner" hidden data-i18n="friends.pendingBanner">
-          Waiting for them to Accept — you can Call only after both sides approve.
-        </p>
-        <div id="incoming-requests" class="friends-list req-panel" hidden></div>
-        <div id="outgoing-requests" class="friends-list" hidden></div>
+          <div id="incoming-requests" class="friends-list req-panel" hidden></div>
+          <div id="outgoing-requests" class="friends-list" hidden></div>
+        </div>
+
+        <!-- 4. Friends list -->
         <div id="friends-list" class="friends-list"></div>
         <div id="friends-recover" class="friends-list req-panel" hidden></div>
-        <p class="hint-inline friends-persist-hint" data-i18n="friends.persistHint">
-          Friends are saved on this hub under your identity. Export a profile backup (Settings) before clearing browser data or switching devices — no helper app required.
-        </p>
-        <div class="row-inline friends-backup-actions">
-          <button type="button" class="pill tight accent btn-import-profile" id="btn-friends-import" data-i18n="settings.importUser">Import user</button>
-          <button type="button" class="pill tight" id="btn-friends-export" data-i18n="friends.exportBackup">Export backup</button>
-          <button type="button" class="pill tight" id="btn-friends-open-history" data-i18n="friends.openHistory">Call history</button>
+
+        <!-- 5. Add by code always visible; extras under More -->
+        <div class="friends-add-block">
+          <label>
+            <span data-i18n="friends.addCode">Add friend by code</span>
+            <div class="row-inline">
+              <input id="add-friend-code" type="text" maxlength="16" autocomplete="off" spellcheck="false" />
+              <button type="button" class="pill" id="btn-add-friend" data-i18n="friends.add">Request</button>
+            </div>
+          </label>
         </div>
-        <div class="friends-identity-banner" id="friends-identity-banner" hidden>
-          <p class="hint-inline" data-i18n="friends.identityBanner">
-            Friends missing after a new phone or cleared data? Import the profile file you exported earlier.
-          </p>
-          <button type="button" class="pill tight accent btn-import-profile" id="btn-friends-import-banner" data-i18n="settings.importUser">Import user</button>
+        <details class="friends-more-opts" id="friends-more-opts">
+          <summary data-i18n="friends.moreOptions">More options</summary>
+          <div class="friends-secondary">
+            <p class="hint-inline" data-i18n="friends.mutualHint">
+              Only friends can Call. Requests need Accept on both sides — then Call when they are Online.
+            </p>
+            <label class="settings-toggle friends-notif-opt">
+              <span class="settings-toggle-copy">
+                <span class="settings-row-title" data-i18n="friends.notifOnline">Alerts for calls & friends online</span>
+                <span class="settings-row-sub" data-i18n="friends.notifOnlineHint">Optional · when this tab is in the background (incoming Call + friend online)</span>
+              </span>
+              <input type="checkbox" id="chk-friend-online-notif" />
+            </label>
+            <details class="friends-how-codes">
+              <summary data-i18n="friends.codesHelp">How friend codes work</summary>
+              <p class="hint-inline" data-i18n="friends.howCodes">
+                Both of you open the site once so codes appear. Share your code or invite link → they Request → you Accept → Call when online.
+              </p>
+            </details>
+            <p class="hint-inline friends-persist-hint" data-i18n="friends.persistHint">
+              Friends are saved on this hub under your identity. Export a profile backup (Settings) before clearing browser data or switching devices — no helper app required.
+            </p>
+            <div class="row-inline friends-backup-actions">
+              <button type="button" class="pill tight accent btn-import-profile" id="btn-friends-import" data-i18n="settings.importUser">Import user</button>
+              <button type="button" class="pill tight" id="btn-friends-export" data-i18n="friends.exportBackup">Export backup</button>
+              <button type="button" class="pill tight" id="btn-friends-open-history" data-i18n="friends.openHistory">Call history</button>
+            </div>
+            <div class="friends-identity-banner" id="friends-identity-banner" hidden>
+              <p class="hint-inline" data-i18n="friends.identityBanner">
+                Friends missing after a new phone or cleared data? Import the profile file you exported earlier.
+              </p>
+              <button type="button" class="pill tight accent btn-import-profile" id="btn-friends-import-banner" data-i18n="settings.importUser">Import user</button>
+            </div>
+            <p class="hint-inline friends-hint-foot" data-i18n="friends.hint">
+              Call when they show Online. If both of you are on the site but they show offline, re-add with their current friend code (or import the same profile backup on both devices).
+              Then Browse together, or invite another friend into a live call.
+            </p>
+          </div>
+        </details>
         </div>
-        <p class="hint-inline" data-i18n="friends.hint">
-          Call when they show Online. If both of you are on the site but they show Offline, re-add with their current friend code (or import the same profile backup on both devices).
-          Then Browse together (max 2) to scroll strangers as a pair.
-        </p>
       </div>
 
       <!-- Call history tab -->
@@ -1026,7 +1300,8 @@
         <div class="stars-balance-trust-row" id="stars-balance-trust-row">
           <span class="stars-dual-chip is-balance">
             <span class="stars-dual-lbl" data-i18n="stars.balanceLabel">Balance</span>
-            <strong class="stars-dual-val">spends on gifts</strong>
+            <strong class="stars-dual-val">★ <span id="stars-sheet-balance-chip">0</span></strong>
+            <span class="stars-dual-sub" data-i18n="stars.balanceSpends">for gifts</span>
           </span>
           <span class="stars-dual-chip is-trust">
             <span class="stars-dual-lbl" data-i18n="stars.trustLabel">Trust</span>
@@ -1056,6 +1331,7 @@
           <p class="stars-progress-hint" id="stars-progress-hint" data-i18n="stars.progressHint">
             Trust from peer gifts · 100 trust → reports ×2.
           </p>
+          <p class="stars-progress-hint-sub" id="stars-progress-hint-sub" hidden></p>
         </div>
         <p class="settings-section-label" data-i18n="stars.earnTitle">Earn</p>
         <div class="settings-group stars-sheet-group stars-earn-group">
@@ -1179,6 +1455,35 @@
     </div>
   </aside>
 
+  <!-- Shared emoji picker (dock compose + messages) -->
+  <div class="emoji-picker" id="emoji-picker" hidden role="dialog" aria-label="Emoji" data-i18n-aria="chat.emoji">
+    <div class="emoji-picker-recents" id="emoji-picker-recents" hidden role="group" aria-label="Recent emoji"></div>
+    <div class="emoji-picker-grid" id="emoji-picker-grid"></div>
+  </div>
+
+  <!-- Mobile debate controls (fixed above floor tray; Pass/End always tappable) -->
+  <div class="debate-mobile-bar" id="debate-mobile-bar" hidden role="toolbar" aria-label="Debate controls" data-i18n-aria="debate.controls">
+    <button
+      type="button"
+      class="pill tight accent"
+      id="btn-debate-pass-mobile"
+      hidden
+      data-i18n="debate.pass"
+      aria-label="Pass turn"
+    >
+      Pass turn
+    </button>
+    <button
+      type="button"
+      class="pill tight ghost"
+      id="btn-debate-end-mobile"
+      data-i18n="debate.end"
+      aria-label="End debate"
+    >
+      End debate
+    </button>
+  </div>
+
   <div class="partner-menu-backdrop" id="partner-menu-backdrop" hidden></div>
   <div class="partner-menu" id="partner-menu" hidden role="dialog" aria-modal="true" aria-labelledby="partner-menu-title">
     <div class="partner-menu-head">
@@ -1192,6 +1497,10 @@
       <button type="button" class="partner-menu-btn accent" id="btn-partner-find-third" hidden>
         <span class="pm-ico" aria-hidden="true"><svg class="icon"><use href="#i-users"/></svg></span>
         <span data-i18n="trio.invite">Find 3rd</span>
+      </button>
+      <button type="button" class="partner-menu-btn debate" id="btn-partner-debate">
+        <span class="pm-ico" aria-hidden="true">⏱</span>
+        <span id="btn-partner-debate-label" data-i18n="debate.invite">Invite to debate</span>
       </button>
       <button type="button" class="partner-menu-btn" id="btn-partner-friend">
         <span class="pm-ico" aria-hidden="true"><svg class="icon"><use href="#i-user-plus"/></svg></span>
@@ -1225,6 +1534,34 @@
         Cancel
       </button>
     </div>
+    <!-- Compose formal debate invite: turn length + optional topic -->
+    <div class="partner-menu-actions partner-menu-debate" id="partner-menu-debate" hidden>
+      <p class="partner-menu-hint" data-i18n="debate.composeHint">
+        Formal turns — one speaker at a time. You speak first when they accept.
+      </p>
+      <label class="debate-compose-label" for="debate-topic-input" data-i18n="debate.topicLabel">Topic (optional)</label>
+      <input
+        type="text"
+        id="debate-topic-input"
+        class="debate-topic-input"
+        maxlength="80"
+        autocomplete="off"
+        data-i18n-placeholder="debate.topicPlaceholder"
+        placeholder="e.g. Should cities ban cars downtown?"
+      />
+      <span class="debate-compose-label" data-i18n="debate.turnLength">Turn length</span>
+      <div class="debate-turn-picks" id="debate-turn-picks" role="group" aria-label="Turn length">
+        <button type="button" class="debate-turn-pick" data-turn-secs="15">15s</button>
+        <button type="button" class="debate-turn-pick is-selected" data-turn-secs="30">30s</button>
+        <button type="button" class="debate-turn-pick" data-turn-secs="45">45s</button>
+        <button type="button" class="debate-turn-pick" data-turn-secs="60">60s</button>
+      </div>
+      <button type="button" class="partner-menu-btn accent" id="btn-debate-send-invite">
+        <span class="pm-ico" aria-hidden="true">⏱</span>
+        <span data-i18n="debate.sendInvite">Send debate invite</span>
+      </button>
+      <button type="button" class="partner-menu-btn ghost" id="btn-debate-compose-back" data-i18n="partnerMenu.back">Back</button>
+    </div>
     <div class="partner-menu-actions" id="partner-menu-report" hidden>
       <p class="partner-menu-hint" data-i18n="partnerMenu.reportHint">Pick a reason → we block them for you, skip, and you will not match them again. Multiple independent reports can restrict their matchmaking.</p>
       <p class="partner-menu-hint partner-menu-trusted" id="partner-menu-trusted-hint" hidden data-i18n="stars.trustedReporterHint">
@@ -1245,7 +1582,7 @@
     <!-- Step 1: 18+ -->
     <div class="age-gate" id="age-gate-step" role="dialog" aria-modal="true" aria-labelledby="age-gate-title">
       <div class="age-gate-visual" aria-hidden="true">
-        <img class="age-gate-logo" src="/brand/icon-192.png" width="96" height="96" alt="" decoding="async" fetchpriority="low" />
+        <img class="age-gate-logo" src="/brand/icon-192.png?v=10" width="96" height="96" alt="" decoding="async" fetchpriority="low" />
       </div>
       <p class="age-gate-kicker" data-i18n="rules.ageGateKicker">18+ only · peer-to-peer video chat</p>
       <h1 id="age-gate-title" class="age-gate-title" data-i18n="rules.ageGateTitle">Are you 18 or older?</h1>
@@ -1531,7 +1868,9 @@
         <p class="settings-section-label" data-i18n="settings.secAudio">Partner audio</p>
         <div class="settings-group">
           <div class="settings-row settings-row-static settings-vol-row">
-            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-volume"/></svg></span><span data-i18n="settings.partnerVol">Partner volume</span></span>
+            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-volume"/></svg></span><span data-i18n="settings.partnerVol">Partner volume</span>
+              <span class="side-vol-pct settings-vol-pct" id="remote-vol-sheet-pct" aria-hidden="true">100%</span>
+            </span>
             <input id="remote-vol-sheet" type="range" min="0" max="100" value="100" />
           </div>
           <label class="settings-toggle-row">
@@ -1628,11 +1967,11 @@
         <div class="settings-group">
           <label class="settings-row settings-row-toggle">
             <span class="row-left toggle-copy">
-              <span class="toggle-title" data-i18n="settings.blurFirst">Keep strangers blurred until I unblur</span>
-              <span class="toggle-hint" data-i18n="settings.blurFirstHint">First chats stay blurred by default · off = only 2s intro blur after that</span>
+              <span class="toggle-title" data-i18n="settings.blurFirst">Always blur new conversationalists</span>
+              <span class="toggle-hint" data-i18n="settings.blurFirstHint">On: stay blurred until you tap Unblur · Off: only 3s intro blur</span>
             </span>
             <span class="switch">
-              <input type="checkbox" id="chk-blur-first" />
+              <input type="checkbox" id="chk-blur-first" checked />
               <span class="switch-ui" aria-hidden="true"></span>
             </span>
           </label>
@@ -1655,6 +1994,16 @@
               <span class="switch-ui" aria-hidden="true"></span>
             </span>
           </label>
+          <label class="settings-row settings-row-toggle">
+            <span class="row-left toggle-copy">
+              <span class="toggle-title" data-i18n="settings.chatSound">Sound on message</span>
+              <span class="toggle-hint" data-i18n="settings.chatSoundHint">Soft blip when someone texts you</span>
+            </span>
+            <span class="switch">
+              <input type="checkbox" id="chk-chat-sound" checked />
+              <span class="switch-ui" aria-hidden="true"></span>
+            </span>
+          </label>
         </div>
       </div>
     </div>
@@ -1669,7 +2018,7 @@
       <div class="sheet-body settings-body">
         <!-- About hero -->
         <div class="about-hero" id="about-hero">
-          <img class="about-hero-logo" src="/brand/logo-mark.png" width="48" height="48" alt="" />
+          <img class="about-hero-logo" src="/brand/logo-mark.png?v=10" width="48" height="48" alt="" />
           <div class="about-hero-text">
             <div class="about-hero-name" data-i18n="brand.name">ruletka.vip</div>
             <div class="about-hero-tag" data-i18n="settings.aboutTag">P2P video · 18+ · no classic account</div>
@@ -1732,6 +2081,16 @@
             </span>
             <span class="row-ext" aria-hidden="true">↗</span>
           </a>
+          <a class="settings-row settings-row-multi settings-row-ext" href="/legal/delete.html" target="_blank" rel="noopener">
+            <span class="row-left">
+              <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-lock"/></svg></span>
+              <span class="settings-row-copy">
+                <span class="settings-row-title" data-i18n="page.legal.deleteTitle">Request data deletion</span>
+                <span class="settings-row-sub" data-i18n="page.legal.deleteDesc">Clear local data and email privacy@ruletka.me for hub-side review.</span>
+              </span>
+            </span>
+            <span class="row-ext" aria-hidden="true">↗</span>
+          </a>
           <a class="settings-row settings-row-multi settings-row-ext" href="/safety.html" target="_blank" rel="noopener">
             <span class="row-left">
               <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-flag"/></svg></span>
@@ -1773,22 +2132,22 @@
 
         <p class="settings-section-label" data-i18n="settings.secSupport">Support</p>
         <div class="settings-group">
-          <a class="settings-row settings-row-multi" href="mailto:support@ruletka.vip">
+          <a class="settings-row settings-row-multi" href="mailto:support@ruletka.me">
             <span class="row-left">
               <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-mail"/></svg></span>
               <span class="settings-row-copy">
                 <span class="settings-row-title" data-i18n="settings.contact">Contact us</span>
-                <span class="settings-row-sub">support@ruletka.vip</span>
+                <span class="settings-row-sub">support@ruletka.me</span>
               </span>
             </span>
             <span class="chev">›</span>
           </a>
-          <a class="settings-row settings-row-multi" href="mailto:privacy@ruletka.vip">
+          <a class="settings-row settings-row-multi" href="mailto:privacy@ruletka.me">
             <span class="row-left">
               <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-lock"/></svg></span>
               <span class="settings-row-copy">
                 <span class="settings-row-title" data-i18n="settings.contactPrivacy">Privacy contact</span>
-                <span class="settings-row-sub">privacy@ruletka.vip</span>
+                <span class="settings-row-sub">privacy@ruletka.me</span>
               </span>
             </span>
             <span class="chev">›</span>
@@ -1884,7 +2243,10 @@
       </header>
       <div class="sheet-body settings-body">
         <p class="hint-inline" data-i18n="settings.connHint">
-          Media is peer-to-peer when possible. Relay (TURN) only helps hard networks — higher latency is normal then.
+          Media is peer-to-peer when possible. VPN is welcome — our TURN relay carries video when direct paths fail (slightly higher latency).
+        </p>
+        <p class="hint-inline muted" data-i18n="settings.vpnOk">
+          On VPN: keep Prefer Direct off. Optional: enable Hide my IP to force relay every call.
         </p>
         <div class="settings-group conn-detail-list">
           <div class="conn-detail-row">
@@ -1932,13 +2294,13 @@
           <div class="conn-detail-row">
             <span class="conn-detail-label" data-i18n="settings.hideIp">Hide my IP</span>
             <span class="conn-detail-value" id="conn-detail-hide-ip">—</span>
-            <span class="conn-detail-hint" data-i18n="settings.hideIpHint">Force TURN relay so the partner never sees your IP. Slightly higher latency. Needs hub TURN.</span>
+            <span class="conn-detail-hint" data-i18n="settings.hideIpHint">Routes via TURN so they never see your IP. May add a little lag. Needs hub TURN.</span>
           </div>
         </div>
         <label class="settings-toggle-row conn-hide-ip-row">
           <span class="toggle-copy">
             <span class="toggle-title" data-i18n="settings.hideIp">Hide my IP</span>
-            <span class="toggle-hint" data-i18n="settings.hideIpHint">Force TURN relay so the partner never sees your IP. Slightly higher latency. Needs hub TURN. No account required — just this device preference.</span>
+            <span class="toggle-hint" data-i18n="settings.hideIpHint">Routes via TURN so they never see your IP. May add a little lag. Needs hub TURN. Device-only preference.</span>
           </span>
           <span class="toggle-switch">
             <input type="checkbox" id="chk-hide-ip" />
@@ -2201,11 +2563,11 @@
   <!-- Critical path: defer app scripts. QR / invite-copy / live-window load on demand. -->
   <script src="analytics.js?v=3" defer></script>
   <script src="pwa-install.js?v=10" defer></script>
-  <script src="i18n.js?v=200" defer></script>
+  <script src="i18n.js?v=219" defer></script>
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=156" defer></script>
-  <script src="webrtc.js?v=163" defer></script>
-  <script src="live.js?v=283" defer></script>
+  <script src="webrtc.js?v=168" defer></script>
+  <script src="live.js?v=359" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {
@@ -2219,15 +2581,24 @@
       function playV(id) {
         var v = document.getElementById(id);
         if (!v) return;
+        // data-src → src (HTML ships without src so first paint stays light)
+        var want = v.getAttribute("data-src") || "/brand/loading-screen.mp4?v=9";
+        if (!v.getAttribute("src") || String(v.src || "").indexOf("loading-screen") < 0) {
+          v.src = want;
+          try { v.load(); } catch (e0) {}
+        }
         v.muted = true;
         v.defaultMuted = true;
+        v.setAttribute("muted", "");
         v.volume = 0;
         v.loop = true;
         v.playsInline = true;
+        v.setAttribute("playsinline", "");
+        v.autoplay = true;
         v.hidden = false;
         v.removeAttribute("hidden");
-        v.style.display = "block";
-        v.style.opacity = "1";
+        v.style.cssText =
+          "position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1;display:block!important;opacity:1!important;visibility:visible!important;pointer-events:none;";
         try {
           var p = v.play();
           if (p && p.catch) p.catch(function () {});

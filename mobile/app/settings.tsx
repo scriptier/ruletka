@@ -374,10 +374,14 @@ export default function SettingsScreen() {
       {(
         [
           [t("nav.safety"), "/safety.html"],
-          [t("nav.community"), "/community.html"],
+          [t("nav.community"), "/legal/community.html"],
           [t("nav.privacy"), "/legal/privacy.html"],
           [t("nav.terms"), "/legal/terms.html"],
           [t("nav.eula"), "/legal/eula.html"],
+          [
+            t("page.legal.deleteTitle") || "Request data deletion",
+            "/legal/delete.html",
+          ],
         ] as const
       ).map(([label, path]) => (
         <Pressable

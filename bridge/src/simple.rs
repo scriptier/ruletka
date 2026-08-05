@@ -1,10 +1,11 @@
-//! In-memory matchmaking + friends + party-of-2 browse + chat/signal relay.
+//! In-memory matchmaking + friends + party browse + chat/signal relay.
 //!
-//! Match shapes (hard caps — no larger sessions):
+//! Match shapes (hard caps — max 4 people in a stranger session):
 //! - **1v1** solo ↔ solo
 //! - **1v2** solo ↔ party of 2
+//! - **3v1** solo ↔ party of 3
 //! - **2v2** party of 2 ↔ party of 2
-//! Parties are always size 2 (friend pair browsing together).
+//! Parties of 2 or 3 (friends / find-third / join-call groups).
 
 use crate::federation::{
     self, caller_is_offerer, federated_peer_id, parse_federated_peer_id, ClaimRequest,
@@ -111,7 +112,10 @@ enum Phase {
 #[derive(Clone, Debug)]
 enum QueueEntry {
     Solo(Uuid),
+    /// Friend pair or find-third pair browsing for a stranger (1v2 / 2v2).
     Party { a: Uuid, b: Uuid },
+    /// Three people already mesh-connected, browsing for one solo (3v1 → 4 total).
+    Party3 { a: Uuid, b: Uuid, c: Uuid },
 }
 
 pub struct Client {
@@ -263,6 +267,8 @@ pub struct SimpleHub {
     report_reporters: HashMap<String, HashSet<String>>,
     /// user_id → ban expiry (unix seconds)
     match_bans: HashMap<String, u64>,
+    /// In-memory ring of recent matches for admin (not persisted across restart).
+    recent_matches: VecDeque<serde_json::Value>,
     /// Friend DMs: conversation_key → messages (newest last)
     dms: HashMap<String, Vec<friends_store::StoredDm>>,
     /// user_id → public star count (cache; authority is star_ledger)
@@ -299,6 +305,8 @@ pub struct SimpleHub {
     fed_outbox: VecDeque<FedOutbound>,
     /// Pending find-third invite (stranger 1v1 → party of 2). Keyed by either peer for lookup.
     find_third_pending: Option<FindThirdPending>,
+    /// Pending “join my live 1v1 as 3rd” ring (inviter keeps talking to `keep`).
+    join_call_pending: Option<JoinCallPending>,
     /// In-memory daily metrics (flushed to metrics.jsonl).
     metrics: DayMetrics,
 }
@@ -308,6 +316,15 @@ pub struct SimpleHub {
 struct FindThirdPending {
     from: Uuid,
     to: Uuid,
+    expires: Instant,
+}
+
+/// A is in 1v1 with `keep`, ringing `to` to join without dropping `keep`.
+#[derive(Clone, Debug)]
+struct JoinCallPending {
+    from: Uuid,
+    to: Uuid,
+    keep: Uuid,
     expires: Instant,
 }
 
@@ -575,6 +592,7 @@ impl SimpleHub {
             pending: stored.pending,
             report_reporters: stored.report_reporters,
             match_bans: stored.match_bans,
+            recent_matches: VecDeque::new(),
             dms: stored.dms,
             star_counts,
             star_ledger,
@@ -595,6 +613,7 @@ impl SimpleHub {
             fed_by_client: HashMap::new(),
             fed_outbox: VecDeque::new(),
             find_third_pending: None,
+            join_call_pending: None,
             metrics: DayMetrics {
                 day: utc_day(),
                 ..DayMetrics::default()
@@ -1117,6 +1136,22 @@ impl SimpleHub {
                     self.star_counts.insert(uid.to_string(), bal);
                 }
                 self.persist_friends();
+                // Push live balance to connected client (hello_ok only runs once per session).
+                if let Some(&cid) = self.by_user.get(uid) {
+                    let trust = self.trust_for(uid);
+                    self.send(
+                        cid,
+                        ServerMsg::RateResult {
+                            ok: true,
+                            user_id: uid.to_string(),
+                            star: true,
+                            amount,
+                            stars: bal,
+                            trust,
+                            message: format!("admin grant · ★{amount} (balance ★{bal})"),
+                        },
+                    );
+                }
                 tracing::info!(
                     seq = ev.seq,
                     %uid,
@@ -2469,16 +2504,24 @@ impl SimpleHub {
 
     /// Severity → (weight needed, ban duration secs).
     /// Underage: single independent report → long restriction (ops review via log).
+    /// Explicit (human or AI-flagged): 2 unique weighted reports → 90 days
+    /// (was 7d; jerks should not bounce back quickly). Permanent via admin.
     fn report_severity(reason: &str) -> (usize, u64) {
         let r = reason.trim().to_ascii_lowercase();
         match r.as_str() {
             "underage" => (1, 30 * 24 * 3600),
-            "explicit" | "explicit_ai" => (2, 7 * 24 * 3600),
-            "harassment" | "hate" => (2, 7 * 24 * 3600),
-            "spam" | "scam" => (3, 3 * 24 * 3600),
+            // Human explicit: 90 days. AI path uses same base; threshold +1 elsewhere.
+            "explicit" | "explicit_ai" => (2, 90 * 24 * 3600),
+            "harassment" | "hate" => (2, 14 * 24 * 3600),
+            "spam" | "scam" => (3, 7 * 24 * 3600),
             _ => (Self::REPORT_BAN_THRESHOLD, Self::REPORT_BAN_SECS),
         }
     }
+
+    /// Permanent match ban far-future unix (~year 2200).
+    const PERMANENT_BAN_UNTIL: u64 = 7_258_118_400;
+    /// Max recent matches kept for /v1/admin/recent_matches.
+    const MAX_RECENT_MATCHES: usize = 80;
 
     /// Report weight from **effective trust** (decay + gifter floors):
     /// 3 if ≥250, 2 if ≥100, else 1. Hour/admin balance mints do not raise power.
@@ -2561,27 +2604,44 @@ impl SimpleHub {
                 self.clients.get(a).map(|c| c.stranger_party).unwrap_or(false)
                     || self.clients.get(b).map(|c| c.stranger_party).unwrap_or(false)
             }
+            QueueEntry::Party3 { a, b, c } => [a, b, c].iter().any(|id| {
+                self.clients
+                    .get(id)
+                    .map(|cl| cl.stranger_party)
+                    .unwrap_or(false)
+            }),
             _ => false,
         }
     }
 
-    /// Stranger-formed parties (find-third) only hunt one solo — never party↔party.
+    /// Stranger-formed parties only hunt one solo — never party↔party (2v2/3v3).
     fn stranger_party_blocks_2v2(&self, left: &QueueEntry, right: &QueueEntry) -> bool {
-        matches!(left, QueueEntry::Party { .. })
-            && matches!(right, QueueEntry::Party { .. })
+        let left_party = matches!(left, QueueEntry::Party { .. } | QueueEntry::Party3 { .. });
+        let right_party = matches!(right, QueueEntry::Party { .. } | QueueEntry::Party3 { .. });
+        left_party
+            && right_party
             && (self.entry_is_stranger_party(left) || self.entry_is_stranger_party(right))
     }
 
     /// Entries may match only if no member of left is blocked vs any member of right.
+    /// Allowed: solo↔solo, solo↔party2, solo↔party3, party2↔party2. No party3↔party*.
     fn entries_compatible(&self, left: &QueueEntry, right: &QueueEntry) -> bool {
-        let left_ids: Vec<Uuid> = match left {
-            QueueEntry::Solo(id) => vec![*id],
-            QueueEntry::Party { a, b } => vec![*a, *b],
+        // Shape gate
+        let shape_ok = match (left, right) {
+            (QueueEntry::Solo(_), QueueEntry::Solo(_)) => true,
+            (QueueEntry::Solo(_), QueueEntry::Party { .. })
+            | (QueueEntry::Party { .. }, QueueEntry::Solo(_)) => true,
+            (QueueEntry::Solo(_), QueueEntry::Party3 { .. })
+            | (QueueEntry::Party3 { .. }, QueueEntry::Solo(_)) => true,
+            (QueueEntry::Party { .. }, QueueEntry::Party { .. }) => true,
+            // Party3 only matches solos (3v1), never other parties
+            (QueueEntry::Party3 { .. }, _) | (_, QueueEntry::Party3 { .. }) => false,
         };
-        let right_ids: Vec<Uuid> = match right {
-            QueueEntry::Solo(id) => vec![*id],
-            QueueEntry::Party { a, b } => vec![*a, *b],
-        };
+        if !shape_ok {
+            return false;
+        }
+        let left_ids = Self::queue_entry_ids(left);
+        let right_ids = Self::queue_entry_ids(right);
         for a in &left_ids {
             if self.is_match_banned_conn(*a) {
                 return false;
@@ -2593,8 +2653,6 @@ impl SimpleHub {
                 if self.is_blocked_pair_conn(*a, *b) {
                     return false;
                 }
-                // last_partner is soft-only (see is_last_partner_rematch) so two
-                // people can rematch after Stop when no one else is waiting.
             }
         }
         true
@@ -2641,6 +2699,24 @@ impl SimpleHub {
                 }
                 true
             }
+            (QueueEntry::Solo(s), QueueEntry::Party3 { a, b, c })
+            | (QueueEntry::Party3 { a, b, c }, QueueEntry::Solo(s)) => {
+                let Some(cs) = self.clients.get(s) else {
+                    return false;
+                };
+                for pid in [a, b, c] {
+                    let Some(cp) = self.clients.get(pid) else {
+                        return false;
+                    };
+                    if !looking_accepts(&cs.looking, &cp.gender)
+                        || !looking_accepts(&cp.looking, &cs.gender)
+                        || !tags_soft_ok(&cs.tags, &cp.tags)
+                    {
+                        return false;
+                    }
+                }
+                true
+            }
             _ => true,
         }
     }
@@ -2653,6 +2729,14 @@ impl SimpleHub {
                 .get(id)
                 .map(|c| self.effective_trust_for(&c.user_id))
                 .unwrap_or(0),
+            QueueEntry::Party3 { a, b, c } => {
+                [*a, *b, *c]
+                    .iter()
+                    .filter_map(|id| self.clients.get(id))
+                    .map(|c| self.effective_trust_for(&c.user_id))
+                    .max()
+                    .unwrap_or(0)
+            }
             QueueEntry::Party { a, b } => {
                 let ta = self
                     .clients
@@ -3285,7 +3369,8 @@ impl SimpleHub {
             friend_code: String::new(),
             flag: String::new(),
             avatar: String::new(),
-            stars: self.effective_trust_for(&remote.user_id),
+            stars: self.stars_for(&remote.user_id),
+            trust: self.effective_trust_for(&remote.user_id),
             effect: eff,
             effect_until: eff_until,
             effect_level: eff_level,
@@ -3388,7 +3473,9 @@ impl SimpleHub {
             .iter()
             .filter(|e| match e {
                 QueueEntry::Solo(id) => self.room_of(*id) == *room,
-                QueueEntry::Party { a, .. } => self.room_of(*a) == *room,
+                QueueEntry::Party { a, .. } | QueueEntry::Party3 { a, .. } => {
+                    self.room_of(*a) == *room
+                }
             })
             .count()
     }
@@ -3708,7 +3795,32 @@ impl SimpleHub {
         self.queue.retain(|e| match e {
             QueueEntry::Solo(x) => *x != id,
             QueueEntry::Party { a, b } => *a != id && *b != id,
+            QueueEntry::Party3 { a, b, c } => *a != id && *b != id && *c != id,
         });
+    }
+
+    fn queue_entry_ids(e: &QueueEntry) -> Vec<Uuid> {
+        match e {
+            QueueEntry::Solo(id) => vec![*id],
+            QueueEntry::Party { a, b } => vec![*a, *b],
+            QueueEntry::Party3 { a, b, c } => vec![*a, *b, *c],
+        }
+    }
+
+    fn queue_entry_waiting_ok(&self, e: &QueueEntry) -> bool {
+        Self::queue_entry_ids(e).into_iter().all(|id| {
+            self.clients
+                .get(&id)
+                .map(|c| c.phase == Phase::Waiting)
+                .unwrap_or(false)
+        })
+    }
+
+    fn queue_entry_room(&self, e: &QueueEntry) -> String {
+        match e {
+            QueueEntry::Solo(id) => self.room_of(*id),
+            QueueEntry::Party { a, .. } | QueueEntry::Party3 { a, .. } => self.room_of(*a),
+        }
     }
 
     fn unmatch_one(&mut self, id: Uuid, detail: &str) {
@@ -3893,7 +4005,7 @@ impl SimpleHub {
                 } else {
                     "friend"
                 };
-                (Self::match_peer(ca, cb, role, self.effective_trust_for(&cb.user_id), self.effect_snapshot_for(&cb.user_id).0, self.effect_snapshot_for(&cb.user_id).1, self.effect_snapshot_for(&cb.user_id).2), display_label(cb))
+                (self.match_peer(ca, cb, role, self.effect_snapshot_for(&cb.user_id).0, self.effect_snapshot_for(&cb.user_id).1, self.effect_snapshot_for(&cb.user_id).2), display_label(cb))
             };
             let offerer = peer.is_offerer;
             self.send(
@@ -3975,11 +4087,13 @@ impl SimpleHub {
         (session_id.clone(), format!("simple:{session_id}"))
     }
 
+    /// Build match payload for `to` as seen by `from`.
+    /// Badge number = spendable balance; `trust` = reputation for tier chrome.
     fn match_peer(
+        &self,
         from: &Client,
         to: &Client,
         role: &str,
-        stars: u64,
         effect: String,
         effect_until: u64,
         effect_level: u32,
@@ -3994,7 +4108,8 @@ impl SimpleHub {
             friend_code: to.friend_code.clone(),
             flag: to.flag.clone(),
             avatar: to.avatar.clone(),
-            stars,
+            stars: self.stars_for(&to.user_id),
+            trust: self.effective_trust_for(&to.user_id),
             effect,
             effect_until,
             effect_level: effect_level.max(1).min(3),
@@ -4017,7 +4132,7 @@ impl SimpleHub {
             let (peer, label) = {
                 let ca = self.clients.get(&me).unwrap();
                 let cb = self.clients.get(&them).unwrap();
-                (Self::match_peer(ca, cb, "friend", self.effective_trust_for(&cb.user_id), self.effect_snapshot_for(&cb.user_id).0, self.effect_snapshot_for(&cb.user_id).1, self.effect_snapshot_for(&cb.user_id).2), display_label(cb))
+                (self.match_peer(ca, cb, "friend", self.effect_snapshot_for(&cb.user_id).0, self.effect_snapshot_for(&cb.user_id).1, self.effect_snapshot_for(&cb.user_id).2), display_label(cb))
             };
             if let Some(c) = self.clients.get_mut(&me) {
                 c.phase = Phase::FriendCall;
@@ -4062,8 +4177,8 @@ impl SimpleHub {
             let ca = self.clients.get(&a).unwrap();
             let cb = self.clients.get(&b).unwrap();
             vec![
-                Self::match_peer(cs, ca, "party", self.effective_trust_for(&ca.user_id), self.effect_snapshot_for(&ca.user_id).0, self.effect_snapshot_for(&ca.user_id).1, self.effect_snapshot_for(&ca.user_id).2),
-                Self::match_peer(cs, cb, "party", self.effective_trust_for(&cb.user_id), self.effect_snapshot_for(&cb.user_id).0, self.effect_snapshot_for(&cb.user_id).1, self.effect_snapshot_for(&cb.user_id).2),
+                self.match_peer(cs, ca, "party", self.effect_snapshot_for(&ca.user_id).0, self.effect_snapshot_for(&ca.user_id).1, self.effect_snapshot_for(&ca.user_id).2),
+                self.match_peer(cs, cb, "party", self.effect_snapshot_for(&cb.user_id).0, self.effect_snapshot_for(&cb.user_id).1, self.effect_snapshot_for(&cb.user_id).2),
             ]
         };
         // Party member A: stranger + teammate B (friend or find-third partner)
@@ -4079,8 +4194,8 @@ impl SimpleHub {
             let cs = self.clients.get(&solo).unwrap();
             let cb = self.clients.get(&b).unwrap();
             vec![
-                Self::match_peer(ca, cs, "stranger", self.effective_trust_for(&cs.user_id), self.effect_snapshot_for(&cs.user_id).0, self.effect_snapshot_for(&cs.user_id).1, self.effect_snapshot_for(&cs.user_id).2),
-                Self::match_peer(ca, cb, mate_role, self.effective_trust_for(&cb.user_id), self.effect_snapshot_for(&cb.user_id).0, self.effect_snapshot_for(&cb.user_id).1, self.effect_snapshot_for(&cb.user_id).2),
+                self.match_peer(ca, cs, "stranger", self.effect_snapshot_for(&cs.user_id).0, self.effect_snapshot_for(&cs.user_id).1, self.effect_snapshot_for(&cs.user_id).2),
+                self.match_peer(ca, cb, mate_role, self.effect_snapshot_for(&cb.user_id).0, self.effect_snapshot_for(&cb.user_id).1, self.effect_snapshot_for(&cb.user_id).2),
             ]
         };
         let b_peers = {
@@ -4088,8 +4203,8 @@ impl SimpleHub {
             let cs = self.clients.get(&solo).unwrap();
             let ca = self.clients.get(&a).unwrap();
             vec![
-                Self::match_peer(cb, cs, "stranger", self.effective_trust_for(&cs.user_id), self.effect_snapshot_for(&cs.user_id).0, self.effect_snapshot_for(&cs.user_id).1, self.effect_snapshot_for(&cs.user_id).2),
-                Self::match_peer(cb, ca, mate_role, self.effective_trust_for(&ca.user_id), self.effect_snapshot_for(&ca.user_id).0, self.effect_snapshot_for(&ca.user_id).1, self.effect_snapshot_for(&ca.user_id).2),
+                self.match_peer(cb, cs, "stranger", self.effect_snapshot_for(&cs.user_id).0, self.effect_snapshot_for(&cs.user_id).1, self.effect_snapshot_for(&cs.user_id).2),
+                self.match_peer(cb, ca, mate_role, self.effect_snapshot_for(&ca.user_id).0, self.effect_snapshot_for(&ca.user_id).1, self.effect_snapshot_for(&ca.user_id).2),
             ]
         };
 
@@ -4154,6 +4269,43 @@ impl SimpleHub {
                 peers: b_peers,
             },
         );
+        {
+            let us = self
+                .clients
+                .get(&solo)
+                .map(|c| c.user_id.clone())
+                .unwrap_or_default();
+            let ua = self
+                .clients
+                .get(&a)
+                .map(|c| c.user_id.clone())
+                .unwrap_or_default();
+            let ub = self
+                .clients
+                .get(&b)
+                .map(|c| c.user_id.clone())
+                .unwrap_or_default();
+            let ns = self
+                .clients
+                .get(&solo)
+                .map(display_label)
+                .unwrap_or_default();
+            let na = self
+                .clients
+                .get(&a)
+                .map(display_label)
+                .unwrap_or_default();
+            let nb = self
+                .clients
+                .get(&b)
+                .map(display_label)
+                .unwrap_or_default();
+            // Record solo vs each party member for ban triage
+            self.push_recent_match("party_1v2", &us, &ua, &ns, &na);
+            if ub != ua {
+                self.push_recent_match("party_1v2", &us, &ub, &ns, &nb);
+            }
+        }
         tracing::info!(%solo, %a, %b, "party vs solo matched (1v2)");
         self.broadcast_lobby_info();
     }
@@ -4182,9 +4334,9 @@ impl SimpleHub {
             let c_o1 = self.clients.get(&o1).unwrap();
             let c_o2 = self.clients.get(&o2).unwrap();
             vec![
-                Self::match_peer(c_me, c_o1, "stranger", self.effective_trust_for(&c_o1.user_id), self.effect_snapshot_for(&c_o1.user_id).0, self.effect_snapshot_for(&c_o1.user_id).1, self.effect_snapshot_for(&c_o1.user_id).2),
-                Self::match_peer(c_me, c_o2, "stranger", self.effective_trust_for(&c_o2.user_id), self.effect_snapshot_for(&c_o2.user_id).0, self.effect_snapshot_for(&c_o2.user_id).1, self.effect_snapshot_for(&c_o2.user_id).2),
-                Self::match_peer(c_me, c_f, "friend", self.effective_trust_for(&c_f.user_id), self.effect_snapshot_for(&c_f.user_id).0, self.effect_snapshot_for(&c_f.user_id).1, self.effect_snapshot_for(&c_f.user_id).2),
+                self.match_peer(c_me, c_o1, "stranger", self.effect_snapshot_for(&c_o1.user_id).0, self.effect_snapshot_for(&c_o1.user_id).1, self.effect_snapshot_for(&c_o1.user_id).2),
+                self.match_peer(c_me, c_o2, "stranger", self.effect_snapshot_for(&c_o2.user_id).0, self.effect_snapshot_for(&c_o2.user_id).1, self.effect_snapshot_for(&c_o2.user_id).2),
+                self.match_peer(c_me, c_f, "friend", self.effect_snapshot_for(&c_f.user_id).0, self.effect_snapshot_for(&c_f.user_id).1, self.effect_snapshot_for(&c_f.user_id).2),
             ]
         };
 
@@ -4262,7 +4414,7 @@ impl SimpleHub {
             let (peer, label) = {
                 let ca = self.clients.get(&me).unwrap();
                 let cb = self.clients.get(&them).unwrap();
-                (Self::match_peer(ca, cb, "stranger", self.effective_trust_for(&cb.user_id), self.effect_snapshot_for(&cb.user_id).0, self.effect_snapshot_for(&cb.user_id).1, self.effect_snapshot_for(&cb.user_id).2), display_label(cb))
+                (self.match_peer(ca, cb, "stranger", self.effect_snapshot_for(&cb.user_id).0, self.effect_snapshot_for(&cb.user_id).1, self.effect_snapshot_for(&cb.user_id).2), display_label(cb))
             };
             if let Some(c) = self.clients.get_mut(&me) {
                 c.phase = Phase::Matched;
@@ -4287,7 +4439,24 @@ impl SimpleHub {
                 },
             );
         }
-        tracing::info!(%a, %b, "solo matched");
+        let (ua, ub) = {
+            let ca = self.clients.get(&a);
+            let cb = self.clients.get(&b);
+            (
+                ca.map(|c| c.user_id.clone()).unwrap_or_default(),
+                cb.map(|c| c.user_id.clone()).unwrap_or_default(),
+            )
+        };
+        let (na, nb) = {
+            let ca = self.clients.get(&a);
+            let cb = self.clients.get(&b);
+            (
+                ca.map(display_label).unwrap_or_default(),
+                cb.map(display_label).unwrap_or_default(),
+            )
+        };
+        tracing::info!(%a, %b, user_a = %ua, user_b = %ub, "solo matched");
+        self.push_recent_match("solo", &ua, &ub, &na, &nb);
         self.broadcast_lobby_info();
     }
 
@@ -4332,6 +4501,210 @@ impl SimpleHub {
             c.session_peers = HashSet::from([a]);
             c.partner = Some(a);
         }
+    }
+
+    /// Three already-connected people browse for one solo stranger (3v1).
+    fn enqueue_party3(&mut self, a: Uuid, b: Uuid, c: Uuid) {
+        let now = Instant::now();
+        let mut ids = [a, b, c];
+        ids.sort_by_key(|u| *u.as_bytes());
+        let (qa, qb, qc) = (ids[0], ids[1], ids[2]);
+        for id in [a, b, c] {
+            if let Some(cl) = self.clients.get_mut(&id) {
+                if cl.wait_started.is_none() {
+                    cl.wait_started = Some(now);
+                }
+            }
+            self.dequeue_client(id);
+        }
+        self.queue
+            .push_back(QueueEntry::Party3 { a: qa, b: qb, c: qc });
+        for id in [a, b, c] {
+            let mates: HashSet<Uuid> = [a, b, c].into_iter().filter(|x| *x != id).collect();
+            if let Some(cl) = self.clients.get_mut(&id) {
+                cl.phase = Phase::Waiting;
+                cl.session_peers = mates.clone();
+                cl.partner = mates.iter().next().copied();
+                // Primary "party_with" = first mate (UI may show one hangup target)
+                cl.party_with = mates.iter().next().copied();
+            }
+        }
+        // Notify all three they're co-searching for a 4th
+        self.notify_party3_browse_searching(a, b, c);
+    }
+
+    fn notify_party3_browse_searching(&mut self, a: Uuid, b: Uuid, c: Uuid) {
+        let room = self.room_of(a);
+        let (session_id, session_key) = {
+            let ca = self.clients.get(&a).map(|x| x.peer_id.clone()).unwrap_or_default();
+            let cb = self.clients.get(&b).map(|x| x.peer_id.clone()).unwrap_or_default();
+            let cc = self.clients.get(&c).map(|x| x.peer_id.clone()).unwrap_or_default();
+            Self::make_session_id(&[&ca, &cb, &cc, "p3search"])
+        };
+        for (me, others) in [
+            (a, vec![b, c]),
+            (b, vec![a, c]),
+            (c, vec![a, b]),
+        ] {
+            let peers: Vec<_> = {
+                let Some(cm) = self.clients.get(&me) else {
+                    continue;
+                };
+                others
+                    .iter()
+                    .filter_map(|&oid| {
+                        let co = self.clients.get(&oid)?;
+                        let snap = self.effect_snapshot_for(&co.user_id);
+                        let role = if cm.friend_call == Some(oid)
+                            || co.friend_call == Some(me)
+                        {
+                            "friend"
+                        } else {
+                            "teammate"
+                        };
+                        Some(self.match_peer(cm, co, role, snap.0, snap.1, snap.2))
+                    })
+                    .collect()
+            };
+            if peers.is_empty() {
+                continue;
+            }
+            self.send(
+                me,
+                ServerMsg::Matched {
+                    partner_short: "searching…".into(),
+                    session_id: session_id.clone(),
+                    session_key: session_key.clone(),
+                    is_offerer: false,
+                    room: room.clone(),
+                    mode: "party_browse".into(),
+                    your_role: "party".into(),
+                    peers,
+                },
+            );
+            self.status(me, "party of 3 — searching for a stranger (3v1)");
+        }
+    }
+
+    /// Solo S ↔ party of 3 (A,B,C). Four people total. Max session size.
+    fn start_party3_vs_solo(&mut self, solo: Uuid, a: Uuid, b: Uuid, c: Uuid) {
+        let room = self.room_of(solo);
+        let (session_id, session_key) = {
+            let cs = self.clients.get(&solo).unwrap();
+            let ca = self.clients.get(&a).unwrap();
+            let cb = self.clients.get(&b).unwrap();
+            let cc = self.clients.get(&c).unwrap();
+            Self::make_session_id(&[
+                &cs.peer_id,
+                &ca.peer_id,
+                &cb.peer_id,
+                &cc.peer_id,
+                "p3",
+            ])
+        };
+        let snap = |uid: &str| self.effect_snapshot_for(uid);
+        let mate_role = if [a, b, c].iter().any(|id| {
+            self.clients
+                .get(id)
+                .map(|cl| cl.stranger_party)
+                .unwrap_or(false)
+        }) {
+            "teammate"
+        } else {
+            "friend"
+        };
+
+        let solo_peers = {
+            let cs = self.clients.get(&solo).unwrap();
+            [a, b, c]
+                .iter()
+                .map(|&pid| {
+                    let cp = self.clients.get(&pid).unwrap();
+                    let s = snap(&cp.user_id);
+                    self.match_peer(cs, cp, "party", s.0, s.1, s.2)
+                })
+                .collect::<Vec<_>>()
+        };
+
+        let party_peers_for = |me: Uuid, m1: Uuid, m2: Uuid| {
+            let cm = self.clients.get(&me).unwrap();
+            let cs = self.clients.get(&solo).unwrap();
+            let c1 = self.clients.get(&m1).unwrap();
+            let c2 = self.clients.get(&m2).unwrap();
+            let ss = snap(&cs.user_id);
+            let s1 = snap(&c1.user_id);
+            let s2 = snap(&c2.user_id);
+            vec![
+                self.match_peer(cm, cs, "stranger", ss.0, ss.1, ss.2),
+                self.match_peer(cm, c1, mate_role, s1.0, s1.1, s1.2),
+                self.match_peer(cm, c2, mate_role, s2.0, s2.1, s2.2),
+            ]
+        };
+        let a_peers = party_peers_for(a, b, c);
+        let b_peers = party_peers_for(b, a, c);
+        let c_peers = party_peers_for(c, a, b);
+
+        let set_matched =
+            |clients: &mut HashMap<Uuid, Client>, id: Uuid, peers: &[Uuid], party: Option<Uuid>| {
+                if let Some(cl) = clients.get_mut(&id) {
+                    cl.phase = Phase::Matched;
+                    cl.session_id = Some(session_id.clone());
+                    cl.session_peers = peers.iter().copied().collect();
+                    cl.partner = peers.first().copied();
+                    cl.party_with = party;
+                    cl.match_started = Some(Instant::now());
+                }
+            };
+        set_matched(&mut self.clients, solo, &[a, b, c], None);
+        set_matched(&mut self.clients, a, &[solo, b, c], Some(b));
+        set_matched(&mut self.clients, b, &[solo, a, c], Some(a));
+        set_matched(&mut self.clients, c, &[solo, a, b], Some(a));
+
+        let partner_short_solo = format!(
+            "{}+{}+{}",
+            display_label(&self.clients[&a]),
+            display_label(&self.clients[&b]),
+            display_label(&self.clients[&c])
+        );
+        self.send(
+            solo,
+            ServerMsg::Matched {
+                partner_short: partner_short_solo,
+                session_id: session_id.clone(),
+                session_key: session_key.clone(),
+                is_offerer: solo_peers.iter().any(|p| p.is_offerer),
+                room: room.clone(),
+                mode: "party_browse".into(),
+                your_role: "solo".into(),
+                peers: solo_peers,
+            },
+        );
+        for (pid, peers) in [(a, a_peers), (b, b_peers), (c, c_peers)] {
+            self.send(
+                pid,
+                ServerMsg::Matched {
+                    partner_short: display_label(&self.clients[&solo]),
+                    session_id: session_id.clone(),
+                    session_key: session_key.clone(),
+                    is_offerer: peers.iter().any(|p| p.is_offerer && p.role == "stranger"),
+                    room: room.clone(),
+                    mode: "party_browse".into(),
+                    your_role: "party".into(),
+                    peers,
+                },
+            );
+        }
+        {
+            let us = self.clients.get(&solo).map(|x| x.user_id.clone()).unwrap_or_default();
+            let ns = self.clients.get(&solo).map(display_label).unwrap_or_default();
+            for pid in [a, b, c] {
+                let uid = self.clients.get(&pid).map(|x| x.user_id.clone()).unwrap_or_default();
+                let name = self.clients.get(&pid).map(display_label).unwrap_or_default();
+                self.push_recent_match("party_3v1", &us, &uid, &ns, &name);
+            }
+        }
+        tracing::info!(%solo, %a, %b, %c, "party3 vs solo matched (3v1)");
+        self.broadcast_lobby_info();
     }
 
     const FIND_THIRD_TTL_SECS: u64 = 30;
@@ -4388,13 +4761,34 @@ impl SimpleHub {
             && cb.session_peers.contains(&a)
     }
 
+    /// Mutual friend call 1v1 (Find 3rd / browse-together path).
+    fn is_friend_call_1v1_pair(&self, a: Uuid, b: Uuid) -> bool {
+        let (Some(ca), Some(cb)) = (self.clients.get(&a), self.clients.get(&b)) else {
+            return false;
+        };
+        if ca.friend_call != Some(b) || cb.friend_call != Some(a) {
+            return false;
+        }
+        if ca.party_with.is_some() || cb.party_with.is_some() {
+            return false;
+        }
+        // FriendCall phase, or still Matched after soft transitions
+        matches!(ca.phase, Phase::FriendCall | Phase::Matched)
+            && matches!(cb.phase, Phase::FriendCall | Phase::Matched)
+    }
+
+    /// Stranger 1v1 or friend call 1v1 — both can invite Find 3rd.
+    fn is_find_third_eligible_pair(&self, a: Uuid, b: Uuid) -> bool {
+        self.is_stranger_1v1_pair(a, b) || self.is_friend_call_1v1_pair(a, b)
+    }
+
     fn handle_find_third_invite(&mut self, id: Uuid) {
         self.expire_find_third_if_needed();
         let Some(partner) = self.clients.get(&id).and_then(|c| {
             if c.session_peers.len() == 1 {
                 c.session_peers.iter().next().copied()
             } else {
-                c.partner
+                c.partner.or(c.friend_call)
             }
         }) else {
             self.send(
@@ -4405,11 +4799,21 @@ impl SimpleHub {
             );
             return;
         };
-        if !self.is_stranger_1v1_pair(id, partner) {
+        if !self.is_find_third_eligible_pair(id, partner) {
+            let already_group = self
+                .clients
+                .get(&id)
+                .map(|c| c.session_peers.len() >= 2 || c.party_with.is_some())
+                .unwrap_or(false);
+            let msg = if already_group {
+                "already in a group (max 3 via Find 3rd). For 4 people: two pairs Browse together → 2v2 match"
+            } else {
+                "find third only during a 1v1 call (friend or stranger)"
+            };
             self.send(
                 id,
                 ServerMsg::Error {
-                    message: "find third only during a stranger 1v1".into(),
+                    message: msg.into(),
                 },
             );
             return;
@@ -4485,7 +4889,8 @@ impl SimpleHub {
             self.status(p.from, "partner declined find-third");
             return;
         }
-        if !self.is_stranger_1v1_pair(p.from, p.to) {
+        let is_friend_pair = self.is_friend_call_1v1_pair(p.from, p.to);
+        if !is_friend_pair && !self.is_stranger_1v1_pair(p.from, p.to) {
             for x in [p.from, p.to] {
                 self.send(
                     x,
@@ -4497,19 +4902,29 @@ impl SimpleHub {
             }
             return;
         }
-        // Form stranger party; keep WebRTC; enter queue for one solo
-        for x in [p.from, p.to] {
-            if let Some(c) = self.clients.get_mut(&x) {
-                c.stranger_party = true;
+        // Stranger 1v1 → stranger_party; friend call → keep friend link, not stranger_party
+        if !is_friend_pair {
+            for x in [p.from, p.to] {
+                if let Some(c) = self.clients.get_mut(&x) {
+                    c.stranger_party = true;
+                }
             }
         }
         self.enqueue_party(p.from, p.to);
-        // Notify both: accepted + re-matched as party_browse with teammate only
+        // Notify both: accepted + re-matched as party_browse with teammate/friend only
+        let mate_role = if is_friend_pair { "friend" } else { "teammate" };
         for (me, them) in [(p.from, p.to), (p.to, p.from)] {
             let peer = {
                 let ca = self.clients.get(&me).unwrap();
                 let cb = self.clients.get(&them).unwrap();
-                Self::match_peer(ca, cb, "teammate", self.effective_trust_for(&cb.user_id), self.effect_snapshot_for(&cb.user_id).0, self.effect_snapshot_for(&cb.user_id).1, self.effect_snapshot_for(&cb.user_id).2)
+                self.match_peer(
+                    ca,
+                    cb,
+                    mate_role,
+                    self.effect_snapshot_for(&cb.user_id).0,
+                    self.effect_snapshot_for(&cb.user_id).1,
+                    self.effect_snapshot_for(&cb.user_id).2,
+                )
             };
             let label = display_label(self.clients.get(&them).unwrap());
             let offerer = peer.is_offerer;
@@ -4541,7 +4956,12 @@ impl SimpleHub {
         }
         self.broadcast_lobby_info();
         self.try_match();
-        tracing::info!(a = %p.from, b = %p.to, "find_third accepted — party searching");
+        tracing::info!(
+            a = %p.from,
+            b = %p.to,
+            friend = is_friend_pair,
+            "find_third accepted — party searching"
+        );
     }
 
     fn handle_find_third_cancel(&mut self, id: Uuid) {
@@ -4576,32 +4996,11 @@ impl SimpleHub {
             let Some(first) = self.queue.pop_front() else { break };
 
             // Validate first entry still waiting
-            let first_ok = match &first {
-                QueueEntry::Solo(id) => self
-                    .clients
-                    .get(id)
-                    .map(|c| c.phase == Phase::Waiting)
-                    .unwrap_or(false),
-                QueueEntry::Party { a, b } => {
-                    self.clients
-                        .get(a)
-                        .map(|c| c.phase == Phase::Waiting)
-                        .unwrap_or(false)
-                        && self
-                            .clients
-                            .get(b)
-                            .map(|c| c.phase == Phase::Waiting)
-                            .unwrap_or(false)
-                }
-            };
-            if !first_ok {
+            if !self.queue_entry_waiting_ok(&first) {
                 continue;
             }
 
-            let room = match &first {
-                QueueEntry::Solo(id) => self.room_of(*id),
-                QueueEntry::Party { a, .. } => self.room_of(*a),
-            };
+            let room = self.queue_entry_room(&first);
 
             // Find compatible second entry:
             // 1) soft gender/tags prefs (not last partner) — best trust rank wins
@@ -4613,36 +5012,13 @@ impl SimpleHub {
             let mut found_fallback = None;
             let mut rematch_fallback = None;
             for (i, e) in self.queue.iter().enumerate() {
-                let eroom = match e {
-                    QueueEntry::Solo(id) => self.room_of(*id),
-                    QueueEntry::Party { a, .. } => self.room_of(*a),
-                };
-                if eroom != room {
+                if self.queue_entry_room(e) != room {
                     continue;
                 }
-                let ok = match e {
-                    QueueEntry::Solo(id) => self
-                        .clients
-                        .get(id)
-                        .map(|c| c.phase == Phase::Waiting)
-                        .unwrap_or(false),
-                    QueueEntry::Party { a, b } => {
-                        self.clients
-                            .get(a)
-                            .map(|c| c.phase == Phase::Waiting)
-                            .unwrap_or(false)
-                            && self
-                                .clients
-                                .get(b)
-                                .map(|c| c.phase == Phase::Waiting)
-                                .unwrap_or(false)
-                    }
-                };
-                if !ok {
+                if !self.queue_entry_waiting_ok(e) {
                     continue;
                 }
-                // Allowed: solo↔solo (1v1), solo↔party (1v2), party↔party (2v2).
-                // Stranger find-third parties only match solos (never 2v2 → 4 people).
+                // Allowed: 1v1, 1v2, 3v1, 2v2 (see entries_compatible).
                 if !self.entries_compatible(&first, e) {
                     continue;
                 }
@@ -4702,6 +5078,15 @@ impl SimpleHub {
                     self.start_party_vs_solo(s, a, b);
                     self.metrics_inc_match();
                 }
+                (QueueEntry::Solo(s), QueueEntry::Party3 { a, b, c })
+                | (QueueEntry::Party3 { a, b, c }, QueueEntry::Solo(s)) => {
+                    for id in [s, a, b, c] {
+                        let w = self.take_wait_started(id);
+                        self.metrics_record_wait(w);
+                    }
+                    self.start_party3_vs_solo(s, a, b, c);
+                    self.metrics_inc_match();
+                }
                 (QueueEntry::Party { a: a1, b: a2 }, QueueEntry::Party { a: b1, b: b2 }) => {
                     for id in [a1, a2, b1, b2] {
                         let w = self.take_wait_started(id);
@@ -4709,6 +5094,10 @@ impl SimpleHub {
                     }
                     self.start_party_vs_party(a1, a2, b1, b2);
                     self.metrics_inc_match();
+                }
+                // Unreachable if entries_compatible is correct
+                _ => {
+                    tracing::warn!("try_match: unexpected pair shape — requeue");
                 }
             }
         }
@@ -4949,11 +5338,53 @@ impl SimpleHub {
                 } else {
                     normalize_room(&room)
                 };
+                // —— Party of 3 already mesh-connected → hunt solo (3v1) ——
+                let session: Vec<Uuid> = self
+                    .clients
+                    .get(&id)
+                    .map(|c| c.session_peers.iter().copied().collect())
+                    .unwrap_or_default();
+                let in_live_3 = matches!(
+                    self.clients.get(&id).map(|c| c.phase),
+                    Some(Phase::Matched) | Some(Phase::FriendCall)
+                ) && session.len() == 2;
+                if in_live_3 {
+                    let b = session[0];
+                    let c = session[1];
+                    // All three must still share the session
+                    let ok_b = self
+                        .clients
+                        .get(&b)
+                        .map(|cl| {
+                            cl.session_peers.contains(&id) && cl.session_peers.contains(&c)
+                        })
+                        .unwrap_or(false);
+                    let ok_c = self
+                        .clients
+                        .get(&c)
+                        .map(|cl| {
+                            cl.session_peers.contains(&id) && cl.session_peers.contains(&b)
+                        })
+                        .unwrap_or(false);
+                    if ok_b && ok_c {
+                        for pid in [id, b, c] {
+                            if let Some(cl) = self.clients.get_mut(&pid) {
+                                cl.room = room.clone();
+                            }
+                        }
+                        self.enqueue_party3(id, b, c);
+                        self.broadcast_lobby_info();
+                        self.try_match();
+                        return;
+                    }
+                }
+                // —— Classic: friend call pair (party of 2) ——
                 let Some(fid) = self.clients.get(&id).and_then(|c| c.friend_call) else {
                     self.send(
                         id,
                         ServerMsg::Error {
-                            message: "call a friend first".into(),
+                            message: "call a friend first, or form a group of 3 then search"
+                                .into(),
                         },
                     );
                     return;
@@ -4989,7 +5420,9 @@ impl SimpleHub {
             ClientMsg::ReportUser { user_id, reason } => {
                 self.handle_report_user(id, user_id, reason)
             }
-            ClientMsg::CallFriend { user_id } => self.handle_call_friend(id, user_id),
+            ClientMsg::CallFriend { user_id, join } => {
+                self.handle_call_friend(id, user_id, join)
+            }
             ClientMsg::RegisterPush {
                 token,
                 platform,
@@ -5137,9 +5570,21 @@ impl SimpleHub {
         let avatar = normalize_avatar(&avatar);
         let tags = normalize_tags(&tags);
 
-        // Kick previous connection for same user
+        // Kick previous connection for same user (one live tab per identity).
+        // Opening live.html twice / two browsers with the same export causes the
+        // old tab to drop mid-call — looks like “one person in one browser, 3rd in another”.
         if let Some(old) = self.by_user.get(&user_id).copied() {
             if old != id {
+                self.send(
+                    old,
+                    ServerMsg::Error {
+                        message: "session opened in another tab or browser — this tab was disconnected. Use only one live window per identity.".into(),
+                    },
+                );
+                self.status(
+                    old,
+                    "disconnected — opened elsewhere",
+                );
                 self.remove_client(old);
             }
         }
@@ -5491,8 +5936,17 @@ impl SimpleHub {
         }
         let mut banned = false;
         if report_score as usize >= effective_threshold {
-            let until = Self::now_unix().saturating_add(ban_secs);
+            let now = Self::now_unix();
             let prev = self.match_bans.get(&user_id).copied().unwrap_or(0);
+            // Explicit second strike (or still banned) → permanent
+            let is_explicit_kind = reason_s.eq_ignore_ascii_case("explicit")
+                || reason_s.eq_ignore_ascii_case("explicit_ai");
+            let escalate_permanent = is_explicit_kind && prev > 0;
+            let until = if escalate_permanent {
+                Self::PERMANENT_BAN_UNTIL
+            } else {
+                now.saturating_add(ban_secs)
+            };
             if until > prev {
                 self.match_bans.insert(user_id.clone(), until);
                 banned = true;
@@ -5506,6 +5960,7 @@ impl SimpleHub {
                     target_stars,
                     reason = %reason_s,
                     until,
+                    permanent = escalate_permanent,
                     "auto match-ban after weighted reports"
                 );
                 let short = if user_id.len() > 14 {
@@ -5673,12 +6128,18 @@ impl SimpleHub {
     }
 
     /// Manual match ban (seconds from now).
+    /// `secs == 0` (or ≥ 100 years) → permanent (until year ~2200).
     pub fn admin_ban(&mut self, user_id: &str, secs: u64) -> bool {
         let user_id = user_id.trim().to_string();
         if user_id.is_empty() {
             return false;
         }
-        let until = Self::now_unix().saturating_add(secs.max(60));
+        let permanent = secs == 0 || secs >= 100 * 365 * 24 * 3600;
+        let until = if permanent {
+            Self::PERMANENT_BAN_UNTIL
+        } else {
+            Self::now_unix().saturating_add(secs.max(60))
+        };
         self.match_bans.insert(user_id.clone(), until);
         self.persist_friends();
         if let Some(&tid) = self.by_user.get(&user_id) {
@@ -5691,10 +6152,53 @@ impl SimpleHub {
             {
                 self.unmatch_one(tid, "restricted by operator");
             }
-            self.status(tid, "temporarily restricted");
+            self.status(
+                tid,
+                if permanent {
+                    "permanently restricted"
+                } else {
+                    "temporarily restricted"
+                },
+            );
         }
-        tracing::warn!(%user_id, until, "admin ban");
+        tracing::warn!(%user_id, until, permanent, "admin ban");
         true
+    }
+
+    /// In-memory recent matches for operator triage (not persisted).
+    pub fn admin_recent_matches(&self, limit: usize) -> Vec<serde_json::Value> {
+        let lim = limit.clamp(1, 100);
+        self.recent_matches
+            .iter()
+            .rev()
+            .take(lim)
+            .cloned()
+            .collect()
+    }
+
+    fn push_recent_match(
+        &mut self,
+        mode: &str,
+        user_a: &str,
+        user_b: &str,
+        name_a: &str,
+        name_b: &str,
+    ) {
+        if user_a.is_empty() && user_b.is_empty() {
+            return;
+        }
+        let entry = serde_json::json!({
+            "ts": Self::now_unix(),
+            "mode": mode,
+            "user_a": user_a,
+            "user_b": user_b,
+            "name_a": name_a,
+            "name_b": name_b,
+        });
+        self.recent_matches.push_back(entry);
+        while self.recent_matches.len() > Self::MAX_RECENT_MATCHES {
+            self.recent_matches.pop_front();
+        }
     }
 
     pub fn admin_report_targets(&self) -> Vec<serde_json::Value> {
@@ -5821,7 +6325,56 @@ impl SimpleHub {
         self.status(id, "user unblocked");
     }
 
-    fn handle_call_friend(&mut self, id: Uuid, user_id: String) {
+    /// True if client is in a pure 1v1 (friend call or stranger) that can invite a 3rd.
+    fn live_1v1_partner(&self, id: Uuid) -> Option<Uuid> {
+        let c = self.clients.get(&id)?;
+        if c.party_with.is_some() {
+            return None;
+        }
+        if c.session_peers.len() > 1 {
+            return None;
+        }
+        if let Some(f) = c.friend_call {
+            if matches!(c.phase, Phase::FriendCall | Phase::Matched) {
+                return Some(f);
+            }
+        }
+        if matches!(c.phase, Phase::Matched) && c.session_peers.len() == 1 {
+            return c.session_peers.iter().next().copied();
+        }
+        if let Some(p) = c.partner {
+            if matches!(c.phase, Phase::Matched | Phase::FriendCall) {
+                return Some(p);
+            }
+        }
+        None
+    }
+
+    fn expire_join_call_if_needed(&mut self) {
+        let Some(p) = self.join_call_pending.clone() else {
+            return;
+        };
+        if Instant::now() < p.expires {
+            return;
+        }
+        self.join_call_pending = None;
+        self.send(
+            p.from,
+            ServerMsg::CallEnded {
+                reason: "no answer".into(),
+            },
+        );
+        self.send(
+            p.to,
+            ServerMsg::CallEnded {
+                reason: "invite expired".into(),
+            },
+        );
+        self.status(p.from, "join invite expired");
+    }
+
+    fn handle_call_friend(&mut self, id: Uuid, user_id: String, join: bool) {
+        self.expire_join_call_if_needed();
         let Some(me) = self.clients.get(&id) else { return };
         let my_uid = me.user_id.clone();
         let my_name = me.name.clone();
@@ -5913,6 +6466,92 @@ impl SimpleHub {
             self.push_friends_list(id);
             return;
         };
+
+        // ——— Invite into current 1v1 as 3rd (do not hang up the other person) ———
+        if join {
+            let Some(keep) = self.live_1v1_partner(id) else {
+                self.send(
+                    id,
+                    ServerMsg::Error {
+                        message: "join invite needs an active 1v1 call first".into(),
+                    },
+                );
+                return;
+            };
+            if keep == oid {
+                self.send(
+                    id,
+                    ServerMsg::Error {
+                        message: "already in a call with them".into(),
+                    },
+                );
+                return;
+            }
+            // Target must be free
+            if !matches!(
+                self.clients.get(&oid).map(|c| c.phase),
+                Some(Phase::Idle) | None
+            ) {
+                // Idle only — also allow if not Matched/FriendCall/Waiting
+                let busy = matches!(
+                    self.clients.get(&oid).map(|c| c.phase),
+                    Some(Phase::FriendCall) | Some(Phase::Matched) | Some(Phase::Waiting)
+                );
+                if busy {
+                    self.send(
+                        id,
+                        ServerMsg::Error {
+                            message: "friend is busy — they must be free to join your call".into(),
+                        },
+                    );
+                    return;
+                }
+            }
+            if self.join_call_pending.is_some() || self.find_third_pending.is_some() {
+                self.send(
+                    id,
+                    ServerMsg::Error {
+                        message: "another invite is already pending".into(),
+                    },
+                );
+                return;
+            }
+            let with_name = self
+                .clients
+                .get(&keep)
+                .map(|c| display_label(c))
+                .unwrap_or_else(|| "partner".into());
+            let with_uid = self
+                .clients
+                .get(&keep)
+                .map(|c| c.user_id.clone())
+                .unwrap_or_default();
+            self.join_call_pending = Some(JoinCallPending {
+                from: id,
+                to: oid,
+                keep,
+                expires: Instant::now() + Duration::from_secs(45),
+            });
+            self.send(
+                oid,
+                ServerMsg::CallIncoming {
+                    from_user_id: my_uid,
+                    from_name: my_name,
+                    from_short: my_short,
+                    from_peer: my_peer,
+                    from_code: my_code,
+                    join: true,
+                    with_user_id: with_uid,
+                    with_name,
+                },
+            );
+            self.metrics_inc_call_ring();
+            self.status(id, "inviting friend to join your call…");
+            tracing::info!(%id, target = %oid, keep = %keep, "join_call invite");
+            return;
+        }
+
+        // ——— Classic private call (replaces current session) ———
         // Caller already in a friend call — hang up first
         if self.clients.get(&id).and_then(|c| c.friend_call).is_some() {
             self.end_friend_call(id, "left to call another friend");
@@ -5924,18 +6563,88 @@ impl SimpleHub {
         ) {
             self.stop_matchmaking(id);
         }
+        // Target already talking: pure 1v1 → ring them so they can *add you* without
+        // dropping their partner. Group / party sessions still reject.
         if matches!(
             self.clients.get(&oid).map(|c| c.phase),
             Some(Phase::FriendCall) | Some(Phase::Matched)
         ) {
+            let multi = self
+                .clients
+                .get(&oid)
+                .map(|c| c.session_peers.len() >= 2 || c.party_with.is_some())
+                .unwrap_or(false);
+            if multi || self.live_1v1_partner(oid).is_none() {
+                let msg = if multi {
+                    "friend is busy in a group call — hang up first. Invite them with Call while you are free, or use Find stranger together for 3."
+                } else {
+                    "friend is busy in another call"
+                };
+                self.send(
+                    id,
+                    ServerMsg::Error {
+                        message: msg.into(),
+                    },
+                );
+                return;
+            }
+            // Pure 1v1 — ring as “add me to your call” (callee keeps their partner)
+            let keep = self.live_1v1_partner(oid).unwrap();
+            if keep == id {
+                self.send(
+                    id,
+                    ServerMsg::Error {
+                        message: "already in a call with them".into(),
+                    },
+                );
+                return;
+            }
+            if self.join_call_pending.is_some() || self.find_third_pending.is_some() {
+                self.send(
+                    id,
+                    ServerMsg::Error {
+                        message: "another invite is already pending".into(),
+                    },
+                );
+                return;
+            }
+            let with_name = self
+                .clients
+                .get(&keep)
+                .map(display_label)
+                .unwrap_or_else(|| "partner".into());
+            let with_uid = self
+                .clients
+                .get(&keep)
+                .map(|c| c.user_id.clone())
+                .unwrap_or_default();
+            // Pending: from=caller, to=busy callee, keep=callee's current partner.
+            // On accept, callee hosts: start_three_person_join(callee, keep, caller).
+            self.join_call_pending = Some(JoinCallPending {
+                from: id,
+                to: oid,
+                keep,
+                expires: Instant::now() + Duration::from_secs(45),
+            });
             self.send(
-                id,
-                ServerMsg::Error {
-                    message: "friend is busy".into(),
+                oid,
+                ServerMsg::CallIncoming {
+                    from_user_id: my_uid,
+                    from_name: my_name,
+                    from_short: my_short,
+                    from_peer: my_peer,
+                    from_code: my_code,
+                    join: true,
+                    with_user_id: with_uid,
+                    with_name,
                 },
             );
+            self.metrics_inc_call_ring();
+            self.status(id, "calling — they can add you without hanging up…");
+            tracing::info!(%id, target = %oid, keep = %keep, "call_friend → add-to-busy-1v1");
             return;
         }
+        self.join_call_pending = None;
         self.send(
             oid,
             ServerMsg::CallIncoming {
@@ -5944,10 +6653,116 @@ impl SimpleHub {
                 from_short: my_short,
                 from_peer: my_peer,
                 from_code: my_code,
+                join: false,
+                with_user_id: String::new(),
+                with_name: String::new(),
             },
         );
         self.metrics_inc_call_ring();
         self.status(id, "calling friend…");
+    }
+
+    /// After C accepts join invite: keep A–B media, mesh C with both.
+    fn start_three_person_join(&mut self, a: Uuid, b: Uuid, c: Uuid) {
+        // a = inviter, b = keep (already with a), c = joiner
+        let (session_id, session_key) = {
+            let ca = self.clients.get(&a).unwrap();
+            let cb = self.clients.get(&b).unwrap();
+            let cc = self.clients.get(&c).unwrap();
+            Self::make_session_id(&[&ca.peer_id, &cb.peer_id, &cc.peer_id, "join3"])
+        };
+        let ab_friend = self.clients.get(&a).and_then(|x| x.friend_call) == Some(b)
+            || self.clients.get(&b).and_then(|x| x.friend_call) == Some(a);
+        let ab_role = if ab_friend { "friend" } else { "teammate" };
+
+        // Update session state — do not clear A–B WebRTC
+        for (id, peers, party) in [
+            (a, vec![b, c], Some(b)),
+            (b, vec![a, c], Some(a)),
+            (c, vec![a, b], None),
+        ] {
+            if let Some(cl) = self.clients.get_mut(&id) {
+                cl.phase = Phase::Matched;
+                cl.session_id = Some(session_id.clone());
+                cl.session_peers = peers.iter().copied().collect();
+                cl.partner = peers.first().copied();
+                cl.party_with = party;
+                cl.stranger_party = false;
+                cl.match_started = Some(Instant::now());
+                // Keep friend_call between a–b only
+                if id == c {
+                    cl.friend_call = None;
+                }
+            }
+        }
+
+        // Payloads: A & B stay "party" layout (mate + joiner as party role on 3rd tile)
+        // C is "solo" vs two party members (split 1v2 layout)
+        let peer_for = |from: Uuid, to: Uuid, role: &str| {
+            let ca = self.clients.get(&from).unwrap();
+            let cb = self.clients.get(&to).unwrap();
+            let snap = self.effect_snapshot_for(&cb.user_id);
+            self.match_peer(ca, cb, role, snap.0, snap.1, snap.2)
+        };
+
+        let a_peers = vec![
+            peer_for(a, b, ab_role),
+            peer_for(a, c, "party"), // layout: 3rd column
+        ];
+        let b_peers = vec![
+            peer_for(b, a, ab_role),
+            peer_for(b, c, "party"),
+        ];
+        let c_peers = vec![peer_for(c, a, "party"), peer_for(c, b, "party")];
+
+        self.send(
+            a,
+            ServerMsg::Matched {
+                partner_short: display_label(self.clients.get(&c).unwrap()),
+                session_id: session_id.clone(),
+                session_key: session_key.clone(),
+                is_offerer: a_peers.iter().any(|p| p.is_offerer && p.user_id == self.clients[&c].user_id),
+                room: self.room_of(a),
+                mode: "party_browse".into(),
+                your_role: "party".into(),
+                peers: a_peers,
+            },
+        );
+        self.send(
+            b,
+            ServerMsg::Matched {
+                partner_short: display_label(self.clients.get(&c).unwrap()),
+                session_id: session_id.clone(),
+                session_key: session_key.clone(),
+                is_offerer: b_peers.iter().any(|p| p.is_offerer && p.user_id == self.clients[&c].user_id),
+                room: self.room_of(b),
+                mode: "party_browse".into(),
+                your_role: "party".into(),
+                peers: b_peers,
+            },
+        );
+        self.send(
+            c,
+            ServerMsg::Matched {
+                partner_short: format!(
+                    "{}+{}",
+                    display_label(self.clients.get(&a).unwrap()),
+                    display_label(self.clients.get(&b).unwrap())
+                ),
+                session_id,
+                session_key,
+                is_offerer: c_peers.iter().any(|p| p.is_offerer),
+                room: self.room_of(c),
+                mode: "party_browse".into(),
+                your_role: "solo".into(),
+                peers: c_peers,
+            },
+        );
+        self.status(a, "friend joined your call");
+        self.status(b, "friend joined the call");
+        self.status(c, "you joined their call");
+        tracing::info!(%a, %b, %c, "three_person_join started");
+        self.broadcast_lobby_info();
     }
 
     fn handle_register_push(
@@ -6020,6 +6835,12 @@ impl SimpleHub {
         if my_uid.is_empty() || user_id.is_empty() {
             return;
         }
+        // Clear join-invite if this was a join ring
+        if let Some(p) = self.join_call_pending.clone() {
+            if p.from == id {
+                self.join_call_pending = None;
+            }
+        }
         // Tell callee the ring is over (if they still have that incoming UI).
         if let Some(&oid) = self.by_user.get(&user_id) {
             self.send(
@@ -6034,6 +6855,7 @@ impl SimpleHub {
     }
 
     fn handle_call_respond(&mut self, id: Uuid, from_user_id: String, accept: bool) {
+        self.expire_join_call_if_needed();
         let Some(&caller) = self.by_user.get(&from_user_id) else {
             self.send(
                 id,
@@ -6043,6 +6865,119 @@ impl SimpleHub {
             );
             return;
         };
+
+        // Join-existing-call path (invite 3rd without dropping the other person).
+        // Two shapes:
+        //  A) Outbound invite: host=caller already with keep; guest=id free → mesh (caller, keep, id)
+        //  B) Inbound ring to busy host: host=id already with keep; guest=caller free → mesh (id, keep, caller)
+        if let Some(p) = self.join_call_pending.clone() {
+            if p.to == id && p.from == caller {
+                self.join_call_pending = None;
+                if !accept {
+                    self.send(
+                        caller,
+                        ServerMsg::CallEnded {
+                            reason: "join declined".into(),
+                        },
+                    );
+                    self.status(caller, "join declined");
+                    return;
+                }
+                if !self.clients.contains_key(&p.keep) || !self.clients.contains_key(&caller) {
+                    self.send(
+                        id,
+                        ServerMsg::Error {
+                            message: "call ended — try again".into(),
+                        },
+                    );
+                    return;
+                }
+                // Friendship still required with inviter
+                let my_uid = self
+                    .clients
+                    .get(&id)
+                    .map(|c| c.user_id.clone())
+                    .unwrap_or_default();
+                let i_have = self
+                    .friendships
+                    .get(&my_uid)
+                    .map(|s| s.contains(&from_user_id))
+                    .unwrap_or(false);
+                let they_have = self
+                    .friendships
+                    .get(&from_user_id)
+                    .map(|s| s.contains(&my_uid))
+                    .unwrap_or(false);
+                if !i_have || !they_have {
+                    self.send(
+                        id,
+                        ServerMsg::Error {
+                            message: "not friends — only friends can join".into(),
+                        },
+                    );
+                    self.send(
+                        caller,
+                        ServerMsg::CallEnded {
+                            reason: "join failed — not friends".into(),
+                        },
+                    );
+                    return;
+                }
+                // B) Accepting while *you* already host a pure 1v1 → keep partner, caller joins
+                if let Some(keep) = self.live_1v1_partner(id) {
+                    if keep != caller {
+                        if matches!(
+                            self.clients.get(&caller).map(|c| c.phase),
+                            Some(Phase::Waiting)
+                        ) {
+                            self.stop_matchmaking(caller);
+                        } else if self
+                            .clients
+                            .get(&caller)
+                            .and_then(|c| c.friend_call)
+                            .is_some()
+                            && self.clients.get(&caller).and_then(|c| c.friend_call) != Some(id)
+                        {
+                            self.end_friend_call(caller, "left to join another call");
+                        } else if matches!(
+                            self.clients.get(&caller).map(|c| c.phase),
+                            Some(Phase::Matched)
+                        ) {
+                            self.stop_matchmaking(caller);
+                        }
+                        self.start_three_person_join(id, keep, caller);
+                        return;
+                    }
+                }
+                // A) Guest accepts invite into host's call (guest may need to leave first)
+                if matches!(
+                    self.clients.get(&id).map(|c| c.phase),
+                    Some(Phase::FriendCall) | Some(Phase::Matched) | Some(Phase::Waiting)
+                ) {
+                    if self.clients.get(&id).and_then(|c| c.friend_call).is_some() {
+                        self.end_friend_call(id, "left to join another call");
+                    }
+                    if matches!(
+                        self.clients.get(&id).map(|c| c.phase),
+                        Some(Phase::Matched) | Some(Phase::Waiting)
+                    ) {
+                        self.stop_matchmaking(id);
+                    }
+                }
+                if !self.clients.contains_key(&p.keep) {
+                    self.send(
+                        id,
+                        ServerMsg::Error {
+                            message: "call ended — try again".into(),
+                        },
+                    );
+                    return;
+                }
+                self.start_three_person_join(caller, p.keep, id);
+                return;
+            }
+        }
+
         if !accept {
             self.send(
                 caller,
@@ -6104,6 +7039,28 @@ impl SimpleHub {
             );
             return;
         }
+        // Callee already in a pure 1v1 (stranger or friend) — add caller as 3rd
+        // instead of hanging up the current conversationalist.
+        if let Some(keep) = self.live_1v1_partner(id) {
+            if keep != caller {
+                if self.clients.get(&caller).and_then(|c| c.friend_call).is_some() {
+                    if self.clients.get(&caller).and_then(|c| c.friend_call) != Some(id) {
+                        self.end_friend_call(caller, "left previous friend call");
+                    }
+                }
+                if matches!(
+                    self.clients.get(&caller).map(|c| c.phase),
+                    Some(Phase::Matched) | Some(Phase::Waiting)
+                ) {
+                    self.stop_matchmaking(caller);
+                } else {
+                    self.dequeue_client(caller);
+                }
+                self.join_call_pending = None;
+                self.start_three_person_join(id, keep, caller);
+                return;
+            }
+        }
         // Drop any stranger/queue/party state so friend 1:1 can start cleanly
         if self.clients.get(&id).and_then(|c| c.friend_call).is_some() {
             self.end_friend_call(id, "left previous friend call");
@@ -6124,6 +7081,7 @@ impl SimpleHub {
                 self.dequeue_client(cid);
             }
         }
+        self.join_call_pending = None;
         self.start_friend_session(caller, id);
     }
 
