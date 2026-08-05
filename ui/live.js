@@ -7980,13 +7980,28 @@ function isMultiPartyStage() {
  * Apply stack (vertical conversationalists) or equal grid layout.
  * Default stack; user can toggle to 2×2 equal windows.
  */
+/**
+ * Visible stage panes for layout chrome (includes “looking for 3rd” empty tile).
+ */
+function countVisibleStagePanes() {
+  let n = 1; // you
+  const rem = $("tile-remote");
+  if (rem && !rem.hidden) n++;
+  const t3 = $("tile-third");
+  if (t3 && !t3.hidden) n++;
+  const wrap = $("remote2-wrap");
+  if (wrap && !wrap.hidden) n++;
+  // Live remotes may add panes even if tile bookkeeping lags
+  n = Math.max(n, countLiveRemotePanes() + 1);
+  return Math.min(4, n);
+}
+
 function applyStageLayoutMode() {
   const stage = document.querySelector("main.stage");
   if (!stage) return;
-  const multi = isMultiPartyStage();
-  const remotes = countLiveRemotePanes();
-  // Windows including you when multi
-  const total = multi ? Math.min(4, remotes + 1) : 1;
+  const multi = isMultiPartyStage() || !!trioBrowse;
+  // Prefer visible tiles so find-3rd (empty third) still counts as 3-way
+  const total = multi ? countVisibleStagePanes() : 1;
   stage.classList.toggle("stage-multi", multi);
   stage.classList.toggle(
     "stage-layout-stack",
@@ -8020,13 +8035,12 @@ function applyStageLayoutMode() {
       if (!gridOn) stackIco.setAttribute("hidden", "");
       else stackIco.removeAttribute("hidden");
     }
+    // Title describes the layout you SWITCH TO when tapping
     const title = gridOn
-      ? _t("layout.stackTitle") ||
-        "Vertical stack — conversationalists lined up"
-      : _t("layout.gridTitle") || "Equal grid — up to 4 equal windows";
+      ? _t("layout.stackTitle") || "Vertical stack (partner · 3rd · you)"
+      : _t("layout.gridTitle") || "Equal 2×2 grid (up to 4 windows)";
     btn.title = title;
     btn.setAttribute("aria-label", title);
-    // First multi-party reveal: one soft tip so icon-only control is discoverable
     if (multi && wasHidden) {
       try {
         maybeShowLayoutTip();
@@ -8047,7 +8061,7 @@ function maybeShowLayoutTip() {
   }
   const msg =
     _t("layout.tip") ||
-    "Tap ▦ to switch vertical stack ↔ equal grid";
+    "Tap ▦ for equal 2×2 windows · ▤ back to vertical stack";
   try {
     setStatus(msg);
   } catch (_) {}

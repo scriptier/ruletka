@@ -2138,14 +2138,17 @@ a.brand:focus-visible {
   color: #eef2f7;
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
 }
-/* Mobile portrait trio: partner + third side-by-side; self inset on partner */
+/*
+ * Legacy trio grid only when user has NOT chosen stack/grid multi layout.
+ * Stack = vertical (default). Grid = 2×2 equal windows.
+ */
 @media (max-width: 900px) and (orientation: portrait) {
-  .stage.stage-trio {
+  .stage.stage-trio:not(.stage-layout-stack):not(.stage-layout-grid) {
     grid-template-columns: 1fr 1fr;
     grid-template-rows: 1fr;
   }
-  /* Only collapse local into PiP when multi-party is actually active */
-  .stage.stage-multi.stage-trio .tile-local {
+  /* PiP self only for legacy side-by-side trio (not stack/grid) */
+  .stage.stage-multi.stage-trio:not(.stage-layout-stack):not(.stage-layout-grid) .tile-local {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -2153,18 +2156,19 @@ a.brand:focus-visible {
     opacity: 0;
     pointer-events: none;
   }
-  .stage.stage-trio .local-in-partner-pip:not([hidden]) {
+  .stage.stage-trio:not(.stage-layout-stack):not(.stage-layout-grid)
+    .local-in-partner-pip:not([hidden]) {
     display: block;
   }
-  .stage.stage-trio .tile-third {
+  .stage.stage-trio:not(.stage-layout-stack):not(.stage-layout-grid) .tile-third {
     border-left: 1px solid rgba(255, 255, 255, 0.1);
   }
 }
 @media (max-width: 900px) and (orientation: landscape) {
-  .stage.stage-trio {
+  .stage.stage-trio:not(.stage-layout-stack):not(.stage-layout-grid) {
     grid-template-columns: 1fr 1fr 1fr;
   }
-  .stage.stage-trio .tile-local {
+  .stage.stage-trio:not(.stage-layout-stack):not(.stage-layout-grid) .tile-local {
     position: relative;
     width: auto;
     height: auto;
@@ -2172,9 +2176,32 @@ a.brand:focus-visible {
     pointer-events: auto;
     overflow: hidden;
   }
-  .stage.stage-trio .local-in-partner-pip {
+  .stage.stage-trio.stage-layout-stack .local-in-partner-pip,
+  .stage.stage-trio.stage-layout-grid .local-in-partner-pip {
     display: none !important;
   }
+}
+
+/* Stack/grid always win over legacy stage-trio column templates */
+.stage.stage-trio.stage-layout-stack,
+.stage.stage-trio.stage-layout-grid {
+  grid-template-columns: none !important;
+  grid-template-rows: none !important;
+}
+.stage.stage-trio.stage-layout-stack .tile-local,
+.stage.stage-trio.stage-layout-grid .tile-local {
+  position: relative !important;
+  width: auto !important;
+  height: auto !important;
+  min-height: 0 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  overflow: hidden !important;
+}
+.stage.stage-trio.stage-layout-stack .local-in-partner-pip,
+.stage.stage-trio.stage-layout-grid .local-in-partner-pip {
+  display: none !important;
 }
 
 /* Online friends while idle / searching (partner empty tile) */
@@ -17050,26 +17077,39 @@ html.match-live .tile-remote .side-rail-left,
 .stage.stage-multi.stage-layout-stack > .tile:last-child {
   border-bottom: none;
 }
-/* Conversationalists get more height; you stay a compact strip */
+/*
+ * Vertical 3-way: equal bands for partner + 3rd, solid strip for you.
+ * (Was 2.2 / 2.2 / tiny — felt broken; user wants clear vertical stack.)
+ */
 .stage.stage-multi.stage-layout-stack .tile-remote {
-  flex: 2.2 1 0;
+  flex: 1 1 0;
   order: 1;
+  min-height: 22%;
 }
 .stage.stage-multi.stage-layout-stack .tile-third:not([hidden]) {
   display: block !important;
-  flex: 2.2 1 0;
+  flex: 1 1 0;
   order: 2;
+  min-height: 22%;
 }
 .stage.stage-multi.stage-layout-stack .tile-local {
-  flex: 0 0 clamp(5.5rem, 18vh, 9.5rem);
+  flex: 0 0 clamp(7.25rem, 24vh, 12rem);
   order: 3;
-  max-height: 28%;
+  max-height: 32%;
+  min-height: 6.5rem;
+}
+/* 2-way stack (friend only / no third): partner dominant */
+.stage.stage-multi.stage-layout-stack:not(:has(.tile-third:not([hidden]))) .tile-remote {
+  flex: 1 1 auto;
+  min-height: 45%;
 }
 /*
  * CRITICAL: partner tray must not sit mid-screen between stack tiles.
  * Pin compose / Next / Stop to the bottom of the viewport (one dock).
  */
-.stage.stage-multi.stage-layout-stack .tile-floor-partner {
+.stage.stage-layout-stack .tile-floor-partner,
+.stage.stage-multi.stage-layout-stack .tile-floor-partner,
+.stage.stage-trio.stage-layout-stack .tile-floor-partner {
   position: fixed !important;
   left: 0 !important;
   right: 0 !important;
@@ -17089,32 +17129,91 @@ html.match-live .tile-remote .side-rail-left,
   pointer-events: none !important;
   box-sizing: border-box !important;
 }
+.stage.stage-layout-stack .tile-floor-partner > *,
 .stage.stage-multi.stage-layout-stack .tile-floor-partner > * {
   pointer-events: auto !important;
 }
-.stage.stage-multi.stage-layout-stack .tile-tray-partner {
+.stage.stage-layout-stack .tile-tray-partner {
   width: 100%;
   max-width: 56rem;
   margin: 0 auto;
 }
-/* Fullscreen + layout chips: keep on partner face (top), not mid-screen with old floor */
-.stage.stage-multi.stage-layout-stack .tile-remote .tile-fs-btn,
-.stage.stage-multi.stage-layout-stack .tile-remote .tile-layout-btn {
+/* Fullscreen + layout chips on partner face (top-right) */
+.stage.stage-layout-stack .tile-remote .tile-fs-btn,
+.stage.stage-layout-stack .tile-remote .tile-layout-btn {
   bottom: auto !important;
   top: 0.45rem !important;
   right: 0.45rem !important;
   z-index: 48 !important;
 }
-.stage.stage-multi.stage-layout-stack .tile-remote .tile-layout-btn {
+.stage.stage-layout-stack .tile-remote .tile-layout-btn {
   right: 2.85rem !important;
 }
-/* Local rail sits above the fixed dock */
-.stage.stage-multi.stage-layout-stack .tile-local .side-rail-right {
-  bottom: calc(0.35rem + 0px) !important;
+/* Local rail above fixed dock */
+.stage.stage-layout-stack .tile-local .side-rail-right {
+  bottom: 0.35rem !important;
 }
-.stage.stage-multi.stage-layout-stack .tile-local .tile-floor-local {
-  /* invite tray stays in local strip if any */
+.stage.stage-layout-stack .tile-local .tile-floor-local {
   padding-bottom: 0.25rem;
+}
+
+/* —— Equal 2×2 grid (up to 4 windows) —— */
+.stage.stage-multi.stage-layout-grid,
+.stage.stage-trio.stage-layout-grid {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  grid-template-rows: 1fr 1fr !important;
+  gap: 2px !important;
+  padding-bottom: 0 !important;
+}
+.stage.stage-multi.stage-layout-grid > .tile,
+.stage.stage-trio.stage-layout-grid > .tile {
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  border: none !important;
+  outline: 1px solid rgba(255, 255, 255, 0.08);
+}
+/* 3-way grid: partner | third / you | (empty keeps 2×2) */
+.stage.stage-multi.stage-layout-grid.stage-count-3 .tile-remote,
+.stage.stage-trio.stage-layout-grid.stage-count-3 .tile-remote {
+  grid-column: 1;
+  grid-row: 1;
+}
+.stage.stage-multi.stage-layout-grid.stage-count-3 .tile-third,
+.stage.stage-trio.stage-layout-grid.stage-count-3 .tile-third {
+  grid-column: 2;
+  grid-row: 1;
+  display: block !important;
+}
+.stage.stage-multi.stage-layout-grid.stage-count-3 .tile-local,
+.stage.stage-trio.stage-layout-grid.stage-count-3 .tile-local {
+  grid-column: 1;
+  grid-row: 2;
+  max-height: none !important;
+  flex: none !important;
+}
+/* 4-way: full 2×2 (remote / remote2 or third / local) */
+.stage.stage-multi.stage-layout-grid.stage-count-4 .tile-local {
+  grid-column: auto;
+  grid-row: auto;
+  max-height: none !important;
+}
+/* 2-way grid: side by side */
+.stage.stage-multi.stage-layout-grid.stage-count-2 {
+  grid-template-columns: 1fr 1fr !important;
+  grid-template-rows: 1fr !important;
+}
+.stage.stage-multi.stage-layout-grid.stage-count-2 .tile-local {
+  grid-column: 2;
+  grid-row: 1;
+}
+.stage.stage-multi.stage-layout-grid .tile-floor-partner {
+  position: absolute !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  z-index: 12 !important;
 }
 /* Stack all remotes inside partner column when split (1v2 / 3v1) */
 .stage.stage-multi.stage-layout-stack .remote-stack {
@@ -17160,10 +17259,10 @@ html.match-live .tile-remote .side-rail-left,
   object-fit: cover;
 }
 
-/* —— Equal grid: up to 4 equal windows —— */
+/* —— Equal grid (legacy block; placements set above in stack/grid section) —— */
 .stage.stage-multi.stage-layout-grid {
   display: grid !important;
-  gap: 0;
+  gap: 2px !important;
   grid-template-columns: 1fr 1fr !important;
   grid-template-rows: 1fr 1fr !important;
 }
@@ -17171,14 +17270,15 @@ html.match-live .tile-remote .side-rail-left,
   min-width: 0;
   min-height: 0;
   position: relative;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: none !important;
+  outline: 1px solid rgba(255, 255, 255, 0.08);
 }
 .stage.stage-multi.stage-layout-grid .tile-third:not([hidden]) {
   display: block !important;
 }
 .stage.stage-multi.stage-layout-grid .tile-local {
-  max-height: none;
-  flex: none;
+  max-height: none !important;
+  flex: none !important;
 }
 /* 2 windows: side by side equal */
 .stage.stage-multi.stage-layout-grid.stage-count-2 {
@@ -17188,13 +17288,14 @@ html.match-live .tile-remote .side-rail-left,
 .stage.stage-multi.stage-layout-grid.stage-count-2 .tile-third[hidden] {
   display: none !important;
 }
-/* 3 windows: 2 top + 1 bottom spanning (or 2+1) */
+/* 3 windows: keep 2×2 (partner | 3rd / you | empty cell) — not full-width you */
 .stage.stage-multi.stage-layout-grid.stage-count-3 {
   grid-template-columns: 1fr 1fr !important;
   grid-template-rows: 1fr 1fr !important;
 }
 .stage.stage-multi.stage-layout-grid.stage-count-3 .tile-local {
-  grid-column: 1 / -1;
+  grid-column: 1 !important;
+  grid-row: 2 !important;
 }
 /* When third is hidden (2 remotes + local in stack split): treat as 3 panes in grid */
 .stage.stage-multi.stage-layout-grid .remote-stack.split {
