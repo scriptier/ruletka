@@ -320,6 +320,7 @@
   "friends.inviteLiveTitle": "{brand} · мой код {code}",
   "friends.inviteNow": "Пригласить друга",
   "friends.inviteShared": "приглашение отправлено",
+  "friends.invitingJoin": "добавляем в этот звонок (собеседник останется)",
   "friends.invitingJoinToast": "Добавляем в звонок…",
   "friends.kindFriend": "звонок другу",
   "friends.kindMissed": "пропущенный",
