@@ -538,6 +538,7 @@ let earlyRatesLeft = STAR_FIRST_RATE_SLOTS;
 /** Per-match mid-chat ★ progress flags (reset on new match). */
 let starProgressHalfShown = false;
 let starProgressNearShown = false;
+let starProgressReadyShown = false;
 /** Mid-tier gift cost / duration (must match bridge defaults). */
 const STAR_EFFECT_COST = 5;
 const STAR_EFFECT_SECS = 15;
@@ -2949,6 +2950,78 @@ function syncStarsPowerMap(state) {
   }
 }
 
+/**
+ * “Why am I stuck?” CTA when wealth high but trust low, or floors block tier.
+ */
+function syncStarsStuckCta(state) {
+  const wrap = $("stars-stuck-cta-wrap");
+  const btn = $("stars-stuck-cta");
+  if (!wrap || !btn) return;
+  const balN = state.balN || 0;
+  const trustN = state.trustN || 0;
+  const effN = state.effN || 0;
+  const g = state.gifters || 0;
+  const isTrusted = !!state.isTrusted;
+  const isSenior = !!state.isSenior;
+  let label = "";
+  if (!isSenior && trustN >= STARS_SENIOR_GOAL && g < SENIOR_MIN_GIFTERS) {
+    label =
+      _t("stars.stuckNeedGiftersSenior", {
+        n: SENIOR_MIN_GIFTERS - g,
+      }) ||
+      `Need ${SENIOR_MIN_GIFTERS - g} more unique gifters for Senior — chat longer so new people can gift you`;
+  } else if (
+    !isTrusted &&
+    trustN >= STARS_TRUSTED_GOAL &&
+    g < TRUSTED_MIN_GIFTERS
+  ) {
+    label =
+      _t("stars.stuckNeedGiftersTrusted", {
+        n: TRUSTED_MIN_GIFTERS - g,
+      }) ||
+      `Need ${TRUSTED_MIN_GIFTERS - g} more unique gifters for Trusted — peer ★ after long chats`;
+  } else if (!isTrusted && balN >= 50 && trustN < STARS_TRUSTED_GOAL) {
+    label =
+      _t("stars.stuckWealthPath", { n: balN }) ||
+      `★${balN} is for gifts · Trust grows only when others gift you after chats`;
+  } else if (!isTrusted && trustN > 0 && trustN < STARS_TRUSTED_GOAL) {
+    const left = STARS_TRUSTED_GOAL - trustN;
+    label =
+      _t("stars.stuckTrustLeft", { n: left, g }) ||
+      `${left} more peer trust to Trusted · ${g} gifters so far`;
+  } else if (trustN > effN && effN > 0) {
+    label =
+      _t("stars.stuckCapped", { raw: trustN, eff: effN, g }) ||
+      `Raw trust ${trustN} · effective ${effN} (need more unique gifters · have ${g})`;
+  }
+  if (!label) {
+    wrap.hidden = true;
+    wrap.setAttribute("hidden", "");
+    btn.textContent = "";
+    return;
+  }
+  wrap.hidden = false;
+  wrap.removeAttribute("hidden");
+  btn.textContent = label;
+  if (!btn.dataset.wired) {
+    btn.dataset.wired = "1";
+    btn.addEventListener("click", () => {
+      try {
+        setStarsSheetTab("overview");
+        const earn = document.querySelector(
+          "#stars-panel-overview .stars-earn-group"
+        );
+        earn?.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
+        trackEvent("stars_stuck_cta", {});
+      } catch (_) {}
+    });
+  }
+}
+
+function wireStarsStuckCtaOnce() {
+  // no-op alias — wiring happens in syncStarsStuckCta
+}
+
 /** Mirror bridge gifter floors (decay is hub-only). */
 function clientEffectiveTrust(raw, gifters) {
   let t = Math.max(0, Math.floor(Number(raw) || 0));
@@ -3465,6 +3538,18 @@ function syncStarsSheetUi() {
   // Power tab social map
   try {
     syncStarsPowerMap({
+      balN,
+      trustN,
+      effN: n,
+      gifters: Math.max(0, Number(myTrustGifters) || 0),
+      isTrusted,
+      isSenior,
+    });
+  } catch (_) {}
+
+  // Stuck-floor CTA (high balance / raw trust but floors or peer path blocked)
+  try {
+    syncStarsStuckCta({
       balN,
       trustN,
       effN: n,
@@ -5381,51 +5466,72 @@ function noteLocalStarRateCompleted() {
 }
 
 /**
- * Mid-chat ★ unlock progress (status line + timer title). Once per half/near per match.
+ * Mid-chat ★ unlock progress (bar + status). 50% / 80% toasts; bar from ~20s.
  * @param {number} elapsedSec
  */
 function maybeStarChatProgress(elapsedSec) {
   if (!matched && !inFriendCall) return;
   const need = Math.max(60, Number(starRateMinSecs) || STAR_MIN_SECS);
   const secs = Math.max(0, Math.floor(Number(elapsedSec) || 0));
-  if (secs < 30) return;
-  // Update timer title with time-to-★
+  if (secs < 15) {
+    hideStarUnlockBar();
+    return;
+  }
+  const pct = Math.min(100, Math.round((secs / need) * 1000) / 10);
+  const left = Math.max(0, need - secs);
+  const lm = Math.floor(left / 60);
+  const ls = left % 60;
+  const leftStr = `${lm}:${String(ls).padStart(2, "0")}`;
+  const early = earlyRatesLeft > 0 || need <= STAR_FIRST_RATE_SECS + 30;
+  // Timer title
   try {
     const el = $("match-timer");
     if (el && !el.hidden) {
       if (secs < need) {
-        const left = need - secs;
-        const lm = Math.floor(left / 60);
-        const ls = left % 60;
-        const early = earlyRatesLeft > 0 || need <= STAR_FIRST_RATE_SECS + 30;
         el.title =
           (_t("stars.timerUnlock", {
-            t: `${lm}:${String(ls).padStart(2, "0")}`,
+            t: leftStr,
             m: Math.round(need / 60),
           }) ||
-            `★ rate unlocks in ${lm}:${String(ls).padStart(2, "0")} (${Math.round(
-              need / 60
-            )} min chat)`) + (early ? " · early" : "");
+            `★ gift unlocks in ${leftStr} (${Math.round(need / 60)} min chat)`) +
+          (early ? " · early" : "");
       } else {
         el.title =
           _t("stars.timerUnlockReady") ||
-          "★ rate unlocks when chat ends (long enough)";
+          "★ gift unlocks when chat ends (long enough)";
       }
     }
   } catch (_) {}
-  if (secs >= need) return;
+  // Visible unlock bar next to timer
+  try {
+    syncStarUnlockBar(pct, secs, need, leftStr, early);
+  } catch (_) {}
+  if (secs >= need) {
+    if (!starProgressReadyShown) {
+      starProgressReadyShown = true;
+      setStatus(
+        _t("stars.progressReady") ||
+          "★ gift unlocked — you’ll be offered a star when the chat ends"
+      );
+      trackEvent("star_progress_ready", {
+        need,
+        early: early ? 1 : 0,
+      });
+    }
+    return;
+  }
   const half = need * 0.5;
-  const near = need * 0.9;
+  const near = need * 0.8;
   if (!starProgressHalfShown && secs >= half) {
     starProgressHalfShown = true;
     const leftM = Math.max(1, Math.ceil((need - secs) / 60));
     setStatus(
       _t("stars.progressHalf", { m: leftM, need: Math.round(need / 60) }) ||
-        `Halfway to ★ — about ${leftM} min left to unlock rate`
+        `Halfway to ★ — about ${leftM} min left to unlock gift`
     );
     trackEvent("star_progress_half", {
       need,
-      early: earlyRatesLeft > 0 ? 1 : 0,
+      early: early ? 1 : 0,
     });
   } else if (!starProgressNearShown && secs >= near) {
     starProgressNearShown = true;
@@ -5436,9 +5542,54 @@ function maybeStarChatProgress(elapsedSec) {
     );
     trackEvent("star_progress_near", {
       need,
-      early: earlyRatesLeft > 0 ? 1 : 0,
+      early: early ? 1 : 0,
     });
   }
+}
+
+function hideStarUnlockBar() {
+  const bar = $("star-unlock-bar");
+  if (!bar) return;
+  bar.hidden = true;
+  bar.setAttribute("hidden", "");
+  bar.classList.remove("is-ready", "is-near");
+}
+
+function syncStarUnlockBar(pct, secs, need, leftStr, early) {
+  const bar = $("star-unlock-bar");
+  const fill = $("star-unlock-fill");
+  const lbl = $("star-unlock-lbl");
+  if (!bar) return;
+  const live = !!(matched || inFriendCall);
+  if (!live || secs < 20) {
+    hideStarUnlockBar();
+    return;
+  }
+  bar.hidden = false;
+  bar.removeAttribute("hidden");
+  const ready = secs >= need;
+  bar.classList.toggle("is-ready", ready);
+  bar.classList.toggle("is-near", !ready && pct >= 80);
+  if (fill) fill.style.width = `${Math.min(100, Math.max(2, pct))}%`;
+  if (lbl) {
+    if (ready) {
+      lbl.textContent = _t("stars.unlockBarReady") || "★ ready";
+    } else {
+      lbl.textContent =
+        _t("stars.unlockBarLeft", { t: leftStr }) || `★ ${leftStr}`;
+    }
+  }
+  bar.title = ready
+    ? _t("stars.timerUnlockReady") || "★ gift unlocks when chat ends"
+    : (_t("stars.timerUnlock", {
+        t: leftStr,
+        m: Math.round(need / 60),
+      }) ||
+        `★ gift unlocks in ${leftStr}`) + (early ? " · early" : "");
+  bar.setAttribute("aria-valuenow", String(Math.round(pct)));
+  bar.setAttribute("aria-valuemin", "0");
+  bar.setAttribute("aria-valuemax", "100");
+  bar.setAttribute("role", "progressbar");
 }
 
 /**
@@ -5514,17 +5665,21 @@ function showStarReviewPrompt(msg) {
         <button type="button" class="pill tight ghost" id="btn-star-no">${escapeHtml(
           _t("stars.skip") || "No star"
         )}</button>
+        <button type="button" class="pill tight ghost" id="btn-star-thanks">${escapeHtml(
+          _t("stars.thanks") || "Thanks"
+        )}</button>
         ${giftBtns}
       </div>`;
     document.body.appendChild(toast);
     const dismiss = () => {
       if (toast.parentNode) toast.remove();
     };
-    const sendRate = (amount) => {
+    const sendRate = (amount, thanks) => {
       const star = amount > 0;
       trackEvent("star_rate", {
         star: star ? 1 : 0,
         amount: amount || 0,
+        thanks: thanks ? 1 : 0,
         max: maxGift,
         early: early ? 1 : 0,
         min: minReq,
@@ -5534,6 +5689,7 @@ function showStarReviewPrompt(msg) {
         user_id: uid,
         star: !!star,
         amount: star ? amount : 0,
+        thanks: !star && !!thanks,
       });
       noteLocalStarRateCompleted();
       dismiss();
@@ -5542,22 +5698,31 @@ function showStarReviewPrompt(msg) {
           ? amount > 1
             ? _t("stars.givenN", { n: amount }) || `★ ${amount} given`
             : _t("stars.given") || "Star given"
-          : _t("stars.skipped") || "No star"
+          : thanks
+            ? _t("stars.thanksSent") || "Thanks sent"
+            : _t("stars.skipped") || "No star"
       );
     };
     $("btn-star-no")?.addEventListener("click", () => {
-      sendRate(0);
-      // After gift prompt, offer Add friend if still eligible
+      sendRate(0, false);
       setTimeout(() => {
         try {
           maybeShowPostMatchFriendNudge("after_star_review", { force: true });
         } catch (_) {}
       }, 400);
     });
+    $("btn-star-thanks")?.addEventListener("click", () => {
+      sendRate(0, true);
+      setTimeout(() => {
+        try {
+          maybeShowPostMatchFriendNudge("after_star_thanks", { force: true });
+        } catch (_) {}
+      }, 400);
+    });
     toast.querySelectorAll("[data-star-amount]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const a = Math.max(1, Math.min(3, Number(btn.getAttribute("data-star-amount")) || 1));
-        sendRate(a);
+        sendRate(a, false);
         setTimeout(() => {
           try {
             maybeShowPostMatchFriendNudge("after_star_gift", { force: true });
@@ -18915,7 +19080,22 @@ function handleServer(msg) {
             trackEvent("star_given", { amount: amt });
           }
         } else if (msg.ok && !msg.star) {
-          setStatus(_t("stars.skipped") || "No star");
+          if (/thanked you/i.test(msgText)) {
+            const title =
+              _t("stars.thanksReceivedTitle") || "Someone thanked you";
+            setStatus(title);
+            showStarFeedbackToast("gift", {
+              title,
+              body:
+                _t("stars.thanksReceivedBody") ||
+                "A peer said thanks after your chat — no ★ minted.",
+            });
+            trackEvent("star_thanks_received", {});
+          } else if (/thanks sent/i.test(msgText)) {
+            setStatus(_t("stars.thanksSent") || "Thanks sent");
+          } else {
+            setStatus(_t("stars.skipped") || "No star");
+          }
         }
         if (msg.message && !msg.ok) {
           setStatus(_srv(msg.message) || msg.message);
@@ -20694,11 +20874,20 @@ function renderFriendsList() {
                 _t("stars.badgeTitle") || "Stars from long chats"
               )}">★ ${starsN}</span>`
             : "";
+        const bondChip = f.mutual_star
+          ? `<span class="friend-bond-chip is-star" title="${escapeAttr(
+              _t("stars.mutualStarTip") || "You both gifted each other ★"
+            )}">${escapeHtml(_t("stars.mutualStarChip") || "★↔")}</span>`
+          : f.mutual_thanks
+            ? `<span class="friend-bond-chip is-thanks" title="${escapeAttr(
+                _t("stars.mutualThanksTip") || "You both said thanks"
+              )}">${escapeHtml(_t("stars.mutualThanksChip") || "🙏↔")}</span>`
+            : "";
         return `<div class="friend-row ${online}${unread}">
         ${friendAvatarHtml(f)}
         <span class="dot"></span>
         <div class="meta">
-          <strong>${escapeHtml(display)}</strong>${flairChip}${starsChip}
+          <strong>${escapeHtml(display)}</strong>${flairChip}${starsChip}${bondChip}
           ${nickHint}
           <span>${escapeHtml(st)} · ${escapeHtml(f.friend_code || "")}</span>
           ${previewLine}
@@ -21778,6 +21967,10 @@ function startMatchTimer() {
   matchTimerStartedAt = Date.now();
   starProgressHalfShown = false;
   starProgressNearShown = false;
+  starProgressReadyShown = false;
+  try {
+    hideStarUnlockBar();
+  } catch (_) {}
   const el = $("match-timer");
   if (el) {
     el.textContent = "0:00";

@@ -281,6 +281,8 @@ pub struct SimpleHub {
     mint_day: HashMap<String, (u32, u64)>,
     /// Directed from|to edges (one review per pair)
     star_edges: HashSet<String>,
+    /// Directed from|to thanks/vouch (no trust mint)
+    vouch_edges: HashSet<String>,
     /// user_id → active star-bought effect until unix
     star_effects: HashMap<String, friends_store::StarEffectRecord>,
     /// Dedupe keys for 1-hour mutual star rewards
@@ -601,6 +603,7 @@ impl SimpleHub {
             star_ledger,
             mint_day: HashMap::new(),
             star_edges: stored.star_edges,
+            vouch_edges: stored.vouch_edges,
             star_effects: stored.star_effects,
             hour_star_sessions: stored.hour_star_sessions,
             no_skip_until: stored.no_skip_until,
@@ -706,6 +709,7 @@ impl SimpleHub {
             dms: self.dms.clone(),
             star_counts: self.star_counts.clone(),
             star_edges: self.star_edges.clone(),
+            vouch_edges: self.vouch_edges.clone(),
             star_effects: self.star_effects.clone(),
             hour_star_sessions: self.hour_star_sessions.clone(),
             no_skip_until: self.no_skip_until.clone(),
@@ -755,7 +759,21 @@ impl SimpleHub {
             last_msg_ts,
             avatar,
             stars,
+            mutual_star: false,
+            mutual_thanks: false,
         }
+    }
+
+    /// Mutual post-chat ★ gifts (trust ledger edges both ways).
+    fn mutual_star_bond(&self, a: &str, b: &str) -> bool {
+        self.star_ledger.has_trust_edge(a, b) && self.star_ledger.has_trust_edge(b, a)
+    }
+
+    /// Mutual thanks/vouch (no trust mint).
+    fn mutual_thanks_bond(&self, a: &str, b: &str) -> bool {
+        let ab = friends_store::star_edge_key(a, b);
+        let ba = friends_store::star_edge_key(b, a);
+        self.vouch_edges.contains(&ab) && self.vouch_edges.contains(&ba)
     }
 
     /// Minimum chat length before a star review is offered (normal path).
@@ -2234,7 +2252,14 @@ impl SimpleHub {
         }
     }
 
-    fn handle_rate_partner(&mut self, id: Uuid, target_uid: String, star: bool, amount: u64) {
+    fn handle_rate_partner(
+        &mut self,
+        id: Uuid,
+        target_uid: String,
+        star: bool,
+        amount: u64,
+        thanks: bool,
+    ) {
         let target_uid = target_uid.trim().to_string();
         let Some(c) = self.clients.get(&id) else {
             return;
@@ -2318,6 +2343,12 @@ impl SimpleHub {
         } else {
             0
         };
+        // Thanks/vouch only when not gifting (star wins if both set)
+        let did_thanks = !star && thanks;
+        if did_thanks {
+            self.vouch_edges
+                .insert(friends_store::star_edge_key(&me_uid, &target_uid));
+        }
         let new_stars = if gift_n > 0 {
             self.add_stars_from(&me_uid, &target_uid, gift_n, "mint:rate_partner")
         } else {
@@ -2335,6 +2366,17 @@ impl SimpleHub {
         }
         self.persist_friends();
         let gave = gift_n > 0;
+        let msg_self = if gave {
+            if gift_n == 1 {
+                "star given".into()
+            } else {
+                format!("{gift_n} stars given")
+            }
+        } else if did_thanks {
+            "thanks sent".into()
+        } else {
+            "skipped".into()
+        };
         self.send(
             id,
             ServerMsg::RateResult {
@@ -2344,15 +2386,7 @@ impl SimpleHub {
                 amount: gift_n,
                 stars: new_stars,
                 trust: new_trust,
-                message: if gave {
-                    if gift_n == 1 {
-                        "star given".into()
-                    } else {
-                        format!("{gift_n} stars given")
-                    }
-                } else {
-                    "skipped".into()
-                },
+                message: msg_self,
             },
         );
         // Live-update target if online (their local badge / friends list)
@@ -2375,6 +2409,27 @@ impl SimpleHub {
                     },
                 );
             }
+        } else if did_thanks {
+            if let Some(&tid) = self.by_user.get(&target_uid) {
+                self.send(
+                    tid,
+                    ServerMsg::RateResult {
+                        ok: true,
+                        user_id: me_uid.clone(),
+                        star: false,
+                        amount: 0,
+                        stars: self.stars_for(&target_uid),
+                        trust: self.trust_for(&target_uid),
+                        message: "someone thanked you".into(),
+                    },
+                );
+            }
+        }
+        if gave || did_thanks {
+            self.push_friends_list(id);
+            if let Some(&tid) = self.by_user.get(&target_uid) {
+                self.push_friends_list(tid);
+            }
         }
         tracing::info!(
             %me_uid,
@@ -2382,6 +2437,7 @@ impl SimpleHub {
             star = gave,
             amount = gift_n,
             max_gift,
+            thanks = did_thanks,
             stars = new_stars,
             trust = new_trust,
             "partner rated"
@@ -3788,6 +3844,8 @@ impl SimpleHub {
                 let (last_msg, last_msg_ts) = self.last_dm_preview_for_pair(&me, fuid);
                 info.last_msg = last_msg;
                 info.last_msg_ts = last_msg_ts;
+                info.mutual_star = self.mutual_star_bond(&me, fuid);
+                info.mutual_thanks = self.mutual_thanks_bond(&me, fuid);
                 friends.push(info);
             }
         }
@@ -5380,8 +5438,9 @@ impl SimpleHub {
                 user_id,
                 star,
                 amount,
+                thanks,
             } => {
-                self.handle_rate_partner(id, user_id, star, amount);
+                self.handle_rate_partner(id, user_id, star, amount, thanks);
             }
             ClientMsg::SpendStars {
                 to_user_id,

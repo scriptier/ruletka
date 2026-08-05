@@ -49,6 +49,9 @@ pub struct FriendsFile {
     /// Directed "from_user|to_user" — each pair may rate once (star or skip)
     #[serde(default)]
     pub star_edges: HashSet<String>,
+    /// Directed "from|to" thanks/vouch (no trust mint; social bond signal).
+    #[serde(default)]
+    pub vouch_edges: HashSet<String>,
     /// user_id → active paid star effect (bars, flowers, …) until unix secs
     #[serde(default)]
     pub star_effects: HashMap<String, StarEffectRecord>,

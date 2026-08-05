@@ -169,6 +169,14 @@ impl StarLedger {
             .count() as u32
     }
 
+    /// Directed peer-gift edge (`from` rated/gifted `to` post-chat).
+    pub fn has_trust_edge(&self, from: &str, to: &str) -> bool {
+        if from.is_empty() || to.is_empty() || from == to {
+            return false;
+        }
+        self.trust_edges.contains(&format!("{from}|{to}"))
+    }
+
     pub fn balances_snapshot(&self) -> HashMap<String, u64> {
         self.balances.clone()
     }

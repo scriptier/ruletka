@@ -136,7 +136,7 @@ pub enum ClientMsg {
         with_user_id: String,
     },
     /// After a long enough chat (15 min normal; first 3 unique partners 5 min),
-    /// rate partner: gift stars or skip. Same pair can only rate once (star or not).
+    /// rate partner: gift stars, thanks/vouch, or skip. Same pair can only rate once.
     /// amount: 1–3 when star=true (capped by giver tier: normal 1, 100+ →2, 250+ →3).
     RatePartner {
         user_id: String,
@@ -145,6 +145,9 @@ pub enum ClientMsg {
         /// How many stars to gift (1–3). 0 or missing → 1 when star=true.
         #[serde(default)]
         amount: u64,
+        /// When star=false: record a thanks/vouch (no trust mint) instead of bare skip.
+        #[serde(default)]
+        thanks: bool,
     },
     /// Spend reputation stars on a live effect for another user (no money).
     /// effect: "heart"(1★) | "bars"|"flowers"|"balloons"|"confetti"(5★)
@@ -190,6 +193,12 @@ pub struct FriendInfo {
     /// Public reputation trust (peer rate-gifts only; not spendable balance).
     #[serde(default)]
     pub stars: u64,
+    /// Both of you gifted each other post-chat ★ (trust edges both ways).
+    #[serde(default)]
+    pub mutual_star: bool,
+    /// Both of you thanked each other (vouch edges both ways).
+    #[serde(default)]
+    pub mutual_thanks: bool,
 }
 
 /// One line in a friend DM thread (history or live).
