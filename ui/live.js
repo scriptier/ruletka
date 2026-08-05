@@ -25670,7 +25670,7 @@ on("btn-enable-cam", "click", async (e) => {
 wireRulesGate();
 const gateBlocks = showRulesGate();
 
-// Paint last volume / mirror / audio toggles immediately (devices after permission)
+// Paint last volume / mirror / audio toggles + identity chrome immediately
 try {
   const earlyPrefs = loadPrefs();
   if (typeof earlyPrefs.volume === "number") {
@@ -25679,6 +25679,8 @@ try {
   }
   applyLocalMirrorClass();
   syncLowLatencyAudioToggles();
+  refreshLocalNameChip();
+  refreshAvatarUi();
 } catch (_) {}
 
 // Immediate boot — media waits for rules accept if first visit
