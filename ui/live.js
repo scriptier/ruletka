@@ -3448,19 +3448,6 @@ function syncStarsSheetUi() {
         _t("stars.earnStep1BodyShort") || "Optional stars once per person";
     }
   }
-  const hintEl = $("settings-stars-hint");
-  if (hintEl) {
-    if (earlyRatesLeft > 0) {
-      hintEl.textContent =
-        _t("stars.hintEarly", { m: needM, n: earlyRatesLeft }) ||
-        `First ${earlyRatesLeft} new people: gift after ${needM}+ min. Then 15+ min. ★ shows on camera.`;
-    } else {
-      hintEl.textContent =
-        _t("stars.hint") ||
-        "After 15+ minutes you can gift one star per person. Your total shows as ★ on camera.";
-    }
-  }
-
   // Overall progress 0→250 **trust** with marks at 100 and 250
   const fill = $("stars-progress-fill");
   const countEl = $("stars-progress-count");
@@ -16606,6 +16593,11 @@ function wireHubSettings() {
   });
 }
 
+const PROFILE_EXPORT_TS_KEY = "rulet_profile_export_ts";
+const UPDATES_SEEN_KEY = "rulet_updates_seen_v1";
+/** Bump when shipping a new /updates.html generation users should notice */
+const UPDATES_PAGE_STAMP = "2026-08-05";
+
 function syncAccountSettingsSummary() {
   const idEl = $("settings-user-id");
   const codeEl = $("settings-friend-code");
@@ -16628,21 +16620,105 @@ function syncAccountSettingsSummary() {
     codeEl.textContent = myFriendCode || "—";
     codeEl.title = myFriendCode || "";
   }
-  if (starsEl) {
-    const bal = Math.max(0, Number(myStars) || 0);
-    const tr = Math.max(0, Number(myTrust) || 0);
-    starsEl.textContent =
-      tr > 0 || bal > 0
-        ? `★ ${bal} · ${_t("stars.trustShort") || "trust"} ${tr}`
-        : `★ ${bal}`;
-  }
+  const bal = Math.max(0, Number(myStars) || 0);
+  const tr = Math.max(0, Number(myTrust) || 0);
+  const eff = Math.max(
+    0,
+    Number(myTrustEffective) || clientEffectiveTrust(tr, myTrustGifters)
+  );
+  const dual =
+    tr > 0 || eff > 0
+      ? `★${bal} · ${_t("stars.trustShort") || "trust"} ${eff}${
+          eff !== tr && tr > 0 ? ` (${tr})` : ""
+        }`
+      : `★${bal}`;
+  if (starsEl) starsEl.textContent = dual;
   const starsRow = $("settings-stars-row-value");
-  if (starsRow) {
-    const bal = Math.max(0, Number(myStars) || 0);
-    const tr = Math.max(0, Number(myTrust) || 0);
-    starsRow.textContent =
-      tr > 0 ? `★ ${bal} / T${tr}` : `★ ${bal}`;
+  if (starsRow) starsRow.textContent = dual;
+  // Main list: backup status summary
+  const idSum = $("settings-identity-summary");
+  const backupStatus = $("settings-backup-status");
+  let lastTs = 0;
+  try {
+    lastTs = Math.max(0, Number(localStorage.getItem(PROFILE_EXPORT_TS_KEY)) || 0);
+  } catch (_) {}
+  const codeShort = (myFriendCode || "").trim();
+  if (idSum) {
+    if (lastTs > 0) {
+      const days = Math.max(0, Math.floor((Date.now() - lastTs) / 86400000));
+      idSum.textContent =
+        days === 0
+          ? _t("settings.backupToday", { code: codeShort || "—" }) ||
+            `Backup today · code ${codeShort || "—"}`
+          : _t("settings.backupDaysAgo", {
+              n: days,
+              code: codeShort || "—",
+            }) || `Backup ${days}d ago · code ${codeShort || "—"}`;
+    } else {
+      idSum.textContent =
+        _t("settings.backupNeverShort", { code: codeShort || "—" }) ||
+        (codeShort
+          ? `No backup yet · code ${codeShort}`
+          : _t("settings.backupIdentitySub") ||
+            "Export / import · friend code · no signup");
+    }
   }
+  if (backupStatus) {
+    if (lastTs > 0) {
+      try {
+        const d = new Date(lastTs);
+        const when = d.toLocaleString?.(undefined, {
+          dateStyle: "medium",
+          timeStyle: "short",
+        }) || d.toISOString();
+        backupStatus.textContent =
+          _t("settings.backupLastAt", { when }) ||
+          `Last export on this browser: ${when}`;
+      } catch (_) {
+        backupStatus.textContent =
+          _t("settings.backupLastOk") || "Backup exported on this browser.";
+      }
+    } else {
+      backupStatus.textContent =
+        _t("settings.backupNever") ||
+        "No backup exported on this browser yet.";
+    }
+  }
+}
+
+/** Gear badge when Updates page is newer than last visit. */
+function syncSettingsUpdatesBadge() {
+  const badge = $("settings-gear-badge");
+  const row = $("btn-settings-updates");
+  if (!badge && !row) return;
+  let seen = "";
+  try {
+    seen = localStorage.getItem(UPDATES_SEEN_KEY) || "";
+  } catch (_) {}
+  const unread = seen !== UPDATES_PAGE_STAMP;
+  if (badge) {
+    badge.hidden = !unread;
+    if (unread) badge.removeAttribute("hidden");
+    else badge.setAttribute("hidden", "");
+    badge.setAttribute("aria-hidden", unread ? "false" : "true");
+  }
+  row?.classList.toggle("has-unread", unread);
+}
+
+function markUpdatesSeen() {
+  try {
+    localStorage.setItem(UPDATES_SEEN_KEY, UPDATES_PAGE_STAMP);
+  } catch (_) {}
+  syncSettingsUpdatesBadge();
+}
+
+function markProfileExported() {
+  try {
+    localStorage.setItem(PROFILE_EXPORT_TS_KEY, String(Date.now()));
+  } catch (_) {}
+  try {
+    syncAccountSettingsSummary();
+  } catch (_) {}
 }
 
 function syncSettingsSummary() {
@@ -16687,31 +16763,45 @@ function syncSettingsSummary() {
   }
   if ($("settings-devices-summary")) {
     const res = getVideoResolutionPref();
-    const camPart = shortDeviceLabel(cam, 14) || camShort;
-    $("settings-devices-summary").textContent =
-      res === "auto" ? camPart : `${camPart} · ${res}p`;
+    const camPart = shortDeviceLabel(cam, 12) || camShort;
+    const micPart = shortDeviceLabel(mic, 10) || micShort;
+    const bits = [camPart, micPart];
+    if (res && res !== "auto") bits.push(`${res}p`);
+    $("settings-devices-summary").textContent = bits.filter(Boolean).join(" · ");
   }
   // Safety summary — keep short so it never truncates mid-word
   if ($("settings-safety-summary")) {
     const prefs = loadPrefs();
     const parts = [];
-    if (prefs.blurFirst !== false) parts.push(_t("settings.sumBlur"));
-    if (prefs.nsfwAuto !== false) parts.push(_t("settings.sumNsfw"));
-    if (typeof prefs.matchSound === "boolean" ? prefs.matchSound : true) {
-      parts.push(_t("settings.sumSound"));
+    if (prefs.blurFirst !== false) {
+      parts.push(_t("settings.sumBlur") || "Blur");
     }
-    if (parts.length === 3) {
-      $("settings-safety-summary").textContent = _t("settings.sumAllOn") || "All on";
+    if (prefs.nsfwAuto !== false) {
+      parts.push(_t("settings.sumNsfw") || "NSFW");
+    }
+    const hideIp =
+      prefs.forceRelay === true ||
+      prefs.hideIp === true ||
+      prefs.icePolicy === "relay";
+    if (hideIp) parts.push(_t("settings.sumHideIp") || "Hide IP");
+    if (typeof prefs.matchSound === "boolean" ? prefs.matchSound : true) {
+      /* sound on is default — omit unless only feature left */
+    }
+    if (parts.length >= 3) {
+      $("settings-safety-summary").textContent =
+        _t("settings.sumAllOn") || "All on";
     } else if (parts.length) {
       $("settings-safety-summary").textContent = parts.join(" · ");
     } else {
-      $("settings-safety-summary").textContent = _t("settings.sumOff");
+      $("settings-safety-summary").textContent =
+        _t("settings.sumOff") || "Off";
     }
   }
   syncMatchPrefsUi();
   syncHubSettingsUi();
   refreshSecurityPanel();
   refreshAvatarUi();
+  syncSettingsUpdatesBadge();
 }
 
 function renderDeviceChoiceList(kind) {
@@ -16856,6 +16946,44 @@ function wireSettingsNav() {
     const f = e.target?.files?.[0];
     if (f) importProfileFile(f);
     e.target.value = "";
+  });
+  // Updates row: mark seen when opened
+  $("btn-settings-updates")?.addEventListener("click", () => {
+    markUpdatesSeen();
+  });
+  document
+    .querySelectorAll('a[href="/updates.html"], a[href*="updates.html"]')
+    .forEach((a) => {
+      a.addEventListener("click", () => markUpdatesSeen());
+    });
+  $("btn-copy-user-id")?.addEventListener("click", async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    let uid = "";
+    try {
+      uid = loadIdentity()?.user_id || myUserId || "";
+    } catch (_) {
+      uid = myUserId || "";
+    }
+    if (!uid) return;
+    try {
+      await navigator.clipboard.writeText(uid);
+      setStatus(_t("settings.copiedId") || "User ID copied");
+    } catch (_) {
+      setStatus(uid);
+    }
+  });
+  $("btn-copy-friend-code-settings")?.addEventListener("click", async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const code = (myFriendCode || "").trim();
+    if (!code) return;
+    try {
+      await navigator.clipboard.writeText(code);
+      setStatus(_t("friends.codeCopied") || "Friend code copied");
+    } catch (_) {
+      setStatus(code);
+    }
   });
   $("btn-clear-local")?.addEventListener("click", async () => {
     // Strong warning: friends live under this identity on the hub
@@ -18041,6 +18169,7 @@ async function exportProfileFile() {
     };
 
     markExportNudgeDone();
+    markProfileExported();
     setStatus(
       (encrypted
         ? _t("settings.exportDoneEnc") || "Encrypted profile exported"
@@ -18448,7 +18577,7 @@ function closeAllDockFlyouts(except) {
   if (except !== "stars" && starsSheetIsOpen()) closeStarsSheet();
 }
 
-function openSettings() {
+function openSettings(opts = {}) {
   closeAllDockFlyouts("settings");
   const sheet = $("settings-sheet");
   const bd = $("sheet-backdrop");
@@ -18458,7 +18587,11 @@ function openSettings() {
     NextfaceI18n?.applyI18n?.(sheet || document);
   } catch (_) {}
   // Show main view first so the sheet has content while measuring
-  showSettingsView("main");
+  const openView =
+    opts && typeof opts.view === "string" && opts.view
+      ? opts.view
+      : "main";
+  showSettingsView(openView === "stars" ? "main" : openView);
   if (sheet) {
     sheet.hidden = false;
     sheet.removeAttribute("hidden");

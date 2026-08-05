@@ -8944,6 +8944,56 @@ footer.stage-footer[hidden] {
 .side-btn-settings .lbl {
   font-size: 0.52rem;
 }
+.side-btn-settings {
+  position: relative;
+}
+.settings-gear-badge {
+  position: absolute;
+  top: 0.2rem;
+  right: 0.28rem;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: #ff3b5c;
+  box-shadow: 0 0 0 2px rgba(12, 14, 20, 0.9), 0 0 8px rgba(255, 45, 85, 0.55);
+  pointer-events: none;
+}
+.settings-gear-badge[hidden] {
+  display: none !important;
+}
+#btn-settings-updates.has-unread .row-ico {
+  color: #ffb0a0;
+  text-shadow: 0 0 10px rgba(255, 80, 100, 0.45);
+}
+#btn-settings-updates.has-unread::after {
+  content: "";
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 50%;
+  background: #ff3b5c;
+  margin-left: 0.25rem;
+  flex: 0 0 auto;
+}
+.settings-mini-btn {
+  flex: 0 0 auto;
+  margin-left: 0.35rem;
+  padding: 0.22rem 0.45rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(230, 236, 248, 0.92);
+  font-size: 0.68rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.settings-mini-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 160, 120, 0.35);
+}
+.settings-row-sub.muted {
+  opacity: 0.75;
+  font-size: 0.72rem;
+}
 
 /* Search status pill — top of partner tile */
 .tile-search-status {
