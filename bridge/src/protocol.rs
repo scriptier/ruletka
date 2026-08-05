@@ -201,6 +201,17 @@ pub struct FriendInfo {
     pub mutual_thanks: bool,
 }
 
+/// Privacy-light chip for someone who gifted you post-chat ★ (initial + optional flag).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TrustGiverChip {
+    /// 1–2 letter initial (never full user id).
+    #[serde(default)]
+    pub initial: String,
+    /// Cosmetic flag ISO code if known.
+    #[serde(default)]
+    pub flag: String,
+}
+
 /// One line in a friend DM thread (history or live).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FriendChatLine {
@@ -275,6 +286,9 @@ pub enum ServerMsg {
         /// Distinct peers who gifted you post-chat stars.
         #[serde(default)]
         trust_gifters: u32,
+        /// Up to 8 privacy-light gifter chips (initials) for social proof strip.
+        #[serde(default)]
+        trust_givers: Vec<TrustGiverChip>,
         /// Unix seconds of last trust activity (for soft-decay countdown UI). 0 = unknown.
         #[serde(default)]
         trust_last_ts: u64,

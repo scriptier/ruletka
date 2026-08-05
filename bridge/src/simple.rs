@@ -834,6 +834,51 @@ impl SimpleHub {
         self.star_ledger.trust_gifters(user_id)
     }
 
+    /// Privacy-light gifter chips (initial + flag) for the Stars social-proof strip.
+    fn trust_giver_chips_for(&self, user_id: &str, limit: usize) -> Vec<crate::protocol::TrustGiverChip> {
+        use crate::protocol::TrustGiverChip;
+        let lim = limit.max(1).min(12);
+        let mut chips = Vec::new();
+        for from in self.star_ledger.trust_giver_ids(user_id) {
+            if chips.len() >= lim {
+                break;
+            }
+            let name = self
+                .known_names
+                .get(&from)
+                .cloned()
+                .filter(|n| !n.is_empty() && n != "anon")
+                .or_else(|| {
+                    self.by_user
+                        .get(&from)
+                        .and_then(|cid| self.clients.get(cid))
+                        .map(|c| c.name.clone())
+                        .filter(|n| !n.is_empty() && n != "anon")
+                })
+                .unwrap_or_default();
+            let flag = self
+                .by_user
+                .get(&from)
+                .and_then(|cid| self.clients.get(cid))
+                .map(|c| c.flag.clone())
+                .unwrap_or_default();
+            let initial = if !name.is_empty() {
+                name.chars()
+                    .next()
+                    .map(|c| c.to_uppercase().to_string())
+                    .unwrap_or_else(|| "★".into())
+            } else {
+                // Fallback: first alphanumeric of uid, not full id
+                from.chars()
+                    .find(|c| c.is_ascii_alphanumeric())
+                    .map(|c| c.to_ascii_uppercase().to_string())
+                    .unwrap_or_else(|| "★".into())
+            };
+            chips.push(TrustGiverChip { initial, flag });
+        }
+        chips
+    }
+
     /// Soft decay start / full (days since last trust activity).
     const TRUST_DECAY_START_DAYS: u64 = 45;
     const TRUST_DECAY_FULL_DAYS: u64 = 180;
@@ -3725,6 +3770,7 @@ impl SimpleHub {
             trust: 0,
             trust_effective: 0,
             trust_gifters: 0,
+            trust_givers: Vec::new(),
             trust_last_ts: 0,
             effect: String::new(),
             effect_until: 0,
@@ -5779,6 +5825,7 @@ impl SimpleHub {
         let my_trust = self.trust_for(&user_id);
         let my_trust_effective = self.effective_trust_for(&user_id);
         let my_trust_gifters = self.trust_gifters_for(&user_id);
+        let my_trust_givers = self.trust_giver_chips_for(&user_id, 8);
         let my_trust_last_ts = self.star_ledger.trust_last_ts(&user_id);
         let (my_eff, my_eff_until, my_eff_level) = self.active_effect_for(&user_id);
         let rate_min_secs = self.rate_min_secs_for(&user_id);
@@ -5798,6 +5845,7 @@ impl SimpleHub {
                 trust: my_trust,
                 trust_effective: my_trust_effective,
                 trust_gifters: my_trust_gifters,
+                trust_givers: my_trust_givers,
                 trust_last_ts: my_trust_last_ts,
                 effect: my_eff,
                 effect_until: my_eff_until,

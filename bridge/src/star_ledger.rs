@@ -177,6 +177,32 @@ impl StarLedger {
         self.trust_edges.contains(&format!("{from}|{to}"))
     }
 
+    /// Distinct peer ids who gifted `user_id` post-chat ★ (for privacy-light chips).
+    pub fn trust_giver_ids(&self, user_id: &str) -> Vec<String> {
+        if user_id.is_empty() {
+            return Vec::new();
+        }
+        let suffix = format!("|{user_id}");
+        let mut out: Vec<String> = self
+            .trust_edges
+            .iter()
+            .filter_map(|e| {
+                if !e.ends_with(&suffix) {
+                    return None;
+                }
+                let from = e.trim_end_matches(&suffix);
+                if from.is_empty() || from == user_id {
+                    None
+                } else {
+                    Some(from.to_string())
+                }
+            })
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+
     pub fn balances_snapshot(&self) -> HashMap<String, u64> {
         self.balances.clone()
     }

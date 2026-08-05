@@ -530,6 +530,10 @@ let partnerTrust = 0;
 let partnerTrustGifters = 0;
 /** Session: people who praised us (uid → { name, kind: star|thanks, ts }). */
 let recentPraiseBy = {};
+/** Privacy-light gifter chips from hub: [{ initial, flag }]. */
+let myTrustGivers = [];
+const PEAK_TRUST_KEY = "rulet_peak_trust_v1";
+const FLAIR_STAR_BOND_MS = 7 * 24 * 3600 * 1000;
 /** Min chat length for star review (must match bridge STAR_MIN_SECS). */
 const STAR_MIN_SECS = 15 * 60;
 /** First unique partners use a shorter window (must match bridge STAR_FIRST_RATE_SECS). */
@@ -2778,7 +2782,120 @@ function setMyTrust(trust, gifters, effective) {
   maybeStarsMilestones({ gifters: myTrustGifters, balance: myStars });
 }
 
-/** Render gifter floor dots (1…12) with marks at 5 and 12. */
+/** Peak trust ever seen on this browser (prestige; not active trust). */
+function notePeakTrust(rawTrust) {
+  const t = Math.max(0, Math.floor(Number(rawTrust) || 0));
+  if (t <= 0) return t;
+  let peak = 0;
+  try {
+    peak = Math.max(0, Math.floor(Number(localStorage.getItem(PEAK_TRUST_KEY)) || 0));
+  } catch (_) {}
+  if (t > peak) {
+    peak = t;
+    try {
+      localStorage.setItem(PEAK_TRUST_KEY, String(peak));
+    } catch (_) {}
+  }
+  return peak;
+}
+
+function getPeakTrust() {
+  try {
+    return Math.max(0, Math.floor(Number(localStorage.getItem(PEAK_TRUST_KEY)) || 0));
+  } catch (_) {
+    return 0;
+  }
+}
+
+/** Privacy-light gifter initials from hub. */
+function syncGiverChips(chips) {
+  const box = $("stars-giver-chips");
+  if (!box) return;
+  const list = Array.isArray(chips) ? chips : myTrustGivers || [];
+  if (!list.length) {
+    box.hidden = true;
+    box.setAttribute("hidden", "");
+    box.innerHTML = "";
+    return;
+  }
+  box.hidden = false;
+  box.removeAttribute("hidden");
+  const key = list.map((c) => `${c.initial || ""}:${c.flag || ""}`).join("|");
+  if (box.dataset.key === key && box.childElementCount) return;
+  box.dataset.key = key;
+  box.innerHTML = "";
+  list.slice(0, 8).forEach((c) => {
+    const span = document.createElement("span");
+    span.className = "stars-giver-chip";
+    const initial = String(c?.initial || "★").slice(0, 2);
+    const flag = String(c?.flag || "").trim().toUpperCase();
+    span.textContent = initial;
+    span.title =
+      _t("stars.giverChipTip") || "Someone who gifted you ★ after a chat";
+    if (flag && flag.length === 2) {
+      span.dataset.flag = flag;
+      try {
+        // regional indicator symbols for flag emoji when possible
+        const A = 0x1f1e6;
+        const code = [...flag].map((ch) => A + (ch.charCodeAt(0) - 65));
+        if (code.every((n) => n >= A && n <= A + 25)) {
+          span.dataset.emoji = String.fromCodePoint(...code);
+        }
+      } catch (_) {}
+    }
+    box.appendChild(span);
+  });
+}
+
+/** One-line reputation story: peak · last praise · gifters. */
+function syncRepStory(state = {}) {
+  const el = $("stars-rep-story");
+  if (!el) return;
+  const trustN = Math.max(0, Number(state.trustN != null ? state.trustN : myTrust) || 0);
+  const g = Math.max(
+    0,
+    Number(state.gifters != null ? state.gifters : myTrustGifters) || 0
+  );
+  const peak = Math.max(getPeakTrust(), notePeakTrust(trustN));
+  const lastTs = Math.max(0, Number(myTrustLastTs) || 0);
+  if (trustN <= 0 && g <= 0 && peak <= 0) {
+    el.hidden = true;
+    el.setAttribute("hidden", "");
+    el.textContent = "";
+    return;
+  }
+  el.hidden = false;
+  el.removeAttribute("hidden");
+  const bits = [];
+  if (g > 0) {
+    bits.push(
+      _t("stars.storyGifters", { n: g }) || `${g} unique gifters`
+    );
+  }
+  if (peak > 0) {
+    bits.push(
+      peak > trustN
+        ? _t("stars.storyPeakActive", { peak, n: trustN }) ||
+            `peak trust ${peak} · active ${trustN}`
+        : _t("stars.storyPeak", { peak }) || `peak trust ${peak}`
+    );
+  }
+  if (lastTs > 0) {
+    const days = Math.max(
+      0,
+      Math.floor((Date.now() / 1000 - lastTs) / 86400)
+    );
+    bits.push(
+      days === 0
+        ? _t("stars.storyPraiseToday") || "last praise today"
+        : _t("stars.storyPraiseDays", { n: days }) ||
+            `last praise ${days}d ago`
+    );
+  }
+  el.textContent = bits.join(" · ");
+}
+
+/** Render gifter floor dots (1…12) with marks at 5 and 12 + initials chips. */
 function syncGiftersStrip(gifters) {
   const g = Math.max(0, Math.min(24, Math.floor(Number(gifters) || 0)));
   const strip = $("stars-gifters-strip");
@@ -2788,6 +2905,9 @@ function syncGiftersStrip(gifters) {
   if (countEl) {
     countEl.textContent = `${g} / ${slots}`;
   }
+  try {
+    syncGiverChips(myTrustGivers);
+  } catch (_) {}
   if (strip) {
     const prev = strip.dataset.g;
     if (prev !== String(g) || !strip.childElementCount) {
@@ -2841,6 +2961,9 @@ function syncGiftersStrip(gifters) {
         "Each person who gifts you after a chat fills one dot.";
     }
   }
+  try {
+    syncRepStory({ trustN: myTrust, gifters: g });
+  } catch (_) {}
 }
 
 /** Days until soft decay starts / how far into decay. */
@@ -5770,16 +5893,33 @@ function showStarReviewPrompt(msg) {
     let giftBtns = "";
     for (let a = 1; a <= maxGift; a++) {
       const label =
-        a === 1
-          ? _t("stars.give1") || "★ 1"
-          : a === 2
-            ? _t("stars.give2") || "★★ 2"
-            : _t("stars.give3") || "★★★ 3";
-      giftBtns += `<button type="button" class="pill tight btn-star-yes" data-star-amount="${a}">${escapeHtml(
+        theyPraised && a === 1
+          ? _t("stars.giftBack1") || "★ Gift back"
+          : a === 1
+            ? _t("stars.give1") || "★ 1"
+            : a === 2
+              ? _t("stars.give2") || "★★ 2"
+              : _t("stars.give3") || "★★★ 3";
+      const primary = theyPraised && a === 1 ? " accent" : "";
+      giftBtns += `<button type="button" class="pill tight${primary} btn-star-yes" data-star-amount="${a}">${escapeHtml(
         label
       )}</button>`;
     }
-    toast.innerHTML = `
+    // Reciprocity: gift buttons first (primary CTA), then thanks / skip
+    toast.innerHTML = theyPraised
+      ? `
+      <strong>${escapeHtml(title)}</strong>
+      <span>${escapeHtml(body)}</span>
+      <div class="export-nudge-actions star-review-actions" style="margin-top:0.45rem">
+        ${giftBtns}
+        <button type="button" class="pill tight ghost" id="btn-star-thanks">${escapeHtml(
+          _t("stars.thanks") || "Thanks"
+        )}</button>
+        <button type="button" class="pill tight ghost" id="btn-star-no">${escapeHtml(
+          _t("stars.skip") || "No star"
+        )}</button>
+      </div>`
+      : `
       <strong>${escapeHtml(title)}</strong>
       <span>${escapeHtml(body)}</span>
       <div class="export-nudge-actions star-review-actions" style="margin-top:0.45rem">
@@ -18993,10 +19133,19 @@ function handleServer(msg) {
       myTrust = Math.max(0, Number(msg.trust) || 0);
       myTrustGifters = Math.max(0, Number(msg.trust_gifters) || 0);
       myTrustLastTs = Math.max(0, Number(msg.trust_last_ts) || 0);
+      myTrustGivers = Array.isArray(msg.trust_givers)
+        ? msg.trust_givers
+            .map((c) => ({
+              initial: String(c?.initial || "★").slice(0, 2),
+              flag: String(c?.flag || "").trim(),
+            }))
+            .filter((c) => c.initial)
+        : [];
       myTrustEffective =
         msg.trust_effective != null
           ? Math.max(0, Number(msg.trust_effective) || 0)
           : clientEffectiveTrust(myTrust, myTrustGifters);
+      notePeakTrust(myTrust);
       applyStarRateWindowFromHub(msg);
       setStarsBadge("local", myStars, { trust: myTrustEffective });
       maybeStarsMilestones({ gifters: myTrustGifters, balance: myStars });
@@ -19222,10 +19371,26 @@ function handleServer(msg) {
             }
             myTrust = trustIn;
             myTrustEffective = clientEffectiveTrust(myTrust, myTrustGifters);
+            notePeakTrust(myTrust);
+            // Append privacy-light chip for new gifter if we know their name
+            if (fromUid && fromName && trustIn > prevTrust) {
+              const ini = fromName.trim().charAt(0).toUpperCase() || "★";
+              if (!myTrustGivers.some((c) => c.initial === ini)) {
+                myTrustGivers = [
+                  { initial: ini, flag: "" },
+                  ...myTrustGivers,
+                ].slice(0, 8);
+              }
+            }
             maybeStarsMilestones({
               gifters: myTrustGifters,
               balance: myStars,
             });
+            if (fromUid) {
+              try {
+                maybeGrantMutualStarFlair(fromUid);
+              } catch (_) {}
+            }
           }
           setStarsBadge("local", myStars, {
             trust: myTrustEffective || myTrust,
@@ -19352,6 +19517,10 @@ function handleServer(msg) {
             });
             setStatus(title);
             trackEvent("star_given", { amount: amt });
+            // Close gift-back loop → mutual ★ bond flair
+            try {
+              maybeGrantMutualStarFlair(uid);
+            } catch (_) {}
           }
         } else if (msg.ok && !msg.star) {
           if (/thanked you/i.test(msgText)) {
@@ -22867,6 +23036,11 @@ function pruneFlairState(st) {
       if (!v || v < now) delete st.duo[k];
     }
   }
+  if (st.starBond && typeof st.starBond === "object") {
+    for (const [k, v] of Object.entries(st.starBond)) {
+      if (!v || v < now) delete st.starBond[k];
+    }
+  }
   return st;
 }
 
@@ -22912,7 +23086,9 @@ function selfFlairEmoji() {
   const st = pruneFlairState(loadFlairState());
   saveFlairState(st);
   if (!st.selfUntil || st.selfUntil < Date.now()) return "";
-  return st.selfKind === "duo" ? "✨" : "🔥";
+  if (st.selfKind === "duo") return "✨";
+  if (st.selfKind === "bond") return "⭐";
+  return "🔥";
 }
 
 function partnerFlairEmoji(userId) {
@@ -22920,7 +23096,46 @@ function partnerFlairEmoji(userId) {
   if (!uid) return "";
   const st = pruneFlairState(loadFlairState());
   if (st.duo && st.duo[uid] > Date.now()) return "✨";
+  if (st.starBond && st.starBond[uid] > Date.now()) return "⭐";
   return "";
+}
+
+/** Mutual ★ gift bond flair (7d) — closes the gift-back loop. */
+function maybeGrantMutualStarFlair(userId, opts = {}) {
+  const uid = String(userId || "").trim();
+  if (!uid) return false;
+  let mutual = !!opts.force;
+  if (!mutual) {
+    try {
+      const fr = (friendsCache || []).find((f) => f && f.user_id === uid);
+      mutual = !!(fr && fr.mutual_star);
+    } catch (_) {}
+  }
+  // They praised us this session and we just gifted → bond forming
+  if (!mutual && recentPraiseBy && recentPraiseBy[uid]) {
+    mutual = true;
+  }
+  if (!mutual) return false;
+  const st = pruneFlairState(loadFlairState());
+  const now = Date.now();
+  if (!st.starBond) st.starBond = {};
+  st.starBond[uid] = now + FLAIR_STAR_BOND_MS;
+  st.selfUntil = Math.max(st.selfUntil || 0, now + FLAIR_STAR_BOND_MS);
+  st.selfKind = "bond";
+  saveFlairState(st);
+  try {
+    refreshFlairUi();
+  } catch (_) {}
+  trackEvent("flair_star_bond", {});
+  try {
+    showStarFeedbackToast("gift", {
+      title: _t("stars.bondFlairTitle") || "Mutual ★ bond",
+      body:
+        _t("stars.bondFlairBody") ||
+        "You both gifted ★ — duo bond flair for a week.",
+    });
+  } catch (_) {}
+  return true;
 }
 
 function refreshFlairUi() {
@@ -22939,7 +23154,9 @@ function refreshFlairUi() {
       chip.title =
         me === "✨"
           ? _t("friends.duoFlairTitle") || "Duo flair — long chat + friends"
-          : _t("friends.sparkFlairTitle") || "Spark flair — long chat (24h)";
+          : me === "⭐"
+            ? _t("stars.bondFlairTitle") || "Mutual ★ bond"
+            : _t("friends.sparkFlairTitle") || "Spark flair — long chat (24h)";
     } else {
       chip.hidden = true;
       chip.setAttribute("hidden", "");
@@ -22955,7 +23172,9 @@ function refreshFlairUi() {
       pChip.removeAttribute("hidden");
       pChip.textContent = pe;
       pChip.title =
-        _t("friends.duoFlairTitle") || "Duo flair — long chat + friends";
+        pe === "⭐"
+          ? _t("stars.bondFlairTitle") || "Mutual ★ bond"
+          : _t("friends.duoFlairTitle") || "Duo flair — long chat + friends";
     } else {
       pChip.hidden = true;
       pChip.setAttribute("hidden", "");

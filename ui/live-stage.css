@@ -18168,3 +18168,45 @@ html.match-live .tile-remote .side-rail-left,
 .star-review-toast.is-reciprocity strong {
   color: #ffe9a0;
 }
+
+/* Gifter initials + reputation story */
+.stars-giver-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.28rem;
+  margin: 0 0 0.4rem;
+  align-items: center;
+}
+.stars-giver-chips[hidden] {
+  display: none !important;
+}
+.stars-giver-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  padding: 0 0.28rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  color: #1a1200;
+  background: linear-gradient(145deg, #ffe08a, #e8a812);
+  border: 1px solid rgba(255, 220, 100, 0.55);
+  box-shadow: 0 1px 6px rgba(200, 140, 20, 0.25);
+  line-height: 1;
+}
+.stars-rep-story {
+  margin: 0.4rem 0 0;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: rgba(200, 210, 230, 0.88);
+  font-weight: 600;
+}
+.stars-rep-story[hidden] {
+  display: none !important;
+}
+.star-review-toast.is-reciprocity .btn-star-yes.accent {
+  font-weight: 800;
+  box-shadow: 0 4px 16px rgba(255, 140, 40, 0.35);
+}
