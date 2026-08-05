@@ -10970,40 +10970,30 @@ function updateStartButtonVisibility() {
   syncMatchChrome();
 }
 
-/** Set partner-tile title while searching; alone pool → friend-invite sub copy. */
+/** Set partner-tile title while searching (no invite/Accept→Call coaching under Start). */
 function setSearchingEmptyCopy() {
   const empty = $("remote-empty");
   const titleEl = empty?.querySelector(".empty-title");
   const subEl = empty?.querySelector(".empty-sub") || $("remote-empty-sub");
   const room = currentRoom();
-  const alone = isPoolAlone();
   if (titleEl) {
     if (room && ROOMS_ENABLED) {
       titleEl.textContent =
         _t("remote.searchingRoom", { r: room }) ||
         `Waiting in room “${room}”…`;
-    } else if (alone) {
-      titleEl.textContent =
-        _t("remote.aloneInviteTitle") ||
-        _t("remote.searchingTitle") ||
-        "Looking for a partner…";
     } else {
       titleEl.textContent =
         _t("remote.searchingTitle") || "Looking for a partner…";
     }
   }
+  // Never show invite/Accept→Call lines on the empty Start card
   if (subEl) {
-    if (alone && (inQueue || wantSearch) && !trioBrowse) {
-      subEl.hidden = false;
-      subEl.removeAttribute("hidden");
-      subEl.textContent =
-        _t("friends.aloneInviteBody") ||
-        "Few people online. Invite a friend — they add your code, you Accept, then Call.";
-    } else {
-      subEl.hidden = true;
-      subEl.textContent = "";
-    }
+    subEl.hidden = true;
+    subEl.setAttribute("hidden", "");
+    subEl.textContent = "";
   }
+  empty?.classList.remove("alone-invite-sub");
+  document.documentElement.classList.remove("alone-searching");
   updateEmptyAloneActions();
   maybeScheduleAloneSearchCopy();
 }
