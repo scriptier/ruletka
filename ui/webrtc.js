@@ -1270,6 +1270,7 @@ class RouletteWebRtc {
     this._offerInFlight = false;
     this._offerSentOnce = false;
     this._lastOfferAt = 0;
+    this._pendingRemoteOfferSince = 0;
     this.pc.onicecandidate = (ev) => {
       if (!ev.candidate) return;
       // Force-relay: never trickle host/srflx — peer TURN would CREATE_PERMISSION
@@ -1401,6 +1402,17 @@ class RouletteWebRtc {
         if (!this.pc) return;
         if (this.pc.remoteDescription || this.pc.currentRemoteDescription) return;
         if (this._offerSentOnce || this._offerInFlight) return;
+        // A real offer already arrived (handleRemoteSignal invoked) and is
+        // still being applied — don't race it with a promote-offer while
+        // setRemoteDescription/connect() are in flight (003: hub debounce
+        // was dropping the resulting duplicate offer at ~0.8s/~4s).
+        if (
+          this._pendingRemoteOfferSince &&
+          Date.now() - this._pendingRemoteOfferSince < 4000
+        ) {
+          console.info("[webrtc] offer watchdog — skip, remote offer pending");
+          return;
+        }
         const live =
           this.remoteStream &&
           (this.remoteStream.getVideoTracks?.() || []).some(
@@ -1616,6 +1628,10 @@ class RouletteWebRtc {
   }
 
   async handleRemoteSignal(kind, payload) {
+    // Mark synchronously, before the connect()/setRemoteDescription awaits
+    // below, so _armOfferWatchdog sees a real offer already inbound even
+    // during that gap (mirrors mobile MediaSession.pendingRemoteOfferSince).
+    if (kind === "offer") this._pendingRemoteOfferSince = Date.now();
     if (!this.pc) await this.connect();
     if (kind === "offer") {
       const raw = JSON.parse(payload);
@@ -1699,6 +1715,7 @@ class RouletteWebRtc {
       }
       if (raw?.sdp) this._lastRemoteOfferSdp = String(raw.sdp).slice(0, 200);
       await this.pc.setRemoteDescription(desc);
+      this._pendingRemoteOfferSince = 0;
       this.isOfferer = false;
       preferCodecs(this.pc);
       // Flush ICE in parallel with answer SDP — don't delay first answer
