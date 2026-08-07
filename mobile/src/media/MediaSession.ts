@@ -1946,11 +1946,19 @@ export class MediaSession {
     this.markConnectStart(`signal_${kind}`);
     // Parallel prep — browser often sends offer before startCall finishes.
     // Don't stall answer on ICE HTTP if we already have servers.
+    // Cap GUM the same way startCall does — an uncapped await here left the
+    // answerer silent for as long as getUserMedia took (cold cam / permission
+    // stall), i.e. the exact multi-second "no answer" symptom this guards.
     await Promise.all([
       this.hasIceServers()
         ? Promise.resolve(true)
         : this.waitForIceConfig(1000),
-      this.ensureLocalStream(),
+      Promise.race([
+        this.ensureLocalStream(),
+        new Promise<MediaStreamLike | null>((resolve) =>
+          setTimeout(() => resolve(this.localStream), 1100)
+        ),
+      ]),
     ]);
     // Mark call started on first signal so timers work.
     if (!this.callStartAt) this.callStartAt = Date.now();
