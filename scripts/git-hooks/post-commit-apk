@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# post-commit: if this commit touched mobile app source, rebuild sideload APK
+# (no --bump, so we don't dirty app.json and loop).
+#
+# Install once:
+#   ln -sf ../../scripts/git-hooks/post-commit-apk .git/hooks/post-commit
+#   # or: ./scripts/git-hooks/install-apk-hook.sh
+#
+# Disable for one commit: SKIP_APK_HOOK=1 git commit ...
+# Disable forever: rm .git/hooks/post-commit
+set -euo pipefail
+
+[[ "${SKIP_APK_HOOK:-}" == "1" ]] && exit 0
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$ROOT"
+
+# Only if last commit changed mobile runtime sources (not docs-only)
+if ! git diff-tree --no-commit-id --name-only -r HEAD | grep -qE '^mobile/(app|src|assets|package\.json|app\.json|app\.config\.js|android/)'; then
+  exit 0
+fi
+
+# Skip pure docs / scripts under mobile that don't affect the binary
+if git diff-tree --no-commit-id --name-only -r HEAD | grep -qE '^mobile/' && \
+   ! git diff-tree --no-commit-id --name-only -r HEAD | grep -qE '^mobile/(app/|src/|assets/|package\.json|app\.json|app\.config\.js|android/)'; then
+  exit 0
+fi
+
+BUILD="$ROOT/mobile/scripts/build-apk-local.sh"
+[[ -x "$BUILD" ]] || exit 0
+
+LOCK="$ROOT/mobile/artifacts/.apk-build.lock"
+LOG="$ROOT/mobile/artifacts/apk-hook.log"
+mkdir -p "$ROOT/mobile/artifacts"
+
+# Don't stack builds
+if [[ -f "$LOCK" ]]; then
+  # stale lock > 45 min → ignore
+  if find "$LOCK" -mmin +45 2>/dev/null | grep -q .; then
+    rm -f "$LOCK"
+  else
+    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) skip: build already running" >>"$LOG"
+    exit 0
+  fi
+fi
+
+(
+  flock -n 9 || exit 0
+  echo "$$" >"$LOCK"
+  trap 'rm -f "$LOCK"' EXIT
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) post-commit APK rebuild (no bump) HEAD=$(git rev-parse --short HEAD)" >>"$LOG"
+  # no --bump: avoid dirty app.json after commit (would loop if we auto-commit)
+  if "$BUILD" >>"$LOG" 2>&1; then
+    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) ok" >>"$LOG"
+  else
+    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) FAIL exit=$?" >>"$LOG"
+  fi
+) 9>>"$LOCK" &
+
+echo "post-commit: APK rebuild started in background (log: mobile/artifacts/apk-hook.log)"
+exit 0
