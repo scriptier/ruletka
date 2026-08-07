@@ -1,0 +1,22 @@
+Only my one edit in `mobile/src/hub/HubClient.ts` is new; everything else is pre-existing WIP from prior sessions that I left untouched. Test passes.
+
+## Summary
+
+**Root cause found:** `HubClient.fetchIceConfig()` (`mobile/src/hub/HubClient.ts`) called `fetch(configUrl(...))` with no timeout. The `matched` handler in `live.tsx` gates `startCall()` (and thus `createAndSendOffer`) behind this fetch when no ICE is cached yet — its `.then`/`.catch` are the only two places that invoke `startPrimary()`. If the hub's `/config.json` request hangs (dead TCP, slow hub under load), that promise never settles, so `startCall` is never called and **no offer/answer is ever sent** — this is a direct, unbounded-hang explanation for "solo matched, no kind=offer for many seconds."
+
+**Fix:** Added a 4s `AbortController` timeout to the fetch in `refreshIceConfig()`, matching the existing pattern already used in `mobile/src/hubs/directory.ts`. Now the promise always settles within 4s, so the `matched` handler's `.catch` path (`startPrimary("ICE fetch fail")`) reliably fires and the offer/answer proceeds with STUN-only ICE rather than hanging forever.
+
+**Other two success criteria — verified already correct, no changes needed:**
+- **#2 (spin after reconnect):** `live.tsx`'s "Resume stranger search after reconnect" effect (~line 1656) already re-sends `spin()` whenever `connected` flips true while `phase === "search"` — covers the `!connected` → `reconnectHub()` path in `start()`.
+- **#3 (signal queueing):** `MediaSession.handleRemoteSignalInner` already creates the `RTCPeerConnection` itself if `startCall` hasn't run yet (for offer/answer), and queues trickle ICE in `pendingRemoteIce` until `hasRemoteDescription`, flushed via `flushPendingIce`. No drop path found.
+
+I did not touch `startCallInFlight`, `offerSentThisCall`, `gotAnswerThisCall`, or the 15s iceRestart grace, as instructed.
+
+**FILES_CHANGED**
+- `mobile/src/hub/HubClient.ts` — bounded the `/config.json` fetch with a 4s `AbortController` timeout in `refreshIceConfig()`.
+
+**How Grok should test:**
+1. Reproduce the hang: throttle/block `/config.json` on the hub (e.g. iptables DROP on that port, or a slow-loris proxy) for a fresh client with no ICE cache, then trigger a match. Before the fix this would hang indefinitely with zero SDP; after the fix, `startCall` should fire within ~4s (log line `startCall ok (ICE fetch fail)` or similar, and STUN-only offer sent).
+2. Normal path regression: confirm a healthy hub still gets `1 offer + 1 answer` per match, no extra/duplicate offers (mutex/latches untouched).
+3. Run `node mobile/scripts/test-connect-ui.mjs` — passes (unchanged, confirms no regression to connectUi timing logic).
+4. Smoke-test disconnect → Start → reconnect flow to confirm `spin` still fires post-reconnect (pre-existing behavior, unchanged).

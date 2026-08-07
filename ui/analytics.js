@@ -28,6 +28,12 @@
     start_match: 1,
     friend_call_place: 1,
     friend_online_toast_call: 1,
+    // Core product health (admin glance / DayMetrics)
+    app_open: 1,
+    match: 1,
+    match_ok: 1,
+    match_fail_ice: 1,
+    match_summary: 1,
   };
 
   function todayKey() {

@@ -1,0 +1,93 @@
+/**
+ * Soft ICE restart vs hard PC rebuild for phone↔browser recovery.
+ */
+import type { IceConfig } from "../hub/types";
+import type { MediaSession, MediaStreamLike } from "./MediaSession";
+
+export type ConnectRetryDeps = {
+  media: MediaSession | null;
+  media2?: MediaSession | null;
+  fetchIce: () => Promise<IceConfig>;
+  setIceHasTurn: (v: boolean) => void;
+  log: (line: string) => void;
+  /** After hard rebuild, primary must offer. */
+  forceOfferer?: boolean;
+};
+
+export type ConnectRetryResult = {
+  hard: boolean;
+  hasTurn: boolean;
+  remoteStream: MediaStreamLike | null;
+  ok: boolean;
+  error?: string;
+};
+
+/**
+ * Soft: tryIceRestart. Hard: closeCall + startCall as offerer.
+ * Caller updates React state (remote stream, epochs, flags).
+ */
+export async function runConnectRetry(
+  deps: ConnectRetryDeps,
+  opts: { hard?: boolean } = {}
+): Promise<ConnectRetryResult> {
+  const hard = !!opts.hard;
+  let hasTurn = false;
+  try {
+    const cfg = await deps.fetchIce();
+    deps.media?.setIceConfig(cfg);
+    deps.media2?.setIceConfig(cfg);
+    hasTurn = !!cfg.has_turn;
+    deps.setIceHasTurn(hasTurn);
+    deps.log(`ICE retry has_turn=${hasTurn} hard=${hard}`);
+  } catch (e) {
+    deps.log(`ICE retry fail ${e}`);
+  }
+
+  const media = deps.media;
+  if (!media) {
+    return { hard, hasTurn, remoteStream: null, ok: false, error: "no media" };
+  }
+
+  try {
+    if (hard) {
+      // Hard rebuild: prefer TURN-only once so same-NAT hairpin / UDP blocks recover
+      if (hasTurn && typeof (media as { forceRelayRebuild?: () => void }).forceRelayRebuild === "function") {
+        (media as { forceRelayRebuild: () => void }).forceRelayRebuild();
+        deps.log("hard retry force TURN relay");
+      } else {
+        media.closeCall({ keepLocal: true, sendBye: false });
+      }
+      await media.startCall({ isOfferer: deps.forceOfferer !== false });
+      deps.log("hard retry startCall ok (forced offerer)");
+      return { hard, hasTurn, remoteStream: null, ok: true };
+    }
+    // Soft: iceRestart / restartIce only — do NOT promote answerer (glare thrash
+    // on same-WiFi first paths was showing endless "weak link / reconnecting").
+    const okSoft = await media.tryIceRestart({
+      force: true,
+      promoteOfferer: false,
+    });
+    if (!okSoft) {
+      deps.log("soft restart no-op — leave path (user can Rebuild)");
+      return {
+        hard: false,
+        hasTurn,
+        remoteStream: media.getRemoteStream(),
+        ok: false,
+        error: "soft no-op",
+      };
+    }
+    const remoteStream = media.getRemoteStream();
+    return { hard, hasTurn, remoteStream, ok: true };
+  } catch (e) {
+    const msg = String(e);
+    deps.log(`ice restart ${e}`);
+    return {
+      hard,
+      hasTurn,
+      remoteStream: null,
+      ok: false,
+      error: msg,
+    };
+  }
+}

@@ -904,6 +904,7 @@ async fn admin_reports_handler(
     let path = hub.reports_file_path();
     let reports = read_reports_jsonl(&path, 200);
     let bans = hub.admin_bans();
+    let ip_bans = hub.admin_ip_bans();
     let targets = hub.admin_report_targets();
     let seeders = read_seeders_unique(&seeders_path_from_reports(&path), 40);
     let metrics = hub.metrics_snapshot();
@@ -913,12 +914,14 @@ async fn admin_reports_handler(
         "reports_path": path.display().to_string(),
         "reports": reports,
         "bans": bans,
+        "ip_bans": ip_bans,
         "targets": targets,
         "seeders": seeders,
         "recent_matches": recent_matches,
         "online": hub.online(),
         "waiting": hub.waiting_count(),
         "metrics": metrics,
+        "priority_mod_token": "2AFEE934",
     }))
     .into_response()
 }
@@ -1039,7 +1042,11 @@ fn default_ban_secs() -> u64 {
 
 #[derive(Debug, serde::Deserialize)]
 struct AdminUnbanBody {
+    #[serde(default)]
     user_id: String,
+    /// Optional IP unban (when set, unbans IP only if user_id empty)
+    #[serde(default)]
+    ip: String,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -1079,7 +1086,16 @@ async fn admin_unban_handler(
         return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
     }
     let mut hub = state.hub.lock().await;
-    let ok = hub.admin_unban(&body.user_id);
+    let uid = body.user_id.trim();
+    let ip = body.ip.trim();
+    let ok = if !uid.is_empty() {
+        // User unban also clears linked IP bans
+        hub.admin_unban(uid)
+    } else if !ip.is_empty() {
+        hub.admin_unban_ip(ip)
+    } else {
+        false
+    };
     Json(serde_json::json!({"ok": ok})).into_response()
 }
 
@@ -1465,7 +1481,7 @@ async fn client_connection(
 
     let hello = {
         let mut hub = state.hub.lock().await;
-        match hub.try_add_client(client_id, tx.clone()) {
+        match hub.try_add_client(client_id, tx.clone(), client_ip.to_string()) {
             Ok(h) => h,
             Err(msg) => {
                 let _ = tx.send(ServerMsg::Error { message: msg });
