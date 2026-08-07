@@ -40,6 +40,15 @@ pub struct FriendsFile {
     /// user_id → ban expiry unix seconds (matchmaking ban from reports)
     #[serde(default)]
     pub match_bans: HashMap<String, u64>,
+    /// Public client IP → ban expiry unix seconds (blocks rematch via new accounts)
+    #[serde(default)]
+    pub match_ip_bans: HashMap<String, u64>,
+    /// IP → last user_id linked when banned (admin display / unban by user clears IPs)
+    #[serde(default)]
+    pub match_ip_ban_users: HashMap<String, String>,
+    /// user_id → last seen public IP (for IP ban when target is offline)
+    #[serde(default)]
+    pub user_last_ip: HashMap<String, String>,
     /// conversation_key (sorted uid_a|uid_b) → messages (newest last)
     #[serde(default)]
     pub dms: HashMap<String, Vec<StoredDm>>,
@@ -76,7 +85,7 @@ pub struct FriendsFile {
 /// Cosmetic effect bought with stars (no money). Survives logout until `until`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StarEffectRecord {
-    /// "bars" | "flowers" | "balloons" | "confetti" | "heart" | "fireworks"
+    /// "bars" | "flowers" | "balloons" | "confetti" | "heart" | "fireworks" | "pass_mic"
     pub kind: String,
     /// Unix seconds when the effect ends
     pub until: u64,

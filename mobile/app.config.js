@@ -15,13 +15,11 @@ const friendsOnly =
   process.env.EXPO_PUBLIC_FRIENDS_ONLY === "1" ||
   process.env.EXPO_PUBLIC_FRIENDS_ONLY === "true";
 
-// Store / preview AABs must not ship expo-dev-client (Gradle + Play policy noise).
-// Only wire it for the development EAS profile (or local when profile unset).
+// Store / Play AABs must NOT ship expo-dev-client (crashes / DevLauncher on open).
+// Only wire it for explicit development builds.
 const easProfile = process.env.EAS_BUILD_PROFILE || "";
 const wantDevClient =
-  easProfile === "development" ||
-  easProfile === "" ||
-  process.env.EXPO_DEV_CLIENT === "1";
+  easProfile === "development" || process.env.EXPO_DEV_CLIENT === "1";
 
 /** @type {import('expo/config').ExpoConfig} */
 const expo = {
@@ -32,12 +30,21 @@ const expo = {
     "expo-secure-store",
     "expo-asset",
     "expo-font",
+    // expo-dev-client deliberately omitted from store builds (see package.json autolinking.exclude)
     ...(wantDevClient ? ["expo-dev-client"] : []),
     [
       "expo-build-properties",
       {
         android: {
           minSdkVersion: 24,
+          // Play Console requires target API 35+ (Aug 2025+)
+          compileSdkVersion: 35,
+          targetSdkVersion: 35,
+          // Extract .so at install — more reliable on Android 15 (16KB pages)
+          // when some prebuilt RN/Expo libs are still 4KB-aligned.
+          useLegacyPackaging: true,
+          // Real phones: arm64 only (smaller + fewer bad ABI combos)
+          // (x86 still available via emulator local builds if needed)
           // RN WebRTC + modern AGP: keep packaging predictable on EAS
           packagingOptions: {
             pickFirst: [

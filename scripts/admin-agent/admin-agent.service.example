@@ -1,0 +1,8 @@
+[Unit]
+Description=Ruletka overnight admin agent (one nightly.sh run)
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/drakosik/freenet-roulette
+ExecStart=/home/drakosik/freenet-roulette/scripts/admin-agent/nightly.sh
+Nice=10
