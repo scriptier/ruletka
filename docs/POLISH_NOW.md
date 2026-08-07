@@ -1,32 +1,30 @@
 # Polish now (connect path frozen)
 
-**Baseline:** CONNECTIVITY_LOCK — APK **0.1.128+**, web speed + mute notify.  
-**Rule:** Polish PRs must **not** change offer/answer/ICE/kickSolo/startCall/force_relay/coturn unless a smoke proves a 1-line bug.
+**Baseline:** CONNECTIVITY_LOCK · APK via `build-apk-local.sh` · web deploy as authorized.
 
 ## Done
 
 | Work | Notes |
 |------|--------|
-| Live stage chrome | Next grace countdown, conn pill elapsed, empty-stage copy, EN/RU |
-| Friend call UX | No-answer Call back, cancel/end toasts |
-| Cam / Hide copy | Mobile cam pause vs web Hide black canvas |
-| Partner mute notify | P2P same visuals both ways |
-| Connect speed thrash | 0.1.128 + mid-offer teardown / late phone promote |
+| Live stage chrome | Next grace, conn pill elapsed, empty copy |
+| Hotkeys taller + scroll | Settings + `?` help |
+| Friend call UX (mobile) | No-answer Call back, cancel/end |
+| Partner mute notify | P2P same visuals |
+| Connect speed thrash | mid-offer teardown / late promote |
+| **APK automation** | `AGENTS.md` + post-commit hook + `build-apk-local.sh` |
+| **Web friend-call notify** | Tab open+unfocused → Notification (SW push still open) |
+| Overlay i18n fill | blur/mute/call keys from EN |
+| Export plaintext | extra confirm (prefer password) |
 
 ## Remaining
 
-| # | Work | Why |
-|---|------|-----|
-| 1 | **i18n sweep** — new strings beyond EN/RU | Clarity |
-| 2 | **Play store listing** — screenshots, EN/RU, data safety | Store path |
-| 3 | **Web friend-call notif** | Matrix P1 |
-| 4 | **Identity export align** | Small security parity |
-| 5 | Prefer Direct on Android | Defer |
+| # | Work | Status |
+|---|------|--------|
+| 1 | **Play store listing** — screenshots, EN/RU, data safety | **Docs ready** — [`PLAY_INTERNAL_TEST_CHECKLIST.md`](PLAY_INTERNAL_TEST_CHECKLIST.md) · LISTING.md · PLAY_* · human Console upload |
+| 2 | **Web push SW** — friend call when tab fully closed (`039`) | Open |
+| 3 | Prefer Direct on Android (defer) | Deferred |
+
+**Connect:** still smoke-critical after thrash fixes — hard refresh + APK 0.1.136 before Play internal.
 
 ## Parked
-
-SFU/LiveKit, Lottie gifts, multi-hub stars.
-
-## Smoke after polish
-
-CONNECTIVITY_LOCK smoke once (both cams) before calling a build good.
+SFU, Lottie gifts, multi-hub stars.

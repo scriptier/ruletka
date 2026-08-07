@@ -1,53 +1,83 @@
-# Google Play Internal testing — upload AAB
+# Google Play Console — upload (current)
 
-Package: **`me.ruletka.app`**
+Package: **`me.ruletka.app`**  
+**Ship tip:** **0.1.136 · versionCode 144** (sideload APK)  
+Ops: [`PLAY_OPS.md`](PLAY_OPS.md) · Data safety: [`PLAY_DATA_SAFETY.md`](PLAY_DATA_SAFETY.md) · **Checklist:** [`PLAY_INTERNAL_TEST_CHECKLIST.md`](PLAY_INTERNAL_TEST_CHECKLIST.md)
 
 ## Ready binaries
 
-| Version code | Source |
-|--------------|--------|
-| **6** (prefer) | [EAS build](https://expo.dev/accounts/courtiers-team/projects/ruletka/builds/d6de984a-72d7-48ee-a59f-24e2da3b8785) · [AAB download](https://expo.dev/artifacts/eas/GfChIFs_P8ZgFKav1jqyZ9mnBWlOUJg1ixepxDo6IN8.aab) · local `mobile/artifacts/ruletka-0.1.0-vc6.aab` |
-| **5** | [EAS](https://expo.dev/accounts/courtiers-team/projects/ruletka/builds/9d626558-8b8c-465b-b7e1-4b2f05e0d101) · `mobile/artifacts/ruletka-0.1.0-vc5.aab` |
-| **4** | [Expo artifact](https://expo.dev/artifacts/eas/1Zg9q_UtLbeKCEmXeyY4rVKZMStgPOne51jZS36NQKE.aab) · `mobile/artifacts/ruletka-0.1.0-vc4.aab` |
-
-Prefer **vc6** (commit `896e6be` — latest `main`, hub `https://ruletka.vip`).
-
-## Manual upload (no API key)
-
-1. [Play Console](https://play.google.com/console) → app **me.ruletka.app**
-2. **Testing → Internal testing → Create new release**
-3. Upload `mobile/artifacts/ruletka-0.1.0-vc6.aab` (or the EAS AAB link above)
-4. Release notes (draft):
-
-```
-Internal build vc6: stranger match, friends, stars/reputation, safety tools.
-Hub: ruletka.vip · 18+ only.
-```
-
-5. Review → **Start rollout to Internal testing**
-6. Add testers (email list or Google Group)
-7. Share the opt-in link from Play Console
-
-## Auto-submit (optional)
-
-Save Play service account JSON as:
-
 ```text
-mobile/secrets/google-play.json
+# Sideload (device smoke) — always keep current
+mobile/artifacts/ruletka-0.1.136-vc144.apk
+mobile/artifacts/ruletka-latest.apk
+
+# Play Console — build AAB when ready to upload
+cd mobile && ./scripts/build-aab-local.sh
+# → mobile/artifacts/ruletka-0.1.136-vc144.aab  (or next versionCode)
 ```
 
-Then:
+Signed with Play upload keystore (`mobile/secrets/ruletka-upload.jks`).
+
+### Rebuild anytime
 
 ```bash
 cd mobile
-npx eas-cli submit --profile production --platform android --id d6de984a-72d7-48ee-a59f-24e2da3b8785
-# or:
-npx eas-cli submit --profile production --platform android --latest
+./scripts/build-apk-local.sh --bump   # sideload + bump versionCode
+./scripts/build-aab-local.sh          # AAB for Console (versionCode must rise)
+./scripts/play-status.sh              # readiness
+./scripts/play-status.sh --notes      # pasteable release notes
 ```
 
-See `mobile/secrets/README.md`.
+Needs: Android SDK 35 + JDK 17 + keystore in `mobile/secrets/`.
 
-## After upload
+---
 
-- Device smoke: [`DEVICE_SMOKE.md`](DEVICE_SMOKE.md)
-- Support / privacy URLs already on listing draft: `mobile/assets/store/LISTING.md`
+## Play Console — step by step
+
+Open: [play.google.com/console](https://play.google.com/console) → app **me.ruletka.app**
+
+### 1) Internal testing (recommended first)
+
+1. **Testing → Internal testing → Create new release**
+2. Upload AAB from `mobile/artifacts/` (versionCode **>** last published)
+3. **Release name:** `0.1.136 (144)` (or current)
+4. **Release notes** — run `./scripts/play-status.sh --notes` or:
+
+```
+0.1.136 (144) — closed testing
+
+• Connect: one offer per match; no 0.8s thrash / 20s black wait
+• Partner mute visuals + debate over data channel (Play fix)
+• Multi-party: horizontal stack layout
+• Soft ICE / hard rebuild budgets restored (14s / 24s)
+• Friends Call + DMs; report + block; 18+ gate
+• Child safety: ruletka.vip/legal/child-safety.html
+
+Hub: https://ruletka.vip
+Support: support@ruletka.me
+```
+
+5. **Review → Start rollout to Internal testing**
+6. **Testers** → add emails / Google Group; open **opt-in link** on each device once
+
+### 2) Closed / open testing (later)
+
+Promote when internal smoke is green: Closed testing → Production.
+
+### 3) Store listing
+
+Copy from [`mobile/assets/store/LISTING.md`](../mobile/assets/store/LISTING.md)  
+EN + RU: [`LISTING-I18N.md`](../mobile/assets/store/LISTING-I18N.md)  
+Screenshots: `mobile/assets/store/screenshots/`
+
+### 4) Data safety
+
+Fill from [`PLAY_DATA_SAFETY.md`](PLAY_DATA_SAFETY.md).
+
+---
+
+## Do not (automation / agents)
+
+- Bulk APK upload to public site download tree  
+- Production track without internal green smoke  
+- Claiming always-on TURN / SFU as default  
