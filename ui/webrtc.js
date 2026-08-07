@@ -855,6 +855,10 @@ class RouletteWebRtc {
   setLocalStream(stream) {
     this.localStream = stream;
     this._tagTracks();
+    // If PC already exists (rare), push tracks so offer/answer includes cam
+    if (this.pc && stream) {
+      void this.syncLocalTracksToPc().catch(() => {});
+    }
   }
 
   /** Push current localStream tracks into an active peer connection. */
@@ -1440,6 +1444,19 @@ class RouletteWebRtc {
     const now = Date.now();
     // Already building an offer
     if (this._offerInFlight) return false;
+    // After a successful answer, never re-offer unless iceRestart (was: second
+    // offer ~0.7s later → hub debounce drop → phone stuck one-way / rematch).
+    if (
+      !iceRestart &&
+      this._answeredAt &&
+      now - this._answeredAt < 15000
+    ) {
+      console.info(
+        "[webrtc] skip offer — already answered",
+        now - this._answeredAt
+      );
+      return false;
+    }
     // One non-restart offer per PC lifetime (phone double-offer thrash)
     if (!iceRestart && this._offerSentOnce) {
       console.info("[webrtc] skip offer — already sent this PC");

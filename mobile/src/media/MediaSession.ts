@@ -1011,7 +1011,13 @@ export class MediaSession {
       // Audio usually arrives first; video is a later ontrack on the same stream.
       try {
         const track = ev.track as
-          | { id?: string; kind?: string; enabled?: boolean }
+          | {
+              id?: string;
+              kind?: string;
+              enabled?: boolean;
+              muted?: boolean;
+              addEventListener?: (type: string, fn: () => void) => void;
+            }
           | undefined;
         const fromPeer = ev.streams?.[0];
 
@@ -1052,34 +1058,22 @@ export class MediaSession {
         } catch {
           /* ignore */
         }
-
-        let url = "";
+        // When browser video unmutes after audio-first, force RTCView rebind
         try {
-          url = this.remoteStream.toURL();
-        } catch {
-          url = "";
-        }
-        const trackCount = (this.remoteStream.getTracks?.() || []).length;
-        const videoCount = (this.remoteStream.getVideoTracks?.() || []).length;
-        if (videoCount > 0) {
-          if (!this.gotRemoteVideo) {
-            this.gotRemoteVideo = true;
-            this.markPhase("remote_video");
+          if (track?.kind === "video" && typeof track.addEventListener === "function") {
+            const onLive = () => {
+              this.repaintRemoteStream("track_unmute");
+            };
+            track.addEventListener("unmute", onLive);
+            track.addEventListener("mute", () => {
+              /* keep stream; repaint when unmuted again */
+            });
           }
-          this.clearRemoteVideoWatch();
+        } catch {
+          /* ignore */
         }
-        // Always push when track set changes so React remounts / RTCView rebinds
-        const sig = `${url}#t${trackCount}v${videoCount}k=${track?.kind || ""}`;
-        if (sig === this.remoteStreamUrl && videoCount === 0) {
-          return;
-        }
-        this.remoteStreamUrl = sig;
-        this.handlers.onRemoteStream?.(this.remoteStream);
-        this.handlers.onConnectionState?.(
-          videoCount > 0
-            ? `remote_video_ok a=${trackCount - videoCount} v=${videoCount} t=${this.elapsedMs()}ms`
-            : `remote_tracks a=${trackCount - videoCount} v=${videoCount}`
-        );
+
+        this.pushRemoteStreamToUi(track?.kind || "track");
       } catch (e) {
         this.handlers.onError?.(
           e instanceof Error ? e : new Error(String(e))
@@ -1105,7 +1099,10 @@ export class MediaSession {
         this.scheduleRemoteVideoWatch();
         void this.applyQualityTier(this.qualityTier || "mid");
         this.startAdaptiveQuality();
+        this.harvestRemoteReceivers("pc_connected");
         this.repaintRemoteStream("pc_connected");
+        setTimeout(() => this.repaintRemoteStream("pc_connected_500"), 500);
+        setTimeout(() => this.repaintRemoteStream("pc_connected_2s"), 2000);
       }
       if (
         pc.connectionState === "failed" ||
@@ -1135,9 +1132,12 @@ export class MediaSession {
         this.scheduleRemoteVideoWatch();
         void this.applyQualityTier(this.qualityTier || "mid");
         this.startAdaptiveQuality();
-        // Android: ICE connected but RTCView still black — re-push remote
-        // stream so streamEpoch / toURL rebind SurfaceView.
+        // Android: ICE connected but RTCView still black — harvest receivers
+        // (ontrack may have only delivered audio) and re-push to RTCView.
+        this.harvestRemoteReceivers("ice_connected");
         this.repaintRemoteStream("ice_connected");
+        setTimeout(() => this.repaintRemoteStream("ice_connected_500"), 500);
+        setTimeout(() => this.repaintRemoteStream("ice_connected_2s"), 2000);
       }
     };
 
@@ -1746,11 +1746,105 @@ export class MediaSession {
    * First restart only after a real wait so good first paths aren't killed.
    */
   /**
+   * Pull tracks from pc.getReceivers() into remoteStream when ontrack is late
+   * or incomplete (common on RN: audio ontrack first, video never re-notifies UI).
+   */
+  private harvestRemoteReceivers(why: string): void {
+    const pc = this.pc;
+    const rtc = this.rtc;
+    if (!pc || !rtc) return;
+    try {
+      const receivers =
+        (
+          pc as unknown as {
+            getReceivers?: () => Array<{ track?: { id?: string; kind?: string; enabled?: boolean } | null }>;
+          }
+        ).getReceivers?.() || [];
+      for (const r of receivers) {
+        const track = r?.track;
+        if (!track) continue;
+        try {
+          if (track.enabled === false) track.enabled = true;
+        } catch {
+          /* ignore */
+        }
+        if (!this.remoteStream && rtc.MediaStream) {
+          this.remoteStream = new rtc.MediaStream([track as never]);
+          continue;
+        }
+        if (!this.remoteStream) continue;
+        const existing = this.remoteStream.getTracks?.() || [];
+        const has = existing.some(
+          (t) =>
+            (t as { id?: string }).id &&
+            (t as { id?: string }).id === track.id
+        );
+        if (!has) {
+          try {
+            (
+              this.remoteStream as unknown as {
+                addTrack?: (t: unknown) => void;
+              }
+            ).addTrack?.(track);
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+      if (this.remoteStream) {
+        this.pushRemoteStreamToUi(`harvest_${why}`);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Notify React / RTCView of remote stream + track counts. */
+  private pushRemoteStreamToUi(why: string): void {
+    const rs = this.remoteStream;
+    if (!rs) return;
+    let url = "";
+    try {
+      url = rs.toURL();
+    } catch {
+      url = "";
+    }
+    const trackCount = (rs.getTracks?.() || []).length;
+    const videoCount = (rs.getVideoTracks?.() || []).length;
+    if (videoCount > 0) {
+      if (!this.gotRemoteVideo) {
+        this.gotRemoteVideo = true;
+        this.markPhase("remote_video");
+      }
+      this.clearRemoteVideoWatch();
+    }
+    const sig = `${url}#t${trackCount}v${videoCount}-${why}-${Date.now()}`;
+    // Always notify on video; skip only pure audio spam with same signature
+    if (
+      sig.split("-")[0] === this.remoteStreamUrl.split("-")[0] &&
+      videoCount === 0 &&
+      this.remoteStreamUrl.includes("v0")
+    ) {
+      // still allow periodic audio-only push once
+      if (this.remoteStreamUrl.includes(`#t${trackCount}v0`)) return;
+    }
+    this.remoteStreamUrl = sig;
+    this.handlers.onRemoteStream?.(rs);
+    this.handlers.onConnectionState?.(
+      videoCount > 0
+        ? `remote_video_ok a=${trackCount - videoCount} v=${videoCount} t=${this.elapsedMs()}ms why=${why}`
+        : `remote_tracks a=${trackCount - videoCount} v=${videoCount} why=${why}`
+    );
+  }
+
+  /**
    * Re-emit remote stream to React after ICE settles. Android RTCView often
    * stays black if streamURL was set while only audio had arrived, or Surface
    * was covered during connect.
    */
   private repaintRemoteStream(why: string): void {
+    // Pull any receiver tracks that never fired ontrack (or fired too early)
+    this.harvestRemoteReceivers(why);
     const rs = this.remoteStream;
     if (!rs) return;
     try {
@@ -1766,40 +1860,27 @@ export class MediaSession {
     } catch {
       /* ignore */
     }
-    let url = "";
-    try {
-      url = rs.toURL();
-    } catch {
-      url = "";
-    }
-    const trackCount = (rs.getTracks?.() || []).length;
-    const videoCount = (rs.getVideoTracks?.() || []).length;
-    if (videoCount > 0) {
-      this.gotRemoteVideo = true;
-      this.clearRemoteVideoWatch();
-    }
-    // Force new signature even if URL string equal (epoch bump via handler)
-    this.remoteStreamUrl = `${url}#repaint-${why}-t${trackCount}v${videoCount}-${Date.now()}`;
-    this.handlers.onRemoteStream?.(rs);
-    this.handlers.onConnectionState?.(
-      `repaint_${why} a=${trackCount - videoCount} v=${videoCount}`
-    );
+    this.pushRemoteStreamToUi(`repaint_${why}`);
   }
 
   private scheduleRemoteVideoWatch() {
-    if (this.gotRemoteVideo || !this.pc) return;
+    if (!this.pc) return;
     if (this.remoteVideoWatchTimer) return;
-    // Video often 0.5–3s after ICE connected (esp. phone↔browser + TURN)
-    const delays = [6000, 5000, 6000];
+    // Faster waves: browser→phone video often lands after audio; RTCView needs rebind
+    const delays = [800, 1500, 2500, 4000, 6000];
     const wave = this.remoteVideoWaves;
     if (wave >= delays.length) return;
     this.remoteVideoWatchTimer = setTimeout(() => {
       this.remoteVideoWatchTimer = null;
-      if (this.gotRemoteVideo || !this.pc) return;
+      if (!this.pc) return;
+      // Always harvest + repaint — even if tracks exist (black RTCView case)
+      this.harvestRemoteReceivers(`watch_w${wave}`);
       const v = this.remoteStream?.getVideoTracks?.()?.length ?? 0;
       if (v > 0) {
         this.gotRemoteVideo = true;
-        this.handlers.onConnectionState?.("remote_video_ok");
+        this.repaintRemoteStream(`video_watch_w${wave}`);
+        // One more repaint after surface settles
+        setTimeout(() => this.repaintRemoteStream("video_watch_settle"), 400);
         return;
       }
       // ICE still checking / just connected — wait, don't restart yet
@@ -2096,6 +2177,11 @@ export class MediaSession {
           void iceFlush;
           this.scheduleConnectingWatch();
           this.scheduleRemoteVideoWatch();
+          // Browser→phone: harvest receivers + repaint ASAP (audio-first black RTCView)
+          setTimeout(() => this.harvestRemoteReceivers("post_answer"), 200);
+          setTimeout(() => this.repaintRemoteStream("post_answer_400"), 400);
+          setTimeout(() => this.repaintRemoteStream("post_answer_1200"), 1200);
+          setTimeout(() => this.repaintRemoteStream("post_answer_3000"), 3000);
         } else {
           await iceFlush;
         }
