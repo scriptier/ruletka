@@ -712,13 +712,15 @@ function LiveBody() {
       onDataChannel: (open) => {
         setDcOpen(open);
         log(`datachannel ${open ? "open" : "closed"}`);
-        // If we muted partner before DC opened, re-announce so they see the veil
-        if (open && partnerMutedRef.current) {
+        // Re-announce mute state when DC opens (muted before channel ready)
+        if (open) {
           try {
             media.sendDataMessage({
               v: 1,
               type: "partner_mute",
-              muted: true,
+              muted: !!partnerMutedRef.current,
+              user_id: userIdRef.current || "",
+              name: displayNameRef.current || "anon",
               ts: Date.now(),
             });
           } catch {
@@ -746,8 +748,18 @@ function LiveBody() {
             return;
           }
           if (typ === "partner_mute") {
+            // Ignore our own echo if peer echoes (defensive)
+            const fromUid = String(msg.user_id || "").trim();
+            if (
+              fromUid &&
+              userIdRef.current &&
+              fromUid === userIdRef.current
+            ) {
+              return;
+            }
             const muted = !!msg.muted;
             setTheyMutedMe(muted);
+            log(`partner_mute ← theyMutedMe=${muted ? 1 : 0}`);
             if (muted) {
               showToastRef.current(
                 tRef.current("mobile.live.theyMutedYouToast")
@@ -2434,15 +2446,40 @@ function LiveBody() {
     media2Ref.current?.setRemoteAudioEnabled(!next);
     hapticLight();
     // Notify partner so they see the same mute visuals on their self tile
+    const payload = {
+      v: 1 as const,
+      type: "partner_mute",
+      muted: next,
+      user_id: userIdRef.current || "",
+      name: displayNameRef.current || "anon",
+      ts: Date.now(),
+    };
+    let ok = false;
     try {
-      mediaRef.current?.sendDataMessage({
-        v: 1,
-        type: "partner_mute",
-        muted: next,
-        ts: Date.now(),
-      });
+      ok = !!mediaRef.current?.sendDataMessage(payload);
     } catch {
-      /* ignore */
+      ok = false;
+    }
+    // Retry once shortly if DC was still settling (common right after match)
+    if (!ok) {
+      push("partner_mute send failed — retry in 400ms");
+      setTimeout(() => {
+        try {
+          const again = mediaRef.current?.sendDataMessage({
+            ...payload,
+            muted: partnerMutedRef.current,
+            ts: Date.now(),
+          });
+          if (!again) {
+            showToastRef.current(
+              tRef.current("mobile.live.muteP2pWait") ||
+                "Muted locally — partner notify when chat link is ready"
+            );
+          }
+        } catch {
+          /* ignore */
+        }
+      }, 400);
     }
   }
 

@@ -367,7 +367,7 @@ export class MediaSession {
     );
   }
 
-  /** Send JSON over P2P data channel (debate + optional chat). */
+  /** Send JSON over P2P data channel (debate + partner_mute + chat). */
   sendDataMessage(obj: Record<string, unknown>): boolean {
     if (!this.isDataChannelOpen() || !this.chatDc) return false;
     try {
@@ -377,6 +377,42 @@ export class MediaSession {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Decode datachannel payload. react-native-webrtc often delivers strings as
+   * ArrayBuffer when binaryType is "arraybuffer" — dropping those silently
+   * broke partner_mute + debate on Play builds.
+   */
+  private static decodeDcData(data: unknown): string {
+    if (data == null) return "";
+    if (typeof data === "string") return data;
+    try {
+      if (typeof ArrayBuffer !== "undefined" && data instanceof ArrayBuffer) {
+        return new TextDecoder("utf-8").decode(new Uint8Array(data));
+      }
+      if (ArrayBuffer.isView(data)) {
+        const v = data as ArrayBufferView;
+        return new TextDecoder("utf-8").decode(
+          new Uint8Array(v.buffer, v.byteOffset, v.byteLength)
+        );
+      }
+      // Some RN bridges wrap { data: ArrayBuffer } or ByteBuffer-like
+      const any = data as { data?: unknown; buffer?: ArrayBuffer };
+      if (any?.data != null && any.data !== data) {
+        return MediaSession.decodeDcData(any.data);
+      }
+      if (any?.buffer instanceof ArrayBuffer) {
+        return new TextDecoder("utf-8").decode(new Uint8Array(any.buffer));
+      }
+    } catch {
+      /* fall through */
+    }
+    try {
+      return String(data);
+    } catch {
+      return "";
     }
   }
 
@@ -395,6 +431,8 @@ export class MediaSession {
       return;
     }
     this.chatDc = dc;
+    // Prefer string messages when supported — fewer RN binary edge cases.
+    // Fall back: still decode ArrayBuffer in onmessage.
     try {
       dc.binaryType = "arraybuffer";
     } catch {
@@ -417,13 +455,18 @@ export class MediaSession {
     };
     dc.onmessage = (ev) => {
       try {
-        const raw = typeof ev.data === "string" ? ev.data : "";
-        if (!raw) return;
+        const raw = MediaSession.decodeDcData(ev?.data);
+        if (!raw) {
+          this.handlers.onConnectionState?.("datachannel_empty_payload");
+          return;
+        }
         const msg = JSON.parse(raw) as Record<string, unknown>;
         if (!msg || typeof msg !== "object") return;
         this.handlers.onDataMessage?.(msg);
-      } catch {
-        /* ignore bad payload */
+      } catch (e) {
+        this.handlers.onConnectionState?.(
+          `datachannel_parse_err ${e instanceof Error ? e.message : String(e)}`
+        );
       }
     };
     if (dc.readyState === "open") {

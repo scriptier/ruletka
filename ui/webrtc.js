@@ -1158,7 +1158,16 @@ class RouletteWebRtc {
     };
     dc.onmessage = (ev) => {
       try {
-        const raw = typeof ev.data === "string" ? ev.data : "";
+        let raw = "";
+        const d = ev?.data;
+        if (typeof d === "string") raw = d;
+        else if (d instanceof ArrayBuffer) {
+          raw = new TextDecoder("utf-8").decode(new Uint8Array(d));
+        } else if (ArrayBuffer.isView?.(d)) {
+          raw = new TextDecoder("utf-8").decode(
+            new Uint8Array(d.buffer, d.byteOffset, d.byteLength)
+          );
+        }
         if (!raw) return;
         const msg = JSON.parse(raw);
         if (!msg || typeof msg !== "object") return;
