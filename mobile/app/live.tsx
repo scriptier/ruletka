@@ -27,6 +27,7 @@ import {
   pushMatchHistory,
   type MatchHistoryEntry,
 } from "../src/calls/matchHistory";
+import type { BlurStrangersMode } from "../src/prefs/store";
 import { PartnerChrome } from "../src/identity/PartnerChrome";
 import { flagEmoji } from "../src/identity/flagTrust";
 import { hubBase, isFriendsOnly } from "../src/config";
@@ -210,13 +211,80 @@ function LiveBody() {
   const [focusExtra, setFocusExtra] = useState(false);
   const [dataSaverOn, setDataSaverOn] = useState(false);
   /**
-   * Stranger safety: keep remote video covered until user unblurs.
-   * Friend calls start unblurred.
+   * Stranger safety veil over partner video (friends never start veiled).
+   * Modes: off | intro (brief frost) | hold (until Show video).
    */
   const [remoteBlurred, setRemoteBlurred] = useState(false);
   const remoteBlurredRef = useRef(false);
   remoteBlurredRef.current = remoteBlurred;
+  /** @deprecated use blurModeRef — kept for any leftover true checks */
   const blurStrangersRef = useRef(true);
+  const blurModeRef = useRef<BlurStrangersMode>("intro");
+  const introUnblurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+  const INTRO_UNBLUR_MS = 2500;
+
+  const clearIntroUnblurTimer = useCallback(() => {
+    if (introUnblurTimerRef.current) {
+      clearTimeout(introUnblurTimerRef.current);
+      introUnblurTimerRef.current = null;
+    }
+  }, []);
+
+  /**
+   * Reveal partner cam: drop veil + force RTCView rebinds (one tap used to
+   * need many presses because SurfaceView stayed black).
+   */
+  const revealPartnerVideo = useCallback(
+    (why: string) => {
+      clearIntroUnblurTimer();
+      setRemoteBlurred(false);
+      setRemoteEpoch((n) => n + 1);
+      try {
+        mediaRef.current?.forceRepaintRemote?.(why);
+      } catch {
+        /* ignore */
+      }
+      // Android: staggered rebinds after veil lifts
+      setTimeout(() => {
+        setRemoteEpoch((n) => n + 1);
+        try {
+          mediaRef.current?.forceRepaintRemote?.(`${why}_300`);
+        } catch {
+          /* ignore */
+        }
+      }, 300);
+      setTimeout(() => {
+        setRemoteEpoch((n) => n + 1);
+        try {
+          mediaRef.current?.forceRepaintRemote?.(`${why}_900`);
+        } catch {
+          /* ignore */
+        }
+      }, 900);
+    },
+    [clearIntroUnblurTimer]
+  );
+
+  /** Schedule intro auto-reveal once video is ready (mode=intro only). */
+  const scheduleIntroUnblur = useCallback(() => {
+    if (blurModeRef.current !== "intro") return;
+    if (!remoteBlurredRef.current) return;
+    clearIntroUnblurTimer();
+    introUnblurTimerRef.current = setTimeout(() => {
+      introUnblurTimerRef.current = null;
+      if (phaseRef.current !== "matched") return;
+      if (!remoteBlurredRef.current) return;
+      if (blurModeRef.current !== "intro") return;
+      revealPartnerVideo("intro_auto");
+      try {
+        showToastRef.current(tRef.current("mobile.live.partnerVideoOn"));
+      } catch {
+        /* ignore */
+      }
+    }, INTRO_UNBLUR_MS);
+  }, [clearIntroUnblurTimer, revealPartnerVideo]);
   const [matchMode, setMatchModeState] = useState("");
   const setMatchMode = useCallback((m: string) => {
     matchModeRef.current = m;
@@ -494,8 +562,11 @@ function LiveBody() {
           log("phase→matched (remote media arrived while idle)");
         }
         // Any remote media (even audio-first) → leave "connecting" UI.
-        // Auto-unblur on video; if only audio for 2s, still clear blur veil
-        // so user sees black vs "stuck connecting" (tap-to-reveal was opaque).
+        // Blur modes:
+        //  - intro: keep frosted veil ~2.5s after video ready, then auto-reveal
+        //  - hold: stay covered until user taps Show video
+        //  - off: never veiled
+        // Never leave a solid black wall forever — that looked like "no camera".
         if (vt > 0 || at > 0) {
           setAwaitingRemoteVideo(vt === 0);
           if (vt > 0) {
@@ -507,21 +578,29 @@ function LiveBody() {
             setRemoteVideoReady(true);
             hapticMatch();
           }
-          // Safety blur was covering real video on Android (looked like no cam)
-          if (remoteBlurredRef.current && (vt > 0 || at > 0)) {
-            // Unblur immediately on video; on audio-only wait briefly
-            if (vt > 0) {
-              setRemoteBlurred(false);
-              setRemoteEpoch((n) => n + 1);
-              showToastRef.current(tRef.current("mobile.live.partnerVideoOn"));
-            } else {
-              setTimeout(() => {
-                if (remoteBlurredRef.current && phaseRef.current === "matched") {
-                  setRemoteBlurred(false);
-                  setRemoteEpoch((n) => n + 1);
-                }
-              }, 1800);
+          if (remoteBlurredRef.current && vt > 0) {
+            if (blurModeRef.current === "intro") {
+              scheduleIntroUnblur();
             }
+            // hold: wait for tap; off: shouldn't be blurred
+          } else if (
+            remoteBlurredRef.current &&
+            vt === 0 &&
+            at > 0 &&
+            blurModeRef.current === "intro"
+          ) {
+            // Audio-only still: soft timer so we don't stay black forever
+            setTimeout(() => {
+              if (
+                remoteBlurredRef.current &&
+                phaseRef.current === "matched" &&
+                blurModeRef.current === "intro" &&
+                !(mediaRef.current?.getRemoteStream()?.getVideoTracks?.()
+                  ?.length)
+              ) {
+                scheduleIntroUnblur();
+              }
+            }, 1800);
           }
         }
         // Re-apply local partner-mute if user already toggled it
@@ -724,8 +803,9 @@ function LiveBody() {
       media2.setHideIp(prefs.hideIp);
       media2.setDataSaver(!!prefs.dataSaver);
       setDataSaverOn(!!prefs.dataSaver);
-      blurStrangersRef.current =
-        prefs.blurStrangers === undefined ? true : !!prefs.blurStrangers;
+      const mode = prefs.blurStrangersMode || "intro";
+      blurModeRef.current = mode;
+      blurStrangersRef.current = mode !== "off";
     });
     loadPipPrefs().then((p) => {
       if (p?.hintSeen) setPipHint(false);
@@ -1181,13 +1261,13 @@ function LiveBody() {
           setAlone(false);
           setMoreOpen(false);
           if (extras.length === 0) setFocusExtra(false);
-          // Stranger safety blur (not friend 1:1); respect Settings pref
+          // Stranger safety veil (not friend 1:1); Settings: off | intro | hold
           const isFriendMatch =
             peer.mode === "friend" || String(m.mode || "") === "friend";
           if (!keepPrimary) {
-            setRemoteBlurred(
-              !isFriendMatch && blurStrangersRef.current !== false
-            );
+            clearIntroUnblurTimer();
+            const mode = blurModeRef.current;
+            setRemoteBlurred(!isFriendMatch && mode !== "off");
           }
 
           if (!keepPrimary) {
@@ -1642,8 +1722,9 @@ function LiveBody() {
         mediaRef.current?.setDataSaver(!!prefs.dataSaver);
         media2Ref.current?.setDataSaver(!!prefs.dataSaver);
         setDataSaverOn(!!prefs.dataSaver);
-        blurStrangersRef.current =
-          prefs.blurStrangers === undefined ? true : !!prefs.blurStrangers;
+        const mode = prefs.blurStrangersMode || "intro";
+        blurModeRef.current = mode;
+        blurStrangersRef.current = mode !== "off";
         void mediaRef.current?.reapplyLocalVideoConstraints();
       });
       // Idle teaser: most recent stranger chat
@@ -2899,6 +2980,7 @@ function LiveBody() {
           onRetryConnect={(hard) => void retryConnection({ hard })}
           onDoubleTapReblur={() => {
             hapticLight();
+            clearIntroUnblurTimer();
             setRemoteBlurred(true);
             showToastRef.current(t("mobile.live.reblurToast"));
           }}
@@ -3131,9 +3213,7 @@ function LiveBody() {
             style={styles.blurOverlay}
             onPress={() => {
               hapticLight();
-              setRemoteBlurred(false);
-              // Force RTCView rebind after overlay removed (Android SurfaceView)
-              setRemoteEpoch((n) => n + 1);
+              revealPartnerVideo("tap_show");
               const vt = remoteStream?.getVideoTracks?.()?.length ?? 0;
               if (vt === 0) {
                 showToastRef.current(t("mobile.live.waitVideo"));
@@ -3168,28 +3248,39 @@ function LiveBody() {
               }
             }}
           >
-            <Text style={styles.blurTitle}>{t("mobile.live.blurTitle")}</Text>
-            {partner ? (
-              <Text style={styles.blurPartner} numberOfLines={1}>
-                {partner}
-                {partnerFlag ? ` · ${partnerFlag}` : ""}
+            {/* Frost layers — partner video stays under (not pure black wall) */}
+            <View style={styles.blurFrostA} pointerEvents="none" />
+            <View style={styles.blurFrostB} pointerEvents="none" />
+            <View style={styles.blurCard} pointerEvents="none">
+              <Text style={styles.blurTitle}>{t("mobile.live.blurTitle")}</Text>
+              {partner ? (
+                <Text style={styles.blurPartner} numberOfLines={1}>
+                  {partner}
+                  {partnerFlag ? ` · ${partnerFlag}` : ""}
+                </Text>
+              ) : null}
+              <Text style={styles.blurBody}>
+                {blurModeRef.current === "hold"
+                  ? t("mobile.live.blurBodyHold")
+                  : t("mobile.live.blurBody")}
               </Text>
-            ) : null}
-            <Text style={styles.blurBody}>{t("mobile.live.blurBody")}</Text>
-            <View
-              style={[styles.blurBtn, remoteVideoReady && styles.blurBtnReady]}
-            >
-              <Text style={styles.blurBtnText}>
+              <View
+                style={[styles.blurBtn, remoteVideoReady && styles.blurBtnReady]}
+              >
+                <Text style={styles.blurBtnText}>
+                  {remoteVideoReady
+                    ? t("mobile.live.unblurReady")
+                    : t("mobile.live.unblur")}
+                </Text>
+              </View>
+              <Text style={styles.blurHint}>
                 {remoteVideoReady
-                  ? t("mobile.live.unblurReady")
-                  : t("mobile.live.unblur")}
+                  ? blurModeRef.current === "intro"
+                    ? t("mobile.live.blurReadyHintIntro")
+                    : t("mobile.live.blurReadyHint")
+                  : t("mobile.live.blurHint")}
               </Text>
             </View>
-            <Text style={styles.blurHint}>
-              {remoteVideoReady
-                ? t("mobile.live.blurReadyHint")
-                : t("mobile.live.blurHint")}
-            </Text>
           </Pressable>
         ) : null}
 
@@ -3600,8 +3691,13 @@ function LiveBody() {
               setMoreOpen(false);
             }}
             onToggleBlur={() => {
-              setRemoteBlurred((v) => !v);
               hapticLight();
+              if (remoteBlurredRef.current) {
+                revealPartnerVideo("more_unblur");
+              } else {
+                clearIntroUnblurTimer();
+                setRemoteBlurred(true);
+              }
               setMoreOpen(false);
             }}
             onBrowseTogether={() => {

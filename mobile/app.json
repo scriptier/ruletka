@@ -3,7 +3,7 @@
     "name": "ruletka",
     "slug": "ruletka",
     "owner": "courtiers-team",
-    "version": "0.1.1",
+    "version": "0.1.126",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "ruletka",
@@ -20,8 +20,7 @@
       "buildNumber": "1",
       "infoPlist": {
         "NSCameraUsageDescription": "ruletka needs the camera for peer-to-peer video chat. Video goes device-to-device and is not uploaded to our servers.",
-        "NSMicrophoneUsageDescription": "ruletka needs the microphone for peer-to-peer video chat.",
-        "NSPhotoLibraryUsageDescription": "Optional: choose a profile picture stored only on this device."
+        "NSMicrophoneUsageDescription": "ruletka needs the microphone for peer-to-peer video chat."
       }
     },
     "android": {
@@ -30,16 +29,31 @@
         "backgroundColor": "#07080c"
       },
       "package": "me.ruletka.app",
+      "versionCode": 134,
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.INTERNET"
+        "android.permission.INTERNET",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.VIBRATE",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
       ]
     },
     "plugins": [
       "expo-router",
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-clipboard",
+      "expo-av",
+      [
+        "expo-notifications",
+        {
+          "sounds": [],
+          "icon": "./assets/icon.png",
+          "color": "#ff2d55"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

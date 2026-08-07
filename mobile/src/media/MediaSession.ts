@@ -514,6 +514,19 @@ export class MediaSession {
   }
 
   /**
+   * UI unblur / surface rebind: harvest receivers + re-emit stream so Android
+   * RTCView remounts with video tracks (opaque safety veil often hid frames).
+   */
+  forceRepaintRemote(why = "ui_unblur"): void {
+    try {
+      this.harvestRemoteReceivers(why);
+      this.repaintRemoteStream(why);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /**
    * Reuse another session's local tracks (multi-peer secondary PC).
    * Avoids a second getUserMedia on the same camera.
    */
@@ -1818,6 +1831,8 @@ export class MediaSession {
       }
       this.clearRemoteVideoWatch();
     }
+    // Include why + time so React streamEpoch always bumps on video events
+    // (same toURL() after audio-then-video used to leave RTCView black).
     const sig = `${url}#t${trackCount}v${videoCount}-${why}-${Date.now()}`;
     // Always notify on video; skip only pure audio spam with same signature
     if (
