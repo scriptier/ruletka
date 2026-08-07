@@ -949,7 +949,7 @@ function LiveBody() {
             setPartnerTrust(0);
             setPartnerFlag("");
             setPartnerCountry("");
-            setPartnerCity("");
+      setPartnerCity("");
             setAwaitingRemoteVideo(false);
             setMoreOpen(false);
             remotePeerId.current = "";
@@ -1642,7 +1642,7 @@ function LiveBody() {
           setPartnerTrust(0);
           setPartnerFlag("");
           setPartnerCountry("");
-            setPartnerCity("");
+      setPartnerCity("");
           setPartnerMuted(false);
           setTheyMutedMe(false);
           setFindThirdPending(false);
@@ -2077,7 +2077,7 @@ function LiveBody() {
       setPartnerTrust(0);
       setPartnerFlag("");
       setPartnerCountry("");
-            setPartnerCity("");
+      setPartnerCity("");
       setPartnerMuted(false);
       setTheyMutedMe(false);
       setFindThirdPending(false);
@@ -2154,7 +2154,7 @@ function LiveBody() {
       setPartnerTrust(0);
       setPartnerFlag("");
       setPartnerCountry("");
-            setPartnerCity("");
+      setPartnerCity("");
       setPartnerMuted(false);
       setTheyMutedMe(false);
       setFindThirdPending(false);
@@ -2226,7 +2226,7 @@ function LiveBody() {
       setPartnerTrust(0);
       setPartnerFlag("");
       setPartnerCountry("");
-            setPartnerCity("");
+      setPartnerCity("");
       setPartnerMuted(false);
       setTheyMutedMe(false);
       setFindThirdPending(false);

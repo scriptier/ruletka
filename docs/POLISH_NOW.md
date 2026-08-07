@@ -1,26 +1,32 @@
 # Polish now (connect path frozen)
 
-**Baseline:** CONNECTIVITY_LOCK — APK **0.1.126**, web deploy with P2P outbound fix.  
+**Baseline:** CONNECTIVITY_LOCK — APK **0.1.128+**, web speed + mute notify.  
 **Rule:** Polish PRs must **not** change offer/answer/ICE/kickSolo/startCall/force_relay/coturn unless a smoke proves a 1-line bug.
 
-## Recommended order
+## Done
 
-| # | Work | Why | Risk to connect |
-|---|------|-----|-----------------|
-| 1 | **Live chrome polish** — connecting labels, conn pill, empty stage, Next grace copy | Daily feel | Low |
-| 2 | **Cam mute parity** — web Hide vs Android track-off: same labels/tooltips | Matrix P2 | Low (copy only first) |
-| 3 | **Friend call UX** — ring / cancel / miss toast parity | Matrix + roadmap X3 | Low if no WebRTC churn |
-| 4 | **Settings / veil copy** — all overlay langs for blur modes | Clarity | None |
-| 5 | **Play store listing** — screenshots, EN/RU, data safety | Store path | None |
-| 6 | **Web friend-call notif** (tab open only → improve) | Matrix P1 | None if not media |
-| 7 | Prefer-direct on Android | Matrix P3 | Medium — defer |
+| Work | Notes |
+|------|--------|
+| Live stage chrome | Next grace countdown, conn pill elapsed, empty-stage copy, EN/RU |
+| Friend call UX | No-answer Call back, cancel/end toasts |
+| Cam / Hide copy | Mobile cam pause vs web Hide black canvas |
+| Partner mute notify | P2P same visuals both ways |
+| Connect speed thrash | 0.1.128 + mid-offer teardown / late phone promote |
 
-## Explicitly later
+## Remaining
 
-- SFU/LiveKit  
-- Lottie gifts, multi-hub stars  
-- Always-on force_relay experiments  
+| # | Work | Why |
+|---|------|-----|
+| 1 | **i18n sweep** — new strings beyond EN/RU | Clarity |
+| 2 | **Play store listing** — screenshots, EN/RU, data safety | Store path |
+| 3 | **Web friend-call notif** | Matrix P1 |
+| 4 | **Identity export align** | Small security parity |
+| 5 | Prefer Direct on Android | Defer |
 
-## Smoke after every polish ship
+## Parked
 
-Still run CONNECTIVITY_LOCK smoke once (both cams) before calling the build good.
+SFU/LiveKit, Lottie gifts, multi-hub stars.
+
+## Smoke after polish
+
+CONNECTIVITY_LOCK smoke once (both cams) before calling a build good.
