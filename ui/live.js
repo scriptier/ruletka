@@ -22447,11 +22447,17 @@ function handleServer(msg) {
           !inFriendCall &&
           chatSecsAtLeave >= SHORT_CALL_AUTO_NEXT_MIN_SECS &&
           chatSecsAtLeave < SHORT_CALL_AUTO_NEXT_SECS;
-        matched = msg.phase === "friend_call" || keepFriend;
-        wantSearch =
+        // Hub already put leaver in queue; abandoned side must re-spin too.
+        // Was: only shortCallAutoNext spun → thrash matches (0–2s, no media)
+        // left wantSearch=true + "looking for partner" UI with NO hub queue slot
+        // so phone searched alone forever (peak_waiting=1 while both "looking").
+        const hubSaysRequeue =
           msg.phase === "waiting" ||
-          /searching again|looking for a 3rd again/i.test(detailRaw) ||
-          shortCallAutoNext;
+          /searching again|looking for a 3rd again/i.test(detailRaw);
+        const shouldRequeue =
+          !keepFriend && (hubSaysRequeue || shortCallAutoNext);
+        matched = msg.phase === "friend_call" || keepFriend;
+        wantSearch = shouldRequeue || shortCallAutoNext;
         pendingSignals.length = 0;
         closeAllPeers({ keepFriend });
         if (!keepFriend) {
@@ -22468,7 +22474,7 @@ function handleServer(msg) {
           showFriendPip(false);
           enableTrioLayout(false);
           endActiveMatchChat();
-          if (shortCallAutoNext) {
+          if (shouldRequeue) {
             inQueue = true;
             showStartButton(false);
             showPartnerEmptyWithBrand({ searching: true });
@@ -22477,13 +22483,15 @@ function handleServer(msg) {
             } catch (_) {}
             setPhase("waiting");
             setStatus(
-              _t("status.autoNextShort") ||
-                _t("status.searching") ||
-                "Short chat — looking for next…"
+              shortCallAutoNext
+                ? _t("status.autoNextShort") ||
+                    _t("status.searching") ||
+                    "Short chat — looking for next…"
+                : _t("status.searching") || "Looking for a partner…"
             );
             try {
               log(
-                `auto-next short chat secs=${chatSecsAtLeave} (partner left)`
+                `requeue after partner left secs=${chatSecsAtLeave} hub=${hubSaysRequeue ? 1 : 0} short=${shortCallAutoNext ? 1 : 0}`
               );
             } catch (_) {}
           }
@@ -22547,10 +22555,14 @@ function handleServer(msg) {
           inQueue = false;
           showStartButton(false);
         } else if (msg.phase === "idle") {
-          // Keep hunting after short-chat auto-next (wantSearch already true)
+          // Keep hunting after partner left / short-chat auto-next
           if (wantSearch && !matched) {
             inQueue = true;
             showStartButton(false);
+            // Ensure we actually hold a hub queue slot (not UI-only "looking")
+            try {
+              send(spinPayload());
+            } catch (_) {}
           } else {
             inQueue = false;
             wantSearch = false;

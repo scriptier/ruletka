@@ -5989,6 +5989,17 @@ impl SimpleHub {
         let alone = self.waiting_solo_count() == 0;
         self.enqueue_solo(id);
         self.metrics_inc_queue_join(alone);
+        if let Some(c) = self.clients.get(&id) {
+            tracing::info!(
+                id = %id,
+                short = %c.short_id,
+                platform = %c.platform,
+                alone,
+                waiting_solo = self.waiting_solo_count(),
+                room = %c.room,
+                "solo enqueued"
+            );
+        }
         self.status(id, detail);
         self.broadcast_lobby_info();
         self.try_match();
