@@ -566,6 +566,78 @@ html.stage-html {
   /* Online ring is on avatar — hide tiny dot when avatar present */
   display: none;
 }
+/* Friends → History: tiny center-crop of partner (stored on this device only) */
+.friend-avatar.hist-thumb {
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 10px; /* slightly square crop reads better as “face snap” */
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #121820;
+}
+.friend-avatar.hist-thumb img {
+  border-radius: 9px;
+}
+.friend-avatar.hist-thumb.letter {
+  font-size: 0.85rem;
+  border-radius: 10px;
+}
+#history-list .friend-row {
+  gap: 0.55rem;
+}
+/* Friends → Blocked: same thumbs, always blurred (privacy / still identifiable) */
+.friend-avatar.hist-thumb-blurred {
+  border: 2px solid rgba(255, 90, 110, 0.55);
+  box-shadow: 0 0 0 1px rgba(255, 45, 85, 0.25);
+  background: #1a1216;
+}
+.friend-avatar.hist-thumb-blurred img {
+  filter: blur(7px) saturate(0.65) brightness(0.88);
+  transform: scale(1.18); /* hide soft edges from blur */
+}
+.friend-avatar.hist-thumb-blurred.letter {
+  filter: blur(2px);
+  opacity: 0.8;
+}
+#blocked-list .friend-row {
+  gap: 0.55rem;
+}
+#blocked-list .friend-row.is-blocked {
+  border-color: rgba(255, 80, 100, 0.22);
+  background: rgba(40, 16, 22, 0.35);
+}
+/* Block · Report success toast */
+.report-toast.report-toast-success {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  border-color: rgba(80, 220, 140, 0.45);
+  background: rgba(12, 28, 20, 0.96);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(80, 220, 140, 0.2);
+}
+.report-toast-check {
+  flex-shrink: 0;
+  width: 1.55rem;
+  height: 1.55rem;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 0.9rem;
+  color: #04140c;
+  background: linear-gradient(145deg, #6dffa8, #3dd68c);
+}
+.report-toast-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.report-toast-body strong {
+  color: #b8ffd4;
+}
+.report-toast-body span {
+  color: #c5d8cc;
+}
 .friend-row .meta { flex: 1; min-width: 0; }
 .friend-row .meta strong { display: block; color: #eef2f7; }
 .friend-row .meta span { color: #8b9bb0; font-size: 0.72rem; }
@@ -1079,6 +1151,78 @@ a.brand:focus-visible {
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 .keys-help-list li:last-child { border-bottom: none; }
+/* Settings → Hotkeys page */
+.settings-hotkeys-list {
+  list-style: none;
+  margin: 0 0 0.85rem;
+  padding: 0;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.22);
+  overflow: hidden;
+}
+.settings-hotkeys-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 0.9rem;
+  color: rgba(230, 236, 245, 0.92);
+  line-height: 1.35;
+}
+.settings-hotkeys-list li:last-child {
+  border-bottom: none;
+}
+.settings-hotkeys-list kbd {
+  flex: 0 0 auto;
+  min-width: 1.65rem;
+  text-align: center;
+  padding: 0.22rem 0.45rem;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 750;
+  color: #eef2f7;
+  line-height: 1.2;
+}
+.settings-hotkeys-list li > span {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.settings-hotkeys-list .settings-hotkeys-gesture {
+  gap: 0.65rem;
+}
+.settings-hotkeys-gesture-ico {
+  flex: 0 0 auto;
+  width: 1.85rem;
+  height: 1.85rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 0.95rem;
+  color: #c5d4ea;
+}
+.settings-hotkeys-hint {
+  margin-top: 0.25rem !important;
+}
+#settings-view-hotkeys .hint-inline kbd {
+  display: inline-block;
+  padding: 0.1rem 0.35rem;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  font-family: inherit;
+  font-size: 0.8em;
+  font-weight: 750;
+}
+
 .keys-help-list kbd {
   flex: 0 0 auto;
   min-width: 2.4rem;
@@ -5520,7 +5664,8 @@ html.rooms-disabled #btn-share-room-settings {
 /* Settings flyout: tall + scrollable body */
 #settings-sheet.settings-app,
 #settings-sheet {
-  max-height: min(90dvh, 780px);
+  max-height: min(94dvh, 860px);
+  min-height: min(52dvh, 420px);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -5536,9 +5681,35 @@ html.rooms-disabled #btn-share-room-settings {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
+  /* Keep last rows / footer hint clear of sheet edge */
+  padding-bottom: max(1.25rem, env(safe-area-inset-bottom, 0px)) !important;
 }
 #settings-sheet .settings-footer {
   flex-shrink: 0;
+}
+
+/* Hotkeys page: use full sheet height; body is the only scroll region */
+#settings-view-hotkeys {
+  min-height: 0;
+}
+#settings-view-hotkeys .settings-header {
+  flex-shrink: 0;
+}
+#settings-view-hotkeys .settings-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom, 0px)) !important;
+}
+/* Lists grow naturally; do not clip inner rows (scroll the body instead) */
+#settings-view-hotkeys .settings-hotkeys-list {
+  overflow: visible;
+}
+#settings-view-hotkeys .settings-hotkeys-hint {
+  margin-bottom: 0.5rem !important;
+  padding-bottom: 0.25rem;
 }
 
 /* Friends flyout: taller + lower (snug to dock) + scrollable body */
@@ -8734,6 +8905,26 @@ footer.stage-footer[hidden] {
   background: rgba(255, 45, 85, 0.16);
   color: #ffb3c1;
 }
+/* Block · Report sits beside Next while matched (stranger) */
+.tile-match-actions .block-report-in-tile {
+  min-height: var(--tile-chrome-h);
+  height: var(--tile-chrome-h);
+  padding: 0 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
+  border-color: rgba(255, 90, 110, 0.55);
+  background: rgba(255, 45, 85, 0.22);
+  color: #ffc4cf;
+}
+.tile-match-actions .block-report-in-tile:hover {
+  background: rgba(255, 45, 85, 0.34);
+  color: #fff;
+}
+.tile-match-actions .block-report-in-tile[hidden] {
+  display: none !important;
+}
 .tile-match-actions .dock-pill.accent {
   border: none;
   background: linear-gradient(135deg, var(--tile-accent), var(--tile-accent-2));
@@ -10845,14 +11036,59 @@ html.match-searching .tile-floor-partner {
   z-index: 14;
 }
 html.match-searching .tile-floor-partner .tile-compose,
-.tile-floor-partner.is-searching .tile-compose {
+.tile-floor-partner.is-searching .tile-compose,
+html.match-searching .tile-floor-partner .compose-typing,
+.tile-floor-partner.is-searching .compose-typing {
   display: none !important;
 }
 html.match-searching .tile-floor-partner .tile-tray-partner,
 .tile-floor-partner.is-searching .tile-tray-partner {
-  /* Slim searching bar: Messages · Stop · Friends (no wide compose) */
-  justify-content: center;
-  gap: 0.45rem;
+  /* Searching bar: Messages left · Stop center · Friends right */
+  display: grid !important;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  width: 100%;
+  max-width: 100%;
+  gap: 0.4rem;
+  box-sizing: border-box;
+}
+/* Messages — left (near Blur rail) */
+html.match-searching .tile-floor-partner .tile-dock-messages,
+.tile-floor-partner.is-searching .tile-dock-messages {
+  grid-column: 1;
+  justify-self: start;
+  margin: 0;
+}
+/* Stop — dead center between Messages and Friends */
+html.match-searching .tile-floor-partner .tile-match-actions,
+.tile-floor-partner.is-searching .tile-match-actions {
+  grid-column: 2;
+  justify-self: center;
+  margin: 0;
+  gap: 0.35rem;
+}
+/* Friends — far right */
+html.match-searching .tile-floor-partner .tile-dock-friends,
+.tile-floor-partner.is-searching .tile-dock-friends {
+  grid-column: 3;
+  justify-self: end;
+  margin: 0;
+}
+/* Stop slightly wider while searching (primary cancel control) */
+html.match-searching .tile-floor-partner #btn-stop,
+.tile-floor-partner.is-searching #btn-stop {
+  min-width: 4.75rem !important;
+  padding-left: 1.15rem !important;
+  padding-right: 1.15rem !important;
+  font-weight: 750 !important;
+}
+@media (max-width: 720px) {
+  html.match-searching .tile-floor-partner #btn-stop,
+  .tile-floor-partner.is-searching #btn-stop {
+    min-width: 4.1rem !important;
+    padding-left: 0.95rem !important;
+    padding-right: 0.95rem !important;
+  }
 }
 /* Alone CTAs must stay tappable even if a glass floor paints nearby */
 .empty-alone-actions,
@@ -11573,7 +11809,7 @@ html.alone-searching #remote-empty .empty-sub {
 }
 
 /* Local tile identity:
-   top-left — flag→country→city, name below; ★+avatar top-right */
+   top-left — name above flag→country→city; ★+avatar top-right */
 .tile-local .tile-local-id {
   position: absolute;
   top: 0.4rem;
@@ -11752,14 +11988,15 @@ html.alone-searching #remote-empty .empty-sub {
   top: auto !important;
   right: auto !important;
   left: auto !important;
-  order: 20 !important;
+  order: 1 !important;
   align-self: center !important;
   flex-direction: row !important;
   align-items: center !important;
   justify-content: center !important;
   white-space: nowrap !important;
   text-align: center !important;
-  margin-top: 0.22rem !important;
+  margin-top: 0 !important;
+  margin-bottom: 0.12rem !important;
   padding: 0.3rem 0.7rem !important;
   border-radius: 999px !important;
   font-size: 0.92rem !important;
@@ -12329,15 +12566,31 @@ html.alone-searching #remote-empty .empty-sub {
 }
 .stars-gifters-floor-hint {
   position: relative;
-  z-index: 2;
-  margin: 0.1rem 0 0;
-  padding: 0.35rem 0.5rem;
-  border-radius: 10px;
-  font-size: 0.68rem;
-  line-height: 1.35;
-  color: rgba(255, 220, 140, 0.95);
-  background: rgba(255, 180, 40, 0.08);
-  border: 1px solid rgba(255, 200, 70, 0.22);
+  z-index: 3;
+  margin: 0.25rem 0 0;
+  padding: 0.5rem 0.65rem;
+  border-radius: 12px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  font-weight: 650;
+  color: #fff6d0;
+  background: rgba(40, 28, 8, 0.92);
+  border: 1px solid rgba(255, 200, 70, 0.45);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 230, 140, 0.12),
+    0 4px 16px rgba(0, 0, 0, 0.25);
+}
+/* High wallet / low trust — make dual-system tip unmissable */
+.stars-gifters-floor-hint.is-wealth-tip {
+  color: #fff8e0;
+  background: linear-gradient(
+    165deg,
+    rgba(72, 48, 10, 0.96) 0%,
+    rgba(28, 20, 8, 0.97) 100%
+  );
+  border-color: rgba(255, 210, 90, 0.55);
+  font-size: 0.82rem;
+  font-weight: 700;
 }
 .stars-gifters-floor-hint[hidden] {
   display: none !important;
@@ -13690,6 +13943,296 @@ button.stars-badge {
     opacity: 0.9;
   }
 }
+
+/*
+  Pass the mic (5★ / 5s) — soft social nudge: “give them a chance to speak”.
+  Mic hands off toward the corner; open hand catches it; speech fades out.
+*/
+.fx-pass-mic {
+  z-index: 7;
+  pointer-events: none;
+  overflow: hidden;
+  border-radius: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+}
+.fx-pass-mic[hidden] {
+  display: none !important;
+}
+.fx-pass-mic-glow {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(
+      ellipse 70% 55% at 50% 42%,
+      rgba(255, 200, 80, 0.28) 0%,
+      transparent 70%
+    ),
+    linear-gradient(
+      to top,
+      rgba(40, 28, 8, 0.35) 0%,
+      transparent 55%
+    );
+  animation: fx-pass-mic-glow 5s ease-in-out both;
+  pointer-events: none;
+}
+.fx-pass-mic-mic {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  z-index: 3;
+  font-size: clamp(2.6rem, 12vw, 3.8rem);
+  line-height: 1;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.55));
+  animation: fx-pass-mic-handoff 5s cubic-bezier(0.22, 0.9, 0.28, 1) both;
+  pointer-events: none;
+}
+.fx-pass-mic-hand {
+  position: absolute;
+  right: 12%;
+  top: 18%;
+  z-index: 2;
+  font-size: clamp(1.8rem, 8vw, 2.6rem);
+  line-height: 1;
+  opacity: 0;
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.45));
+  animation: fx-pass-mic-catch 5s ease-out both;
+  pointer-events: none;
+}
+.fx-pass-mic-bubble {
+  position: absolute;
+  z-index: 2;
+  font-size: 1.35rem;
+  opacity: 0;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.4));
+}
+.fx-pass-mic-b1 {
+  left: 18%;
+  top: 28%;
+  animation: fx-pass-mic-bubble-out 5s ease-in both;
+}
+.fx-pass-mic-b2 {
+  left: 28%;
+  top: 42%;
+  animation: fx-pass-mic-bubble-out 5s ease-in 0.35s both;
+}
+.fx-pass-mic-label {
+  position: relative;
+  z-index: 4;
+  margin-top: 2.8rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  background: rgba(40, 28, 8, 0.88);
+  border: 1px solid rgba(255, 200, 90, 0.55);
+  color: #fff6e0;
+  font-size: 0.92rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  max-width: 92%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  animation: fx-pass-mic-label-in 0.45s ease-out both;
+}
+.fx-pass-mic-sub {
+  position: relative;
+  z-index: 4;
+  color: #ffe9b0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.65);
+  opacity: 0.95;
+  animation: fx-pass-mic-label-in 0.5s ease-out 0.08s both;
+}
+.fx-pass-mic-timer {
+  position: absolute;
+  left: 50%;
+  bottom: 0.7rem;
+  transform: translateX(-50%);
+  z-index: 4;
+  padding: 0.28rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(40, 28, 8, 0.82);
+  border: 1px solid rgba(255, 190, 70, 0.5);
+  color: #fff4e0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+@keyframes fx-pass-mic-glow {
+  0% {
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes fx-pass-mic-handoff {
+  0% {
+    transform: translate(-50%, -50%) scale(0.4) rotate(-12deg);
+    opacity: 0;
+  }
+  12% {
+    transform: translate(-50%, -50%) scale(1.15) rotate(0deg);
+    opacity: 1;
+  }
+  28% {
+    transform: translate(-50%, -50%) scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  70% {
+    transform: translate(55%, -110%) scale(0.85) rotate(18deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(95%, -150%) scale(0.45) rotate(28deg);
+    opacity: 0;
+  }
+}
+@keyframes fx-pass-mic-catch {
+  0%,
+  45% {
+    opacity: 0;
+    transform: scale(0.6) translateY(8px);
+  }
+  58% {
+    opacity: 1;
+    transform: scale(1.2) translateY(0);
+  }
+  78% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.9) translateY(-6px);
+  }
+}
+@keyframes fx-pass-mic-bubble-out {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  15% {
+    opacity: 0.95;
+    transform: scale(1);
+  }
+  45% {
+    opacity: 0.7;
+    transform: scale(1.05) translateY(-6px);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.8) translateY(-18px);
+  }
+}
+@keyframes fx-pass-mic-label-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+/* Warm amber tile tint while pass_mic is active */
+.tile.fx-flavor-pass_mic .vid,
+.tile.fx-flavor-pass_mic video {
+  filter: saturate(1.05) brightness(1.04) sepia(0.12);
+  transition: filter 0.35s ease;
+}
+.tile.fx-flavor-pass_mic {
+  box-shadow: inset 0 0 0 2px rgba(255, 190, 70, 0.35);
+}
+/* Stacking / re-trigger pulse ring */
+.fx-pass-mic.is-pass-mic-replay {
+  animation: fx-pass-mic-border-pulse 0.7s ease-out both;
+}
+@keyframes fx-pass-mic-border-pulse {
+  0% {
+    box-shadow: inset 0 0 0 0 rgba(255, 200, 80, 0);
+  }
+  40% {
+    box-shadow: inset 0 0 0 3px rgba(255, 200, 80, 0.55);
+  }
+  100% {
+    box-shadow: inset 0 0 0 0 rgba(255, 200, 80, 0);
+  }
+}
+/* “You're up” chip after you pass them the mic */
+.pass-mic-youre-up {
+  position: absolute;
+  left: 50%;
+  top: 18%;
+  transform: translateX(-50%) translateY(6px) scale(0.92);
+  z-index: 32;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: min(92%, 280px);
+  padding: 0.42rem 0.85rem;
+  border-radius: 999px;
+  background: rgba(12, 40, 28, 0.92);
+  border: 1px solid rgba(90, 220, 140, 0.55);
+  color: #e8fff0;
+  font-size: 0.88rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+}
+.pass-mic-youre-up[hidden] {
+  display: none !important;
+}
+.pass-mic-youre-up.is-pop {
+  display: flex;
+  animation: pass-mic-youre-up-pop 2.8s cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+.pass-mic-youre-up-ico {
+  font-size: 1.15rem;
+  line-height: 1;
+}
+.pass-mic-youre-up-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@keyframes pass-mic-youre-up-pop {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(12px) scale(0.85);
+  }
+  12% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1.05);
+  }
+  22% {
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+  78% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-10px) scale(0.96);
+  }
+}
+
 /* Please stay lock: still looks pressable, but skip is blocked */
 #btn-next.is-no-skip-locked,
 html.no-skip-locked #btn-next {
@@ -14226,35 +14769,43 @@ html.has-duo-flair .flair-chip {
   /* Bleed past edges so diamonds don't look clipped at the frame */
   inset: -18%;
   background-color: transparent;
-  background-image: url("/brand/fx-bars-fence.png?v=6");
+  background-image: url("/brand/fx-bars-fence.png?v=7");
   /* Tile = 160px with 80px diamonds ≈ photo density on a phone/desktop tile */
-  background-size: 160px 160px;
+  background-size: 152px 152px;
   background-repeat: repeat;
   background-position: center;
   opacity: 1;
   transform: scale(1.02);
-  /* Soft depth only — no contrast/brightness wash that chrome-ifies the wire */
-  filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.45));
-  animation: fx-bars-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* Soft depth + slight cool steel cast */
+  filter:
+    drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55))
+    drop-shadow(0 0 0.5px rgba(180, 190, 200, 0.25));
+  animation: fx-bars-in 0.45s cubic-bezier(0.18, 0.9, 0.22, 1);
   image-rendering: auto;
 }
-/* Very soft light skim — keep matte steel, not disco sheen */
+/* Light skim + second pass for denser metal read */
 .fx-bars-mesh::after {
   content: "";
   position: absolute;
   inset: -8%;
   pointer-events: none;
-  background: linear-gradient(
-    108deg,
-    transparent 40%,
-    rgba(255, 255, 255, 0.03) 49%,
-    rgba(255, 255, 255, 0.06) 50.5%,
-    rgba(255, 255, 255, 0.03) 52%,
-    transparent 60%
-  );
-  animation: fx-bars-sheen 6s ease-in-out infinite;
+  background:
+    linear-gradient(
+      108deg,
+      transparent 38%,
+      rgba(255, 255, 255, 0.04) 48%,
+      rgba(255, 255, 255, 0.1) 50.5%,
+      rgba(255, 255, 255, 0.04) 53%,
+      transparent 62%
+    ),
+    radial-gradient(
+      ellipse 70% 55% at 50% 40%,
+      transparent 50%,
+      rgba(0, 0, 0, 0.12) 100%
+    );
+  animation: fx-bars-sheen 5.2s ease-in-out infinite;
   mix-blend-mode: soft-light;
-  opacity: 0.55;
+  opacity: 0.72;
 }
 @keyframes fx-bars-sheen {
   0%,
@@ -14273,10 +14824,41 @@ html.has-duo-flair .flair-chip {
   pointer-events: none;
   z-index: 1;
   box-shadow:
-    inset 0 0 0 1px rgba(55, 60, 68, 0.55),
-    inset 0 0 0 3px rgba(12, 14, 16, 0.25),
-    inset 0 0 28px rgba(0, 0, 0, 0.18);
+    inset 0 0 0 1px rgba(70, 78, 88, 0.65),
+    inset 0 0 0 3px rgba(12, 14, 16, 0.35),
+    inset 0 0 36px rgba(0, 0, 0, 0.28),
+    inset 0 0 0 1px rgba(200, 210, 220, 0.08);
   border-radius: inherit;
+}
+/* Center lock badge — readable “behind bars” cue without covering the face */
+.fx-bars::before {
+  content: "🔒";
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  z-index: 3;
+  transform: translate(-50%, -50%) scale(0.92);
+  font-size: clamp(1.35rem, 4.2vw, 1.85rem);
+  line-height: 1;
+  padding: 0.42rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(10, 12, 16, 0.78);
+  border: 1px solid rgba(160, 170, 185, 0.4);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  animation: fx-bars-lock-in 0.5s cubic-bezier(0.2, 0.9, 0.2, 1) 0.08s both;
+  pointer-events: none;
+}
+@keyframes fx-bars-lock-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.55);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
 }
 /* CSS fallback if PNG fails to load */
 @supports not (background-image: url("/brand/fx-bars-fence.png")) {
@@ -14447,9 +15029,11 @@ html.has-duo-flair .flair-chip {
   background: rgba(10, 40, 22, 0.88);
   border: 1px solid rgba(90, 220, 140, 0.55);
 }
-/* Non-speaker tile: soft mute veil so "can't hear them" reads at a glance */
+/* Soft mute veil: debate non-speaker OR you muted them */
 body.debate-active.debate-they-speak #tile-local::after,
-body.debate-active.debate-i-speak #tile-remote::after {
+body.debate-active.debate-i-speak #tile-remote::after,
+.tile.peer-slot-muted::after,
+.remote-b-wrap.peer-slot-muted::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -14465,7 +15049,9 @@ body.debate-active.debate-i-speak #tile-remote::after {
 }
 /* Big crossed-mic watermark on muted tile */
 body.debate-active.debate-they-speak #tile-local::before,
-body.debate-active.debate-i-speak #tile-remote::before {
+body.debate-active.debate-i-speak #tile-remote::before,
+.tile.peer-slot-muted::before,
+.remote-b-wrap.peer-slot-muted::before {
   content: "🔇";
   position: absolute;
   top: 50%;
@@ -14479,6 +15065,17 @@ body.debate-active.debate-i-speak #tile-remote::before {
   filter: grayscale(0.2);
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
 }
+/* remote2 is a nested wrap — needs position for pseudo */
+.remote-b-wrap {
+  position: relative;
+}
+.remote-b-wrap .peer-user-mute-badge {
+  bottom: 0.45rem;
+  z-index: 12;
+}
+.peer-user-mute-badge[hidden] {
+  display: none !important;
+}
 @media (max-width: 720px) {
   .debate-person-badge {
     bottom: 0.45rem;
@@ -14487,7 +15084,9 @@ body.debate-active.debate-i-speak #tile-remote::before {
     max-width: min(94%, 240px);
   }
   body.debate-active.debate-they-speak #tile-local::before,
-  body.debate-active.debate-i-speak #tile-remote::before {
+  body.debate-active.debate-i-speak #tile-remote::before,
+  .tile.peer-slot-muted::before,
+  .remote-b-wrap.peer-slot-muted::before {
     font-size: 2rem;
     opacity: 0.22;
   }
@@ -15252,15 +15851,15 @@ body.debate-active.debate-i-speak #tile-remote {
   position: absolute;
   left: var(--left, 50%);
   bottom: -18%;
-  width: calc(1.65rem * var(--size, 1));
-  height: calc(2.2rem * var(--size, 1));
+  width: calc(1.85rem * var(--size, 1));
+  height: calc(2.45rem * var(--size, 1));
   transform: translateX(-50%);
   animation:
-    fx-balloon-rise var(--dur, 8s) linear infinite,
-    fx-balloon-sway var(--sway, 2.4s) ease-in-out infinite;
+    fx-balloon-rise var(--dur, 7.2s) linear infinite,
+    fx-balloon-sway var(--sway, 2.2s) ease-in-out infinite;
   animation-delay: var(--delay, 0s), var(--delay, 0s);
   will-change: transform;
-  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.32));
+  filter: drop-shadow(0 5px 12px rgba(0, 0, 0, 0.38));
 }
 .fx-balloon-body {
   display: block;
@@ -15269,27 +15868,28 @@ body.debate-active.debate-i-speak #tile-remote {
   border-radius: 50% 50% 50% 50% / 58% 58% 42% 42%;
   background:
     radial-gradient(
-      circle at 30% 24%,
-      rgba(255, 255, 255, 0.9) 0%,
-      rgba(255, 255, 255, 0.28) 22%,
-      transparent 46%
+      circle at 28% 22%,
+      rgba(255, 255, 255, 0.95) 0%,
+      rgba(255, 255, 255, 0.35) 18%,
+      transparent 42%
     ),
     radial-gradient(
-      circle at 70% 78%,
-      rgba(0, 0, 0, 0.18) 0%,
-      transparent 50%
+      circle at 72% 80%,
+      rgba(0, 0, 0, 0.22) 0%,
+      transparent 52%
     ),
     linear-gradient(
       155deg,
-      color-mix(in srgb, var(--color, #ff6bcb) 78%, #fff),
-      var(--color, #ff6bcb) 55%,
-      color-mix(in srgb, var(--color, #ff6bcb) 75%, #000)
+      color-mix(in srgb, var(--color, #ff6bcb) 82%, #fff),
+      var(--color, #ff6bcb) 52%,
+      color-mix(in srgb, var(--color, #ff6bcb) 72%, #000)
     );
   background-color: var(--color, #ff6bcb);
   position: relative;
   box-shadow:
-    inset 0 -6px 12px rgba(0, 0, 0, 0.12),
-    0 0 12px color-mix(in srgb, var(--color, #ff6bcb) 35%, transparent);
+    inset 0 -8px 14px rgba(0, 0, 0, 0.14),
+    0 0 16px color-mix(in srgb, var(--color, #ff6bcb) 42%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--color, #ff6bcb) 40%, #fff);
 }
 .fx-balloon-shine {
   position: absolute;
@@ -15341,21 +15941,25 @@ body.debate-active.debate-i-speak #tile-remote {
 }
 @keyframes fx-balloon-rise {
   0% {
-    bottom: -22%;
+    bottom: -26%;
     opacity: 0;
-    transform: translateX(-50%) scale(0.85);
+    transform: translateX(-50%) scale(0.72) rotate(-6deg);
   }
-  6% {
+  5% {
     opacity: 1;
-    transform: translateX(-50%) scale(1);
+    transform: translateX(-50%) scale(1.06) rotate(2deg);
   }
-  90% {
+  12% {
+    transform: translateX(-50%) scale(1) rotate(0deg);
+  }
+  88% {
     opacity: 1;
   }
   100% {
-    bottom: 112%;
+    bottom: 114%;
     opacity: 0;
-    transform: translateX(calc(-50% + var(--drift, 0px))) scale(1.05);
+    transform: translateX(calc(-50% + var(--drift, 0px))) scale(1.08)
+      rotate(4deg);
   }
 }
 @keyframes fx-balloon-sway {
@@ -15428,10 +16032,12 @@ body.debate-active.debate-i-speak #tile-remote {
   background: var(--color, #ff5a7a);
   opacity: 0;
   transform: translateX(-50%) rotate(var(--rot, 0deg));
-  animation: fx-confetti-fall var(--dur, 4s) linear infinite;
+  animation: fx-confetti-fall var(--dur, 3.6s) linear infinite;
   animation-delay: var(--delay, 0s);
   will-change: transform, opacity;
-  box-shadow: 0 0 6px color-mix(in srgb, var(--color, #ff5a7a) 40%, transparent);
+  box-shadow:
+    0 0 8px color-mix(in srgb, var(--color, #ff5a7a) 55%, transparent),
+    0 1px 2px rgba(0, 0, 0, 0.25);
 }
 .fx-confetti-rect {
   border-radius: 1.5px;
@@ -15492,28 +16098,32 @@ body.debate-active.debate-i-speak #tile-remote {
 }
 @keyframes fx-confetti-fall {
   0% {
-    top: -16%;
+    top: -18%;
     opacity: 0;
-    transform: translateX(-50%) rotate(var(--rot, 0deg)) scale(0.7);
+    transform: translateX(-50%) rotate(var(--rot, 0deg)) scale(0.55);
   }
-  5% {
+  4% {
     opacity: 1;
-    transform: translateX(-50%) rotate(calc(var(--rot, 0deg) + 40deg)) scale(1);
+    transform: translateX(-50%) rotate(calc(var(--rot, 0deg) + 50deg)) scale(1.08);
+  }
+  12% {
+    transform: translateX(calc(-50% + 4px))
+      rotate(calc(var(--rot, 0deg) + 90deg)) scale(1);
   }
   40% {
-    transform: translateX(calc(-50% + 10px))
-      rotate(calc(var(--rot, 0deg) + 160deg)) scale(1.05);
+    transform: translateX(calc(-50% + 14px))
+      rotate(calc(var(--rot, 0deg) + 180deg)) scale(1.08);
   }
   70% {
     opacity: 0.95;
-    transform: translateX(calc(-50% - 6px))
-      rotate(calc(var(--rot, 0deg) + 280deg)) scale(0.95);
+    transform: translateX(calc(-50% - 10px))
+      rotate(calc(var(--rot, 0deg) + 300deg)) scale(0.92);
   }
   100% {
-    top: 112%;
+    top: 114%;
     opacity: 0;
-    transform: translateX(calc(-50% + 22px))
-      rotate(calc(var(--rot, 0deg) + 420deg)) scale(0.75);
+    transform: translateX(calc(-50% + 26px))
+      rotate(calc(var(--rot, 0deg) + 480deg)) scale(0.7);
   }
 }
 .fx-confetti-timer {
@@ -17358,6 +17968,12 @@ html.alone-searching .empty-alone-actions:not([hidden]) {
   margin-bottom: 0;
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
 }
+.settings-mic-boost-hint {
+  margin: 0.15rem 0.85rem 0.55rem;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  opacity: 0.78;
+}
 .settings-vol-pct {
   margin-left: 0.35rem;
   font-size: 0.78rem;
@@ -18859,7 +19475,7 @@ html.match-live .tile-remote .side-rail-left,
 .loc-on-tile .loc-country { font-size: 0.72rem; font-weight: 650; }
 .loc-on-tile .loc-city { font-size: 0.66rem; font-weight: 500; opacity: 0.88; }
 
-/* === Identity layout: flag→country→city then name below (centered stack) === */
+/* === Identity layout: name above flag→country→city (centered stack) === */
 .tile-local .tile-local-id,
 #local-id-stack {
   position: absolute !important;
@@ -18885,11 +19501,11 @@ html.match-live .tile-remote .side-rail-left,
   display: inline-flex !important;
   justify-content: center !important;
   /* MUST stay after location in flex order (0 would put name above city) */
-  order: 20 !important;
+  order: 1 !important;
   align-self: center !important;
   max-width: 100% !important;
-  margin-top: 0.2rem !important;
-  margin-bottom: 0 !important;
+  margin-top: 0 !important;
+  margin-bottom: 0.12rem !important;
   padding: 0.3rem 0.7rem !important;
   border-radius: 999px !important;
   font-size: 0.92rem !important; /* slightly larger than location labels */
@@ -18909,32 +19525,32 @@ html.match-live .tile-remote .side-rail-left,
   align-items: center !important;
   gap: 0.18rem !important;
 }
-/* Location block first (flag→country→city), then name, then chips */
-.tile-remote-id #remote-tag.loc-on-tile,
-.tile-remote-id .loc-on-tile {
-  order: 1 !important;
-}
+/* Name first, then location (flag→country→city), then chips */
 .tile-remote-id #remote-name.name-on-tile,
 .tile-remote-id .name-top-left {
-  order: 20 !important;
-  margin-top: 0.2rem !important;
-  margin-bottom: 0 !important;
+  order: 1 !important;
+  margin-top: 0 !important;
+  margin-bottom: 0.12rem !important;
+}
+.tile-remote-id #remote-tag.loc-on-tile,
+.tile-remote-id .loc-on-tile {
+  order: 2 !important;
 }
 .tile-remote-id .peer-who-sub,
 .tile-remote-id .trust-tier-chip,
 .tile-remote-id .partner-praise-chip,
 .tile-remote-id .mutual-bond-chip,
 .tile-remote-id .flair-chip {
-  order: 30 !important;
+  order: 3 !important;
 }
-/* Local: location chip first, name below */
-.tile-local #local-loc-tag,
-#local-id-stack #local-loc-tag {
-  order: 1 !important;
-}
+/* Local: name first, location below */
 .tile-local #local-name.name-on-tile,
 #local-id-stack #local-name {
-  order: 20 !important;
+  order: 1 !important;
+}
+.tile-local #local-loc-tag,
+#local-id-stack #local-loc-tag {
+  order: 2 !important;
 }
 .tile-avatar-stars-stack,
 #local-avatar-stars,
@@ -19114,16 +19730,16 @@ html.match-live .tile-remote .side-rail-left,
   min-width: 0;
   flex: 1;
 }
-/* Identity top-left: name under location, centered with flag stack */
+/* Identity top-left: name above location, centered with flag stack */
 .tile-remote-id .name-top-left,
 .tile-local-id .name-top-left {
   align-self: center !important;
-  order: 20 !important;
-  margin-top: 0.2rem !important;
-  margin-bottom: 0 !important;
+  order: 1 !important;
+  margin-top: 0 !important;
+  margin-bottom: 0.12rem !important;
 }
 
-/* Final lock: location hug header; name under city, centered with loc */
+/* Final lock: name above location, centered stack under header */
 #remote-tile-tag:not([hidden]),
 .tile-tag.tile-tag-remote:not([hidden]) {
   position: absolute !important;
@@ -19141,7 +19757,7 @@ html.match-live .tile-remote .side-rail-left,
 #remote-tag.loc-on-tile,
 #local-loc.loc-on-tile,
 #local-loc-tag {
-  order: 1 !important;
+  order: 2 !important;
   align-self: center !important;
 }
 #remote-tag.loc-on-tile,
@@ -19159,7 +19775,7 @@ html.match-live .tile-remote .side-rail-left,
 }
 #remote-name.name-on-tile,
 #local-name.name-on-tile {
-  order: 20 !important;
+  order: 1 !important;
   align-self: center !important;
   margin-top: 0.22rem !important;
   font-size: 0.92rem !important;
