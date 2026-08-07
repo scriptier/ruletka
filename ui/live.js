@@ -15794,7 +15794,11 @@ function localStreamForPeerOutbound() {
 }
 
 /**
- * Friend calls: force reveal. Stranger / queue / idle: restore sticky Hide preference.
+ * Friend calls: force reveal.
+ * Stranger / party: always start with REAL camera outbound (P2P needs both cams).
+ * Auto sticky-Hide was sending a black canvas track to partners while local
+ * preview still looked fine — Play users reported "I never see browser camera".
+ * User can still tap Hide mid-call; it no longer auto-reapplies every match.
  * @param {{ silent?: boolean }} [opts]
  */
 function applySelfBlurPolicyForSession(opts = {}) {
@@ -15805,9 +15809,19 @@ function applySelfBlurPolicyForSession(opts = {}) {
       }
       return;
     }
-    // Stranger match, party hunt, searching, idle with sticky Hide
-    if (selfBlurPreferForStrangers && !selfBlurred) {
+    // Stranger / queue / party: force real outbound video for connectivity.
+    // Opt-in sticky hide only if prefs.hideFromStrangersDefault is true.
+    let wantStickyHide = false;
+    try {
+      const prefs = loadPrefs();
+      wantStickyHide = !!prefs.hideFromStrangersDefault;
+    } catch (_) {}
+    if (wantStickyHide && selfBlurPreferForStrangers && !selfBlurred) {
       setSelfBlur(true, { fromAuto: true, silent: !!opts.silent });
+      return;
+    }
+    if (selfBlurred) {
+      setSelfBlur(false, { fromAuto: true, silent: !!opts.silent });
     }
   } catch (_) {}
 }
@@ -16057,8 +16071,18 @@ function togglePartnerBlur() {
 function setSelfBlur(on, opts = {}) {
   selfBlurred = !!on;
   if (!opts.fromAuto) {
-    // User Hide/Reveal: sticky for all stranger matching until they Reveal
-    selfBlurPreferForStrangers = selfBlurred;
+    // Remember only if user enabled "hide from strangers by default" in prefs.
+    // Default OFF — sticky hide was the #1 cause of one-way "black" video to Play.
+    try {
+      const prefs = loadPrefs();
+      if (prefs.hideFromStrangersDefault) {
+        selfBlurPreferForStrangers = selfBlurred;
+      } else {
+        selfBlurPreferForStrangers = false;
+      }
+    } catch (_) {
+      selfBlurPreferForStrangers = false;
+    }
   }
   pushOutboundVideoTracks().catch(() => {});
   updateSideIcons();
@@ -16072,7 +16096,7 @@ function toggleSelfBlur() {
   log(
     selfBlurred
       ? _t("log.selfBlurOn") ||
-          "You are hidden — partner sees black (stays on for strangers until you Reveal)"
+          "You are hidden — partner sees black (tap Reveal to show camera again)"
       : _t("log.selfBlurOff") || "You revealed yourself"
   );
 }
@@ -22606,9 +22630,16 @@ function handleMatched(msg) {
   // New person → full partner volume again (even if previous call was quiet)
   resetPartnerVolumeForNewMatch(msg);
   setPhase(matchMode === "friend" ? "friend_call" : "matched");
-  // Hide stays for strangers; auto-reveal only for pure friend calls
+  // Stranger match: force real camera out (see applySelfBlurPolicyForSession).
+  // Friend: always reveal. Do NOT re-hide strangers by sticky default.
   try {
     applySelfBlurPolicyForSession();
+  } catch (_) {}
+  // Belt-and-suspenders: kickSolo / joinPeers must publish real cam tracks
+  try {
+    if (!isPureFriendCallSession() && !selfBlurred) {
+      void pushOutboundVideoTracks();
+    }
   } catch (_) {}
   syncScreenWakeLock();
   updatePipButton();
@@ -23384,8 +23415,10 @@ async function kickSoloWebRtc(msg, p) {
   pc._role = (p && p.role) || "stranger";
   pc._videoEl = $("remote");
   // Prefer real preview for outbound (not black hide canvas) on first offer
+  // Prefer REAL preview for first offer — never start stranger P2P on black canvas
   try {
-    if (!selfBlurred && previewStream) pc.setLocalStream(previewStream);
+    if (previewStream && !selfBlurred) pc.setLocalStream(previewStream);
+    else if (stream && !selfBlurred) pc.setLocalStream(stream);
     else pc.setLocalStream(localStreamForPeerOutbound() || stream);
   } catch (_) {
     pc.setLocalStream(stream);
@@ -23396,8 +23429,12 @@ async function kickSoloWebRtc(msg, p) {
     registerPeerUi(p || { peer_id: peerId }, "remote");
   } catch (_) {}
   await pc.connect();
+  // After connect: re-push real video (handles late preview / accidental hide)
+  try {
+    if (!selfBlurred) void pushOutboundVideoTracks();
+  } catch (_) {}
   log(
-    `kickSolo connect +${Date.now() - t0}ms offerer=${iOffer ? 1 : 0} peer=${String(peerId).slice(0, 8)}`
+    `kickSolo connect +${Date.now() - t0}ms offerer=${iOffer ? 1 : 0} peer=${String(peerId).slice(0, 8)} hide=${selfBlurred ? 1 : 0}`
   );
 }
 
