@@ -205,6 +205,8 @@
   "mobile.live.camFlipped": "Камера переключена",
   "mobile.live.camOff": "Кам выкл",
   "mobile.live.camOn": "Кам вкл",
+  "mobile.live.camOffToast": "Камера на паузе — они вас не видят",
+  "mobile.live.camOnToast": "Камера вкл — они вас видят",
   "mobile.live.camResumed": "Камера снова вкл. после фона",
   "mobile.live.mediaResumed": "Камера и мик снова вкл. после фона",
   "mobile.live.nextGrace": "Подождите — Next скоро разблокируется",
@@ -558,5 +560,5 @@
   "mobile.settings.historySnapsOn": "Вкл.",
   "mobile.settings.historySnapsOff": "Выкл.",
   "mobile.settings.historySnapsHint": "Крошечные кропы для Истории и Блока · только на устройстве",
-  "mobile.live.camOffHint": "Скрыты от них"
+  "mobile.live.camOffHint": "Камера на паузе — они вас не видят"
 }

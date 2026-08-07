@@ -223,6 +223,8 @@
   "mobile.live.camFlipped": "Camera flipped",
   "mobile.live.camOff": "Cam off",
   "mobile.live.camOn": "Cam on",
+  "mobile.live.camOffToast": "Camera paused — they can't see you",
+  "mobile.live.camOnToast": "Camera on — they can see you",
   "mobile.live.camResumed": "Camera back on after background",
   "mobile.live.mediaResumed": "Camera & mic back on after background",
   "mobile.live.nextGrace": "Hold on — Next unlocks in a moment",
@@ -571,5 +573,5 @@
   "mobile.settings.historySnapsOn": "On",
   "mobile.settings.historySnapsOff": "Off",
   "mobile.settings.historySnapsHint": "Tiny face crops for History & Blocked · this device only · never uploaded",
-  "mobile.live.camOffHint": "Hidden from them"
+  "mobile.live.camOffHint": "Camera paused — they can't see you"
 }

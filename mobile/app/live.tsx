@@ -2325,6 +2325,16 @@ function LiveBody() {
     mediaRef.current?.setCamEnabled(nextOn);
     media2Ref.current?.setCamEnabled(nextOn);
     hapticLight();
+    // Clear copy: Android pauses the track (unlike web "Hide" black canvas).
+    try {
+      showToastRef.current(
+        nextOn
+          ? t("mobile.live.camOnToast")
+          : t("mobile.live.camOffToast")
+      );
+    } catch {
+      /* ignore */
+    }
   }
 
   // Android system back: never dump a live call / search silently
