@@ -9502,12 +9502,9 @@ function armOfferKickWatch(msg, peer, delaysMs = [2000, 4500, 8000]) {
       try {
         if (!matched) return;
         if (!isOfferer) return;
-        // Match-level: first offer already left — never rebuild for "retry"
+        // Match-level: first offer already left / locked — never rebuild
         try {
-          if (
-            window.__ruletMatchOfferAt &&
-            Date.now() - window.__ruletMatchOfferAt < 12000
-          ) {
+          if (window.__ruletMatchOfferAt || window.__ruletMatchOfferLock) {
             return;
           }
         } catch (_) {}
@@ -9519,21 +9516,28 @@ function armOfferKickWatch(msg, peer, delaysMs = [2000, 4500, 8000]) {
           (existing._offerEmitOk ||
             existing._gotRemoteAnswerAt ||
             existing.pc?.currentRemoteDescription ||
-            existing.pc?.remoteDescription)
+            existing.pc?.remoteDescription ||
+            existing.pc?.localDescription)
         ) {
           return;
         }
         // Any PC already offered this match
         for (const pc of peerPcs.values()) {
-          if (pc?._offerEmitOk || pc?._gotRemoteAnswerAt) return;
+          if (
+            pc?._offerEmitOk ||
+            pc?._gotRemoteAnswerAt ||
+            pc?.pc?.localDescription
+          ) {
+            return;
+          }
         }
         // Live media already — no need
         if (hasLiveRemoteMedia()) return;
         log(
           `offerKick re-kick +${ms}ms peer=${String(peerId).slice(0, 8)} emit=${existing?._offerEmitOk ? 1 : 0}`
         );
-        // Force tear of stuck mid-offer latch so kickSolo rebuilds
-        if (existing) {
+        // Only tear if truly stuck with no local SDP
+        if (existing && !existing.pc?.localDescription) {
           try {
             existing._offerSentOnce = false;
             existing._offerEmitOk = false;
@@ -9543,7 +9547,14 @@ function armOfferKickWatch(msg, peer, delaysMs = [2000, 4500, 8000]) {
           try {
             peerPcs.delete(peerId);
           } catch (_) {}
+        } else if (existing?.pc?.localDescription) {
+          return; // mid-negotiation — do not thrash
         }
+        // Clear lock so kick can emit one first offer
+        try {
+          window.__ruletMatchOfferLock = 0;
+          window.__ruletMatchOfferAttemptAt = 0;
+        } catch (_) {}
         void kickSoloWebRtc(msg, peer).catch((e) =>
           log(`offerKick fail ${e}`)
         );
@@ -22784,10 +22795,11 @@ function handleMatched(msg) {
   matched = true;
   inQueue = false;
   matchMediaGraceAt = Date.now();
-  // Fresh match → allow one first offer (blocks dual-PC thrash within 15s)
+  // Fresh match → allow one first offer (blocks dual-PC thrash)
   try {
     window.__ruletMatchOfferAt = 0;
     window.__ruletMatchOfferAttemptAt = 0;
+    window.__ruletMatchOfferLock = 0;
   } catch (_) {}
   // Block Next/Space for a moment so first SDP/ICE can finish (hub also enforces ~8s).
   // Longer when hub forces TURN — soft-recover must not race the first path.
@@ -23637,15 +23649,29 @@ async function kickSoloWebRtc(msg, p) {
     const iceOk =
       existing.pc?.iceConnectionState === "connected" ||
       existing.pc?.iceConnectionState === "completed";
-    if (hasLive || iceOk) {
-      log(`kickSolo keep live peer=${String(peerId).slice(0, 8)}`);
+    // Never tear a PC that already has local offer / remote answer this match
+    // (second kickSolo was building PC2 → offer@800ms hub-drop → 18s black).
+    const hasSdp =
+      !!(
+        existing.pc?.localDescription ||
+        existing.pc?.remoteDescription ||
+        existing._offerEmitOk ||
+        existing._gotRemoteAnswerAt ||
+        existing._offerInFlight
+      );
+    if (hasLive || iceOk || hasSdp) {
+      log(
+        `kickSolo keep peer=${String(peerId).slice(0, 8)} live=${hasLive ? 1 : 0} iceOk=${iceOk ? 1 : 0} sdp=${hasSdp ? 1 : 0}`
+      );
       // Still ensure offer if we are offerer but never sent SDP (warm PC trap)
       try {
         if (
           iOffer &&
           existing._createAndSendOffer &&
           !existing._offerSentOnce &&
-          !existing._offerInFlight
+          !existing._offerInFlight &&
+          !existing.pc?.localDescription &&
+          !window.__ruletMatchOfferLock
         ) {
           void existing._createAndSendOffer({ iceRestart: false });
           log(`kickSolo force offer on live PC`);

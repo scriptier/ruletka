@@ -1395,12 +1395,11 @@ class RouletteWebRtc {
     // Don't block first SDP on setParameters — apply encodings in parallel
     void this.applyQualityTier(this._qualityTier || "high");
 
-    // Offerer: retry once if first createOffer stalls.
-    // Answerer: wait longer before promote — phone promote at 250ms caused glare
-    // with web's first offer (~0.3–0.8s) → debounce drop → 18–24s silence.
-    // Offerer watchdog 1200ms (was 700) — first offer+answer often lands ~0.5–0.9s;
-    // a 700ms retry created the second PC/offer hub drops at age_ms≈800.
-    this._armOfferWatchdog(this.isOfferer ? 1200 : 2000);
+    // Offerer: retry only if first createOffer never emitted (long stall).
+    // Answerer: wait for browser (web preferred). Early promote = glare thrash.
+    // Offerer watchdog 2500ms — never race first answer (~0.5–1s); lock blocks
+    // any second createOffer for 20s after first emit.
+    this._armOfferWatchdog(this.isOfferer ? 2500 : 2500);
     if (this.isOfferer) {
       const t0 = Date.now();
       await this._createAndSendOffer({ iceRestart: false });
@@ -1481,25 +1480,38 @@ class RouletteWebRtc {
     const now = Date.now();
     // Already building an offer
     if (this._offerInFlight) return false;
-    // Match-level gate: only ONE non-restart offer for this match (all PCs).
-    // Soft-lock at attempt start (not only after emit) so concurrent createOffer
-    // races cannot both pass the gate → hub drop age_ms≈800 → phone black.
+    // Match-level gate: ONE offer per match for all PCs.
+    // Use a synchronous lock bit (not check-then-set) so two concurrent
+    // createOffer calls cannot both pass → hub drop ~800ms → 18s black video.
     try {
-      if (!iceRestart && typeof window !== "undefined") {
+      if (typeof window !== "undefined") {
         const hard = window.__ruletMatchOfferAt || 0;
-        const soft = window.__ruletMatchOfferAttemptAt || 0;
-        if (hard && now - hard < 15000) {
+        if (!iceRestart && hard && now - hard < 20000) {
           console.info("[webrtc] skip offer — match already offered", now - hard);
           return false;
         }
-        if (soft && now - soft < 15000) {
+        // iceRestart also blocked early in match if we already negotiated once
+        if (
+          iceRestart &&
+          hard &&
+          now - hard < 20000 &&
+          (this._gotRemoteAnswerAt || this.pc?.currentRemoteDescription)
+        ) {
           console.info(
-            "[webrtc] skip offer — match offer in flight",
-            now - soft
+            "[webrtc] skip iceRestart — first path still in grace",
+            now - hard
           );
           return false;
         }
-        window.__ruletMatchOfferAttemptAt = now;
+        if (!iceRestart) {
+          if (window.__ruletMatchOfferLock) {
+            console.info("[webrtc] skip offer — match offer lock held");
+            return false;
+          }
+          // Set lock BEFORE any await (atomic for single-threaded JS)
+          window.__ruletMatchOfferLock = 1;
+          window.__ruletMatchOfferAttemptAt = now;
+        }
       }
     } catch (_) {}
     // After we answered a remote offer, never re-offer unless iceRestart
@@ -1532,10 +1544,14 @@ class RouletteWebRtc {
       console.info("[webrtc] skip offer — already sent this PC");
       return false;
     }
-    // Block iceRestart for first 15s of this PC
+    // Block iceRestart for first 20s of this PC / match (was 15s — thrash at ~18s)
     const pcAge = this._pcBornAt ? now - this._pcBornAt : 99999;
-    if (iceRestart && pcAge < 15000) {
-      console.info("[webrtc] skip iceRestart (PC grace)", pcAge);
+    const matchAge =
+      typeof matchMediaGraceAt !== "undefined" && matchMediaGraceAt
+        ? now - matchMediaGraceAt
+        : pcAge;
+    if (iceRestart && Math.min(pcAge, matchAge) < 20000) {
+      console.info("[webrtc] skip iceRestart (PC/match grace)", pcAge, matchAge);
       return false;
     }
     // Block duplicate offers hard — phone promote + startCall glare thrash
@@ -1603,6 +1619,8 @@ class RouletteWebRtc {
         if (typeof window !== "undefined" && !iceRestart) {
           window.__ruletMatchOfferAt = Date.now();
           window.__ruletMatchOfferAttemptAt = window.__ruletMatchOfferAt;
+          // Keep lock held for the match grace (cleared only on new Matched)
+          window.__ruletMatchOfferLock = 1;
         }
       } catch (_) {}
       return true;
@@ -1613,8 +1631,9 @@ class RouletteWebRtc {
       this._offerEmitOk = false;
       try {
         if (typeof window !== "undefined" && !iceRestart) {
-          // Free soft-lock so offerKick can retry a real first offer
+          // Free locks so offerKick can retry a real first offer
           window.__ruletMatchOfferAttemptAt = 0;
+          window.__ruletMatchOfferLock = 0;
         }
       } catch (_) {}
       return false;
@@ -1644,10 +1663,20 @@ class RouletteWebRtc {
     const now = Date.now();
     const last = this._iceRestartAt || 0;
     const count = this._iceRestartCount || 0;
-    // First 15s of any match: let first offer/answer finish (double-offer thrash).
+    // First 20s of match/PC: let first path finish (was 15s → thrash rebuild ~18s).
     const pcAge = this._pcBornAt ? now - this._pcBornAt : 99999;
-    if (pcAge < 15000) {
-      console.info("[webrtc] skip early iceRestart (PC grace)", pcAge);
+    let matchAge = 99999;
+    try {
+      if (typeof matchMediaGraceAt !== "undefined" && matchMediaGraceAt) {
+        matchAge = now - matchMediaGraceAt;
+      }
+    } catch (_) {}
+    if (Math.min(pcAge, matchAge) < 20000) {
+      console.info(
+        "[webrtc] skip early iceRestart (grace)",
+        pcAge,
+        matchAge
+      );
       return false;
     }
     // Restart already in flight — report success so callers don't hard-fail immediately
