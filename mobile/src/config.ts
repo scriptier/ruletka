@@ -55,12 +55,43 @@ export function deleteDataUrl(): string {
   );
 }
 
+/** In-product safety tools (block/report/blur). */
+export function safetyToolsUrl(): string {
+  return (
+    String(extra().safetyToolsUrl || "") || `${hubBase()}/safety.html`
+  );
+}
+
+/**
+ * Published CSAE / child-safety standards (Play Console + in-app legal).
+ * Must stay a stable public HTML URL (not a PDF).
+ */
+export function childSafetyUrl(): string {
+  return (
+    String(extra().childSafetyUrl || "") ||
+    `${hubBase()}/legal/child-safety.html`
+  );
+}
+
+export function communityUrl(): string {
+  return (
+    String(extra().communityUrl || "") ||
+    `${hubBase()}/legal/community.html`
+  );
+}
+
 export function supportEmail(): string {
   return String(extra().supportEmail || "") || "support@ruletka.me";
 }
 
 export function privacyEmail(): string {
   return String(extra().privacyEmail || "") || "privacy@ruletka.me";
+}
+
+/** mailto: for child-safety / CSAE reports (no CSAM attachments). */
+export function childSafetyReportMailto(): string {
+  const to = supportEmail();
+  return `mailto:${to}?subject=${encodeURIComponent("Child safety report")}`;
 }
 
 export function wsUrl(base = hubBase()): string {
