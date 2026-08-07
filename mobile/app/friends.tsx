@@ -1,3 +1,4 @@
+import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   Alert,
@@ -138,6 +139,13 @@ export default function FriendsScreen() {
         user_id: f.user_id,
         name: f.name || ("short_id" in f ? f.short_id : undefined) || "Friend",
       });
+      // Live screen owns the WebRTC session (outboundCall/matched effects) —
+      // open it now so the call actually connects once the friend answers.
+      try {
+        router.push("/live");
+      } catch {
+        /* ignore */
+      }
     } catch (e) {
       Alert.alert(t("mobile.friends.callFailed"), String(e));
     }

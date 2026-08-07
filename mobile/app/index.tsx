@@ -1,6 +1,9 @@
 import { Link, Redirect } from "expo-router";
+import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { countUnreadMissed } from "../src/calls/history";
 import { hubBase, isFriendsOnly } from "../src/config";
+import { useHub } from "../src/hub/HubProvider";
 import { useT } from "../src/i18n";
 import { useApp } from "./_layout";
 
@@ -8,6 +11,14 @@ export default function HomeScreen() {
   const { identity, rulesOk } = useApp();
   const t = useT();
   const friendsOnly = isFriendsOnly();
+  const { callHistoryTick } = useHub();
+  const [missed, setMissed] = useState(0);
+
+  useEffect(() => {
+    countUnreadMissed()
+      .then(setMissed)
+      .catch(() => {});
+  }, [callHistoryTick]);
 
   if (!rulesOk) {
     return <Redirect href="/rules" />;
@@ -21,6 +32,17 @@ export default function HomeScreen() {
         User · {identity.user_id.slice(0, 8)}… · hub {hubBase()}
         {friendsOnly ? " · friends-only" : ""}
       </Text>
+
+      {missed > 0 ? (
+        <Link href="/friends" asChild>
+          <Pressable style={styles.missedCard}>
+            <Text style={styles.missedTitle}>
+              {t("mobile.home.missedTitle", { n: missed })}
+            </Text>
+            <Text style={styles.missedBody}>{t("mobile.home.missedBody")}</Text>
+          </Pressable>
+        </Link>
+      ) : null}
 
       {friendsOnly ? (
         <Link href="/friends" asChild>
@@ -74,6 +96,16 @@ const styles = StyleSheet.create({
   },
   tag: { color: "#9aa8bc", fontSize: 15, lineHeight: 22 },
   meta: { color: "#6b7a90", fontSize: 12, marginBottom: 12 },
+  missedCard: {
+    backgroundColor: "rgba(255,45,85,0.15)",
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,80,100,0.35)",
+    gap: 2,
+  },
+  missedTitle: { color: "#ffb0bc", fontWeight: "700", fontSize: 14 },
+  missedBody: { color: "#e0c8cc", fontSize: 12 },
   cta: {
     backgroundColor: "#ff2d55",
     paddingVertical: 16,

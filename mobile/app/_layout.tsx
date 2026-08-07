@@ -1,4 +1,4 @@
-import { Stack } from "expo-router";
+import { router, Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import {
   createContext,
@@ -12,6 +12,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  Vibration,
   View,
 } from "react-native";
 import { HubProvider, useHub } from "../src/hub/HubProvider";
@@ -57,6 +58,15 @@ function CallBanners() {
     const timer = setTimeout(clearToast, 4000);
     return () => clearTimeout(timer);
   }, [toast, clearToast]);
+
+  // Incoming call needs to be felt, not just seen — the banner alone is easy
+  // to miss if the phone isn't in view. Mirrors the browser's repeating ring
+  // vibration (see ui/live.js tryVibrateRing / startIncomingRing).
+  useEffect(() => {
+    if (!incomingCall) return;
+    Vibration.vibrate([0, 120, 80, 120, 80, 200, 1600], true);
+    return () => Vibration.cancel();
+  }, [incomingCall]);
 
   // Outbound ring timeout (30s) — matches web no-answer path
   useEffect(() => {
@@ -119,6 +129,13 @@ function CallBanners() {
                   /* ignore */
                 }
                 clearIncomingCall();
+                // Live screen owns the WebRTC session — nothing connects
+                // until it's mounted, so open it now the call is accepted.
+                try {
+                  router.push("/live");
+                } catch {
+                  /* ignore */
+                }
               }}
             >
               <Text style={bannerStyles.btnText}>
