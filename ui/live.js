@@ -23432,14 +23432,36 @@ async function kickSoloWebRtc(msg, p) {
       } catch (_) {}
       return;
     }
-    // If offer already in flight / sent, keep PC (don't tear mid-offer)
+    // Young mid-offer only (<2s): keep so we don't thrash a good first SDP.
+    // Older mid-offer with no remote = stuck (hub drop / glare) → tear down.
+    // Was: keep forever → silence until soft-recover ~18–24s.
     try {
-      if (
+      const pcAge = existing._pcBornAt
+        ? Date.now() - existing._pcBornAt
+        : 99999;
+      const mid =
         existing._offerInFlight ||
         existing._offerSentOnce ||
-        existing.pc?.signalingState === "have-local-offer"
-      ) {
-        log(`kickSolo keep mid-offer peer=${String(peerId).slice(0, 8)}`);
+        existing.pc?.signalingState === "have-local-offer";
+      if (mid && pcAge < 2000 && !existing.pc?.currentRemoteDescription) {
+        log(
+          `kickSolo keep mid-offer young peer=${String(peerId).slice(0, 8)} age=${pcAge}`
+        );
+        // Offerer: ensure first offer actually left if latch lied
+        if (
+          iOffer &&
+          existing._createAndSendOffer &&
+          !existing._offerInFlight
+        ) {
+          try {
+            existing.isOfferer = true;
+            // Allow one retry if previous send never hit the wire
+            if (!existing._offerEmitOk) {
+              existing._offerSentOnce = false;
+              void existing._createAndSendOffer({ iceRestart: false });
+            }
+          } catch (_) {}
+        }
         return;
       }
     } catch (_) {}

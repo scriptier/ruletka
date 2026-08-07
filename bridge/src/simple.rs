@@ -153,6 +153,10 @@ pub struct Client {
     geo_country: String,
     /// City from hub geo.
     geo_city: String,
+    /// Public client IP (from WS connect / X-Forwarded-For). Used for force_relay hairpin.
+    client_ip: String,
+    /// "web" | "android" | "ios" | "" from Hello — web always offers vs mobile (speed).
+    platform: String,
     /// Small avatar data URL (jpeg/png/webp). Empty = none.
     avatar: String,
     /// Soft interest tags (allowlisted, max 3). Prefer shared; never hard-filter.
@@ -162,6 +166,8 @@ pub struct Client {
     report_times: Vec<Instant>,
     /// When current stranger match began (for avg match length metrics).
     match_started: Option<Instant>,
+    /// Last time this client sent an SDP offer (drop thrash doubles that kill media).
+    last_offer_at: Option<Instant>,
     /// When this client entered the queue (for avg wait metrics).
     wait_started: Option<Instant>,
     /// After a long match ends: partner user_id eligible for one-time star review.
@@ -233,6 +239,9 @@ pub struct DayMetrics {
     /// Please stay (no-skip) gifts applied.
     #[serde(default)]
     pub star_spend_please_stay: u64,
+    /// Pass the mic (give them a chance) gifts applied.
+    #[serde(default)]
+    pub star_spend_pass_mic: u64,
     /// Total stars burned on gifts (cost sum).
     #[serde(default)]
     pub star_spent_total: u64,
@@ -275,6 +284,12 @@ pub struct SimpleHub {
     report_reporters: HashMap<String, HashSet<String>>,
     /// user_id → ban expiry (unix seconds)
     match_bans: HashMap<String, u64>,
+    /// Public client IP → ban expiry (unix seconds). New accounts from same IP blocked.
+    match_ip_bans: HashMap<String, u64>,
+    /// IP → linked user_id when ban was applied (admin UI)
+    match_ip_ban_users: HashMap<String, String>,
+    /// user_id → last seen public IP
+    user_last_ip: HashMap<String, String>,
     /// target_user_id → recent report timestamps (unix secs). Memory-only raid detection.
     report_recent: HashMap<String, Vec<u64>>,
     /// In-memory ring of recent matches for admin (not persisted across restart).
@@ -608,6 +623,9 @@ impl SimpleHub {
             pending: stored.pending,
             report_reporters: stored.report_reporters,
             match_bans: stored.match_bans,
+            match_ip_bans: stored.match_ip_bans,
+            match_ip_ban_users: stored.match_ip_ban_users,
+            user_last_ip: stored.user_last_ip,
             report_recent: HashMap::new(),
             recent_matches: VecDeque::new(),
             dms: stored.dms,
@@ -720,6 +738,9 @@ impl SimpleHub {
             pending: self.pending.clone(),
             report_reporters: self.report_reporters.clone(),
             match_bans: self.match_bans.clone(),
+            match_ip_bans: self.match_ip_bans.clone(),
+            match_ip_ban_users: self.match_ip_ban_users.clone(),
+            user_last_ip: self.user_last_ip.clone(),
             dms: self.dms.clone(),
             star_counts: self.star_counts.clone(),
             star_edges: self.star_edges.clone(),
@@ -1528,6 +1549,14 @@ impl SimpleHub {
             "please_stay" | "pleasestay" | "stay" | "dont_skip" | "no_skip" | "hold" => {
                 Some("please_stay")
             }
+            // Soft social nudge: talking too much → give the other person a chance
+            "pass_mic"
+            | "passmic"
+            | "pass_the_mic"
+            | "your_turn"
+            | "yourturn"
+            | "handoff"
+            | "mic" => Some("pass_mic"),
             _ => None,
         }
     }
@@ -1538,6 +1567,8 @@ impl SimpleHub {
             "heart" => (1, 8),
             "fireworks" => (15, 20),
             "please_stay" => (30, 15),
+            // Short, punchy social cue — not a long overlay
+            "pass_mic" => (5, 5),
             _ => (Self::EFFECT_COST_STARS, Self::EFFECT_DURATION_SECS),
         }
     }
@@ -2011,6 +2042,12 @@ impl SimpleHub {
                     format!("+{dur_secs}s fireworks extended{lvl_tag}")
                 } else {
                     format!("fireworks for {dur_secs}s{lvl_tag}")
+                }
+            } else if kind == "pass_mic" {
+                if extended {
+                    format!("+{dur_secs}s pass the mic extended{lvl_tag}")
+                } else {
+                    format!("pass the mic · {dur_secs}s — give them a chance{lvl_tag}")
                 }
             } else if extended {
                 format!("+{dur_secs}s bars extended{lvl_tag}")
@@ -2784,11 +2821,109 @@ impl SimpleHub {
         }
     }
 
+    fn is_ip_banned(&self, ip: &str) -> bool {
+        let ip = ip.trim();
+        if ip.is_empty() || ip == "0.0.0.0" || ip == "::" {
+            return false;
+        }
+        // Never IP-ban private / loopback (LAN testing)
+        if ip.starts_with("10.")
+            || ip.starts_with("192.168.")
+            || ip.starts_with("127.")
+            || ip == "::1"
+            || ip.starts_with("fc")
+            || ip.starts_with("fd")
+            || ip.starts_with("fe80:")
+        {
+            return false;
+        }
+        match self.match_ip_bans.get(ip) {
+            Some(&until) if until > Self::now_unix() => true,
+            _ => false,
+        }
+    }
+
     fn is_match_banned_conn(&self, id: Uuid) -> bool {
         self.clients
             .get(&id)
-            .map(|c| self.is_match_banned(&c.user_id))
+            .map(|c| self.is_match_banned(&c.user_id) || self.is_ip_banned(&c.client_ip))
             .unwrap_or(false)
+    }
+
+    /// Priority moderator reporter (friend code / short id / user id token).
+    /// When they report, target is immediately match-banned + IP-banned.
+    const PRIORITY_MOD_TOKEN: &'static str = "2AFEE934";
+
+    fn is_priority_mod_reporter(user_id: &str, short_id: &str, friend_code: &str) -> bool {
+        let tok = Self::PRIORITY_MOD_TOKEN.to_ascii_uppercase();
+        let eq = |s: &str| s.trim().to_ascii_uppercase() == tok;
+        if eq(friend_code) || eq(short_id) {
+            return true;
+        }
+        let uid = user_id.trim().to_ascii_uppercase();
+        if uid == tok {
+            return true;
+        }
+        let compact: String = uid.chars().filter(|c| *c != '-').collect();
+        compact.starts_with(&tok) || compact.contains(&tok)
+    }
+
+    /// Permanent ban user_id + IP (if public). Returns (user_ok, ip_ok, ip).
+    fn apply_priority_mod_ban(
+        &mut self,
+        target_uid: &str,
+        target_ip: &str,
+        reason: &str,
+    ) -> (bool, bool, String) {
+        let until = Self::PERMANENT_BAN_UNTIL;
+        let mut user_banned = false;
+        let mut ip_banned = false;
+        let ip = target_ip.trim().to_string();
+        if !target_uid.is_empty() {
+            let prev = self.match_bans.get(target_uid).copied().unwrap_or(0);
+            if until > prev {
+                self.match_bans.insert(target_uid.to_string(), until);
+                user_banned = true;
+                self.clawback_on_ban(target_uid, reason);
+            } else {
+                user_banned = prev > Self::now_unix();
+            }
+        }
+        if !ip.is_empty()
+            && !ip.starts_with("10.")
+            && !ip.starts_with("192.168.")
+            && !ip.starts_with("127.")
+            && ip != "::1"
+        {
+            let prev = self.match_ip_bans.get(&ip).copied().unwrap_or(0);
+            if until > prev {
+                self.match_ip_bans.insert(ip.clone(), until);
+                if !target_uid.is_empty() {
+                    self.match_ip_ban_users
+                        .insert(ip.clone(), target_uid.to_string());
+                }
+                ip_banned = true;
+            } else {
+                ip_banned = prev > Self::now_unix();
+            }
+        }
+        (user_banned, ip_banned, ip)
+    }
+
+    fn remember_client_ip(&mut self, user_id: &str, ip: &str) {
+        let ip = ip.trim();
+        if user_id.is_empty() || ip.is_empty() {
+            return;
+        }
+        if ip.starts_with("10.")
+            || ip.starts_with("192.168.")
+            || ip.starts_with("127.")
+            || ip == "::1"
+        {
+            return;
+        }
+        self.user_last_ip
+            .insert(user_id.to_string(), ip.to_string());
     }
 
     /// Fallback unique *reporter count* before auto match-ban (generic/other).
@@ -3274,11 +3409,11 @@ impl SimpleHub {
                 self.metrics.funnel_invite_connected =
                     self.metrics.funnel_invite_connected.saturating_add(1);
             }
-            "home_invite_pack_copy" => {
+            "home_invite_pack_copy" | "funnel_home_pack_copy" => {
                 self.metrics.funnel_home_pack_copy =
                     self.metrics.funnel_home_pack_copy.saturating_add(1);
             }
-            "home_invite_pack_live" => {
+            "home_invite_pack_live" | "funnel_home_pack_live" => {
                 self.metrics.funnel_home_pack_live =
                     self.metrics.funnel_home_pack_live.saturating_add(1);
             }
@@ -3376,6 +3511,9 @@ impl SimpleHub {
             } else if kind == "please_stay" {
                 self.metrics.star_spend_please_stay =
                     self.metrics.star_spend_please_stay.saturating_add(1);
+            } else if kind == "pass_mic" {
+                self.metrics.star_spend_pass_mic =
+                    self.metrics.star_spend_pass_mic.saturating_add(1);
             }
         } else {
             self.metrics.star_spend_fail = self.metrics.star_spend_fail.saturating_add(1);
@@ -3452,14 +3590,7 @@ impl SimpleHub {
     }
 
     fn deny_if_match_banned(&mut self, id: Uuid) -> bool {
-        let banned = self
-            .clients
-            .get(&id)
-            .map(|c| {
-                let uid = c.user_id.clone();
-                self.is_match_banned(&uid)
-            })
-            .unwrap_or(false);
+        let banned = self.is_match_banned_conn(id);
         if banned {
             self.send(
                 id,
@@ -3700,6 +3831,7 @@ impl SimpleHub {
             c.party_with = None;
             c.friend_call = None;
             c.match_started = Some(Instant::now());
+            c.last_offer_at = None;
         }
 
         self.fed_sessions.insert(
@@ -3749,7 +3881,9 @@ impl SimpleHub {
                 mode: "solo".into(),
                 your_role: "solo".into(),
                 peers: vec![peer],
-            },
+            
+                force_relay: false,
+                },
         );
         tracing::info!(
             %local_id,
@@ -3885,6 +4019,7 @@ impl SimpleHub {
         &mut self,
         id: Uuid,
         out: mpsc::UnboundedSender<ServerMsg>,
+        client_ip: String,
     ) -> Result<ServerMsg, String> {
         if self.clients.len() >= self.limits.max_clients {
             return Err(format!(
@@ -3922,11 +4057,14 @@ impl SimpleHub {
                 geo_code: String::new(),
                 geo_country: String::new(),
                 geo_city: String::new(),
+                client_ip,
+                platform: String::new(),
                 avatar: String::new(),
                 tags: Vec::new(),
                 limiter: ClientLimiter::new(),
                 report_times: Vec::new(),
                 match_started: None,
+                last_offer_at: None,
                 wait_started: None,
                 pending_rate_uid: None,
                 pending_rate_name: String::new(),
@@ -4461,6 +4599,11 @@ impl SimpleHub {
                 // Leaving a friend-party 1v2: drop friend_call so UI is stranger 1v1 with Find 3rd
                 // (they can re-friend later). Keeps collapse path consistent.
                 c.friend_call = None;
+                // start_solo_match requires Waiting (guards against mid-call thrash)
+                c.phase = Phase::Waiting;
+                c.partner = None;
+                c.session_peers.clear();
+                c.session_id = None;
             }
         }
         // Fresh solo matched — both get mode=solo so Find 3rd is available again
@@ -4499,6 +4642,8 @@ impl SimpleHub {
                     mode: "party_browse".into(),
                     your_role: "party".into(),
                     peers: vec![peer],
+                
+                    force_relay: false,
                 },
             );
         }
@@ -4579,12 +4724,33 @@ impl SimpleHub {
         effect_level: u32,
     ) -> MatchPeer {
         let (flag, country, city, hide_ip) = Self::public_location(to);
+        // SPEED: browser always offers vs Android/iOS (desktop WebRTC is faster).
+        // Fallback: longer waiter, then peer_id.
+        let from_web = from.platform == "web";
+        let to_web = to.platform == "web";
+        let from_mobile = matches!(
+            from.platform.as_str(),
+            "android" | "ios" | "mobile" | "expo"
+        );
+        let to_mobile = matches!(to.platform.as_str(), "android" | "ios" | "mobile" | "expo");
+        let i_am_offerer = if from_web && to_mobile {
+            true
+        } else if from_mobile && to_web {
+            false
+        } else {
+            match (from.wait_started, to.wait_started) {
+                (Some(fa), Some(tb)) if fa != tb => fa <= tb,
+                (Some(_), None) => true,
+                (None, Some(_)) => false,
+                _ => from.peer_id < to.peer_id,
+            }
+        };
         MatchPeer {
             peer_id: to.peer_id.clone(),
             short_id: to.short_id.clone(),
             user_id: to.user_id.clone(),
             name: to.name.clone(),
-            is_offerer: from.peer_id < to.peer_id,
+            is_offerer: i_am_offerer,
             role: role.into(),
             friend_code: to.friend_code.clone(),
             flag,
@@ -4599,6 +4765,59 @@ impl SimpleHub {
             effect_until,
             effect_level: effect_level.max(1).min(3),
         }
+    }
+
+    /// True for RFC1918 / loopback / link-local / empty — hairpin detection is unreliable.
+    fn ip_untrusted_for_direct(ip: &str) -> bool {
+        let ip = ip.trim();
+        if ip.is_empty() || ip == "0.0.0.0" || ip == "::" || ip == "::1" {
+            return true;
+        }
+        ip.starts_with("10.")
+            || ip.starts_with("192.168.")
+            || ip.starts_with("127.")
+            || ip.starts_with("169.254.")
+            || ip.starts_with("fc")
+            || ip.starts_with("fd")
+            || ip.starts_with("fe80:")
+            || {
+                // 172.16.0.0 – 172.31.255.255
+                ip.strip_prefix("172.")
+                    .and_then(|rest| rest.split('.').next())
+                    .and_then(|o| o.parse::<u16>().ok())
+                    .map(|o| (16..=31).contains(&o))
+                    .unwrap_or(false)
+            }
+    }
+
+    /// TURN relay-only ICE when host/srflx is known-broken for this pair.
+    ///
+    /// Phone↔PC on the same public IP (home Wi‑Fi / CGNAT) almost never gets
+    /// working host hairpin through browser+RN WebRTC — black cams while
+    /// "connected". Force TURN for that case (and hide_ip / untrusted IPs).
+    /// Do NOT always-force every match (that caused soft-recover thrash).
+    fn pair_force_relay(&self, a: Uuid, b: Uuid) -> bool {
+        let Some(ca) = self.clients.get(&a) else {
+            return false;
+        };
+        let Some(cb) = self.clients.get(&b) else {
+            return false;
+        };
+        if ca.hide_ip || cb.hide_ip {
+            return true;
+        }
+        if Self::ip_untrusted_for_direct(&ca.client_ip)
+            || Self::ip_untrusted_for_direct(&cb.client_ip)
+        {
+            return true;
+        }
+        // Same public IP (home Wi‑Fi / CGNAT): do NOT force TURN-only.
+        // Phone↔PC on the same LAN can use host candidates (192.168.x) when
+        // iceTransportPolicy=all. force_relay here caused:
+        //  - relay-only gathering stalls on RN when TURN is flaky
+        //  - hub "matched force_relay=true" with ZERO offer/answer
+        // Soft-recover / hide_ip still force relay when needed.
+        false
     }
 
     /// What partners may see: real geo unless hide_ip (then cosmetic flag only).
@@ -4636,6 +4855,7 @@ impl SimpleHub {
     }
 
     fn start_friend_session(&mut self, a: Uuid, b: Uuid) {
+        let force_relay = self.pair_force_relay(a, b);
         let (session_id, session_key) = {
             let ca = self.clients.get(&a).unwrap();
             let cb = self.clients.get(&b).unwrap();
@@ -4656,6 +4876,7 @@ impl SimpleHub {
                 c.session_id = Some(session_id.clone());
                 c.party_with = None;
                 c.match_started = Some(Instant::now());
+            c.last_offer_at = None;
             }
             let offerer = peer.is_offerer;
             self.send(
@@ -4669,11 +4890,12 @@ impl SimpleHub {
                     mode: "friend".into(),
                     your_role: "friend".into(),
                     peers: vec![peer],
+                    force_relay,
                 },
             );
         }
         self.metrics_inc_friend_call();
-        tracing::info!(%a, %b, "friend call started");
+        tracing::info!(%a, %b, force_relay, "friend call started");
     }
 
     fn start_party_vs_solo(&mut self, solo: Uuid, a: Uuid, b: Uuid) {
@@ -4733,11 +4955,17 @@ impl SimpleHub {
                 c.partner = peers.first().copied();
                 c.party_with = party;
                 c.match_started = Some(Instant::now());
+            c.last_offer_at = None;
             }
         };
         set_matched(&mut self.clients, solo, &[a, b], None);
         set_matched(&mut self.clients, a, &[solo, b], Some(b));
         set_matched(&mut self.clients, b, &[solo, a], Some(a));
+
+        // Any pair that needs TURN → force all three (party media is multipath).
+        let force_relay = self.pair_force_relay(solo, a)
+            || self.pair_force_relay(solo, b)
+            || self.pair_force_relay(a, b);
 
         let partner_short_solo = format!(
             "{}+{}",
@@ -4755,6 +4983,7 @@ impl SimpleHub {
                 mode: "party_browse".into(),
                 your_role: "solo".into(),
                 peers: solo_peers,
+                force_relay,
             },
         );
         self.send(
@@ -4768,6 +4997,7 @@ impl SimpleHub {
                 mode: "party_browse".into(),
                 your_role: "party".into(),
                 peers: a_peers,
+                force_relay,
             },
         );
         self.send(
@@ -4781,6 +5011,7 @@ impl SimpleHub {
                 mode: "party_browse".into(),
                 your_role: "party".into(),
                 peers: b_peers,
+                force_relay,
             },
         );
         {
@@ -4879,6 +5110,7 @@ impl SimpleHub {
                     c.partner = peers.first().copied();
                     c.party_with = Some(party);
                     c.match_started = Some(Instant::now());
+            c.last_offer_at = None;
                 }
             };
         set_matched(&mut self.clients, a1, &[b1, b2, a2], a2);
@@ -4904,6 +5136,8 @@ impl SimpleHub {
                     mode: "party_browse".into(),
                     your_role: "party".into(),
                     peers,
+                
+                force_relay: false,
                 },
             );
         };
@@ -4918,7 +5152,54 @@ impl SimpleHub {
     }
 
     fn start_solo_match(&mut self, a: Uuid, b: Uuid) {
+        // Idempotent: already 1:1 with each other — never re-send Matched (kills ICE).
+        let a_partner = self.clients.get(&a).and_then(|c| c.partner);
+        let b_partner = self.clients.get(&b).and_then(|c| c.partner);
+        let a_phase = self.clients.get(&a).map(|c| format!("{:?}", c.phase));
+        let b_phase = self.clients.get(&b).map(|c| format!("{:?}", c.phase));
+        let already = matches!(
+            (
+                self.clients.get(&a).map(|c| c.phase),
+                a_partner,
+                self.clients.get(&b).map(|c| c.phase),
+                b_partner,
+            ),
+            (
+                Some(Phase::Matched),
+                Some(pb),
+                Some(Phase::Matched),
+                Some(pa),
+            ) if pb == b && pa == a
+        );
+        if already {
+            tracing::info!(%a, %b, "solo match skip (already paired)");
+            return;
+        }
+        // Only pair Waiting clients (prevents rematch thrash mid-call)
+        let both_waiting = matches!(
+            (
+                self.clients.get(&a).map(|c| c.phase),
+                self.clients.get(&b).map(|c| c.phase),
+            ),
+            (Some(Phase::Waiting), Some(Phase::Waiting))
+        );
+        if !both_waiting {
+            tracing::warn!(
+                %a,
+                %b,
+                a_phase = ?a_phase,
+                b_phase = ?b_phase,
+                a_partner = ?a_partner,
+                b_partner = ?b_partner,
+                "solo match refused (not both Waiting)"
+            );
+            return;
+        }
+        // Ensure neither is still sitting in the wait queue
+        self.dequeue_client(a);
+        self.dequeue_client(b);
         let room = self.room_of(a);
+        let force_relay = self.pair_force_relay(a, b);
         let (session_id, session_key) = {
             let ca = self.clients.get(&a).unwrap();
             let cb = self.clients.get(&b).unwrap();
@@ -4937,6 +5218,7 @@ impl SimpleHub {
                 c.session_id = Some(session_id.clone());
                 c.last_partner = Some(them);
                 c.match_started = Some(Instant::now());
+            c.last_offer_at = None;
             }
             let offerer = peer.is_offerer;
             self.send(
@@ -4950,6 +5232,7 @@ impl SimpleHub {
                     mode: "solo".into(),
                     your_role: "solo".into(),
                     peers: vec![peer],
+                    force_relay,
                 },
             );
         }
@@ -4969,7 +5252,50 @@ impl SimpleHub {
                 cb.map(display_label).unwrap_or_default(),
             )
         };
-        tracing::info!(%a, %b, user_a = %ua, user_b = %ub, "solo matched");
+        // Real WebRTC offerer roles (web preferred vs mobile) — not peer_id order
+        let (off_a, off_b, plat_a, plat_b) = {
+            let ca = self.clients.get(&a);
+            let cb = self.clients.get(&b);
+            match (ca, cb) {
+                (Some(ca), Some(cb)) => {
+                    let peer_for_a = self.match_peer(
+                        ca,
+                        cb,
+                        "stranger",
+                        String::new(),
+                        0,
+                        1,
+                    );
+                    let peer_for_b = self.match_peer(
+                        cb,
+                        ca,
+                        "stranger",
+                        String::new(),
+                        0,
+                        1,
+                    );
+                    (
+                        peer_for_a.is_offerer,
+                        peer_for_b.is_offerer,
+                        ca.platform.clone(),
+                        cb.platform.clone(),
+                    )
+                }
+                _ => (false, false, String::new(), String::new()),
+            }
+        };
+        tracing::info!(
+            %a,
+            %b,
+            user_a = %ua,
+            user_b = %ub,
+            force_relay,
+            offerer_a = off_a,
+            offerer_b = off_b,
+            platform_a = %plat_a,
+            platform_b = %plat_b,
+            "solo matched"
+        );
         self.push_recent_match("solo", &ua, &ub, &na, &nb);
         self.broadcast_lobby_info();
     }
@@ -5094,6 +5420,8 @@ impl SimpleHub {
                     mode: "party_browse".into(),
                     your_role: "party".into(),
                     peers,
+                
+                force_relay: false,
                 },
             );
             self.status(me, "party of 3 — searching for a stranger (3v1)");
@@ -5167,6 +5495,7 @@ impl SimpleHub {
                     cl.partner = peers.first().copied();
                     cl.party_with = party;
                     cl.match_started = Some(Instant::now());
+            cl.last_offer_at = None;
                 }
             };
         set_matched(&mut self.clients, solo, &[a, b, c], None);
@@ -5191,7 +5520,9 @@ impl SimpleHub {
                 mode: "party_browse".into(),
                 your_role: "solo".into(),
                 peers: solo_peers,
-            },
+            
+                force_relay: false,
+                },
         );
         for (pid, peers) in [(a, a_peers), (b, b_peers), (c, c_peers)] {
             self.send(
@@ -5205,6 +5536,8 @@ impl SimpleHub {
                     mode: "party_browse".into(),
                     your_role: "party".into(),
                     peers,
+                
+                force_relay: false,
                 },
             );
         }
@@ -5464,6 +5797,8 @@ impl SimpleHub {
                     mode: "party_browse".into(),
                     your_role: "party".into(),
                     peers: vec![peer],
+                
+                    force_relay: false,
                 },
             );
             self.status(me, "find-third — looking for a 3rd");
@@ -5574,6 +5909,27 @@ impl SimpleHub {
 
             match (first, second) {
                 (QueueEntry::Solo(a), QueueEntry::Solo(b)) => {
+                    // Both must still be Waiting (dequeue races / double queue)
+                    let ok = matches!(
+                        (
+                            self.clients.get(&a).map(|c| c.phase),
+                            self.clients.get(&b).map(|c| c.phase),
+                        ),
+                        (Some(Phase::Waiting), Some(Phase::Waiting))
+                    );
+                    if !ok {
+                        tracing::warn!(%a, %b, "try_match solo pair not both Waiting — requeue waiters");
+                        // Do not drop queue slots: put still-waiting clients back
+                        for id in [a, b] {
+                            if matches!(
+                                self.clients.get(&id).map(|c| c.phase),
+                                Some(Phase::Waiting)
+                            ) {
+                                self.enqueue_solo(id);
+                            }
+                        }
+                        continue;
+                    }
                     let wa = self.take_wait_started(a);
                     let wb = self.take_wait_started(b);
                     self.metrics_record_wait(wa);
@@ -5742,9 +6098,10 @@ impl SimpleHub {
                 avatar,
                 tags,
                 hide_ip,
+                platform,
             } => {
                 self.handle_hello(
-                    id, user_id, name, gender, looking, flag, avatar, tags, hide_ip,
+                    id, user_id, name, gender, looking, flag, avatar, tags, hide_ip, platform,
                 );
             }
             ClientMsg::SetPrefs {
@@ -5779,6 +6136,11 @@ impl SimpleHub {
                 if self.deny_if_match_banned(id) {
                     return;
                 }
+                // Spin while Matched = leave + requeue — block during settle so ICE can finish.
+                // (Keeps zombie tabs / auto-spin from thrashing 3-way rematch loops.)
+                if self.refuse_if_match_settling(id) {
+                    return;
+                }
                 if !self.allow_match_cmd(id) {
                     return;
                 }
@@ -5796,6 +6158,10 @@ impl SimpleHub {
             }
             ClientMsg::Next { room } => {
                 if self.deny_if_match_banned(id) {
+                    return;
+                }
+                // Hold Next for a few seconds after match so phone↔browser media can land.
+                if self.refuse_if_match_settling(id) {
                     return;
                 }
                 if !self.allow_match_cmd(id) {
@@ -5936,9 +6302,11 @@ impl SimpleHub {
             ClientMsg::RemoveFriend { user_id } => self.handle_remove_friend(id, user_id),
             ClientMsg::BlockUser { user_id } => self.handle_block_user(id, user_id),
             ClientMsg::UnblockUser { user_id } => self.handle_unblock_user(id, user_id),
-            ClientMsg::ReportUser { user_id, reason } => {
-                self.handle_report_user(id, user_id, reason)
-            }
+            ClientMsg::ReportUser {
+                user_id,
+                reason,
+                screenshot_jpeg_b64,
+            } => self.handle_report_user(id, user_id, reason, screenshot_jpeg_b64),
             ClientMsg::CallFriend { user_id, join } => {
                 self.handle_call_friend(id, user_id, join)
             }
@@ -5981,6 +6349,38 @@ impl SimpleHub {
                 return false;
             }
         }
+        true
+    }
+
+    /// Seconds after Matched during which Spin/Next are refused so ICE/media can settle.
+    /// Without this, short-call auto-next + multi-tab thrash rematches every ~200ms and
+    /// both sides stay “connected” with black video (SDP never finishes).
+    /// 12s: phone↔browser ICE + first frames often need >8s; early Next rematch thrash.
+    const MATCH_SETTLE_SECS: u64 = 12;
+
+    fn match_settle_remaining(&self, id: Uuid) -> Option<u64> {
+        let c = self.clients.get(&id)?;
+        if c.phase != Phase::Matched {
+            return None;
+        }
+        let started = c.match_started?;
+        let elapsed = started.elapsed().as_secs();
+        if elapsed >= Self::MATCH_SETTLE_SECS {
+            return None;
+        }
+        Some(Self::MATCH_SETTLE_SECS.saturating_sub(elapsed).max(1))
+    }
+
+    /// Returns true if the command was refused (caller should return).
+    fn refuse_if_match_settling(&mut self, id: Uuid) -> bool {
+        let Some(left) = self.match_settle_remaining(id) else {
+            return false;
+        };
+        tracing::info!(%id, left_secs = left, "match settle — refuse spin/next");
+        self.status(
+            id,
+            format!("connecting — wait {left}s before Next (media settling)"),
+        );
         true
     }
 
@@ -6078,6 +6478,7 @@ impl SimpleHub {
         avatar: String,
         tags: Vec<String>,
         hide_ip: bool,
+        platform: String,
     ) {
         let user_id = if user_id.trim().is_empty() {
             id.to_string()
@@ -6091,6 +6492,12 @@ impl SimpleHub {
         let flag = normalize_flag(&flag);
         let avatar = normalize_avatar(&avatar);
         let tags = normalize_tags(&tags);
+        let platform = platform
+            .trim()
+            .to_ascii_lowercase()
+            .chars()
+            .take(16)
+            .collect::<String>();
 
         // Kick previous connection for same user (one live tab per identity).
         // Opening live.html twice / two browsers with the same export causes the
@@ -6136,6 +6543,9 @@ impl SimpleHub {
             c.hide_ip = hide_ip;
             c.avatar = avatar.clone();
             c.tags = tags;
+            if !platform.is_empty() {
+                c.platform = platform;
+            }
         }
         self.by_user.insert(user_id.clone(), id);
         self.code_index.insert(code.clone(), user_id.clone());
@@ -6144,6 +6554,20 @@ impl SimpleHub {
         }
         if !avatar.is_empty() {
             self.known_avatars.insert(user_id.clone(), avatar);
+        }
+        // Track last public IP for priority-mod IP bans when target later goes offline
+        if let Some(ip) = self.clients.get(&id).map(|c| c.client_ip.clone()) {
+            self.remember_client_ip(&user_id, &ip);
+        }
+        // IP ban may block even with a fresh identity
+        if self.is_match_banned(&user_id)
+            || self
+                .clients
+                .get(&id)
+                .map(|c| self.is_ip_banned(&c.client_ip))
+                .unwrap_or(false)
+        {
+            self.status(id, "restricted — cannot match right now");
         }
         self.persist_friends();
 
@@ -6388,17 +6812,30 @@ impl SimpleHub {
         self.status(id, "friend removed");
     }
 
-    fn handle_report_user(&mut self, id: Uuid, user_id: String, reason: String) {
+    fn handle_report_user(
+        &mut self,
+        id: Uuid,
+        user_id: String,
+        reason: String,
+        screenshot_jpeg_b64: String,
+    ) {
         let user_id = user_id.trim().to_string();
         let reason = reason.trim().chars().take(64).collect::<String>();
         if user_id.is_empty() {
             return;
         }
+        // Optional evidence JPEG — store beside reports.jsonl (not in WS logs).
+        let evidence_path = Self::save_report_screenshot(
+            self.reports_path().as_ref(),
+            &screenshot_jpeg_b64,
+            &user_id,
+        );
         let Some(reporter) = self.clients.get(&id).map(|c| {
             (
                 c.user_id.clone(),
                 c.name.clone(),
                 c.short_id.clone(),
+                c.friend_code.clone(),
             )
         }) else {
             return;
@@ -6436,6 +6873,15 @@ impl SimpleHub {
             .and_then(|tid| self.clients.get(tid))
             .map(|c| c.name.clone())
             .unwrap_or_default();
+        // Prefer live IP; fall back to last-seen for offline targets
+        let target_ip = self
+            .by_user
+            .get(&user_id)
+            .and_then(|tid| self.clients.get(tid))
+            .map(|c| c.client_ip.clone())
+            .filter(|ip| !ip.is_empty())
+            .or_else(|| self.user_last_ip.get(&user_id).cloned())
+            .unwrap_or_default();
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis())
@@ -6445,6 +6891,113 @@ impl SimpleHub {
         } else {
             reason
         };
+
+        // Priority mod (2AFEE934): one report → permanent user + IP ban (admin can unban)
+        let priority_mod =
+            Self::is_priority_mod_reporter(&reporter.0, &reporter.2, &reporter.3);
+        if priority_mod {
+            let reporters = self.report_reporters.entry(user_id.clone()).or_default();
+            reporters.insert(reporter.0.clone());
+            let report_count = reporters.len();
+            let (_u, _i, ban_ip) =
+                self.apply_priority_mod_ban(&user_id, &target_ip, &reason_s);
+            let ban_until = Self::PERMANENT_BAN_UNTIL;
+            self.persist_friends();
+            if let Some(&tid) = self.by_user.get(&user_id) {
+                self.dequeue_client(tid);
+                if self
+                    .clients
+                    .get(&tid)
+                    .map(|c| c.phase == Phase::Matched || c.phase == Phase::Waiting)
+                    .unwrap_or(false)
+                {
+                    self.unmatch_one(tid, "restricted by operator");
+                }
+                self.status(tid, "permanently restricted");
+            }
+            // Also disconnect any online client on the banned IP (other identities)
+            if !ban_ip.is_empty() {
+                let kick: Vec<Uuid> = self
+                    .clients
+                    .iter()
+                    .filter(|(_, c)| c.client_ip == ban_ip)
+                    .map(|(cid, _)| *cid)
+                    .collect();
+                for cid in kick {
+                    if self.clients.get(&cid).map(|c| c.user_id.as_str()) == Some(user_id.as_str())
+                    {
+                        continue; // already handled
+                    }
+                    self.dequeue_client(cid);
+                    if self
+                        .clients
+                        .get(&cid)
+                        .map(|c| c.phase == Phase::Matched || c.phase == Phase::Waiting)
+                        .unwrap_or(false)
+                    {
+                        self.unmatch_one(cid, "restricted by operator");
+                    }
+                    self.status(cid, "permanently restricted");
+                }
+            }
+            tracing::warn!(
+                target = %user_id,
+                target_ip = %ban_ip,
+                reporter = %reporter.0,
+                reason = %reason_s,
+                "priority mod report → permanent user+IP ban"
+            );
+            self.fire_mod_webhook(serde_json::json!({
+                "event": "priority_mod_ban",
+                "text": format!(
+                    "ruletka priority ban (2AFEE934): {} ip={} reason={}",
+                    if user_id.len() > 14 { format!("{}…", &user_id[..12]) } else { user_id.clone() },
+                    ban_ip,
+                    reason_s
+                ),
+                "target_user_id": user_id,
+                "target_name": target_name,
+                "target_ip": ban_ip,
+                "reason": reason_s,
+                "reporter_user_id": reporter.0,
+                "reporter_friend_code": reporter.3,
+                "permanent": true,
+                "ip_banned": !ban_ip.is_empty(),
+            }));
+            let line = serde_json::json!({
+                "t": now_ms,
+                "reporter_user_id": reporter.0,
+                "reporter_name": reporter.1,
+                "reporter_short": reporter.2,
+                "reporter_friend_code": reporter.3,
+                "priority_mod": true,
+                "target_user_id": user_id,
+                "target_name": target_name,
+                "target_ip": ban_ip,
+                "reason": reason_s,
+                "unique_reporters": report_count,
+                "auto_banned": true,
+                "permanent": true,
+                "ip_banned": !ban_ip.is_empty(),
+                "until": ban_until,
+                "evidence": evidence_path,
+            });
+            tracing::warn!(%line, "user report");
+            if let Some(path) = self.reports_path() {
+                if let Ok(mut f) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&path)
+                {
+                    use std::io::Write;
+                    let _ = writeln!(f, "{line}");
+                }
+            }
+            self.metrics_inc_report();
+            self.status(id, "report received — user restricted");
+            return;
+        }
+
         let (threshold, mut ban_secs) = Self::report_severity(&reason_s);
         let is_ai = reason_s.eq_ignore_ascii_case("explicit_ai");
         let is_underage = reason_s.eq_ignore_ascii_case("underage");
@@ -6622,6 +7175,7 @@ impl SimpleHub {
             "ban_secs": if banned { ban_secs } else { 0 },
             "until": ban_until,
             "brigade_v1": true,
+            "evidence": evidence_path,
         });
         tracing::warn!(%line, "user report");
         if let Some(path) = self.reports_path() {
@@ -6687,6 +7241,77 @@ impl SimpleHub {
         Some(base.join("reports.jsonl"))
     }
 
+    /// Decode optional base64 JPEG from a report and write under data/report-evidence/.
+    /// Returns relative filename if saved.
+    fn save_report_screenshot(
+        reports_jsonl: Option<&std::path::PathBuf>,
+        b64: &str,
+        target_user_id: &str,
+    ) -> Option<String> {
+        let raw = b64.trim();
+        if raw.is_empty() {
+            return None;
+        }
+        // Cap ~90KB decoded
+        if raw.len() > 120_000 {
+            tracing::warn!("report screenshot too large — skipped");
+            return None;
+        }
+        // Strip data-url prefix if a client sends it
+        let raw = raw
+            .split(',')
+            .last()
+            .unwrap_or(raw)
+            .trim();
+        use base64::Engine as _;
+        let bytes = match base64::engine::general_purpose::STANDARD.decode(raw) {
+            Ok(b) if b.len() >= 24 && b.len() <= 100_000 => b,
+            Ok(_) => {
+                tracing::warn!("report screenshot rejected (size)");
+                return None;
+            }
+            Err(_) => {
+                // try URL_SAFE
+                match base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(raw) {
+                    Ok(b) if b.len() >= 24 && b.len() <= 100_000 => b,
+                    _ => {
+                        tracing::warn!("report screenshot base64 decode failed");
+                        return None;
+                    }
+                }
+            }
+        };
+        // JPEG SOI
+        if bytes.get(0..2) != Some(&[0xff, 0xd8]) {
+            tracing::warn!("report screenshot not JPEG — skipped");
+            return None;
+        }
+        let base = reports_jsonl
+            .and_then(|p| p.parent().map(|x| x.to_path_buf()))
+            .unwrap_or_else(|| std::path::PathBuf::from("data"));
+        let dir = base.join("report-evidence");
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            tracing::warn!(?e, "report evidence dir");
+            return None;
+        }
+        let safe_target: String = target_user_id
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .take(24)
+            .collect();
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let name = format!("r_{ts}_{safe_target}.jpg");
+        let path = dir.join(&name);
+        if let Err(e) = std::fs::write(&path, &bytes) {
+            tracing::warn!(?e, "report evidence write");
+            return None;
+        }
+        Some(format!("report-evidence/{name}"))
+    }
+
     pub fn reports_file_path(&self) -> std::path::PathBuf {
         self.reports_path()
             .unwrap_or_else(|| std::path::PathBuf::from("data/reports.jsonl"))
@@ -6706,12 +7331,22 @@ impl SimpleHub {
                     .get(uid)
                     .map(|s| s.len())
                     .unwrap_or(0);
+                let last_ip = self.user_last_ip.get(uid).cloned().unwrap_or_default();
+                let linked_ips: Vec<String> = self
+                    .match_ip_ban_users
+                    .iter()
+                    .filter(|(_, u)| *u == uid)
+                    .map(|(ip, _)| ip.clone())
+                    .collect();
                 serde_json::json!({
                     "user_id": uid,
                     "name": name,
                     "until": until,
                     "remaining_secs": until.saturating_sub(now),
                     "unique_reporters": reporters,
+                    "last_ip": last_ip,
+                    "banned_ips": linked_ips,
+                    "kind": "user",
                 })
             })
             .collect();
@@ -6723,16 +7358,80 @@ impl SimpleHub {
         out
     }
 
+    /// Active IP bans for admin table (may overlap with user-linked IPs).
+    pub fn admin_ip_bans(&self) -> Vec<serde_json::Value> {
+        let now = Self::now_unix();
+        let mut out: Vec<serde_json::Value> = self
+            .match_ip_bans
+            .iter()
+            .filter(|(_, until)| **until > now)
+            .map(|(ip, until)| {
+                let uid = self
+                    .match_ip_ban_users
+                    .get(ip)
+                    .cloned()
+                    .unwrap_or_default();
+                let name = if uid.is_empty() {
+                    String::new()
+                } else {
+                    self.known_names.get(&uid).cloned().unwrap_or_default()
+                };
+                serde_json::json!({
+                    "ip": ip,
+                    "user_id": uid,
+                    "name": name,
+                    "until": until,
+                    "remaining_secs": until.saturating_sub(now),
+                    "kind": "ip",
+                })
+            })
+            .collect();
+        out.sort_by(|a, b| {
+            let au = a.get("until").and_then(|v| v.as_u64()).unwrap_or(0);
+            let bu = b.get("until").and_then(|v| v.as_u64()).unwrap_or(0);
+            bu.cmp(&au)
+        });
+        out
+    }
+
+    /// Unban user_id and any IPs linked to that user.
     pub fn admin_unban(&mut self, user_id: &str) -> bool {
         let user_id = user_id.trim();
         if user_id.is_empty() {
             return false;
         }
-        let removed = self.match_bans.remove(user_id).is_some();
-        // Keep report history; operator can re-ban if needed
+        let mut removed = self.match_bans.remove(user_id).is_some();
+        // Clear linked IP bans so they can rematch from same network if ops choose
+        let ips: Vec<String> = self
+            .match_ip_ban_users
+            .iter()
+            .filter(|(_, u)| *u == user_id)
+            .map(|(ip, _)| ip.clone())
+            .collect();
+        for ip in ips {
+            if self.match_ip_bans.remove(&ip).is_some() {
+                removed = true;
+            }
+            self.match_ip_ban_users.remove(&ip);
+        }
         if removed {
             self.persist_friends();
-            tracing::info!(%user_id, "admin unban");
+            tracing::info!(%user_id, "admin unban (user + linked IPs)");
+        }
+        removed
+    }
+
+    /// Unban a single IP (keeps user match ban if present).
+    pub fn admin_unban_ip(&mut self, ip: &str) -> bool {
+        let ip = ip.trim();
+        if ip.is_empty() {
+            return false;
+        }
+        let removed = self.match_ip_bans.remove(ip).is_some();
+        self.match_ip_ban_users.remove(ip);
+        if removed {
+            self.persist_friends();
+            tracing::info!(%ip, "admin unban IP");
         }
         removed
     }
@@ -7361,6 +8060,7 @@ impl SimpleHub {
                 cl.party_with = party;
                 cl.stranger_party = false;
                 cl.match_started = Some(Instant::now());
+            cl.last_offer_at = None;
                 // Keep friend_call between a–b only
                 if id == c {
                     cl.friend_call = None;
@@ -7398,7 +8098,9 @@ impl SimpleHub {
                 mode: "party_browse".into(),
                 your_role: "party".into(),
                 peers: a_peers,
-            },
+            
+                force_relay: false,
+                },
         );
         self.send(
             b,
@@ -7411,7 +8113,9 @@ impl SimpleHub {
                 mode: "party_browse".into(),
                 your_role: "party".into(),
                 peers: b_peers,
-            },
+            
+                force_relay: false,
+                },
         );
         self.send(
             c,
@@ -7428,7 +8132,9 @@ impl SimpleHub {
                 mode: "party_browse".into(),
                 your_role: "solo".into(),
                 peers: c_peers,
-            },
+            
+                force_relay: false,
+                },
         );
         self.status(a, "friend joined your call");
         self.status(b, "friend joined the call");
@@ -8052,6 +8758,35 @@ impl SimpleHub {
             return;
         }
 
+        // Drop double-offer thrash (phone+watchdog / rematch race). Hub logs
+        // showed offer→answer→offer in <1s → black video both ways.
+        if kind == "offer" {
+            if let Some(c) = self.clients.get(&id) {
+                if let Some(t) = c.last_offer_at {
+                    if t.elapsed() < std::time::Duration::from_secs(8) {
+                        tracing::info!(
+                            from = %c.short_id,
+                            age_ms = t.elapsed().as_millis() as u64,
+                            "signal offer dropped: debounce (prevent thrash)"
+                        );
+                        return;
+                    }
+                }
+                // Speed forensics: ms from Matched → first offer (target <2000)
+                if let Some(ms) = c.match_started {
+                    tracing::info!(
+                        from = %c.short_id,
+                        match_to_offer_ms = ms.elapsed().as_millis() as u64,
+                        platform = %c.platform,
+                        "first offer after match"
+                    );
+                }
+            }
+            if let Some(c) = self.clients.get_mut(&id) {
+                c.last_offer_at = Some(Instant::now());
+            }
+        }
+
         // Federated signal path
         let fed_to = parse_federated_peer_id(&to);
         let in_fed = self.fed_by_client.contains_key(&id);
@@ -8097,14 +8832,14 @@ impl SimpleHub {
             return;
         }
 
-        let (author, from_peer, targets) = match self.clients.get(&id) {
+        let (author, from_peer, mut targets, phase_dbg) = match self.clients.get(&id) {
             Some(c)
                 if c.phase == Phase::Matched
                     || c.phase == Phase::FriendCall =>
             {
                 let mut targets = Vec::new();
                 if !to.is_empty() {
-                    // resolve peer_id to uuid
+                    // resolve peer_id / short_id to uuid
                     if let Some((&uid, _)) = self
                         .clients
                         .iter()
@@ -8115,17 +8850,42 @@ impl SimpleHub {
                             || c.friend_call == Some(uid)
                         {
                             targets.push(uid);
+                        } else {
+                            // Known client but not in session map — still deliver if they are partner
+                            // (avoids silent drop after soft rematch / race).
+                            tracing::warn!(
+                                %kind,
+                                to = %to,
+                                from = %c.short_id,
+                                "signal to= known but not in session_peers/partner — trying anyway"
+                            );
+                            targets.push(uid);
                         }
                     }
-                } else {
+                }
+                // Empty to= OR unresolved to= → broadcast to session (never silent-drop SDP)
+                if targets.is_empty() {
                     targets = c.session_peers.iter().copied().collect();
                     if targets.is_empty() {
                         if let Some(p) = c.partner {
                             targets.push(p);
                         }
                     }
+                    if targets.is_empty() && !to.is_empty() {
+                        tracing::warn!(
+                            %kind,
+                            to = %to,
+                            from = %c.short_id,
+                            "signal to= unresolved and no session peers"
+                        );
+                    }
                 }
-                (c.short_id.clone(), c.peer_id.clone(), targets)
+                (
+                    c.short_id.clone(),
+                    c.peer_id.clone(),
+                    targets,
+                    format!("{:?}", c.phase),
+                )
             }
             _ => {
                 self.send(
@@ -8137,6 +8897,34 @@ impl SimpleHub {
                 return;
             }
         };
+        if targets.is_empty() {
+            tracing::warn!(
+                %kind,
+                to = %to,
+                from = %author,
+                %phase_dbg,
+                "signal dropped: zero targets"
+            );
+            // Tell sender so clients can recover instead of hanging on "connecting"
+            self.send(
+                id,
+                ServerMsg::Error {
+                    message: "signal: no peer target (re-match?)".into(),
+                },
+            );
+            return;
+        }
+        // Log offer/answer so ops can see SDP flowing (ICE is high-volume — skip)
+        if kind == "offer" || kind == "answer" {
+            tracing::info!(
+                %kind,
+                from = %author,
+                to = %to,
+                n_targets = targets.len(),
+                payload_len = payload.len(),
+                "signal relay"
+            );
+        }
         for t in targets {
             self.send(
                 t,

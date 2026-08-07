@@ -1288,8 +1288,10 @@ export class MediaSession {
       this.iceRestartCount = 0;
       // Do NOT clear offerSent if we somehow already sent (mutex should prevent)
       if (!this.offerSentThisCall) this.gotAnswerThisCall = false;
-      // Arm ASAP — if browser offerer silent, phone promotes quickly
-      this.armOfferWatchdog(this.isOfferer ? 500 : 250);
+      // Offerer: retry soon if createOffer stalls.
+      // Answerer: wait for browser (web preferred offerer). Promote only if
+      // web silent ~2s — 250ms promote caused glare + hub debounce + 18–24s wait.
+      this.armOfferWatchdog(this.isOfferer ? 400 : 2000);
       // Only drop warm PC when hub/hide-ip armed force_relay (relay policy change).
       // Do NOT always force_relay — that caused endless reconnect thrash.
       if (this.forceRelayOnce || this.hideIp) {

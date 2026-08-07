@@ -1252,8 +1252,8 @@ class RouletteWebRtc {
       // while phone-offerer stayed silent 15–25s → "still slow".
       if (this.isOfferer && !this._offerSentOnce && !this._offerInFlight) {
         void this._createAndSendOffer({ iceRestart: false });
-      } else if (!this.isOfferer && !this._offerSentOnce) {
-        this._armOfferWatchdog(280);
+      } else if (!this.isOfferer && !this._offerSentOnce && !this._answeredAt) {
+        this._armOfferWatchdog(1600);
       }
       return;
     }
@@ -1273,6 +1273,8 @@ class RouletteWebRtc {
     this._relayPc = isRelayMediaMode();
     this._offerInFlight = false;
     this._offerSentOnce = false;
+    this._offerEmitOk = false;
+    this._answeredAt = 0;
     this._lastOfferAt = 0;
     this._pendingRemoteOfferSince = 0;
     this.pc.onicecandidate = (ev) => {
@@ -1370,16 +1372,19 @@ class RouletteWebRtc {
     // Don't block first SDP on setParameters — apply encodings in parallel
     void this.applyQualityTier(this._qualityTier || "high");
 
-    // Fast connect: if phone is offerer and silent, browser promotes sooner
-    // (400ms was still allowing multi-second "no offer" when phone GUM stalled)
-    this._armOfferWatchdog(this.isOfferer ? 500 : 280);
+    // Offerer: retry once if first createOffer stalls.
+    // Answerer: wait longer before promote — phone promote at 250ms caused glare
+    // with web's first offer (~0.3–0.8s) → debounce drop → 18–24s silence.
+    this._armOfferWatchdog(this.isOfferer ? 700 : 1600);
     if (this.isOfferer) {
       const t0 = Date.now();
       await this._createAndSendOffer({ iceRestart: false });
       console.info("[webrtc] offer path ms", Date.now() - t0);
+      this._clearOfferWatchdog();
     }
     // After connect: re-push outbound cam (live.js wires this to real tracks
     // unless user Hide is active). Fixes phone seeing black while browser ok.
+    // Must NOT trigger a second createOffer (replaceTrack only).
     try {
       this.hooks.onConnectionState?.("tracks_sync");
       if (typeof this.hooks.onNeedOutboundSync === "function") {
@@ -1393,13 +1398,18 @@ class RouletteWebRtc {
     } catch (_) {}
   }
 
+  _clearOfferWatchdog() {
+    try {
+      if (this._offerWatchTimer) clearTimeout(this._offerWatchTimer);
+    } catch (_) {}
+    this._offerWatchTimer = null;
+  }
+
   /**
    * If we never receive an offer (peer stuck / wrong role), become offerer once.
    */
   _armOfferWatchdog(ms = 800) {
-    try {
-      if (this._offerWatchTimer) clearTimeout(this._offerWatchTimer);
-    } catch (_) {}
+    this._clearOfferWatchdog();
     this._offerWatchTimer = setTimeout(() => {
       this._offerWatchTimer = null;
       try {
@@ -1414,6 +1424,8 @@ class RouletteWebRtc {
           console.info("[webrtc] offer watchdog — skip, remote offer pending");
           return;
         }
+        // Already answered this PC — never re-offer from watchdog
+        if (this._answeredAt) return;
         const live =
           this.remoteStream &&
           (this.remoteStream.getVideoTracks?.() || []).some(
@@ -1527,9 +1539,14 @@ class RouletteWebRtc {
         };
       }
       this._emitSignal("offer", JSON.stringify(desc));
+      this._offerEmitOk = true;
+      this._clearOfferWatchdog();
       return true;
     } catch (e) {
       console.warn("[webrtc] createOffer failed", e);
+      // Allow one retry if first createOffer threw
+      if (!iceRestart) this._offerSentOnce = false;
+      this._offerEmitOk = false;
       return false;
     } finally {
       this._offerInFlight = false;
@@ -1744,6 +1761,9 @@ class RouletteWebRtc {
       }
       this._emitSignal("answer", JSON.stringify(ansDesc));
       this._answeredAt = Date.now();
+      this._clearOfferWatchdog();
+      // Never re-offer after we successfully answered
+      this._offerSentOnce = true;
       void this.applyQualityTier(this._qualityTier || "high");
       void iceFlush;
     } else if (kind === "answer") {
