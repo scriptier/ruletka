@@ -48,6 +48,30 @@ ruletka.vip, ruletka.me {
 		reverse_proxy 127.0.0.1:8790
 		header Cache-Control "private, max-age=30"
 	}
+
+	# ── Admin (HTTP Basic + app token) ─────────────────────────────────
+	# Layer 1: Caddy basic_auth (browser login) — hash in /etc/caddy/ruletka-admin-auth.caddy
+	# Layer 2: ROULETTE_ADMIN_TOKEN inside admin.html / X-Admin-Token
+	# Create auth file once on server (see docs/HOST_HARDENING.md). If missing, admin is 403.
+	@adminUi {
+		path /admin.html
+	}
+	handle @adminUi {
+		import /etc/caddy/ruletka-admin-auth.caddy
+		reverse_proxy 127.0.0.1:8790
+		header Cache-Control "no-store, no-cache, must-revalidate"
+		header X-Robots-Tag "noindex, nofollow"
+	}
+	@adminApi {
+		path /v1/admin /v1/admin/*
+	}
+	handle @adminApi {
+		import /etc/caddy/ruletka-admin-auth.caddy
+		reverse_proxy 127.0.0.1:8790
+		header Cache-Control "no-store"
+	}
+
+	# Public app API (must stay open — live.html, friends, ICE, etc.)
 	handle /v1/* {
 		reverse_proxy 127.0.0.1:8790
 		header Cache-Control "no-store"

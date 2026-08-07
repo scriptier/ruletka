@@ -56,8 +56,8 @@ ufw allow 443/udp
 # TURN (if setup-turn.sh already ran these are no-ops / duplicates ok)
 ufw allow 3478/tcp || true
 ufw allow 3478/udp || true
-ufw allow 49160:49300/udp || true
-ufw allow 49160:49300/tcp || true
+ufw allow 49160:53160/udp || true
+ufw allow 49160:53160/tcp || true
 # ufw --force enable  # enable only if you are sure SSH works
 yes | ufw enable || true
 ufw status || true
@@ -81,6 +81,24 @@ if [[ ! -f "$APP_DIR/data/admin.env" ]]; then
   chown root:ruletka "$APP_DIR/data/admin.env" 2>/dev/null || true
   echo "Created $APP_DIR/data/admin.env (admin token) — open https://${DOMAIN}/admin.html"
   systemctl restart roulette-bridge || true
+fi
+
+# HTTP Basic for /admin.html + /v1/admin/* (Caddy) — create once if missing
+if [[ ! -f /etc/caddy/ruletka-admin-auth.caddy ]] && command -v caddy >/dev/null 2>&1; then
+  HTTP_PASS=$(openssl rand -base64 24 2>/dev/null | tr -d '/+=' | head -c 28)
+  HTTP_HASH=$(caddy hash-password --plaintext "$HTTP_PASS")
+  umask 077
+  cat >"$APP_DIR/data/admin-http.env" <<EOF
+# HTTP Basic Auth for /admin.html and /v1/admin/*
+ADMIN_HTTP_USER='operator'
+ADMIN_HTTP_PASSWORD='${HTTP_PASS}'
+ADMIN_HTTP_HASH='${HTTP_HASH}'
+EOF
+  chmod 600 "$APP_DIR/data/admin-http.env"
+  printf 'basic_auth {\n\toperator %s\n}\n' "$HTTP_HASH" > /etc/caddy/ruletka-admin-auth.caddy
+  chmod 644 /etc/caddy/ruletka-admin-auth.caddy
+  echo "Created HTTP Basic for admin (password in $APP_DIR/data/admin-http.env)"
+  systemctl reload caddy 2>/dev/null || true
 fi
 
 sleep 1

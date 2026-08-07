@@ -1,0 +1,11 @@
+Done. Wrote `docs/PARITY_MATRIX.md` and `tasks/parity-matrix-RESULT.md` (both new, untracked files, not committed).
+
+Headline finding: parity between web and Android is actually high — every "must cover" feature (match flow, WebRTC offerer/force_relay/TURN, mute/flip cam, geo+14-language i18n, friends, chat/typing, stars/gifts/rate-prompt, block/report/18+ gate, hide-IP, deep links, identity export, find-3rd/party) is implemented on both, backed by the same wire protocol.
+
+Real gaps found, ranked:
+1. **P1** — Web has no true push notification for friend calls when the tab is closed; Android gets real FCM/APNs/Expo push. Biggest user-facing gap.
+2. **P2** — Web's "mute camera" now shows a privacy overlay instead of disabling the track; Android's mute actually disables it — same button, different guarantee.
+3. **P3** — Android has no "Prefer Direct" (STUN-only, no TURN) toggle that web exposes.
+4. **P3** — Web allows an unencrypted identity export path; Android always encrypts.
+
+No connect-path code was touched, and no deploy actions were taken, per the task rules.
