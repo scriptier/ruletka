@@ -1,6 +1,6 @@
 {
   "name": "ruletka-mobile",
-  "version": "0.1.0",
+  "version": "0.1.102",
   "private": true,
   "main": "expo-router/entry",
   "engines": {
@@ -11,6 +11,8 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "lint": "tsc --noEmit",
+    "play:status": "bash scripts/play-status.sh",
+    "play:notes": "bash scripts/play-status.sh --notes",
     "sync-i18n": "bash scripts/sync-i18n.sh",
     "assets:store": "python3 scripts/gen-store-assets.py",
     "prebuild": "expo prebuild",
@@ -18,24 +20,31 @@
     "build:preview": "eas build --profile preview --platform all",
     "build:prod": "eas build --profile production --platform all",
     "build:friends": "eas build --profile production-friends --platform all",
-    "test": "node scripts/test-friend-invite.mjs",
-    "preflight": "bash scripts/preflight.sh"
+    "test": "node scripts/test-friend-invite.mjs && node scripts/test-geo-localize.mjs",
+    "preflight": "bash scripts/preflight.sh",
+    "build:apk": "bash scripts/build-apk-local.sh",
+    "build:apk:bump": "bash scripts/build-apk-local.sh --bump"
   },
   "dependencies": {
     "@config-plugins/react-native-webrtc": "^10.0.0",
     "@noble/ciphers": "^2.2.0",
     "@noble/hashes": "^2.2.0",
     "@react-native-async-storage/async-storage": "1.23.1",
+    "@react-native-community/netinfo": "^11.4.1",
     "expo": "~52.0.0",
     "expo-asset": "~11.0.5",
+    "expo-av": "~15.0.2",
     "expo-build-properties": "^0.13.3",
+    "expo-clipboard": "~7.0.1",
     "expo-constants": "~17.0.0",
     "expo-crypto": "~14.0.0",
-    "expo-dev-client": "~5.0.20",
+    "expo-device": "~7.0.3",
     "expo-document-picker": "~13.0.3",
     "expo-file-system": "~18.0.12",
     "expo-font": "~13.0.4",
+    "expo-keep-awake": "~14.0.3",
     "expo-linking": "~7.0.0",
+    "expo-notifications": "~0.29.14",
     "expo-router": "~4.0.0",
     "expo-secure-store": "~14.0.0",
     "expo-sharing": "~13.0.1",
@@ -43,13 +52,26 @@
     "expo-system-ui": "~4.0.0",
     "react": "18.3.1",
     "react-native": "0.76.9",
+    "react-native-gesture-handler": "~2.20.2",
+    "react-native-reanimated": "~3.16.1",
     "react-native-safe-area-context": "4.12.0",
     "react-native-screens": "~4.4.0",
+    "react-native-view-shot": "^4.0.3",
     "react-native-webrtc": "^124.0.0"
   },
   "devDependencies": {
     "@babel/core": "^7.25.0",
     "@types/react": "~18.3.0",
     "typescript": "~5.3.0"
+  },
+  "expo": {
+    "autolinking": {
+      "exclude": [
+        "expo-dev-client",
+        "expo-dev-launcher",
+        "expo-dev-menu",
+        "expo-dev-menu-interface"
+      ]
+    }
   }
 }
