@@ -9494,7 +9494,7 @@ function clearOfferKickWatch() {
  * @param {object} peer peers[0]
  * @param {number[]} delaysMs
  */
-function armOfferKickWatch(msg, peer, delaysMs = [1500, 3500]) {
+function armOfferKickWatch(msg, peer, delaysMs = [2000, 4500, 8000]) {
   clearOfferKickWatch();
   if (!msg || !peer) return;
   for (const ms of delaysMs) {
@@ -9502,6 +9502,15 @@ function armOfferKickWatch(msg, peer, delaysMs = [1500, 3500]) {
       try {
         if (!matched) return;
         if (!isOfferer) return;
+        // Match-level: first offer already left — never rebuild for "retry"
+        try {
+          if (
+            window.__ruletMatchOfferAt &&
+            Date.now() - window.__ruletMatchOfferAt < 12000
+          ) {
+            return;
+          }
+        } catch (_) {}
         const peerId = (peer && peer.peer_id) || "legacy";
         const existing = peerId ? findPcForPeer(peerId) : null;
         // Offer already on the wire, or answer already applied — leave alone
@@ -9513,6 +9522,10 @@ function armOfferKickWatch(msg, peer, delaysMs = [1500, 3500]) {
             existing.pc?.remoteDescription)
         ) {
           return;
+        }
+        // Any PC already offered this match
+        for (const pc of peerPcs.values()) {
+          if (pc?._offerEmitOk || pc?._gotRemoteAnswerAt) return;
         }
         // Live media already — no need
         if (hasLiveRemoteMedia()) return;
@@ -22767,6 +22780,10 @@ function handleMatched(msg) {
   matched = true;
   inQueue = false;
   matchMediaGraceAt = Date.now();
+  // Fresh match → allow one first offer (blocks dual-PC thrash within 12s)
+  try {
+    window.__ruletMatchOfferAt = 0;
+  } catch (_) {}
   // Block Next/Space for a moment so first SDP/ICE can finish (hub also enforces ~8s).
   // Longer when hub forces TURN — soft-recover must not race the first path.
   nextGraceUntil =
@@ -22825,7 +22842,7 @@ function handleMatched(msg) {
       .catch((e) => log(`kickSolo fail ${e}`));
     // Offerer silent → re-kick at 1.5s / 3.5s (do not wait hardMs ~24s)
     if (isOfferer) {
-      armOfferKickWatch(msg, peersFast[0], [1500, 3500]);
+      armOfferKickWatch(msg, peersFast[0], [2000, 4500, 8000]);
     } else {
       clearOfferKickWatch();
     }
@@ -23507,7 +23524,32 @@ async function kickSoloWebRtc(msg, p) {
   const iOffer = !!(msg && msg.is_offerer);
   isOfferer = iOffer;
 
+  // Mutex: concurrent kickSolo (matched race / retry) was dual-PC → 2nd offer@800ms
+  if (kickSoloWebRtc._inflight && kickSoloWebRtc._inflightPeer === peerId) {
+    log(`kickSolo skip concurrent peer=${String(peerId).slice(0, 8)}`);
+    return;
+  }
+  // Match already offered — never spawn a second PeerConnection
+  try {
+    if (
+      iOffer &&
+      window.__ruletMatchOfferAt &&
+      Date.now() - window.__ruletMatchOfferAt < 12000
+    ) {
+      const any = [...peerPcs.values()].find(
+        (pc) => pc && (pc._offerEmitOk || pc._gotRemoteAnswerAt)
+      );
+      if (any) {
+        log(`kickSolo skip match-offered peer=${String(peerId).slice(0, 8)}`);
+        return;
+      }
+    }
+  } catch (_) {}
+  kickSoloWebRtc._inflight = true;
+  kickSoloWebRtc._inflightPeer = peerId;
+  try {
   // Stream: prefer existing preview; only GUM if empty (fast constraints)
+  // SPEED: cap cold GUM at 400ms for offerer — SDP must leave even without cam.
   let stream = previewStream;
   const live = !!(stream?.getVideoTracks?.() || []).some(
     (t) => t && t.readyState === "live"
@@ -23532,7 +23574,10 @@ async function kickSoloWebRtc(msg, p) {
           },
         }),
         new Promise((_, rej) =>
-          setTimeout(() => rej(new Error("gum timeout")), 900)
+          setTimeout(
+            () => rej(new Error("gum timeout")),
+            iOffer ? 400 : 900
+          )
         ),
       ]);
       previewStream = stream;
@@ -23549,28 +23594,31 @@ async function kickSoloWebRtc(msg, p) {
       try {
         await Promise.race([
           startPreview(),
-          new Promise((r) => setTimeout(r, 500)),
+          new Promise((r) => setTimeout(r, iOffer ? 200 : 500)),
         ]);
       } catch (_) {}
       stream = previewStream;
     }
   }
-  if (!stream) {
+  // Offerer: proceed even without media (transceivers in connect). Cam attaches later.
+  if (!stream && !iOffer) {
     log(_t("log.noMedia") || "no media for kickSolo");
-    // Cold reload / GUM race: matched before cam ready used to sit silent until
-    // hardMs ~24s. Retry once shortly — offerKick watch also covers offerer.
-    if (iOffer && !(kickSoloWebRtc._retryArm > Date.now() - 4000)) {
+    if (!(kickSoloWebRtc._retryArm > Date.now() - 4000)) {
       kickSoloWebRtc._retryArm = Date.now();
       setTimeout(() => {
         try {
-          if (!matched || !isOfferer) return;
+          if (!matched) return;
           const cur = peerId ? findPcForPeer(peerId) : null;
-          if (cur?._offerEmitOk) return;
+          if (cur?._offerEmitOk || cur?.pc?.remoteDescription) return;
           void kickSoloWebRtc(msg, p);
         } catch (_) {}
       }, 500);
     }
     return;
+  }
+  if (!stream && iOffer) {
+    log("kickSolo offerer no-cam — SDP with empty transceivers");
+    stream = null;
   }
 
   // Drop dead PC for this peer so we always get a fresh offer path
@@ -23757,6 +23805,10 @@ async function kickSoloWebRtc(msg, p) {
   log(
     `kickSolo connect +${Date.now() - t0}ms offerer=${iOffer ? 1 : 0} peer=${String(peerId).slice(0, 8)} hide=${selfBlurred ? 1 : 0}`
   );
+  } finally {
+    kickSoloWebRtc._inflight = false;
+    kickSoloWebRtc._inflightPeer = "";
+  }
 }
 
 async function joinPeers(peers) {

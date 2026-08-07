@@ -1356,6 +1356,19 @@ class RouletteWebRtc {
         this.pc.addTrack(track, this.localStream);
       }
     }
+    // No tracks yet (cam still opening): still negotiate A/V so first SDP leaves
+    // immediately. Tracks attach later via replaceTrack — no second createOffer.
+    if (
+      this.isOfferer &&
+      (!this.localStream || !(this.localStream.getTracks?.() || []).length)
+    ) {
+      try {
+        this.pc.addTransceiver("audio", { direction: "sendrecv" });
+        this.pc.addTransceiver("video", { direction: "sendrecv" });
+      } catch (e) {
+        console.warn("[webrtc] addTransceiver fallback", e);
+      }
+    }
 
     // Offerer must create DC before createOffer so it appears in SDP
     if (this.isOfferer) {
@@ -1376,7 +1389,9 @@ class RouletteWebRtc {
     // Offerer: retry once if first createOffer stalls.
     // Answerer: wait longer before promote — phone promote at 250ms caused glare
     // with web's first offer (~0.3–0.8s) → debounce drop → 18–24s silence.
-    this._armOfferWatchdog(this.isOfferer ? 700 : 1600);
+    // Offerer watchdog 1200ms (was 700) — first offer+answer often lands ~0.5–0.9s;
+    // a 700ms retry created the second PC/offer hub drops at age_ms≈800.
+    this._armOfferWatchdog(this.isOfferer ? 1200 : 2000);
     if (this.isOfferer) {
       const t0 = Date.now();
       await this._createAndSendOffer({ iceRestart: false });
@@ -1457,6 +1472,19 @@ class RouletteWebRtc {
     const now = Date.now();
     // Already building an offer
     if (this._offerInFlight) return false;
+    // Match-level gate: only one non-restart offer across ALL PCs for this match.
+    // Dual kickSolo / dual connect was offer→answer→offer@~800ms (hub drop) → black.
+    try {
+      const gateAt =
+        typeof window !== "undefined" ? window.__ruletMatchOfferAt || 0 : 0;
+      if (!iceRestart && gateAt && now - gateAt < 12000) {
+        console.info(
+          "[webrtc] skip offer — match already offered",
+          now - gateAt
+        );
+        return false;
+      }
+    } catch (_) {}
     // After we answered a remote offer, never re-offer unless iceRestart
     // (was: second offer ~0.7s later → hub debounce drop → 18–24s silence).
     if (
@@ -1554,6 +1582,11 @@ class RouletteWebRtc {
       this._emitSignal("offer", JSON.stringify(desc));
       this._offerEmitOk = true;
       this._clearOfferWatchdog();
+      try {
+        if (typeof window !== "undefined" && !iceRestart) {
+          window.__ruletMatchOfferAt = Date.now();
+        }
+      } catch (_) {}
       return true;
     } catch (e) {
       console.warn("[webrtc] createOffer failed", e);
