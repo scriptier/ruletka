@@ -71,5 +71,7 @@
       "dir": "ltr"
     }
   ],
-  "default": "ru"
+  "default": "ru",
+  "live.theyMutedYou": "They muted you · no sound",
+  "live.theyMutedYouToast": "Partner muted you — they can't hear you"
 }

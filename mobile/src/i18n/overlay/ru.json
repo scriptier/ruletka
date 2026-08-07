@@ -278,6 +278,8 @@
   "mobile.live.passMicTitle": "Передай микрофон",
   "mobile.live.passMicToast": "{name} · передай микрофон",
   "mobile.live.youMutedThem": "Вы заглушили · без звука",
+  "mobile.live.theyMutedYou": "Они заглушили вас · без звука",
+  "mobile.live.theyMutedYouToast": "Собеседник заглушил вас — вас не слышно",
   "mobile.live.partnerNotReady": "ID партнёра ещё нет — нажмите Next.",
   "mobile.live.partnerUnmute": "Включить собеседника",
   "mobile.live.partnerUnmuteShort": "Слышать",

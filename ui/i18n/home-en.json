@@ -49,5 +49,7 @@
   "seed.copied": "Copied",
   "seed.contact": "Contact operators with your hub URL to join the live mesh. We do not auto-trust unknown hubs.",
   "seed.foot": "Help the network",
-  "seed.footDl": "Helper"
+  "seed.footDl": "Helper",
+  "live.theyMutedYou": "They muted you · no sound",
+  "live.theyMutedYouToast": "Partner muted you — they can't hear you"
 }

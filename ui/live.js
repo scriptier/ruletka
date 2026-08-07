@@ -449,6 +449,8 @@ let statsTimer = 0;
 let micMuted = false;
 let camOff = false;
 let partnerMuted = false;
+/** Peer muted us via P2P partner_mute (their local playout off — we still send audio). */
+let theyMutedMe = false;
 /** Manual blur of partner video (local view only) */
 let partnerBlurred = false;
 /** Hide your camera from partners until you reveal (disables outbound video track) */
@@ -8339,6 +8341,78 @@ function sendLiveChat(body, opts = {}) {
  * @param {object} msg
  * @param {InstanceType<typeof RouletteWebRtc>} [fromPc]
  */
+/**
+ * Tell partner we muted/unmuted their audio (local playout).
+ * They show the same mute veil/badge on their self tile.
+ */
+function sendPartnerMuteP2p(muted) {
+  const payload = {
+    v: 1,
+    type: "partner_mute",
+    muted: !!muted,
+    user_id: myUserId || "",
+    name: getDisplayName() || "anon",
+    ts: Date.now(),
+  };
+  let ok = false;
+  try {
+    for (const pc of chatPeerPcs()) {
+      if (pc?.sendChatMessage?.(payload)) ok = true;
+    }
+    if (!ok && rtc?.sendChatMessage?.(payload)) ok = true;
+  } catch (_) {}
+  return ok;
+}
+
+function setTheyMutedMe(on, opts = {}) {
+  const next = !!on;
+  if (theyMutedMe === next && !opts.force) return;
+  theyMutedMe = next;
+  try {
+    syncTheyMutedMeUi();
+  } catch (_) {}
+  if (opts.toast !== false && next) {
+    try {
+      setStatus(
+        _t("live.theyMutedYouToast") ||
+          "Partner muted you — they can't hear you"
+      );
+    } catch (_) {}
+  }
+}
+
+function syncTheyMutedMeUi() {
+  const tile = $("tile-local");
+  tile?.classList.toggle("peer-slot-muted", !!theyMutedMe && !debate.active);
+  const badge = $("peer-mute-badge-local-by-them");
+  if (badge) {
+    // Debate owns local mute badge while active
+    const show = !!theyMutedMe && !debate.active && !!(matched || inFriendCall);
+    badge.hidden = !show;
+    if (show) badge.removeAttribute("hidden");
+    else badge.setAttribute("hidden", "");
+  }
+  // If debate active and they muted us, fold into local debate muted badge
+  if (debate.active && theyMutedMe) {
+    try {
+      const el = $("debate-badge-local-muted");
+      if (el) {
+        el.hidden = false;
+        el.removeAttribute("hidden");
+      }
+    } catch (_) {}
+  }
+}
+
+function handlePartnerMuteP2p(msg) {
+  const uid = String(msg.user_id || "").slice(0, 64);
+  if (uid && myUserId && uid === myUserId) return;
+  // Only current live partner
+  const partner = primaryPartnerUserId || "";
+  if (partner && uid && uid !== partner) return;
+  setTheyMutedMe(!!msg.muted, { toast: !!msg.muted });
+}
+
 function handleP2pDataMessage(msg, fromPc) {
   if (!msg || typeof msg !== "object") return;
   const t = msg.type;
@@ -8350,6 +8424,11 @@ function handleP2pDataMessage(msg, fromPc) {
   // Typing indicators (no body)
   if (t === "typing" || t === "typing_stop") {
     handleTypingP2pMessage(msg);
+    return;
+  }
+  // Partner muted our audio on their device — show same mute visuals on self tile
+  if (t === "partner_mute") {
+    handlePartnerMuteP2p(msg);
     return;
   }
   if (t !== "chat" && t !== "friend_chat") return;
@@ -11137,6 +11216,9 @@ function togglePeerElMute(slot) {
   if (slot === "remote") {
     partnerMuted = peerMutedByEl.remote;
     updateSideIcons();
+    try {
+      sendPartnerMuteP2p(partnerMuted);
+    } catch (_) {}
   }
   applyRemoteVolume();
   setPeerMuteUi(slot, peerMutedByEl[slot]);
@@ -18173,6 +18255,7 @@ function resetPartnerVolumeForNewMatch(msg) {
   }
   lastVolumeResetKey = key;
   partnerMuted = false;
+  theyMutedMe = false;
   peerMutedByEl.remote = false;
   peerMutedByEl.remote2 = false;
   peerMutedByEl["remote-third"] = false;
@@ -18184,6 +18267,9 @@ function resetPartnerVolumeForNewMatch(msg) {
   applyRemoteVolume();
   updateSideIcons();
   syncAllPeerMediaChrome();
+  try {
+    syncTheyMutedMeUi();
+  } catch (_) {}
 }
 
 function togglePartnerMute() {
@@ -18192,6 +18278,9 @@ function togglePartnerMute() {
   updateSideIcons();
   applyRemoteVolume();
   setPeerMuteUi("remote", partnerMuted);
+  try {
+    sendPartnerMuteP2p(partnerMuted);
+  } catch (_) {}
   log(partnerMuted ? _t("log.partnerMuted") : _t("log.partnerUnmuted"));
 }
 
@@ -23405,7 +23494,13 @@ async function kickSoloWebRtc(msg, p) {
       },
       onDataChannel: (open) => {
         updateChatHeader();
-        if (open) setStatus(_t("chat.p2pReady") || "Chat is peer-to-peer");
+        if (open) {
+          setStatus(_t("chat.p2pReady") || "Chat is peer-to-peer");
+          // Re-announce mute so partner sees veil if we muted before DC opened
+          try {
+            if (partnerMuted) sendPartnerMuteP2p(true);
+          } catch (_) {}
+        }
       },
       onDataMessage: (m) => handleP2pDataMessage(m, pc),
     },
@@ -23856,6 +23951,9 @@ async function joinPeers(peers) {
           updateChatHeader();
           if (open && (pc === rtc || !isTeammateRole(p.role))) {
             setStatus(_t("chat.p2pReady") || "Chat is peer-to-peer");
+            try {
+              if (partnerMuted) sendPartnerMuteP2p(true);
+            } catch (_) {}
           }
         },
         onDataMessage: (msg) => {

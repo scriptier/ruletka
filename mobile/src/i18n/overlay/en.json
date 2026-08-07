@@ -309,6 +309,8 @@
   "mobile.live.passMicTitle": "Pass the mic",
   "mobile.live.passMicToast": "{name} · pass the mic",
   "mobile.live.youMutedThem": "You muted · no sound",
+  "mobile.live.theyMutedYou": "They muted you · no sound",
+  "mobile.live.theyMutedYouToast": "Partner muted you — they can't hear you",
   "mobile.live.partnerNotReady": "Partner id not known yet — try Next.",
   "mobile.live.partnerUnmute": "Unmute partner",
   "mobile.live.partnerUnmuteShort": "Hear them",

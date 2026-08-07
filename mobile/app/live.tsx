@@ -204,6 +204,8 @@ function LiveBody() {
   /** Local mute of remote audio (you stop hearing them). */
   const [partnerMuted, setPartnerMuted] = useState(false);
   const partnerMutedRef = useRef(false);
+  /** Partner muted our audio on their device — show same mute veil on self. */
+  const [theyMutedMe, setTheyMutedMe] = useState(false);
   const [findThirdPending, setFindThirdPending] = useState(false);
   /** Extra match peers (beyond primary) for multi-tile UI. */
   const [extraPeers, setExtraPeers] = useState<PeerPick[]>([]);
@@ -710,6 +712,19 @@ function LiveBody() {
       onDataChannel: (open) => {
         setDcOpen(open);
         log(`datachannel ${open ? "open" : "closed"}`);
+        // If we muted partner before DC opened, re-announce so they see the veil
+        if (open && partnerMutedRef.current) {
+          try {
+            media.sendDataMessage({
+              v: 1,
+              type: "partner_mute",
+              muted: true,
+              ts: Date.now(),
+            });
+          } catch {
+            /* ignore */
+          }
+        }
       },
       onDataMessage: (msg) => {
         try {
@@ -726,6 +741,16 @@ function LiveBody() {
               typingTimerRef.current = setTimeout(
                 () => setPeerTyping(false),
                 3500
+              );
+            }
+            return;
+          }
+          if (typ === "partner_mute") {
+            const muted = !!msg.muted;
+            setTheyMutedMe(muted);
+            if (muted) {
+              showToastRef.current(
+                tRef.current("mobile.live.theyMutedYouToast")
               );
             }
             return;
@@ -1245,7 +1270,10 @@ function LiveBody() {
           setPartnerFlag(peer.flag);
           setPartnerCountry(peer.country || "");
           setPartnerCity(peer.city || "");
-          if (!keepPrimary) setPartnerMuted(false);
+          if (!keepPrimary) {
+            setPartnerMuted(false);
+            setTheyMutedMe(false);
+          }
           setFindThirdPending(false);
           setExtraPeers(extras);
           setMatchMode(peer.mode);
@@ -1615,6 +1643,7 @@ function LiveBody() {
           setPartnerCountry("");
             setPartnerCity("");
           setPartnerMuted(false);
+          setTheyMutedMe(false);
           setFindThirdPending(false);
           setGiftFlash(null);
           setGiftEffect(null);
@@ -2049,6 +2078,7 @@ function LiveBody() {
       setPartnerCountry("");
             setPartnerCity("");
       setPartnerMuted(false);
+      setTheyMutedMe(false);
       setFindThirdPending(false);
       setAwaitingRemoteVideo(false);
       secondaryPeerId.current = "";
@@ -2121,6 +2151,7 @@ function LiveBody() {
       setPartnerCountry("");
             setPartnerCity("");
       setPartnerMuted(false);
+      setTheyMutedMe(false);
       setFindThirdPending(false);
       setGiftFlash(null);
       setGiftEffect(null);
@@ -2192,6 +2223,7 @@ function LiveBody() {
       setPartnerCountry("");
             setPartnerCity("");
       setPartnerMuted(false);
+      setTheyMutedMe(false);
       setFindThirdPending(false);
       setGiftFlash(null);
       setGiftEffect(null);
@@ -2396,6 +2428,17 @@ function LiveBody() {
     mediaRef.current?.setRemoteAudioEnabled(!next);
     media2Ref.current?.setRemoteAudioEnabled(!next);
     hapticLight();
+    // Notify partner so they see the same mute visuals on their self tile
+    try {
+      mediaRef.current?.sendDataMessage({
+        v: 1,
+        type: "partner_mute",
+        muted: next,
+        ts: Date.now(),
+      });
+    } catch {
+      /* ignore */
+    }
   }
 
   function browseTogether() {
@@ -2969,6 +3012,7 @@ function LiveBody() {
           isFriendCall={isFriendCall}
           remoteBlurred={remoteBlurred}
           partnerMuted={partnerMuted}
+          theyMutedMe={theyMutedMe}
           retryBusy={retryBusy}
           autoRetryCount={autoRetryCount}
           hasTurn={iceHasTurnRef.current}
@@ -2985,6 +3029,7 @@ function LiveBody() {
             focus: t("mobile.live.focus"),
             pipHint: t("mobile.live.pipHint"),
             partnerMutedBadge: t("mobile.live.youMutedThem"),
+            theyMutedYouBadge: t("mobile.live.theyMutedYou"),
           }}
           onToggleFocusExtra={() => setFocusExtra((v) => !v)}
           onRetryConnect={(hard) => void retryConnection({ hard })}

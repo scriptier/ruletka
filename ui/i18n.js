@@ -387,6 +387,8 @@
       // bottom
       "btn.connect": "Connect",
       "btn.next": "Next",
+      "btn.blockReport": "Block · Report",
+      "btn.blockReportTitle": "Block & report — pick a reason, then skip (never rematch)",
 "btn.nextHunting": "Find stranger",
       "btn.nextHuntingTitle": "Search for a stranger — your friend stays",
       "btn.nextStranger": "Next stranger",
@@ -490,6 +492,17 @@
       "friends.block": "Block",
       "dock.more": "More actions",
       "dock.moreHint": "Or tap the partner video for the full menu",
+      "friends.historyThumbHint": "Snapshot saved only on this device",
+      "friends.blockedThumbHint": "Snapshot on this device (blurred)",
+      "friends.historyEmptyHint":
+        "After a call with video, a small photo appears here (this device only).",
+      "settings.historySnaps": "Save partner snapshots",
+      "settings.historySnapsHint":
+        "On (default): tiny face crops for History & Blocked · this device only · never uploaded",
+      "settings.historySnapsOn":
+        "Partner snapshots on — tiny crops stay on this device",
+      "settings.historySnapsOff":
+        "Partner snapshots off — History shows letters only",
       "friends.blockNext": "Block · Next",
       "friends.blocked": "blocked",
       "friends.unblock": "Unblock",
@@ -590,7 +603,7 @@
       "partnerMenu.block": "Block",
       "partnerMenu.blockNext": "Block · Next",
       "partnerMenu.report": "Report",
-      "partnerMenu.reportNext": "Report · Next",
+      "partnerMenu.reportNext": "Block · Report",
       "partnerMenu.cancel": "Cancel",
       "partnerMenu.close": "Close",
       "partnerMenu.back": "Back",
@@ -641,6 +654,9 @@
       "debate.theirTurnShort": "{n} is speaking",
       "debate.theyDeclined": "They declined the debate",
       "debate.theyMutedBadge": "Muted · can't be heard",
+      "live.youMutedThem": "You muted · no sound",
+      "live.theyMutedYou": "They muted you · no sound",
+      "live.theyMutedYouToast": "Partner muted you — they can't hear you",
       "debate.theySpeakingBadge": "Speaking",
       "debate.topicLabel": "Topic (optional)",
       "debate.topicPlaceholder": "e.g. Should cities ban cars downtown?",
@@ -1280,6 +1296,8 @@
 
       "btn.connect": "Связь",
       "btn.next": "Далее",
+      "btn.blockReport": "Блок · Жалоба",
+      "btn.blockReportTitle": "Блок и жалоба — выберите причину, затем пропуск (больше не встретитесь)",
       "btn.spin": "Спин",
       "friends.open": "Друзья",
       "friends.title": "Друзья",
@@ -1368,6 +1386,17 @@
       "friends.block": "В блок",
       "dock.more": "Ещё",
       "dock.moreHint": "Или нажмите на видео партнёра — полное меню",
+      "friends.historyThumbHint": "Снимок только на этом устройстве",
+      "friends.blockedThumbHint": "Снимок на устройстве (размытый)",
+      "friends.historyEmptyHint":
+        "После видеозвонка здесь появится маленькое фото (только на этом устройстве).",
+      "settings.historySnaps": "Сохранять снимки собеседников",
+      "settings.historySnapsHint":
+        "Вкл. (по умолчанию): крошечные кропы для Истории и Блока · только на устройстве · не на сервер",
+      "settings.historySnapsOn":
+        "Снимки включены — кропы остаются на этом устройстве",
+      "settings.historySnapsOff":
+        "Снимки выкл. — в Истории только буквы",
       "friends.blockNext": "Блок · Далее",
       "friends.blocked": "в блоке",
       "friends.unblock": "Разблок.",
@@ -1468,7 +1497,7 @@
       "partnerMenu.block": "В блок",
       "partnerMenu.blockNext": "Блок · Далее",
       "partnerMenu.report": "Пожаловаться",
-      "partnerMenu.reportNext": "Жалоба · Далее",
+      "partnerMenu.reportNext": "Блок · Жалоба",
       "partnerMenu.cancel": "Отмена",
       "partnerMenu.close": "Закрыть",
       "partnerMenu.back": "Назад",
@@ -1519,6 +1548,9 @@
       "debate.theirTurnShort": "Говорит {n}",
       "debate.theyDeclined": "Они отклонили дебаты",
       "debate.theyMutedBadge": "В муте · не слышно",
+      "live.youMutedThem": "Вы заглушили · без звука",
+      "live.theyMutedYou": "Они заглушили вас · без звука",
+      "live.theyMutedYouToast": "Собеседник заглушил вас — вас не слышно",
       "debate.theySpeakingBadge": "Говорит",
       "debate.topicLabel": "Тема (необязательно)",
       "debate.topicPlaceholder": "напр. Нужно ли запретить машины в центре?",
@@ -1979,7 +2011,7 @@
     if (!BUNDLED.has(c) && STR[c]) return Promise.resolve(STR[c]);
     if (loading[c]) return loading[c];
     // Prefer sessionStorage pack cache (avoids re-downloading ~100KB JSON every navigation)
-    const packCacheKey = "ruletka-i18n-pack-v90-" + c;
+    const packCacheKey = "ruletka-i18n-pack-v91-" + c;
     try {
       const cached = sessionStorage.getItem(packCacheKey);
       if (cached) {
@@ -1994,7 +2026,7 @@
     } catch (_) {}
 
     // Always fetch /i18n/{code}.json and merge over built-ins (en/ru too)
-    loading[c] = fetch(`/i18n/${c}.json?v=134`, { cache: "force-cache" })
+    loading[c] = fetch(`/i18n/${c}.json?v=136`, { cache: "force-cache" })
       .then((r) => {
         if (!r.ok) throw new Error("lang pack " + c);
         return r.json();
@@ -2024,7 +2056,7 @@
   }
 
   function loadMeta() {
-    return fetch("/i18n/meta.json?v=134", { cache: "force-cache" })
+    return fetch("/i18n/meta.json?v=136", { cache: "force-cache" })
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
         if (j && Array.isArray(j.languages)) META = j;

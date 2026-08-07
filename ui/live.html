@@ -153,7 +153,7 @@
     #remote-avatar-stars, .tile-avatar-stars-remote {
       right: 3.2rem !important;
     }
-    /* Top-left: flag→country→city centered with name below; name slightly larger */
+    /* Top-left: name above flag→country→city (centered stack) */
     #local-id-stack, .tile-local-id {
       display: flex !important;
       flex-direction: column !important;
@@ -187,8 +187,9 @@
       text-overflow: ellipsis !important;
       white-space: nowrap !important;
       pointer-events: none !important;
-      order: 20 !important;
-      margin-top: 0.22rem !important;
+      order: 1 !important;
+      margin-top: 0 !important;
+      margin-bottom: 0.12rem !important;
       align-self: center !important;
       justify-content: center !important;
       text-align: center !important;
@@ -203,7 +204,7 @@
       opacity: 1 !important;
       visibility: visible !important;
       z-index: 46 !important;
-      order: 1 !important;
+      order: 2 !important;
       align-self: center !important;
     }
     #local-loc-tag {
@@ -283,7 +284,7 @@
       font-weight: 750 !important;
       flex-shrink: 0 !important;
     }
-    /* Partner: location tight to header; name below city; ★+avatar top-right */
+    /* Partner: name above flag→country→city; ★+avatar top-right */
     #remote-tile-tag:not([hidden]) {
       position: absolute !important;
       top: max(0.1rem, env(safe-area-inset-top, 0px)) !important;
@@ -297,8 +298,8 @@
       align-items: center !important;
       gap: 0.18rem !important;
     }
-    .tile-remote-id #remote-tag.loc-on-tile { order: 1 !important; align-self: center !important; }
-    .tile-remote-id #remote-name.name-on-tile { order: 20 !important; align-self: center !important; }
+    .tile-remote-id #remote-name.name-on-tile { order: 1 !important; align-self: center !important; }
+    .tile-remote-id #remote-tag.loc-on-tile { order: 2 !important; align-self: center !important; }
     #remote-name.name-on-tile {
       display: inline-flex !important;
       justify-content: center !important;
@@ -314,9 +315,9 @@
       overflow: hidden !important;
       text-overflow: ellipsis !important;
       white-space: nowrap !important;
-      margin-top: 0.22rem !important;
-      margin-bottom: 0 !important;
-      order: 20 !important;
+      margin-top: 0 !important;
+      margin-bottom: 0.12rem !important;
+      order: 1 !important;
       align-self: center !important;
       text-align: center !important;
     }
@@ -345,9 +346,10 @@
     #tile-local .side-rail { z-index: 50 !important; }
 </style>
   <!-- Load stage CSS as all immediately — no media=print FOUC trick (was leaving rails opacity:0) -->
-  <link rel="stylesheet" href="live-stage.css?v=359" />
-  <link rel="preload" href="live.js?v=401" as="script" />
-  <link rel="preload" href="i18n.js?v=243" as="script" />
+  <link rel="stylesheet" href="live-stage.css?v=369" />
+  <link rel="stylesheet" href="live-brand.css?v=1" />
+  <link rel="preload" href="live.js?v=501" as="script" />
+  <link rel="preload" href="i18n.js?v=246" as="script" />
   <script src="brand.js?v=2" defer></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -586,12 +588,34 @@
 
     <!-- Dual video stage -->
     <main class="stage">
+      <!-- Center brand (rulet.tv-style seam between you ↔ partner); spins on match / idle -->
+      <div class="stage-brand-center" id="stage-brand-center" aria-hidden="true">
+        <div class="stage-brand-spin" id="stage-brand-spin">
+          <img
+            class="stage-brand-logo"
+            src="/brand/logo-mark.png?v=12"
+            width="56"
+            height="56"
+            alt=""
+            draggable="false"
+          />
+        </div>
+        <span class="stage-brand-word">ruletka.me</span>
+      </div>
       <!-- PARTNER (left) — solo: one video; stranger vs party: vertical split; trio: partner1 column -->
       <section class="tile tile-remote" id="tile-remote">
         <div class="remote-stack" id="remote-stack">
           <video id="remote" class="vid remote" autoplay playsinline playsInline webkit-playsinline></video>
+          <!-- Brand watermark on partner feed (competitor-style edge mark) -->
+          <div class="stage-wm" id="stage-wm" aria-hidden="true">
+            <span class="stage-wm-text">ruletka.me</span>
+          </div>
           <div class="remote-b-wrap" id="remote2-wrap" hidden>
             <video id="remote2" class="vid remote remote-b" autoplay playsinline playsInline webkit-playsinline></video>
+            <div class="debate-person-badge debate-person-muted peer-user-mute-badge" id="peer-mute-badge-remote2" hidden aria-live="polite">
+              <span class="debate-person-ico" aria-hidden="true">🔇</span>
+              <span class="debate-person-text" data-i18n="live.youMutedThem">You muted · no sound</span>
+            </div>
             <div class="peer-tile-chrome" id="remote2-chrome">
               <span class="peer-conn-chip" id="remote2-conn-chip" hidden title="Connection">…</span>
               <button type="button" class="peer-mute-btn" id="btn-mute-remote2" title="Mute this person" aria-label="Mute this person">🔊</button>
@@ -645,6 +669,16 @@
           <span class="fx-please-stay-label" data-i18n="stars.pleaseStayLabel">Please stay</span>
           <span class="fx-please-stay-timer" id="remote-fx-please_stay-timer"></span>
         </div>
+        <div class="fx-overlay fx-pass-mic" id="remote-fx-pass_mic" hidden aria-hidden="true">
+          <div class="fx-pass-mic-glow" aria-hidden="true"></div>
+          <span class="fx-pass-mic-mic" aria-hidden="true">🎤</span>
+          <span class="fx-pass-mic-hand" aria-hidden="true">✋</span>
+          <span class="fx-pass-mic-bubble fx-pass-mic-b1" aria-hidden="true">…</span>
+          <span class="fx-pass-mic-bubble fx-pass-mic-b2" aria-hidden="true">💬</span>
+          <span class="fx-pass-mic-label" data-i18n="stars.passMicLabel">Pass the mic</span>
+          <span class="fx-pass-mic-sub" data-i18n="stars.passMicSub">Give them a chance</span>
+          <span class="fx-pass-mic-timer" id="remote-fx-pass_mic-timer"></span>
+        </div>
         <!-- Quick gift strip (long-press partner video) -->
         <div class="gift-strip" id="gift-strip" hidden role="toolbar" aria-label="Send a star gift">
           <button type="button" class="gift-strip-btn" data-gift="heart" title="Heart · 1★">💖</button>
@@ -652,11 +686,12 @@
           <button type="button" class="gift-strip-btn" data-gift="flowers" title="Flowers · 5★ · warm glow · stacks up to 3">🌸</button>
           <button type="button" class="gift-strip-btn" data-gift="balloons" title="Balloons · 5★ · float party · stacks up to 3">🎈</button>
           <button type="button" class="gift-strip-btn" data-gift="confetti" title="Confetti · 5★ · short burst · stacks up to 3">🎊</button>
+          <button type="button" class="gift-strip-btn" data-gift="pass_mic" title="Pass the mic · 5★ · 5s · give them a chance to speak">🎤</button>
           <button type="button" class="gift-strip-btn" data-gift="fireworks" title="Fireworks · 15★ · multi-wave · stacks up to 3">🎆</button>
           <button type="button" class="gift-strip-btn gift-strip-stay" data-gift="please_stay" title="Please stay · 30★ · 15s no-Next">🙏</button>
           <button type="button" class="gift-strip-btn gift-strip-more" id="gift-strip-more" title="More">⋯</button>
         </div>
-        <!-- Debate: partner mute/speak badges (visibility toggled in JS) -->
+        <!-- Debate / user-mute: partner mute/speak badges (visibility toggled in JS) -->
         <div class="debate-person-badge debate-person-muted" id="debate-badge-remote-muted" hidden aria-live="polite">
           <span class="debate-person-ico" aria-hidden="true">🔇</span>
           <span class="debate-person-text" data-i18n="debate.theyMutedBadge">Muted · can't be heard</span>
@@ -664,6 +699,11 @@
         <div class="debate-person-badge debate-person-speaking" id="debate-badge-remote-speaking" hidden>
           <span class="debate-person-ico" aria-hidden="true">🎙</span>
           <span class="debate-person-text" data-i18n="debate.theySpeakingBadge">Speaking</span>
+        </div>
+        <!-- You muted them (outside debate) — same look as debate mute badge -->
+        <div class="debate-person-badge debate-person-muted peer-user-mute-badge" id="peer-mute-badge-remote" hidden aria-live="polite">
+          <span class="debate-person-ico" aria-hidden="true">🔇</span>
+          <span class="debate-person-text" data-i18n="live.youMutedThem">You muted · no sound</span>
         </div>
         <!-- Formal debate timer (alternating turns) — hops to speaker tile -->
         <div class="debate-overlay" id="debate-overlay" hidden aria-live="polite">
@@ -750,10 +790,10 @@
             <div class="mobile-invite" id="mobile-invite" hidden aria-hidden="true"></div>
           </div>
         <div class="tile-tag tile-tag-remote" id="remote-tile-tag" hidden>
-          <!-- Top-left: flag → country → city, then name below -->
+          <!-- Top-left: name, then flag → country → city -->
           <div class="tile-remote-id">
-            <span class="loc-on-tile" id="remote-tag"></span>
             <span class="name-on-tile name-top-left" id="remote-name" hidden></span>
+            <span class="loc-on-tile" id="remote-tag"></span>
             <span class="peer-who-sub" id="remote-who-sub" hidden></span>
             <span class="trust-tier-chip" id="remote-trust-chip" hidden title="Reputation tier"></span>
             <span class="partner-praise-chip" id="remote-praise-chip" hidden title="Peer praise"></span>
@@ -840,10 +880,23 @@
               <button type="submit" class="tile-compose-send" data-i18n="chat.send">Send</button>
             </form>
             <div class="tile-match-actions" id="tile-match-actions">
-              <!-- Primary: Next + Stop only. Everything else lives in ⋯ more menu. -->
+              <!-- Primary: Next + Block/Report + Stop. Party extras live in ⋯ more. -->
               <button type="button" id="btn-next" class="next-big next-in-tile next-in-tile-floor" hidden>
                 <svg class="icon icon-next" aria-hidden="true"><use href="#i-skip"/></svg>
                 <span data-i18n="btn.next">Next</span>
+              </button>
+              <!-- One control: report + block + Next (never rematch). Opens reason sheet. -->
+              <button
+                type="button"
+                id="btn-block-report"
+                class="dock-pill danger tight block-report-in-tile"
+                hidden
+                data-i18n="btn.blockReport"
+                data-i18n-title="btn.blockReportTitle"
+                title="Block &amp; report — pick a reason, then skip"
+                aria-label="Block and report"
+              >
+                <span data-i18n="btn.blockReport">Block · Report</span>
               </button>
               <button type="button" id="btn-stop" class="dock-pill danger tight stop-in-tile" hidden data-i18n-title="btn.stopTitle" title="Stop searching / leave call" aria-label="Stop">
                 <span data-i18n="btn.stop">Stop</span>
@@ -865,6 +918,7 @@
                   <!-- Friend call: one primary CTA to hunt a stranger together -->
                   <button type="button" role="menuitem" id="btn-browse-together" class="match-more-item accent" hidden data-i18n="trio.findStrangerTogether" title="Both search for a stranger now (no invite)">Find stranger together</button>
                   <button type="button" role="menuitem" id="btn-hangup-friend" class="match-more-item danger" hidden data-i18n="friends.hangup">Hang up</button>
+                  <!-- Legacy ids kept hidden for any old wiring; use #btn-block-report -->
                   <button type="button" role="menuitem" id="btn-block" class="match-more-item danger" hidden data-i18n="friends.blockNext" title="Block — you will not match them again">Block · Next</button>
                   <button type="button" role="menuitem" id="btn-report-dock" class="match-more-item danger" hidden data-i18n="partnerMenu.reportNext" title="Report, block, and find someone else">Report · Next</button>
                   <!-- Stranger 1v1 or friend 1v1: invite partner then search -->
@@ -936,6 +990,10 @@
             <div class="empty-title" data-i18n="trio.slotEmpty">Looking for a 3rd…</div>
           </div>
         </div>
+        <div class="debate-person-badge debate-person-muted peer-user-mute-badge" id="peer-mute-badge-remote-third" hidden aria-live="polite">
+          <span class="debate-person-ico" aria-hidden="true">🔇</span>
+          <span class="debate-person-text" data-i18n="live.youMutedThem">You muted · no sound</span>
+        </div>
         <div class="tile-tag" id="third-tile-tag" hidden>
           <span class="name-on-tile" id="third-tag"></span>
           <span class="peer-who-sub" id="third-who-sub" hidden></span>
@@ -962,6 +1020,11 @@
         <div class="debate-person-badge debate-person-speaking" id="debate-badge-local-speaking" hidden>
           <span class="debate-person-ico" aria-hidden="true">🎙</span>
           <span class="debate-person-text" data-i18n="debate.youSpeakingBadge">You're speaking</span>
+        </div>
+        <!-- Partner muted YOU (local playout mute on their side) — same visual as you-muted-them -->
+        <div class="debate-person-badge debate-person-muted peer-user-mute-badge" id="peer-mute-badge-local-by-them" hidden aria-live="polite">
+          <span class="debate-person-ico" aria-hidden="true">🔇</span>
+          <span class="debate-person-text" data-i18n="live.theyMutedYou">They muted you · no sound</span>
         </div>
         <!-- Star gifts on you (bars / flowers) -->
         <div class="fx-overlay fx-bars" id="local-fx-bars" hidden aria-hidden="true">
@@ -996,6 +1059,21 @@
           <span class="fx-please-stay-label" data-i18n="stars.pleaseStayOnYouLabel">Stay a moment</span>
           <span class="fx-please-stay-timer" id="local-fx-please_stay-timer"></span>
         </div>
+        <div class="fx-overlay fx-pass-mic" id="local-fx-pass_mic" hidden aria-hidden="true">
+          <div class="fx-pass-mic-glow" aria-hidden="true"></div>
+          <span class="fx-pass-mic-mic" aria-hidden="true">🎤</span>
+          <span class="fx-pass-mic-hand" aria-hidden="true">✋</span>
+          <span class="fx-pass-mic-bubble fx-pass-mic-b1" aria-hidden="true">…</span>
+          <span class="fx-pass-mic-bubble fx-pass-mic-b2" aria-hidden="true">💬</span>
+          <span class="fx-pass-mic-label" data-i18n="stars.passMicOnYouLabel">Your turn — pass the mic</span>
+          <span class="fx-pass-mic-sub" data-i18n="stars.passMicSub">Give them a chance</span>
+          <span class="fx-pass-mic-timer" id="local-fx-pass_mic-timer"></span>
+        </div>
+        <!-- After YOU pass the mic: brief “you're up” on your tile -->
+        <div class="pass-mic-youre-up" id="pass-mic-youre-up" hidden aria-live="polite">
+          <span class="pass-mic-youre-up-ico" aria-hidden="true">✋</span>
+          <span class="pass-mic-youre-up-text" data-i18n="stars.passMicYoureUp">You're up — go ahead</span>
+        </div>
         <!-- Full-screen gift celebration burst (receive) -->
         <div class="gift-celebrate" id="gift-celebrate" hidden aria-hidden="true"></div>
         <!-- Friend PiP while browsing together (party) so main remote can show stranger(s) -->
@@ -1023,15 +1101,15 @@
             LED on but black? Pick <b>USB Camera</b> in Settings (not Razer Kiyo), or Restart.
           </p>
         </div>
-        <!-- Local: flag→country→city then name below; ★ + avatar top-right -->
+        <!-- Local: name above flag→country→city; ★ + avatar top-right -->
         <div class="tile-local-id" id="local-id-stack">
+          <span class="name-on-tile name-top-left" id="local-name">anon</span>
           <div class="tile-tag tile-tag-local-loc" id="local-loc-tag">
             <span class="loc-on-tile" id="local-loc"></span>
             <span class="trust-tier-chip" id="local-trust-chip" hidden title="Your reputation tier"></span>
             <span class="stars-soft-rank-chip" id="local-soft-rank-chip" hidden title="Soft match rank on">↗</span>
             <span class="flair-chip" id="local-flair-chip" hidden title="Flair" aria-hidden="true"></span>
           </div>
-          <span class="name-on-tile name-top-left" id="local-name">anon</span>
         </div>
         <div class="tile-avatar-stars-stack tile-avatar-stars-local" id="local-avatar-stars">
           <button type="button" class="stars-badge stars-badge-local is-clickable" id="local-stars-badge"
@@ -1127,17 +1205,18 @@
       </header>
       <ul class="keys-help-list">
         <li><kbd>Space</kbd> <span data-i18n="keys.next">Next partner</span></li>
-        <li><span data-i18n="keys.swipe">Swipe left or right on partner video to skip</span></li>
         <li><kbd>S</kbd> <span data-i18n="keys.stop">Stop (leave queue / idle)</span></li>
+        <li><span data-i18n="keys.swipe">Swipe left or right on partner video to skip</span></li>
         <li><kbd>M</kbd> <span data-i18n="keys.mic">Mute mic</span></li>
         <li><kbd>C</kbd> <span data-i18n="keys.flip">Flip local video left / right</span></li>
         <li><kbd>P</kbd> <span data-i18n="keys.partner">Mute partner</span></li>
         <li><kbd>B</kbd> <span data-i18n="keys.blur">Blur partner</span></li>
+        <li><kbd>H</kbd> <span data-i18n="keys.hide">Hide yourself from partner</span></li>
         <li><kbd>F</kbd> <span data-i18n="keys.full">Fullscreen partner</span></li>
         <li><kbd>?</kbd> <span data-i18n="keys.this">This help</span></li>
         <li><kbd>Esc</kbd> <span data-i18n="keys.esc">Close menus</span></li>
       </ul>
-      <p class="hint-inline" data-i18n="keys.hint">Click partner video for friend / block / report</p>
+      <p class="hint-inline" data-i18n="keys.hint">Click partner video for friend / block / report · swipe left/right to skip (optional in Settings)</p>
     </div>
   </div>
 
@@ -1697,11 +1776,17 @@
         <span class="pm-ico" aria-hidden="true">🎊</span>
         <span id="btn-partner-confetti-label" data-i18n="stars.confettiBtn">Confetti · 5★ · 15s</span>
       </button>
+      <button type="button" class="partner-menu-btn star-gift" id="btn-partner-pass-mic">
+        <span class="pm-ico" aria-hidden="true">🎤</span>
+        <span id="btn-partner-pass-mic-label" data-i18n="stars.passMicBtn">Pass the mic · 5★ · 5s</span>
+      </button>
+      <!-- One safety action: report + block + Next (same as footer #btn-block-report) -->
       <button type="button" class="partner-menu-btn danger" id="btn-partner-report">
         <span class="pm-ico" aria-hidden="true"><svg class="icon"><use href="#i-flag"/></svg></span>
-        <span data-i18n="partnerMenu.reportNext">Report · Next</span>
+        <span data-i18n="btn.blockReport">Block · Report</span>
       </button>
-      <button type="button" class="partner-menu-btn warn" id="btn-partner-block">
+      <!-- Hidden legacy: block alone; footer + report path always block -->
+      <button type="button" class="partner-menu-btn warn" id="btn-partner-block" hidden>
         <span class="pm-ico" aria-hidden="true"><svg class="icon"><use href="#i-ban"/></svg></span>
         <span data-i18n="partnerMenu.blockNext">Block · Next</span>
       </button>
@@ -1738,7 +1823,7 @@
       <button type="button" class="partner-menu-btn ghost" id="btn-debate-compose-back" data-i18n="partnerMenu.back">Back</button>
     </div>
     <div class="partner-menu-actions" id="partner-menu-report" hidden>
-      <p class="partner-menu-hint" data-i18n="partnerMenu.reportHint">Pick a reason → we block them for you, skip, and you will not match them again. Multiple independent reports can restrict their matchmaking.</p>
+      <p class="partner-menu-hint" data-i18n="partnerMenu.reportHint">Pick a reason → we report and block them, skip, and you will not match them again. Multiple independent reports can restrict their matchmaking.</p>
       <p class="partner-menu-hint partner-menu-trusted" id="partner-menu-trusted-hint" hidden data-i18n="stars.trustedReporterHint">
         You are Trusted — soft match rank and gift up to 2★. Reports still need independent consensus.
       </p>
@@ -1936,6 +2021,16 @@
 
         <p class="settings-section-label" data-i18n="settings.secHelp">Help</p>
         <div class="settings-group">
+          <button type="button" class="settings-row settings-row-multi" data-settings-open="hotkeys">
+            <span class="row-left">
+              <span class="row-ico" aria-hidden="true">⌨</span>
+              <span class="settings-row-copy">
+                <span class="settings-row-title" data-i18n="settings.hotkeys">Hotkeys</span>
+                <span class="settings-row-sub" data-i18n="settings.hotkeysSub">Keyboard &amp; gestures · press ? anytime</span>
+              </span>
+            </span>
+            <span class="chev">›</span>
+          </button>
           <a class="settings-row settings-row-ext" href="/updates.html" target="_blank" rel="noopener" id="btn-settings-updates">
             <span class="row-left">
               <span class="row-ico" aria-hidden="true">✦</span>
@@ -2015,6 +2110,18 @@
             </span>
             <input id="remote-vol-sheet" type="range" min="0" max="100" value="100" />
           </div>
+        </div>
+        <p class="settings-section-label" data-i18n="settings.secMic">Your microphone</p>
+        <div class="settings-group">
+          <div class="settings-row settings-row-static settings-vol-row">
+            <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-mic"/></svg></span><span data-i18n="settings.micBoost">Mic boost</span>
+              <span class="side-vol-pct settings-vol-pct" id="mic-boost-pct" aria-hidden="true">125%</span>
+            </span>
+            <input id="mic-boost" type="range" min="50" max="200" step="5" value="125"
+              data-i18n-title="settings.micBoost" data-i18n-aria="settings.micBoostAria"
+              title="Mic boost" aria-label="Mic boost — how loud partners hear you" />
+          </div>
+          <p class="hint-inline settings-mic-boost-hint" data-i18n="settings.micBoostHint">How loud partners hear you. 100% = no extra gain. Default 125% with a soft limiter.</p>
           <label class="settings-toggle-row settings-audio-mode-row">
             <span class="toggle-copy">
               <span class="toggle-title" data-i18n="settings.lowLatencyAudio">Low delay mode</span>
@@ -2155,6 +2262,16 @@
           </label>
           <label class="settings-row settings-row-toggle">
             <span class="row-left toggle-copy">
+              <span class="toggle-title" data-i18n="settings.historySnaps">Save partner snapshots</span>
+              <span class="toggle-hint" data-i18n="settings.historySnapsHint">On (default): tiny face crops for History &amp; Blocked · this device only · never uploaded</span>
+            </span>
+            <span class="switch">
+              <input type="checkbox" id="chk-history-snaps" checked />
+              <span class="switch-ui" aria-hidden="true"></span>
+            </span>
+          </label>
+          <label class="settings-row settings-row-toggle">
+            <span class="row-left toggle-copy">
               <span class="toggle-title" data-i18n="settings.nsfwAuto">Auto-skip explicit video</span>
               <span class="toggle-hint" data-i18n="settings.nsfwHintShort">On-device AI · not perfect</span>
             </span>
@@ -2257,6 +2374,51 @@
             <span class="chev">↑</span>
           </button>
         </div>
+      </div>
+    </div>
+
+    <!-- HOTKEYS -->
+    <div class="settings-view" id="settings-view-hotkeys" hidden>
+      <header class="settings-header">
+        <button type="button" class="sheet-nav-btn" data-settings-back aria-label="Back">‹</button>
+        <h3 data-i18n="settings.hotkeys">Hotkeys</h3>
+        <span class="sheet-nav-spacer"></span>
+      </header>
+      <div class="sheet-body settings-body">
+        <p class="hint-inline" data-i18n="settings.hotkeysLead">
+          Works when you’re not typing in a text field. Press <kbd>?</kbd> anytime for this list.
+        </p>
+
+        <p class="settings-section-label" data-i18n="keys.sectionCall">Call</p>
+        <ul class="settings-hotkeys-list">
+          <li><kbd>Space</kbd> <span data-i18n="keys.next">Next partner</span></li>
+          <li><kbd>S</kbd> <span data-i18n="keys.stop">Stop (leave queue / idle)</span></li>
+          <li class="settings-hotkeys-gesture">
+            <span class="settings-hotkeys-gesture-ico" aria-hidden="true">↔</span>
+            <span data-i18n="keys.swipe">Swipe left or right on partner video to skip</span>
+          </li>
+        </ul>
+
+        <p class="settings-section-label" data-i18n="keys.sectionMedia">Media</p>
+        <ul class="settings-hotkeys-list">
+          <li><kbd>M</kbd> <span data-i18n="keys.mic">Mute mic</span></li>
+          <li><kbd>C</kbd> <span data-i18n="keys.flip">Flip local video left / right</span></li>
+          <li><kbd>P</kbd> <span data-i18n="keys.partner">Mute partner</span></li>
+          <li><kbd>B</kbd> <span data-i18n="keys.blur">Blur partner</span></li>
+          <li><kbd>H</kbd> <span data-i18n="keys.hide">Hide yourself from partner</span></li>
+          <li><kbd>Shift</kbd>+<kbd>B</kbd> <span data-i18n="keys.hideAlt">Hide yourself (alternate)</span></li>
+          <li><kbd>F</kbd> <span data-i18n="keys.full">Fullscreen partner</span></li>
+        </ul>
+
+        <p class="settings-section-label" data-i18n="keys.sectionGeneral">General</p>
+        <ul class="settings-hotkeys-list">
+          <li><kbd>?</kbd> <span data-i18n="keys.this">This help</span></li>
+          <li><kbd>Esc</kbd> <span data-i18n="keys.esc">Close menus</span></li>
+        </ul>
+
+        <p class="hint-inline settings-hotkeys-hint" data-i18n="keys.hint">
+          Click partner video for friend / block / report · swipe left/right to skip (optional in Settings)
+        </p>
       </div>
     </div>
 
@@ -2394,12 +2556,12 @@
             </span>
             <span class="chev">›</span>
           </a>
-          <button type="button" class="settings-row settings-row-multi" id="btn-about-keys">
+          <button type="button" class="settings-row settings-row-multi" data-settings-open="hotkeys" id="btn-about-keys">
             <span class="row-left">
-              <span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-settings"/></svg></span>
+              <span class="row-ico" aria-hidden="true">⌨</span>
               <span class="settings-row-copy">
-                <span class="settings-row-title" data-i18n="settings.keyboardHelp">Keyboard shortcuts</span>
-                <span class="settings-row-sub" data-i18n="settings.keyboardHelpSub">Press ? anytime</span>
+                <span class="settings-row-title" data-i18n="settings.hotkeys">Hotkeys</span>
+                <span class="settings-row-sub" data-i18n="settings.hotkeysSub">Keyboard &amp; gestures · press ? anytime</span>
               </span>
             </span>
             <span class="chev">›</span>
@@ -2817,13 +2979,14 @@
   </div>
 
   <!-- Critical path: defer app scripts. QR / invite-copy / live-window load on demand. -->
-  <script src="analytics.js?v=3" defer></script>
+  <script src="analytics.js?v=4" defer></script>
   <script src="pwa-install.js?v=12" defer></script>
-  <script src="i18n.js?v=243" defer></script>
+  <script src="i18n.js?v=247" defer></script>
+  <script src="geoLocalize.js?v=3" defer></script>
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=156" defer></script>
-  <script src="webrtc.js?v=170" defer></script>
-  <script src="live.js?v=401" defer></script>
+  <script src="webrtc.js?v=262" defer></script>
+  <script src="live.js?v=501" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {
