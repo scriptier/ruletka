@@ -456,7 +456,10 @@
       <button type="button" id="btn-clear-token">Forget</button>
     </div>
     <p class="hint">
-      Token is stored only in this browser’s <code>localStorage</code>. API: <code>GET /v1/admin/reports</code>
+      <strong>Two locks:</strong> (1) browser HTTP Basic login at the edge (Caddy),
+      (2) this admin token (<code>ROULETTE_ADMIN_TOKEN</code>).
+      Token is stored only in this browser’s <code>localStorage</code>.
+      API: <code>GET /v1/admin/reports</code>
     </p>
     <p class="hint">
       <strong>Auto-moderation (no admin required):</strong>
@@ -757,6 +760,10 @@
     </div>
 
     <h2>Active match bans</h2>
+    <p class="hint">
+      Priority reporter <code>2AFEE934</code> → permanent <strong>user + IP</strong> ban on any report.
+      Unban user also clears linked IPs. Unban IP alone leaves the user ban if still present.
+    </p>
     <div class="card" id="bans-card">
       <div class="empty" id="bans-empty">Sign in to load bans</div>
       <table id="bans-table" hidden>
@@ -765,10 +772,27 @@
             <th>User</th>
             <th>Until</th>
             <th>Reporters</th>
+            <th>IP</th>
             <th></th>
           </tr>
         </thead>
         <tbody id="bans-body"></tbody>
+      </table>
+    </div>
+
+    <h2>Active IP bans</h2>
+    <div class="card" id="ip-bans-card">
+      <div class="empty" id="ip-bans-empty">Sign in to load IP bans</div>
+      <table id="ip-bans-table" hidden>
+        <thead>
+          <tr>
+            <th>IP</th>
+            <th>Linked user</th>
+            <th>Until</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="ip-bans-body"></tbody>
       </table>
     </div>
 
@@ -1036,8 +1060,21 @@
       empty.hidden = true;
       table.hidden = false;
       body.innerHTML = bans
-        .map(
-          (b) => `<tr>
+        .map((b) => {
+          const ips = Array.isArray(b.banned_ips)
+            ? b.banned_ips
+            : b.last_ip
+              ? [b.last_ip]
+              : [];
+          const ipHtml = ips.length
+            ? ips
+                .map(
+                  (ip) =>
+                    `<div class="uid" title="${escapeAttr(ip)}">${escapeHtml(ip)}</div>`
+                )
+                .join("")
+            : '<span class="muted">—</span>';
+          return `<tr>
           <td>
             <div>${escapeHtml(b.name || "—")}</div>
             <div class="uid" title="${escapeAttr(b.user_id)}">${escapeHtml(shortId(b.user_id))}</div>
@@ -1047,12 +1084,64 @@
             <div class="muted">${Math.ceil((b.remaining_secs || 0) / 3600)}h left</div>
           </td>
           <td>${b.unique_reporters ?? "—"}</td>
+          <td>${ipHtml}</td>
           <td class="row-actions">
-            <button type="button" data-unban="${escapeAttr(b.user_id)}">Unban</button>
+            <button type="button" data-unban="${escapeAttr(b.user_id)}" title="Unban user + linked IPs">Unban</button>
+          </td>
+        </tr>`;
+        })
+        .join("");
+      body.querySelectorAll("[data-unban]").forEach((btn) => {
+        btn.addEventListener("click", () => unban(btn.getAttribute("data-unban")));
+      });
+    }
+
+    function renderIpBans(list) {
+      const body = $("ip-bans-body");
+      const empty = $("ip-bans-empty");
+      const table = $("ip-bans-table");
+      if (!body || !empty || !table) return;
+      if (!list || !list.length) {
+        empty.hidden = false;
+        empty.textContent = "No active IP bans";
+        table.hidden = true;
+        body.innerHTML = "";
+        return;
+      }
+      empty.hidden = true;
+      table.hidden = false;
+      body.innerHTML = list
+        .map(
+          (b) => `<tr>
+          <td class="uid" title="${escapeAttr(b.ip || "")}">${escapeHtml(b.ip || "—")}</td>
+          <td>
+            <div>${escapeHtml(b.name || "—")}</div>
+            <div class="uid" title="${escapeAttr(b.user_id || "")}">${escapeHtml(
+            shortId(b.user_id || "")
+          )}</div>
+          </td>
+          <td>
+            ${escapeHtml(fmtUntil(b.until))}
+            <div class="muted">${Math.ceil((b.remaining_secs || 0) / 3600)}h left</div>
+          </td>
+          <td class="row-actions">
+            <button type="button" data-unban-ip="${escapeAttr(b.ip || "")}">Unban IP</button>
+            ${
+              b.user_id
+                ? `<button type="button" data-unban="${escapeAttr(
+                    b.user_id
+                  )}" title="Unban linked user + IPs">Unban user</button>`
+                : ""
+            }
           </td>
         </tr>`
         )
         .join("");
+      body.querySelectorAll("[data-unban-ip]").forEach((btn) => {
+        btn.addEventListener("click", () =>
+          unbanIp(btn.getAttribute("data-unban-ip"))
+        );
+      });
       body.querySelectorAll("[data-unban]").forEach((btn) => {
         btn.addEventListener("click", () => unban(btn.getAttribute("data-unban")));
       });
@@ -1074,16 +1163,24 @@
       body.innerHTML = list
         .map((r) => {
           const banned = r.auto_banned
-            ? '<span class="pill bad">auto-ban</span>'
+            ? r.priority_mod
+              ? '<span class="pill bad">priority ban</span>'
+              : '<span class="pill bad">auto-ban</span>'
+            : "";
+          const ipBit = r.target_ip
+            ? `<div class="uid" title="IP">${escapeHtml(r.target_ip)}</div>`
             : "";
           return `<tr>
           <td class="muted">${escapeHtml(fmtTime(r.t))}</td>
           <td>
             <div>${escapeHtml(r.target_name || "—")} ${banned}</div>
             <div class="uid" title="${escapeAttr(r.target_user_id)}">${escapeHtml(shortId(r.target_user_id))}</div>
+            ${ipBit}
           </td>
           <td>
-            <div>${escapeHtml(r.reporter_name || r.reporter_short || "—")}</div>
+            <div>${escapeHtml(r.reporter_name || r.reporter_short || "—")}${
+            r.priority_mod ? ' <span class="pill ok">mod</span>' : ""
+          }</div>
             <div class="uid" title="${escapeAttr(r.reporter_user_id)}">${escapeHtml(shortId(r.reporter_user_id))}</div>
           </td>
           <td>${escapeHtml(r.reason || "—")}</td>
@@ -2062,9 +2159,11 @@
         $("st-online").textContent = data.online ?? 0;
         $("st-waiting").textContent = data.waiting ?? 0;
         $("st-reports").textContent = (data.reports || []).length;
-        $("st-bans").textContent = (data.bans || []).length;
+        $("st-bans").textContent =
+          (data.bans || []).length + (data.ip_bans || []).length;
         $("st-seeders").textContent = (data.seeders || []).length;
         renderBans(data.bans || []);
+        renderIpBans(data.ip_bans || []);
         renderRecentMatches(data.recent_matches || []);
         renderReports(data.reports || []);
         renderTargets(data.targets || []);
@@ -2074,7 +2173,7 @@
           online: data.online ?? 0,
           waiting: data.waiting ?? 0,
           reports: (data.reports || []).length,
-          bans: (data.bans || []).length,
+          bans: (data.bans || []).length + (data.ip_bans || []).length,
           metrics: data.metrics || {},
         });
         await loadMesh();
@@ -2100,11 +2199,24 @@
     }
 
     async function unban(uid) {
-      if (!uid || !confirm("Unban " + uid + "?")) return;
+      if (!uid || !confirm("Unban user " + uid + " (and linked IPs)?")) return;
       try {
         await api("/v1/admin/unban", {
           method: "POST",
           body: JSON.stringify({ user_id: uid }),
+        });
+        await refresh();
+      } catch (e) {
+        showErr(e.message || String(e));
+      }
+    }
+
+    async function unbanIp(ip) {
+      if (!ip || !confirm("Unban IP " + ip + " only?")) return;
+      try {
+        await api("/v1/admin/unban", {
+          method: "POST",
+          body: JSON.stringify({ ip }),
         });
         await refresh();
       } catch (e) {

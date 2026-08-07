@@ -58,7 +58,7 @@ else
 listening-ip=0.0.0.0
 listening-port=3478
 min-port=49160
-max-port=49300
+max-port=53160
 fingerprint
 lt-cred-mech
 use-auth-secret
@@ -67,12 +67,28 @@ realm=${DOMAIN}
 server-name=${DOMAIN}
 external-ip=${PUBLIC_IP}
 no-multicast-peers
+no-loopback-peers
 no-cli
 simple-log
 log-file=/var/log/turnserver/turn.log
 verbose
 EOF
 fi
+
+# Prefer HOST coturn. Docker coturn-ruletka lost /etc mount + auth secret
+# (default conf, no static-auth-secret) → ALLOCATE/CHANNEL_BIND failed and
+# same-house force_relay matches stayed black forever.
+if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'coturn-ruletka'; then
+  echo "Stopping docker coturn-ruletka — host unit is authoritative"
+  docker stop coturn-ruletka 2>/dev/null || true
+  docker rm coturn-ruletka 2>/dev/null || true
+fi
+SKIP_HOST_COTURN=0
+# Ensure log dir writable by turnserver user
+mkdir -p /var/log/turnserver
+chown -R turnserver:turnserver /var/log/turnserver 2>/dev/null || true
+touch /var/log/turnserver/turn.log
+chown turnserver:turnserver /var/log/turnserver/turn.log 2>/dev/null || true
 
 # Enable coturn daemon
 if [[ -f /etc/default/coturn ]]; then
@@ -83,13 +99,20 @@ fi
 # Firewall
 ufw allow 3478/tcp comment 'TURN'
 ufw allow 3478/udp comment 'TURN'
-ufw allow 49160:49300/udp comment 'TURN relay'
-ufw allow 49160:49300/tcp comment 'TURN relay'
+# Drop legacy narrow relay range if present, then open the wide range
+ufw delete allow 49160:49300/udp 2>/dev/null || true
+ufw delete allow 49160:49300/tcp 2>/dev/null || true
+ufw allow 49160:53160/udp comment 'TURN relay'
+ufw allow 49160:53160/tcp comment 'TURN relay'
 yes | ufw enable || true
 ufw status | head -30 || true
 
-systemctl enable coturn
-systemctl restart coturn
+if [[ "${SKIP_HOST_COTURN:-0}" != "1" ]]; then
+  systemctl enable coturn
+  systemctl restart coturn
+else
+  echo "skipped host coturn enable/restart"
+fi
 sleep 1
 systemctl --no-pager --full status coturn | head -20 || true
 
@@ -109,5 +132,5 @@ echo "=== config.json turn snippet ==="
 curl -sS http://127.0.0.1:8790/config.json | head -c 2000 || true
 echo
 echo "TURN public: turn:${DOMAIN}:3478 (UDP/TCP) on ${PUBLIC_IP}"
-echo "Relay UDP/TCP: 49160-49300"
+echo "Relay UDP/TCP: 49160-53160"
 echo "Done."

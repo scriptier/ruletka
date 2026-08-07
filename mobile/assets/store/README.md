@@ -1,19 +1,20 @@
 # Store marketing assets
 
-Generated from `ui/brand/` for Play / App Store listings.
+Source art: `../icon-source.jpg` (copied from `~/Pictures/icon.jpg`).
 
 | File | Use |
 |------|-----|
-| `app-icon-1024.png` | App Store / Play high-res icon |
+| `app-icon-1024.png` | Google Play / App Store high-res icon (upload this) |
 | `play-feature-1024x500.png` | Google Play feature graphic |
 | `apple-touch-180.png` | Reference |
 
-Expo app uses `../icon.png`, `../adaptive-icon.png`, `../splash-icon.png`.
+Expo app icons: `../icon.png`, `../adaptive-icon.png`, `../splash-icon.png`.
 
-Regenerate:
+Regenerate after replacing the source:
 
 ```bash
-python3 scripts/gen-store-assets.py
+cp ~/Pictures/icon.jpg mobile/assets/icon-source.jpg
+cd mobile && python3 scripts/gen-store-assets.py
 ```
 
-Screenshots: capture on device/emulator after native build (Live, Friends, Settings).
+**Play Console:** Store listing → App icon → upload `app-icon-1024.png`.

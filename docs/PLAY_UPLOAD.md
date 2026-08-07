@@ -1,53 +1,65 @@
-# Google Play Internal testing — upload AAB
+# Google Play Console — upload (current)
 
-Package: **`me.ruletka.app`**
+Package: **`me.ruletka.app`**  
+Current local binary: **0.1.98 · versionCode 97**  
+Ops checklist: [`PLAY_OPS.md`](PLAY_OPS.md) · Data safety: [`PLAY_DATA_SAFETY.md`](PLAY_DATA_SAFETY.md)
 
-## Ready binaries
-
-| Version code | Source |
-|--------------|--------|
-| **6** (prefer) | [EAS build](https://expo.dev/accounts/courtiers-team/projects/ruletka/builds/d6de984a-72d7-48ee-a59f-24e2da3b8785) · [AAB download](https://expo.dev/artifacts/eas/GfChIFs_P8ZgFKav1jqyZ9mnBWlOUJg1ixepxDo6IN8.aab) · local `mobile/artifacts/ruletka-0.1.0-vc6.aab` |
-| **5** | [EAS](https://expo.dev/accounts/courtiers-team/projects/ruletka/builds/9d626558-8b8c-465b-b7e1-4b2f05e0d101) · `mobile/artifacts/ruletka-0.1.0-vc5.aab` |
-| **4** | [Expo artifact](https://expo.dev/artifacts/eas/1Zg9q_UtLbeKCEmXeyY4rVKZMStgPOne51jZS36NQKE.aab) · `mobile/artifacts/ruletka-0.1.0-vc4.aab` |
-
-Prefer **vc6** (commit `896e6be` — latest `main`, hub `https://ruletka.vip`).
-
-## Manual upload (no API key)
-
-1. [Play Console](https://play.google.com/console) → app **me.ruletka.app**
-2. **Testing → Internal testing → Create new release**
-3. Upload `mobile/artifacts/ruletka-0.1.0-vc6.aab` (or the EAS AAB link above)
-4. Release notes (draft):
-
-```
-Internal build vc6: stranger match, friends, stars/reputation, safety tools.
-Hub: ruletka.vip · 18+ only.
-```
-
-5. Review → **Start rollout to Internal testing**
-6. Add testers (email list or Google Group)
-7. Share the opt-in link from Play Console
-
-## Auto-submit (optional)
-
-Save Play service account JSON as:
+## Ready AAB (upload this)
 
 ```text
-mobile/secrets/google-play.json
+mobile/artifacts/ruletka-0.1.98-vc106.aab
 ```
 
-Then:
+~56 MB · signed with Play upload keystore (`mobile/secrets/ruletka-upload.jks`)  
+Sideload APK: https://ruletka.vip/download/ruletka-android-latest.apk
+
+### Rebuild anytime
 
 ```bash
 cd mobile
-npx eas-cli submit --profile production --platform android --id d6de984a-72d7-48ee-a59f-24e2da3b8785
-# or:
-npx eas-cli submit --profile production --platform android --latest
+./scripts/build-aab-local.sh          # uses versionCode in android/app/build.gradle
+./scripts/build-aab-local.sh 98     # next Play upload must be versionCode > last published
+./scripts/play-status.sh            # readiness + pasteable release notes
+./scripts/play-status.sh --notes
 ```
 
-See `mobile/secrets/README.md`.
+Needs: Android SDK 35 + JDK 17 + keystore files in `mobile/secrets/` (see `secrets/README.md`).
 
-## After upload
+---
 
-- Device smoke: [`DEVICE_SMOKE.md`](DEVICE_SMOKE.md)
-- Support / privacy URLs already on listing draft: `mobile/assets/store/LISTING.md`
+## Play Console — step by step
+
+Open: [play.google.com/console](https://play.google.com/console) → app **me.ruletka.app**
+
+### 1) Internal testing (recommended first)
+
+1. **Testing → Internal testing → Create new release**
+2. Upload: `mobile/artifacts/ruletka-0.1.98-vc106.aab`
+3. **Release name:** `0.1.98 (106)`
+4. **Release notes** (EN — or `./scripts/play-status.sh --notes`):
+
+```
+0.1.98 (106) — closed testing
+
+• Start flips to Next/Stop immediately; icon mic/cam/flip/friends
+• Friends icon: share invite or open Friends
+• Rate/review only after chats of 5+ minutes
+• Adaptive A/V + soft/hard reconnect (phone↔browser)
+• Friends call/DMs; report + block; 18+ gate
+• Child safety: ruletka.vip/legal/child-safety.html
+
+Hub: https://ruletka.vip
+Support: support@ruletka.me
+```
+
+5. **Review → Start rollout to Internal testing**
+6. **Testers** tab → add email list / Google Group  
+7. Copy the **opt-in link** and open it on each test device (must accept once)
+
+### 2) Closed / open testing (later)
+
+Same AAB can be promoted: **Promote release** → Closed testing → Production when ready.
+
+### 3) Store listing (if empty)
+
+Copy from `mobile/assets/store/LISTING.md`.

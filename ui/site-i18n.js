@@ -20,7 +20,7 @@
     { code: "ar", native: "العربية" },
     { code: "zh", native: "中文" },
   ];
-  var PACK_V = "134";
+  var PACK_V = "136";
   var packCache = {};
   var current = "ru";
 
