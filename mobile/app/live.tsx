@@ -694,7 +694,11 @@ export default function LiveScreen() {
           <Pressable style={styles.btnGhost} onPress={toggleMic}>
             <Text style={styles.btnText}>{micOn ? t("mobile.live.micOn") : t("mobile.live.micOff")}</Text>
           </Pressable>
-          <Pressable style={styles.btnGhost} onPress={toggleCam}>
+          <Pressable
+            style={styles.btnGhost}
+            onPress={toggleCam}
+            accessibilityHint={camOn ? undefined : t("mobile.live.camOffHint")}
+          >
             <Text style={styles.btnText}>{camOn ? t("mobile.live.camOn") : t("mobile.live.camOff")}</Text>
           </Pressable>
           <Pressable
@@ -713,6 +717,9 @@ export default function LiveScreen() {
             </Pressable>
           )}
         </View>
+        {!camOn ? (
+          <Text style={styles.camOffHint}>{t("mobile.live.camOffHint")}</Text>
+        ) : null}
         <Pressable onPress={() => setShowLog((v) => !v)}>
           <Text style={styles.logToggle}>
             {showLog ? t("mobile.live.hideLog") : t("mobile.live.showLog")}
@@ -900,6 +907,13 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     paddingHorizontal: 4,
     marginBottom: 4,
+  },
+  camOffHint: {
+    color: "#9aa8bc",
+    fontSize: 11,
+    lineHeight: 16,
+    paddingHorizontal: 4,
+    marginTop: 2,
   },
   row: { flexDirection: "row", gap: 8 },
   btn: {

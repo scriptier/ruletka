@@ -23,6 +23,7 @@
   "mobile.live.micOff": "麦克风关",
   "mobile.live.camOn": "摄像头开",
   "mobile.live.camOff": "摄像头关",
+  "mobile.live.camOffHint": "对方看不到你",
   "mobile.live.report": "举报",
   "mobile.live.invite": "邀请",
   "mobile.live.showLog": "显示调试日志",

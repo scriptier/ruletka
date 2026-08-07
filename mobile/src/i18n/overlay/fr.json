@@ -23,6 +23,7 @@
   "mobile.live.micOff": "Micro off",
   "mobile.live.camOn": "Cam on",
   "mobile.live.camOff": "Cam off",
+  "mobile.live.camOffHint": "Masqué pour eux",
   "mobile.live.report": "Signaler",
   "mobile.live.invite": "Inviter",
   "mobile.live.showLog": "Afficher le log",

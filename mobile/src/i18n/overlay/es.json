@@ -23,6 +23,7 @@
   "mobile.live.micOff": "Mic off",
   "mobile.live.camOn": "Cám on",
   "mobile.live.camOff": "Cám off",
+  "mobile.live.camOffHint": "Oculto para ellos",
   "mobile.live.report": "Reportar",
   "mobile.live.invite": "Invitar",
   "mobile.live.showLog": "Mostrar log de depuración",
