@@ -253,6 +253,13 @@ export class MediaSession {
   private startCallInFlightAt = 0;
   /** Wall clock of last remote offer applied (blocks early promote). */
   private lastRemoteOfferAt = 0;
+  /**
+   * Wall clock when a real remote "offer" signal was received but not yet
+   * applied (hasRemoteDescription still flips async after ICE-config / GUM wait).
+   * armOfferWatchdog must not promote while a real offer is already in this pipe
+   * — that race caused hub ~0.8s/~4s duplicate-offer debounce drops (003).
+   */
+  private pendingRemoteOfferSince = 0;
   private rtc: WebrtcMod | null = null;
   private iceRestartCount = 0;
   private iceRestartAt = 0;
@@ -1425,6 +1432,16 @@ export class MediaSession {
           if (this.offerSentThisCall || this.hasRemoteDescription) return;
           if (this.gotRemoteVideo) return;
           if (this.pc?.remoteDescription) return;
+          // Real offer mid-flight (queued behind ICE/GUM) — do not race promote
+          if (
+            this.pendingRemoteOfferSince &&
+            Date.now() - this.pendingRemoteOfferSince < 4000
+          ) {
+            this.handlers.onConnectionState?.(
+              "offer_watchdog_skip_pending_remote"
+            );
+            return;
+          }
           // Ensure we have a PC + try cam once more before offering
           if (!this.localStream) {
             try {
@@ -1435,6 +1452,18 @@ export class MediaSession {
             } catch {
               /* ignore */
             }
+          }
+          // Re-check — real offer may have landed during GUM race above
+          if (this.offerSentThisCall || this.hasRemoteDescription) return;
+          if (this.pc?.remoteDescription) return;
+          if (
+            this.pendingRemoteOfferSince &&
+            Date.now() - this.pendingRemoteOfferSince < 4000
+          ) {
+            this.handlers.onConnectionState?.(
+              "offer_watchdog_skip_pending_remote"
+            );
+            return;
           }
           if (!this.pc) this.ensurePc();
           if (!this.isOfferer) {
@@ -1896,6 +1925,9 @@ export class MediaSession {
   }
 
   async handleRemoteSignal(kind: string, payload: string): Promise<void> {
+    // Mark offer inbound BEFORE queueing / ICE-config+GUM await so promote
+    // watchdog does not race a real offer already in the pipe (003).
+    if (kind === "offer") this.pendingRemoteOfferSince = Date.now();
     // Serialize SDP handling; ICE can still queue in parallel via pendingRemoteIce
     this.signalChain = this.signalChain
       .then(() => this.handleRemoteSignalInner(kind, payload))
@@ -1946,11 +1978,17 @@ export class MediaSession {
     this.markConnectStart(`signal_${kind}`);
     // Parallel prep — browser often sends offer before startCall finishes.
     // Don't stall answer on ICE HTTP if we already have servers.
+    // Cap GUM like startCall — uncapped await left answerer silent on cold cam (002).
     await Promise.all([
       this.hasIceServers()
         ? Promise.resolve(true)
         : this.waitForIceConfig(1000),
-      this.ensureLocalStream(),
+      Promise.race([
+        this.ensureLocalStream(),
+        new Promise<MediaStreamLike | null>((resolve) =>
+          setTimeout(() => resolve(this.localStream), 1100)
+        ),
+      ]),
     ]);
     // Mark call started on first signal so timers work.
     if (!this.callStartAt) this.callStartAt = Date.now();
@@ -2024,6 +2062,7 @@ export class MediaSession {
         if (!pc2) return;
         await pc2.setRemoteDescription(new rtc.RTCSessionDescription(desc));
         this.hasRemoteDescription = true;
+        this.pendingRemoteOfferSince = 0;
         this.isOfferer = false;
         this.lastRemoteOfferAt = Date.now();
         this.markPhase("offer_applied");
@@ -2094,6 +2133,8 @@ export class MediaSession {
       }
     } catch (e) {
       this.handlers.onError?.(e instanceof Error ? e : new Error(String(e)));
+    } finally {
+      if (kind === "offer") this.pendingRemoteOfferSince = 0;
     }
   }
 
@@ -2230,6 +2271,7 @@ export class MediaSession {
     this.iceRestartAt = 0;
     this.lastOfferAt = 0;
     this.lastRemoteOfferAt = 0;
+    this.pendingRemoteOfferSince = 0;
     this.offerSentThisCall = false;
     this.gotAnswerThisCall = false;
     this.startCallInFlight = false;

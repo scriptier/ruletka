@@ -1270,6 +1270,7 @@ class RouletteWebRtc {
     this._offerInFlight = false;
     this._offerSentOnce = false;
     this._lastOfferAt = 0;
+    this._pendingRemoteOfferSince = 0;
     this.pc.onicecandidate = (ev) => {
       if (!ev.candidate) return;
       // Force-relay: never trickle host/srflx — peer TURN would CREATE_PERMISSION
@@ -1401,6 +1402,14 @@ class RouletteWebRtc {
         if (!this.pc) return;
         if (this.pc.remoteDescription || this.pc.currentRemoteDescription) return;
         if (this._offerSentOnce || this._offerInFlight) return;
+        // Real offer already arrived and still applying — don't race promote (003)
+        if (
+          this._pendingRemoteOfferSince &&
+          Date.now() - this._pendingRemoteOfferSince < 4000
+        ) {
+          console.info("[webrtc] offer watchdog — skip, remote offer pending");
+          return;
+        }
         const live =
           this.remoteStream &&
           (this.remoteStream.getVideoTracks?.() || []).some(
@@ -1616,6 +1625,7 @@ class RouletteWebRtc {
   }
 
   async handleRemoteSignal(kind, payload) {
+    if (kind === "offer") this._pendingRemoteOfferSince = Date.now();
     if (!this.pc) await this.connect();
     if (kind === "offer") {
       const raw = JSON.parse(payload);
@@ -1699,6 +1709,7 @@ class RouletteWebRtc {
       }
       if (raw?.sdp) this._lastRemoteOfferSdp = String(raw.sdp).slice(0, 200);
       await this.pc.setRemoteDescription(desc);
+      this._pendingRemoteOfferSince = 0;
       this.isOfferer = false;
       preferCodecs(this.pc);
       // Flush ICE in parallel with answer SDP — don't delay first answer
