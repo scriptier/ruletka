@@ -187,19 +187,21 @@ export const liveStyles = StyleSheet.create({
     backgroundColor: "rgba(40,70,120,0.55)",
   },
   peerChipText: { color: "#c8d4e4", fontSize: 11, fontWeight: "600" },
+  /* 3-way / multi: side-by-side (horizontal) instead of vertical stack */
   splitRemote: {
     ...StyleSheet.absoluteFillObject,
-    flexDirection: "column",
+    flexDirection: "row",
   },
   splitTile: {
     flex: 1,
     overflow: "hidden",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(255,255,255,0.12)",
+    borderBottomWidth: 0,
+    borderRightWidth: StyleSheet.hairlineWidth,
+    borderRightColor: "rgba(255,255,255,0.12)",
   },
   splitTileFocus: {
     flex: 1.35,
-    borderBottomColor: "rgba(100,160,255,0.35)",
+    borderRightColor: "rgba(100,160,255,0.35)",
   },
   splitLabel: {
     position: "absolute",

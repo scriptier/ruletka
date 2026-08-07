@@ -10480,7 +10480,7 @@ function setSplitRemote(on) {
 }
 
 const STAGE_LAYOUT_KEY = "ruletka-stage-layout-v1";
-/** @type {"stack"|"grid"} stack = vertical conversationalists; grid = equal windows */
+/** @type {"stack"|"grid"} stack = horizontal conversationalists; grid = equal windows */
 let stageLayoutMode = "stack";
 
 function loadStageLayoutPref() {
@@ -10536,7 +10536,7 @@ function isMultiPartyStage() {
 }
 
 /**
- * Apply stack (vertical conversationalists) or equal grid layout.
+ * Apply stack (horizontal conversationalists) or equal grid layout.
  * Default stack; user can toggle to 2×2 equal windows.
  */
 /**
@@ -10655,7 +10655,7 @@ function toggleStageLayoutMode() {
   setStatus(
     stageLayoutMode === "grid"
       ? _t("layout.gridOn") || "Equal grid layout"
-      : _t("layout.stackOn") || "Vertical stack layout"
+      : _t("layout.stackOn") || "Horizontal stack layout"
   );
 }
 
