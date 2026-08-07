@@ -11,7 +11,9 @@
  */
 
 /** Pre-gather host/srflx candidates before createOffer (faster first match). */
-const ICE_CANDIDATE_POOL_SIZE = 8;
+// Pre-gather a few candidates (hub TURN port range is wide enough now).
+// Too high thrashs coturn; too low slows first phone↔browser media.
+const ICE_CANDIDATE_POOL_SIZE = 2;
 
 const DEFAULT_ICE = {
   iceServers: [
@@ -151,6 +153,76 @@ function filterIceServersByMode(raw, mode) {
 }
 
 /**
+ * True when candidate string is a TURN relay (typ relay).
+ * Used to drop host/srflx under force-relay so coturn never gets CREATE_PERMISSION
+ * for private/link-local peers (403 Forbidden IP → black video).
+ * @param {RTCIceCandidateInit | RTCIceCandidate | string | null | undefined} c
+ * @returns {boolean}
+ */
+function isRelayIceCandidate(c) {
+  if (c == null) return false;
+  const s =
+    typeof c === "string"
+      ? c
+      : String(
+          /** @type {{ candidate?: string }} */ (c).candidate ||
+            /** @type {{ toJSON?: () => { candidate?: string } }} */ (c).toJSON?.()
+              ?.candidate ||
+            ""
+        );
+  if (!s) return false;
+  // SDP a=candidate:… typ relay …
+  return /\btyp\s+relay\b/i.test(s) || / typ relay /i.test(s);
+}
+
+/**
+ * Whether we should only exchange relay ICE candidates right now.
+ * @returns {boolean}
+ */
+function shouldFilterToRelayCandidates() {
+  return isRelayMediaMode();
+}
+
+/**
+ * Remove host/srflx candidates from SDP. iceTransportPolicy=relay only limits
+ * *local* gathering — remote host lines in the SDP still trigger CREATE_PERMISSION
+ * for private IPs (coturn 403 / hairpin black video). Must strip before setRemote.
+ * @param {string} sdp
+ * @returns {string}
+ */
+function stripNonRelayCandidatesFromSdp(sdp) {
+  if (!sdp || typeof sdp !== "string") return sdp;
+  const lines = sdp.split(/\r?\n/);
+  const out = [];
+  let dropped = 0;
+  for (const line of lines) {
+    if (/^a=candidate:/i.test(line)) {
+      if (!/\btyp\s+relay\b/i.test(line)) {
+        dropped += 1;
+        continue;
+      }
+    }
+    // end-of-candidates is fine to keep
+    out.push(line);
+  }
+  if (dropped) {
+    console.info(`[webrtc] stripped ${dropped} non-relay candidate line(s) from SDP`);
+  }
+  return out.join("\r\n");
+}
+
+/**
+ * @param {RTCSessionDescriptionInit | { type?: string, sdp?: string }} desc
+ * @returns {RTCSessionDescriptionInit}
+ */
+function sanitizeRemoteDescription(desc) {
+  if (!desc || !shouldFilterToRelayCandidates()) return desc;
+  const sdp = desc.sdp;
+  if (!sdp) return desc;
+  return { type: desc.type, sdp: stripNonRelayCandidatesFromSdp(sdp) };
+}
+
+/**
  * Apply ICE policy from prefs:
  * - hideIpRelayOnly or sessionForceRelay → iceTransportPolicy "relay" + TURN only
  * - preferDirectOnly → STUN only (no TURN)
@@ -226,35 +298,100 @@ function preferTcpTurnFirst(servers) {
   });
 }
 
-async function loadRtcConfig(base = "") {
-  try {
-    const url = `${base.replace(/\/$/, "")}/config.json`;
-    const r = await fetch(url, { cache: "no-store" });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const j = await r.json();
-    if (j.ice_servers) {
-      lastRawIceServers = normalizeIceServers(j.ice_servers);
-      applyIceDirectPreference();
+/** Memory cache so match path rarely blocks on /config.json. */
+let iceConfigFetchedAt = 0;
+let iceConfigInflight = null;
+
+async function loadRtcConfig(base = "", opts = {}) {
+  const force = !!opts.force;
+  const now = Date.now();
+  const maxAge = 5 * 60 * 1000;
+  const softAge = 90 * 1000;
+  if (
+    !force &&
+    iceConfigFetchedAt &&
+    lastRawIceServers?.length &&
+    now - iceConfigFetchedAt < maxAge
+  ) {
+    if (now - iceConfigFetchedAt > softAge && !iceConfigInflight) {
+      void loadRtcConfigFresh(base).catch(() => {});
     }
-    lastIceMeta = j;
-    if (iceRefreshTimer) clearInterval(iceRefreshTimer);
-    if (j.turn_ephemeral && j.turn_ttl_secs) {
-      const refreshMs = Math.max(60_000, (Number(j.turn_ttl_secs) * 1000) / 2);
-      iceRefreshTimer = setInterval(() => {
-        loadRtcConfig(base).catch(() => {});
-      }, refreshMs);
-    }
-    return { config: iceConfig, meta: j };
-  } catch (e) {
-    console.warn("[webrtc] config.json failed, using default STUN", e);
-    lastRawIceServers = [...DEFAULT_ICE.iceServers];
-    applyIceDirectPreference();
-    return { config: iceConfig, meta: null, error: String(e.message || e) };
+    return { config: iceConfig, meta: lastIceMeta, cached: true };
   }
+  return loadRtcConfigFresh(base);
+}
+
+async function loadRtcConfigFresh(base = "") {
+  if (iceConfigInflight) return iceConfigInflight;
+  iceConfigInflight = (async () => {
+    try {
+      const url = `${base.replace(/\/$/, "")}/config.json`;
+      const r = await fetch(url, { cache: "no-store" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = await r.json();
+      if (j.ice_servers) {
+        lastRawIceServers = normalizeIceServers(j.ice_servers);
+        applyIceDirectPreference();
+      }
+      lastIceMeta = j;
+      iceConfigFetchedAt = Date.now();
+      if (iceRefreshTimer) clearInterval(iceRefreshTimer);
+      if (j.turn_ephemeral && j.turn_ttl_secs) {
+        const refreshMs = Math.max(60_000, (Number(j.turn_ttl_secs) * 1000) / 2);
+        iceRefreshTimer = setInterval(() => {
+          loadRtcConfigFresh(base).catch(() => {});
+        }, refreshMs);
+      }
+      return { config: iceConfig, meta: j };
+    } catch (e) {
+      console.warn("[webrtc] config.json failed, using default STUN", e);
+      if (!lastRawIceServers?.length) {
+        lastRawIceServers = [...DEFAULT_ICE.iceServers];
+        applyIceDirectPreference();
+      }
+      return { config: iceConfig, meta: lastIceMeta, error: String(e.message || e) };
+    } finally {
+      iceConfigInflight = null;
+    }
+  })();
+  return iceConfigInflight;
 }
 
 function getIceConfig() {
   return iceConfig;
+}
+
+/**
+ * Pre-gather ICE (host/srflx + TURN alloc) while user is in the queue.
+ * Closed on match so the real call PC starts with warm network paths.
+ * @returns {void}
+ */
+let iceWarmPc = null;
+function warmIcePool() {
+  try {
+    if (iceWarmPc) return;
+    const cfg = getIceConfig();
+    if (!cfg?.iceServers?.length) return;
+    iceWarmPc = new RTCPeerConnection(cfg);
+    // Dummy channel + offer kicks candidate gathering without publishing media
+    try {
+      iceWarmPc.createDataChannel("ruletka-warm");
+    } catch (_) {}
+    iceWarmPc
+      .createOffer({ offerToReceiveAudio: false, offerToReceiveVideo: false })
+      .then((o) => iceWarmPc && iceWarmPc.setLocalDescription(o))
+      .catch(() => {});
+  } catch (e) {
+    console.warn("[webrtc] warmIcePool", e);
+    iceWarmPc = null;
+  }
+}
+
+function clearIceWarm() {
+  try {
+    iceWarmPc?.close();
+  } catch (_) {}
+  iceWarmPc = null;
 }
 
 function getIceMeta() {
@@ -1058,17 +1195,92 @@ class RouletteWebRtc {
   }
 
   async connect() {
+    // Free queue warm PC so TURN ports go to this call
+    try {
+      if (typeof clearIceWarm === "function") clearIceWarm();
+    } catch (_) {}
+    // CRITICAL: never tear down a PC that is already negotiating / live.
+    // Double connect() was closing PC1 mid-offer and sending a second offer
+    // (hub logs: offer → answer → offer ~0.3s later) → black video thrash.
+    // Exception: force_relay armed on a non-relay PC — must rebuild or
+    // same-house matches stay black (host hairpin never works).
+    const needRelayRebuild =
+      isRelayMediaMode() &&
+      this.pc &&
+      !this._relayPc &&
+      this.pc.iceConnectionState !== "connected" &&
+      this.pc.iceConnectionState !== "completed" &&
+      !(
+        this.remoteStream &&
+        (this.remoteStream.getVideoTracks?.() || []).some(
+          (t) => t.readyState === "live"
+        )
+      );
+    if (needRelayRebuild) {
+      console.info("[webrtc] connect() rebuild — force_relay on non-relay PC");
+      try {
+        this.pc.close();
+      } catch (_) {}
+      this.pc = null;
+      this._offerInFlight = false;
+      this._offerSentOnce = false;
+    } else if (
+      this.pc &&
+      this.pc.signalingState !== "closed" &&
+      this.pc.connectionState !== "closed" &&
+      (this.pc.localDescription ||
+        this.pc.remoteDescription ||
+        this._offerInFlight ||
+        this.pc.signalingState === "have-local-offer" ||
+        this.pc.signalingState === "have-remote-offer" ||
+        this.pc.iceConnectionState === "connected" ||
+        this.pc.iceConnectionState === "completed" ||
+        this.pc.connectionState === "connected")
+    ) {
+      // Do NOT keep on ice=checking alone — that was black forever after
+      // failed TURN/hairpin rematches (zero new offers on hub).
+      console.info(
+        "[webrtc] connect() skip — PC already active",
+        this.pc.signalingState,
+        this.pc.iceConnectionState
+      );
+      // CRITICAL: still ensure SDP. Skip used to leave answerer with no watchdog
+      // while phone-offerer stayed silent 15–25s → "still slow".
+      if (this.isOfferer && !this._offerSentOnce && !this._offerInFlight) {
+        void this._createAndSendOffer({ iceRestart: false });
+      } else if (!this.isOfferer && !this._offerSentOnce) {
+        this._armOfferWatchdog(280);
+      }
+      return;
+    }
     if (this.pc) {
       this.pc.close();
       this.pc = null;
     }
     this._chatDc = null;
     this._chatDcOpen = false;
+    this._pendingRemoteIce = [];
+    // Always refresh policy before PC (match may have armed force_relay mid-flight)
+    try {
+      applyIceDirectPreference();
+    } catch (_) {}
     this.pc = new RTCPeerConnection(iceConfig);
+    this._pcBornAt = Date.now();
+    this._relayPc = isRelayMediaMode();
+    this._offerInFlight = false;
+    this._offerSentOnce = false;
+    this._lastOfferAt = 0;
     this.pc.onicecandidate = (ev) => {
-      if (ev.candidate) {
-        this._emitSignal("ice", JSON.stringify(ev.candidate));
+      if (!ev.candidate) return;
+      // Force-relay: never trickle host/srflx — peer TURN would CREATE_PERMISSION
+      // private/link-local addresses → coturn 403 and wasted ICE time.
+      if (
+        shouldFilterToRelayCandidates() &&
+        !isRelayIceCandidate(ev.candidate)
+      ) {
+        return;
       }
+      this._emitSignal("ice", JSON.stringify(ev.candidate));
     };
     this.pc.onconnectionstatechange = () => {
       this.hooks.onConnectionState?.(this.pc.connectionState);
@@ -1150,16 +1362,161 @@ class RouletteWebRtc {
     }
 
     preferCodecs(this.pc);
-    await this.applyQualityTier(this._qualityTier || "high");
+    // Don't block first SDP on setParameters — apply encodings in parallel
+    void this.applyQualityTier(this._qualityTier || "high");
 
+    // Fast connect: if phone is offerer and silent, browser promotes sooner
+    // (400ms was still allowing multi-second "no offer" when phone GUM stalled)
+    this._armOfferWatchdog(this.isOfferer ? 500 : 280);
     if (this.isOfferer) {
-      const offer = await this.pc.createOffer({
-        offerToReceiveAudio: true,
-        offerToReceiveVideo: true,
-      });
-      await this.pc.setLocalDescription(offer);
-      this._emitSignal("offer", JSON.stringify(this.pc.localDescription));
+      const t0 = Date.now();
+      await this._createAndSendOffer({ iceRestart: false });
+      console.info("[webrtc] offer path ms", Date.now() - t0);
     }
+    // After connect: re-push outbound cam (live.js wires this to real tracks
+    // unless user Hide is active). Fixes phone seeing black while browser ok.
+    try {
+      this.hooks.onConnectionState?.("tracks_sync");
+      if (typeof this.hooks.onNeedOutboundSync === "function") {
+        void this.hooks.onNeedOutboundSync();
+      } else if (
+        typeof window !== "undefined" &&
+        typeof window.pushOutboundVideoTracks === "function"
+      ) {
+        void window.pushOutboundVideoTracks();
+      }
+    } catch (_) {}
+  }
+
+  /**
+   * If we never receive an offer (peer stuck / wrong role), become offerer once.
+   */
+  _armOfferWatchdog(ms = 800) {
+    try {
+      if (this._offerWatchTimer) clearTimeout(this._offerWatchTimer);
+    } catch (_) {}
+    this._offerWatchTimer = setTimeout(() => {
+      this._offerWatchTimer = null;
+      try {
+        if (!this.pc) return;
+        if (this.pc.remoteDescription || this.pc.currentRemoteDescription) return;
+        if (this._offerSentOnce || this._offerInFlight) return;
+        const live =
+          this.remoteStream &&
+          (this.remoteStream.getVideoTracks?.() || []).some(
+            (t) => t.readyState === "live"
+          );
+        if (live) return;
+        if (!this.isOfferer) {
+          console.info("[webrtc] offer watchdog — promote answerer → offerer");
+          this.isOfferer = true;
+        } else {
+          console.info("[webrtc] offer watchdog — retry stuck offerer");
+        }
+        void this._createAndSendOffer({ iceRestart: false });
+      } catch (e) {
+        console.warn("[webrtc] offer watchdog", e);
+      }
+    }, ms);
+  }
+
+  /**
+   * Debounced createOffer. Blocks double-offer thrash (glare with phone promote).
+   * @param {{ iceRestart?: boolean }} [opts]
+   * @returns {Promise<boolean>}
+   */
+  async _createAndSendOffer(opts = {}) {
+    if (!this.pc || !this.isOfferer) return false;
+    const iceRestart = !!opts.iceRestart;
+    const now = Date.now();
+    // Already building an offer
+    if (this._offerInFlight) return false;
+    // One non-restart offer per PC lifetime (phone double-offer thrash)
+    if (!iceRestart && this._offerSentOnce) {
+      console.info("[webrtc] skip offer — already sent this PC");
+      return false;
+    }
+    // Block iceRestart for first 15s of this PC
+    const pcAge = this._pcBornAt ? now - this._pcBornAt : 99999;
+    if (iceRestart && pcAge < 15000) {
+      console.info("[webrtc] skip iceRestart (PC grace)", pcAge);
+      return false;
+    }
+    // Block duplicate offers hard — phone promote + startCall glare thrash
+    // was 4 offer/answer pairs per match and killed media.
+    if (
+      !iceRestart &&
+      this._lastOfferAt &&
+      now - this._lastOfferAt < 8000
+    ) {
+      console.info("[webrtc] skip duplicate offer (debounce)");
+      return false;
+    }
+    // After a successful answer, never re-offer unless iceRestart (renego thrash)
+    if (
+      !iceRestart &&
+      this.pc.signalingState === "stable" &&
+      this.pc.currentRemoteDescription
+    ) {
+      console.info("[webrtc] skip renego offer (stable, use iceRestart)");
+      return false;
+    }
+    // Absolute: if we already have remote SDP and ICE is working/checking,
+    // never spam a second offer (was offer→answer→offer in <1s).
+    if (
+      !iceRestart &&
+      this.pc.currentRemoteDescription &&
+      (this.pc.iceConnectionState === "checking" ||
+        this.pc.iceConnectionState === "connected" ||
+        this.pc.iceConnectionState === "completed" ||
+        this.pc.connectionState === "connecting" ||
+        this.pc.connectionState === "connected")
+    ) {
+      console.info("[webrtc] skip offer — already have remote + ICE active");
+      return false;
+    }
+    this._offerInFlight = true;
+    if (!iceRestart) this._offerSentOnce = true;
+    try {
+      const offer = await this.pc.createOffer(
+        iceRestart
+          ? {
+              iceRestart: true,
+              offerToReceiveAudio: true,
+              offerToReceiveVideo: true,
+            }
+          : { offerToReceiveAudio: true, offerToReceiveVideo: true }
+      );
+      await this.pc.setLocalDescription(offer);
+      // Micro-gather only — trickle carries the rest
+      if (!iceRestart) await this._waitForInitialIce(80);
+      this._lastOfferAt = Date.now();
+      // Strip host/srflx from OUTBOUND SDP under force-relay so peer TURN
+      // never CREATE_PERMISSION private IPs (403 → black video).
+      let desc = this.pc.localDescription;
+      if (desc && shouldFilterToRelayCandidates() && desc.sdp) {
+        desc = {
+          type: desc.type,
+          sdp: stripNonRelayCandidatesFromSdp(String(desc.sdp)),
+        };
+      }
+      this._emitSignal("offer", JSON.stringify(desc));
+      return true;
+    } catch (e) {
+      console.warn("[webrtc] createOffer failed", e);
+      return false;
+    } finally {
+      this._offerInFlight = false;
+    }
+  }
+
+  /**
+   * Brief pause so localDescription can pick up early candidates.
+   * Do not rebind onicecandidate — trickle must keep firing uninterrupted.
+   * @param {number} maxMs
+   */
+  _waitForInitialIce(maxMs = 60) {
+    return new Promise((resolve) => setTimeout(resolve, maxMs));
   }
 
   /**
@@ -1174,26 +1531,32 @@ class RouletteWebRtc {
     const now = Date.now();
     const last = this._iceRestartAt || 0;
     const count = this._iceRestartCount || 0;
+    // First 15s of any match: let first offer/answer finish (double-offer thrash).
+    const pcAge = this._pcBornAt ? now - this._pcBornAt : 99999;
+    if (pcAge < 15000) {
+      console.info("[webrtc] skip early iceRestart (PC grace)", pcAge);
+      return false;
+    }
     // Restart already in flight — report success so callers don't hard-fail immediately
     if (last && now - last < 1800 && count > 0) return true;
-    // Auto: every 4s, up to 5 restarts (mobile Wi‑Fi / radio sleep flaps)
-    // Force (live soft-recover): up to 6 attempts, 2.5s cooldown
+    // Auto: every 5s, up to 4 restarts (mobile Wi‑Fi / radio sleep flaps)
+    // Force (live soft-recover): up to 5 attempts, 3s cooldown
     if (!force) {
-      if (now - last < 4000) return false;
-      if (count >= 5) return false;
+      if (now - last < 5000) return false;
+      if (count >= 4) return false;
     } else {
-      if (now - last < 2500) return count > 0;
-      if (count >= 6) return false;
+      if (now - last < 3000) return count > 0;
+      if (count >= 5) return false;
     }
     this._iceRestartAt = now;
     this._iceRestartCount = count + 1;
     try {
       if (this.isOfferer) {
-        const offer = await this.pc.createOffer({ iceRestart: true });
-        await this.pc.setLocalDescription(offer);
-        this._emitSignal("offer", JSON.stringify(this.pc.localDescription));
-        console.info("[webrtc] ICE restart offer sent", this._iceRestartCount);
-        return true;
+        const ok = await this._createAndSendOffer({ iceRestart: true });
+        if (ok) {
+          console.info("[webrtc] ICE restart offer sent", this._iceRestartCount);
+        }
+        return ok;
       }
       // Answerer: restartIce so the remote offerer renegotiates
       if (typeof this.pc.restartIce === "function") {
@@ -1255,27 +1618,173 @@ class RouletteWebRtc {
   async handleRemoteSignal(kind, payload) {
     if (!this.pc) await this.connect();
     if (kind === "offer") {
-      const desc = JSON.parse(payload);
+      const raw = JSON.parse(payload);
+      // Force-relay armed after warm PC was built with policy "all" → rebuild
+      // before setRemote or ICE "connects" direct with black video.
+      if (
+        shouldFilterToRelayCandidates() &&
+        (!this._relayPc || iceConfig.iceTransportPolicy !== "relay")
+      ) {
+        applyIceDirectPreference();
+        if (iceConfig.iceTransportPolicy === "relay" && !this._relayPc) {
+          console.info("[webrtc] rebuild PC for force_relay before answer");
+          try {
+            this.pc.close();
+          } catch (_) {}
+          this.pc = null;
+          this._pendingRemoteIce = [];
+          // Answerer connect — isOfferer false so no local offer
+          this.isOfferer = false;
+          await this.connect();
+        }
+      }
+      const desc = sanitizeRemoteDescription(raw);
+      // Glare / phone hard-retry as offerer: we may still have a local offer.
+      // Without rollback, setRemoteDescription fails → phone↔browser never connects.
+      const state = String(this.pc.signalingState || "");
+      if (state === "have-local-offer") {
+        try {
+          await this.pc.setLocalDescription({ type: "rollback" });
+          console.info("[webrtc] glare rollback for remote offer");
+        } catch (e) {
+          console.warn("[webrtc] rollback failed, recreate PC", e);
+          try {
+            this.pc.close();
+          } catch (_) {}
+          this.pc = null;
+          this._pendingRemoteIce = [];
+          this.isOfferer = false;
+          await this.connect();
+        }
+      }
+      // Skip exact duplicate offer while mid-answer (phone re-send thrash)
+      if (
+        this.pc.remoteDescription &&
+        state === "have-remote-offer" &&
+        this._lastRemoteOfferSdp &&
+        raw?.sdp &&
+        String(raw.sdp).slice(0, 200) === this._lastRemoteOfferSdp
+      ) {
+        console.info("[webrtc] skip duplicate remote offer");
+        return;
+      }
+      // Already answered — ignore re-offer thrash for 12s even if ICE still "new".
+      // Phone double-offer ~0.7s after first answer was killing video both ways.
+      if (
+        this.pc.currentRemoteDescription &&
+        this.pc.currentLocalDescription &&
+        this._answeredAt &&
+        Date.now() - this._answeredAt < 12000
+      ) {
+        console.info(
+          "[webrtc] skip remote offer — answered recently",
+          Date.now() - this._answeredAt
+        );
+        return;
+      }
+      if (
+        this.pc.currentRemoteDescription &&
+        this.pc.currentLocalDescription &&
+        (this.pc.iceConnectionState === "checking" ||
+          this.pc.iceConnectionState === "connected" ||
+          this.pc.iceConnectionState === "completed" ||
+          this.pc.connectionState === "connecting" ||
+          this.pc.connectionState === "connected")
+      ) {
+        console.info(
+          "[webrtc] skip remote offer — already negotiated, ICE",
+          this.pc.iceConnectionState
+        );
+        return;
+      }
+      if (raw?.sdp) this._lastRemoteOfferSdp = String(raw.sdp).slice(0, 200);
       await this.pc.setRemoteDescription(desc);
+      this.isOfferer = false;
       preferCodecs(this.pc);
+      // Flush ICE in parallel with answer SDP — don't delay first answer
+      const iceFlush = this._flushPendingIce();
       const answer = await this.pc.createAnswer();
       await this.pc.setLocalDescription(answer);
-      await this.applyQualityTier(this._qualityTier || "high");
-      this._emitSignal("answer", JSON.stringify(this.pc.localDescription));
+      // Answer ASAP — trickle ICE carries candidates (was 180ms stall)
+      await this._waitForInitialIce(40);
+      let ansDesc = this.pc.localDescription;
+      if (ansDesc && shouldFilterToRelayCandidates() && ansDesc.sdp) {
+        ansDesc = {
+          type: ansDesc.type,
+          sdp: stripNonRelayCandidatesFromSdp(String(ansDesc.sdp)),
+        };
+      }
+      this._emitSignal("answer", JSON.stringify(ansDesc));
+      this._answeredAt = Date.now();
+      void this.applyQualityTier(this._qualityTier || "high");
+      void iceFlush;
     } else if (kind === "answer") {
-      const desc = JSON.parse(payload);
-      if (!this.pc.currentRemoteDescription) {
+      const raw = JSON.parse(payload);
+      const desc = sanitizeRemoteDescription(raw);
+      try {
+        if (!this.pc) return;
+        const st = String(this.pc.signalingState || "");
+        // Only apply answers when we are waiting for one. Stale/late answers
+        // after a rebuild (or after already stable) throw and thrash the path.
+        if (
+          st !== "have-local-offer" &&
+          !(st === "stable" && !this.pc.currentRemoteDescription)
+        ) {
+          console.info(
+            "[webrtc] skip answer (state=" + st + ") — not awaiting"
+          );
+          return;
+        }
         await this.pc.setRemoteDescription(desc);
+        await this._flushPendingIce();
+      } catch (e) {
+        console.warn("[webrtc] answer apply failed", e, "state=", this.pc?.signalingState);
       }
     } else if (kind === "ice") {
       try {
-        await this.pc.addIceCandidate(JSON.parse(payload));
+        const c = JSON.parse(payload);
+        // Drop non-relay under force-relay — avoids coturn CREATE_PERMISSION 403
+        // on private host candidates from the peer.
+        if (
+          shouldFilterToRelayCandidates() &&
+          c &&
+          c.candidate &&
+          !isRelayIceCandidate(c)
+        ) {
+          return;
+        }
+        if (!this.pc?.remoteDescription) {
+          if (!this._pendingRemoteIce) this._pendingRemoteIce = [];
+          this._pendingRemoteIce.push(c);
+          return;
+        }
+        await this.pc.addIceCandidate(c);
       } catch (e) {
         console.warn("[webrtc] ice error", e);
       }
     } else if (kind === "bye") {
       this.closeCall({ keepLocal: true });
     }
+  }
+
+  async _flushPendingIce() {
+    let batch = (this._pendingRemoteIce || []).splice(0);
+    if (!batch.length || !this.pc) return;
+    if (shouldFilterToRelayCandidates()) {
+      batch = batch.filter(
+        (c) => !c?.candidate || isRelayIceCandidate(c)
+      );
+    }
+    if (!batch.length) return;
+    await Promise.all(
+      batch.map(async (c) => {
+        try {
+          await this.pc.addIceCandidate(c);
+        } catch (_) {
+          /* stale mid */
+        }
+      })
+    );
   }
 
   /**
@@ -1347,12 +1856,15 @@ if (typeof window !== "undefined") {
   window.listMediaDevices = listMediaDevices;
   window.loadRtcConfig = loadRtcConfig;
   window.getIceConfig = getIceConfig;
+  window.warmIcePool = warmIcePool;
+  window.clearIceWarm = clearIceWarm;
   window.applyIceDirectPreference = applyIceDirectPreference;
   window.preferDirectOnlyEnabled = preferDirectOnlyEnabled;
   window.hideIpRelayOnlyEnabled = hideIpRelayOnlyEnabled;
   window.sessionForceRelayEnabled = sessionForceRelayEnabled;
   window.setSessionForceRelay = setSessionForceRelay;
   window.isRelayMediaMode = isRelayMediaMode;
+  window.isRelayIceCandidate = isRelayIceCandidate;
   window.QUALITY_TIERS = QUALITY_TIERS;
   window.applyLowLatencyPlayout = applyLowLatencyPlayout;
   window.lowLatencyAudioConstraints = lowLatencyAudioConstraints;

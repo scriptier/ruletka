@@ -412,6 +412,27 @@ const peerPcs = new Map();
 /** @deprecated single-pc alias used by mute helpers */
 let rtc = null;
 let previewStream = null;
+/**
+ * Outbound mic boost (Web Audio): mild default gain so partners hear quiet laptop/phone
+ * mics a bit better. Unity (100%) bypasses the graph for best AEC.
+ */
+const MIC_BOOST_DEFAULT = 125;
+const MIC_BOOST_MIN = 50;
+const MIC_BOOST_MAX = 200;
+/** @type {AudioContext | null} */
+let micBoostCtx = null;
+/** @type {MediaStreamAudioSourceNode | null} */
+let micBoostSource = null;
+/** @type {GainNode | null} */
+let micBoostGainNode = null;
+/** @type {DynamicsCompressorNode | null} */
+let micBoostComp = null;
+/** @type {MediaStreamAudioDestinationNode | null} */
+let micBoostDest = null;
+/** @type {MediaStreamTrack | null} */
+let micBoostTrack = null;
+/** Raw mic track id the boost graph is built on */
+let micBoostRawId = null;
 let isOfferer = false;
 let matched = false;
 let matchMode = "solo"; // solo | friend | party_browse
@@ -560,6 +581,12 @@ try {
 const STAR_MIN_SECS = 15 * 60;
 /** First unique partners use a shorter window (must match bridge STAR_FIRST_RATE_SECS). */
 const STAR_FIRST_RATE_SECS = 5 * 60;
+/** Partner left before this → auto keep searching (mobile parity). */
+const SHORT_CALL_AUTO_NEXT_SECS = 5 * 60;
+/** Skip auto-next on pure thrash bounces (0–2s) so media can settle next match. */
+const SHORT_CALL_AUTO_NEXT_MIN_SECS = 3;
+/** Fat-finger / Space-spam grace after Matched (mobile parity). */
+let nextGraceUntil = 0;
 /** How many unique partners get the short window (must match STAR_FIRST_RATE_SLOTS). */
 const STAR_FIRST_RATE_SLOTS = 3;
 /** Current rate threshold from hub (5m early ramp or 15m). Optimistic until hello_ok. */
@@ -580,6 +607,7 @@ const STAR_GIFT_COSTS = {
   flowers: 5,
   balloons: 5,
   confetti: 5,
+  pass_mic: 5,
   fireworks: 15,
   please_stay: 30,
 };
@@ -589,6 +617,7 @@ const STAR_GIFT_SECS = {
   flowers: 15,
   balloons: 15,
   confetti: 15,
+  pass_mic: 5,
   fireworks: 20,
   please_stay: 15,
 };
@@ -625,6 +654,14 @@ const RULES_KEY = "nextface-rules-v1";
 const HISTORY_KEY = "nextface-history-v1";
 /** Keep many encounter rows so short/bad matches are not dropped. */
 const MAX_HISTORY = 80;
+/**
+ * On-device only: center-cropped partner video thumbs for Friends → History.
+ * Never uploaded — keyed by user_id in localStorage.
+ */
+const HISTORY_THUMBS_KEY = "ruletka-history-thumbs-v1";
+const HISTORY_THUMB_PX = 72;
+const MAX_HISTORY_THUMBS = 64;
+const MAX_HISTORY_THUMB_CHARS = 14_000;
 /** Local match + friend chat threads (survive hangup / reload). */
 const CHAT_THREADS_KEY = "ruletka-chat-threads-v1";
 /** last-read timestamps per thread key (for friend unread badges). */
@@ -938,6 +975,7 @@ function applyStrangerIntroBlur() {
     }
     try {
       syncBlurFirstUi();
+      syncHistorySnapsUi();
       syncPartnerBlurButtonLabels();
     } catch (_) {}
     return;
@@ -1352,6 +1390,13 @@ function flagLabel(code) {
 function countryNameForCode(code) {
   const cc = normalizeFlagCode(code);
   if (!cc) return "";
+  // Prefer localized name (RU UI must not show English "Canada")
+  try {
+    if (typeof RuletGeo !== "undefined" && RuletGeo.localizeCountry) {
+      const n = RuletGeo.localizeCountry(cc, cc);
+      if (n) return n;
+    }
+  } catch (_) {}
   const hit = FLAG_OPTIONS.find((x) => x[0] === cc);
   return hit ? hit[1] : cc;
 }
@@ -1372,16 +1417,35 @@ let myGeo = { flag: "", country: "", city: "" };
 function setLocationOnTile(el, meta) {
   if (!el) return;
   const flag = normalizeFlagCode(meta?.flag || "");
-  const country = String(meta?.country || "").trim();
-  const city = String(meta?.city || "").trim();
+  const countryRaw = String(meta?.country || "").trim();
+  const cityRaw = String(meta?.city || "").trim();
   const hideIp = !!meta?.hide_ip || !!meta?.hideIp;
   const em = flagEmoji(flag);
   // Hide-IP: cosmetic flag only (no fake country/city).
-  // Real geo: flag → country → city.
-  const countryLine = hideIp
+  // Real geo: flag → country → city (localized when UI lang ≠ English).
+  let countryLine = hideIp
     ? ""
-    : country || (flag ? countryNameForCode(flag) : "");
-  const cityLine = hideIp ? "" : city;
+    : countryRaw || (flag ? countryNameForCode(flag) : "");
+  let cityLine = hideIp ? "" : cityRaw;
+  try {
+    if (typeof RuletGeo !== "undefined") {
+      if (countryLine && RuletGeo.localizeCountry) {
+        countryLine = RuletGeo.localizeCountry(countryLine, flag);
+      }
+      if (cityLine && RuletGeo.localizeCity) {
+        cityLine = RuletGeo.localizeCity(cityLine);
+      }
+    }
+  } catch (_) {}
+  // Remember last meta so language switch can re-paint tiles
+  try {
+    el._locMeta = {
+      flag,
+      country: countryRaw,
+      city: cityRaw,
+      hide_ip: hideIp,
+    };
+  } catch (_) {}
   if (!em && !countryLine && !cityLine) {
     el.innerHTML = "";
     el.hidden = true;
@@ -1404,6 +1468,24 @@ function setLocationOnTile(el, meta) {
   const cityEl = el.querySelector(".loc-city");
   if (cityEl) cityEl.textContent = cityLine;
 }
+
+/** Re-apply location tiles after language change (EN ↔ RU). */
+function refreshAllLocationTiles() {
+  try {
+    document.querySelectorAll(".loc-on-tile, #remote-tag, #local-loc").forEach((el) => {
+      if (el._locMeta) setLocationOnTile(el, el._locMeta);
+    });
+    try {
+      refreshLocalLocationChip();
+    } catch (_) {}
+  } catch (_) {}
+}
+
+try {
+  window.addEventListener("nextface:lang", () => {
+    refreshAllLocationTiles();
+  });
+} catch (_) {}
 
 /** Name only (top-right above stars). */
 function setDisplayNameOnTile(el, name) {
@@ -1836,6 +1918,7 @@ function sendHelloPayload(name) {
     avatar: prefs.avatar || "",
     tags: prefs.tags || [],
     hide_ip: !!prefs.hide_ip,
+    platform: "web",
   });
 }
 
@@ -2602,6 +2685,7 @@ function giftKindMeta(kind) {
     confetti: { ico: "🎊", name: "Confetti", accent: "#ffd14a" },
     fireworks: { ico: "🎆", name: "Fireworks", accent: "#ffb020" },
     bars: { ico: "🔒", name: "Behind bars", accent: "#a0b0c8" },
+    pass_mic: { ico: "🎤", name: "Pass the mic", accent: "#ffc24a" },
     please_stay: { ico: "🙏", name: "Please stay", accent: "#ff8fab" },
   };
   return map[k] || { ico: "★", name: "Gift", accent: "#ffd54a" };
@@ -3555,9 +3639,8 @@ function syncStarsStuckCta(state) {
       }) ||
       `Need ${TRUSTED_MIN_GIFTERS - g} more unique gifters for Trusted — peer ★ after long chats`;
   } else if (!isTrusted && balN >= 50 && trustN < STARS_TRUSTED_GOAL) {
-    label =
-      _t("stars.stuckWealthPath", { n: balN }) ||
-      `★${balN} is for gifts · Trust grows only when others gift you after chats`;
+    // Floor tip already shows unlockWealthOnly — no second wealth banner
+    label = "";
   } else if (!isTrusted && trustN > 0 && trustN < STARS_TRUSTED_GOAL) {
     const left = STARS_TRUSTED_GOAL - trustN;
     label =
@@ -3888,26 +3971,36 @@ function syncStarsSheetUi() {
     giftersEl.textContent = String(Math.max(0, Number(myTrustGifters) || 0));
   }
   const floorEl = $("stars-gifters-floor-hint");
+  /** High wallet, low trust — one clear dual-system line (unlockWealthOnly) */
+  const wealthNoTrust = balN >= 50 && trustN < STARS_TRUSTED_GOAL && !isTrusted;
   if (floorEl) {
     const g = Math.max(0, Number(myTrustGifters) || 0);
-    // High balance but no peer trust — explain the dual system
-    if (balN >= 50 && trustN < STARS_TRUSTED_GOAL) {
+    // Primary tip for rich-wallet / low-trust (exact copy user expects)
+    if (wealthNoTrust) {
       floorEl.hidden = false;
+      floorEl.removeAttribute("hidden");
+      floorEl.classList.add("is-wealth-tip");
       floorEl.textContent =
-        _t("stars.wealthNoTrust", { n: balN, need: STARS_TRUSTED_GOAL }) ||
-        `★${balN} ready to spend · Trust grows only from peer gifts (need ${STARS_TRUSTED_GOAL} trust for Trusted).`;
+        _t("stars.unlockWealthOnly", { n: balN }) ||
+        `★${balN} for gifts · get peer ★ gifts to build Trust (100 → Trusted)`;
     } else if (trustN >= STARS_SENIOR_GOAL && g < SENIOR_MIN_GIFTERS) {
       floorEl.hidden = false;
+      floorEl.removeAttribute("hidden");
+      floorEl.classList.remove("is-wealth-tip");
       floorEl.textContent =
         _t("stars.floorSenior", { n: SENIOR_MIN_GIFTERS, have: g }) ||
         `Need ${SENIOR_MIN_GIFTERS} unique gifters for senior (have ${g}).`;
     } else if (trustN >= STARS_TRUSTED_GOAL && g < TRUSTED_MIN_GIFTERS) {
       floorEl.hidden = false;
+      floorEl.removeAttribute("hidden");
+      floorEl.classList.remove("is-wealth-tip");
       floorEl.textContent =
         _t("stars.floorTrusted", { n: TRUSTED_MIN_GIFTERS, have: g }) ||
         `Need ${TRUSTED_MIN_GIFTERS} unique gifters for trusted (have ${g}).`;
     } else if (g < TRUSTED_MIN_GIFTERS && trustN > 0) {
       floorEl.hidden = false;
+      floorEl.removeAttribute("hidden");
+      floorEl.classList.remove("is-wealth-tip");
       floorEl.textContent =
         _t("stars.floorHint", {
           n: TRUSTED_MIN_GIFTERS,
@@ -3917,6 +4010,9 @@ function syncStarsSheetUi() {
         `Trusted needs ${TRUSTED_MIN_GIFTERS}+ gifters · senior ${SENIOR_MIN_GIFTERS}+ (you have ${g}).`;
     } else {
       floorEl.hidden = true;
+      floorEl.setAttribute("hidden", "");
+      floorEl.classList.remove("is-wealth-tip");
+      floorEl.textContent = "";
     }
   }
 
@@ -4008,10 +4104,13 @@ function syncStarsSheetUi() {
     hero.dataset.wealth = String(wealth);
     hero.dataset.balance = String(balN);
   }
-  // One-line “what this unlocks” — dual system after brigade v1
+  // One-line under dual chips — skip when floor tip already shows unlockWealthOnly
   const unlock = $("stars-unlock-line");
   if (unlock) {
-    if (isSenior) {
+    if (wealthNoTrust) {
+      // Floor banner carries the full dual-system line — avoid a second copy
+      unlock.textContent = "";
+    } else if (isSenior) {
       unlock.textContent =
         _t("stars.unlockSeniorV2") ||
         "Senior · gift up to 3★ · soft match rank · stronger shield";
@@ -4019,10 +4118,6 @@ function syncStarsSheetUi() {
       unlock.textContent =
         _t("stars.unlockTrustedV2") ||
         "Trusted · gift up to 2★ · soft match rank · 250 trust → Senior";
-    } else if (balN >= 50 && trustN < STARS_TRUSTED_GOAL) {
-      unlock.textContent =
-        _t("stars.unlockWealthOnly", { n: balN }) ||
-        `★${balN} for gifts · peer ★ gifts build Trust (100 → Trusted)`;
     } else {
       unlock.textContent =
         _t("stars.unlockNormalV2") ||
@@ -4138,13 +4233,10 @@ function syncStarsSheetUi() {
           : ""
       );
     } else {
-      // Keep balance out of this line — hero already shows it
+      // Status ladder only — wallet tip lives in the hero floor banner
       hintProg.textContent =
-        balN >= 50
-          ? _t("stars.progressHintWealth", { b: balN, n: rawLeftTrusted }) ||
-            `★${balN} to spend · ${rawLeftTrusted} peer trust to Trusted status.`
-          : _t("stars.progressHintLeftShortV2", { n: rawLeftTrusted }) ||
-            `${rawLeftTrusted} more peer trust to Trusted.`;
+        _t("stars.progressHintLeftShortV2", { n: rawLeftTrusted }) ||
+        `${rawLeftTrusted} more peer trust to Trusted.`;
       setSub(
         g < TRUSTED_MIN_GIFTERS
           ? _t("stars.needGiftersTrustedClean", {
@@ -4152,7 +4244,9 @@ function syncStarsSheetUi() {
               have: g,
             }) ||
               `Need ${TRUSTED_MIN_GIFTERS - g} more unique gifters (have ${g}).`
-          : _t("stars.progressHintTrustOnly") ||
+          : balN >= 50
+            ? "" // unlockWealthOnly already in hero
+            : _t("stars.progressHintTrustOnly") ||
               "Trust comes only from peer ★ gifts after chat."
       );
     }
@@ -4627,6 +4721,7 @@ function setFxOverlay(which, kind, until, level) {
     "confetti",
     "heart",
     "fireworks",
+    "pass_mic",
   ];
   const active =
     !!k && u > now && (cosmeticKinds.includes(k) || isStay);
@@ -4725,6 +4820,8 @@ function setFxOverlay(which, kind, until, level) {
     if (el.classList.contains("fx-confetti")) ensureConfetti(el, lvl);
     if (el.classList.contains("fx-heart")) ensureHeartsFx(el, lvl);
     if (el.classList.contains("fx-fireworks")) ensureFireworks(el, lvl);
+    // Pass the mic is CSS-keyframed once — re-trigger on every show/stack
+    if (el.classList.contains("fx-pass-mic")) restartPassMicAnim(el);
     if (timerEl) {
       const cost = giftCost(k);
       const secs = giftSecs(k);
@@ -4750,6 +4847,7 @@ function setFxOverlay(which, kind, until, level) {
     confetti: "stars.confettiTimer",
     heart: "stars.heartTimer",
     fireworks: "stars.fireworksTimer",
+    pass_mic: "stars.passMicTimer",
   };
   const timerFb = {
     bars: `🔒 ${left}s`,
@@ -4758,6 +4856,7 @@ function setFxOverlay(which, kind, until, level) {
     confetti: `🎊 ${left}s`,
     heart: `💖 ${left}s`,
     fireworks: `🎆 ${left}s`,
+    pass_mic: `🎤 ${left}s`,
   };
 
   hideAll();
@@ -4773,12 +4872,64 @@ function setFxOverlay(which, kind, until, level) {
       try {
         els[k].dataset.giftCombo = String(combo);
       } catch (_) {}
+      // Soft duck when watching partner get “pass the mic”
+      if (k === "pass_mic" && which === "remote") {
+        softDuckRemoteForPassMic(1600 + (lvl - 1) * 400);
+      }
     }
     ensureFxTicker();
   } else {
     _giftImpactKey[which] = "";
     applyFxTileFlavor(which, "", 1);
   }
+}
+
+/**
+ * Restart CSS keyframes on pass-mic bits (show/hide alone does not re-fire).
+ * @param {HTMLElement} overlay
+ */
+function restartPassMicAnim(overlay) {
+  if (!overlay) return;
+  const bits = overlay.querySelectorAll(
+    ".fx-pass-mic-glow, .fx-pass-mic-mic, .fx-pass-mic-hand, .fx-pass-mic-bubble, .fx-pass-mic-label, .fx-pass-mic-sub"
+  );
+  bits.forEach((node) => {
+    try {
+      node.style.animation = "none";
+      // force reflow
+      void node.offsetWidth;
+      node.style.animation = "";
+    } catch (_) {}
+  });
+  // also pulse the whole overlay class for stacking
+  try {
+    overlay.classList.remove("is-pass-mic-replay");
+    void overlay.offsetWidth;
+    overlay.classList.add("is-pass-mic-replay");
+  } catch (_) {}
+}
+
+/** Brief “You’re up” chip on YOUR tile after you pass them the mic. */
+let passMicYoureUpTimer = 0;
+function flashPassMicYoureUp() {
+  const el = $("pass-mic-youre-up");
+  if (!el) return;
+  const label = el.querySelector(".pass-mic-youre-up-text");
+  if (label) {
+    label.textContent =
+      _t("stars.passMicYoureUp") || "You're up — go ahead";
+  }
+  el.hidden = false;
+  el.removeAttribute("hidden");
+  el.classList.remove("is-pop");
+  void el.offsetWidth;
+  el.classList.add("is-pop");
+  if (passMicYoureUpTimer) clearTimeout(passMicYoureUpTimer);
+  passMicYoureUpTimer = setTimeout(() => {
+    el.classList.remove("is-pop");
+    el.hidden = true;
+    el.setAttribute("hidden", "");
+  }, 2800);
 }
 
 /**
@@ -4800,6 +4951,7 @@ function applyFxTileFlavor(which, kind, level) {
     "fx-flavor-confetti",
     "fx-flavor-heart",
     "fx-flavor-fireworks",
+    "fx-flavor-pass_mic",
     "fx-flavor-l2",
     "fx-flavor-l3"
   );
@@ -4925,6 +5077,7 @@ function triggerGiftImpact(overlay, kind, opts = {}) {
     confetti: { ico: "🎊", name: "Confetti", accent: "#ffd14a" },
     fireworks: { ico: "🎆", name: "Fireworks", accent: "#ffb020" },
     bars: { ico: "🔒", name: "Behind bars", accent: "#a0b0c8" },
+    pass_mic: { ico: "🎤", name: "Pass the mic", accent: "#ffc24a" },
     please_stay: { ico: "🙏", name: "Please stay", accent: "#ff8fab" },
   }[k] || { ico: "★", name: "Gift", accent: "#ffd54a" };
 
@@ -5092,7 +5245,7 @@ function ensureBalloons(overlay, level) {
   const layer = overlay?.querySelector?.(".fx-balloons-layer");
   if (!layer) return;
   const lvl = Math.max(1, Math.min(3, Math.floor(Number(level) || 1)));
-  const tag = `balloons-v3-L${lvl}`;
+  const tag = `balloons-v4-L${lvl}`;
   if (layer.dataset.ready === tag) return;
   const colors = [
     "#ff5a7a", "#ff8a3d", "#ffd14a", "#5ad48a", "#4db7ff",
@@ -5100,15 +5253,15 @@ function ensureBalloons(overlay, level) {
     "#fb7185", "#fbbf24",
   ];
   let html = "";
-  const n = 18 + lvl * 12; // L1=30, L2=42, L3=54
+  const n = 22 + lvl * 14; // denser party cloud L1≈36 L2≈50 L3≈64
   for (let i = 0; i < n; i++) {
-    const left = 2 + ((i * 13 + (i % 7) * 11) % 94);
-    const delay = ((i * 0.28) % 5.2).toFixed(2);
-    const dur = (6.2 + (i % 7) * 0.55).toFixed(2);
-    const size = (1.05 + (i % 6) * 0.2).toFixed(2);
-    const drift = (((i * 17) % 48) - 24).toFixed(0);
+    const left = 1 + ((i * 11 + (i % 7) * 13) % 96);
+    const delay = ((i * 0.22) % 4.6).toFixed(2);
+    const dur = (5.4 + (i % 7) * 0.5).toFixed(2);
+    const size = (1.0 + (i % 7) * 0.22).toFixed(2);
+    const drift = (((i * 19) % 56) - 28).toFixed(0);
     const color = colors[i % colors.length];
-    const sway = (1.8 + (i % 5) * 0.35).toFixed(2);
+    const sway = (1.6 + (i % 5) * 0.32).toFixed(2);
     html += `<span class="fx-balloon" style="--left:${left}%;--delay:${delay}s;--dur:${dur}s;--size:${size};--drift:${drift}px;--color:${color};--sway:${sway}s" aria-hidden="true">
       <span class="fx-balloon-body"><span class="fx-balloon-shine"></span></span>
       <span class="fx-balloon-knot"></span>
@@ -5435,20 +5588,20 @@ function playConfettiCanvasBurst(overlay, opts = {}) {
   const mega = !!opts.mega;
   const colors = ["#ff5a7a", "#ffd14a", "#5ad48a", "#4db7ff", "#a78bfa", "#fff", "#f472b6"];
   const bits = [];
-  const n = mega ? 80 : 55;
+  const n = mega ? 110 : 75;
   for (let i = 0; i < n; i++) {
     bits.push({
       x: Math.random() * w,
-      y: -10 - Math.random() * h * 0.3,
-      vx: (Math.random() - 0.5) * 3,
-      vy: 1.5 + Math.random() * 3.5,
+      y: -10 - Math.random() * h * 0.35,
+      vx: (Math.random() - 0.5) * 4.2,
+      vy: 1.8 + Math.random() * 4.2,
       rot: Math.random() * Math.PI,
-      vr: (Math.random() - 0.5) * 0.25,
-      w: 4 + Math.random() * 7,
-      h: 3 + Math.random() * 5,
+      vr: (Math.random() - 0.5) * 0.32,
+      w: 4 + Math.random() * 9,
+      h: 3 + Math.random() * 6,
       col: colors[i % colors.length],
       life: 1,
-      decay: 0.008 + Math.random() * 0.01,
+      decay: 0.006 + Math.random() * 0.009,
     });
   }
   const t0 = performance.now();
@@ -5487,33 +5640,34 @@ function ensureConfetti(overlay, level) {
   const layer = overlay?.querySelector?.(".fx-confetti-layer");
   if (!layer) return;
   const lvl = Math.max(1, Math.min(3, Math.floor(Number(level) || 1)));
-  const tag = `confetti-v3-L${lvl}`;
+  const tag = `confetti-v4-L${lvl}`;
   if (layer.dataset.ready === tag) return;
   const colors = [
     "#ff5a7a", "#ffd14a", "#5ad48a", "#4db7ff", "#a78bfa",
     "#ff8a3d", "#f472b6", "#fff", "#34d399", "#fbbf24",
+    "#22d3ee", "#e879f9",
   ];
-  const shapes = ["rect", "rect", "circle", "heart", "rect", "ribbon"];
+  const shapes = ["rect", "rect", "circle", "heart", "rect", "ribbon", "circle"];
   let html = "";
-  // Burst-heavy: more bits, slightly shorter default fall at L1
-  const n = 48 + lvl * 28;
+  // Denser burst — party feel without hiding the face for long
+  const n = 64 + lvl * 32;
   for (let i = 0; i < n; i++) {
-    const left = 1 + ((i * 13 + (i % 9) * 9) % 97);
-    const delay = ((i * 0.08) % 1.8).toFixed(2);
-    const dur = (2.0 + (i % 5) * 0.35 + (lvl - 1) * 0.15).toFixed(2);
-    const size = (7 + (i % 7) * 2.2 + (lvl - 1) * 1.5).toFixed(0);
+    const left = 1 + ((i * 11 + (i % 9) * 11) % 97);
+    const delay = ((i * 0.06) % 1.5).toFixed(2);
+    const dur = (1.75 + (i % 5) * 0.32 + (lvl - 1) * 0.12).toFixed(2);
+    const size = (7 + (i % 8) * 2.4 + (lvl - 1) * 1.6).toFixed(0);
     const rot = ((i * 53) % 360).toFixed(0);
     const color = colors[i % colors.length];
     const shape = shapes[i % shapes.length];
-    const spin = (0.8 + (i % 5) * 0.35).toFixed(2);
+    const spin = (0.7 + (i % 5) * 0.32).toFixed(2);
     html += `<span class="fx-confetti-bit fx-confetti-${shape}" style="--left:${left}%;--delay:${delay}s;--dur:${dur}s;--size:${size}px;--rot:${rot}deg;--color:${color};--spin:${spin}s" aria-hidden="true"></span>`;
   }
-  const emoN = 8 + lvl * 6;
+  const emoN = 10 + lvl * 7;
   for (let i = 0; i < emoN; i++) {
-    const left = 5 + ((i * 19) % 88);
-    const delay = (0.1 + i * 0.15).toFixed(2);
-    const dur = (2.8 + (i % 4) * 0.35).toFixed(2);
-    const emos = ["💖", "✨", "🎉", "⭐", "💫"];
+    const left = 4 + ((i * 17) % 90);
+    const delay = (0.05 + i * 0.12).toFixed(2);
+    const dur = (2.4 + (i % 4) * 0.32).toFixed(2);
+    const emos = ["💖", "✨", "🎉", "⭐", "💫", "🎊", "🥳"];
     html += `<span class="fx-confetti-emoji" style="--left:${left}%;--delay:${delay}s;--dur:${dur}s" aria-hidden="true">${
       emos[i % emos.length]
     }</span>`;
@@ -5545,9 +5699,11 @@ function playGiftCelebrate(kind, combo = 1) {
               ? "🎆"
               : kind === "please_stay"
                 ? "🙏"
-                : kind === "bars"
-                  ? "🔒"
-                  : "★";
+                : kind === "pass_mic"
+                  ? "🎤"
+                  : kind === "bars"
+                    ? "🔒"
+                    : "★";
   const name =
     kind === "flowers"
       ? "Flowers"
@@ -5561,9 +5717,11 @@ function playGiftCelebrate(kind, combo = 1) {
               ? "Fireworks"
               : kind === "please_stay"
                 ? "Please stay"
-                : kind === "bars"
-                  ? "Behind bars"
-                  : "Gift";
+                : kind === "pass_mic"
+                  ? "Pass the mic"
+                  : kind === "bars"
+                    ? "Behind bars"
+                    : "Gift";
   const xLabel = n >= 5 ? "MAX" : `×${n}`;
   el.innerHTML = `<span class="gift-celebrate-ico">${icon}</span><span class="gift-celebrate-name">${name}</span><span class="gift-celebrate-x${
     n >= 2 ? " is-hot" : ""
@@ -5614,7 +5772,9 @@ function playGiftSound(kind) {
                 ? [520, 660, 784, 988]
                 : kind === "please_stay"
                   ? [392, 494, 587]
-                  : [440, 554, 659, 880];
+                  : kind === "pass_mic"
+                    ? [392, 330, 262, 196] // descending handoff
+                    : [440, 554, 659, 880];
     freqs.forEach((f, i) => {
       const o = ctx.createOscillator();
       const g = ctx.createGain();
@@ -5623,18 +5783,52 @@ function playGiftSound(kind) {
           ? "triangle"
           : kind === "fireworks"
             ? "sawtooth"
-            : "sine";
+            : kind === "pass_mic"
+              ? "triangle"
+              : "sine";
       o.frequency.value = f;
       const peak =
-        kind === "fireworks" ? 0.1 / (i + 1) : 0.09 / (i + 1);
+        kind === "fireworks"
+          ? 0.1 / (i + 1)
+          : kind === "pass_mic"
+            ? 0.07 / (i + 1)
+            : 0.09 / (i + 1);
+      const step = kind === "pass_mic" ? 0.09 : 0.035;
       g.gain.setValueAtTime(0.0001, t0);
-      g.gain.exponentialRampToValueAtTime(peak, t0 + 0.015 + i * 0.035);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.32 + i * 0.06);
+      g.gain.exponentialRampToValueAtTime(peak, t0 + 0.015 + i * step);
+      g.gain.exponentialRampToValueAtTime(
+        0.0001,
+        t0 + (kind === "pass_mic" ? 0.45 : 0.32) + i * (step + 0.02)
+      );
       o.connect(g);
       g.connect(ctx.destination);
-      o.start(t0 + i * 0.035);
-      o.stop(t0 + 0.4 + i * 0.06);
+      o.start(t0 + i * step);
+      o.stop(t0 + 0.55 + i * (step + 0.02));
     });
+    // Soft whoosh under the mic handoff
+    if (kind === "pass_mic") {
+      try {
+        const buf = ctx.createBuffer(1, ctx.sampleRate * 0.22, ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < data.length; i++) {
+          data[i] = (Math.random() * 2 - 1) * (1 - i / data.length) * 0.55;
+        }
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        const ng = ctx.createGain();
+        const bp = ctx.createBiquadFilter();
+        bp.type = "bandpass";
+        bp.frequency.value = 900;
+        bp.Q.value = 0.7;
+        ng.gain.setValueAtTime(0.0001, t0);
+        ng.gain.exponentialRampToValueAtTime(0.05, t0 + 0.04);
+        ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.22);
+        src.connect(bp);
+        bp.connect(ng);
+        ng.connect(ctx.destination);
+        src.start(t0 + 0.08);
+      } catch (_) {}
+    }
     // Soft noise burst for confetti/fireworks
     if (kind === "confetti" || kind === "fireworks") {
       try {
@@ -6372,6 +6566,9 @@ function spendBalloonsOnPartner() {
 }
 function spendConfettiOnPartner() {
   spendEffectOnPartner("confetti");
+}
+function spendPassMicOnPartner() {
+  spendEffectOnPartner("pass_mic");
 }
 function spendHeartOnPartner() {
   spendEffectOnPartner("heart");
@@ -9365,6 +9562,12 @@ function showCallCoach(reasonKey) {
   coachShownForMatch = true;
   const el = $("call-coach");
   if (!el) return;
+  try {
+    trackEvent("match_fail_ice", {
+      reason: String(reasonKey || "coach").slice(0, 40),
+      mode: matchMode || "solo",
+    });
+  } catch (_) {}
   const prefer =
     typeof preferDirectOnlyEnabled === "function" && preferDirectOnlyEnabled();
   const lead = $("call-coach-lead");
@@ -9404,29 +9607,95 @@ function startWebrtcWatch() {
   webrtcConnectedOk = false;
   coachShownForMatch = false;
   hideCallCoach();
-  // ~8s: Prefer Direct → TURN+Next, else soft ICE restart once while still matched
+  // TURN / force-relay needs longer first path (alloc + permissions + relay RTT).
+  // Soft recover at 5.5s was thrashing phone↔browser into endless
+  // "Connection weak — reconnecting…" before media could land.
+  const relayMode =
+    (typeof isRelayMediaMode === "function" && isRelayMediaMode()) ||
+    (typeof sessionForceRelayEnabled === "function" &&
+      sessionForceRelayEnabled());
+  // First path often needs 10–20s (mobile + TURN). Soft recover earlier =
+  // endless "Connection weak — reconnecting" and zero media.
+  const softMs = relayMode ? 22000 : 14000;
+  const hardMs = relayMode ? 35000 : 24000;
   webrtcWatchSoftTimer = setTimeout(() => {
-    if (!matched || webrtcConnectedOk || hasLiveRemoteMedia()) return;
-    if (autoDisablePreferDirectOnFail({ autoNext: true })) return;
+    if (!matched || hasLiveRemoteMedia()) return;
+    if (autoDisablePreferDirectOnFail({ autoNext: false })) return;
     const target = rtc || [...peerPcs.values()][0];
+    try {
+      const ice = target?.pc?.iceConnectionState || "";
+      const cs = target?.pc?.connectionState || "";
+      // Still negotiating — leave alone (esp. TURN checking)
+      if (
+        ice === "checking" ||
+        ice === "new" ||
+        cs === "connecting" ||
+        cs === "new"
+      ) {
+        return;
+      }
+      // ICE "connected" with black tiles: force TURN rebuild once (not every 5s)
+      if (
+        (ice === "connected" ||
+          ice === "completed" ||
+          cs === "connected") &&
+        !hasLiveRemoteMedia()
+      ) {
+        if (typeof setSessionForceRelay === "function") {
+          setSessionForceRelay(true);
+        }
+        log(
+          _t("log.forceRelayRecover") ||
+            "no video after connect — rebuilding on TURN relay"
+        );
+        try {
+          const pid =
+            target?.remotePeerId ||
+            lastMatchedPeers?.[0]?.peer_id ||
+            "";
+          schedulePeerHardReconnect(pid, target || null);
+        } catch (_) {
+          if (target) trySoftRecoverAny(target, { reason: "no_video_relay" });
+        }
+        return;
+      }
+    } catch (_) {}
     if (target) trySoftRecoverAny(target, { reason: "watch_mid" });
-  }, 8000);
-  // If no media path after 14s while still matched → coach
+  }, softMs);
+  // Coach if still dark after hardMs
   webrtcWatchTimer = setTimeout(() => {
-    if (!matched || webrtcConnectedOk) return;
+    if (!matched || hasLiveRemoteMedia()) return;
+    // Last chance: force relay + hard rebuild
+    try {
+      if (typeof setSessionForceRelay === "function") {
+        setSessionForceRelay(true);
+      }
+      const target = rtc || [...peerPcs.values()][0];
+      const pid =
+        target?.remotePeerId || lastMatchedPeers?.[0]?.peer_id || "";
+      schedulePeerHardReconnect(pid, target || null);
+    } catch (_) {}
     if (!hasLiveRemoteMedia()) {
-      // Prefer Direct stuck: auto-allow TURN + Next (toast). Else open coach.
-      if (!autoDisablePreferDirectOnFail({ autoNext: true })) {
+      if (!autoDisablePreferDirectOnFail({ autoNext: false })) {
         showCallCoach("coach.timeout");
       }
     }
-  }, 14000);
+  }, hardMs);
 }
 
 function handleWebrtcConnectionState(s, pcHint) {
   setStatus(_t("status.webrtc", { s }));
   if (s === "connected") {
     webrtcConnectedOk = true;
+    // Grab a local history thumb once media is up (on-device only)
+    try {
+      startHistoryThumbWatch();
+      setTimeout(() => {
+        try {
+          capturePartnerHistoryThumb();
+        } catch (_) {}
+      }, 1200);
+    } catch (_) {}
     // Allow another soft-ICE cycle after a successful recovery
     if (pcHint) clearSoftRecoverFlags(pcHint);
     clearWebrtcWatch();
@@ -9495,8 +9764,22 @@ function handleWebrtcConnectionState(s, pcHint) {
     // Only coach after soft pipeline exhausted and no rebuild path
     showCallCoach("coach.failed");
   } else if (s === "disconnected") {
-    // Brief network blip — stay in call and try to recover (do not tear down)
+    // Brief network blip — stay in call and try to recover (do not tear down).
+    // Do NOT show "Connection weak — reconnecting" during first ICE path —
+    // that UI + soft-recover thrash was the all-day failure mode.
     webrtcConnectedOk = false;
+    const age = matchMediaGraceAt ? Date.now() - matchMediaGraceAt : 99999;
+    // 20s grace for first path (TURN allocate + permissions + mobile radio)
+    const graceMs = 20000;
+    if (age < graceMs) {
+      setConnStrip(
+        "warn",
+        _t("remote.connecting") || "Connecting…",
+        "",
+        { reconnecting: false }
+      );
+      return;
+    }
     setConnStrip(
       "warn",
       _t("conn.reconnectingMedia") || "Connection weak — reconnecting…",
@@ -9513,11 +9796,13 @@ function handleWebrtcConnectionState(s, pcHint) {
 let lastMatchedPeers = [];
 
 /** Soft ICE attempts before hard PeerConnection rebuild (same match). */
-const SOFT_ICE_MAX_ATTEMPTS = 3;
+const SOFT_ICE_MAX_ATTEMPTS = 1;
 /** Gap between soft ICE restarts while still bad. */
-const SOFT_ICE_RETRY_MS = 3500;
+const SOFT_ICE_RETRY_MS = 10000;
 /** After last soft attempt, wait this long then hard-rebuild if still dead. */
-const SOFT_ICE_HARD_AFTER_MS = 4500;
+const SOFT_ICE_HARD_AFTER_MS = 12000;
+/** Wall clock when current match started (guards early soft-recover thrash). */
+let matchMediaGraceAt = 0;
 
 /**
  * @param {import('./webrtc.js').RouletteWebRtc | object | null} pc
@@ -9597,6 +9882,15 @@ function clearSoftRecoverFlags(pc) {
  */
 function startSoftRecoverPipeline(peerId, pc, opts = {}) {
   if (!pc || pc._softRecoverActive) return;
+  // Block soft-recover thrash during first media path. reason==="failed" used
+  // to bypass this grace entirely — an early ICE "failed" (glare, first-path
+  // hiccup) fired an immediate soft-recover attempt + "reconnecting" UI before
+  // TURN/ICE even had a chance to settle.
+  const age = matchMediaGraceAt ? Date.now() - matchMediaGraceAt : 99999;
+  if (age < 18000) {
+    console.info("[soft recover] skipped — match grace", age, opts.reason);
+    return;
+  }
   pc._softRecoverActive = true;
   pc._softIceTried = true;
   pc._softIceAttempts = 0;
@@ -9851,6 +10145,15 @@ function tryVpnRelayRecovery() {
 
 function schedulePeerHardReconnect(peerId, oldPc) {
   if (!matched) return;
+  // Never send a fresh (non-restart) offer before the match's no-duplicate-offer
+  // grace. The "connected but no video" branch in startWebrtcWatch used to call
+  // this directly at softMs (~14s, non-relay) — inside the window every other
+  // recovery path now treats as off-limits — re-offering the same peer mid-match.
+  const age = matchMediaGraceAt ? Date.now() - matchMediaGraceAt : 99999;
+  if (age < 15000) {
+    console.info("[hard reconnect] skipped — match grace", age);
+    return;
+  }
   if (oldPc) oldPc._softReconnectScheduled = true;
   if (schedulePeerHardReconnect._busy) return;
   // Before rebuild: force TURN if still failing (VPN / CGNAT / corporate)
@@ -10722,15 +11025,38 @@ function setPeerMuteUi(slot, muted) {
           ? "btn-mute-remote-third"
           : "";
   const btn = btnId ? $(btnId) : null;
-  if (!btn) return;
   const live = peerSlotLive();
-  btn.hidden = !live;
-  if (live) btn.removeAttribute("hidden");
-  btn.classList.toggle("is-muted", !!muted);
-  btn.textContent = muted ? "🔇" : "🔊";
-  btn.title = muted
-    ? _t("trio.unmuteThis") || "Unmute this person"
-    : _t("trio.muteThis") || "Mute this person";
+  if (btn) {
+    btn.hidden = !live;
+    if (live) btn.removeAttribute("hidden");
+    btn.classList.toggle("is-muted", !!muted);
+    btn.textContent = muted ? "🔇" : "🔊";
+    btn.title = muted
+      ? _t("trio.unmuteThis") || "Unmute this person"
+      : _t("trio.muteThis") || "Mute this person";
+  }
+  // Tile veil + watermark (same visual language as debate mute)
+  const tileId = PEER_SLOT_TILE[slot];
+  const tile = tileId ? $(tileId) : null;
+  tile?.classList.toggle("peer-slot-muted", !!muted);
+  // Badge on their window when YOU muted them (outside debate ownership)
+  const badgeId =
+    slot === "remote"
+      ? "peer-mute-badge-remote"
+      : slot === "remote2"
+        ? "peer-mute-badge-remote2"
+        : slot === "remote-third"
+          ? "peer-mute-badge-remote-third"
+          : "";
+  const badge = badgeId ? $(badgeId) : null;
+  if (badge) {
+    // Main remote: debate badges own the slot while debate is active
+    const debateCovers = slot === "remote" && !!debate.active;
+    const show = !!muted && live && !debateCovers;
+    badge.hidden = !show;
+    if (show) badge.removeAttribute("hidden");
+    else badge.setAttribute("hidden", "");
+  }
 }
 
 function setPeerBlurUi(slot, blurred) {
@@ -10839,6 +11165,14 @@ function setPeerElBlur(slot, on) {
   else stopPeerBlurCanvas(slot);
   if (slot === "remote") {
     log(peerBlurredByEl[slot] ? _t("log.blurOn") : _t("log.blurOff"));
+    // After user reveals partner, grab a clean history snap
+    if (!peerBlurredByEl[slot]) {
+      setTimeout(() => {
+        try {
+          capturePartnerHistoryThumb();
+        } catch (_) {}
+      }, 400);
+    }
   }
 }
 
@@ -11376,11 +11710,10 @@ function syncMatchMoreVisibility() {
   const wrap = $("match-more-wrap");
   const menu = $("match-more-menu");
   if (!wrap) return;
+  // Block/Report live as a primary footer button — not inside ⋯
   const ids = [
     "btn-browse-together",
     "btn-hangup-friend",
-    "btn-block",
-    "btn-report-dock",
     "btn-find-third",
     "btn-find-third-cancel",
     "btn-spin",
@@ -11498,18 +11831,18 @@ function updateFriendActionButtons() {
   try {
     updatePartyRoleStrip();
   } catch (_) {}
-  // Block / Report when in a call with a known partner user_id
+  // Block+Report is one footer button (not inside ⋯). Hidden for pure friend 1v1.
   const canMod =
     !!matched &&
     !!primaryPartnerUserId &&
-    primaryPartnerUserId !== myUserId;
-  if (block) {
-    block.hidden = !canMod;
-  }
+    primaryPartnerUserId !== myUserId &&
+    matchMode !== "friend";
+  // Legacy menu items stay hidden — single path is #btn-block-report
+  if (block) block.hidden = true;
   const repDock = $("btn-report-dock");
-  if (repDock) {
-    repDock.hidden = !canMod || matchMode === "friend";
-  }
+  if (repDock) repDock.hidden = true;
+  const br = $("btn-block-report");
+  if (br) br.hidden = !canMod;
   syncMatchMoreVisibility();
   syncMatchChrome();
   syncTrioLayout();
@@ -14906,6 +15239,9 @@ function restoreMediaUiFromPrefs() {
     }
   } catch (_) {}
   try {
+    syncMicBoostSlider(getMicBoostPct());
+  } catch (_) {}
+  try {
     applyLocalMirrorClass();
   } catch (_) {}
   // Re-select saved devices (id → label rematch inside fillSelect already ran)
@@ -15230,22 +15566,228 @@ function isPureFriendCallSession() {
  * Stream attached to PeerConnections.
  * When self-hidden for strangers: black video + real audio (local preview stays real).
  */
+function getMicBoostPct() {
+  try {
+    const p = loadPrefs().micBoost;
+    if (typeof p === "number" && Number.isFinite(p)) {
+      return Math.max(
+        MIC_BOOST_MIN,
+        Math.min(MIC_BOOST_MAX, Math.round(p))
+      );
+    }
+  } catch (_) {}
+  return MIC_BOOST_DEFAULT;
+}
+
+function syncMicBoostSlider(val) {
+  const n = Math.max(
+    MIC_BOOST_MIN,
+    Math.min(MIC_BOOST_MAX, Math.round(Number(val) || MIC_BOOST_DEFAULT))
+  );
+  const el = $("mic-boost");
+  if (el) el.value = String(n);
+  const pct = $("mic-boost-pct");
+  if (pct) pct.textContent = `${n}%`;
+}
+
+function stopMicBoost() {
+  try {
+    micBoostSource?.disconnect();
+  } catch (_) {}
+  try {
+    micBoostGainNode?.disconnect();
+  } catch (_) {}
+  try {
+    micBoostComp?.disconnect();
+  } catch (_) {}
+  try {
+    micBoostTrack?.stop();
+  } catch (_) {}
+  try {
+    if (micBoostCtx && micBoostCtx.state !== "closed") {
+      micBoostCtx.close();
+    }
+  } catch (_) {}
+  micBoostCtx = null;
+  micBoostSource = null;
+  micBoostGainNode = null;
+  micBoostComp = null;
+  micBoostDest = null;
+  micBoostTrack = null;
+  micBoostRawId = null;
+}
+
+/**
+ * Build (or retune) outbound mic gain graph.
+ * Source → Gain → soft limiter → destination track sent to peers.
+ * @returns {Promise<MediaStreamTrack|null>}
+ */
+async function ensureMicBoost() {
+  const raw = previewStream?.getAudioTracks?.()?.[0] || null;
+  if (!raw || raw.readyState === "ended") {
+    stopMicBoost();
+    return null;
+  }
+  const pct = getMicBoostPct();
+  // Unity: skip Web Audio so browser AEC stays on the raw capture track
+  if (pct === 100) {
+    stopMicBoost();
+    return null;
+  }
+  if (
+    micBoostTrack &&
+    micBoostRawId === raw.id &&
+    micBoostGainNode &&
+    micBoostTrack.readyState !== "ended"
+  ) {
+    const g = pct / 100;
+    try {
+      const t0 = micBoostCtx?.currentTime ?? 0;
+      micBoostGainNode.gain.setTargetAtTime(g, t0, 0.025);
+    } catch (_) {
+      try {
+        micBoostGainNode.gain.value = g;
+      } catch (_) {}
+    }
+    return micBoostTrack;
+  }
+  stopMicBoost();
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    micBoostCtx = new AC();
+    try {
+      await micBoostCtx.resume();
+    } catch (_) {}
+    const srcStream = new MediaStream([raw]);
+    micBoostSource = micBoostCtx.createMediaStreamSource(srcStream);
+    micBoostGainNode = micBoostCtx.createGain();
+    micBoostGainNode.gain.value = pct / 100;
+    // Soft limiter after gain — tames peaks without killing presence
+    micBoostComp = micBoostCtx.createDynamicsCompressor();
+    micBoostComp.threshold.value = -12;
+    micBoostComp.knee.value = 12;
+    micBoostComp.ratio.value = 8;
+    micBoostComp.attack.value = 0.003;
+    micBoostComp.release.value = 0.12;
+    micBoostDest = micBoostCtx.createMediaStreamDestination();
+    micBoostSource.connect(micBoostGainNode);
+    micBoostGainNode.connect(micBoostComp);
+    micBoostComp.connect(micBoostDest);
+    micBoostTrack = micBoostDest.stream.getAudioTracks()[0] || null;
+    micBoostRawId = raw.id;
+    if (micBoostTrack && "contentHint" in micBoostTrack) {
+      try {
+        micBoostTrack.contentHint = "speech";
+      } catch (_) {}
+    }
+    return micBoostTrack;
+  } catch (e) {
+    console.warn("[mic-boost]", e);
+    stopMicBoost();
+    return null;
+  }
+}
+
+/** Audio track partners receive (boosted when enabled). */
+function getOutboundAudioTrack() {
+  if (micBoostTrack && micBoostTrack.readyState !== "ended") {
+    return micBoostTrack;
+  }
+  return previewStream?.getAudioTracks?.()?.[0] || null;
+}
+
+/**
+ * Push current outbound audio (raw or boosted) to all peer connections.
+ */
+async function pushOutboundAudioTracks() {
+  const stream = localStreamForPeerOutbound() || previewStream;
+  const audioTrack = stream?.getAudioTracks?.()?.[0] || getOutboundAudioTrack();
+  if (!audioTrack) return;
+  const debateLocked =
+    !!(debate.active && debate.speakerId && !debateUidEq(debate.speakerId, myUserId));
+  const enabled = !micMuted && !debateLocked;
+  for (const pc of peerPcs.values()) {
+    try {
+      pc.setLocalStream?.(stream || previewStream);
+      if (pc.pc) {
+        const senders = pc.pc.getSenders();
+        const aSender = senders.find((s) => s.track && s.track.kind === "audio");
+        if (aSender) {
+          if (aSender.track !== audioTrack) {
+            await aSender.replaceTrack(audioTrack);
+          }
+        } else if (stream) {
+          try {
+            pc.pc.addTrack(audioTrack, stream);
+          } catch (_) {}
+        }
+      }
+      pc.setMicEnabled?.(enabled);
+    } catch (e) {
+      console.warn("[mic-boost] push audio", e);
+    }
+  }
+}
+
+/**
+ * Apply mic boost from slider/prefs and refresh outbound tracks.
+ * @param {number} pct
+ * @param {{ persist?: boolean }} [opts]
+ */
+async function applyMicBoost(pct, opts = {}) {
+  const n = Math.max(
+    MIC_BOOST_MIN,
+    Math.min(MIC_BOOST_MAX, Math.round(Number(pct) || MIC_BOOST_DEFAULT))
+  );
+  if (opts.persist !== false) {
+    try {
+      savePrefs({ micBoost: n });
+    } catch (_) {}
+  }
+  syncMicBoostSlider(n);
+  if (!previewStream?.getAudioTracks?.()?.length) return;
+  await ensureMicBoost();
+  applyMicTracks();
+  await pushOutboundAudioTracks();
+}
+
 function localStreamForPeerOutbound() {
   if (!previewStream) return null;
-  if (!selfBlurred) return previewStream;
-  const black = getBlackVideoTrack();
+  const rawA = previewStream.getAudioTracks()[0] || null;
+  const outA = getOutboundAudioTrack();
+  const useBoost = !!(outA && rawA && outA !== rawA);
+  if (!selfBlurred && !useBoost) return previewStream;
+
   const out = new MediaStream();
-  if (black) out.addTrack(black);
-  for (const t of previewStream.getAudioTracks()) {
-    if (t) out.addTrack(t);
-  }
-  // No black track available — still avoid sending real cam if possible
-  if (!black) {
+  if (selfBlurred) {
+    const black = getBlackVideoTrack();
+    if (black) out.addTrack(black);
+    else {
+      for (const t of previewStream.getVideoTracks()) {
+        try {
+          out.addTrack(t);
+        } catch (_) {}
+      }
+    }
+  } else {
     for (const t of previewStream.getVideoTracks()) {
       try {
-        // Keep track object but disabled on outbound only via setCamEnabled path
         out.addTrack(t);
       } catch (_) {}
+    }
+  }
+  if (outA) {
+    try {
+      out.addTrack(outA);
+    } catch (_) {}
+  } else {
+    for (const t of previewStream.getAudioTracks()) {
+      if (t) {
+        try {
+          out.addTrack(t);
+        } catch (_) {}
+      }
     }
   }
   return out;
@@ -16265,6 +16807,9 @@ async function hardReleaseLocalCamera(ms = 280) {
   try {
     stopLocalCanvasPreview();
   } catch (_) {}
+  try {
+    stopMicBoost();
+  } catch (_) {}
   if (previewStream) {
     try {
       previewStream.getTracks().forEach((tr) => {
@@ -16463,11 +17008,17 @@ function startLocalCanvasPreview() {
  */
 async function attachLocalStream(stream) {
   if (previewStream && previewStream !== stream) {
+    try {
+      stopMicBoost();
+    } catch (_) {}
     previewStream.getTracks().forEach((t) => {
       try { t.stop(); } catch (_) {}
     });
   }
   previewStream = stream;
+  try {
+    await ensureMicBoost();
+  } catch (_) {}
   try {
     applyMicTracks();
   } catch (_) {
@@ -16530,6 +17081,7 @@ async function attachLocalStream(stream) {
     await pc.syncLocalTracksToPc();
   }
   await pushOutboundVideoTracks();
+  await pushOutboundAudioTracks();
   try {
     const el = $("local");
     if (el && previewStream) {
@@ -17109,7 +17661,18 @@ function friendlyMediaError(e) {
 }
 
 async function startPreview() {
-  if (mediaPreviewBusy) return;
+  // If another startPreview is in flight, wait for it instead of no-op
+  // (joinPeers used to get empty stream and skip the whole call).
+  if (mediaPreviewBusy) {
+    const t0 = Date.now();
+    while (mediaPreviewBusy && Date.now() - t0 < 2500) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    if (previewStream?.getVideoTracks?.()?.some((t) => t.readyState === "live")) {
+      return;
+    }
+    if (mediaPreviewBusy) return;
+  }
   if (mediaPermissionDenied) {
     showEnableCamButton(true, _t("local.permDenied"));
     return;
@@ -17219,6 +17782,9 @@ async function startPreview() {
     // Release current tracks so the new device can open (exclusive cam/mic locks)
     if (previewStream) {
       stopMeter();
+      try {
+        stopMicBoost();
+      } catch (_) {}
       previewStream.getTracks().forEach((tr) => {
         try {
           tr.stop();
@@ -17401,6 +17967,9 @@ function stopPreview() {
   try {
     stopLocalCanvasPreview();
   } catch (_) {}
+  try {
+    stopMicBoost();
+  } catch (_) {}
   if (previewStream) {
     previewStream.getTracks().forEach((tr) => tr.stop());
     previewStream = null;
@@ -17443,6 +18012,12 @@ function applyMicTracks() {
   tracks.forEach((tr) => {
     tr.enabled = enabled;
   });
+  // Boost graph follows the raw track; also toggle the outbound track explicitly
+  if (micBoostTrack && micBoostTrack.readyState !== "ended") {
+    try {
+      micBoostTrack.enabled = enabled;
+    } catch (_) {}
+  }
   for (const pc of peerPcs.values()) {
     pc.setMicEnabled?.(enabled);
   }
@@ -17494,6 +18069,25 @@ async function applySpeaker() {
   }
 }
 
+/** Soft duck while “Pass the mic” plays on partner (encourage a breath). */
+let passMicDuckUntil = 0;
+let passMicDuckTimer = 0;
+
+/**
+ * Briefly lower partner volume (local only — they still speak at full volume to you
+ * after the handoff). Pure UX polish, not a mute.
+ * @param {number} [ms]
+ */
+function softDuckRemoteForPassMic(ms = 1600) {
+  passMicDuckUntil = Date.now() + Math.max(400, ms);
+  applyRemoteVolume();
+  if (passMicDuckTimer) clearTimeout(passMicDuckTimer);
+  passMicDuckTimer = setTimeout(() => {
+    passMicDuckTimer = 0;
+    applyRemoteVolume();
+  }, Math.max(400, ms) + 40);
+}
+
 function applyRemoteVolume() {
   const el = $("remote-vol") || $("remote-vol-sheet");
   // Side-rail slider drives main remote volume (and legacy prefs)
@@ -17503,13 +18097,17 @@ function applyRemoteVolume() {
     syncVolumeSliders(railVol);
     savePrefs({ volume: railVol });
   }
+  const duck =
+    Date.now() < passMicDuckUntil ? 0.32 : 1;
   for (const id of ["remote", "remote2", "remote-third"]) {
     const remote = $(id);
     if (!remote) continue;
     const tileMuted =
       !!peerMutedByEl[id] || (id === "remote" && partnerMuted);
     const vol = peerVolByEl[id] ?? 100;
-    remote.volume = tileMuted ? 0 : vol / 100;
+    // Main partner duck only — multi-tile secondaries keep full level
+    const factor = id === "remote" ? duck : 1;
+    remote.volume = tileMuted ? 0 : (vol / 100) * factor;
     remote.muted = tileMuted;
   }
   // Keep per-peer volume inputs painted
@@ -18513,14 +19111,7 @@ function wireSettingsNav() {
   applyTheme(getTheme(), { persist: false });
   applyLocalMirrorClass();
   refreshLocalNameChip();
-  $("btn-about-keys")?.addEventListener("click", () => {
-    try {
-      closeSettings();
-    } catch (_) {}
-    try {
-      openKeysHelp();
-    } catch (_) {}
-  });
+  // About → Hotkeys uses data-settings-open="hotkeys" (same as Help row)
   // Empty-card alone invite buttons removed from Start UI (Friends sheet only)
   wireStarBadgeInteractions();
   setStarsBadge("local", myStars);
@@ -21377,7 +21968,9 @@ function handleServer(msg) {
                         ? _t("stars.giftFireworksName") || "Fireworks"
                         : kind === "please_stay"
                           ? _t("stars.giftPleaseStayName") || "Please stay"
-                          : _t("stars.giftBarsName") || "Behind bars";
+                          : kind === "pass_mic"
+                            ? _t("stars.giftPassMicName") || "Pass the mic"
+                            : _t("stars.giftBarsName") || "Behind bars";
             const lvlBit =
               level >= 2
                 ? _t("stars.giftStack", { n: level }) || ` · ×${level}`
@@ -21390,9 +21983,11 @@ function handleServer(msg) {
               title:
                 kind === "please_stay"
                   ? _t("stars.pleaseStaySentTitle") || "Please stay sent"
-                  : _t("stars.giftSentTitle") || "Gift sent",
+                  : kind === "pass_mic"
+                    ? _t("stars.passMicSentTitle") || "Mic passed"
+                    : _t("stars.giftSentTitle") || "Gift sent",
               body,
-              corner: level >= 2,
+              corner: level >= 2 || kind === "pass_mic",
               level,
               ico: meta.ico,
               accent: meta.accent,
@@ -21401,6 +21996,12 @@ function handleServer(msg) {
             try {
               playGiftSound(kind);
             } catch (_) {}
+            // You handed them the mic → brief cue that the floor is yours
+            if (kind === "pass_mic") {
+              try {
+                flashPassMicYoureUp();
+              } catch (_) {}
+            }
           }
           if (uid === myUserId) {
             setFxOverlay("local", kind, until, level);
@@ -21431,6 +22032,10 @@ function handleServer(msg) {
                 body =
                   _t("stars.pleaseStayOnYou", { name }) ||
                   `${name} asked you to stay · Next locked briefly`;
+              } else if (kind === "pass_mic") {
+                body =
+                  _t("stars.passMicOnYou", { name }) ||
+                  `${name} passed you the mic — give them a chance`;
               } else {
                 body =
                   _t("stars.barsOnYou", { name }) ||
@@ -21449,7 +22054,9 @@ function handleServer(msg) {
                 title:
                   kind === "please_stay"
                     ? _t("stars.pleaseStayReceivedTitle") || "Please stay"
-                    : _t("stars.giftReceivedTitle") || "Gift received",
+                    : kind === "pass_mic"
+                      ? _t("stars.passMicReceivedTitle") || "Pass the mic"
+                      : _t("stars.giftReceivedTitle") || "Gift received",
                 body,
                 received: true,
                 corner: true,
@@ -21590,10 +22197,18 @@ function handleServer(msg) {
           maybeShowMatchPathSummary("partner_left");
           schedulePostMatchFriendNudge("partner_left");
         }
+        // Capture before endActiveMatchChat zeros the timer
+        const chatSecsAtLeave = matchDurationSec();
+        const shortCallAutoNext =
+          !keepFriend &&
+          !inFriendCall &&
+          chatSecsAtLeave >= SHORT_CALL_AUTO_NEXT_MIN_SECS &&
+          chatSecsAtLeave < SHORT_CALL_AUTO_NEXT_SECS;
         matched = msg.phase === "friend_call" || keepFriend;
         wantSearch =
           msg.phase === "waiting" ||
-          /searching again|looking for a 3rd again/i.test(detailRaw);
+          /searching again|looking for a 3rd again/i.test(detailRaw) ||
+          shortCallAutoNext;
         pendingSignals.length = 0;
         closeAllPeers({ keepFriend });
         if (!keepFriend) {
@@ -21610,6 +22225,25 @@ function handleServer(msg) {
           showFriendPip(false);
           enableTrioLayout(false);
           endActiveMatchChat();
+          if (shortCallAutoNext) {
+            inQueue = true;
+            showStartButton(false);
+            showPartnerEmptyWithBrand({ searching: true });
+            try {
+              send(spinPayload());
+            } catch (_) {}
+            setPhase("waiting");
+            setStatus(
+              _t("status.autoNextShort") ||
+                _t("status.searching") ||
+                "Short chat — looking for next…"
+            );
+            try {
+              log(
+                `auto-next short chat secs=${chatSecsAtLeave} (partner left)`
+              );
+            } catch (_) {}
+          }
         } else if (keepParty) {
           // Party still together — hunting for (next) stranger
           matchMode = "party_browse";
@@ -21670,14 +22304,21 @@ function handleServer(msg) {
           inQueue = false;
           showStartButton(false);
         } else if (msg.phase === "idle") {
-          inQueue = false;
-          wantSearch = false;
-          updateStartButtonVisibility();
+          // Keep hunting after short-chat auto-next (wantSearch already true)
+          if (wantSearch && !matched) {
+            inQueue = true;
+            showStartButton(false);
+          } else {
+            inQueue = false;
+            wantSearch = false;
+            updateStartButtonVisibility();
+          }
         }
         // Idle phase label alone is noise — only show real detail (errors, friend notes)
         if (msg.phase === "idle" && !detailRaw) {
-          setStatus("");
-        } else {
+          // Keep "looking for next" after short-chat auto-next
+          if (!(wantSearch && !matched)) setStatus("");
+        } else if (!(wantSearch && !matched && msg.phase === "idle")) {
           setStatus(detailRu || (msg.phase === "idle" ? "" : _phase(msg.phase)));
         }
         updatePoolHint();
@@ -21797,8 +22438,150 @@ function handleServer(msg) {
 }
 
 function handleMatched(msg) {
+  // Same partner re-Matched while we already have a PC → do not tear down ICE
+  // (hub double-match / collapse used to thrash phone↔browser + mobile browser).
+  try {
+    const peersIn = Array.isArray(msg.peers) ? msg.peers : [];
+    const primaryPid =
+      peersIn.find((p) => p && p.peer_id && p.peer_id !== "legacy")?.peer_id ||
+      "";
+    const existing = primaryPid ? findPcForPeer(primaryPid) : null;
+    const ice =
+      existing?.pc?.iceConnectionState ||
+      existing?.pc?.connectionState ||
+      "";
+    const live =
+      existing?.remoteStream &&
+      (existing.remoteStream.getVideoTracks?.() || []).some(
+        (t) => t.readyState === "live"
+      );
+    // Only keep an existing PC when media is actually live (or fully connected).
+    // ice=checking/connecting alone was common with broken TURN / hairpin —
+    // rematch returned early → zero new offer/answer forever (black cameras).
+    // Never keep across a force_relay flip either (need relay-only rebuild).
+    const iceOk =
+      ice === "connected" ||
+      ice === "completed";
+    // force_relay rematch with no live video must rebuild (not keep checking PC)
+    const forceFlip =
+      !!(msg.force_relay && typeof setSessionForceRelay === "function") && !live;
+    if (
+      matched &&
+      primaryPid &&
+      existing &&
+      (live || iceOk) &&
+      !forceFlip
+    ) {
+      matched = true;
+      inQueue = false;
+      matchMode = msg.mode || matchMode || "solo";
+      yourRole = msg.your_role || yourRole || "solo";
+      if (peersIn.length) lastMatchedPeers = peersIn.slice();
+      log(
+        (_t("log.matchedKeep") || "still matched") +
+          ` · keep PC peer=${String(primaryPid).slice(0, 8)} ice=${ice}`
+      );
+      // Refresh meta only — no joinPeers / volume reset / webrtc watch restart
+      try {
+        updatePartyRoleStrip(msg);
+      } catch (_) {}
+      return;
+    }
+  } catch (_) {}
+
+  // Hub force_relay: arm OR clear. Leaving it stuck true after an old match
+  // forced TURN-only forever → one-way / black / 30s+ connect.
+  try {
+    if (typeof setSessionForceRelay === "function") {
+      if (msg.force_relay) {
+        setSessionForceRelay(true);
+        log(
+          _t("log.forceRelay") ||
+            "path: TURN relay (same network or long-distance)"
+        );
+      } else if (
+        typeof sessionForceRelayEnabled === "function" &&
+        sessionForceRelayEnabled()
+      ) {
+        setSessionForceRelay(false);
+        log("path: direct+TURN (force_relay cleared)");
+      }
+    }
+  } catch (_) {}
+
   matched = true;
   inQueue = false;
+  matchMediaGraceAt = Date.now();
+  // Block Next/Space for a moment so first SDP/ICE can finish (hub also enforces ~8s).
+  // Longer when hub forces TURN — soft-recover must not race the first path.
+  nextGraceUntil =
+    Date.now() +
+    (msg.force_relay ? 5000 : 2500);
+  // Prefetch ICE config in parallel (do not await before joinPeers)
+  try {
+    if (typeof loadRtcConfig === "function") {
+      loadRtcConfig(hubBase()).catch(() => {});
+    }
+  } catch (_) {}
+  pathStatRecordedForMatch = false;
+  wantSearch = msg.mode !== "friend";
+  isOfferer = !!msg.is_offerer;
+  matchMode = msg.mode || "solo";
+  yourRole = msg.your_role || "solo";
+  // Keep peer list for soft ICE reconnect (find-3rd)
+  if (Array.isArray(msg.peers) && msg.peers.length) {
+    lastMatchedPeers = msg.peers.slice();
+  }
+
+  // ── SPEED: minimal WebRTC kick for 1:1 solo (bypass heavy joinPeers) ──
+  // Hub 09:38: browser offerer=true but zero offer for 12s until phone rematch.
+  // joinPeers layout/startPreview was still too slow. kickSoloWebRtc is bare SDP.
+  const peersFast =
+    Array.isArray(msg.peers) && msg.peers.length
+      ? msg.peers
+      : [
+          {
+            peer_id: "legacy",
+            short_id: msg.partner_short,
+            is_offerer: !!msg.is_offerer,
+            role: "stranger",
+            name: msg.partner_short,
+          },
+        ];
+  const solo1v1 =
+    (matchMode === "solo" || !matchMode) &&
+    peersFast.length === 1 &&
+    !isTeammateRole(peersFast[0]?.role);
+  const tJoin0 = Date.now();
+  if (solo1v1) {
+    // Do NOT call joinPeers after — it tore down kickSolo's PC mid-offer
+    // (existing without live video was closed → 12s silence until rematch).
+    void kickSoloWebRtc(msg, peersFast[0])
+      .then(() =>
+        log(`kickSolo ok +${Date.now() - tJoin0}ms offerer=${isOfferer ? 1 : 0}`)
+      )
+      .catch((e) => log(`kickSolo fail ${e}`));
+    try {
+      setRemoteEmpty(true, { force: false });
+      enableTrioLayout(false);
+      setSplitRemote(false);
+      registerPeerUi(peersFast[0], "remote");
+    } catch (_) {}
+  } else {
+    joinPeers(peersFast)
+      .then(() => {
+        log(
+          `joinPeers ok +${Date.now() - tJoin0}ms offerer=${isOfferer ? 1 : 0}`
+        );
+        try {
+          ensurePartnerVideoVisible();
+        } catch (_) {}
+      })
+      .catch((e) => log(`joinPeers fail ${e}`));
+  }
+  setTimeout(() => ensurePartnerVideoVisible(), 600);
+  setTimeout(() => ensurePartnerVideoVisible(), 2000);
+
   // Friend answered (or any match) — never leave "Calling…" toast stuck over the call
   dismissFriendRingUi();
   // Layout mode applies after peer tiles settle
@@ -21816,15 +22599,6 @@ function handleMatched(msg) {
   hideWaitTips();
   clearLongWaitBoost();
   clearWeakConnWatch();
-  pathStatRecordedForMatch = false;
-  wantSearch = msg.mode !== "friend";
-  isOfferer = !!msg.is_offerer;
-  matchMode = msg.mode || "solo";
-  yourRole = msg.your_role || "solo";
-  // Keep peer list for soft ICE reconnect (find-3rd)
-  if (Array.isArray(msg.peers) && msg.peers.length) {
-    lastMatchedPeers = msg.peers.slice();
-  }
   // Pure friend 1:1 only — party/find-third uses trioBrowse + party_browse
   if (matchMode === "friend") inFriendCall = true;
   else if (matchMode === "solo") inFriendCall = false;
@@ -21846,6 +22620,7 @@ function handleMatched(msg) {
   );
   updateConnFromState();
   startWebrtcWatch();
+  startHistoryThumbWatch();
   startMatchTimer();
   {
     const titleEl = $("remote-empty")?.querySelector(".empty-title");
@@ -22121,21 +22896,14 @@ function handleMatched(msg) {
     mode: matchMode || "solo",
     role: yourRole || "solo",
   });
-
-  setTimeout(() => {
-    joinPeers(peers)
-      .then(() => {
-        // Rebind path may not re-fire ontrack — force empty off + play
-        ensurePartnerVideoVisible();
-        try {
-          updatePartyRoleStrip(msg);
-        } catch (_) {}
-      })
-      .catch((e) => log(String(e)));
-  }, 300);
-  // Belt-and-suspenders: clear connecting overlay once streams attach
-  setTimeout(() => ensurePartnerVideoVisible(), 1200);
-  setTimeout(() => ensurePartnerVideoVisible(), 3000);
+  trackEvent("match_ok", {
+    mode: matchMode || "solo",
+    role: yourRole || "solo",
+  });
+  // joinPeers already started at top of handleMatched (speed path)
+  try {
+    updatePartyRoleStrip(msg);
+  } catch (_) {}
 }
 
 function handleIncomingSignal(msg) {
@@ -22161,6 +22929,13 @@ function closeAllPeers({ keepFriend = false } = {}) {
   if (!keepFriend) {
     hubSignalOrphanCall = false;
   }
+  // Last chance on-device snap before video elements are cleared
+  try {
+    capturePartnerHistoryThumb();
+  } catch (_) {}
+  try {
+    clearHistoryThumbWatch();
+  } catch (_) {}
   stopMatchTimer();
   clearIntroBlurTimer();
   introBlurGen++;
@@ -22444,8 +23219,204 @@ function pcBelongsToPeer(pc, p) {
   return false;
 }
 
+/**
+ * Bare 1:1 connect — no layout, no trio, no startPreview hang.
+ * Goal: offer on the wire in <500ms when cam already open.
+ * @param {object} msg Matched message
+ * @param {object} p first peer
+ */
+async function kickSoloWebRtc(msg, p) {
+  const t0 = Date.now();
+  const peerId = (p && p.peer_id) || "legacy";
+  // Top-level is_offerer is authoritative; peer.is_offerer is same meaning
+  const iOffer = !!(msg && msg.is_offerer);
+  isOfferer = iOffer;
+
+  // Stream: prefer existing preview; only GUM if empty (fast constraints)
+  let stream = previewStream;
+  const live = !!(stream?.getVideoTracks?.() || []).some(
+    (t) => t && t.readyState === "live"
+  );
+  if (!live) {
+    // Cap GUM hard — hung camera was multi-second match→offer silence.
+    // Prefer tiny/fast constraints; full quality can renegotiate later.
+    try {
+      if (!window.isSecureContext) throw new Error("need HTTPS");
+      stream = await Promise.race([
+        navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video: {
+            facingMode: "user",
+            width: { ideal: 640, max: 960 },
+            height: { ideal: 480, max: 540 },
+            frameRate: { ideal: 20, max: 24 },
+          },
+        }),
+        new Promise((_, rej) =>
+          setTimeout(() => rej(new Error("gum timeout")), 900)
+        ),
+      ]);
+      previewStream = stream;
+      try {
+        const local = $("local");
+        if (local) {
+          local.srcObject = stream;
+          local.muted = true;
+          void local.play?.();
+        }
+      } catch (_) {}
+    } catch (e) {
+      // Fall back to startPreview race (short)
+      try {
+        await Promise.race([
+          startPreview(),
+          new Promise((r) => setTimeout(r, 500)),
+        ]);
+      } catch (_) {}
+      stream = previewStream;
+    }
+  }
+  if (!stream) {
+    log(_t("log.noMedia") || "no media for kickSolo");
+    return;
+  }
+
+  // Drop dead PC for this peer so we always get a fresh offer path
+  const existing = peerId ? findPcForPeer(peerId) : null;
+  if (existing) {
+    const hasLive =
+      existing.remoteStream &&
+      (existing.remoteStream.getVideoTracks?.() || []).some(
+        (t) => t.readyState === "live"
+      );
+    const iceOk =
+      existing.pc?.iceConnectionState === "connected" ||
+      existing.pc?.iceConnectionState === "completed";
+    if (hasLive || iceOk) {
+      log(`kickSolo keep live peer=${String(peerId).slice(0, 8)}`);
+      // Still ensure offer if we are offerer but never sent SDP (warm PC trap)
+      try {
+        if (
+          iOffer &&
+          existing._createAndSendOffer &&
+          !existing._offerSentOnce &&
+          !existing._offerInFlight
+        ) {
+          void existing._createAndSendOffer({ iceRestart: false });
+          log(`kickSolo force offer on live PC`);
+        }
+      } catch (_) {}
+      return;
+    }
+    // If offer already in flight / sent, keep PC (don't tear mid-offer)
+    try {
+      if (
+        existing._offerInFlight ||
+        existing._offerSentOnce ||
+        existing.pc?.signalingState === "have-local-offer"
+      ) {
+        log(`kickSolo keep mid-offer peer=${String(peerId).slice(0, 8)}`);
+        return;
+      }
+    } catch (_) {}
+    try {
+      existing.closeCall({ keepLocal: true, sendBye: false });
+    } catch (_) {}
+    try {
+      peerPcs.delete(peerId);
+    } catch (_) {}
+  }
+
+  try {
+    applyIceDirectPreference();
+  } catch (_) {}
+
+  const pc = new RouletteWebRtc(
+    {
+      onSignal: (kind, payload, toPeer) => {
+        const body = { type: "signal", kind, payload };
+        if (toPeer) body.to = toPeer;
+        else if (peerId && peerId !== "legacy") body.to = peerId;
+        send(body);
+      },
+      onRemoteStream: (stream) => {
+        dismissFriendRingUi();
+        try {
+          paintRemoteFromPc(pc, stream);
+        } catch (_) {}
+        ensurePartnerVideoVisible();
+      },
+      onConnectionState: (s) => {
+        try {
+          setPeerConnChip("remote", s);
+        } catch (_) {}
+        if (s === "connected") {
+          dismissFriendRingUi();
+          if (pc.remoteStream) paintRemoteFromPc(pc, pc.remoteStream);
+          ensurePartnerVideoVisible();
+        }
+        handleWebrtcConnectionState(s, pc);
+      },
+      onIceConnectionState: (ice) => {
+        try {
+          setPeerConnChip("remote", ice);
+        } catch (_) {}
+        if (ice === "failed") handleWebrtcConnectionState("failed", pc);
+        else if (ice === "connected" || ice === "completed") {
+          dismissFriendRingUi();
+          if (pc.remoteStream) paintRemoteFromPc(pc, pc.remoteStream);
+          ensurePartnerVideoVisible();
+        }
+      },
+      onDataChannel: (open) => {
+        updateChatHeader();
+        if (open) setStatus(_t("chat.p2pReady") || "Chat is peer-to-peer");
+      },
+      onDataMessage: (m) => handleP2pDataMessage(m, pc),
+    },
+    iOffer,
+    peerId === "legacy" ? "" : peerId
+  );
+  pc._role = (p && p.role) || "stranger";
+  pc._videoEl = $("remote");
+  // Prefer real preview for outbound (not black hide canvas) on first offer
+  try {
+    if (!selfBlurred && previewStream) pc.setLocalStream(previewStream);
+    else pc.setLocalStream(localStreamForPeerOutbound() || stream);
+  } catch (_) {
+    pc.setLocalStream(stream);
+  }
+  peerPcs.set(peerId, pc);
+  rtc = pc;
+  try {
+    registerPeerUi(p || { peer_id: peerId }, "remote");
+  } catch (_) {}
+  await pc.connect();
+  log(
+    `kickSolo connect +${Date.now() - t0}ms offerer=${iOffer ? 1 : 0} peer=${String(peerId).slice(0, 8)}`
+  );
+}
+
 async function joinPeers(peers) {
-  if (!previewStream?.active) await startPreview();
+  // SPEED: never block match on full startPreview when cam already live.
+  // startPreview() could hang on enumerateDevices / GUM → 15–25s no offer.
+  const camLive = !!(previewStream?.getVideoTracks?.() || []).some(
+    (t) => t && t.readyState === "live"
+  );
+  if (!camLive) {
+    try {
+      await Promise.race([
+        startPreview(),
+        new Promise((r) => setTimeout(r, 900)),
+      ]);
+    } catch (e) {
+      console.warn("[joinPeers] preview", e);
+    }
+  }
   if (!previewStream) {
     log(_t("log.noMedia"));
     return;
@@ -22649,16 +23620,34 @@ async function joinPeers(peers) {
         pcBelongsToPeer(existing, p) &&
         !(isTeammateRole(existing._role) && (p.role === "stranger" || p.role === "party"))
       ) {
-        if (p.role === "stranger" || p.role === "party") {
-          rekeyPeerPc(p.peer_id, existing);
-          existing._role = p.role;
-          const el = videoSlots.get(p.peer_id) || $("remote");
-          bindPcVideo(existing, el);
-          if (useTrio && yourRole === "party" && (el === $("remote-third") || el?.id === "remote-third")) {
-            setThirdSlotStream(existing.remoteStream || null, p.name || "");
+        const live =
+          existing.remoteStream &&
+          (existing.remoteStream.getVideoTracks?.() || []).some(
+            (t) => t.readyState === "live"
+          );
+        const iceOk =
+          existing.pc?.iceConnectionState === "connected" ||
+          existing.pc?.iceConnectionState === "completed" ||
+          existing.pc?.connectionState === "connected";
+        // Dead/checking PC reuse = zero new offers (black forever). Tear down.
+        if (!live && !iceOk) {
+          try {
+            existing.closeCall({ keepLocal: true, sendBye: false });
+          } catch (_) {}
+          peerPcs.delete(p.peer_id);
+          // fall through to create a fresh PC + connect
+        } else {
+          if (p.role === "stranger" || p.role === "party") {
+            rekeyPeerPc(p.peer_id, existing);
+            existing._role = p.role;
+            const el = videoSlots.get(p.peer_id) || $("remote");
+            bindPcVideo(existing, el);
+            if (useTrio && yourRole === "party" && (el === $("remote-third") || el?.id === "remote-third")) {
+              setThirdSlotStream(existing.remoteStream || null, p.name || "");
+            }
           }
+          continue;
         }
-        continue;
       }
     }
 
@@ -22694,6 +23683,13 @@ async function joinPeers(peers) {
 
     const pc = new RouletteWebRtc(
       {
+        onNeedOutboundSync: () => {
+          try {
+            if (!selfBlurred && !camOff) {
+              void pushOutboundVideoTracks();
+            }
+          } catch (_) {}
+        },
         onSignal: (kind, payload, toPeer) => {
           const body = { type: "signal", kind, payload };
           if (toPeer) body.to = toPeer;
@@ -22733,6 +23729,15 @@ async function joinPeers(peers) {
           setPeerConnChip(slot, s);
           if (s === "connected") {
             dismissFriendRingUi();
+            // ICE connected but ontrack may lag — re-paint if we already have stream
+            if (pc.remoteStream) {
+              paintRemoteFromPc(pc, pc.remoteStream);
+            }
+            ensurePartnerVideoVisible();
+            // Re-assert self-hide black track when media path settles
+            if (selfBlurred) {
+              pushOutboundVideoTracks().catch(() => {});
+            }
             // ICE connected but ontrack may lag — re-paint third if we have stream
             if (
               useTrio &&
@@ -22744,12 +23749,17 @@ async function joinPeers(peers) {
               registerPeerUi(p, "remote-third");
             }
           }
+          if (selfBlurred && s === "connecting") {
+            pushOutboundVideoTracks().catch(() => {});
+          }
           if (s === "failed" || s === "closed" || s === "disconnected") {
             // Soft recover first; only prune after hard fail (handleWebrtc may recover)
+            // NEVER prune during first 20s of match — kills first phone↔browser path
             if (s === "failed" || s === "closed") {
-              // Defer slightly so soft ICE restart can win
               setTimeout(() => {
                 try {
+                  const age = matchMediaGraceAt ? Date.now() - matchMediaGraceAt : 99999;
+                  if (age < 20000) return;
                   const still = peerPcs.get(p.peer_id) === pc;
                   const st = pc.pc?.connectionState || pc.pc?.iceConnectionState;
                   if (
@@ -22759,7 +23769,7 @@ async function joinPeers(peers) {
                     onPeerPcEnded(pc);
                   }
                 } catch (_) {}
-              }, 2800);
+              }, 4000);
             }
           }
           handleWebrtcConnectionState(s, pc);
@@ -22776,6 +23786,10 @@ async function joinPeers(peers) {
           if (ice === "failed") handleWebrtcConnectionState("failed", pc);
           else if (ice === "connected" || ice === "completed") {
             dismissFriendRingUi();
+            if (pc.remoteStream) {
+              paintRemoteFromPc(pc, pc.remoteStream);
+            }
+            ensurePartnerVideoVisible();
             if (
               useTrio &&
               yourRole === "party" &&
@@ -22790,6 +23804,12 @@ async function joinPeers(peers) {
               pc._softIceTried = false;
               pc._softReconnectScheduled = false;
             } catch (_) {}
+            // Self-hide: re-assert black outbound so reveal doesn't leak on ICE settle
+            if (selfBlurred) {
+              pushOutboundVideoTracks().catch(() => {});
+            }
+          } else if (selfBlurred && ice === "checking") {
+            pushOutboundVideoTracks().catch(() => {});
           }
         },
         onQualityTier: (tier) => {
@@ -22803,20 +23823,6 @@ async function joinPeers(peers) {
         },
         onDataMessage: (msg) => {
           handleP2pDataMessage(msg, pc);
-        },
-        onIceConnectionState: (ice) => {
-          // Re-assert self-hide black track when media path settles (avoids leak on renegotiate)
-          if (
-            selfBlurred &&
-            (ice === "connected" || ice === "completed" || ice === "checking")
-          ) {
-            pushOutboundVideoTracks().catch(() => {});
-          }
-        },
-        onConnectionState: (st) => {
-          if (selfBlurred && (st === "connected" || st === "connecting")) {
-            pushOutboundVideoTracks().catch(() => {});
-          }
         },
       },
       !!p.is_offerer,
@@ -22836,9 +23842,29 @@ async function joinPeers(peers) {
     if (isTeammateRole(p.role) && videoEl === $("friend-pip")) {
       showFriendPip(true);
     }
+    // Solo kick already created+connected this peer — don't double-connect
+    if (
+      peerPcs.get(p.peer_id) &&
+      peerPcs.get(p.peer_id) !== pc &&
+      peerPcs.get(p.peer_id).pc
+    ) {
+      try {
+        pc.closeCall({ keepLocal: true, sendBye: false });
+      } catch (_) {}
+      continue;
+    }
     connectJobs.push(
       (async () => {
         try {
+          // If kickSolo already ran connect, skip
+          if (
+            pc.pc &&
+            (pc.pc.localDescription ||
+              pc.pc.remoteDescription ||
+              pc._offerSentOnce)
+          ) {
+            return;
+          }
           await pc.connect();
           // Drain pending signals for this peer only (not teammate leftovers)
           const left = [];
@@ -23627,19 +24653,51 @@ function renderFriendsList() {
         _t("friends.blockedEmpty") || "No blocked users"
       )}</p>`;
     } else {
+      // Names from local history (device only); thumbs from local snapshots
+      let histByUid = {};
+      try {
+        for (const h of loadHistory()) {
+          if (h?.user_id && !histByUid[h.user_id]) histByUid[h.user_id] = h;
+        }
+      } catch (_) {
+        histByUid = {};
+      }
       bl.innerHTML =
-        `<div class="hint-inline"><strong>${escapeHtml(_t("friends.blockedTitle"))}</strong></div>` +
+        `<div class="hint-inline"><strong>${escapeHtml(
+          _t("friends.blockedTitle") || "Blocked"
+        )}</strong>
+          <span class="muted"> · ${escapeHtml(
+            _t("friends.blockedThumbHint") ||
+              "Snapshots stay on this device (blurred)"
+          )}</span></div>` +
         blockedCache
-          .map(
-            (uid) => `<div class="friend-row">
-          <span class="dot"></span>
-          <div class="meta"><strong>${escapeHtml(uid.slice(0, 12))}…</strong>
-            <span>${escapeHtml(_t("friends.blocked"))}</span></div>
+          .map((uid) => {
+            const h = histByUid[uid];
+            const display =
+              (h && (h.name || h.short_id || h.friend_code)) ||
+              `${String(uid).slice(0, 12)}…`;
+            const thumb = getHistoryThumb(uid);
+            const letter =
+              String(display || "?").trim().charAt(0).toUpperCase() || "?";
+            const avHtml = thumb
+              ? `<span class="friend-avatar hist-thumb hist-thumb-blurred" title="${escapeAttr(
+                  _t("friends.blockedThumbHint") ||
+                    "Snapshot on this device (blurred)"
+                )}"><img src="${escapeAttr(
+                  thumb
+                )}" alt="" loading="lazy" decoding="async" /></span>`
+              : `<span class="friend-avatar hist-thumb hist-thumb-blurred letter" aria-hidden="true">${escapeHtml(
+                  letter
+                )}</span>`;
+            return `<div class="friend-row is-blocked">
+          ${avHtml}
+          <div class="meta"><strong>${escapeHtml(display)}</strong>
+            <span>${escapeHtml(_t("friends.blocked") || "Blocked")}</span></div>
           <button type="button" class="pill tight btn-unblock" data-uid="${escapeAttr(
             uid
-          )}">${escapeHtml(_t("friends.unblock"))}</button>
-        </div>`
-          )
+          )}">${escapeHtml(_t("friends.unblock") || "Unblock")}</button>
+        </div>`;
+          })
           .join("");
       bl.querySelectorAll(".btn-unblock").forEach((btn) => {
         btn.addEventListener("click", () => {
@@ -23766,6 +24824,176 @@ function blockUserId(uid, opts = {}) {
     }
   } catch (_) {}
   return true;
+}
+
+/** @returns {Record<string, string>} user_id → tiny jpeg data URL */
+function loadHistoryThumbs() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(HISTORY_THUMBS_KEY) || "{}");
+    if (!raw || typeof raw !== "object") return {};
+    return raw;
+  } catch {
+    return {};
+  }
+}
+
+function getHistoryThumb(userId) {
+  const uid = String(userId || "").trim();
+  if (!uid) return "";
+  const t = loadHistoryThumbs()[uid];
+  return typeof t === "string" && t.startsWith("data:image/") ? t : "";
+}
+
+/**
+ * Store a tiny square partner crop (device only).
+ * @param {string} userId
+ * @param {string} dataUrl
+ */
+function saveHistoryThumb(userId, dataUrl) {
+  const uid = String(userId || "").trim();
+  if (!uid || !dataUrl || typeof dataUrl !== "string") return;
+  if (!dataUrl.startsWith("data:image/")) return;
+  if (dataUrl.length > MAX_HISTORY_THUMB_CHARS) return;
+  try {
+    const map = loadHistoryThumbs();
+    map[uid] = dataUrl;
+    // Cap entries (drop oldest keys roughly by insertion — rebuild ordered)
+    const keys = Object.keys(map);
+    if (keys.length > MAX_HISTORY_THUMBS) {
+      // Prefer keys still present in history; drop orphans first
+      const histIds = new Set(
+        loadHistory()
+          .map((h) => h && h.user_id)
+          .filter(Boolean)
+      );
+      const drop = keys.filter((k) => !histIds.has(k));
+      for (const k of drop) {
+        if (Object.keys(map).length <= MAX_HISTORY_THUMBS) break;
+        delete map[k];
+      }
+      while (Object.keys(map).length > MAX_HISTORY_THUMBS) {
+        delete map[Object.keys(map)[0]];
+      }
+    }
+    localStorage.setItem(HISTORY_THUMBS_KEY, JSON.stringify(map));
+  } catch (_) {
+    /* quota / private mode */
+  }
+}
+
+/** Settings: save partner face crops for History/Blocked (default ON). */
+function historySnapsEnabled() {
+  try {
+    // Explicit false turns off; missing key = on
+    return loadPrefs().historySnaps !== false;
+  } catch {
+    return true;
+  }
+}
+
+function syncHistorySnapsUi() {
+  const chk = $("chk-history-snaps");
+  if (!chk) return;
+  chk.checked = historySnapsEnabled();
+}
+
+/**
+ * Center-crop a frame from the main partner <video> into a tiny JPEG (local only).
+ * Skips when: pref off, partner still blurred, black/empty frames.
+ * Slight upward bias for a more face-like crop.
+ * @param {string} [userId]
+ * @param {{ force?: boolean }} [opts]
+ * @returns {string} data URL or ""
+ */
+function capturePartnerHistoryThumb(userId, opts = {}) {
+  if (!opts.force && !historySnapsEnabled()) return "";
+  const uid =
+    String(userId || primaryPartnerUserId || lastMatchMeta?.user_id || "").trim();
+  if (!uid) return "";
+  // Don't snapshot while stranger is still under blur-first / user blur
+  try {
+    if (peerBlurredByEl?.remote) return "";
+    if (typeof partnerBlurred !== "undefined" && partnerBlurred) return "";
+    const tile = $("tile-remote");
+    if (tile?.classList?.contains("partner-blurred")) return "";
+  } catch (_) {}
+  const video = $("remote");
+  if (!video || video.readyState < 2) return "";
+  const w = video.videoWidth || 0;
+  const h = video.videoHeight || 0;
+  if (w < 32 || h < 32) return "";
+  try {
+    // Slightly tighter center crop, bias upward (faces sit higher in frame)
+    const side = Math.floor(Math.min(w, h) * 0.88);
+    const sx = Math.floor((w - side) / 2);
+    const sy = Math.max(0, Math.floor((h - side) / 2 - side * 0.08));
+    const canvas = document.createElement("canvas");
+    canvas.width = HISTORY_THUMB_PX;
+    canvas.height = HISTORY_THUMB_PX;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return "";
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(video, sx, sy, side, side, 0, 0, HISTORY_THUMB_PX, HISTORY_THUMB_PX);
+    // Reject near-black / uniform frames (no real video yet)
+    try {
+      const sample = ctx.getImageData(0, 0, HISTORY_THUMB_PX, HISTORY_THUMB_PX);
+      let sum = 0;
+      let min = 255;
+      let max = 0;
+      const step = 12;
+      for (let i = 0; i < sample.data.length; i += 4 * step) {
+        const y =
+          0.299 * sample.data[i] +
+          0.587 * sample.data[i + 1] +
+          0.114 * sample.data[i + 2];
+        sum += y;
+        if (y < min) min = y;
+        if (y > max) max = y;
+      }
+      const n = Math.floor(sample.data.length / (4 * step)) || 1;
+      const mean = sum / n;
+      if (mean < 22 || max - min < 12) return "";
+    } catch (_) {
+      /* cross-origin / security — still try to save */
+    }
+    for (const q of [0.68, 0.52, 0.4]) {
+      const data = canvas.toDataURL("image/jpeg", q);
+      if (data && data.length <= MAX_HISTORY_THUMB_CHARS) {
+        saveHistoryThumb(uid, data);
+        return data;
+      }
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  return "";
+}
+
+/** Periodic grab while live so history has a face crop (device only). */
+let historyThumbTimer = 0;
+function clearHistoryThumbWatch() {
+  if (historyThumbTimer) {
+    clearInterval(historyThumbTimer);
+    historyThumbTimer = 0;
+  }
+}
+function startHistoryThumbWatch() {
+  clearHistoryThumbWatch();
+  if (!historySnapsEnabled()) return;
+  // Wait for unblur + real frames; then refresh occasionally
+  const tryGrab = () => {
+    try {
+      if (!matched || !primaryPartnerUserId) return;
+      if (typeof partnerHasLiveVideo === "function" && !partnerHasLiveVideo()) {
+        return;
+      }
+      capturePartnerHistoryThumb();
+    } catch (_) {}
+  };
+  setTimeout(tryGrab, 3500);
+  setTimeout(tryGrab, 7000);
+  historyThumbTimer = setInterval(tryGrab, 10000);
 }
 
 function loadHistory() {
@@ -24021,6 +25249,10 @@ function collapseHistoryByPerson(list) {
  * @param {{ mode?: string, friendCall?: boolean }} [opts]
  */
 function recordMatchHistoryFromPeers(peers, opts = {}) {
+  // Final on-device frame grab before we leave the call
+  try {
+    capturePartnerHistoryThumb();
+  } catch (_) {}
   const list = Array.isArray(peers) ? peers : [];
   const friendCall = !!opts.friendCall;
   const mode = opts.mode || matchMode || "solo";
@@ -24064,6 +25296,10 @@ function recordMatchHistoryFromPeers(peers, opts = {}) {
  */
 function pushHistory(entry) {
   if (!entry) return;
+  // Best-effort snap for this person (local only)
+  try {
+    if (entry.user_id) capturePartnerHistoryThumb(entry.user_id);
+  } catch (_) {}
   const list = loadHistory();
   const row = {
     t: Number(entry.t) || Date.now(),
@@ -24281,10 +25517,19 @@ function renderHistoryList() {
       `<p class="hint-inline muted">${escapeHtml(
         historyFilterMode === "friends"
           ? _t("friends.historyEmptyFriends") || "No friend calls yet"
-          : _t("friends.historyEmpty")
-      )}</p>`;
+          : _t("friends.historyEmpty") || "No history yet"
+      )}</p>` +
+      (historyFilterMode !== "friends"
+        ? `<p class="hint-inline muted history-snap-hint">${escapeHtml(
+            _t("friends.historyEmptyHint") ||
+              "After a call with video, a small photo appears here (this device only)."
+          )}</p>`
+        : "");
     $("btn-clear-history")?.addEventListener("click", () => {
       saveHistory([]);
+      try {
+        localStorage.removeItem(HISTORY_THUMBS_KEY);
+      } catch (_) {}
       renderHistoryList();
       syncFriendsTabCounts();
     });
@@ -24381,10 +25626,19 @@ function renderHistoryList() {
             _t("friends.alreadyBlocked") || "Blocked"
           )}</span>`;
         }
+        const thumb = h.user_id ? getHistoryThumb(h.user_id) : "";
+        const letter = (display || "?").trim().charAt(0).toUpperCase() || "?";
+        const avHtml = thumb
+          ? `<span class="friend-avatar hist-thumb" title="${escapeAttr(
+              _t("friends.historyThumbHint") || "Snapshot saved on this device"
+            )}"><img src="${escapeAttr(thumb)}" alt="" loading="lazy" decoding="async" /></span>`
+          : `<span class="friend-avatar hist-thumb letter" aria-hidden="true">${escapeHtml(
+              letter
+            )}</span>`;
         return `<div class="friend-row${onlineFriend ? " online is-call-ready" : ""}${
           isFriend ? " is-friend" : ""
         }${isBlocked ? " is-blocked" : ""}">
-          <span class="dot ${onlineFriend ? "online" : ""}"></span>
+          ${avHtml}
           <div class="meta">
             <strong>${escapeHtml(display)}</strong>
             <span>${escapeHtml(metaBits)}</span>
@@ -24395,6 +25649,9 @@ function renderHistoryList() {
       .join("");
   $("btn-clear-history")?.addEventListener("click", () => {
     saveHistory([]);
+    try {
+      localStorage.removeItem(HISTORY_THUMBS_KEY);
+    } catch (_) {}
     renderHistoryList();
     syncFriendsTabCounts();
   });
@@ -24600,6 +25857,11 @@ function startMatchTimer() {
   }
   // Brief peek of timer + quality row, then autohide
   peekRemoteMeta(REMOTE_META_PEEK_MS);
+  try {
+    setStageBrandLive(true);
+    spinStageBrand({ force: true });
+    startStageBrandSpinLoop();
+  } catch (_) {}
   matchTimerInterval = setInterval(() => {
     const el2 = $("match-timer");
     // Friend calls set inFriendCall; matched may stay false — still tick progress
@@ -24612,11 +25874,69 @@ function startMatchTimer() {
   }, 1000);
 }
 
+/** Center cylinder + edge watermark visibility during live call */
+function setStageBrandLive(on) {
+  try {
+    document.querySelector("main.stage")?.classList.toggle("has-brand-live", !!on);
+  } catch (_) {}
+}
+
+let stageBrandSpinTimer = 0;
+function stopStageBrandSpinLoop() {
+  if (stageBrandSpinTimer) {
+    clearTimeout(stageBrandSpinTimer);
+    stageBrandSpinTimer = 0;
+  }
+}
+/**
+ * Occasional 360° spin (rulet.tv-style). Force on new match; random idle ~40–90s.
+ * @param {{ force?: boolean }} [opts]
+ */
+function spinStageBrand(opts = {}) {
+  const spin = $("stage-brand-spin");
+  if (!spin) return;
+  try {
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) {
+      return;
+    }
+  } catch (_) {}
+  spin.classList.remove("is-spinning");
+  // reflow so animation can re-trigger
+  void spin.offsetWidth;
+  spin.classList.add("is-spinning");
+  setTimeout(() => {
+    try {
+      spin.classList.remove("is-spinning");
+    } catch (_) {}
+  }, 1300);
+  if (opts.force) {
+    /* match entrance spin only */
+  }
+}
+function startStageBrandSpinLoop() {
+  stopStageBrandSpinLoop();
+  const schedule = () => {
+    // Random interval 40–90s between idle spins
+    const ms = 40000 + Math.floor(Math.random() * 50000);
+    stageBrandSpinTimer = setTimeout(() => {
+      if (matched || inFriendCall) {
+        spinStageBrand();
+        schedule();
+      }
+    }, ms);
+  };
+  schedule();
+}
+
 function stopMatchTimer() {
   if (matchTimerInterval) {
     clearInterval(matchTimerInterval);
     matchTimerInterval = 0;
   }
+  try {
+    setStageBrandLive(false);
+    stopStageBrandSpinLoop();
+  } catch (_) {}
   if (matchTimerStartedAt) {
     lastMatchDurationSec = Math.max(
       0,
@@ -26650,19 +27970,34 @@ function updateDebateMuteBadges(iSpeak) {
     setVis("debate-badge-local-speaking", false);
     setVis("debate-badge-remote-muted", false);
     setVis("debate-badge-remote-speaking", false);
+    // Restore user-mute badges if still muted outside debate
+    try {
+      setPeerMuteUi("remote", !!peerMutedByEl.remote || partnerMuted);
+      setPeerMuteUi("remote2", !!peerMutedByEl.remote2);
+      setPeerMuteUi("remote-third", !!peerMutedByEl["remote-third"]);
+    } catch (_) {}
     return;
   }
   // You
   setVis("debate-badge-local-muted", !iSpeak);
   setVis("debate-badge-local-speaking", iSpeak);
-  // Partner
-  setVis("debate-badge-remote-muted", iSpeak); // they muted when you speak
-  setVis("debate-badge-remote-speaking", !iSpeak);
+  // Partner: debate mute when you speak; if you also user-muted them, keep muted
+  const userMutedRemote = !!(peerMutedByEl.remote || partnerMuted);
+  setVis("debate-badge-remote-muted", iSpeak || userMutedRemote);
+  setVis("debate-badge-remote-speaking", !iSpeak && !userMutedRemote);
+  // Hide separate user-mute badge while debate badge owns the slot
+  setVis("peer-mute-badge-remote", false);
+  // Keep tile veil for user mute on secondary peers
+  try {
+    setPeerMuteUi("remote", userMutedRemote);
+    setPeerMuteUi("remote2", !!peerMutedByEl.remote2);
+    setPeerMuteUi("remote-third", !!peerMutedByEl["remote-third"]);
+  } catch (_) {}
 }
 
 function clearDebateMuteBadges() {
   updateDebateMuteBadges(false);
-  // Force hide all (updateDebateMuteBadges only works when active)
+  // Force hide debate badges (user-mute reapplied inside updateDebateMuteBadges)
   for (const id of [
     "debate-badge-local-muted",
     "debate-badge-local-speaking",
@@ -26674,6 +28009,12 @@ function clearDebateMuteBadges() {
     el.hidden = true;
     el.setAttribute("hidden", "");
   }
+  // Ensure user-mute visuals still show if partner remains muted
+  try {
+    setPeerMuteUi("remote", !!peerMutedByEl.remote || partnerMuted);
+    setPeerMuteUi("remote2", !!peerMutedByEl.remote2);
+    setPeerMuteUi("remote-third", !!peerMutedByEl["remote-third"]);
+  } catch (_) {}
 }
 
 /**
@@ -26772,7 +28113,13 @@ function showPartnerReportReasons() {
     rep.removeAttribute("hidden");
   }
   const title = $("partner-menu-title");
-  if (title) title.textContent = _t("partnerMenu.reportNext") || _t("partnerMenu.report") || "Report";
+  if (title) {
+    title.textContent =
+      _t("btn.blockReport") ||
+      _t("partnerMenu.reportNext") ||
+      _t("partnerMenu.report") ||
+      "Block · Report";
+  }
   // Status tier (trust / social health) — soft rank + gift caps. Reports are flat consensus.
   const trustedHint = $("partner-menu-trusted-hint");
   if (trustedHint) {
@@ -26958,7 +28305,7 @@ function openPartnerMenu() {
     }
   }
 
-  // Star gifts (5★ / 15s, extendable)
+  // Star gifts (per-kind cost / duration; most mid-tier are 5★ / 15s)
   const liveGift = !!(matched || inFriendCall);
   const canGift =
     liveGift && !!primaryPartnerUserId && myStars >= STAR_EFFECT_COST;
@@ -26970,7 +28317,10 @@ function openPartnerMenu() {
   const wireGiftBtn = (id, labelId, kind, baseKey, extendKey, baseFb, extFb) => {
     const btn = $(id);
     if (!btn) return;
-    btn.disabled = !canGift;
+    const cost = giftCost(kind);
+    const secs = giftSecs(kind);
+    const afford = liveGift && !!primaryPartnerUserId && myStars >= cost;
+    btn.disabled = !afford;
     btn.hidden = !liveGift;
     const lbl = $(labelId);
     const extending =
@@ -26979,11 +28329,14 @@ function openPartnerMenu() {
       partnerFx.until > unixNowSec();
     if (lbl) {
       lbl.textContent = extending
-        ? _t(extendKey, { n: STAR_EFFECT_COST, s: STAR_EFFECT_SECS }) ||
-          extFb
+        ? _t(extendKey, { n: cost, s: secs }) || extFb
         : _t(baseKey) || baseFb;
     }
-    btn.title = needTitle || lbl?.textContent || "";
+    btn.title =
+      myStars < cost
+        ? _t("stars.needStars", { n: cost, have: myStars }) ||
+          `Need ${cost} stars (you have ${myStars})`
+        : lbl?.textContent || needTitle || "";
   };
   wireGiftBtn(
     "btn-partner-bars",
@@ -27020,6 +28373,15 @@ function openPartnerMenu() {
     "stars.confettiExtend",
     `Confetti · ${STAR_EFFECT_COST}★ · ${STAR_EFFECT_SECS}s`,
     `More confetti +${STAR_EFFECT_SECS}s · ${STAR_EFFECT_COST}★`
+  );
+  wireGiftBtn(
+    "btn-partner-pass-mic",
+    "btn-partner-pass-mic-label",
+    "pass_mic",
+    "stars.passMicBtn",
+    "stars.passMicExtend",
+    `Pass the mic · 5★ · 5s`,
+    `Pass again +5s · 5★`
   );
 
   showPartnerMenuMain();
@@ -27104,14 +28466,16 @@ function showReportToast(message) {
   if (existing) existing.remove();
   const toast = document.createElement("div");
   toast.id = id;
-  toast.className = "report-toast";
+  toast.className = "report-toast report-toast-success";
   toast.setAttribute("role", "status");
-  toast.innerHTML = `<strong>${escapeHtml(
-    _t("partnerMenu.report") || "Report"
-  )}</strong><span>${escapeHtml(message)}</span>`;
+  toast.innerHTML = `<span class="report-toast-check" aria-hidden="true">✓</span><div class="report-toast-body"><strong>${escapeHtml(
+    _t("btn.blockReport") ||
+      _t("partnerMenu.reportOkTitle") ||
+      "Block · Report"
+  )}</strong><span>${escapeHtml(message)}</span></div>`;
   document.body.appendChild(toast);
   // Longer on mobile so the success state is readable after skip animation
-  const ms = window.matchMedia("(max-width: 720px)").matches ? 6500 : 4800;
+  const ms = window.matchMedia("(max-width: 720px)").matches ? 7000 : 5200;
   setTimeout(() => {
     if (toast.parentNode) toast.remove();
   }, ms);
@@ -27144,20 +28508,12 @@ function reportPartner(reason) {
         _t("partnerMenu.reportOk")
       : _t("partnerMenu.reportOkFull") || _t("partnerMenu.reportOk");
   setStatus(msg);
+  // One strong success toast (avoid double toast spam)
   showReportToast(
     _t("partnerMenu.reportToastFull") ||
-      _t("partnerMenu.reportToast") ||
-      "Reported · blocked · Next. You will not match them again."
+      _t("partnerMenu.reportNeverAgain") ||
+      "Reported · blocked · finding next. You will not match them again."
   );
-  // Extra certainty strip (trust UX) — same language as block
-  try {
-    showBlockCertaintyToast({
-      title: _t("partnerMenu.reportOkTitle") || "Reported & blocked",
-      body:
-        _t("partnerMenu.reportNeverAgain") ||
-        "You will not match them again. They were skipped.",
-    });
-  } catch (_) {}
   log((_t("partnerMenu.reportOk") || "reported") + ` · ${entry.reason}`);
   trackEvent("report_next", { reason: entry.reason || "other" });
   closePartnerMenu();
@@ -27248,6 +28604,7 @@ on("btn-partner-bars", "click", () => spendBarsOnPartner());
 on("btn-partner-flowers", "click", () => spendFlowersOnPartner());
 on("btn-partner-balloons", "click", () => spendBalloonsOnPartner());
 on("btn-partner-confetti", "click", () => spendConfettiOnPartner());
+on("btn-partner-pass-mic", "click", () => spendPassMicOnPartner());
 on("btn-partner-find-third", "click", () => {
   closePartnerMenu();
   if (!TRIO_FIND_ENABLED || findThirdPending) return;
@@ -27371,10 +28728,25 @@ try {
   wireEmojiPicker();
 } catch (_) {}
 on("btn-report-dock", "click", () => {
-  // One-tap Report · Next (default reason); open menu for other reasons via partner video
+  // Legacy ⋯ item — same as primary footer Block · Report
   closeMatchMoreMenu();
+  openBlockReportSheet();
+});
+/** Footer: one button → pick reason → report + block + Next. */
+function openBlockReportSheet() {
   if (!primaryPartnerUserId || !matched) return;
-  reportPartner("other");
+  if (primaryPartnerUserId === myUserId) return;
+  closeMatchMoreMenu();
+  try {
+    openPartnerMenu();
+    showPartnerReportReasons();
+  } catch (e) {
+    // Fallback: still report+block with generic reason
+    reportPartner("other");
+  }
+}
+on("btn-block-report", "click", () => {
+  openBlockReportSheet();
 });
 on("btn-match-more", "click", (e) => {
   e.stopPropagation();
@@ -27766,6 +29138,14 @@ on("remote-vol", "change", onVolInput);
 on("remote-vol-sheet", "input", onVolInput);
 on("remote-vol-sheet", "change", onVolInput);
 
+function onMicBoostInput(e) {
+  const v = e?.target?.value;
+  syncMicBoostSlider(v);
+  applyMicBoost(v, { persist: true }).catch(() => {});
+}
+on("mic-boost", "input", onMicBoostInput);
+on("mic-boost", "change", onMicBoostInput);
+
 on("sel-camera", "change", async () => {
   const id = $("sel-camera")?.value || "";
   if (!id) return;
@@ -27908,6 +29288,20 @@ on("btn-spin", "click", () => {
   endActiveMatchChat(); // keep chat history after leaving
   updateFriendActionButtons();
   trackEvent("spin");
+  // Prefetch TURN + pre-gather ICE while waiting (phone↔browser first media)
+  try {
+    if (typeof loadRtcConfig === "function") {
+      loadRtcConfig(hubBase())
+        .then(() => {
+          if (typeof warmIcePool === "function") warmIcePool();
+        })
+        .catch(() => {
+          if (typeof warmIcePool === "function") warmIcePool();
+        });
+    } else if (typeof warmIcePool === "function") {
+      warmIcePool();
+    }
+  } catch (_) {}
   send(spinPayload());
   updateConnFromState();
   log(
@@ -27928,6 +29322,18 @@ on("btn-next", "click", () => {
     setStatus(
       _t("stars.pleaseStayLocked", { s: left }) ||
         `Please stay · ${left}s`
+    );
+    try {
+      navigator.vibrate?.(12);
+    } catch (_) {}
+    return;
+  }
+  // Fresh match — give media a beat (hub also refuses Next for ~8s)
+  if (matched && Date.now() < nextGraceUntil) {
+    const left = Math.max(1, Math.ceil((nextGraceUntil - Date.now()) / 1000));
+    setStatus(
+      _t("conn.nextGrace") ||
+        `Just matched — wait ${left}s before Next so video can connect`
     );
     try {
       navigator.vibrate?.(12);
@@ -27973,6 +29379,20 @@ on("btn-next", "click", () => {
   schedulePostMatchFriendNudge("next");
   hubSignalOrphanCall = false;
   trackEvent("next");
+  // Re-warm ICE while searching for the next stranger
+  try {
+    if (typeof loadRtcConfig === "function") {
+      loadRtcConfig(hubBase())
+        .then(() => {
+          if (typeof warmIcePool === "function") warmIcePool();
+        })
+        .catch(() => {
+          if (typeof warmIcePool === "function") warmIcePool();
+        });
+    } else if (typeof warmIcePool === "function") {
+      warmIcePool();
+    }
+  } catch (_) {}
   send(nextPayload());
   updateConnFromState();
   try {
@@ -27994,6 +29414,9 @@ on("btn-next", "click", () => {
 
 /** Stop: leave queue / end stranger match; do not auto-search again. */
 function doStopMatchmaking() {
+  try {
+    if (typeof clearIceWarm === "function") clearIceWarm();
+  } catch (_) {}
   try {
     maybeAlmostGiftUnlockOnLeave("stop");
   } catch (_) {}
@@ -28336,6 +29759,32 @@ $("chk-nsfw-auto")?.addEventListener("change", (e) => {
   if (on && matched && matchMode !== "friend") startNsfwWatch();
   else if (!on) stopNsfwWatch();
   syncSettingsSummary();
+});
+$("chk-history-snaps")?.addEventListener("change", (e) => {
+  const on = !!e.target.checked;
+  savePrefs({ historySnaps: on });
+  syncHistorySnapsUi();
+  try {
+    trackEvent("history_snaps_pref", { on: on ? 1 : 0 });
+  } catch (_) {}
+  if (on && matched) {
+    try {
+      startHistoryThumbWatch();
+    } catch (_) {}
+  } else {
+    try {
+      clearHistoryThumbWatch();
+    } catch (_) {}
+  }
+  try {
+    setStatus(
+      on
+        ? _t("settings.historySnapsOn") ||
+            "Partner snapshots on — tiny crops stay on this device"
+        : _t("settings.historySnapsOff") ||
+            "Partner snapshots off — History shows letters only"
+    );
+  } catch (_) {}
 });
 $("chk-blur-first")?.addEventListener("change", (e) => {
   const on = !!e.target.checked;
@@ -28834,6 +30283,9 @@ document.addEventListener(
     } catch (_) {}
   }
   try {
+    syncHistorySnapsUi();
+  } catch (_) {}
+  try {
     syncSwipeSkipToggle();
   } catch (_) {}
   // Name from URL ?name= or saved identity
@@ -29017,6 +30469,9 @@ try {
     syncVolumeSliders(earlyPrefs.volume);
     peerVolByEl.remote = Math.max(0, Math.min(100, earlyPrefs.volume));
   }
+  try {
+    syncMicBoostSlider(getMicBoostPct());
+  } catch (_) {}
   applyLocalMirrorClass();
   syncLowLatencyAudioToggles();
   refreshLocalNameChip();
@@ -29024,6 +30479,9 @@ try {
 } catch (_) {}
 
 // Immediate boot — media waits for rules accept if first visit
+try {
+  trackEvent("app_open", { gate: gateBlocks ? 1 : 0 });
+} catch (_) {}
 startSession({ forceMedia: !gateBlocks });
 updateEmptyShareVisibility();
 updateStartButtonVisibility();
