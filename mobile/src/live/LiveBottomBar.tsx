@@ -25,6 +25,8 @@ export type LiveBottomBarProps = {
   friendsOnly: boolean;
   isFriendCall: boolean;
   stayRemSecs: number;
+  /** Fat-finger Next grace after match (seconds left). */
+  nextGraceRemSecs?: number;
   micOn: boolean;
   camOn: boolean;
   hasLocal: boolean;
@@ -37,6 +39,8 @@ export type LiveBottomBarProps = {
     next: string;
     stayNext: (s: number) => string;
     stayLock: (s: number) => string;
+    /** Next locked for grace: "Next · 2s" */
+    nextGrace?: (s: number) => string;
     stop: string;
     hangup: string;
     /** Combined safety: report + block + Next */
@@ -79,6 +83,7 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
     friendsOnly,
     isFriendCall,
     stayRemSecs,
+    nextGraceRemSecs = 0,
     micOn,
     camOn,
     hasLocal,
@@ -166,18 +171,27 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
               <Pressable
                 style={[
                   styles.btnSecondary,
-                  stayRemSecs > 0 && styles.btnStayLocked,
+                  (stayRemSecs > 0 || nextGraceRemSecs > 0) &&
+                    styles.btnStayLocked,
                 ]}
                 onPress={onNext}
                 accessibilityRole="button"
                 accessibilityLabel={
-                  stayRemSecs > 0 ? L.stayLock(stayRemSecs) : L.next
+                  stayRemSecs > 0
+                    ? L.stayLock(stayRemSecs)
+                    : nextGraceRemSecs > 0 && L.nextGrace
+                      ? L.nextGrace(nextGraceRemSecs)
+                      : L.next
                 }
                 testID="live-next-btn"
                 hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
               >
                 <Text style={styles.btnText} importantForAccessibility="no">
-                  {stayRemSecs > 0 ? L.stayNext(stayRemSecs) : L.next}
+                  {stayRemSecs > 0
+                    ? L.stayNext(stayRemSecs)
+                    : nextGraceRemSecs > 0 && L.nextGrace
+                      ? L.nextGrace(nextGraceRemSecs)
+                      : L.next}
                 </Text>
               </Pressable>
             ) : null}

@@ -1137,7 +1137,7 @@
   "remote.aloneInviteSub": "Few people online. Invite a friend — they add your code, you Accept, then Call.",
   "remote.aloneInviteTitle": "Looking for a partner…",
   "remote.camWhy": "Camera is only used for live chat — video goes browser-to-browser, not uploaded to us.",
-  "remote.connecting": "Connecting…",
+  "remote.connecting": "Linking cameras…",
   "remote.copyLink": "Copy link",
   "remote.emptySub": "Partner appears here. Start once, then use Next for new matches. Stop returns to idle.",
   "remote.emptyTitle": "Tap Start to begin",
@@ -1946,5 +1946,8 @@
   "wait.body": "Few people online right now. Share your friend invite, or try again later — leave whenever you want.",
   "wait.few": "Almost nobody is waiting. Invite a friend with your friend code, or try again later.",
   "wait.title": "Still looking…",
-  "status.autoNextShort": "Short chat — looking for next…"
+  "status.autoNextShort": "Short chat — looking for next…",
+  "live.youMutedThem": "You muted · no sound",
+  "live.theyMutedYou": "They muted you · no sound",
+  "live.theyMutedYouToast": "Partner muted you — they can't hear you"
 }

@@ -37,6 +37,8 @@ export type LiveStageVideoProps = {
   pipHint: boolean;
   labels: {
     connectingPeer: string;
+    /** Optional short status under partner name while empty */
+    linkingCameras?: string;
     retryHard: string;
     retrying: string;
     turnReady: string;
@@ -207,12 +209,18 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
                       ? autoRetryCount >= 2
                         ? L.retryHard
                         : L.retrying
-                      : L.connectingPeer}
+                      : L.linkingCameras || L.connectingPeer}
                   </Text>
                   <Text style={styles.splitPlaceholderTurn}>
                     {hasTurn ? L.turnReady : L.turnLoading}
                   </Text>
-                  <Text style={styles.splitPlaceholderTap}>{L.tapToRetry}</Text>
+                  {!retryBusy ? (
+                    <Text style={styles.splitPlaceholderTap}>
+                      {L.connectingPeer}
+                    </Text>
+                  ) : (
+                    <Text style={styles.splitPlaceholderTap}>{L.tapToRetry}</Text>
+                  )}
                 </>
               ) : null}
             </Pressable>

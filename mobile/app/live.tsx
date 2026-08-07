@@ -1284,7 +1284,8 @@ function LiveBody() {
           setQueueAcked(false);
           // Brief grace so Match chime + first look aren't skipped by fat-finger Next
           if (!keepPrimary) {
-            nextGraceUntilRef.current = Date.now() + 2200;
+            // ~2s fat-finger guard so first look isn't Next-skipped
+            nextGraceUntilRef.current = Date.now() + 2000;
           }
           setAlone(false);
           setMoreOpen(false);
@@ -2126,7 +2127,11 @@ function LiveBody() {
       return;
     }
     if (Date.now() < nextGraceUntilRef.current) {
-      showToastRef.current(t("mobile.live.nextGrace"));
+      const s = Math.max(
+        1,
+        Math.ceil((nextGraceUntilRef.current - Date.now()) / 1000)
+      );
+      showToastRef.current(t("mobile.live.nextGraceSecs", { s }));
       hapticMedium();
       return;
     }
@@ -3021,6 +3026,7 @@ function LiveBody() {
           pipHint={pipHint}
           labels={{
             connectingPeer: t("mobile.live.connectingPeer"),
+            linkingCameras: t("mobile.live.linkingCameras"),
             retryHard: t("mobile.live.retryHard"),
             retrying: t("mobile.live.retrying"),
             turnReady: t("mobile.live.turnReady"),
@@ -3185,6 +3191,14 @@ function LiveBody() {
               turnBadgeLabel={t("mobile.live.turnBadge")}
               stageWaitVideoLabel={t("mobile.live.stageWaitVideo")}
               stageConnectingLabel={t("mobile.live.stageConnecting")}
+              connectElapsedSecs={
+                matchStartedAt > 0 &&
+                (awaitingRemoteVideo ||
+                  conn === "connecting" ||
+                  conn === "checking")
+                  ? Math.floor((nowTick - matchStartedAt) / 1000)
+                  : 0
+              }
               retryPathLabel={t("mobile.live.retryPath")}
               retryingLabel={t("mobile.live.retrying")}
               rebuildPathLabel={t("mobile.live.rebuildPath")}
@@ -3197,7 +3211,9 @@ function LiveBody() {
           awaitingRemoteVideo &&
           !remoteStream?.getVideoTracks?.()?.length ? (
             <Text style={styles.waitVideoHint}>
-              {t("mobile.live.waitVideoHint")}
+              {matchStartedAt > 0 && nowTick - matchStartedAt > 8000
+                ? t("mobile.live.waitVideoHintSlow")
+                : t("mobile.live.waitVideoHint")}
             </Text>
           ) : null}
           {uiPhase === "matched" &&
@@ -3645,6 +3661,10 @@ function LiveBody() {
                 friendsOnly={friendsOnly}
                 isFriendCall={isFriendCall}
                 stayRemSecs={stayRemSecs}
+                nextGraceRemSecs={Math.max(
+                  0,
+                  Math.ceil((nextGraceUntilRef.current - nowTick) / 1000)
+                )}
                 micOn={micOn}
                 camOn={camOn}
                 hasLocal={!!localStream}
@@ -3657,6 +3677,7 @@ function LiveBody() {
                   next: t("btn.next"),
                   stayNext: (s) => t("mobile.live.stayNext", { s }),
                   stayLock: (s) => t("mobile.live.stayLock", { s }),
+                  nextGrace: (s) => t("mobile.live.nextGraceBtn", { s }),
                   stop: t("btn.stop"),
                   hangup: t("friends.hangup"),
                   blockReport: t("mobile.live.blockReport"),
