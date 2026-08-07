@@ -1062,9 +1062,9 @@ export class MediaSession {
     };
 
     pc.ontrack = (ev) => {
-      // Prefer the browser-provided stream object when present — wrapping into a
-      // fresh MediaStream often leaves RTCView black on Android (no frames).
-      // Audio usually arrives first; video is a later ontrack on the same stream.
+      // Prefer the browser-provided stream when present. When video arrives after
+      // audio on a separate ontrack without streams[], rebuild MediaStream so
+      // Android RTCView rebinds (addTrack alone often leaves black SurfaceView).
       try {
         const track = ev.track as
           | {
@@ -1072,16 +1072,16 @@ export class MediaSession {
               kind?: string;
               enabled?: boolean;
               muted?: boolean;
+              readyState?: string;
               addEventListener?: (type: string, fn: () => void) => void;
             }
           | undefined;
         const fromPeer = ev.streams?.[0];
 
         if (fromPeer) {
-          // Always adopt the peer stream so subsequent video tracks bind correctly
           this.remoteStream = fromPeer;
         } else if (!this.remoteStream && track && rtc.MediaStream) {
-          this.remoteStream = new rtc.MediaStream([track]);
+          this.remoteStream = new rtc.MediaStream([track as never]);
         } else if (this.remoteStream && track) {
           const existing = this.remoteStream.getTracks?.() || [];
           const has = existing.some(
@@ -1090,23 +1090,43 @@ export class MediaSession {
               (t as { id?: string }).id === track.id
           );
           if (!has) {
-            const add = (
-              this.remoteStream as unknown as {
-                addTrack?: (t: unknown) => void;
-              }
-            ).addTrack;
-            if (typeof add === "function") {
+            // Video after audio: new MediaStream so RTCView key/url changes
+            if (track.kind === "video" && rtc.MediaStream) {
               try {
-                add.call(this.remoteStream, track);
+                this.remoteStream = new rtc.MediaStream([
+                  ...(existing as never[]),
+                  track as never,
+                ]);
               } catch {
-                /* already on stream */
+                try {
+                  (
+                    this.remoteStream as unknown as {
+                      addTrack?: (t: unknown) => void;
+                    }
+                  ).addTrack?.(track);
+                } catch {
+                  /* ignore */
+                }
+              }
+            } else {
+              const add = (
+                this.remoteStream as unknown as {
+                  addTrack?: (t: unknown) => void;
+                }
+              ).addTrack;
+              if (typeof add === "function") {
+                try {
+                  add.call(this.remoteStream, track);
+                } catch {
+                  /* already on stream */
+                }
               }
             }
           }
         }
         if (!this.remoteStream) return;
 
-        // Ensure track is enabled (some peers start muted)
+        // Ensure track is enabled + live (some peers start muted)
         try {
           if (track && track.enabled === false) {
             (track as { enabled: boolean }).enabled = true;
@@ -1130,6 +1150,12 @@ export class MediaSession {
         }
 
         this.pushRemoteStreamToUi(track?.kind || "track");
+        // Video path: multi-wave repaint — Android SurfaceView often paints late
+        if (track?.kind === "video") {
+          setTimeout(() => this.repaintRemoteStream("ontrack_v_200"), 200);
+          setTimeout(() => this.repaintRemoteStream("ontrack_v_800"), 800);
+          setTimeout(() => this.repaintRemoteStream("ontrack_v_2s"), 2000);
+        }
       } catch (e) {
         this.handlers.onError?.(
           e instanceof Error ? e : new Error(String(e))
@@ -2263,6 +2289,12 @@ export class MediaSession {
           this.gotAnswerThisCall = true;
           this.markPhase("answer_applied");
           await this.flushPendingIce(pc, rtc);
+          // Phone as offerer: remote video often late — multi-wave harvest/repaint
+          this.scheduleRemoteVideoWatch();
+          setTimeout(() => this.harvestRemoteReceivers("got_answer"), 150);
+          setTimeout(() => this.repaintRemoteStream("got_answer_500"), 500);
+          setTimeout(() => this.repaintRemoteStream("got_answer_1500"), 1500);
+          setTimeout(() => this.repaintRemoteStream("got_answer_3s"), 3000);
         } else {
           // Renego answer when we re-offered (hard retry as offerer)
           try {
@@ -2272,6 +2304,8 @@ export class MediaSession {
             this.gotAnswerThisCall = true;
             this.markPhase("answer_renego");
             await this.flushPendingIce(pc, rtc);
+            this.scheduleRemoteVideoWatch();
+            setTimeout(() => this.repaintRemoteStream("answer_renego"), 400);
           } catch {
             /* ignore stale answer */
           }

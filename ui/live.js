@@ -9777,8 +9777,10 @@ function startWebrtcWatch() {
       sessionForceRelayEnabled());
   // First path often needs 10–20s (mobile + TURN). Soft recover earlier =
   // endless "Connection weak — reconnecting" and zero media.
-  const softMs = relayMode ? 22000 : 14000;
-  const hardMs = relayMode ? 35000 : 24000;
+  // Soft/hard recover only after first path has had time (was 14/24s thrash).
+  // Align with soft-recover grace 25s / hard reconnect grace 22s.
+  const softMs = relayMode ? 28000 : 20000;
+  const hardMs = relayMode ? 40000 : 30000;
   webrtcWatchSoftTimer = setTimeout(() => {
     if (!matched || hasLiveRemoteMedia()) return;
     if (autoDisablePreferDirectOnFail({ autoNext: false })) return;
@@ -10047,8 +10049,9 @@ function startSoftRecoverPipeline(peerId, pc, opts = {}) {
   // to bypass this grace entirely — an early ICE "failed" (glare, first-path
   // hiccup) fired an immediate soft-recover attempt + "reconnecting" UI before
   // TURN/ICE even had a chance to settle.
+  // 25s: first phone↔browser path often needs 10–20s; 18s rebuild was black→OK.
   const age = matchMediaGraceAt ? Date.now() - matchMediaGraceAt : 99999;
-  if (age < 18000) {
+  if (age < 25000) {
     console.info("[soft recover] skipped — match grace", age, opts.reason);
     return;
   }
@@ -10310,8 +10313,9 @@ function schedulePeerHardReconnect(peerId, oldPc) {
   // grace. The "connected but no video" branch in startWebrtcWatch used to call
   // this directly at softMs (~14s, non-relay) — inside the window every other
   // recovery path now treats as off-limits — re-offering the same peer mid-match.
+  // 22s: align with soft-recover so first SDP/ICE can finish without thrash rebuild.
   const age = matchMediaGraceAt ? Date.now() - matchMediaGraceAt : 99999;
-  if (age < 15000) {
+  if (age < 22000) {
     console.info("[hard reconnect] skipped — match grace", age);
     return;
   }
@@ -22780,9 +22784,10 @@ function handleMatched(msg) {
   matched = true;
   inQueue = false;
   matchMediaGraceAt = Date.now();
-  // Fresh match → allow one first offer (blocks dual-PC thrash within 12s)
+  // Fresh match → allow one first offer (blocks dual-PC thrash within 15s)
   try {
     window.__ruletMatchOfferAt = 0;
+    window.__ruletMatchOfferAttemptAt = 0;
   } catch (_) {}
   // Block Next/Space for a moment so first SDP/ICE can finish (hub also enforces ~8s).
   // Longer when hub forces TURN — soft-recover must not race the first path.

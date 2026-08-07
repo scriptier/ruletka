@@ -1481,17 +1481,25 @@ class RouletteWebRtc {
     const now = Date.now();
     // Already building an offer
     if (this._offerInFlight) return false;
-    // Match-level gate: only one non-restart offer across ALL PCs for this match.
-    // Dual kickSolo / dual connect was offer→answer→offer@~800ms (hub drop) → black.
+    // Match-level gate: only ONE non-restart offer for this match (all PCs).
+    // Soft-lock at attempt start (not only after emit) so concurrent createOffer
+    // races cannot both pass the gate → hub drop age_ms≈800 → phone black.
     try {
-      const gateAt =
-        typeof window !== "undefined" ? window.__ruletMatchOfferAt || 0 : 0;
-      if (!iceRestart && gateAt && now - gateAt < 12000) {
-        console.info(
-          "[webrtc] skip offer — match already offered",
-          now - gateAt
-        );
-        return false;
+      if (!iceRestart && typeof window !== "undefined") {
+        const hard = window.__ruletMatchOfferAt || 0;
+        const soft = window.__ruletMatchOfferAttemptAt || 0;
+        if (hard && now - hard < 15000) {
+          console.info("[webrtc] skip offer — match already offered", now - hard);
+          return false;
+        }
+        if (soft && now - soft < 15000) {
+          console.info(
+            "[webrtc] skip offer — match offer in flight",
+            now - soft
+          );
+          return false;
+        }
+        window.__ruletMatchOfferAttemptAt = now;
       }
     } catch (_) {}
     // After we answered a remote offer, never re-offer unless iceRestart
@@ -1594,6 +1602,7 @@ class RouletteWebRtc {
       try {
         if (typeof window !== "undefined" && !iceRestart) {
           window.__ruletMatchOfferAt = Date.now();
+          window.__ruletMatchOfferAttemptAt = window.__ruletMatchOfferAt;
         }
       } catch (_) {}
       return true;
@@ -1602,6 +1611,12 @@ class RouletteWebRtc {
       // Allow one retry if first createOffer threw
       if (!iceRestart) this._offerSentOnce = false;
       this._offerEmitOk = false;
+      try {
+        if (typeof window !== "undefined" && !iceRestart) {
+          // Free soft-lock so offerKick can retry a real first offer
+          window.__ruletMatchOfferAttemptAt = 0;
+        }
+      } catch (_) {}
       return false;
     } finally {
       this._offerInFlight = false;
@@ -1844,7 +1859,23 @@ class RouletteWebRtc {
         this._gotRemoteAnswerAt = Date.now();
         this._offerSentOnce = true;
         this._clearOfferWatchdog();
+        try {
+          if (typeof window !== "undefined") {
+            window.__ruletMatchOfferAt =
+              window.__ruletMatchOfferAt || Date.now();
+            window.__ruletMatchOfferAttemptAt = window.__ruletMatchOfferAt;
+          }
+        } catch (_) {}
         await this._flushPendingIce();
+        // Ensure real cam on the wire after answer (not sticky hide / empty)
+        try {
+          if (
+            typeof window !== "undefined" &&
+            typeof window.pushOutboundVideoTracks === "function"
+          ) {
+            void window.pushOutboundVideoTracks();
+          }
+        } catch (_) {}
       } catch (e) {
         console.warn("[webrtc] answer apply failed", e, "state=", this.pc?.signalingState);
       }
