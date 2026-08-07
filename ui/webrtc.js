@@ -782,6 +782,25 @@ class RouletteWebRtc {
   }
 
   _emitSignal(kind, payload) {
+    // Last line of defense: never put a second non-restart offer on the wire
+    // for this match (hub debounce drop @~800ms → 18–20s black video).
+    if (kind === "offer") {
+      try {
+        const now = Date.now();
+        const hard = window.__ruletMatchOfferAt || 0;
+        // Prefer explicit flag set by iceRestart path
+        const iceRestart = !!this._emittingIceRestart;
+        if (!iceRestart && hard && now - hard < 20000) {
+          console.info("[webrtc] blocked second offer emit", now - hard);
+          return;
+        }
+        if (!iceRestart) {
+          window.__ruletMatchOfferAt = now;
+          window.__ruletMatchOfferLock = 1;
+          window.__ruletMatchOfferAttemptAt = now;
+        }
+      } catch (_) {}
+    }
     this.hooks.onSignal(kind, payload, this.remotePeerId || undefined);
   }
 
@@ -1544,14 +1563,25 @@ class RouletteWebRtc {
       console.info("[webrtc] skip offer — already sent this PC");
       return false;
     }
-    // Block iceRestart for first 20s of this PC / match (was 15s — thrash at ~18s)
+    // iceRestart grace: 8s if no remote SDP yet (need recovery), 18s if negotiated
+    // (protect good first path from thrash rebuild).
     const pcAge = this._pcBornAt ? now - this._pcBornAt : 99999;
     const matchAge =
       typeof matchMediaGraceAt !== "undefined" && matchMediaGraceAt
         ? now - matchMediaGraceAt
         : pcAge;
-    if (iceRestart && Math.min(pcAge, matchAge) < 20000) {
-      console.info("[webrtc] skip iceRestart (PC/match grace)", pcAge, matchAge);
+    const hasRemote = !!(
+      this._gotRemoteAnswerAt ||
+      this.pc?.currentRemoteDescription
+    );
+    const iceGrace = hasRemote ? 18000 : 8000;
+    if (iceRestart && Math.min(pcAge, matchAge) < iceGrace) {
+      console.info(
+        "[webrtc] skip iceRestart (PC/match grace)",
+        pcAge,
+        matchAge,
+        iceGrace
+      );
       return false;
     }
     // Block duplicate offers hard — phone promote + startCall glare thrash
@@ -1663,7 +1693,7 @@ class RouletteWebRtc {
     const now = Date.now();
     const last = this._iceRestartAt || 0;
     const count = this._iceRestartCount || 0;
-    // First 20s of match/PC: let first path finish (was 15s → thrash rebuild ~18s).
+    // Protect negotiated first path; allow earlier restart if never got remote SDP.
     const pcAge = this._pcBornAt ? now - this._pcBornAt : 99999;
     let matchAge = 99999;
     try {
@@ -1671,11 +1701,17 @@ class RouletteWebRtc {
         matchAge = now - matchMediaGraceAt;
       }
     } catch (_) {}
-    if (Math.min(pcAge, matchAge) < 20000) {
+    const hasRemote = !!(
+      this._gotRemoteAnswerAt ||
+      this.pc?.currentRemoteDescription
+    );
+    const iceGrace = hasRemote ? 18000 : 8000;
+    if (Math.min(pcAge, matchAge) < iceGrace) {
       console.info(
         "[webrtc] skip early iceRestart (grace)",
         pcAge,
-        matchAge
+        matchAge,
+        iceGrace
       );
       return false;
     }
@@ -1694,7 +1730,13 @@ class RouletteWebRtc {
     this._iceRestartCount = count + 1;
     try {
       if (this.isOfferer) {
-        const ok = await this._createAndSendOffer({ iceRestart: true });
+        this._emittingIceRestart = true;
+        let ok = false;
+        try {
+          ok = await this._createAndSendOffer({ iceRestart: true });
+        } finally {
+          this._emittingIceRestart = false;
+        }
         if (ok) {
           console.info("[webrtc] ICE restart offer sent", this._iceRestartCount);
         }

@@ -9788,10 +9788,10 @@ function startWebrtcWatch() {
       sessionForceRelayEnabled());
   // First path often needs 10–20s (mobile + TURN). Soft recover earlier =
   // endless "Connection weak — reconnecting" and zero media.
-  // Soft/hard recover only after first path has had time (was 14/24s thrash).
-  // Align with soft-recover grace 25s / hard reconnect grace 22s.
-  const softMs = relayMode ? 28000 : 20000;
-  const hardMs = relayMode ? 40000 : 30000;
+  // Known-good budgets (0d61dbb/3cd1b44): soft 14s / hard 24s.
+  // Over-long graces (20–30s) made black screens feel worse than before.
+  const softMs = relayMode ? 22000 : 14000;
+  const hardMs = relayMode ? 35000 : 24000;
   webrtcWatchSoftTimer = setTimeout(() => {
     if (!matched || hasLiveRemoteMedia()) return;
     if (autoDisablePreferDirectOnFail({ autoNext: false })) return;
@@ -10060,10 +10060,22 @@ function startSoftRecoverPipeline(peerId, pc, opts = {}) {
   // to bypass this grace entirely — an early ICE "failed" (glare, first-path
   // hiccup) fired an immediate soft-recover attempt + "reconnecting" UI before
   // TURN/ICE even had a chance to settle.
-  // 25s: first phone↔browser path often needs 10–20s; 18s rebuild was black→OK.
+  // If first SDP already negotiated, protect it longer. If no remote SDP yet,
+  // allow recover sooner (was 25s — felt slower than known-good builds).
   const age = matchMediaGraceAt ? Date.now() - matchMediaGraceAt : 99999;
-  if (age < 25000) {
-    console.info("[soft recover] skipped — match grace", age, opts.reason);
+  let hasRemoteSdp = false;
+  try {
+    const t = pc?.pc || pc;
+    hasRemoteSdp = !!(t?.currentRemoteDescription || t?.remoteDescription);
+  } catch (_) {}
+  const grace = hasRemoteSdp ? 20000 : 8000;
+  if (age < grace) {
+    console.info(
+      "[soft recover] skipped — match grace",
+      age,
+      grace,
+      opts.reason
+    );
     return;
   }
   pc._softRecoverActive = true;
@@ -10324,10 +10336,19 @@ function schedulePeerHardReconnect(peerId, oldPc) {
   // grace. The "connected but no video" branch in startWebrtcWatch used to call
   // this directly at softMs (~14s, non-relay) — inside the window every other
   // recovery path now treats as off-limits — re-offering the same peer mid-match.
-  // 22s: align with soft-recover so first SDP/ICE can finish without thrash rebuild.
+  // Hard rebuild only after first path had a chance; shorter if never got remote SDP.
   const age = matchMediaGraceAt ? Date.now() - matchMediaGraceAt : 99999;
-  if (age < 22000) {
-    console.info("[hard reconnect] skipped — match grace", age);
+  let hasRemoteSdp = false;
+  try {
+    hasRemoteSdp = !!(
+      oldPc?.pc?.currentRemoteDescription ||
+      oldPc?.pc?.remoteDescription ||
+      oldPc?.currentRemoteDescription
+    );
+  } catch (_) {}
+  const grace = hasRemoteSdp ? 18000 : 10000;
+  if (age < grace) {
+    console.info("[hard reconnect] skipped — match grace", age, grace);
     return;
   }
   if (oldPc) oldPc._softReconnectScheduled = true;
