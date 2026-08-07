@@ -8772,14 +8772,18 @@ impl SimpleHub {
                         return;
                     }
                 }
-                // Speed forensics: ms from Matched → first offer (target <2000)
-                if let Some(ms) = c.match_started {
-                    tracing::info!(
-                        from = %c.short_id,
-                        match_to_offer_ms = ms.elapsed().as_millis() as u64,
-                        platform = %c.platform,
-                        "first offer after match"
-                    );
+                // Speed forensics: ONLY the first accepted offer after match.
+                // Later offers (soft/hard rebuild ~18–24s) used to re-log as
+                // "first offer" with huge match_to_offer_ms and false YELLOW.
+                if c.last_offer_at.is_none() {
+                    if let Some(ms) = c.match_started {
+                        tracing::info!(
+                            from = %c.short_id,
+                            match_to_offer_ms = ms.elapsed().as_millis() as u64,
+                            platform = %c.platform,
+                            "first offer after match"
+                        );
+                    }
                 }
             }
             if let Some(c) = self.clients.get_mut(&id) {

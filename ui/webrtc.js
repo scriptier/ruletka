@@ -1275,6 +1275,7 @@ class RouletteWebRtc {
     this._offerSentOnce = false;
     this._offerEmitOk = false;
     this._answeredAt = 0;
+    this._gotRemoteAnswerAt = 0;
     this._lastOfferAt = 0;
     this._pendingRemoteOfferSince = 0;
     this.pc.onicecandidate = (ev) => {
@@ -1456,8 +1457,8 @@ class RouletteWebRtc {
     const now = Date.now();
     // Already building an offer
     if (this._offerInFlight) return false;
-    // After a successful answer, never re-offer unless iceRestart (was: second
-    // offer ~0.7s later → hub debounce drop → phone stuck one-way / rematch).
+    // After we answered a remote offer, never re-offer unless iceRestart
+    // (was: second offer ~0.7s later → hub debounce drop → 18–24s silence).
     if (
       !iceRestart &&
       this._answeredAt &&
@@ -1466,6 +1467,18 @@ class RouletteWebRtc {
       console.info(
         "[webrtc] skip offer — already answered",
         now - this._answeredAt
+      );
+      return false;
+    }
+    // Offerer path: we received their answer — renegotiation only via iceRestart.
+    if (
+      !iceRestart &&
+      this._gotRemoteAnswerAt &&
+      now - this._gotRemoteAnswerAt < 15000
+    ) {
+      console.info(
+        "[webrtc] skip offer — already got remote answer",
+        now - this._gotRemoteAnswerAt
       );
       return false;
     }
@@ -1784,6 +1797,11 @@ class RouletteWebRtc {
           return;
         }
         await this.pc.setRemoteDescription(desc);
+        // Latch: we are offerer and negotiation completed once — blocks the
+        // offer→answer→offer@~800ms thrash (hub debounce drop → 18–24s stall).
+        this._gotRemoteAnswerAt = Date.now();
+        this._offerSentOnce = true;
+        this._clearOfferWatchdog();
         await this._flushPendingIce();
       } catch (e) {
         console.warn("[webrtc] answer apply failed", e, "state=", this.pc?.signalingState);

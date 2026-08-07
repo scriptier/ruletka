@@ -53,9 +53,11 @@ Do **not** regress connect / veil without a proven better alternative + smoke.
 
 | Metric | Target | Notes |
 |--------|--------|--------|
-| match → first offer | **&lt; 1s** (cam warm) | kickSolo / startCall EARLY |
+| match → first offer | **&lt; 1s** (cam warm) | kickSolo / startCall EARLY; offerKick re-kick at 1.5s/3.5s if silent |
 | offer → answer | **&lt; 1s** | |
 | answer → usable remote | **&lt; 5–10s** same Wi‑Fi | veil intro may add ~2.5s by design |
+
+**MTO forensics note (2026-08-07):** hub `match_to_offer_ms` only counts the *first* accepted offer after match (later soft/hard rebuild offers no longer re-log as first). Pure ~24s stalls were hard-watch rebuild when first SDP never left — not self-blur. Sticky Hide still forced real cam before stranger kickSolo.
 
 ---
 
