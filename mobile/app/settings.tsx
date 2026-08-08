@@ -71,6 +71,7 @@ import {
   loadSoundPref,
   setSoundPref,
 } from "../src/feedback/audioSession";
+import OpenOnPcSheet from "../src/pc/OpenOnPcSheet";
 import { openBatterySettings } from "../src/push/batteryOptIn";
 import {
   pushModuleAvailable,
@@ -199,6 +200,7 @@ function SettingsBody() {
   >([]);
   const [hubBusy, setHubBusy] = useState(false);
   const [moreLangs, setMoreLangs] = useState(false);
+  const [pcSheetOpen, setPcSheetOpen] = useState(false);
   const [openSec, setOpenSec] = useState<Record<SectionKey, boolean>>({
     profile: true,
     match: true,
@@ -525,6 +527,7 @@ function SettingsBody() {
   const hubHost = (hubBaseUrl || hubBase()).replace(/^https?:\/\//, "");
 
   return (
+    <>
     <ScrollView
       contentContainerStyle={styles.root}
       keyboardShouldPersistTaps="handled"
@@ -1213,6 +1216,16 @@ function SettingsBody() {
         <Pressable
           style={styles.linkRow}
           onPress={() => {
+            hapticLight();
+            setPcSheetOpen(true);
+          }}
+        >
+          <Text style={styles.linkText}>{t("mobile.settings.openOnPc")}</Text>
+          <Text style={styles.linkChevron}>↗</Text>
+        </Pressable>
+        <Pressable
+          style={styles.linkRow}
+          onPress={() => {
             const msg = t("mobile.settings.shareAppBody", {
               url: "https://ruletka.vip",
               code: friendCode || "…",
@@ -1285,6 +1298,13 @@ function SettingsBody() {
 
       <View style={{ height: 32 }} />
     </ScrollView>
+    <OpenOnPcSheet
+      visible={pcSheetOpen}
+      onClose={() => setPcSheetOpen(false)}
+      url="https://ruletka.vip"
+      code={friendCode || undefined}
+    />
+    </>
   );
 }
 
