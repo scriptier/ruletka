@@ -495,7 +495,7 @@
   "mobile.settings.pinUnsupported": "Home pin not available on this device",
   "mobile.settings.notifyCalls": "Friend call alerts",
   "mobile.settings.notifyComingSoon": "In-app ringtone + vibration when a friend calls while the app is open. True offline push (OS notifications when the app is closed) needs a store build with Expo push — not required for normal use.",
-  "mobile.settings.notifyHint": "In-app ringtone when open. Background (app minimized, WS up) fires a local OS alert. Fully offline rings need push registration + hub ROULETTE_PUSH_WEBHOOK_URL.",
+  "mobile.settings.notifyHint": "In-app ringtone when open. Background (app minimized, WS up) fires a local OS alert. Fully offline rings need push registration and hub push notifications enabled.",
   "mobile.settings.notifyOff": "Off",
   "mobile.settings.notifyOn": "On (when possible)",
   "mobile.settings.pushBatteryTip": "Android tip: allow notifications and disable battery optimization for ruletka so offline friend rings can wake the app.",

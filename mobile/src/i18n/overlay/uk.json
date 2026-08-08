@@ -372,5 +372,10 @@
   "mobile.settings.historySnapsOn": "Увімк.",
   "mobile.settings.historySnapsOff": "Вимк.",
   "mobile.settings.historySnapsHint": "Крихітні кропи для Історії та Блоку · лише на пристрої",
-  "mobile.live.camOffHint": "Сховано від них"
+  "mobile.live.camOffHint": "Сховано від них",
+  "mobile.friends.inviteNeedOnline": "Друг має бути онлайн, щоб приєднатися до дзвінка.",
+  "mobile.home.friendsOnline": "{n}/{total} друзів онлайн",
+  "mobile.settings.pushBatteryTip": "Порада Android: дозвольте сповіщення й вимкніть оптимізацію батареї для ruletka, щоб офлайн-дзвінки могли розбудити застосунок.",
+  "mobile.toast.friendOnline": "{name} онлайн",
+  "mobile.toast.friendsOnline": "{n} друзів з'явилися онлайн"
 }

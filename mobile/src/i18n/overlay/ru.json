@@ -463,7 +463,7 @@
   "mobile.settings.pinUnsupported": "Pin недоступен на этом устройстве",
   "mobile.settings.notifyCalls": "Звонки друзей",
   "mobile.settings.notifyComingSoon": "Рингтон и вибрация, если друг звонит при открытом приложении. Настоящий офлайн-push (уведомление при закрытом приложении) — только в store-сборке с Expo push.",
-  "mobile.settings.notifyHint": "Рингтон при открытом приложении. В фоне (WS есть) — local OS-уведомление. Полный офлайн — push + ROULETTE_PUSH_WEBHOOK_URL.",
+  "mobile.settings.notifyHint": "Рингтон при открытом приложении. В фоне (WS есть) — локальное OS-уведомление. Полный офлайн — нужна push-регистрация и включённые push-уведомления на хабе.",
   "mobile.settings.notifyOff": "Выкл",
   "mobile.settings.notifyOn": "Вкл (если можно)",
   "mobile.settings.pushBatteryTip": "Android: разрешите уведомления и отключите оптимизацию батареи для ruletka, чтобы офлайн-звонки доходили.",
