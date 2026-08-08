@@ -1152,9 +1152,10 @@ export class MediaSession {
         this.pushRemoteStreamToUi(track?.kind || "track");
         // Video path: multi-wave repaint — Android SurfaceView often paints late
         if (track?.kind === "video") {
-          setTimeout(() => this.repaintRemoteStream("ontrack_v_200"), 200);
-          setTimeout(() => this.repaintRemoteStream("ontrack_v_800"), 800);
-          setTimeout(() => this.repaintRemoteStream("ontrack_v_2s"), 2000);
+          this.repaintRemoteStream("ontrack_v_0");
+          setTimeout(() => this.repaintRemoteStream("ontrack_v_80"), 80);
+          setTimeout(() => this.repaintRemoteStream("ontrack_v_250"), 250);
+          setTimeout(() => this.repaintRemoteStream("ontrack_v_700"), 700);
         }
       } catch (e) {
         this.handlers.onError?.(
@@ -1183,8 +1184,9 @@ export class MediaSession {
         this.startAdaptiveQuality();
         this.harvestRemoteReceivers("pc_connected");
         this.repaintRemoteStream("pc_connected");
-        setTimeout(() => this.repaintRemoteStream("pc_connected_500"), 500);
-        setTimeout(() => this.repaintRemoteStream("pc_connected_2s"), 2000);
+        setTimeout(() => this.repaintRemoteStream("pc_connected_120"), 120);
+        setTimeout(() => this.repaintRemoteStream("pc_connected_400"), 400);
+        setTimeout(() => this.repaintRemoteStream("pc_connected_1s"), 1000);
       }
       if (
         pc.connectionState === "failed" ||
@@ -1360,7 +1362,9 @@ export class MediaSession {
       // Offerer: retry soon if createOffer stalls.
       // Answerer: wait for browser (web preferred offerer). Promote only if
       // web silent ~2s — 250ms promote caused glare + hub debounce + 18–24s wait.
-      this.armOfferWatchdog(this.isOfferer ? 400 : 2000);
+      // Answerer: give web ~1.4s (preferred offerer) then promote if silent.
+      // Was 2.0s — felt slow when web never offered; 0.25s was thrash.
+      this.armOfferWatchdog(this.isOfferer ? 350 : 1400);
       // Only drop warm PC when hub/hide-ip armed force_relay (relay policy change).
       // Do NOT always force_relay — that caused endless reconnect thrash.
       if (this.forceRelayOnce || this.hideIp) {
@@ -1398,7 +1402,8 @@ export class MediaSession {
             new Promise<MediaStreamLike | null>((resolve) =>
               setTimeout(
                 () => resolve(this.localStream),
-                this.isOfferer ? 700 : 1100
+                // Fail-open fast so first SDP can leave without full GUM
+                this.isOfferer ? 450 : 900
               )
             ),
           ]),
@@ -1669,10 +1674,7 @@ export class MediaSession {
         this.handlers.onConnectionState?.("offer_skip_stale_after_local");
         return;
       }
-      // Micro-gather only (trickle sends the rest). Long waits delayed first media.
-      if (!iceRestart && !this.warmed) {
-        await this.waitForInitialIce(pc, 40);
-      }
+      // Emit immediately — trickle ICE carries candidates (any fixed wait = pure lag).
       const desc = pc.localDescription as { type?: string; sdp?: string } | null;
       if (desc && gen === this.callGen && this.pc === pc) {
         this.lastOfferAt = Date.now();
@@ -1953,7 +1955,8 @@ export class MediaSession {
     if (!this.pc) return;
     if (this.remoteVideoWatchTimer) return;
     // Faster waves: browser→phone video often lands after audio; RTCView needs rebind
-    const delays = [800, 1500, 2500, 4000, 6000];
+    // First harvest ASAP so "Linking cameras…" doesn't stick with a live track
+    const delays = [350, 900, 1600, 2800, 4500];
     const wave = this.remoteVideoWaves;
     if (wave >= delays.length) return;
     this.remoteVideoWatchTimer = setTimeout(() => {

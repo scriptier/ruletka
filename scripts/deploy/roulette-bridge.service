@@ -34,6 +34,11 @@ EnvironmentFile=-/opt/ruletka/data/analytics.env
 # EnvironmentFile=-/opt/ruletka/data/mod.env
 #   ROULETTE_MOD_WEBHOOK_URL=https://hooks.slack.com/services/...
 EnvironmentFile=-/opt/ruletka/data/mod.env
+# Web Push VAPID (offline friend rings when browser tab is closed):
+#   ROULETTE_VAPID_PRIVATE=…  ROULETTE_VAPID_PUBLIC=…  ROULETTE_VAPID_SUBJECT=mailto:…
+EnvironmentFile=-/opt/ruletka/data/vapid.env
+# Optional Expo/FCM relay for mobile offline rings:
+# Environment=ROULETTE_PUSH_WEBHOOK_URL=https://…
 ExecStart=/opt/ruletka/bin/roulette-bridge \
   --mode simple \
   --listen 127.0.0.1:8790 \

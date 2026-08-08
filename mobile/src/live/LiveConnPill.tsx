@@ -21,6 +21,10 @@ export type LiveConnPillProps = {
   turnBadgeLabel: string;
   stageWaitVideoLabel: string;
   stageConnectingLabel: string;
+  /** Progressive: "Finding path…" (~3s+). Falls back to stageConnectingLabel. */
+  stageFindingPathLabel?: string;
+  /** Progressive: "Trying relay…" (~8s+). */
+  stageTryingRelayLabel?: string;
   /** Optional elapsed seconds while linking (shown as " · 3s"). */
   connectElapsedSecs?: number;
   retryPathLabel: string;
@@ -50,6 +54,8 @@ export function LiveConnPill(props: LiveConnPillProps) {
     turnBadgeLabel,
     stageWaitVideoLabel,
     stageConnectingLabel,
+    stageFindingPathLabel,
+    stageTryingRelayLabel,
     connectElapsedSecs = 0,
     retryPathLabel,
     retryingLabel,
@@ -61,13 +67,23 @@ export function LiveConnPill(props: LiveConnPillProps) {
   } = props;
 
   const elapsedSuffix =
-    connectElapsedSecs >= 2 ? ` · ${connectElapsedSecs}s` : "";
+    connectElapsedSecs >= 1 ? ` · ${connectElapsedSecs}s` : "";
+
+  function linkingLabel(): string {
+    if (connectElapsedSecs >= 8 && stageTryingRelayLabel) {
+      return stageTryingRelayLabel;
+    }
+    if (connectElapsedSecs >= 3 && stageFindingPathLabel) {
+      return stageFindingPathLabel;
+    }
+    return stageConnectingLabel;
+  }
 
   const pillText =
     awaitingRemoteVideo && (conn === "connected" || conn === "completed")
       ? `${stageWaitVideoLabel}${elapsedSuffix}`
       : conn === "connecting" || conn === "checking"
-        ? `${stageConnectingLabel}${elapsedSuffix}`
+        ? `${linkingLabel()}${elapsedSuffix}`
         : connLabel;
 
   return (

@@ -9494,7 +9494,7 @@ function clearOfferKickWatch() {
  * @param {object} peer peers[0]
  * @param {number[]} delaysMs
  */
-function armOfferKickWatch(msg, peer, delaysMs = [2000, 4500, 8000]) {
+function armOfferKickWatch(msg, peer, delaysMs = [1000, 2200, 4500]) {
   clearOfferKickWatch();
   if (!msg || !peer) return;
   for (const ms of delaysMs) {
@@ -9502,39 +9502,35 @@ function armOfferKickWatch(msg, peer, delaysMs = [2000, 4500, 8000]) {
       try {
         if (!matched) return;
         if (!isOfferer) return;
-        // Match-level: first offer already left / locked — never rebuild
-        try {
-          if (window.__ruletMatchOfferAt || window.__ruletMatchOfferLock) {
-            return;
-          }
-        } catch (_) {}
         const peerId = (peer && peer.peer_id) || "legacy";
         const existing = peerId ? findPcForPeer(peerId) : null;
-        // Offer already on the wire, or answer already applied — leave alone
-        if (
-          existing &&
-          (existing._offerEmitOk ||
-            existing._gotRemoteAnswerAt ||
-            existing.pc?.currentRemoteDescription ||
-            existing.pc?.remoteDescription ||
-            existing.pc?.localDescription)
-        ) {
-          return;
-        }
-        // Any PC already offered this match
+        // REAL wire evidence only — stale __ruletMatchOfferLock without SDP
+        // was the ~24s MTO path (offerKick returned early; hard watch at 24s).
+        const hasRealSdp = (pc) =>
+          !!(
+            pc &&
+            (pc._offerEmitOk ||
+              pc._gotRemoteAnswerAt ||
+              pc.pc?.currentRemoteDescription ||
+              pc.pc?.remoteDescription ||
+              pc.pc?.localDescription)
+          );
+        if (hasRealSdp(existing)) return;
         for (const pc of peerPcs.values()) {
-          if (
-            pc?._offerEmitOk ||
-            pc?._gotRemoteAnswerAt ||
-            pc?.pc?.localDescription
-          ) {
-            return;
-          }
+          if (hasRealSdp(pc)) return;
         }
         // Live media already — no need
         if (hasLiveRemoteMedia()) return;
+        // In-flight createOffer <1.2s — give it a moment before tear
+        if (
+          existing?._offerInFlight &&
+          ms < 1200 &&
+          !existing._offerEmitOk
+        ) {
+          return;
+        }
         log(
-          `offerKick re-kick +${ms}ms peer=${String(peerId).slice(0, 8)} emit=${existing?._offerEmitOk ? 1 : 0}`
+          `offerKick re-kick +${ms}ms peer=${String(peerId).slice(0, 8)} emit=${existing?._offerEmitOk ? 1 : 0} lock=${window.__ruletMatchOfferLock ? 1 : 0}`
         );
         // Only tear if truly stuck with no local SDP
         if (existing && !existing.pc?.localDescription) {
@@ -9550,10 +9546,11 @@ function armOfferKickWatch(msg, peer, delaysMs = [2000, 4500, 8000]) {
         } else if (existing?.pc?.localDescription) {
           return; // mid-negotiation — do not thrash
         }
-        // Clear lock so kick can emit one first offer
+        // Clear STALE lock (no real SDP) so kick can emit one first offer
         try {
           window.__ruletMatchOfferLock = 0;
           window.__ruletMatchOfferAttemptAt = 0;
+          window.__ruletMatchOfferAt = 0;
         } catch (_) {}
         void kickSoloWebRtc(msg, peer).catch((e) =>
           log(`offerKick fail ${e}`)
@@ -14606,6 +14603,30 @@ function ensureNotifPermissionSoft() {
   } catch (_) {}
 }
 
+/**
+ * Register / clear Web Push with hub (platform=web) so offline call_friend
+ * can ring when the tab is fully closed. No-op without VAPID or SW.
+ */
+async function syncWebPushRegistration(enabled) {
+  try {
+    const wp = window.RuletWebPush;
+    if (!wp || typeof wp.syncHubPush !== "function") return;
+    const r = await wp.syncHubPush(send, !!enabled);
+    if (r && r.ok && enabled) {
+      trackEvent("web_push_register", { ok: 1, n: r.tokenLen || 0 });
+    } else if (enabled && r && !r.ok) {
+      trackEvent("web_push_register", { ok: 0, reason: String(r.reason || "") });
+    }
+  } catch (e) {
+    try {
+      trackEvent("web_push_register", {
+        ok: 0,
+        reason: String(e && e.message ? e.message : "err").slice(0, 40),
+      });
+    } catch (_) {}
+  }
+}
+
 async function setFriendOnlineNotif(on) {
   savePrefs({ friendOnlineNotif: !!on });
   syncFriendOnlineNotifUi();
@@ -14614,6 +14635,7 @@ async function setFriendOnlineNotif(on) {
     setStatus(
       _t("friends.notifOffline") || "Call & online alerts off"
     );
+    void syncWebPushRegistration(false);
     return;
   }
   if (typeof Notification === "undefined") {
@@ -14627,8 +14649,9 @@ async function setFriendOnlineNotif(on) {
   if (Notification.permission === "granted") {
     setStatus(
       _t("friends.notifOnCalls") ||
-        "Alerts on — calls & friends online when this tab is in the background"
+        "Alerts on — calls even if this tab is closed (when push is available)"
     );
+    void syncWebPushRegistration(true);
     return;
   }
   if (Notification.permission === "denied") {
@@ -14646,8 +14669,9 @@ async function setFriendOnlineNotif(on) {
     if (p === "granted") {
       setStatus(
         _t("friends.notifOnCalls") ||
-          "Alerts on — calls & friends online when this tab is in the background"
+          "Alerts on — calls even if this tab is closed (when push is available)"
       );
+      void syncWebPushRegistration(true);
     } else {
       savePrefs({ friendOnlineNotif: false });
       syncFriendOnlineNotifUi();
@@ -21779,6 +21803,12 @@ function handleServer(msg) {
       try {
         maybeWelcomeBackOnHello();
       } catch (_) {}
+      // Re-register Web Push after hello so offline rings work (token per user_id)
+      try {
+        if (friendOnlineNotifEnabled() && typeof Notification !== "undefined" && Notification.permission === "granted") {
+          void syncWebPushRegistration(true);
+        }
+      } catch (_) {}
       if (mySocialForceMuted) {
         try {
           setStatus(
@@ -22878,9 +22908,10 @@ function handleMatched(msg) {
         log(`kickSolo ok +${Date.now() - tJoin0}ms offerer=${isOfferer ? 1 : 0}`)
       )
       .catch((e) => log(`kickSolo fail ${e}`));
-    // Offerer silent → re-kick at 1.5s / 3.5s (do not wait hardMs ~24s)
+    // Offerer silent → re-kick early (do not wait hardMs ~24s).
+    // Protected by __ruletMatchOfferAt / emitOk — never thrash a good first SDP.
     if (isOfferer) {
-      armOfferKickWatch(msg, peersFast[0], [2000, 4500, 8000]);
+      armOfferKickWatch(msg, peersFast[0], [1000, 2200, 4500]);
     } else {
       clearOfferKickWatch();
     }
@@ -22902,7 +22933,8 @@ function handleMatched(msg) {
       })
       .catch((e) => log(`joinPeers fail ${e}`));
   }
-  setTimeout(() => ensurePartnerVideoVisible(), 600);
+  setTimeout(() => ensurePartnerVideoVisible(), 200);
+  setTimeout(() => ensurePartnerVideoVisible(), 800);
   setTimeout(() => ensurePartnerVideoVisible(), 2000);
 
   // Friend answered (or any match) — never leave "Calling…" toast stuck over the call
@@ -23744,16 +23776,24 @@ async function kickSoloWebRtc(msg, p) {
         log(
           `kickSolo keep mid-offer young peer=${String(peerId).slice(0, 8)} age=${pcAge}`
         );
-        // Offerer: ensure first offer actually left if latch lied
+        // Offerer: ensure first offer actually left if latch lied.
+        // NEVER clear offerSentOnce if match-level emit already succeeded —
+        // that was a source of second offer@~800ms → hub debounce → 18s black.
         if (
           iOffer &&
           existing._createAndSendOffer &&
           !existing._offerInFlight
         ) {
           try {
+            const matchOffered =
+              typeof window !== "undefined" &&
+              !!(window.__ruletMatchOfferAt || window.__ruletMatchOfferLock);
             existing.isOfferer = true;
-            // Allow one retry if previous send never hit the wire
-            if (!existing._offerEmitOk) {
+            if (
+              !existing._offerEmitOk &&
+              !matchOffered &&
+              !existing.pc?.localDescription
+            ) {
               existing._offerSentOnce = false;
               void existing._createAndSendOffer({ iceRestart: false });
             }
@@ -29943,12 +29983,8 @@ function doStopMatchmaking() {
   updateEmptyShareVisibility();
   trackEvent("stop");
   log(_t("log.stopped") || "stopped");
-  // Soft one-shot invite when alone (after friend-nudge timeout window)
-  setTimeout(() => {
-    try {
-      maybeShowStopInviteNudge();
-    } catch (_) {}
-  }, 1600);
+  // No post-stop invite popup — Stop is one-tap leave (same as mobile).
+  // Friends invite remains available from Friends sheet / empty stage share.
 }
 on("btn-stop", "click", () => doStopMatchmaking());
 on("btn-start-match", "click", () => startMatchFromIdle());

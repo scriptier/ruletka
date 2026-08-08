@@ -1619,6 +1619,22 @@ class RouletteWebRtc {
     }
     this._offerInFlight = true;
     if (!iceRestart) this._offerSentOnce = true;
+    // Fail-open: hung createOffer must not hold match lock forever (24s MTO).
+    const offerGen = (this._offerGen = (this._offerGen || 0) + 1);
+    const hangTimer = setTimeout(() => {
+      try {
+        if (this._offerGen !== offerGen) return;
+        if (this._offerEmitOk) return;
+        console.warn("[webrtc] createOffer hang — free locks for offerKick");
+        this._offerInFlight = false;
+        if (!iceRestart) this._offerSentOnce = false;
+        if (typeof window !== "undefined" && !iceRestart) {
+          window.__ruletMatchOfferAttemptAt = 0;
+          window.__ruletMatchOfferLock = 0;
+          // Do not stamp __ruletMatchOfferAt — nothing left the wire
+        }
+      } catch (_) {}
+    }, 2500);
     try {
       const offer = await this.pc.createOffer(
         iceRestart
@@ -1629,9 +1645,11 @@ class RouletteWebRtc {
             }
           : { offerToReceiveAudio: true, offerToReceiveVideo: true }
       );
+      if (this._offerGen !== offerGen) return false;
       await this.pc.setLocalDescription(offer);
-      // Micro-gather only — trickle carries the rest
-      if (!iceRestart) await this._waitForInitialIce(80);
+      if (this._offerGen !== offerGen) return false;
+      // Emit immediately — trickle ICE carries candidates. Any fixed wait
+      // here was pure match→offer latency (80ms+ on every first offer).
       this._lastOfferAt = Date.now();
       // Strip host/srflx from OUTBOUND SDP under force-relay so peer TURN
       // never CREATE_PERMISSION private IPs (403 → black video).
@@ -1668,6 +1686,7 @@ class RouletteWebRtc {
       } catch (_) {}
       return false;
     } finally {
+      clearTimeout(hangTimer);
       this._offerInFlight = false;
     }
   }

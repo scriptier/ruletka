@@ -1,0 +1,23 @@
+
+===== attempt 1 / 2 =====
+Task complete. Summary:
+
+**What I found:** The task's cited hooks (`useBackgroundMediaPause.ts`, `HubProvider.tsx` AppState listener, `live.tsx` reconnect wiring) don't exist in this worktree's git history at all — they only exist as uncommitted work in the main checkout, entangled with a much larger unrelated refactor of the live-call screen (~20+ new files across analytics/calls/push/safety/etc.). This is the same environment gap `003-offer-thrash` and `020-cam-mute-parity` hit earlier tonight. I documented it fully in the RESULT rather than importing the whole refactor into this small-diff task.
+
+**The actual audit:** I read the real code on disk (read-only) and found a genuine gap: when `useBackgroundMediaPause`'s no-remote-video recovery path fires an ICE restart on foreground return, it gives **zero UI signal** — mobile already has a working "reconnecting" pill system (`LiveConnPill`/`connectUi.ts`), but this specific recovery path never wires into it. A passive viewer (mic/cam already off, so no resume-toast either) would see a stale "connected" pill over a frozen frame during the restart.
+
+**Fix landed:** Added an optional `onReconnectStart` callback to the hook (new, additive, in this worktree) plus the 3-line snippet needed to wire it to the existing `setConn`/`setAwaitingRemoteVideo` state in `live.tsx` — documented exactly since I can't safely touch the real `live.tsx` from here. Connect risk: low, no offer/ICE code touched.
+
+**Worth your attention separately:** `021b-cam-mute-parity-reapply.md` shows that `020`'s finished branch/worktree vanished before anyone merged it — your overnight cleanup may be pruning completed work before it lands. Worth checking.
+
+===== attempt 2 / 2 =====
+The verify failure is fixed. Summary:
+
+- Root cause of the retry failure: this worktree had no `node_modules` installed at all, so `tsconfig.json`'s `extends: "expo/tsconfig.base"` silently failed, producing ~400 cascading errors across the *entire* mobile app (wrong `lib`/`jsx`/module resolution) — not a defect in the task's actual files.
+- Ran `npm ci --prefer-offline` in `mobile/` (offline, using the existing npm cache — same lockfile as sibling worktrees, no deploy/network risk).
+- One real error remained: `MediaSession.ts` (committed, clean) imports `./adaptiveQuality`, which only exists as uncommitted work on the main checkout. Copied it in byte-identical (verified against the main checkout and the `e914105` backup commit), following the exact precedent set by the `003-offer-thrash` worktree.
+- `npx tsc --noEmit` now passes with exit 0 across the whole project.
+- Committed everything to this branch (`c85ec0a`, no push): the two new reconnect-banner hook files from the prior attempt, `adaptiveQuality.ts`, and the marker files — matching the `003` commit pattern.
+- Updated the RESULT file at `tasks/admin-queue/done/20260807T173736Z-021-background-keepalive-reconnect-RESULT.md` with the retry verify details; status/completion promise (DONE / COMPLETE) and the substantive audit findings from the prior attempt are unchanged since the actual fix was already correct — only the environment blocking `tsc` was broken.
+
+No deploy, no push, no merge to main.

@@ -1,0 +1,21 @@
+
+===== attempt 1 / 2 =====
+Task complete. Summary:
+
+**Audit finding (file:line):** `mobile/src/media/MediaSession.ts:1953` — in `handleRemoteSignalInner`'s answer path (fired when Play receives web's offer), `ensureLocalStream()` was awaited **uncapped**, unlike every other GUM call in the file which races against a timeout. A slow camera acquire could block the answer indefinitely — the exact "12s+ silence" symptom the task named, matching the historical GUM-stall incident already documented in `CONNECTIVITY_LOCK.md`.
+
+**Fix applied:** capped that wait with the same `Promise.race(…, 1100ms fallback)` pattern `startCall`'s answerer branch already uses proven-safe. One isolated hunk, `tsc --noEmit` clean, doesn't touch offer-count/debounce/`callGen` logic so the 8s no-second-offer invariant is untouched.
+
+**Promote watchdog:** already at 250ms (≤300ms target, tuned by the prior commit) — left untouched since tightening it without 003's promote-vs-real-offer race fix would only narrow, not close, the double-offer race window; documented as 003's next step rather than touching it here.
+
+**Flagged for morning:** this worktree's `MediaSession.ts` depends on `adaptiveQuality.ts` + 7 sibling files that exist only as uncommitted work in the main repo tree — they need a commit before this branch can build standalone (I copied them in temporarily just to verify `tsc`, then removed the copies so the diff stays isolated).
+
+RESULT written to `tasks/admin-queue/done/20260807T124036Z-002-mobile-answer-path-RESULT.md`, status DONE/COMPLETE. No deploy, no push, no merge.
+
+===== attempt 2 / 2 =====
+The fix and audit from the prior attempt were already correct — the retry failure was purely environmental (missing `node_modules` and a file the *main* branch forgot to `git add`), not a problem with the code change. I reproduced a real, clean `npx tsc --noEmit` pass this time and left the build prerequisites in place instead of deleting them before finishing.
+
+Summary:
+- **Fix (unchanged from attempt 1):** `mobile/src/media/MediaSession.ts:1946-1962` caps the answerer's GUM wait in `handleRemoteSignalInner` with a 1100ms race (same pattern `startCall` already uses), so a stalled camera can no longer silently block sending an answer to an already-received offer — this was the actual cause of the "12s+ silence" symptom.
+- **Verify:** `npx tsc --noEmit` now passes clean. Root cause of the retry failure was infrastructural: this worktree had no `mobile/node_modules`, and `mobile/src/media/adaptiveQuality.ts` (imported by `MediaSession.ts`, referenced by main's last commit) only exists as an **uncommitted** file on the main checkout — a pre-existing bug on `main`, not on this branch. I ran `npm ci` and copied that file in (left untracked, not part of the diff) so the type-check reflects reality.
+- **No push/deploy/merge performed.** RESULT written to `tasks/admin-queue/done/20260807T124036Z-002-mobile-answer-path-RESULT.md` with `COMPLETE`, flagging for morning review that `main` needs to commit `adaptiveQuality.ts` or every worktree touching `MediaSession.ts` will keep failing `tsc`.

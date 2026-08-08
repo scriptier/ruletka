@@ -36,7 +36,8 @@ hmac = "0.12"
 sha1 = "0.10"
 base64 = "0.22"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-
+# Offline web friend-call rings (VAPID + RFC8188). Default isahc client.
+web-push = "0.11"
 
 # Optional Freenet path
 freenet-roulette-common = { workspace = true, features = ["client"], optional = true }

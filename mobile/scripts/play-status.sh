@@ -21,12 +21,14 @@ notes() {
   cat <<EOF
 ${VER} (${VC}) — closed testing
 
-• Connect: one offer per match; stop 0.8s thrash / long black wait
-• Partner mute visuals + debate over data channel (Play)
-• Multi-party: horizontal stack layout
-• Soft ICE / hard rebuild (14s / 24s class); phone↔browser
-• Friends Call + DMs; report + block; 18+ gate
-• Child safety: ruletka.vip/legal/child-safety.html
+• Connect: one offer per match; progressive Linking + Retry (no thrash)
+• Gifts mid-chat unlocked; stage gift strip + chat bubbles
+• Stop one-tap (no confirm); Report FAB + peer_id resolve
+• Friends row: Online pill + labeled Call / Chat; soft toasts
+• Live soft toasts (stars / report / add friend / party); fewer popups
+• Friend call alerts copy + offline push register path
+• Partner mute / debate over data channel; multi-party stack
+• 18+ gate · Child safety: ruletka.vip/legal/child-safety.html
 
 Hub: https://ruletka.vip
 Support: support@ruletka.me

@@ -1,0 +1,3 @@
+
+===== attempt 1 / 2 =====
+Close-out complete for task 004. I spot-checked 001's audited file:line citations in `ui/live.js` (handleMatched, kickSoloWebRtc, GUM caps) — all still hold unchanged — and additionally verified the two items in this ticket's scope that 001 didn't explicitly cover: `joinPeers` is guarded from tearing down a live kickSolo offer (explicit `solo1v1` branch + inline comment at `ui/live.js:22556-22569`), and `dismissFriendRingUi`/modal cleanup never blocks or races the fire-and-forget `kickSoloWebRtc` call. `hub-match-speed.sh` confirmed IDLE (no live traffic to sample), matching 001. No code changes were needed; RESULT written as **COMPLETE**.

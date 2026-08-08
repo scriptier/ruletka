@@ -1,19 +1,19 @@
 # Google Play Console — upload (current)
 
 Package: **`me.ruletka.app`**  
-**Ship tip:** **0.1.136 · versionCode 144** (sideload APK)  
+**Ship tip:** **0.1.148 · versionCode 156** (Live soft toasts + friends polish; bump if newer)  
 Ops: [`PLAY_OPS.md`](PLAY_OPS.md) · Data safety: [`PLAY_DATA_SAFETY.md`](PLAY_DATA_SAFETY.md) · **Checklist:** [`PLAY_INTERNAL_TEST_CHECKLIST.md`](PLAY_INTERNAL_TEST_CHECKLIST.md)
 
 ## Ready binaries
 
 ```text
 # Sideload (device smoke) — always keep current
-mobile/artifacts/ruletka-0.1.136-vc144.apk
+mobile/artifacts/ruletka-0.1.148-vc156.apk
 mobile/artifacts/ruletka-latest.apk
 
-# Play Console — build AAB when ready to upload
-cd mobile && ./scripts/build-aab-local.sh
-# → mobile/artifacts/ruletka-0.1.136-vc144.aab  (or next versionCode)
+# Play Console — AAB
+mobile/artifacts/ruletka-0.1.148-vc156.aab
+# or: cd mobile && ./scripts/build-aab-local.sh
 ```
 
 Signed with Play upload keystore (`mobile/secrets/ruletka-upload.jks`).
@@ -40,18 +40,20 @@ Open: [play.google.com/console](https://play.google.com/console) → app **me.ru
 
 1. **Testing → Internal testing → Create new release**
 2. Upload AAB from `mobile/artifacts/` (versionCode **>** last published)
-3. **Release name:** `0.1.136 (144)` (or current)
+3. **Release name:** `0.1.148 (156)` (or current from `app.json`)
 4. **Release notes** — run `./scripts/play-status.sh --notes` or:
 
 ```
-0.1.136 (144) — closed testing
+0.1.148 (156) — closed testing
 
-• Connect: one offer per match; no 0.8s thrash / 20s black wait
-• Partner mute visuals + debate over data channel (Play fix)
-• Multi-party: horizontal stack layout
-• Soft ICE / hard rebuild budgets restored (14s / 24s)
-• Friends Call + DMs; report + block; 18+ gate
-• Child safety: ruletka.vip/legal/child-safety.html
+• Connect: one offer per match; progressive Linking + Retry (no thrash)
+• Gifts mid-chat unlocked; stage gift strip + chat bubbles
+• Stop one-tap (no confirm); Report FAB + peer_id resolve
+• Friends row: Online pill + labeled Call / Chat; soft toasts
+• Live soft toasts (stars / report / add friend / party); fewer popups
+• Friend call alerts copy + offline push register path
+• Partner mute / debate over data channel; multi-party stack
+• 18+ gate · Child safety: ruletka.vip/legal/child-safety.html
 
 Hub: https://ruletka.vip
 Support: support@ruletka.me

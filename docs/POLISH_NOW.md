@@ -20,11 +20,24 @@
 
 | # | Work | Status |
 |---|------|--------|
-| 1 | **Play store listing** — screenshots, EN/RU, data safety | **Docs ready** — [`PLAY_INTERNAL_TEST_CHECKLIST.md`](PLAY_INTERNAL_TEST_CHECKLIST.md) · LISTING.md · PLAY_* · human Console upload |
-| 2 | **Web push SW** — friend call when tab fully closed (`039`) | Open |
-| 3 | Prefer Direct on Android (defer) | Deferred |
+| 1 | **Play store listing** — screenshots, EN/RU, data safety | **AAB ready** `0.1.147+` — **human** Console Internal upload |
+| 2 | Prefer Direct on Android (defer) | Deferred |
+| 3 | Open-on-PC QR **implement** phase 1 UI | Design done — `OPEN_ON_PC_QR.md` |
+| 4 | Device smoke: killed-app friend push + connect/gifts | Human on APK |
 
-**Connect:** still smoke-critical after thrash fixes — hard refresh + APK 0.1.136 before Play internal.
+**Shipped polish (recent):** friends Online/Call/Chat · settings alert copy · Live soft toasts · Stop one-tap · gifts mid-chat · web push SW · geo/hotkeys.
+
+**Connect / gifts / UI:** hard refresh browser + APK **0.1.148+** after this pass (Live soft toasts).
+
+## Play polish plan
+See [`PLAY_POLISH_PLAN.md`](PLAY_POLISH_PLAN.md).
+
+| Next | Status |
+|------|--------|
+| Live soft errors → toast | Done this pass |
+| Open-on-PC design | Done (`OPEN_ON_PC_QR.md`) |
+| AAB + Console upload | Human |
+| Prefer Direct Android | Deferred |
 
 ## Parked
 SFU, Lottie gifts, multi-hub stars.

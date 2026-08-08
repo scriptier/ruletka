@@ -24,9 +24,12 @@ trap 'rm -rf "$STAGE"' EXIT
 mkdir -p "$STAGE"/{bin,ui,data,deploy}
 
 cp -a target/release/roulette-bridge "$STAGE/bin/"
-# UI only (not whole repo)
+# UI only (not whole repo). Never bulk-ship local APK history to the site.
 rsync -a --delete \
   --exclude '*.map' \
+  --exclude '*.apk' \
+  --exclude 'download/archive/' \
+  --exclude 'download/ruletka-*.apk' \
   --exclude 'brand/loading-screen.full.mp4' \
   --exclude 'brand/og-1200.prev.jpg' \
   ui/ "$STAGE/ui/"

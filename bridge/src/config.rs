@@ -40,6 +40,10 @@ pub struct PublicConfig {
     /// Optional analytics IDs (public; never put secrets here).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub analytics: Option<AnalyticsPublic>,
+    /// VAPID public key (URL-safe base64, no pad) for Web Push when tab is closed.
+    /// Only present when hub has `ROULETTE_VAPID_PRIVATE` configured.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vapid_public_key: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Default)]
@@ -60,11 +64,14 @@ pub struct SecurityHints {
     pub partner_can_record: bool,
 }
 
-/// Free public TURN (Open Relay / Metered) — demo-grade, not for production secrets.
+/// Free public TURN (Open Relay / Metered) — demo-grade fallback only.
+/// Prefer self-hosted coturn when ROULETTE_TURN is set. Open Relay free endpoints
+/// are often dead/rate-limited (TCP:80 returns HTTP; UDP times out) and waste ICE.
 pub const OPEN_RELAY_TURN_URLS: &str = "\
+turn:openrelay.metered.ca:80?transport=tcp,\
+turn:openrelay.metered.ca:443?transport=tcp,\
 turn:openrelay.metered.ca:80,\
-turn:openrelay.metered.ca:443,\
-turn:openrelay.metered.ca:443?transport=tcp";
+turn:openrelay.metered.ca:443";
 pub const OPEN_RELAY_USER: &str = "openrelayproject";
 pub const OPEN_RELAY_PASS: &str = "openrelayproject";
 
@@ -236,8 +243,12 @@ pub fn build_public_config(
                         .into(),
                 );
             } else if ephemeral {
+                // Self-coturn FIRST. Open Relay free was primary but is often dead
+                // (wastes 5–15s of ICE → soft-recover thrash → black video).
+                // Self-host CHANNEL_BIND to own external-ip works when allowed-peer-ip
+                // includes the droplet IP (see scripts/deploy/coturn.conf).
                 notes.push(
-                    "TURN: self-hosted with short-lived credentials (coturn static-auth-secret)"
+                    "TURN: self-hosted coturn (ephemeral credentials)"
                         .into(),
                 );
             } else {
@@ -273,5 +284,6 @@ pub fn build_public_config(
         notes,
         security: security_hints(has_turn, turn.is_open_relay, ephemeral),
         analytics: None,
+        vapid_public_key: None,
     }
 }

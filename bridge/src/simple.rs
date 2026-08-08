@@ -326,6 +326,8 @@ pub struct SimpleHub {
     push_tokens_path: PathBuf,
     /// Optional HTTPS webhook for offline ring delivery (custom push relay / ntfy / etc.)
     push_webhook_url: Option<String>,
+    /// Optional VAPID keys for native Web Push (platform=web).
+    vapid: Option<crate::web_push_send::VapidKeys>,
     /// Optional HTTPS webhook (Slack/Discord/Telegram bot URL) fired on auto-ban.
     mod_webhook_url: Option<String>,
     /// Federated sessions by session_id
@@ -564,6 +566,22 @@ impl SimpleHub {
         mod_webhook_url: Option<String>,
         push_webhook_url: Option<String>,
     ) -> Self {
+        Self::with_limits_store_webhook_vapid(
+            limits,
+            friends_path,
+            mod_webhook_url,
+            push_webhook_url,
+            None,
+        )
+    }
+
+    pub fn with_limits_store_webhook_vapid(
+        limits: LimitConfig,
+        friends_path: PathBuf,
+        mod_webhook_url: Option<String>,
+        push_webhook_url: Option<String>,
+        vapid: Option<crate::web_push_send::VapidKeys>,
+    ) -> Self {
         let stored = friends_store::load(&friends_path);
         if !stored.friendships.is_empty()
             || !stored.code_index.is_empty()
@@ -646,6 +664,7 @@ impl SimpleHub {
             push_tokens,
             push_tokens_path,
             push_webhook_url: push_wh,
+            vapid,
             mod_webhook_url: webhook,
             fed_sessions: HashMap::new(),
             fed_by_client: HashMap::new(),
@@ -687,6 +706,47 @@ impl SimpleHub {
             };
             let _ = client.post(&url).json(&body).send().await;
         });
+    }
+
+    /// Native Web Push for platform=web (tab fully closed). No-op without VAPID.
+    fn fire_web_push(&self, token: String, payload: serde_json::Value) {
+        let Some(vapid) = self.vapid.clone() else {
+            return;
+        };
+        tokio::spawn(async move {
+            match crate::web_push_send::send_friend_ring(&vapid, &token, &payload).await {
+                Ok(()) => {
+                    tracing::info!("web push friend_call_ring delivered");
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "web push friend_call_ring failed");
+                }
+            }
+        });
+    }
+
+    /// Expo Push API (no custom relay required when token is ExponentPushToken[…]).
+    fn fire_expo_push(&self, token: String, payload: serde_json::Value) {
+        tokio::spawn(async move {
+            match crate::expo_push::send_friend_ring(&token, &payload).await {
+                Ok(()) => tracing::info!("expo push friend_call_ring delivered"),
+                Err(e) => tracing::warn!(error = %e, "expo push friend_call_ring failed"),
+            }
+        });
+    }
+
+    /// Offline ring: Web Push (web), Expo Push API (mobile), optional webhook.
+    fn fire_offline_ring(&self, tok: &crate::push_tokens::PushToken, payload: serde_json::Value) {
+        let plat = tok.platform.to_ascii_lowercase();
+        let token = tok.token.as_str();
+        if plat == "web" || token.trim_start().starts_with('{') {
+            self.fire_web_push(tok.token.clone(), payload.clone());
+        }
+        if crate::expo_push::is_expo_token(token) {
+            self.fire_expo_push(tok.token.clone(), payload.clone());
+        }
+        // Optional custom relay (ntfy / worker) when configured
+        self.fire_push_webhook(payload);
     }
 
     fn fire_mod_webhook(&self, payload: serde_json::Value) {
@@ -1716,7 +1776,6 @@ impl SimpleHub {
             );
             return;
         };
-        let to_user_id = to_user_id.trim().to_string();
         let op_id = op_id.trim().chars().take(80).collect::<String>();
         let Some(c) = self.clients.get(&id) else {
             return;
@@ -1724,6 +1783,28 @@ impl SimpleHub {
         let me_uid = c.user_id.clone();
         let me_name = c.name.clone();
         let my_stars = self.stars_for(&me_uid);
+
+        // Resolve peer_id / friend code → user_id (mobile often has peer_id first)
+        let Some(to_user_id) = self.resolve_target_user_id(&to_user_id) else {
+            self.metrics_inc_star_spend(kind, false, 0);
+            self.send(
+                id,
+                ServerMsg::StarEffect {
+                    ok: false,
+                    user_id: to_user_id.trim().to_string(),
+                    effect: kind.into(),
+                    until: 0,
+                    level: 1,
+                    cost: 0,
+                    spender_stars: my_stars,
+                    target_stars: 0,
+                    message: "invalid target".into(),
+                    from_user_id: me_uid,
+                    from_name: me_name,
+                },
+            );
+            return;
+        };
 
         if me_uid.is_empty() || to_user_id.is_empty() || to_user_id == me_uid {
             self.metrics_inc_star_spend(kind, false, 0);
@@ -6823,6 +6904,44 @@ impl SimpleHub {
         self.status(id, "friend removed");
     }
 
+    /// Resolve report/block target: persistent user_id, friend code, or live peer_id/short_id.
+    /// Mobile sometimes only has peer_id early (or after thrash rematch wiped user_id).
+    fn resolve_target_user_id(&self, raw: &str) -> Option<String> {
+        let t = raw.trim();
+        if t.is_empty() {
+            return None;
+        }
+        // Exact online user_id
+        if self.by_user.contains_key(t) {
+            return Some(t.to_string());
+        }
+        // Friend code (case-insensitive)
+        let code = t.to_ascii_uppercase();
+        if let Some(uid) = self.code_index.get(&code) {
+            if !uid.is_empty() {
+                return Some(uid.clone());
+            }
+        }
+        // Live peer_id or short_id → user_id
+        for c in self.clients.values() {
+            if c.user_id.is_empty() {
+                continue;
+            }
+            if c.peer_id == t || c.short_id == t {
+                return Some(c.user_id.clone());
+            }
+            // Federated peer_id may be "base|peer" — match suffix
+            if c.peer_id.ends_with(t) || t.ends_with(&c.peer_id) {
+                return Some(c.user_id.clone());
+            }
+        }
+        // Already looks like a stable user_id (hex / uuid-ish) — accept offline target
+        if t.len() >= 16 {
+            return Some(t.to_string());
+        }
+        None
+    }
+
     fn handle_report_user(
         &mut self,
         id: Uuid,
@@ -6830,11 +6949,16 @@ impl SimpleHub {
         reason: String,
         screenshot_jpeg_b64: String,
     ) {
-        let user_id = user_id.trim().to_string();
-        let reason = reason.trim().chars().take(64).collect::<String>();
-        if user_id.is_empty() {
+        let Some(user_id) = self.resolve_target_user_id(&user_id) else {
+            self.send(
+                id,
+                ServerMsg::Error {
+                    message: "cannot report — partner id unknown".into(),
+                },
+            );
             return;
-        }
+        };
+        let reason = reason.trim().chars().take(64).collect::<String>();
         // Optional evidence JPEG — store beside reports.jsonl (not in WS logs).
         let evidence_path = Self::save_report_screenshot(
             self.reports_path().as_ref(),
@@ -7614,10 +7738,15 @@ impl SimpleHub {
     }
 
     fn handle_block_user(&mut self, id: Uuid, user_id: String) {
-        let user_id = user_id.trim().to_string();
-        if user_id.is_empty() {
+        let Some(user_id) = self.resolve_target_user_id(&user_id) else {
+            self.send(
+                id,
+                ServerMsg::Error {
+                    message: "cannot block — partner id unknown".into(),
+                },
+            );
             return;
-        }
+        };
         let Some(me) = self.clients.get(&id).map(|c| c.user_id.clone()) else {
             return;
         };
@@ -7819,15 +7948,20 @@ impl SimpleHub {
                     "ruletka: {} is calling you — open the app to answer",
                     my_name
                 );
-                self.fire_push_webhook(serde_json::json!({
+                let payload = serde_json::json!({
                     "type": "friend_call_ring",
+                    "title": "Incoming call",
+                    "body": format!("{} is calling — tap to answer", my_name),
                     "text": text,
                     "to_user_id": user_id,
                     "from_user_id": my_uid,
                     "from_name": my_name,
                     "token": tok.token,
                     "platform": tok.platform,
-                }));
+                    "url": "/live.html",
+                    "tag": "ruletka-friend-call",
+                });
+                self.fire_offline_ring(&tok, payload);
                 self.metrics_inc_call_ring();
                 self.send(
                     id,
@@ -8187,7 +8321,13 @@ impl SimpleHub {
             );
             return;
         }
-        let tok = token.chars().take(512).collect::<String>();
+        // Web Push subscription JSON can be ~400–1500 chars; Expo tokens are short.
+        let max_tok = if platform.eq_ignore_ascii_case("web") {
+            4096
+        } else {
+            1024
+        };
+        let tok = token.chars().take(max_tok).collect::<String>();
         let plat = platform.chars().take(32).collect::<String>();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -8788,12 +8928,22 @@ impl SimpleHub {
                 // "first offer" with huge match_to_offer_ms and false YELLOW.
                 if c.last_offer_at.is_none() {
                     if let Some(ms) = c.match_started {
-                        tracing::info!(
-                            from = %c.short_id,
-                            match_to_offer_ms = ms.elapsed().as_millis() as u64,
-                            platform = %c.platform,
-                            "first offer after match"
-                        );
+                        let mto = ms.elapsed().as_millis() as u64;
+                        if mto >= 3000 {
+                            tracing::warn!(
+                                from = %c.short_id,
+                                match_to_offer_ms = mto,
+                                platform = %c.platform,
+                                "first offer after match SLOW"
+                            );
+                        } else {
+                            tracing::info!(
+                                from = %c.short_id,
+                                match_to_offer_ms = mto,
+                                platform = %c.platform,
+                                "first offer after match"
+                            );
+                        }
                     }
                 }
             }

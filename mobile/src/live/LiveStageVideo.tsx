@@ -35,24 +35,34 @@ export type LiveStageVideoProps = {
   stageW: number;
   stageH: number;
   pipHint: boolean;
+  /** Seconds since match — drives progressive empty-stage copy. */
+  connectElapsedSecs?: number;
   labels: {
     connectingPeer: string;
     /** Optional short status under partner name while empty */
     linkingCameras?: string;
+    findingPath?: string;
+    tryingRelay?: string;
     retryHard: string;
     retrying: string;
     turnReady: string;
     turnLoading: string;
     tapToRetry: string;
+    /** Explicit Retry chip on empty stage */
+    retryPath?: string;
     focus: string;
     pipHint: string;
     /** e.g. "You muted · no sound" */
     partnerMutedBadge?: string;
     /** e.g. "They muted you · no sound" */
     theyMutedYouBadge?: string;
+    /** Long-press partner video → report */
+    longPressReport?: string;
   };
   onToggleFocusExtra: () => void;
   onRetryConnect: (hard: boolean) => void;
+  /** Long-press remote (or empty matched stage) opens report. */
+  onReport?: () => void;
   onDoubleTapReblur: () => void;
   onPipHintSeen: () => void;
   onSwapViews: () => void;
@@ -79,17 +89,26 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
     retryBusy,
     autoRetryCount,
     hasTurn,
+    connectElapsedSecs = 0,
     stageW,
     stageH,
     pipHint,
     labels: L,
     onToggleFocusExtra,
     onRetryConnect,
+    onReport,
     onDoubleTapReblur,
     onPipHintSeen,
     onSwapViews,
     onHaptic,
   } = props;
+
+  const emptyStatus =
+    connectElapsedSecs >= 8 && L.tryingRelay
+      ? L.tryingRelay
+      : connectElapsedSecs >= 3 && L.findingPath
+        ? L.findingPath
+        : L.linkingCameras || L.connectingPeer;
 
   const showPartnerMute =
     phase === "matched" && partnerMuted && !!L.partnerMutedBadge;
@@ -195,13 +214,23 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
               style={[styles.remoteFill, styles.videoPlaceholder]}
               onPress={() => {
                 if (phase !== "matched") return;
-                onRetryConnect(autoRetryCount >= 1);
+                // After 5s, tap = soft retry; after one auto, hard if allowed
+                onRetryConnect(autoRetryCount >= 1 || connectElapsedSecs >= 15);
               }}
+              onLongPress={() => {
+                if (phase !== "matched" || !onReport) return;
+                onHaptic();
+                onReport();
+              }}
+              delayLongPress={450}
               disabled={phase !== "matched" || retryBusy}
             >
               {phase === "matched" ? (
-                <>
-                  <Text style={styles.splitPlaceholder}>
+                <View style={styles.connectCard}>
+                  <View style={styles.connectPulseOuter}>
+                    <View style={styles.connectPulseInner} />
+                  </View>
+                  <Text style={styles.splitPlaceholder} numberOfLines={1}>
                     {partnerName || "…"}
                   </Text>
                   <Text style={styles.splitPlaceholderSub}>
@@ -209,19 +238,38 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
                       ? autoRetryCount >= 2
                         ? L.retryHard
                         : L.retrying
-                      : L.linkingCameras || L.connectingPeer}
+                      : emptyStatus}
+                    {connectElapsedSecs >= 1
+                      ? ` · ${connectElapsedSecs}s`
+                      : ""}
                   </Text>
-                  <Text style={styles.splitPlaceholderTurn}>
-                    {hasTurn ? L.turnReady : L.turnLoading}
-                  </Text>
-                  {!retryBusy ? (
+                  {/* Hide TURN jargon until path is slow — less noise while linking */}
+                  {connectElapsedSecs >= 4 ? (
+                    <Text style={styles.splitPlaceholderTurn}>
+                      {hasTurn ? L.turnReady : L.turnLoading}
+                    </Text>
+                  ) : null}
+                  {connectElapsedSecs >= 5 && !retryBusy ? (
+                    <View style={styles.stageRetryChip}>
+                      <Text style={styles.stageRetryChipText}>
+                        {L.retryPath || L.tapToRetry}
+                      </Text>
+                    </View>
+                  ) : !retryBusy ? (
                     <Text style={styles.splitPlaceholderTap}>
                       {L.connectingPeer}
                     </Text>
                   ) : (
-                    <Text style={styles.splitPlaceholderTap}>{L.tapToRetry}</Text>
+                    <Text style={styles.splitPlaceholderTap}>
+                      {L.tapToRetry}
+                    </Text>
                   )}
-                </>
+                  {L.longPressReport && connectElapsedSecs >= 3 ? (
+                    <Text style={styles.splitPlaceholderHint}>
+                      {L.longPressReport}
+                    </Text>
+                  ) : null}
+                </View>
               ) : null}
             </Pressable>
           )}
@@ -255,13 +303,11 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
             </View>
           ) : null}
           {/* Touch layer ABOVE RTCView — never wrap SurfaceView in Pressable. */}
-          {phase === "matched" &&
-          hasRemote &&
-          !isFriendCall &&
-          !remoteBlurred ? (
+          {phase === "matched" && hasRemote && !swapViews ? (
             <Pressable
               style={styles.remoteTapLayer}
               onPress={() => {
+                if (isFriendCall || remoteBlurred) return;
                 const now = Date.now();
                 if (now - remoteTapRef.current < 320) {
                   remoteTapRef.current = 0;
@@ -270,6 +316,12 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
                   remoteTapRef.current = now;
                 }
               }}
+              onLongPress={() => {
+                if (isFriendCall || !onReport) return;
+                onHaptic();
+                onReport();
+              }}
+              delayLongPress={450}
             />
           ) : null}
         </View>

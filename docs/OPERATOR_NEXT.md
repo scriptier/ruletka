@@ -58,11 +58,18 @@ See [`APP_LINKS.md`](APP_LINKS.md).
 | Piece | Status |
 |-------|--------|
 | Hub `register_push` + `push_tokens.json` | Shipped |
-| Offline call → `ROULETTE_PUSH_WEBHOOK_URL` | Shipped |
+| Offline call → `ROULETTE_PUSH_WEBHOOK_URL` | Shipped (Expo / custom relay) |
+| **Web Push VAPID** (tab fully closed) | Shipped — `data/vapid.env` + SW push handler |
 | Mobile Settings “Friend call alerts” | Shipped (registers when expo-notifications linked) |
-| Real FCM/APNs via Expo | **You**: `npx expo install expo-notifications` after EAS project |
+| Real FCM/APNs via Expo | Client: `expo-notifications` shipped · Hub: native Expo Push API on offline `call_friend` (no webhook required for `ExponentPushToken[…]`) |
 
 ```bash
+# Web (auto-created by install-on-server.sh if python3-cryptography available):
+# /opt/ruletka/data/vapid.env
+# ROULETTE_VAPID_PRIVATE=…
+# ROULETTE_VAPID_PUBLIC=…
+# ROULETTE_VAPID_SUBJECT=mailto:support@ruletka.vip
+
 # Optional custom relay (ntfy, worker that calls Expo Push API, etc.)
 export ROULETTE_PUSH_WEBHOOK_URL=https://your-relay.example/ruletka-push
 ```

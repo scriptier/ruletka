@@ -1,14 +1,45 @@
 /**
- * Optional Expo push registration.
- * Full delivery needs: expo-notifications + EAS project credentials + hub ROULETTE_PUSH_WEBHOOK_URL
- * (or a real FCM/APNs path). Without the native module this no-ops cleanly.
+ * Expo push registration for offline friend-call rings.
+ * Hub stores token; offline call_friend fires ROULETTE_PUSH_WEBHOOK_URL.
+ *
+ * Safe if native module fails to init — never crashes Hermes.
  */
+import Constants from "expo-constants";
 import { Platform } from "react-native";
 import type { HubClient } from "../hub/HubClient";
 
 export type PushRegisterResult =
   | { ok: true; token: string; platform: string }
   | { ok: false; reason: string };
+
+type NotifMod = {
+  getPermissionsAsync: () => Promise<{ status: string }>;
+  requestPermissionsAsync: () => Promise<{ status: string }>;
+  getExpoPushTokenAsync: (opts?: object) => Promise<{ data: string }>;
+  setNotificationChannelAsync?: (
+    id: string,
+    opts: object
+  ) => Promise<unknown>;
+  setNotificationHandler?: (h: object) => void;
+  AndroidImportance?: { MAX: number; HIGH: number };
+};
+
+function loadNotifications(): NotifMod | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require("expo-notifications") as NotifMod | null;
+    if (mod && typeof (mod as NotifMod).getExpoPushTokenAsync === "function") {
+      return mod;
+    }
+  } catch {
+    /* not linked */
+  }
+  return null;
+}
+
+export function pushModuleAvailable(): boolean {
+  return !!loadNotifications();
+}
 
 export async function tryRegisterPush(
   hub: HubClient,
@@ -23,30 +54,72 @@ export async function tryRegisterPush(
     return { ok: false, reason: "disabled" };
   }
 
+  const Notifications = loadNotifications();
+  if (!Notifications) {
+    return { ok: false, reason: "no_module" };
+  }
+
   try {
-    // Optional dependency — not required for v1 store path
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const Notifications = require("expo-notifications");
-    const { status: existing } = await Notifications.getPermissionsAsync();
-    let status = existing;
-    if (existing !== "granted") {
-      const req = await Notifications.requestPermissionsAsync();
-      status = req.status;
+    // Show alerts while foregrounded (friend call may arrive as push)
+    try {
+      Notifications.setNotificationHandler?.({
+        handleNotification: async () => ({
+          shouldShowAlert: true,
+          shouldPlaySound: true,
+          shouldSetBadge: true,
+        }),
+      });
+    } catch {
+      /* ignore */
     }
-    if (status !== "granted") {
+
+    let perm = await Notifications.getPermissionsAsync();
+    if (perm.status !== "granted") {
+      perm = await Notifications.requestPermissionsAsync();
+    }
+    if (perm.status !== "granted") {
       return { ok: false, reason: "permission_denied" };
     }
-    const tokenData = await Notifications.getExpoPushTokenAsync();
-    const token = String(tokenData?.data || "");
+
+    if (
+      Platform.OS === "android" &&
+      Notifications.setNotificationChannelAsync &&
+      Notifications.AndroidImportance
+    ) {
+      try {
+        await Notifications.setNotificationChannelAsync("friend-calls", {
+          name: "Friend calls",
+          importance: Notifications.AndroidImportance.MAX,
+          vibrationPattern: [0, 400, 200, 400],
+          sound: "default",
+          enableVibrate: true,
+          showBadge: true,
+        });
+      } catch {
+        /* optional */
+      }
+    }
+
+    const projectId =
+      Constants.expoConfig?.extra?.eas?.projectId ||
+      (
+        Constants as {
+          easConfig?: { projectId?: string };
+        }
+      ).easConfig?.projectId;
+
+    const tokenResult = await Notifications.getExpoPushTokenAsync(
+      projectId ? { projectId: String(projectId) } : undefined
+    );
+    const token = String(tokenResult?.data || "").trim();
     if (!token) return { ok: false, reason: "no_token" };
-    const platform = Platform.OS === "ios" ? "ios" : "android";
-    hub.registerPush(token, platform, false);
-    return { ok: true, token, platform };
-  } catch {
+
+    hub.registerPush(token, "expo", false);
+    return { ok: true, token, platform: "expo" };
+  } catch (e) {
     return {
       ok: false,
-      reason:
-        "expo-notifications not linked — install after EAS project (see docs/APP_LINKS.md)",
+      reason: e instanceof Error ? e.message.slice(0, 80) : "register_failed",
     };
   }
 }

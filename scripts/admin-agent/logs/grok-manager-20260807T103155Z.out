@@ -1,0 +1,22 @@
+I'll act as night-shift manager: read hub metrics, connectivity docs, and the admin queue, then re-rank and sharpen tickets without large code edits.Hub is **YELLOW_slow** (25s MTO) — connect tasks stay on top. Next I'll tighten weak P0 tickets and draft the manager report.Hub confirms YELLOW_slow (25s MTO, 3 drops). I'll sharpen P0 tickets, renumber P1 so filename order matches the overnight ladder, and block Prefer Direct until after smoke.Cleaning up duplicate ticket files left from the renumber.## Manager done
+
+**Hub:** `YELLOW_slow` — offers≈answers OK, **max MTO 25s**, **3 offer drops**. Connect stays #1.
+
+### Claude’s order when back
+1. **001** slow match→offer  
+2. **002** mobile answer/promote  
+3. **003** second-offer thrash  
+4. **004** kickSolo speed  
+5. **020** cam mute → **021** background → **022** friend ring → **023** web notify  
+6. P2/P3 only after that  
+
+### Queue changes
+- Sharpened all pending tickets (Goal / Scope / Done / **COMPLETE**)
+- Renumbered P1 so filename order matches overnight ladder (`031→021`, `032→022`, `021→023`)
+- **Blocked** `034` Prefer Direct (MediaSession risk until smoke green)
+- Report: `tasks/admin-queue/reports/MANAGER-LATEST.md`
+
+### Morning smoke
+`./scripts/admin-agent/morning.sh` + `./scripts/hub-match-speed.sh 30` — Play↔PC, no Next spam 15s, both cams, MTO &lt; 2s.
+
+No deploy, push, or product code edits.

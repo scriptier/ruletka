@@ -1,0 +1,30 @@
+I'll run manager mode: read the plan/lock/roadmap, hub metrics, and the admin queue, then re-rank and sharpen tickets without large code edits.022 is done; hub still idle. Sharpening the remaining pending tickets and writing the manager report.## Manager pass done
+
+Full report: `tasks/admin-queue/reports/MANAGER-LATEST.md`
+
+### Hub verdict
+**`idle`** — 0 matches / 0 MTO. Not RED/YELLOW → **no `001b` connect ticket**. Idle ≠ PASS.
+
+### Claude next (when back)
+| Order | Ticket | Action |
+|------:|--------|--------|
+| **1** | **`023-web-friend-call-notify`** | **START** — unfocused tab friend-call notify (web only) |
+| 2 | `036` or `035` | Zero-risk filler if 023 stalls |
+| 3 | `033` | Chat/gifts audit (audit-only OK if modular live WIP blocks mobile) |
+| 4 | `090` | Design last |
+| — | `blocked/034` | Stay blocked |
+
+**Do not re-open:** 001–004, 020–022 (COMPLETE). Connect keepers already on `main` (`7769c32` + `52bcb92`).
+
+### Queue changes
+- Sharpened all **5** pending tickets (Goal / Scope / Done / COMPLETE)
+- Refreshed **034** blocked note (wait live Play↔PC smoke on `main`)
+- Synced `docs/OVERNIGHT_9H_PLAY_PLAN.md` ladder (023 = NEXT)
+- No product code, deploy, push, or CONNECTIVITY_LOCK edits
+
+### Human morning
+1. Smoke **`main` @ `52bcb92`** (Play↔PC, CONNECTIVITY_LOCK)
+2. Prune superseded admin branches (001–004, 021, 021b)
+3. **Hygiene:** untracked modular `mobile/src/live/*` WIP — blocks device smoke of 022
+4. Then merge **`admin/…-022`** (ring / accept→live / miss card)
+5. Run `./scripts/hub-match-speed.sh 30` on **live** traffic (idle MTO=0 does not count)

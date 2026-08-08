@@ -1,0 +1,33 @@
+I'll act as night-shift manager: read the overnight plan, connectivity lock, roadmap, hub metrics, and the admin queue, then re-rank and sharpen tickets without large code edits.Hub is idle. Next I'll read the overnight plan, all pending tickets, and recent RESULT files.Hub is idle (prior YELLOW still guides priority). Reading the remaining pending tickets and tightening any weak ones.Queue order is already correct. Sharpening a few weak tickets, aligning the overnight plan filenames, and writing the manager report.## Manager pass complete
+
+Report: `tasks/admin-queue/reports/MANAGER-LATEST.md`
+
+### Hub
+| | |
+|--|--|
+| **Now** | `idle` (0 matches) |
+| **Last pain** | `YELLOW_slow`, max MTO **25s**, 3 debounce drops |
+
+No new `001b` — P0 already covers connect. Order stays **001 → 004 first**.
+
+### Queue (filename order OK)
+```
+001 002 003 004 | 020 021 022 023 | 033 035 036 090
+blocked: 034 Prefer Direct
+```
+
+### Changes this pass
+- **Sharpened** `001` (Grok follow-up + idle-hub audit order), `021`, `033`, `035`, `036`
+- **Synced** overnight plan filenames (old 031/032 → 021/022/023; 034 listed blocked)
+- **No** product code, deploy, push, or CONNECTIVITY_LOCK edits
+
+### Claude first hour
+1. Read Grok RESULT: `done/20260807T103500Z-001-connect-speed-GROK-RESULT.md`
+2. Finish **`001`** → then **002 → 003 → 004**
+3. Only then 020+
+
+### Morning human
+```bash
+./scripts/admin-agent/morning.sh && ./scripts/hub-match-speed.sh 30
+```
+Play↔PC smoke: both cams, 1 offer+1 answer, MTO &lt; 2s, no Next spam 15s.

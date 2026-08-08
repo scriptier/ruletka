@@ -1,7 +1,8 @@
 # Play internal-test readiness (human handoff)
 
 **Package:** `me.ruletka.app`  
-**Ship tip (sideload):** **0.1.136 / versionCode 144** (or later that still respects CONNECTIVITY_LOCK)  
+**Ship tip (sideload):** **0.1.138 / versionCode 146** (or later that still respects CONNECTIVITY_LOCK)  
+**AAB for Console:** `mobile/artifacts/ruletka-0.1.138-vc146.aab` (build via `./scripts/build-aab-local.sh`)  
 **Lock:** [`CONNECTIVITY_LOCK.md`](CONNECTIVITY_LOCK.md) · smoke: [`DEVICE_SMOKE.md`](DEVICE_SMOKE.md)
 
 **Out of scope for this checklist:** Play Console upload, bulk APK on website, production deploy.

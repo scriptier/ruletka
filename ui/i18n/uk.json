@@ -1935,5 +1935,7 @@
   "wait.body": "Зараз мало людей. Залиште вкладку відкритою, покличте друга з кодом кімнати або зайдіть пізніше.",
   "wait.few": "Майже ніхто не чекає. Зачекайте — або запросіть друга кодом кімнати.",
   "wait.title": "Усе ще шукаємо…",
-  "status.autoNextShort": "Короткий чат — шукаємо далі…"
+  "status.autoNextShort": "Короткий чат — шукаємо далі…",
+  "live.theyMutedYou": "They muted you · no sound",
+  "live.theyMutedYouToast": "Partner muted you — they can't hear you"
 }

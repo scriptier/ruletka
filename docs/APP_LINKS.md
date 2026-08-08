@@ -67,19 +67,27 @@ curl -s https://ruletka.vip/.well-known/assetlinks.json | jq .
 adb shell pm get-app-links me.ruletka.app
 ```
 
-## Push for killed-app rings
+## Push for killed-app / closed-tab rings
 
 | Layer | Status |
 |-------|--------|
-| Protocol `register_push` / `push_registered` | Hub + mobile types |
+| Protocol `register_push` / `push_registered` | Hub + mobile + web |
 | Store `data/push_tokens.json` | Hub |
-| Offline `call_friend` → webhook | `ROULETTE_PUSH_WEBHOOK_URL` |
+| Offline `call_friend` → Web Push (platform=web) | `ROULETTE_VAPID_*` / `data/vapid.env` |
+| Offline `call_friend` → webhook | `ROULETTE_PUSH_WEBHOOK_URL` (Expo / custom) |
+| Web SW `push` + `notificationclick` | `ui/sw.js` |
+| Web subscribe + register | `ui/web-push.js` + Friends call-alerts toggle |
 | Mobile Settings toggle | “Friend call alerts” |
 | `expo-notifications` + Expo Push API | After `eas init` (optional install) |
 
-Until OS notifications are linked: **in-app banners** while the app is open (shipped).
+### Web (tab closed)
 
-Preferred full path:
+1. Hub has VAPID (`GET /config.json` → `vapid_public_key`)  
+2. User enables Friends “call & online alerts” (Notification permission)  
+3. Browser subscribes via PushManager; hub stores subscription as platform=web  
+4. Offline `call_friend` → hub encrypts + posts to push service → SW shows notification → tap opens `/live.html`
+
+### Mobile
 
 1. `npx expo install expo-notifications` in `mobile/` after EAS project  
 2. Client registers token (Settings save already calls `tryRegisterPush`)  

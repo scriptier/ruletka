@@ -165,6 +165,13 @@ function LiveBody() {
   const partnerUserId = useRef<string>("");
   const partnerFriendCode = useRef<string>("");
   const partnerNameRef = useRef<string>("");
+  /** Last known partner ids for report/block (survives thrash rematch empty uid). */
+  const lastPartnerIdsRef = useRef<{
+    userId: string;
+    peerId: string;
+    friendCode: string;
+    shortId: string;
+  }>({ userId: "", peerId: "", friendCode: "", shortId: "" });
   const phaseRef = useRef<LivePhase>("idle");
   const searchingRef = useRef(false);
   /** Hub confirmed us in the stranger queue (status phase=waiting). */
@@ -225,7 +232,8 @@ function LiveBody() {
   const introUnblurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
-  const INTRO_UNBLUR_MS = 2500;
+  /** Brief privacy veil — short so "linking" doesn't feel like permanent blur. */
+  const INTRO_UNBLUR_MS = 1100;
 
   const clearIntroUnblurTimer = useCallback(() => {
     if (introUnblurTimerRef.current) {
@@ -248,23 +256,23 @@ function LiveBody() {
       } catch {
         /* ignore */
       }
-      // Android: staggered rebinds after veil lifts
+      // Android: staggered rebinds after veil lifts (tighter than 300/900)
       setTimeout(() => {
         setRemoteEpoch((n) => n + 1);
         try {
-          mediaRef.current?.forceRepaintRemote?.(`${why}_300`);
+          mediaRef.current?.forceRepaintRemote?.(`${why}_150`);
         } catch {
           /* ignore */
         }
-      }, 300);
+      }, 150);
       setTimeout(() => {
         setRemoteEpoch((n) => n + 1);
         try {
-          mediaRef.current?.forceRepaintRemote?.(`${why}_900`);
+          mediaRef.current?.forceRepaintRemote?.(`${why}_500`);
         } catch {
           /* ignore */
         }
-      }, 900);
+      }, 500);
     },
     [clearIntroUnblurTimer]
   );
@@ -757,6 +765,7 @@ function LiveBody() {
             ) {
               return;
             }
+            if (fromUid) notePartnerUserId(fromUid, "partner_mute");
             const muted = !!msg.muted;
             setTheyMutedMe(muted);
             log(`partner_mute ← theyMutedMe=${muted ? 1 : 0}`);
@@ -770,6 +779,8 @@ function LiveBody() {
           if (typ === "chat" || typ === "friend_chat") {
             const body = String(msg.body || "").trim().slice(0, 280);
             if (!body) return;
+            const fromUid = String(msg.user_id || "").trim();
+            if (fromUid) notePartnerUserId(fromUid, "chat");
             const from =
               String(msg.name || msg.user_id || "peer").slice(0, 24) || "peer";
             setChat((c) => [...c, { from, body }].slice(-30));
@@ -1269,12 +1280,24 @@ function LiveBody() {
             track("multi_promote", { kept: kept ? 1 : 0 });
           }
 
-          // Labels / meta always refresh
-          remotePeerId.current = peer.peerId;
-          partnerUserId.current = peer.userId;
-          partnerFriendCode.current = peer.friendCode;
-          partnerNameRef.current = peer.name;
-          setPartnerCode(peer.friendCode);
+          // Labels / meta always refresh — never wipe a known user_id with empty
+          // (thrash re-Matched can briefly omit peers[].user_id → block/report broken)
+          remotePeerId.current = peer.peerId || remotePeerId.current;
+          if (peer.userId) {
+            partnerUserId.current = peer.userId;
+          }
+          if (peer.friendCode) {
+            partnerFriendCode.current = peer.friendCode;
+          }
+          partnerNameRef.current = peer.name || partnerNameRef.current;
+          lastPartnerIdsRef.current = {
+            userId: partnerUserId.current || lastPartnerIdsRef.current.userId,
+            peerId: remotePeerId.current || lastPartnerIdsRef.current.peerId,
+            friendCode:
+              partnerFriendCode.current || lastPartnerIdsRef.current.friendCode,
+            shortId: String(peer.peerId || "").slice(0, 8) || lastPartnerIdsRef.current.shortId,
+          };
+          setPartnerCode(partnerFriendCode.current || peer.friendCode);
           if (!keepPrimary) setFriendAdded(false);
           setPartner(peer.name);
           setPartnerStars(peer.stars);
@@ -1555,7 +1578,18 @@ function LiveBody() {
             cost?: number;
             until?: number;
             effect_until?: number;
+            message?: string;
+            spender_stars?: number;
           };
+          if (m.ok === false) {
+            // Hub rejected spend — clear optimistic FX + show why
+            setGiftFlash(null);
+            setGiftEffect(null);
+            if (m.message) {
+              showToastRef.current(String(m.message).slice(0, 80));
+            }
+            break;
+          }
           if (m.ok && m.effect) {
             const gift = GIFTS.find((g) => g.id === m.effect);
             const label = gift
@@ -1673,8 +1707,10 @@ function LiveBody() {
           setAwaitingRemoteVideo(false);
           setMoreOpen(false);
           remotePeerId.current = "";
-          partnerUserId.current = "";
-          partnerFriendCode.current = "";
+          // Keep lastPartnerIdsRef until Start/Next so late Report still works
+          partnerUserId.current = lastPartnerIdsRef.current.userId || "";
+          partnerFriendCode.current =
+            lastPartnerIdsRef.current.friendCode || "";
           setMatchMode("");
           matchModeRef.current = "";
           if (autoNext) {
@@ -1798,7 +1834,7 @@ function LiveBody() {
     return () => clearInterval(id);
   }, [connected, phase, reconnectHub]);
 
-  // Prefetch ICE/TURN on Live focus so first match is cache-hot
+  // Prefetch ICE/TURN + cam on Live focus so first match is cache-hot
   useFocusEffect(
     useCallback(() => {
       hub
@@ -1807,8 +1843,9 @@ function LiveBody() {
           mediaRef.current?.setIceConfig(cfg);
           media2Ref.current?.setIceConfig(cfg);
           iceHasTurnRef.current = !!cfg.has_turn;
-          // Warm cam early (not full PC until search — saves battery idle on Live)
+          // Cam + warm PC (iceCandidatePoolSize) — shaves first-offer latency
           void mediaRef.current?.ensureLocalStream().catch(() => {});
+          void mediaRef.current?.warmConnection().catch(() => {});
         })
         .catch(() => {});
     }, [hub])
@@ -1991,7 +2028,10 @@ function LiveBody() {
                   t("mobile.friends.requestSent", { code })
                 );
               } catch (e) {
-                Alert.alert(t("mobile.friends.notConnected"), String(e));
+                showToastRef.current(
+                  t("mobile.friends.notConnected") +
+                    (e ? `: ${String(e).slice(0, 60)}` : "")
+                );
               }
             },
           },
@@ -2069,7 +2109,7 @@ function LiveBody() {
   function start() {
     if (friendsOnly) {
       push("friends-only: stranger Start disabled");
-      Alert.alert(t("mobile.nav.live"), t("mobile.live.friendsOnlyHint"));
+      showToastRef.current(t("mobile.live.friendsOnlyHint"));
       return;
     }
     if (!guardAction()) return;
@@ -2098,6 +2138,12 @@ function LiveBody() {
       remotePeerId.current = "";
       partnerUserId.current = "";
       partnerFriendCode.current = "";
+      lastPartnerIdsRef.current = {
+        userId: "",
+        peerId: "",
+        friendCode: "",
+        shortId: "",
+      };
       setChat([]);
       media2Ref.current?.closeCall({ keepLocal: true, sendBye: false });
       mediaRef.current?.closeCall({ keepLocal: true, sendBye: false });
@@ -2183,6 +2229,13 @@ function LiveBody() {
       remotePeerId.current = "";
       secondaryPeerId.current = "";
       partnerUserId.current = "";
+      partnerFriendCode.current = "";
+      lastPartnerIdsRef.current = {
+        userId: "",
+        peerId: "",
+        friendCode: "",
+        shortId: "",
+      };
       matchStartedAtRef.current = 0;
       if (matchMode === "friend") {
         try {
@@ -2255,6 +2308,13 @@ function LiveBody() {
       remotePeerId.current = "";
       secondaryPeerId.current = "";
       partnerUserId.current = "";
+      partnerFriendCode.current = "";
+      lastPartnerIdsRef.current = {
+        userId: "",
+        peerId: "",
+        friendCode: "",
+        shortId: "",
+      };
       matchStartedAtRef.current = 0;
       searchingRef.current = false;
       queueAckedRef.current = false;
@@ -2281,47 +2341,7 @@ function LiveBody() {
 
   function stop() {
     if (!guardAction()) return;
-    const name = partnerNameRef.current || partner || "…";
-    // Confirm end for any live match lasting a bit (and always for friend calls)
-    const elapsed =
-      matchStartedAt > 0
-        ? Math.floor((Date.now() - matchStartedAt) / 1000)
-        : 0;
-    const needConfirm =
-      phase === "matched" &&
-      (matchMode === "friend" || elapsed >= 15);
-    if (needConfirm) {
-      Alert.alert(
-        matchMode === "friend" ? t("friends.hangup") : t("btn.stop"),
-        t("mobile.live.hangupConfirm", { name }),
-        [
-          { text: t("mobile.common.cancel"), style: "cancel" },
-          {
-            text:
-              matchMode === "friend" ? t("friends.hangup") : t("btn.stop"),
-            style: "destructive",
-            onPress: () => doStop(),
-          },
-        ]
-      );
-      return;
-    }
-    // Long search — confirm cancel so a mis-tap doesn't kill queue position
-    if (phase === "search" && searchSecs >= 25) {
-      Alert.alert(
-        t("btn.stop"),
-        t("mobile.live.stopSearchConfirm"),
-        [
-          { text: t("mobile.common.cancel"), style: "cancel" },
-          {
-            text: t("btn.stop"),
-            style: "destructive",
-            onPress: () => doStop(),
-          },
-        ]
-      );
-      return;
-    }
+    // Immediate stop — no confirm dialogs (web parity; one tap = leave)
     doStop();
   }
 
@@ -2386,44 +2406,12 @@ function LiveBody() {
     }
   }
 
-  // Android system back: never dump a live call / search silently
+  // Android system back: leave call/search immediately (no confirm popup)
   useEffect(() => {
     const onBack = () => {
       const p = phaseRef.current;
-      if (p === "matched") {
-        const name = partnerNameRef.current || "…";
-        Alert.alert(
-          matchModeRef.current === "friend"
-            ? t("friends.hangup")
-            : t("btn.stop"),
-          t("mobile.live.hangupConfirm", { name }),
-          [
-            { text: t("mobile.common.cancel"), style: "cancel" },
-            {
-              text:
-                matchModeRef.current === "friend"
-                  ? t("friends.hangup")
-                  : t("btn.stop"),
-              style: "destructive",
-              onPress: () => doStop(),
-            },
-          ]
-        );
-        return true;
-      }
-      if (p === "search") {
-        Alert.alert(
-          t("btn.stop"),
-          t("mobile.live.stopSearchConfirm"),
-          [
-            { text: t("mobile.common.cancel"), style: "cancel" },
-            {
-              text: t("btn.stop"),
-              style: "destructive",
-              onPress: () => doStop(),
-            },
-          ]
-        );
+      if (p === "matched" || p === "search") {
+        doStop();
         return true;
       }
       return false;
@@ -2491,7 +2479,9 @@ function LiveBody() {
       showToastRef.current(t("mobile.party.browseSent"));
       push("→ browse_together");
     } catch (e) {
-      Alert.alert(t("mobile.live.errorTitle"), String(e));
+      showToastRef.current(
+        t("mobile.live.errorTitle") + `: ${String(e).slice(0, 80)}`
+      );
     }
   }
 
@@ -2503,7 +2493,9 @@ function LiveBody() {
       showToastRef.current(t("mobile.party.findThirdSent"));
       push("→ find_third_invite");
     } catch (e) {
-      Alert.alert(t("mobile.live.errorTitle"), String(e));
+      showToastRef.current(
+        t("mobile.live.errorTitle") + `: ${String(e).slice(0, 80)}`
+      );
     }
   }
 
@@ -2529,9 +2521,11 @@ function LiveBody() {
     });
     try {
       if (!viaP2p) hub.chat(body);
-      else {
-        // stop typing for peer
+      // Always clear typing indicator for peer when we send a line
+      try {
         mediaRef.current?.sendDataMessage({ type: "typing_stop" });
+      } catch {
+        /* DC may be closed */
       }
       setChat((c) =>
         [
@@ -2588,12 +2582,56 @@ function LiveBody() {
     }).catch(() => {});
   }
 
+  /**
+   * Best partner id for report/block. Prefer persistent user_id; fall back to
+   * peer_id / friend_code so hub can resolve while they are still online.
+   * Never wipe a known user_id with empty on thrash rematch.
+   */
+  function resolvePartnerTargetId(): string {
+    const mine = String(userIdRef.current || "").trim();
+    const candidates = [
+      partnerUserId.current,
+      lastPartnerIdsRef.current.userId,
+      partnerFriendCode.current,
+      lastPartnerIdsRef.current.friendCode,
+      remotePeerId.current,
+      lastPartnerIdsRef.current.peerId,
+      lastPartnerIdsRef.current.shortId,
+    ];
+    for (const c of candidates) {
+      const id = String(c || "").trim();
+      if (!id || id === "legacy") continue;
+      if (mine && id === mine) continue;
+      return id;
+    }
+    return "";
+  }
+
+  function notePartnerUserId(raw: string, src = "") {
+    const uid = String(raw || "").trim();
+    if (!uid || uid === "legacy") return;
+    const mine = String(userIdRef.current || "").trim();
+    if (mine && uid === mine) return;
+    if (!partnerUserId.current) {
+      partnerUserId.current = uid;
+      if (src) push(`partner uid learned (${src}) ${uid.slice(0, 8)}`);
+    }
+    if (!lastPartnerIdsRef.current.userId) {
+      lastPartnerIdsRef.current = {
+        ...lastPartnerIdsRef.current,
+        userId: uid,
+      };
+    }
+  }
+
   async function openReport() {
-    const uid = partnerUserId.current;
+    const uid = resolvePartnerTargetId();
     if (!uid) {
-      Alert.alert(t("mobile.live.safetyTitle"), t("mobile.live.partnerNotReady"));
+      showToastRef.current(t("mobile.live.partnerNotReady"));
       return;
     }
+    // Prefer sticky user_id for rest of report flow
+    if (!partnerUserId.current) partnerUserId.current = uid;
     reportShotB64.current = null;
     setReportShotUri(null);
     setReportOpen(true);
@@ -2643,8 +2681,11 @@ function LiveBody() {
   }
 
   function doBlockOnly() {
-    const uid = partnerUserId.current;
-    if (!uid) return;
+    const uid = resolvePartnerTargetId();
+    if (!uid) {
+      showToastRef.current(t("mobile.live.partnerNotReady"));
+      return;
+    }
     try {
       hub.blockUser(uid);
       void rememberBlock(uid, partnerNameRef.current || partner);
@@ -2668,8 +2709,13 @@ function LiveBody() {
   }
 
   function doReport(reason: ReportReason) {
-    const uid = partnerUserId.current;
-    if (!uid || reportBusy) return;
+    const uid = resolvePartnerTargetId();
+    if (!uid || reportBusy) {
+      if (!uid) {
+        showToastRef.current(t("mobile.live.partnerNotReady"));
+      }
+      return;
+    }
     setReportBusy(true);
     try {
       const shot = reportShotB64.current || undefined;
@@ -2762,18 +2808,54 @@ function LiveBody() {
     [retryBusy, t, hub, flashStatus, push]
   );
 
+  /** Match web GIFT_RATE_LIMIT_MS — hub also rate-limits, but UI should not spam. */
+  const lastGiftSpendAtRef = useRef(0);
+  const GIFT_RATE_LIMIT_MS = 10_000;
+
   function spend(effect: string, cost: number) {
-    const uid = partnerUserId.current;
-    if (!uid || phase !== "matched") return;
-    if (!guardAction()) return; // debounce double-taps on gift chips
+    // Prefer sticky user_id; fall back to peer/code resolve (same as report)
+    const uid = resolvePartnerTargetId();
+    const inLive =
+      phase === "matched" ||
+      phaseRef.current === "matched" ||
+      !!(remoteStream?.getVideoTracks?.()?.length || remoteStream?.getAudioTracks?.()?.length);
+    if (!uid || !inLive) {
+      if (inLive && !uid) {
+        showToastRef.current(
+          t("mobile.live.partnerNotReady") || "Partner id not ready yet"
+        );
+      } else if (!inLive) {
+        showToastRef.current(
+          t("mobile.live.needLiveChat") || "Only during a live chat"
+        );
+      }
+      return;
+    }
+    if (!partnerUserId.current) partnerUserId.current = uid;
+    // Double-tap debounce (short) + gift rate limit (10s, web parity)
+    if (!guardAction()) return;
+    const now = Date.now();
+    if (
+      lastGiftSpendAtRef.current &&
+      now - lastGiftSpendAtRef.current < GIFT_RATE_LIMIT_MS
+    ) {
+      const wait = Math.ceil(
+        (GIFT_RATE_LIMIT_MS - (now - lastGiftSpendAtRef.current)) / 1000
+      );
+      showToastRef.current(
+        t("mobile.live.giftRateLimit", { s: wait }) ||
+          `Wait ${wait}s before next gift`
+      );
+      return;
+    }
     if (stars < cost) {
-      Alert.alert(
-        t("mobile.live.needStarsTitle"),
+      showToastRef.current(
         t("mobile.live.needStars", { cost, stars })
       );
       return;
     }
     try {
+      lastGiftSpendAtRef.current = now;
       hub.spendStars(uid, effect);
       push(`→ spend ${effect} (−${cost}★)`);
       hapticLight();
@@ -2817,7 +2899,7 @@ function LiveBody() {
   function addPartnerFriend() {
     const code = partnerFriendCode.current || partnerCode;
     if (!code || code.length < 4) {
-      Alert.alert(t("mobile.live.addFriendFail"), t("mobile.live.partnerNotReady"));
+      showToastRef.current(t("mobile.live.partnerNotReady"));
       return;
     }
     try {
@@ -2825,12 +2907,12 @@ function LiveBody() {
       setFriendAdded(true);
       push(`→ add_friend ${code}`);
       track("add_friend_match", { via: "live" });
-      Alert.alert(
-        t("mobile.friends.requestSentTitle"),
-        t("mobile.friends.requestSent", { code })
-      );
+      showToastRef.current(t("mobile.friends.requestSent", { code }));
     } catch (e) {
-      Alert.alert(t("mobile.friends.notConnected"), String(e));
+      showToastRef.current(
+        t("mobile.friends.notConnected") +
+          (e ? `: ${String(e).slice(0, 60)}` : "")
+      );
     }
   }
 
@@ -2853,6 +2935,12 @@ function LiveBody() {
     setPhase("matched");
     phaseRef.current = "matched";
     searchingRef.current = false;
+    // Start clocks so gift/review timers advance even if Matched was missed
+    if (!matchStartedAtRef.current) {
+      const t0 = Date.now();
+      matchStartedAtRef.current = t0;
+      setMatchStartedAt(t0);
+    }
   }, [remoteLive, phase]);
 
   const showAloneBanner = uiPhase === "search" && alone;
@@ -3058,24 +3146,38 @@ function LiveBody() {
           retryBusy={retryBusy}
           autoRetryCount={autoRetryCount}
           hasTurn={iceHasTurnRef.current}
+          connectElapsedSecs={
+            matchStartedAt > 0 && uiPhase === "matched"
+              ? Math.floor((nowTick - matchStartedAt) / 1000)
+              : 0
+          }
           stageW={stageSize.w}
           stageH={stageSize.h}
           pipHint={pipHint}
           labels={{
             connectingPeer: t("mobile.live.connectingPeer"),
             linkingCameras: t("mobile.live.linkingCameras"),
+            findingPath: t("mobile.live.stageFindingPath"),
+            tryingRelay: t("mobile.live.stageTryingRelay"),
             retryHard: t("mobile.live.retryHard"),
             retrying: t("mobile.live.retrying"),
             turnReady: t("mobile.live.turnReady"),
             turnLoading: t("mobile.live.turnLoading"),
             tapToRetry: t("mobile.live.tapToRetry"),
+            retryPath: t("mobile.live.retryPath"),
             focus: t("mobile.live.focus"),
             pipHint: t("mobile.live.pipHint"),
             partnerMutedBadge: t("mobile.live.youMutedThem"),
             theyMutedYouBadge: t("mobile.live.theyMutedYou"),
+            longPressReport: t("mobile.live.longPressReport"),
           }}
           onToggleFocusExtra={() => setFocusExtra((v) => !v)}
           onRetryConnect={(hard) => void retryConnection({ hard })}
+          onReport={() => {
+            hapticLight();
+            setMoreOpen(false);
+            void openReport();
+          }}
           onDoubleTapReblur={() => {
             hapticLight();
             clearIntroUnblurTimer();
@@ -3086,6 +3188,25 @@ function LiveBody() {
           onSwapViews={() => setSwapViews((v) => !v)}
           onHaptic={() => hapticLight()}
         />
+        {/* Always-visible Report while matched (stranger) — not buried in More */}
+        {uiPhase === "matched" && !isFriendCall ? (
+          <Pressable
+            style={styles.stageReportFab}
+            onPress={() => {
+              hapticLight();
+              setMoreOpen(false);
+              void openReport();
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={t("mobile.live.reportFab")}
+            testID="live-stage-report-fab"
+            hitSlop={8}
+          >
+            <Text style={styles.stageReportFabText}>
+              ⚑ {t("mobile.live.reportFab")}
+            </Text>
+          </Pressable>
+        ) : null}
         <View style={styles.overlay}>
           <Pressable
             onLongPress={() => {
@@ -3132,6 +3253,18 @@ function LiveBody() {
                   {localStream
                     ? t("mobile.live.preview")
                     : t("mobile.live.idle")}
+                </Text>
+                <Text style={styles.stagePool}>
+                  {connected
+                    ? t("mobile.live.idleHint", {
+                        online: Math.max(online, 0),
+                      }) ||
+                      (online > 0
+                        ? `${online} online · tap Start`
+                        : t("mobile.live.idleHintOffline") ||
+                          "Tap Start when ready")
+                    : t("mobile.live.reconnecting").replace(/^ · /, "") ||
+                      "Reconnecting…"}
                 </Text>
               </View>
             )}
@@ -3210,10 +3343,17 @@ function LiveBody() {
               </Text>
             </View>
           ) : null}
-          {uiPhase === "matched" && connLabel ? (
+          {uiPhase === "matched" &&
+          (connLabel ||
+            awaitingRemoteVideo ||
+            conn === "connecting" ||
+            conn === "checking" ||
+            conn === "failed" ||
+            conn === "disconnected" ||
+            showConnRetry) ? (
             <LiveConnPill
-              conn={conn}
-              connLabel={connLabel}
+              conn={conn || "connecting"}
+              connLabel={connLabel || t("mobile.live.stageConnecting")}
               callTimerText={callTimerText}
               awaitingRemoteVideo={awaitingRemoteVideo}
               connSlow={connSlow}
@@ -3228,11 +3368,16 @@ function LiveBody() {
               turnBadgeLabel={t("mobile.live.turnBadge")}
               stageWaitVideoLabel={t("mobile.live.stageWaitVideo")}
               stageConnectingLabel={t("mobile.live.stageConnecting")}
+              stageFindingPathLabel={t("mobile.live.stageFindingPath")}
+              stageTryingRelayLabel={t("mobile.live.stageTryingRelay")}
               connectElapsedSecs={
                 matchStartedAt > 0 &&
                 (awaitingRemoteVideo ||
                   conn === "connecting" ||
-                  conn === "checking")
+                  conn === "checking" ||
+                  conn === "failed" ||
+                  conn === "disconnected" ||
+                  !hasRemoteVideo)
                   ? Math.floor((nowTick - matchStartedAt) / 1000)
                   : 0
               }
@@ -3503,6 +3648,11 @@ function LiveBody() {
           scrollRef={chatScrollRef}
           sayHiLabel={t("mobile.chat.sayHi")}
           typingLabel={t("mobile.chat.typing")}
+          youLabels={[
+            t("mobile.chat.you") || "you",
+            t("mobile.chat.youP2p") || "you",
+            "you",
+          ]}
           onCopyLine={(body) => {
             void Clipboard.setStringAsync(body).then(() => {
               showToastRef.current(t("mobile.chat.copied"));
@@ -3575,21 +3725,29 @@ function LiveBody() {
             elapsedSecs={elapsedSecs}
             stars={stars}
             gifts={GIFTS}
-            unlockLabel={t("mobile.live.starUnlock", {
-              n: needMin,
-              time: `${Math.floor(elapsedSecs / 60)}:${String(
-                elapsedSecs % 60
-              ).padStart(2, "0")}`,
-            })}
-            readyLabel={t("mobile.live.starReady")}
-            onLockedPress={() => {
+            giftsTitle={t("mobile.live.giftsTitle") || "Gifts"}
+            unlockLabel={
+              // Progress = post-chat ★ review unlock (not gift-effect lock)
+              t("mobile.live.starUnlockReview", {
+                n: needMin,
+                time: `${Math.floor(elapsedSecs / 60)}:${String(
+                  elapsedSecs % 60
+                ).padStart(2, "0")}`,
+              }) ||
+              t("mobile.live.starUnlock", {
+                n: needMin,
+                time: `${Math.floor(elapsedSecs / 60)}:${String(
+                  elapsedSecs % 60
+                ).padStart(2, "0")}`,
+              })
+            }
+            readyLabel={
+              t("mobile.live.starReviewReady") || t("mobile.live.starReady")
+            }
+            onCantAfford={(cost, have) => {
               showToastRef.current(
-                t("mobile.live.starUnlock", {
-                  n: needMin,
-                  time: `${Math.floor(elapsedSecs / 60)}:${String(
-                    elapsedSecs % 60
-                  ).padStart(2, "0")}`,
-                })
+                t("mobile.live.needStars", { cost, stars: have }) ||
+                  `Need ${cost}★ (you have ${have})`
               );
             }}
             onSpend={(id, cost) => spend(id, cost)}
@@ -3605,8 +3763,15 @@ function LiveBody() {
               returnKeyType="send"
               maxLength={CHAT_MAX}
             />
-            <Pressable style={styles.chatSend} onPress={sendChat}>
-              <Text style={styles.btnText}>{t("mobile.common.send")}</Text>
+            <Pressable
+              style={styles.chatSend}
+              onPress={sendChat}
+              accessibilityRole="button"
+              accessibilityLabel={t("mobile.common.send")}
+            >
+              <Text style={styles.chatSendText}>
+                {t("mobile.common.send") || "Send"}
+              </Text>
             </Pressable>
           </View>
           {chatDraft.length >= 200 ? (

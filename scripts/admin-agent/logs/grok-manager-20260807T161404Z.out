@@ -1,0 +1,26 @@
+I'll re-rank the admin queue and sharpen tickets from hub metrics and the overnight/play docs—no large code changes. Gathering the key sources first.Hub is idle (not RED/YELLOW). Reading pending tickets, recent results, and the current manager report next.Queue order looks solid. Checking admin branches and a couple of weak ticket edges before writing the manager report.020 RESULT claims COMPLETE but the product branch is missing. Creating a reapply ticket, sharpening 021 with concrete audit hooks, and writing the manager report.## Manager pass complete
+
+Report: `tasks/admin-queue/reports/MANAGER-LATEST.md`
+
+### Hub
+**`idle`** — 0 matches / offers / answers. No RED/YELLOW → **no `001b`**. Idle ≠ PASS (prior ~25s MTO + thrash still unsmoked).
+
+### Queue order (Claude when back)
+1. **`021`** background keepalive — **START**
+2. **`021b`** cam-mute reapply — **NEW** (see below)
+3. `022` friend-call ring → `023` web notify
+4. Nice: `033` → `035` → `036` → `090`
+5. Still blocked: `034` (needs human smoke)
+
+### Important finding
+**020** has RESULT COMPLETE but **no surviving branch/worktree** and no `camOffHint` on disk. Wrote **`021b-cam-mute-parity-reapply.md`** so Claude re-lands the small copy fix and proves the branch survives.
+
+### What I changed
+- New `021b`; sharpened `021` (audit start files), `022`, `035`
+- Synced `docs/OVERNIGHT_9H_PLAY_PLAN.md` ladder
+- No product code, deploy, or push
+
+### Morning human
+1. Land untracked `adaptiveQuality.ts`
+2. Smoke + merge **003** then **002**; discard **001** + **004**
+3. Play↔PC: 1 offer + 1 answer, no debounce thrash, MTO &lt; 2s on a **live** run

@@ -1120,8 +1120,9 @@ a.brand:focus-visible {
 }
 .keys-help[hidden] { display: none !important; }
 .keys-help-card {
-  width: min(400px, 100%);
-  max-height: min(88dvh, 640px);
+  width: min(420px, 100%);
+  /* Taller overlay so more shortcuts show; list still scrolls */
+  max-height: min(92dvh, 720px);
   display: flex;
   flex-direction: column;
   min-height: 0;

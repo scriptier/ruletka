@@ -1935,5 +1935,7 @@
   "wait.body": "Gerade wenige online. Tab offen lassen, Raum mit Freund teilen oder später erneut versuchen.",
   "wait.few": "Fast niemand wartet. Bleib — oder lade einen Freund mit Raumcode ein.",
   "wait.title": "Suche noch…",
-  "status.autoNextShort": "Kurzer Chat — suche weiter…"
+  "status.autoNextShort": "Kurzer Chat — suche weiter…",
+  "live.theyMutedYou": "They muted you · no sound",
+  "live.theyMutedYouToast": "Partner muted you — they can't hear you"
 }

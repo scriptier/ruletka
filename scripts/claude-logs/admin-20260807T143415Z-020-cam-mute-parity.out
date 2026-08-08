@@ -1,0 +1,6 @@
+
+===== attempt 1 / 2 =====
+Task complete. Summary: re-audited the actual cam-mute mechanics on both platforms and found the partner-facing guarantee was already equivalent (both send black frames once muted) — the real gap was Android missing the reassuring "Hidden from them" copy that web already has. Fixed by adding a matching i18n hint key (`mobile.live.camOffHint`) across all 14 Android locales, reusing web's exact translated strings, plus visible text + `accessibilityHint` on the mobile Cam toggle. Updated `docs/PARITY_MATRIX.md` to reflect the resolved gap. No offer/ICE/connect-path files were touched. RESULT written to the queue's `done/` folder.
+
+===== attempt 2 / 2 =====
+You've hit your session limit · resets 11:30am (America/Edmonton)

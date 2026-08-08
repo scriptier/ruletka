@@ -31,7 +31,7 @@ id -u ruletka >/dev/null 2>&1 || useradd --system --home "$APP_DIR" --shell /usr
 mkdir -p "$APP_DIR"/{bin,ui,data,deploy,backups}
 chown -R ruletka:ruletka "$APP_DIR"
 # Keep secrets/root-owned files readable by bridge group after chown -R
-for f in admin.env turn.env analytics.env mod.env; do
+for f in admin.env turn.env analytics.env mod.env vapid.env; do
   if [[ -f "$APP_DIR/data/$f" ]]; then
     chown root:ruletka "$APP_DIR/data/$f" 2>/dev/null || true
     chmod 640 "$APP_DIR/data/$f" 2>/dev/null || true
@@ -56,8 +56,8 @@ ufw allow 443/udp
 # TURN (if setup-turn.sh already ran these are no-ops / duplicates ok)
 ufw allow 3478/tcp || true
 ufw allow 3478/udp || true
-ufw allow 49160:49300/udp || true
-ufw allow 49160:49300/tcp || true
+ufw allow 49160:53160/udp || true
+ufw allow 49160:53160/tcp || true
 # ufw --force enable  # enable only if you are sure SSH works
 yes | ufw enable || true
 ufw status || true
@@ -81,6 +81,62 @@ if [[ ! -f "$APP_DIR/data/admin.env" ]]; then
   chown root:ruletka "$APP_DIR/data/admin.env" 2>/dev/null || true
   echo "Created $APP_DIR/data/admin.env (admin token) — open https://${DOMAIN}/admin.html"
   systemctl restart roulette-bridge || true
+fi
+
+# Web Push VAPID keys (create once if missing) — closed-tab friend rings
+if [[ ! -f "$APP_DIR/data/vapid.env" ]]; then
+  PRIV=""
+  PUB=""
+  if command -v python3 >/dev/null 2>&1; then
+    eval "$(python3 - <<'PY'
+from cryptography.hazmat.primitives.asymmetric import ec
+import base64, sys
+def b64url(b):
+    return base64.urlsafe_b64encode(b).decode().rstrip("=")
+try:
+    priv = ec.generate_private_key(ec.SECP256R1())
+except Exception as e:
+    sys.stderr.write("vapid: need python3 cryptography (%s)\n" % e)
+    sys.exit(0)
+d = priv.private_numbers().private_value.to_bytes(32, "big")
+pub = priv.public_key().public_numbers()
+raw = b"\x04" + pub.x.to_bytes(32, "big") + pub.y.to_bytes(32, "big")
+print("PRIV=%s" % b64url(d))
+print("PUB=%s" % b64url(raw))
+PY
+)"
+  fi
+  if [[ -n "${PRIV:-}" && -n "${PUB:-}" ]]; then
+    cat >"$APP_DIR/data/vapid.env" <<EOF
+ROULETTE_VAPID_PRIVATE=${PRIV}
+ROULETTE_VAPID_PUBLIC=${PUB}
+ROULETTE_VAPID_SUBJECT=mailto:support@ruletka.vip
+EOF
+    chmod 640 "$APP_DIR/data/vapid.env"
+    chown root:ruletka "$APP_DIR/data/vapid.env" 2>/dev/null || true
+    echo "Created $APP_DIR/data/vapid.env (Web Push VAPID)"
+    systemctl restart roulette-bridge || true
+  else
+    echo "WARN: could not auto-create vapid.env — set ROULETTE_VAPID_* for closed-tab web rings"
+  fi
+fi
+
+# HTTP Basic for /admin.html + /v1/admin/* (Caddy) — create once if missing
+if [[ ! -f /etc/caddy/ruletka-admin-auth.caddy ]] && command -v caddy >/dev/null 2>&1; then
+  HTTP_PASS=$(openssl rand -base64 24 2>/dev/null | tr -d '/+=' | head -c 28)
+  HTTP_HASH=$(caddy hash-password --plaintext "$HTTP_PASS")
+  umask 077
+  cat >"$APP_DIR/data/admin-http.env" <<EOF
+# HTTP Basic Auth for /admin.html and /v1/admin/*
+ADMIN_HTTP_USER='operator'
+ADMIN_HTTP_PASSWORD='${HTTP_PASS}'
+ADMIN_HTTP_HASH='${HTTP_HASH}'
+EOF
+  chmod 600 "$APP_DIR/data/admin-http.env"
+  printf 'basic_auth {\n\toperator %s\n}\n' "$HTTP_HASH" > /etc/caddy/ruletka-admin-auth.caddy
+  chmod 644 /etc/caddy/ruletka-admin-auth.caddy
+  echo "Created HTTP Basic for admin (password in $APP_DIR/data/admin-http.env)"
+  systemctl reload caddy 2>/dev/null || true
 fi
 
 sleep 1
