@@ -989,7 +989,7 @@ function FriendsBody() {
                 </View>
                 {fr ? (
                   <Pressable
-                    style={online ? styles.callIconBtn : styles.iconBtn}
+                    style={online ? styles.histCallBtn : styles.histCallBtnMuted}
                     onPress={() => callFromHistory(h)}
                     accessibilityRole="button"
                     accessibilityLabel={
@@ -1000,9 +1000,21 @@ function FriendsBody() {
                   >
                     <Ionicons
                       name={online ? "call" : "call-outline"}
-                      size={20}
-                      color="#fff"
+                      size={16}
+                      color={online ? "#fff" : "#9aa8bc"}
                     />
+                    <Text
+                      style={
+                        online
+                          ? styles.histCallBtnText
+                          : styles.histCallBtnTextMuted
+                      }
+                      numberOfLines={1}
+                    >
+                      {online
+                        ? t("mobile.history.callBack")
+                        : t("mobile.history.ringAnyway")}
+                    </Text>
                   </Pressable>
                 ) : null}
               </View>
@@ -1342,6 +1354,27 @@ const styles = StyleSheet.create({
   },
   btnText: { color: "#fff", fontWeight: "700", fontSize: 13 },
   btnTextMuted: { color: "#9aa8bc", fontWeight: "600", fontSize: 13 },
+  /** Labeled call CTA on call-history rows (matches Friends list density) */
+  histCallBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: "#2d9f6f",
+  },
+  histCallBtnMuted: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+  histCallBtnText: { color: "#fff", fontWeight: "700", fontSize: 13 },
+  histCallBtnTextMuted: { color: "#9aa8bc", fontWeight: "700", fontSize: 13 },
   emptyWrap: { gap: 12, marginTop: 16, alignItems: "flex-start" },
   empty: { color: "#6b7a90", fontSize: 13, lineHeight: 20 },
 });
