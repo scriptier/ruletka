@@ -7,9 +7,9 @@ Expo Go is **not** enough for WebRTC.
 
 | Field | Value |
 |-------|--------|
-| Version | **0.1.136** / versionCode **144** (see `mobile/app.json`) |
+| Version | **0.1.148** / versionCode **156** (`mobile/artifacts/ruletka-latest.apk`; source not yet merged to `main` — see note below) |
 | APK | local `mobile/artifacts/ruletka-latest.apk` (no bulk site APKs) |
-| Notes | CONNECTIVITY_LOCK · one offer/match · partner mute / debate DC |
+| Notes | CONNECTIVITY_LOCK · one offer/match · partner mute / debate DC · friends CTA polish · mid-chat gifts · Stop one-tap · soft toasts |
 | Web | hard-refresh `live.html` (Ctrl+Shift+R) · deploy stamp on `/health` |
 | Play handoff | [`PLAY_INTERNAL_TEST_CHECKLIST.md`](PLAY_INTERNAL_TEST_CHECKLIST.md) |
 
@@ -22,6 +22,12 @@ node scripts/test-friend-invite.mjs
 node src/live/callMetrics.test.mjs
 node src/live/stageStreams.test.mjs
 ```
+
+> **Note (2026-08-08):** the running APK (`0.1.148`/vc156) was built from a working tree that was
+> only snapshotted to `backup/pre-sleep-20260808T061524Z-wip`, not merged to `main` or any
+> `admin/*` branch. `mobile/app.json` on `main` still reads `0.1.136`/144. Reconcile (merge that
+> branch or replay its diff) before cutting the next build, or the next `--bump` will fork from a
+> stale base and drop the friends CTA / mid-chat gift / Stop one-tap / soft-toast work.
 
 ## Build (local release)
 
@@ -57,10 +63,12 @@ Host: `ui/download/ruletka-android-latest.apk` and `ui/download/android.html`.
 | 6f | Weak link: quality steps down (less freeze than stuck high bitrate) | |
 | 7 | Connection pill / “Waiting for video” / Retry | |
 | 8 | Mic / cam / Flip; **More** menu | |
+| 8b | **Stop**: one tap ends chat immediately — no confirm dialog | |
 | 9 | Chat (prefer P2P) + typing indicator | |
 | 10 | **Debate**: invite, accept, pass, end, mic lock | |
-| 11 | Gifts if stars; report + block → toast + Next | |
+| 11 | Mid-chat gift chips (afford → spend; can't-afford tap ≠ silent); report + block → toast + Next | |
 | 11b | Gift FX: **bars** lock, **balloons** rise, **confetti** fall | |
+| 11c | Soft toasts: cam on/off, partner muted-you, pass-mic, queue-joined, call-ended — auto-dismiss, no dialog | |
 | 12 | Rate sheet after long chat (no double prompt) | |
 | 13 | PiP: drag, snap to corner, double-tap swap | |
 | 14 | Data saver mid-call via More | |
@@ -68,8 +76,9 @@ Host: `ui/download/ruletka-android-latest.apk` and `ui/download/android.html`.
 | 16 | Friends: add code, accept request, call, hang up | |
 | 16b | **Caller** stays in call with video (auto-opens Live) | |
 | 16c | Friends: search, pull refresh, block/remove ⋯ menu | |
-| 16d | Friend **Chat** DM + history (online/offline) | |
-| 16e | Live More → speaker / earpiece | |
+| 16d | Friend row CTAs: **Online** dot, **Call** (green when online), **Chat** with unread badge | |
+| 16e | Friend **Chat** DM + history (online/offline) | |
+| 16f | Live More → speaker / earpiece | |
 | 17 | Incoming friend call: **ringtone + vibe** | |
 | 17b | Background: minimize, friend calls → local OS alert | |
 | 18 | Missed call card on home → Friends history → Call back | |

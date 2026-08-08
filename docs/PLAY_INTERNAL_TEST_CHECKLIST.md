@@ -1,8 +1,12 @@
 # Play internal-test readiness (human handoff)
 
 **Package:** `me.ruletka.app`  
-**Ship tip (sideload):** **0.1.136 / versionCode 144** (or later that still respects CONNECTIVITY_LOCK)  
+**Ship tip (sideload):** **0.1.148 / versionCode 156** (or later that still respects CONNECTIVITY_LOCK)  
 **Lock:** [`CONNECTIVITY_LOCK.md`](CONNECTIVITY_LOCK.md) · smoke: [`DEVICE_SMOKE.md`](DEVICE_SMOKE.md)
+
+> `mobile/app.json` on `main` is still `0.1.136`/144 — the vc156 build was cut from an
+> un-merged working tree (`backup/pre-sleep-20260808T061524Z-wip`). Reconcile before the
+> Console AAB upload so `app.json` matches the binary being submitted.
 
 **Out of scope for this checklist:** Play Console upload, bulk APK on website, production deploy.
 
@@ -36,6 +40,9 @@ cd mobile
 | 5 | Success: both cameras + audio (not permanent black) | ☐ |
 | 6 | Optional: mute partner → other side sees mute visuals | ☐ |
 | 7 | Optional: friend Call ring / Accept path | ☐ |
+| 8 | **Stop** one-tap ends chat, no confirm dialog | ☐ |
+| 9 | Mid-chat gift chips spend + soft toasts (mute/pass-mic/cam) auto-dismiss | ☐ |
+| 10 | Friends row: **Online** dot, **Call**, **Chat** (unread badge) | ☐ |
 
 ```bash
 # Hub forensics after smoke
