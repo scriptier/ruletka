@@ -1,13 +1,16 @@
 import { Link, Redirect } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { hubBase, isFriendsOnly } from "../src/config";
+import { useHub } from "../src/hub/HubProvider";
 import { useT } from "../src/i18n";
 import { useApp } from "./_layout";
 
 export default function HomeScreen() {
   const { identity, rulesOk } = useApp();
+  const { friends } = useHub();
   const t = useT();
   const friendsOnly = isFriendsOnly();
+  const onlineFriends = friends.filter((f) => f.online).length;
 
   if (!rulesOk) {
     return <Redirect href="/rules" />;
@@ -21,6 +24,20 @@ export default function HomeScreen() {
         User · {identity.user_id.slice(0, 8)}… · hub {hubBase()}
         {friendsOnly ? " · friends-only" : ""}
       </Text>
+
+      {onlineFriends >= 1 ? (
+        <Link href="/friends" asChild>
+          <Pressable style={styles.onlineStrip}>
+            <View style={styles.onlineDot} />
+            <Text style={styles.onlineStripText}>
+              {t("mobile.home.friendsOnline", {
+                n: onlineFriends,
+                total: friends.length,
+              })}
+            </Text>
+          </Pressable>
+        </Link>
+      ) : null}
 
       {friendsOnly ? (
         <Link href="/friends" asChild>
@@ -74,6 +91,26 @@ const styles = StyleSheet.create({
   },
   tag: { color: "#9aa8bc", fontSize: 15, lineHeight: 22 },
   meta: { color: "#6b7a90", fontSize: 12, marginBottom: 12 },
+  onlineStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(52,199,89,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(52,199,89,0.35)",
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    marginBottom: 4,
+    gap: 8,
+  },
+  onlineDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#34c759",
+  },
+  onlineStripText: { color: "#34c759", fontWeight: "700", fontSize: 13 },
   cta: {
     backgroundColor: "#ff2d55",
     paddingVertical: 16,
