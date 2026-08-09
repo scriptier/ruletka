@@ -88,6 +88,7 @@ import {
 } from "../src/media/connectUi";
 import { runConnectRetry } from "../src/media/connectRetry";
 import { useLinkQuality } from "../src/media/linkQuality";
+import { saveLastConnectSummary } from "../src/media/lastConnectSummary";
 import { MediaSession, type MediaStreamLike } from "../src/media/MediaSession";
 import { loadPipPrefs } from "../src/media/pipPrefs";
 import { useAutoConnectRetry } from "../src/media/useAutoConnectRetry";
@@ -360,6 +361,13 @@ function LiveBody() {
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSentRef = useRef(0);
   const matchStartedAtRef = useRef(0);
+  /** In-flight connect stopwatch for the current match (Settings review). */
+  const connectTimingRef = useRef<{
+    offerMs: number | null;
+    answerMs: number | null;
+    iceMs: number | null;
+    firstFrameMs: number | null;
+  } | null>(null);
   const rateMinSecsRef = useRef(15 * 60);
   const ratedThisMatchRef = useRef(false);
   const showToastRef = useRef(showToast);
@@ -630,7 +638,14 @@ function LiveBody() {
       },
       onConnectionState: (s) => {
         // Soft labels for UI (raw still in debug log)
-        if (
+        if (s.startsWith("connect_t0")) {
+          connectTimingRef.current = {
+            offerMs: null,
+            answerMs: null,
+            iceMs: null,
+            firstFrameMs: null,
+          };
+        } else if (
           s === "connecting" ||
           s === "pc_ready_turn" ||
           s === "pc_ready_stun_only" ||
@@ -651,6 +666,11 @@ function LiveBody() {
           const vt =
             media.getRemoteStream()?.getVideoTracks?.()?.length ?? 0;
           setAwaitingRemoteVideo(vt === 0);
+          const ct = connectTimingRef.current;
+          if (ct && ct.iceMs == null) {
+            const em = media.connectElapsedMs();
+            ct.iceMs = em >= 0 ? em : null;
+          }
         } else if (s.startsWith("remote_video_ok")) {
           setAwaitingRemoteVideo(false);
           setConn("connected");
@@ -667,12 +687,31 @@ function LiveBody() {
             turn: iceHasTurnRef.current ? 1 : 0,
             quality: media.getQualityTier(),
           });
+          const ct = connectTimingRef.current;
+          if (ct && ct.firstFrameMs == null) {
+            ct.firstFrameMs = ms >= 0 ? ms : null;
+            void saveLastConnectSummary({ ...ct });
+          }
         } else if (s.startsWith("quality_tier ")) {
           const qt = s.replace(/^quality_tier\s+/, "").split(/\s/)[0] || "";
           if (qt) setQualityTier(qt);
           track("quality_tier", { tier: qt });
         } else if (s.startsWith("timing ")) {
-          // Already logged via onConnectionState path below
+          // "timing <phase> +<ms>ms" — pick up offer/answer milestones only
+          const ct = connectTimingRef.current;
+          const tm = /^timing\s+(\S+)\s+\+(\d+)ms$/.exec(s);
+          if (ct && tm) {
+            const phase = tm[1];
+            const ms = Number(tm[2]);
+            if (ct.offerMs == null && /^offer_(applied|sent)/.test(phase)) {
+              ct.offerMs = ms;
+            } else if (
+              ct.answerMs == null &&
+              /^answer_(sent|applied)/.test(phase)
+            ) {
+              ct.answerMs = ms;
+            }
+          }
         } else if (s.startsWith("remote_tracks")) {
           // Audio-only so far — keep waiting indicator, stay "connecting" soft
           const vt =

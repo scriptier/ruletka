@@ -62,6 +62,11 @@ import {
 } from "../src/safety/blocks";
 import { loadMatchThumbsMap } from "../src/calls/matchThumbs";
 import {
+  formatConnectMs,
+  loadLastConnectSummary,
+  type LastConnectSummary,
+} from "../src/media/lastConnectSummary";
+import {
   clearReportHistory,
   loadReportHistory,
   type ReportHistoryEntry,
@@ -199,6 +204,9 @@ function SettingsBody() {
   >([]);
   const [hubBusy, setHubBusy] = useState(false);
   const [moreLangs, setMoreLangs] = useState(false);
+  const [lastConnect, setLastConnect] = useState<LastConnectSummary | null>(
+    null
+  );
   const [openSec, setOpenSec] = useState<Record<SectionKey, boolean>>({
     profile: true,
     match: true,
@@ -262,6 +270,12 @@ function SettingsBody() {
     loadReportHistory().then(setReports).catch(() => setReports([]));
   }, []);
 
+  const refreshLastConnect = useCallback(() => {
+    loadLastConnectSummary()
+      .then(setLastConnect)
+      .catch(() => setLastConnect(null));
+  }, []);
+
   const refreshHubs = useCallback(async () => {
     setHubBusy(true);
     try {
@@ -284,8 +298,9 @@ function SettingsBody() {
     useCallback(() => {
       refreshBlocks();
       refreshReports();
+      refreshLastConnect();
       void refreshHubs();
-    }, [refreshBlocks, refreshReports, refreshHubs])
+    }, [refreshBlocks, refreshReports, refreshLastConnect, refreshHubs])
   );
 
   useEffect(() => {
@@ -1240,6 +1255,21 @@ function SettingsBody() {
           </Text>
           <Text style={styles.linkChevron}>⎘</Text>
         </Pressable>
+        <View style={styles.connectStatsBox}>
+          <Text style={styles.connectStatsTitle}>
+            {t("mobile.settings.lastConnectTitle")}
+          </Text>
+          <Text style={styles.connectStatsText}>
+            {lastConnect
+              ? t("mobile.settings.lastConnectSummary", {
+                  offer: formatConnectMs(lastConnect.offerMs),
+                  answer: formatConnectMs(lastConnect.answerMs),
+                  ice: formatConnectMs(lastConnect.iceMs),
+                  frame: formatConnectMs(lastConnect.firstFrameMs),
+                })
+              : t("mobile.settings.lastConnectEmpty")}
+          </Text>
+        </View>
         <Pressable
           onLongPress={async () => {
             const label = buildLabel();
@@ -1533,4 +1563,20 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.08)",
   },
   buildText: { color: "#6b7a90", fontSize: 11, lineHeight: 16 },
+  connectStatsBox: {
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: "rgba(0,0,0,0.28)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    gap: 3,
+  },
+  connectStatsTitle: {
+    color: "#9aa8bc",
+    fontSize: 11,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  connectStatsText: { color: "#c5d0e0", fontSize: 12, lineHeight: 17 },
 });
