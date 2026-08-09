@@ -11,6 +11,7 @@ Expo Go is **not** enough for WebRTC.
 | APK | local `mobile/artifacts/ruletka-latest.apk` (no bulk site APKs) |
 | Notes | CONNECTIVITY_LOCK · one offer/match · partner mute / debate DC |
 | Web | hard-refresh `live.html` (Ctrl+Shift+R) · deploy stamp on `/health` |
+| Web UI-only iterate | `UI_ONLY=1 ./scripts/deploy/push.sh` (skip cargo build / binary upload, UI + deploy.json only) |
 | Play handoff | [`PLAY_INTERNAL_TEST_CHECKLIST.md`](PLAY_INTERNAL_TEST_CHECKLIST.md) |
 
 ```bash
@@ -121,10 +122,13 @@ Goal: both cameras + audio, **fast**, **one offer/answer**. See `docs/CONNECTIVI
 ### Manual steps (you)
 1. Install latest local APK on phone (not Expo Go).
 2. Hard-refresh browser `https://ruletka.vip` (or staging) live page.
-3. Both sides Start / match stranger (same Wi‑Fi first).
-4. Confirm **both** remote videos + audio within ~15s.
-5. Stay matched **15s without spamming Next**.
-6. Optional: Next once → rematch → still 1 offer/answer.
+3. **Both sides Start once** / match stranger (same Wi‑Fi first) — do **not** spam Next.
+4. Confirm **both** remote videos + audio within ~15s; expect **fast** cams (no long black wait).
+5. Note the connect stopwatch toast (`CONNECT offer=…ms answer=…ms frame=…ms`) — sane, single values, not repeating.
+6. Stay matched **15s without spamming Next** (no Next spam 15s).
+7. Optional: Next once → rematch → still 1 offer/answer.
+8. Hub: confirm `force_relay` web↔android matches expectation (usually `false` same Wi‑Fi) and **exactly 1 offer + 1 answer** — see hub asserts below.
+9. After smoke: `./scripts/smoke-connect.sh --hub-only`.
 
 ### Hub asserts (laptop, after the call)
 
@@ -133,6 +137,7 @@ cd ~/freenet-roulette
 ./scripts/hub-match-speed.sh 30          # threshold 2000ms
 ./scripts/hub-match-speed.sh 30 5000     # looser threshold
 ./scripts/admin-agent/run-once.sh --forensics-only
+./scripts/smoke-connect.sh --hub-only    # after manual smoke above
 ```
 
 | Assert | Pass |
