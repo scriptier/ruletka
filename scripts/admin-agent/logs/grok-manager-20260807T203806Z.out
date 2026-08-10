@@ -1,0 +1,35 @@
+I'll act as night-shift manager: read hub metrics, connectivity lock, roadmap P0/P1, and the full admin queue, then re-rank and sharpen tickets without large code edits.Hub is **YELLOW_slow** (max MTO 24300ms) — promoting connect work. Checking recent connect RESULTs and whether a 001b ticket already exists.Hub is YELLOW_slow (max MTO 24.3s). Promoting connect work: writing a tight `001b` ticket, absorbing the weak auto-006, and refreshing the queue report.## Manager pass complete
+
+**Hub:** **`YELLOW_slow`** — matches 8 / offers 11 / answers 11 / drops 6 / slow 5 / **max MTO 24300ms**  
+(Previous manager report said `idle`; live traffic is back.)
+
+### Queue now (filename order)
+
+| # | Ticket | Action |
+|---|--------|--------|
+| **1** | **`001b-connect-yellow-slow-mto.md`** | **NEW — Claude START** (forensics + one fix or smoke handoff) |
+| 2 | `023-web-friend-call-notify.md` | After 001b only |
+| 3–5 | `033` / `035` / `036` | P2 fillers (036 best docs filler) |
+| 6 | `090` | Last |
+| blocked | `034` Prefer Direct | Still blocked; YELLOW noted |
+
+### What I changed
+- Wrote tight **`001b`** (Goal / Scope / Done / COMPLETE) — hub YELLOW promotion
+- **Removed** weak auto `006-auto-slow-offer-…` (absorbed into 001b)
+- Sharpened all pending + blocked `034` note
+- Synced `docs/OVERNIGHT_9H_PLAY_PLAN.md` Must/Should
+- Wrote **`tasks/admin-queue/reports/MANAGER-LATEST.md`**
+- **No** product code, deploy, push, or lock undo
+
+### Claude first hour
+1. **`001b`** → `./scripts/hub-match-speed.sh 30` → classify true stall vs rematch/accounting  
+2. Only then **`023`**  
+3. Never **`034`** / force_relay / docker coturn  
+
+### Human morning smoke
+- Lock APK **0.1.126-vc134** + hard-refresh browser  
+- Both cams, 1 offer + 1 answer, `force_relay=false`  
+- Target max MTO **&lt; 2s** on a real pair (current sample is 24s YELLOW)  
+- Prune stale admin 001–004; gate any 001b patch + 022 merge after smoke  
+
+Full detail: `tasks/admin-queue/reports/MANAGER-LATEST.md`

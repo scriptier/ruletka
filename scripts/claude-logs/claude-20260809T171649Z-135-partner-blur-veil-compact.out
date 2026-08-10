@@ -1,0 +1,7 @@
+Done. Summary:
+
+**Audit finding**: `PartnerBlurVeil`'s compact badge and its accessibility label both fell back to hardcoded English strings (`"blur"` / `"Show video"`) because neither compact call site in `LiveStageVideo.tsx` passed a `buttonLabel` — meaning non-English users always saw/heard untranslated fallback text on the compact veil.
+
+**Fix**: wired the existing `mobile.live.unblurShort` t() key through as `buttonLabel` for both compact `PartnerBlurVeil` usages (main split-tile veil and PiP veil), via a new `labels.unblurShort` field threaded from `live.tsx`. No changes to `PartnerBlurVeil.tsx` itself — its fallback logic was already correct, it just wasn't being fed a translated label.
+
+Files touched: `mobile/src/live/LiveStageVideo.tsx`, `mobile/app/live.tsx`. Verified with `tsc --noEmit` (no new errors) and confirmed both call sites now reference `L.unblurShort`. RESULT written to `tasks/admin-queue/done/135-partner-blur-veil-compact-RESULT.md`, Connect risk: none.

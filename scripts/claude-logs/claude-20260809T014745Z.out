@@ -1,0 +1,10 @@
+Task complete. Summary of the change:
+
+- **Settings screen** now shows a "Last connect speed" section with offer/answer/ICE/first-frame timings, or "No connect yet" if no call has connected.
+- **Live screen**: at the existing `CONNECT` toast (first-frame milestone, already shipped), it now also persists the snapshot from `MediaSession.getLastConnectTiming()` to `AsyncStorage` so Settings can read it across screens without needing a live `MediaSession` reference.
+- **`connectUi.ts`**: added pure formatting helpers (`formatConnectMs`, `hasConnectTiming`, `ConnectTimingSnapshot` type, storage key constant) — no React, no WebRTC logic.
+- **`en.json`**: added the 6 new i18n keys; skipped mirroring to `ru.json` since that file has pre-existing mojibake corruption unrelated to this task, and missing keys fall back to English automatically.
+- Verified via `tsc --noEmit` (zero errors in the touched files; unrelated errors elsewhere are pre-existing WIP in the tree) and the existing pure-JS test script still passes.
+- Wrote the RESULT file to `tasks/admin-queue/done/050-settings-last-connect-timing-RESULT.md` with `COMPLETE` status.
+
+No WebRTC offer/answer/ICE logic, `ui/webrtc.js`, or `ui/live.js` was touched, and nothing was deployed or pushed.

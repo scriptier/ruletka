@@ -1,0 +1,1 @@
+Added two edge-case assertions to `mobile/src/live/connectSteps.test.mjs` (error phase → idle, and the `conn === "completed"` branch → wait_video), verified with `node src/live/connectSteps.test.mjs` and `./scripts/dev-smoke.sh --unit` (both pass), and wrote the RESULT file to `tasks/admin-queue/done/120-unit-connect-steps-edge-RESULT.md`. No production code was touched.

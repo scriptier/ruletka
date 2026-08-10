@@ -1,0 +1,3 @@
+Audited `docs/DEVICE_SMOKE.md` and found smoke-matrix item **29** still assumed blur-first was the default stranger experience, contradicting the current `blurStrangersMode: "off"` default (confirmed in `mobile/src/prefs/store.ts` and `live.tsx`) and contradicting item **P1** in the same doc. Fixed with a one-line edit, no code touched.
+
+RESULT written to `tasks/admin-queue/done/146-docs-device-smoke-blur-line-RESULT.md` — Status: COMPLETE, connect risk: none.

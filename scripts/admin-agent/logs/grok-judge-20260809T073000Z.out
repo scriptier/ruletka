@@ -1,0 +1,28 @@
+I'll review hub metrics, admin branches, and recent task results, then write a decisive `JUDGE-LATEST.md`.Pending queue is empty; next I'll sample branch diffs and the latest RESULT files.Hub is GREEN (max MTO 1170 ms). Writing the ranked merge verdict.## JUDGE complete
+
+Wrote `tasks/admin-queue/reports/JUDGE-LATEST.md`.
+
+### Hub
+| | |
+|--|--|
+| **Verdict** | **GREEN** |
+| Matches / offers / answers | 7 / 9 / 9 |
+| Drops / slow | 1 / 0 |
+| **Max MTO** | **1170 ms** |
+
+No hub pain → **do not re-queue P0 001–004**.
+
+### Merge ranks (human only)
+| Verdict | Branches |
+|---------|----------|
+| **keep** | **046** i18n · **051**/**041** smoke docs · **052**/**053** scripts (reconcile vs untracked main copies) · **043** friends CTAs · **045** open-on-pc stub · **040** forensics |
+| **needs-fix** | **050** last-connect (collides with dirty `lastConnectStats` WIP) · **044** home strip · **022** only if vibrate missing |
+| **discard** | **001/004/042/047** empty · **002/003/021/021b** ancient connect thrash |
+
+### Next Claude cycle
+- **`pending/` is empty** — nothing to rewrite.
+- Leave **034** Prefer Direct + **038** APK template **blocked**.
+- Morning priority is **dirty main WIP (~367 paths) + script reconcile**, not new connect tickets.
+
+### Hard rules held
+No deploy, push, merge, or CONNECTIVITY_LOCK undo.

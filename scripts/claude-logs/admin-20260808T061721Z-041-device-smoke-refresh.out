@@ -1,0 +1,7 @@
+
+===== attempt 1 / 2 =====
+Task complete. Summary:
+
+- Updated `docs/DEVICE_SMOKE.md`, `docs/PLAY_INTERNAL_TEST_CHECKLIST.md`, and `docs/POLISH_NOW.md` to reference the current build (0.1.148 / vc156) and added smoke-matrix coverage for Stop one-tap, mid-chat gift chips, soft toasts, and friends Online/Call/Chat CTAs.
+- **Notable finding**: the vc156 APK is real and built, but its source lives only in an unmerged backup branch (`backup/pre-sleep-20260808T061524Z-wip`), not in `main`. I didn't touch code or merge anything (out of scope for a docs task), but flagged it inline in all three docs and in the RESULT file — Grok should reconcile that branch before the next `--bump`, or the next build will silently drop this work.
+- No code, WebRTC path, or build steps touched. RESULT written with `COMPLETE`.

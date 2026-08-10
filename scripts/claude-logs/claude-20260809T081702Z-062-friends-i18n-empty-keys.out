@@ -1,0 +1,1 @@
+Investigated the friends empty-state in `mobile/app/friends.tsx` — it was already using `t("mobile.friends.empty")` and `t("mobile.friends.shareInvite")`, and both keys already exist with correct translations in `en.json` and `ru.json`. No hardcoded English strings were found, so no code changes were needed. Wrote the RESULT file marking it COMPLETE as a no-op.

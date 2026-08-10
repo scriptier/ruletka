@@ -1,0 +1,12 @@
+
+===== attempt 1 / 2 =====
+Task complete. Summary:
+
+I labeled the call-history CTA on the Friends screen (`mobile/app/friends.tsx`) — replaced the icon-only call button with a pill that reads "Call back" (green, online) or "Ring anyway" (muted gray, offline), matching the labeled-button style used elsewhere on the screen. No WebRTC/offer logic was touched; the tap handler is unchanged.
+
+Verification: manually confirmed JSX/style balance, and ran `tsc --noEmit` (via a temporary `node_modules` symlink from the main checkout, removed afterward) — no errors on the touched lines. Pre-existing errors remain in the file for several modules that exist only as **uncommitted files in the main checkout** (another agent's WIP, invisible to this worktree) — unrelated to this change, left untouched per the "only fix files you changed" rule.
+
+RESULT written to `tasks/admin-queue/done/20260808T070621Z-043-match-history-ctas-RESULT.md`, status **DONE / COMPLETE**.
+
+===== attempt 2 / 2 =====
+/home/drakosik/freenet-roulette/scripts/admin-agent/lib.sh: line 754: /usr/bin/stdbuf: Argument list too long

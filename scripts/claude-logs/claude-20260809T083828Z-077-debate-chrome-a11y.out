@@ -1,0 +1,6 @@
+Done. Summary:
+
+- Audited `LiveDebateChrome.tsx` — most controls already had proper `accessibilityRole`/`accessibilityLabel`.
+- Fixed two gaps: the turn-length chips (5–60s) had a hardcoded, unlocalized `${s}s` a11y label — now uses a new `turnSecondsOption(s)` label wired to a new `debate.turnSecondsOption` i18n key (en/ru) so it's announced properly and translated; the "muted until your turn" hint was missing `importantForAccessibility="no"`, breaking the summary-region pattern its siblings follow (would double-announce).
+- Updated `live.tsx` (sole caller) to supply the new label, added the key to `en.json`/`ru.json`, verified JSON parses and `tsc --noEmit` shows only pre-existing unrelated errors.
+- RESULT written to `tasks/admin-queue/done/077-debate-chrome-a11y-RESULT.md`, connect risk: none.

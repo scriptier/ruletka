@@ -1,0 +1,14 @@
+
+===== attempt 1 / 2 =====
+Task complete. Summary:
+
+**What changed:** Filled English-fallback gaps across all 14 `mobile/src/i18n/overlay/*.json` files for the target categories — notify hints, friends Online/Chat/Call, and live `partnerNotReady`/`needStars`. Added/translated ~40 keys natively for de, es, fr, pl, pt, ar, zh, cs, bg, sr, tr (uk needed only 5, ru/en needed none beyond the bug fix below).
+
+**Bugs found and fixed (within the same key set, so in scope):**
+- `mobile.settings.notifyHint` leaked the internal env var name `ROULETTE_PUSH_WEBHOOK_URL` into user-facing text in 13 of 14 languages — reworded to plain language everywhere.
+- `mobile.live.needStars` had the ★ glyph mojibake-corrupted to `â` in ar/cs/bg/sr — fixed for that key (left 5 other out-of-scope corrupted keys in those files noted for a follow-up task).
+
+All 14 files validated as JSON, `git diff --stat` confirms only overlay files touched, no connect-path code affected. RESULT written to `tasks/admin-queue/done/20260808T083840Z-046-i18n-overlay-fill-RESULT.md` with COMPLETE status.
+
+===== attempt 2 / 2 =====
+/home/drakosik/freenet-roulette/scripts/admin-agent/lib.sh: line 754: /usr/bin/stdbuf: Argument list too long

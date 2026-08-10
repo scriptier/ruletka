@@ -1,0 +1,1 @@
+Added an "Automation" section to `docs/POLISH_NOW.md` covering start-sleep-shift, watchdog cron, harvest, and auto-build (sideload-only), linking to `AGENT_GROK_CLAUDE.md` and `NEXT_PLAN.md`. RESULT written to `tasks/admin-queue/done/064-mobile-npm-test-script-doc-RESULT.md`. No code touched, no Play claims. COMPLETE.

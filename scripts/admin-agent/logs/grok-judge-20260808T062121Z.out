@@ -1,0 +1,23 @@
+I'll judge Claude's overnight work: hub metrics, admin branches, and queue status — then write a ranked merge report.Checking main tip vs branches and whether 022/backup still hold unique value.I have enough to write a decisive judge report: hub is GREEN, most old admin branches are stale, and the critical handoff is the unmerged pre-sleep WIP.## Night judge complete
+
+Wrote **`tasks/admin-queue/reports/JUDGE-LATEST.md`**.
+
+### Hub
+**GREEN** — 4 matches / 5 offers / 4 answers / 0 drops / max MTO **5268 ms**. One slow WARN under the 15s threshold. No connect rework.
+
+### Branches (decisive)
+| Verdict | Branches |
+|---------|----------|
+| **keep** | `040` forensics report, `041` device-smoke docs |
+| **needs-fix** | `022` — only check cherry-pick of Vibration ring; do not merge whole branch |
+| **discard** | `001`–`004`, `021`, `021b` (empty or superseded, ~30 behind main) |
+
+### Critical morning handoff (not Claude)
+`backup/pre-sleep-20260808T061524Z-wip` is the **only** committed source of **0.1.148 / vc156** polish. Reconcile **before** the next `--bump`, or that work is lost.
+
+### Next Claude cycle
+1. `042-settings-soft-toasts.md`  
+2. `043-match-history-ctas.md`  
+3. `046-i18n-overlay-fill.md`  
+
+No ticket rewrites. **034** / **038** stay blocked. No deploy / push / merge / CONNECTIVITY_LOCK undo.

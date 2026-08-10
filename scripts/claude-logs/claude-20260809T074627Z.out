@@ -1,0 +1,11 @@
+I dug into this before touching anything, and found a mismatch worth flagging before I proceed:
+
+**The premise doesn't hold in this worktree.** In `/home/drakosik/freenet-roulette-claude` (branch `claude/p0-connectivity`, where I'm invoked), `en.json`/`ru.json` have **zero** blur-related keys — no `blurStrangers*`, no `blurMode*`, no `liveTips`. There's no blur-mode settings UI in `settings.tsx` here either. This branch diverged before that feature existed.
+
+**The feature actually lives in `/home/drakosik/freenet-roulette`** (main repo, `main` branch). There, `en.json`/`ru.json` do have the correct "Off is default" copy plus `blurModeSaved`, exactly as the task describes. So the real work is:
+- `de/es/fr/pl/pt/uk/ar/bg/cs`: have the 5 old keys, but copy-pasted in **English** (untranslated) and still say the old "Brief (default)" — need translating + correcting to "Off default," plus adding the missing `blurModeSaved` + `liveTips`.
+- `sr/tr/zh`: missing all 7 keys entirely.
+
+**Complication:** that main repo currently has a lot of uncommitted WIP (bridge/, docs/, mobile/app/*, and — critically — **all 14 overlay JSON files are already mid-edit** as part of what looks like an unrelated, in-progress "translate remaining English strings" pass, e.g. `de.json` has live uncommitted diffs to friend/settings strings unrelated to blur). Editing those same files right now risks colliding with that in-flight work per the dual-agent "one writer at a time" rule.
+
+Want me to proceed in `/home/drakosik/freenet-roulette` anyway (touching only the 7 blur/liveTips keys, leaving the rest of that WIP diff alone), or would you rather I wait / handle it differently?

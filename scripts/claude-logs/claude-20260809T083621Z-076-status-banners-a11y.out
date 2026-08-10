@@ -1,0 +1,8 @@
+Done. Summary:
+
+**Changes** (`mobile/src/live/LiveStatusBanners.tsx` only, no new i18n keys needed — existing `t()` keys already localized in en/ru):
+- Added `accessibilityRole="alert"` to the `partnerMuted` banner (was missing, inconsistent with `theyMutedMe`).
+- Hid decorative emoji (🔇, 👁) from the accessibility tree via `accessibilityElementsHidden`/`importantForAccessibility="no"` so screen readers don't announce glyph names.
+- Fixed the blur button's `accessibilityLabel` to include the state (`blurredLabel`) alongside the action (`unblurLabel`) — previously screen-reader users only heard "Show video" with no indication privacy mode was on.
+
+Verified with `tsc --noEmit` (no errors in this file) and confirmed the relevant i18n keys exist in both `en.json` and `ru.json`. RESULT written to `tasks/admin-queue/done/076-status-banners-a11y-RESULT.md`, connect risk: none.

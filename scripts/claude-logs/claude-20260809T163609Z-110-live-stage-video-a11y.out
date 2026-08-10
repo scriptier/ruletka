@@ -1,0 +1,1 @@
+Done. Added `accessibilityLabel`/`accessibilityRole`/`accessibilityHint` to the three interactive stage containers in `mobile/src/live/LiveStageVideo.tsx`, wiring in the previously-unused `L.longPressReport` label. No zOrder/connect logic touched; `tsc --noEmit` shows no new errors. RESULT written to `tasks/admin-queue/done/110-live-stage-video-a11y-RESULT.md`.

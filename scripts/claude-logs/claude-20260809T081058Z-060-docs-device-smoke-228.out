@@ -1,0 +1,3 @@
+Done. Updated the stale `0.1.227/235` version badges in `docs/DEVICE_SMOKE.md` and `docs/POLISH_NOW.md` to `0.1.228/236`, matching the already-committed `docs/PLAY_TODAY.md` ship baseline. Left the `(0.1.226+)` "feature introduced in" markers alone since those aren't current-version badges. `docs/PLAY_TODAY.md` was already correct. RESULT written to `tasks/admin-queue/done/060-docs-device-smoke-228-RESULT.md` — COMPLETE, no code touched.
+
+One thing worth flagging: `mobile/app.json` in this worktree has an uncommitted bump to `0.1.230/vc238` from unrelated in-flight work (targetSdk 35, permissions). I did not chase that number since it's not reflected in any doc or artifact yet and looks like separate WIP — but worth Grok's awareness when harvesting diffs.

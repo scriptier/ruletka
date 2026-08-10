@@ -1,0 +1,31 @@
+I'll gather connectivity docs, hub metrics, today's admin reports, recent RESULT files, and admin branch/worktree state—read-only only.Pulling today's admin report, overnight notes, and last-24h RESULT files next.Gathering branch diffs, RESULT COMPLETE markers, and the rest of today's report.Checking a few more details on auto-commits and whether 042 product landed in the dirty tree.Writing the morning brief from the gathered evidence.Wrote **`tasks/admin-queue/reports/MORNING-BRIEF.md`**. Summary:
+
+### 1. Hub
+- **Now: `idle`** (0 matches / MTO 0) — night quiet, not a regression  
+- **Last live (~06:15Z): GREEN** — 4/5/4 matches/offers/answers, 0 drops, **max MTO 5268ms** (under 15s slow bar)
+
+### 2. Claude overnight
+- **040–047** on `admin/*` worktrees, each with one local auto-commit  
+- Real product: docs (041), friends CTAs (043), home strip (044), Open-on-PC stub (045), i18n overlays (046)  
+- Empty/no-op: 042 (metadata only — toasts already in dirty WT), 047 (audit clean)  
+- Giant context: `backup/pre-sleep-…-wip` + dirty main (source of **APK 0.1.148-vc156**)
+
+### 3. Verify
+- **PASS:** 040, 041, 042, 047  
+- **FAIL (tooling flake EXIT 126 / stdbuf):** 043–046 — RESULTs still **`COMPLETE`**
+
+### 4. Connect risk
+- **HOLD** — do not deploy  
+- Hub green ≠ ship green; dirty main + backup include connect-touching paths unreviewed as a unit
+
+### 5. Top 3
+1. Play↔PC smoke on **0.1.148-vc156** (or lock APK)  
+2. Reconcile backup WIP + dirty main before any merge/`--bump`  
+3. Merge keeps: **041 → 046 → 043/045 → 040**
+
+### 6. Branches
+- **Merge:** 041, 046, 043, 045, 040  
+- **Fix first:** 044, 022  
+- **Discard:** 042, 047, 001–004, 021, 021b  
+
+No deploy, no push. Read-only review only.

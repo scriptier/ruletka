@@ -1,0 +1,7 @@
+
+===== attempt 1 / 2 =====
+Committed on `admin/20260809T063842Z-051-device-smoke-189-baseline` (0910a36).
+
+**Summary:** Updated `docs/DEVICE_SMOKE.md` Play↔PC smoke section — Start-once/no-Next-spam wording, force_relay + 1 offer/1 answer hub check, the real `CONNECT offer=…/answer=…/frame=…ms` toast text (task said "Link offer=…", but that string doesn't exist in the code — this one does), `smoke-connect.sh --hub-only` step, and `UI_ONLY=1 push.sh` note.
+
+One thing worth flagging: the task's target baseline (0.1.189/vc197) doesn't match reality — `mobile/app.json` on `main` is still 0.1.136/vc144, so I kept the doc accurate to that (the task's own fallback clause allowed this). Also, the toast/scripts I documented (`smoke-connect.sh`, `hub-match-speed.sh`, the CONNECT toast) currently exist only as **uncommitted** changes in the main repo's working tree, not on `main` itself — noted this in the RESULT file for Grok. RESULT written to `tasks/admin-queue/done/20260809T063842Z-051-device-smoke-189-baseline-RESULT.md`.

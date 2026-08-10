@@ -1,0 +1,1 @@
+Done. The offline/reconnect UX in `mobile/app/index.tsx` was already soft (toast-based, no `Alert.alert`) with all needed EN/RU keys in place — I only fixed the RU string that awkwardly mixed in the English word "reconnect". RESULT written to `tasks/admin-queue/done/059-home-offline-copy-RESULT.md`.

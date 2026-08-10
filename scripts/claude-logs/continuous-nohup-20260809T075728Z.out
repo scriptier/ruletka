@@ -1,0 +1,7 @@
+[2026-08-09T07:57:28Z] CONTINUOUS START idle=180s between=20s auto_refill=1 max=0
+[2026-08-09T07:57:28Z] stop with: ./scripts/agents/stop-sleep-shift.sh
+[2026-08-09T07:57:28Z] ▶ task 1: 037-hotkeys-taller-scroll.md
+[2026-08-09T07:58:20Z] ✓ ok=1 fail=0
+[2026-08-09T07:58:40Z] ▶ task 2: 054-i18n-blur-overlay-sync.md
+[2026-08-09T07:59:57Z] ✓ ok=2 fail=0
+[2026-08-09T08:00:17Z] ▶ task 3: 054-i18n-blur-overlay-sync.md

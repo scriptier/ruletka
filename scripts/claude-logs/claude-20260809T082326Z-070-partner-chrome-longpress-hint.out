@@ -1,0 +1,1 @@
+Task complete — no code changes were needed. `PartnerChrome.tsx` already renders a visible long-press hint (`styles.hint`) plus `accessibilityHint`, and `live.tsx` already wires it with i18n keys `mobile.live.partnerLongPress` and `mobile.live.partnerCopied` present in both EN and RU. RESULT written to `tasks/admin-queue/done/070-partner-chrome-longpress-hint-RESULT.md`.

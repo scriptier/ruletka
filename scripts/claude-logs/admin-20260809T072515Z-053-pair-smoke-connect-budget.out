@@ -1,0 +1,15 @@
+
+===== attempt 1 / 2 =====
+Task complete. Summary:
+
+**What I found:** `scripts/pair-smoke.mjs` was never committed to git (untracked in the main repo working tree), so it didn't exist in this isolated worktree at all. Similarly, `window.__ruletConnect` (the client-side connect-timing object) only exists in the main repo's *uncommitted* `ui/live.js`/`ui/webrtc.js` changes.
+
+**What I did:** Copied the current script into this worktree as a base, then added:
+- Post-PASS soft-assert logging hub `match_to_offer_ms` against a tighter 2000ms budget (`PAIR_SMOKE_MTO_ASSERT_MS`), separate from the existing hard 3000ms gate — informational only, never fails the run.
+- Per-bot logging of `window.__ruletConnect` offerMs/answerMs/trackMs when present, with a soft `trackMs < 8000ms` budget (`PAIR_SMOKE_TRACK_MS`).
+- Warnings surface in `score.warnings` and the final SCORECARD JSON line.
+- Left wire-only offer/answer counting untouched, added a header doc one-liner.
+
+Verified with `node --check`, a live run (clean SKIP since no bridge binary here), and a mock-page unit test of the new logic. Committed to this admin branch only (`5ca476a`) — no push, no merge to main.
+
+**Flagged for morning review:** the main repo's live copy of `pair-smoke.mjs` may have drifted further (concurrent task 052 touches related metrics), so this needs a diff/reconcile before merging rather than a blind overwrite. Full RESULT is at `tasks/admin-queue/done/20260809T072515Z-053-pair-smoke-connect-budget-RESULT.md`.

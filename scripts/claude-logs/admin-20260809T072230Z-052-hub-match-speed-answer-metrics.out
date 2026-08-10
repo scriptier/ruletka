@@ -1,0 +1,7 @@
+
+===== attempt 1 / 2 =====
+Done. Summary:
+
+- Added `scripts/hub-match-speed.sh` in this worktree implementing all required success criteria (answer-latency metrics, grace-drop count, android-SLOW count, correct verdict priority, graceful fallback for older logs without `match_to_answer_ms`), verified against synthetic log fixtures (stubbed `ssh`, no real hub access), and committed on the task branch.
+- Important finding: an equivalent (and slightly more advanced, with `match_to_ice_ms`) version of this script already exists **uncommitted/untracked** directly in the main working tree, apparently from a prior "Grok polish pass" that bypassed this worktree entirely. I flagged this clearly in the RESULT so the morning reviewer reconciles the two before merging rather than ending up with divergent versions.
+- RESULT written to `tasks/admin-queue/done/20260809T072230Z-052-hub-match-speed-answer-metrics-RESULT.md` with `COMPLETE`.

@@ -1,0 +1,1 @@
+Done. Added `accessibilityLabel` to the export and import Pressables in `mobile/app/settings.tsx` (backup section), reusing existing i18n keys. Type-check shows only pre-existing, unrelated errors. RESULT written to `tasks/admin-queue/done/112-settings-export-import-a11y-RESULT.md` and marked COMPLETE.

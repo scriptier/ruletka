@@ -1,0 +1,4 @@
+[2026-08-09T08:03:07Z] CONTINUOUS START idle=180s between=20s auto_refill=1 max=0
+[2026-08-09T08:03:07Z] stop with: ./scripts/agents/stop-sleep-shift.sh
+[2026-08-09T08:03:07Z] ▶ task 1: 054-i18n-blur-overlay-sync.md
+[2026-08-09T08:03:32Z] continuous EXIT

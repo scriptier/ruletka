@@ -1,0 +1,1 @@
+Done. Updated `docs/DEVICE_SMOKE.md` version stamps (0.1.230/vc236 → 0.1.248/vc256) to match `mobile/app.json`, left the two historical "feature introduced in X" version markers alone since they're not shipping-version stamps. RESULT written to `tasks/admin-queue/done/121-docs-polish-now-245-RESULT.md` — COMPLETE.

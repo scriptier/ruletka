@@ -1,0 +1,27 @@
+I'll act as night-shift judge: gather hub metrics, admin branches, and queue state, then write a ranked merge report without implementing or merging.Gathering branch diffs, RESULT summaries, and pending-task details next.Checking merge conflicts between 002/003 and skimming pending tickets for next-cycle priority.Writing the judge report: P0 branches judged, ranked merge list for human, next Claude cycle tasks.## JUDGE complete
+
+Wrote `tasks/admin-queue/reports/JUDGE-LATEST.md`. Summary:
+
+### Hub
+**idle** — 0 matches, max MTO **0**. No live pain to re-score.
+
+### Branches
+
+| Branch | Verdict |
+|--------|---------|
+| **003 offer-thrash** | **keep** — real promote-race fix (`pendingRemoteOfferSince` + web mirror). Highest connect value. |
+| **002 mobile-answer-path** | **keep** — real answer-path GUM 1100ms cap. |
+| **001 connect-slow-offer** | **discard** — audit only, empty product. |
+| **004 web-kicksolo-speed** | **discard** — audit only, empty product. |
+
+Both keepers also carry `adaptiveQuality.ts` (still `??` on main while imported by `0d61dbb`). Land that first.
+
+### Next Claude cycle
+1. **`020-cam-mute-parity`** (no offer/ICE)
+2. **`021-background-keepalive-reconnect`**
+3. Safe filler: **036** docs / **035** geo
+
+No ticket rewrites; nothing moved to blocked (034 stays blocked until real smoke + MTO green).
+
+### Human merge order
+`adaptiveQuality.ts` → smoke Play↔PC (web offerer) → **003** then **002** → discard 001/004. No deploy/push/merge by agents.

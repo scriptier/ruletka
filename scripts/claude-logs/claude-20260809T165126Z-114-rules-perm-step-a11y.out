@@ -1,0 +1,1 @@
+Done. `mobile/app/rules.tsx` perm-step now wraps `PermissionRationaleCard` in a `View accessibilityLiveRegion="polite"` so screen readers announce the busy-state change on Continue; the card's pressables were already labeled. `tsc --noEmit` clean. RESULT written to `tasks/admin-queue/done/114-rules-perm-step-a11y-RESULT.md`.

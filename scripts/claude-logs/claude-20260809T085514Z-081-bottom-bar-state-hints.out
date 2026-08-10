@@ -1,0 +1,1 @@
+Done. Most of `LiveBottomBar.tsx` already had proper `accessibilityState`/label wiring; the one gap was the mic button missing `disabled` when mic is debate-locked, which I added (`mobile/src/live/LiveBottomBar.tsx:255`). Type-check shows no new errors, and RESULT is written to `tasks/admin-queue/done/081-bottom-bar-state-hints-RESULT.md`.

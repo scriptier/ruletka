@@ -1,0 +1,1 @@
+Done. Added missing accessibility roles/labels to `mobile/src/friends/FriendChatSheet.tsx` (close button, header, message bubbles, compose input, send button + real disabled state), reusing only existing `t()` keys — no new i18n strings. `tsc --noEmit` shows no new errors from the change. RESULT written to `tasks/admin-queue/done/144-friends-chat-sheet-a11y-RESULT.md`. COMPLETE.

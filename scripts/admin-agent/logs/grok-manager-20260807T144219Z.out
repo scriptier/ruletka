@@ -1,0 +1,34 @@
+I'll run manager mode: read the overnight plan, connectivity lock, roadmap, hub metrics, and the full pending/done queues, then re-rank and sharpen tickets only.P0 is done; hub is idle. Next I'll check whether 020's RESULT is real COMPLETE and clean up the stale pending stub.Moving completed `020` out of pending, lightly sharpening the next tickets, updating the blocked note, and writing `MANAGER-LATEST.md`.## Manager pass complete
+
+Full report: `tasks/admin-queue/reports/MANAGER-LATEST.md`
+
+### Hub
+**`idle`** (0/0/0, MTO=0) — not RED/YELLOW → **no new connect ticket**. Idle ≠ PASS; prior YELLOW ~25s MTO still the real connect bar.
+
+### Queue now
+
+| Status | Tickets |
+|--------|---------|
+| **Done overnight** | 001–004 (P0), **020** (cam-mute COMPLETE — moved out of pending) |
+| **Claude next** | **`021`** → 022 → 023 → 033 → 035 → 036 → 090 |
+| **Blocked** | 034 Prefer Direct (still needs human smoke after 002/003 merge) |
+
+### What I changed
+- Moved `020-cam-mute-parity.md` → `done/`
+- Sharpened **021** (START HERE), **022**, **023**, **033/036/090** priorities
+- Updated blocked note on **034**
+- Synced `docs/OVERNIGHT_9H_PLAY_PLAN.md` (P0+020 DONE, 021 = next)
+- Wrote **MANAGER-LATEST.md**
+
+### Claude first hour
+```
+021-background-keepalive-reconnect.md  → then 022 → 023
+Stay off offer/ICE; no re-open of 001–004/020
+```
+
+### Human morning
+1. Smoke + merge **003** then **002** (landable product)
+2. Discard empty **001** + **004** branches
+3. Commit untracked `adaptiveQuality.ts`
+4. Fresh APK; Play↔PC: 1 offer + 1 answer, MTO &lt; 2s on a **live** run  
+No deploy/push/merge from agents.

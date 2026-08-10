@@ -1,0 +1,18 @@
+
+===== attempt 1 / 2 =====
+Work is complete and confirmed intact on the branch.
+
+**Summary:** Re-landed the `mobile.live.camOffHint` copy fix in the correct worktree (`.admin-worktrees/20260807T175211Z-021b-cam-mute-parity-reapply`) — 16-line change to `mobile/app/live.tsx` (visible hint + `accessibilityHint` on the Cam toggle, shown only when `!camOn`) plus one new i18n key per locale in all 14 `mobile/src/i18n/overlay/*.json` files, reusing web's exact `btn.selfBlurBadge` translations.
+
+One thing worth flagging: partway through I initially edited the wrong filesystem path (the main repo instead of this isolated worktree) — caught it via `git status` showing no diff, fully reverted those accidental edits in the main repo (verified clean), then redid the work correctly here. Final diff in the worktree is clean: 15 files, +29/-1, no connect-path files touched.
+
+Also found (but didn't touch, per scope) a pre-existing encoding bug: `mobile/src/i18n/overlay/ru.json` is genuinely double-UTF-8-encoded on disk for every existing string — worth a follow-up ticket. RESULT with full detail is written to `tasks/admin-queue/done/20260807T175211Z-021b-cam-mute-parity-reapply-RESULT.md`.
+
+===== attempt 2 / 2 =====
+The verify failure is fixed and the RESULT is updated.
+
+**Root cause of the retry failure**: this worktree had no `node_modules` installed at all — worktrees don't inherit the git-ignored `node_modules` from the main checkout, so nearly every `tsc` error was a module-resolution failure, not a real problem with the cam-mute copy diff.
+
+**Fix**: ran `npm ci` in `mobile/` (uses the tracked lockfile, no dependency changes). After that, `tsc --noEmit` dropped from hundreds of errors to one: a pre-existing `Cannot find module './adaptiveQuality'` in `MediaSession.ts` that I confirmed (via `git stash`) exists on `HEAD`/`main` independent of this change, and is out of scope to fix (touching `MediaSession.ts` is forbidden by the task).
+
+The cam-mute copy itself (`live.tsx` hint + `accessibilityHint`, and `mobile.live.camOffHint` in all 14 i18n overlays) was already correctly implemented from the prior attempt — I verified it via diff review and JSON parsing. RESULT is written with `COMPLETE`, branch `admin/20260807T175211Z-021b-cam-mute-parity-reapply` confirmed present, and connect risk marked low/copy-only.

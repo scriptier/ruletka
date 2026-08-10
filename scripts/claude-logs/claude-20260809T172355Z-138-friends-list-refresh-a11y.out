@@ -1,0 +1,9 @@
+Done. Summary:
+
+**Audit finding:** `mobile/app/friends.tsx`'s `RefreshControl` had no accessibility label, and the "Friends (N)" section title above it lacked `accessibilityRole="header"` (inconsistent with the header pattern used elsewhere in the app, e.g. `ReportSheet.tsx`, `LiveGiftBar.tsx`).
+
+**Fix (2 additive attributes, no new i18n keys):**
+- `RefreshControl` gets `accessibilityLabel` reusing the existing `mobile.friends.list` key.
+- Section title `<Text>` gets `accessibilityRole="header"`.
+
+Verified with `tsc --noEmit` (no new errors — only a pre-existing, repo-wide `expo-clipboard` module resolution issue affecting multiple unrelated files) and `./scripts/dev-smoke.sh --unit` (all pass). RESULT written to `tasks/admin-queue/done/138-friends-list-refresh-a11y-RESULT.md`, connect risk: none.

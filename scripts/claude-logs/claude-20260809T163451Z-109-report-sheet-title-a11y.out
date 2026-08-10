@@ -1,0 +1,1 @@
+Done. Added `accessibilityRole="header"` to the ReportSheet title and `accessibilityState` (disabled/busy) to the quick-explicit button, which was missing it despite already having busy-disable logic. `tsc` shows no new errors on this file. RESULT written to `tasks/admin-queue/done/109-report-sheet-title-a11y-RESULT.md`.

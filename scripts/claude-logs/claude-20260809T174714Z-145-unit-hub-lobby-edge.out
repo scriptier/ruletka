@@ -1,0 +1,3 @@
+These queue file locations are managed by the factory harness, not by me — leaving them as-is (the RESULT file is what Grok's harness looks for). Work is complete.
+
+**Summary:** Audited `mobile/src/live/hubLobby.ts`'s `reduceStatusMsg`/`reduceLobbyInfoMsg` reducers and found that malformed (`NaN`) or negative hub-sent `online`/`waiting_peers` values weren't clamped, which could leak `NaN` or negative counts into the live screen's queue text. Fixed by clamping both to `Math.max(0, Number(...) || 0)` in the source and its test mirror, added two edge-case unit tests, and verified `node src/live/hubLobby.test.mjs` passes and `tsc --noEmit` shows no new errors. RESULT written to `tasks/admin-queue/done/145-unit-hub-lobby-edge-RESULT.md`.

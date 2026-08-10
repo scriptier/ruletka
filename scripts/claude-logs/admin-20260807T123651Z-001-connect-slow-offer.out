@@ -1,0 +1,13 @@
+
+===== attempt 1 / 2 =====
+Audit complete — no code changes needed. Summary:
+
+**Finding:** Grok's prior commit (`0d61dbb`) already caps every step of the match→offer path well under the 2000ms target on both sides:
+- Web offerer: ~900ms GUM cap + 80ms micro ICE-gather ≈ **~1–1.3s worst case** (`ui/live.js:23245-23262`, `ui/webrtc.js:1370,1492`)
+- Mobile offerer: ~700ms GUM race ≈ **~750ms–1s worst case** (`MediaSession.ts:1272,1304-1313`)
+
+The prior 20–25s forensics figure traces to a **hub-side rematch** (second `"solo matched"` event ~12s after the first, `bridge/src/simple.rs:4466-4467,4972`), not a slow single-match offer path — that's the debounce/thrash pattern explicitly scoped to ticket 003, not this one.
+
+Confirmed hub is genuinely idle via the read-only `hub-match-speed.sh` check (0 matches/60min), so no live data was available to sample tonight either.
+
+RESULT written to `tasks/admin-queue/done/20260807T123651Z-001-connect-slow-offer-RESULT.md` with status DONE / COMPLETE, connect risk "safe to merge after smoke," and a handoff to re-run `hub-match-speed.sh` after real Play↔PC traffic (and after 003's rematch fix lands) to confirm live MTO.

@@ -1,0 +1,1 @@
+Audit complete — no contradictory strings found in either `en.json` or `ru.json`; all blur/hideIp/connect hints already correctly state off/fastest-connect as default. No edits made. RESULT written to `tasks/admin-queue/done/058-settings-hint-consistency-RESULT.md` with Status: COMPLETE.

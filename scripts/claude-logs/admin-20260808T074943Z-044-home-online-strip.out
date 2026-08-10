@@ -1,0 +1,6 @@
+
+===== attempt 1 / 2 =====
+Done. Summary: added an "N/total friends online" pill strip to `mobile/app/index.tsx` that appears only when ≥1 friend is online and links to `/friends`; renders nothing when zero online. Reused an existing (previously unused) i18n key so no translation files needed changes. Verified via `tsc` against a real `node_modules` (this worktree has none installed) — 0 errors in `index.tsx`. RESULT written to `tasks/admin-queue/done/20260808T074943Z-044-home-online-strip-RESULT.md` with status DONE/COMPLETE.
+
+===== attempt 2 / 2 =====
+/home/drakosik/freenet-roulette/scripts/admin-agent/lib.sh: line 754: /usr/bin/stdbuf: Argument list too long

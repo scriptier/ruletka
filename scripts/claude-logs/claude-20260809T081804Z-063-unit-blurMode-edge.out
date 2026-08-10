@@ -1,0 +1,1 @@
+Done. Added edge cases to `mobile/src/prefs/blurMode.test.mjs`: empty-mode string, unknown-mode-string fallthrough to legacy boolean, and friend-never-auto-blurs across off/bogus/empty modes. Test passes (`node mobile/src/prefs/blurMode.test.mjs` → OK). RESULT written to `tasks/admin-queue/done/063-unit-blurMode-edge-RESULT.md`. COMPLETE.

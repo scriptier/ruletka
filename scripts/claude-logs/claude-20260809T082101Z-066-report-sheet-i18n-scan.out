@@ -1,0 +1,1 @@
+Audit complete — all strings in `ReportSheet.tsx` already route through `t()`, and all 16 referenced keys exist with real translations in both `en.json` and `ru.json`. No code changes needed. RESULT written to `tasks/admin-queue/done/066-report-sheet-i18n-scan-RESULT.md`.

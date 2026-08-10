@@ -1,0 +1,992 @@
+==============================================
+  Ruletka morning brief — 2026-08-07 08:00
+==============================================
+
+Pre-sleep snapshot: pre-sleep-20260807T103627Z
+  Restore if overnight went bad:
+    ./scripts/admin-agent/restore-pre-sleep.sh
+  Plan: docs/OVERNIGHT_8H_PLAY_PLAN.md
+
+=== Ruletka admin agent status ===
+ROOT=/home/drakosik/freenet-roulette
+time: 2026-08-07 08:00 MDT
+Queue: pending=8 running=0 done=12 failed=0
+
+Pre-sleep snapshot: pre-sleep-20260807T103627Z
+  restore: ./scripts/admin-agent/restore-pre-sleep.sh
+Nightly: RUNNING pid=914285
+Claude rate-limit flag: no
+Claude success count (toward judge): 0 / 2
+Grok: judge_every=2 manager_on_limit=1
+  report: tasks/admin-queue/reports/JUDGE-LATEST.md (114 lines)
+  report: tasks/admin-queue/reports/MANAGER-LATEST.md (141 lines)
+
+Pending:
+  020-cam-mute-parity.md
+  021-background-keepalive-reconnect.md
+  022-friend-call-ring-parity.md
+  023-web-friend-call-notify.md
+  033-chat-gifts-parity-audit.md
+  035-geo-city-map-expand.md
+  036-play-store-checklist-docs.md
+  090-open-on-pc-qr-design.md
+
+Running:
+
+Recent done:
+  20260807T103500Z-001-connect-speed-GROK-RESULT.md
+  20260807T123651Z-001-connect-slow-offer-RESULT.md
+  20260807T124036Z-002-mobile-answer-path-RESULT.md
+  20260807T133045Z-003-offer-thrash-RESULT.md
+  20260807T135136Z-004-web-kicksolo-speed-RESULT.md
+
+Failed:
+
+Blocked (needs human / deferred):
+  034-prefer-direct-or-quality-labels.md
+
+Claude: idle
+
+Overnight branches / worktrees:
+  + admin/20260807T123651Z-001-connect-slow-offer
+  + admin/20260807T124036Z-002-mobile-answer-path
+  + admin/20260807T133045Z-003-offer-thrash
+  + admin/20260807T135136Z-004-web-kicksolo-speed
+Worktrees:
+  20260807T123651Z-001-connect-slow-offer
+  20260807T124036Z-002-mobile-answer-path
+  20260807T133045Z-003-offer-thrash
+  20260807T135136Z-004-web-kicksolo-speed
+
+Latest report:
+  /home/drakosik/freenet-roulette/tasks/admin-queue/reports/2026-08-07.md (6154 lines)
+  | max match_to_offer_ms | 0 |
+  **Verdict:** `idle`
+  ## Claude finished (exit 0, verify=0, attempts=1)
+  ## Claude finished (exit 0, verify=0, attempts=2)
+  ## Cycle start (v4.2)
+  | max match_to_offer_ms | 0 |
+  **Verdict:** `idle`
+  ## Claude finished (exit 0, verify=0, attempts=2)
+  ## Claude finished (exit 0, verify=0, attempts=1)
+  **Read of the night:** Claude finished the P0 connect queue:
+
+Last hub metrics:
+  ADMIN_HUB_MATCHES=0
+  ADMIN_HUB_OFFERS=0
+  ADMIN_HUB_ANSWERS=0
+  ADMIN_HUB_DROPS=0
+  ADMIN_HUB_SLOW=0
+  ADMIN_HUB_MAX_MTO=0
+  ADMIN_HUB_MTO_SOURCE=timestamp_delta
+  ADMIN_HUB_VERDICT=idle
+
+Commands:
+  ./scripts/admin-agent/run-once.sh --forensics-only
+  ./scripts/admin-agent/run-once.sh
+  ./scripts/admin-agent/run-once.sh --grok-manager   # re-rank queue
+  ./scripts/admin-agent/run-once.sh --grok-judge     # judge admin/* branches
+  ./scripts/admin-agent/run-once.sh --with-grok      # MORNING-BRIEF
+  ./scripts/admin-agent/nightly.sh
+  ./scripts/admin-agent/morning.sh
+  ./scripts/admin-agent/snapshot-pre-sleep.sh
+  ./scripts/admin-agent/restore-pre-sleep.sh
+  ./scripts/admin-agent/enqueue.sh 030 short-slug <<'EOF' ... EOF
+
+Overnight branches / worktrees:
+  + admin/20260807T123651Z-001-connect-slow-offer
+  + admin/20260807T124036Z-002-mobile-answer-path
+  + admin/20260807T133045Z-003-offer-thrash
+  + admin/20260807T135136Z-004-web-kicksolo-speed
+Worktrees:
+  20260807T123651Z-001-connect-slow-offer
+  20260807T124036Z-002-mobile-answer-path
+  20260807T133045Z-003-offer-thrash
+  20260807T135136Z-004-web-kicksolo-speed
+
+-------- report verdicts / claude --------
+- branch: `admin/20260807T101016Z-011-pair-smoke-harden`
+- worktree: `/home/drakosik/freenet-roulette/.admin-worktrees/20260807T101016Z-011-pair-smoke-harden`
+- tsc --noEmit: **FAIL** (see log above)
+**Verdict:** `GREEN`
+- hub-match-speed 90m: **PASS** (matches=11 offers=8 answers=8)
+**Verdict:** `GREEN`
+## Claude finished (exit 1, verify=0, attempts=1)
+- branch: `admin/20260807T102045Z-020-cam-mute-parity`
+- worktree: `/home/drakosik/freenet-roulette/.admin-worktrees/20260807T102045Z-020-cam-mute-parity`
+- verify: PASS
+## Claude finished (exit 1, verify=0, attempts=1)
+- branch: `admin/20260807T102101Z-020-cam-mute-parity`
+- worktree: `/home/drakosik/freenet-roulette/.admin-worktrees/20260807T102101Z-020-cam-mute-parity`
+- verify: PASS
+**Verdict:** `YELLOW_slow`
+**Verdict:** `YELLOW_slow`
+**Verdict:** `YELLOW_slow`
+**Verdict:** `YELLOW_slow`
+**Verdict:** `idle`
+**Verdict:** `idle`
+## Claude finished (exit 0, verify=0, attempts=1)
+- branch: `admin/20260807T123651Z-001-connect-slow-offer`
+- worktree: `/home/drakosik/freenet-roulette/.admin-worktrees/20260807T123651Z-001-connect-slow-offer`
+- verify: PASS
+## Claude finished (exit 0, verify=0, attempts=2)
+- branch: `admin/20260807T124036Z-002-mobile-answer-path`
+- worktree: `/home/drakosik/freenet-roulette/.admin-worktrees/20260807T124036Z-002-mobile-answer-path`
+- verify: PASS
+- tsc --noEmit: **PASS**
+**Verdict:** `idle`
+## Claude finished (exit 0, verify=0, attempts=2)
+- branch: `admin/20260807T133045Z-003-offer-thrash`
+- worktree: `/home/drakosik/freenet-roulette/.admin-worktrees/20260807T133045Z-003-offer-thrash`
+- verify: PASS
+- tsc --noEmit: **PASS**
+## Claude finished (exit 0, verify=0, attempts=1)
+- branch: `admin/20260807T135136Z-004-web-kicksolo-speed`
+- worktree: `/home/drakosik/freenet-roulette/.admin-worktrees/20260807T135136Z-004-web-kicksolo-speed`
+- verify: PASS
+**Read of the night:** Claude finished the P0 connect queue:
+------------------------------------------
+
+(No MORNING-BRIEF yet — run: ./scripts/admin-agent/run-once.sh --with-grok)
+
+-------- Grok mid-night JUDGE (summary) --------
+# JUDGE-LATEST — mid-night admin judge
+
+**At:** 2026-08-07 (late overnight, post P0 001–004 Claude cycle)  
+**Role:** Grok night-shift manager — judge only. No large implement / no deploy / no push / no merge to `main`.
+
+---
+
+## 1. Hub snapshot
+
+| Field | Value |
+|-------|--------|
+| Verdict | **idle** |
+| Matches / offers / answers | 0 / 0 / 0 |
+| Drops / slow | 0 / 0 |
+| **Max MTO** | **0** (`timestamp_delta`) |
+| Live pain | **None sampled** — cannot re-score slow MTO or thrash drops from hub right now |
+
+**Read of the night:** Claude finished the P0 connect queue:
+
+| Task | EXIT | Nature |
+|------|------|--------|
+| **001** connect-slow-offer | 0 | Audit-only — no product delta |
+| **002** mobile-answer-path | 0 | Real fix — answer-path GUM cap |
+| **003** offer-thrash | 0 | Real fix — pending-remote-offer guard (promote race) |
+| **004** web-kicksolo-speed | 0 | Audit-only — no product delta |
+
+Earlier EXIT=1 shells (010 / 011 / 020) left **no** surviving `admin/*` branches. CONNECTIVITY_LOCK invariants remain the merge gate for anything that touches offer / answer / ICE.
+
+---
+
+## 2. Branches table
+
+| Branch / worktree | Files touched | Connect risk | Verdict |
+|-------------------|---------------|--------------|---------|
+| `admin/20260807T123651Z-001-connect-slow-offer` · `.admin-worktrees/…-001-…` @ `3b684e3` | Admin bookkeeping only (`.admin-branch-name` + task copy). **No product code.** | n/a | **discard** |
+| `admin/20260807T124036Z-002-mobile-answer-path` · `.admin-worktrees/…-002-…` @ `de91179` | **Product:** `mobile/src/media/MediaSession.ts` (+9/−1) — race-cap `ensureLocalStream` on offer-answer path (~1100ms fallback, mirrors `startCall`). **Also:** `mobile/src/media/adaptiveQuality.ts` (+246) — missing-from-main module that `0d61dbb` already imports. | **smoke-ok** after Play↔PC (web offerer, **cold cam**). Does not touch offer count / debounce / `callGen` / force_relay. | **keep** |
+| `admin/20260807T133045Z-003-offer-thrash` · `.admin-worktrees/…-003-…` @ `b5fb50b` | **Product:** `MediaSession.ts` (+36) — `pendingRemoteOfferSince` set sync on offer signal; watchdog skips promote while pending &lt;4s; clear on apply/`finally`/`closeCall`. `ui/webrtc.js` (+17) — symmetric `_pendingRemoteOfferSince`. **Also:** same `adaptiveQuality.ts` (+246). | **smoke-ok** after Play↔PC (**web offerer**, watch hub for **zero** `offer dropped: debounce`). Additive promote guards only; 8s debounce + 15s iceRestart grace **untouched**. Higher connect surface than 002 — still lock-compatible. | **keep** (highest connect value tonight) |
+| `admin/20260807T135136Z-004-web-kicksolo-speed` · `.admin-worktrees/…-004-…` @ `637ebc3` | Admin bookkeeping only. **No product code.** Confirms 001 budgets + `joinPeers` not tearing down kickSolo on solo1v1. | n/a | **discard** |
+
+### Notes
+-----------------------------------------------
+
+-------- Grok MANAGER (queue re-rank) --------
+# Manager report — night shift (Claude rate-limited / idle)
+
+**When:** 2026-08-07 ~06:05 America/Edmonton (12:05 UTC)  
+**Role:** Grok MANAGER — re-rank + sharpen only; no deploy / no big code  
+**Plan:** `docs/OVERNIGHT_9H_PLAY_PLAN.md` (filename ladder synced this pass)  
+**Lock:** `docs/CONNECTIVITY_LOCK.md` (do not undo)
+
+---
+
+## Hub verdict
+
+| Field | Value |
+|-------|------:|
+| Verdict | **`idle`** |
+| Matches / offers / answers | 0 / 0 / 0 |
+| Drops / slow | 0 / 0 |
+| Max match→offer | 0 |
+| MTO source | `timestamp_delta` |
+
+**Read:** No traffic overnight → **no new RED/YELLOW enqueue**. Prior non-idle sample remains the night’s truth:
+
+| Prior field | Value |
+|-------------|------:|
+| Verdict | **`YELLOW_slow`** |
+| Max MTO | **25000 ms** |
+| Offers / answers | 5 / 5 |
+| Debounce drops | 3 (ages ~0.8–4s) |
+
+**Implication:** Keep **P0 connect tasks first** (001→004). Do **not** invent `001b` (critical path already covered). Prefer Direct / ICE policy stays **blocked**.
+
+---
+
+## Ordered work list for Claude (when session returns)
+
+Pick **lowest filename prefix** still in `pending/`. Stop hour **15:00** local. **One concern per task.** Branch: `admin/*` only. No deploy / push / merge main.
+
+### Must (P0) — finish before polish
+
+| # | File | Outcome | Note |
+|---|------|---------|------|
+---------------------------------------------
+
+Suggested next:
+  1) less /home/drakosik/freenet-roulette/tasks/admin-queue/reports/2026-08-07.md
+  2) Review branches: git branch --list 'admin/*'
+  3) For each worktree: git -C .admin-worktrees/<dir> log --oneline -5 && git -C .admin-worktrees/<dir> diff main --stat
+  4) ./scripts/hub-match-speed.sh 60
+  5) Smoke Play↔PC (APK + hard-refresh)
+  6) Merge good admin/* only after smoke (agent never pushes)
+  7) Deploy only if GREEN and you tested
+
+Docs: docs/AGENT_FACTORY.md  CLAUDE.md  docs/CONNECTIVITY_LOCK.md
+==============================================
+  Ruletka morning brief — 2026-08-08 08:00
+==============================================
+
+Pre-sleep snapshot: pre-sleep-20260808T061524Z
+  Restore if overnight went bad:
+    ./scripts/admin-agent/restore-pre-sleep.sh
+  Plan: docs/OVERNIGHT_8H_PLAY_PLAN.md
+
+=== Ruletka admin agent status ===
+ROOT=/home/drakosik/freenet-roulette
+time: 2026-08-08 08:00 MDT
+Queue: pending=0 running=0 done=47 failed=4
+
+Pre-sleep snapshot: pre-sleep-20260808T061524Z
+  restore: ./scripts/admin-agent/restore-pre-sleep.sh
+Nightly: RUNNING pid=1311897
+Claude rate-limit flag: no
+Claude success count (toward judge): 0 / 2
+Grok: judge_every=2 manager_on_limit=1
+  report: tasks/admin-queue/reports/JUDGE-LATEST.md (121 lines)
+  report: tasks/admin-queue/reports/MANAGER-LATEST.md (163 lines)
+
+Pending:
+
+Running:
+
+Recent done:
+  20260808T074943Z-044-home-online-strip-RESULT.md
+  20260808T075248Z-045-open-on-pc-phase1-stub-RESULT.md
+  20260808T083840Z-046-i18n-overlay-fill-RESULT.md
+  20260808T085014Z-047-web-soft-ux-pass-RESULT.md
+  20260808T-090-open-on-pc-qr-design-RESULT.md
+
+Failed:
+  043-match-history-ctas.md
+  044-home-online-strip.md
+  045-open-on-pc-phase1-stub.md
+  046-i18n-overlay-fill.md
+
+Blocked (needs human / deferred):
+  034-prefer-direct-or-quality-labels.md
+  038-build-apk-template.md
+
+Claude: idle
+
+Overnight branches / worktrees:
+  + admin/20260807T123651Z-001-connect-slow-offer
+  + admin/20260807T124036Z-002-mobile-answer-path
+  + admin/20260807T133045Z-003-offer-thrash
+  + admin/20260807T135136Z-004-web-kicksolo-speed
+  + admin/20260807T173736Z-021-background-keepalive-reconnect
+  + admin/20260807T175211Z-021b-cam-mute-parity-reapply
+  + admin/20260807T184705Z-022-friend-call-ring-parity
+  + admin/20260808T061535Z-040-hub-forensics-handoff
+  + admin/20260808T061721Z-041-device-smoke-refresh
+  + admin/20260808T070321Z-042-settings-soft-toasts
+  + admin/20260808T070621Z-043-match-history-ctas
+  + admin/20260808T074943Z-044-home-online-strip
+  + admin/20260808T075248Z-045-open-on-pc-phase1-stub
+  + admin/20260808T083840Z-046-i18n-overlay-fill
+  + admin/20260808T085014Z-047-web-soft-ux-pass
+Worktrees:
+  20260807T123651Z-001-connect-slow-offer
+  20260807T124036Z-002-mobile-answer-path
+  20260807T133045Z-003-offer-thrash
+  20260807T135136Z-004-web-kicksolo-speed
+  20260807T173736Z-021-background-keepalive-reconnect
+  20260807T175211Z-021b-cam-mute-parity-reapply
+  20260807T184705Z-022-friend-call-ring-parity
+  20260808T061535Z-040-hub-forensics-handoff
+  20260808T061721Z-041-device-smoke-refresh
+  20260808T070321Z-042-settings-soft-toasts
+  20260808T070621Z-043-match-history-ctas
+  20260808T074943Z-044-home-online-strip
+  20260808T075248Z-045-open-on-pc-phase1-stub
+  20260808T083840Z-046-i18n-overlay-fill
+  20260808T085014Z-047-web-soft-ux-pass
+
+Latest report:
+  /home/drakosik/freenet-roulette/tasks/admin-queue/reports/2026-08-08.md (9590 lines)
+  **Verdict:** `idle`
+  ## Queue empty
+  ## Cycle start (v4.2)
+  | max match_to_offer_ms | 0 |
+  **Verdict:** `idle`
+  ## Queue empty
+  ## Cycle start (v4.2)
+  | max match_to_offer_ms | 0 |
+  **Verdict:** `idle`
+  ## Queue empty
+
+Last hub metrics:
+  ADMIN_HUB_MATCHES=0
+  ADMIN_HUB_OFFERS=0
+  ADMIN_HUB_ANSWERS=0
+  ADMIN_HUB_DROPS=0
+  ADMIN_HUB_SLOW=0
+  ADMIN_HUB_MAX_MTO=0
+  ADMIN_HUB_MTO_SOURCE=timestamp_delta
+  ADMIN_HUB_VERDICT=idle
+
+Commands:
+  ./scripts/admin-agent/run-once.sh --forensics-only
+  ./scripts/admin-agent/run-once.sh
+  ./scripts/admin-agent/run-once.sh --grok-manager   # re-rank queue
+  ./scripts/admin-agent/run-once.sh --grok-judge     # judge admin/* branches
+  ./scripts/admin-agent/run-once.sh --with-grok      # MORNING-BRIEF
+  ./scripts/admin-agent/nightly.sh
+  ./scripts/admin-agent/morning.sh
+  ./scripts/admin-agent/snapshot-pre-sleep.sh
+  ./scripts/admin-agent/restore-pre-sleep.sh
+  ./scripts/admin-agent/enqueue.sh 030 short-slug <<'EOF' ... EOF
+
+Overnight branches / worktrees:
+  + admin/20260807T123651Z-001-connect-slow-offer
+  + admin/20260807T124036Z-002-mobile-answer-path
+  + admin/20260807T133045Z-003-offer-thrash
+  + admin/20260807T135136Z-004-web-kicksolo-speed
+  + admin/20260807T173736Z-021-background-keepalive-reconnect
+  + admin/20260807T175211Z-021b-cam-mute-parity-reapply
+  + admin/20260807T184705Z-022-friend-call-ring-parity
+  + admin/20260808T061535Z-040-hub-forensics-handoff
+  + admin/20260808T061721Z-041-device-smoke-refresh
+  + admin/20260808T070321Z-042-settings-soft-toasts
+  + admin/20260808T070621Z-043-match-history-ctas
+  + admin/20260808T074943Z-044-home-online-strip
+  + admin/20260808T075248Z-045-open-on-pc-phase1-stub
+  + admin/20260808T083840Z-046-i18n-overlay-fill
+  + admin/20260808T085014Z-047-web-soft-ux-pass
+Worktrees:
+  20260807T123651Z-001-connect-slow-offer
+  20260807T124036Z-002-mobile-answer-path
+  20260807T133045Z-003-offer-thrash
+  20260807T135136Z-004-web-kicksolo-speed
+  20260807T173736Z-021-background-keepalive-reconnect
+  20260807T175211Z-021b-cam-mute-parity-reapply
+  20260807T184705Z-022-friend-call-ring-parity
+  20260808T061535Z-040-hub-forensics-handoff
+  20260808T061721Z-041-device-smoke-refresh
+  20260808T070321Z-042-settings-soft-toasts
+  20260808T070621Z-043-match-history-ctas
+  20260808T074943Z-044-home-online-strip
+  20260808T075248Z-045-open-on-pc-phase1-stub
+  20260808T083840Z-046-i18n-overlay-fill
+  20260808T085014Z-047-web-soft-ux-pass
+
+-------- report verdicts / claude --------
+- worktree: `/home/drakosik/freenet-roulette/.admin-worktrees/20260808T061721Z-041-device-smoke-refresh`
+- verify: PASS
+**Verdict:** `GREEN`
+## Claude finished (exit 0, verify=0, attempts=1)
+- branch: `admin/20260808T070321Z-042-settings-soft-toasts`
+- worktree: `/home/drakosik/freenet-roulette/.admin-worktrees/20260808T070321Z-042-settings-soft-toasts`
+- verify: PASS
+## Claude finished (exit 126, verify=1, attempts=2)
+- branch: `admin/20260808T070621Z-043-match-history-ctas`
+- worktree: `/home/drakosik/freenet-roulette/.admin-worktrees/20260808T070621Z-043-match-history-ctas`
+- verify: FAIL
+- tsc --noEmit: **FAIL**
+**Verdict:** `idle`
+## Claude finished (exit 126, verify=1, attempts=2)
+- branch: `admin/20260808T074943Z-044-home-online-strip`
+- worktree: `/home/drakosik/freenet-roulette/.admin-worktrees/20260808T074943Z-044-home-online-strip`
+- verify: FAIL
+- tsc --noEmit: **FAIL**
+## Claude finished (exit 126, verify=1, attempts=2)
+- branch: `admin/20260808T075248Z-045-open-on-pc-phase1-stub`
+- worktree: `/home/drakosik/freenet-roulette/.admin-worktrees/20260808T075248Z-045-open-on-pc-phase1-stub`
+- verify: FAIL
+- tsc --noEmit: **FAIL**
+**Verdict:** `idle`
+## Claude finished (exit 126, verify=1, attempts=2)
+- branch: `admin/20260808T083840Z-046-i18n-overlay-fill`
+- worktree: `/home/drakosik/freenet-roulette/.admin-worktrees/20260808T083840Z-046-i18n-overlay-fill`
+- verify: FAIL
+- tsc --noEmit: **FAIL**
+## Claude finished (exit 0, verify=0, attempts=1)
+- branch: `admin/20260808T085014Z-047-web-soft-ux-pass`
+- worktree: `/home/drakosik/freenet-roulette/.admin-worktrees/20260808T085014Z-047-web-soft-ux-pass`
+- verify: PASS
+**Verdict:** `idle`
+**Verdict:** `idle`
+**Verdict:** `idle`
+**Verdict:** `idle`
+**Verdict:** `idle`
+**Verdict:** `idle`
+**Verdict:** `idle`
+------------------------------------------
+
+(No MORNING-BRIEF yet — run: ./scripts/admin-agent/run-once.sh --with-grok)
+
+-------- Grok mid-night JUDGE (summary) --------
+# JUDGE-LATEST — night-shift manager
+
+**When:** 2026-08-08 ~mid-night (Grok judge)  
+**Repo tip (committed `main`):** `b502154` — *docs(play): internal-test checklist + listing refresh for 0.1.136*  
+**Role:** judge only — no implement, no deploy, no push, no merge to main.
+
+---
+
+## 1. Hub snapshot
+
+| Field | Value |
+|-------|--------|
+| Verdict (file now) | **`idle`** |
+| Matches / offers / answers / drops / slow | **0 / 0 / 0 / 0 / 0** |
+| **Max MTO** | **0** |
+| Source | `scripts/admin-agent/logs/last-hub-metrics.env` (mtime ~2026-08-08 02:38 local) |
+
+**Last live sample (same night, forensics 040 @ ~06:15Z UTC):**
+
+| Field | Value |
+|-------|--------|
+| Verdict | **`GREEN`** |
+| Matches / offers / answers / drops / slow | **4 / 5 / 4 / 0 / 0** |
+| **Max MTO** | **5268** ms (`hub_field`) |
+
+**Read:** Current metrics are night-idle zeros — **not** a regression signal. Earlier live window: offers ≥ matches, every match answered, **0 drops**. One bridge `WARN SLOW match_to_offer_ms=5268` stays under `SLOW_OFFER_MS=15000` → still GREEN. No RED (`matches>0 && offers=0`).
+
+**CONNECTIVITY_LOCK still holds:** host coturn, `force_relay=false`, one offer per match, P2P only, no docker coturn revival, no always-on force_relay. **Do not undo.**
+
+**Implication:** No hub pain → **do not re-queue P0 001–004 / 001b.** Morning gate is human Play↔PC smoke + **WIP / backup reconcile**, not more offer-path tickets.
+
+---
+
+## 2. Branches table
+
+### Ranked merge list (human / Grok only — Claude must not merge)
+
+| Priority | Branch / worktree | Files touched | Connect risk | Verdict |
+|----------|-------------------|---------------|--------------|---------|
+| 1 | `admin/…-041-device-smoke-refresh` | `DEVICE_SMOKE`, Play checklist, `POLISH_NOW` → 0.1.148 + matrix rows | smoke-ok | **keep** — best docs merge; flags backup/WIP gap |
+-----------------------------------------------
+
+-------- Grok MANAGER (queue re-rank) --------
+# Manager report — night shift (Claude rate-limited / idle)
+
+**When:** 2026-08-07 ~14:40 America/Edmonton (approx)  
+**Role:** Grok MANAGER — re-rank + sharpen only; no deploy / no big code  
+**Plan:** `docs/OVERNIGHT_9H_PLAY_PLAN.md`  
+**Lock:** `docs/CONNECTIVITY_LOCK.md` (do not undo)  
+**Prior:** previous `MANAGER-LATEST` (~13:10, hub **idle**) — **superseded** by live YELLOW traffic
+
+---
+
+## Hub verdict
+
+| Field | Value |
+|-------|------:|
+| Verdict | **`YELLOW_slow`** |
+| Matches / offers / answers | **8 / 11 / 11** |
+| Drops / slow | **6 / 5** |
+| Max match→offer | **24300 ms** |
+| MTO source | `hub_field` |
+| Metrics file | `scripts/admin-agent/logs/last-hub-metrics.env` |
+
+**Read:** Live traffic returned. Offers≈answers (good), but **max MTO still ~24s** and **drops=6**. This is **not** PASS. Prior `001` audit claimed client hot paths are already &lt;2s and blamed rematch gap; `003` thrash fix is on ship path — yet metrics still look like the historical YELLOW pattern. Claude’s job is **001b forensics**, not inventing Prefer Direct or force_relay.
+
+**CONNECTIVITY_LOCK baseline (do not regress):**
+- APK **`0.1.126` / versionCode `134`**
+- Web connect rules ≥ `85c5017` + veil `44136c9`
+- P2P only; host coturn; `force_relay=false` on same-IP; one offer per match
+
+**`main` tip (local, ahead of origin):**
+1. `f037942` — *polish(mobile): friend call no-answer Call back + clearer ring/end copy*
+2. `79478a3` — *docs: lock connect baseline 0.1.126; start polish*
+3. `44136c9` — real privacy veil
+4. `85c5017` — P2P real camera outbound
+5. `52bcb92` — one-way video + stop post-answer re-offer
+6. `7769c32` / `0d61dbb` — overnight connect keepers + faster match→offer
+
+**Working tree is dirty** (many uncommitted mobile/docs/bridge files). Claude must stay on **`admin/*` worktrees** and one-concern tickets; **do not** bulk-commit modular live WIP.
+
+---
+
+---------------------------------------------
+
+Suggested next:
+  1) less /home/drakosik/freenet-roulette/tasks/admin-queue/reports/2026-08-08.md
+  2) Review branches: git branch --list 'admin/*'
+  3) For each worktree: git -C .admin-worktrees/<dir> log --oneline -5 && git -C .admin-worktrees/<dir> diff main --stat
+  4) ./scripts/hub-match-speed.sh 60
+  5) Smoke Play↔PC (APK + hard-refresh)
+  6) Merge good admin/* only after smoke (agent never pushes)
+  7) Deploy only if GREEN and you tested
+
+Docs: docs/AGENT_FACTORY.md  CLAUDE.md  docs/CONNECTIVITY_LOCK.md
+==============================================
+  Ruletka morning brief — 2026-08-09 08:00
+==============================================
+
+Pre-sleep snapshot: pre-sleep-20260808T061524Z
+  Restore if overnight went bad:
+    ./scripts/admin-agent/restore-pre-sleep.sh
+  Plan: docs/OVERNIGHT_8H_PLAY_PLAN.md
+
+=== Ruletka admin agent status ===
+ROOT=/home/drakosik/freenet-roulette
+time: 2026-08-09 08:00 MDT
+Queue: pending=0 running=0 done=152 failed=5
+
+Pre-sleep snapshot: pre-sleep-20260808T061524Z
+  restore: ./scripts/admin-agent/restore-pre-sleep.sh
+Nightly: RUNNING pid=2136927
+Claude rate-limit flag: no
+Claude success count (toward judge): 0 / 2
+Grok: judge_every=2 manager_on_limit=1
+  report: tasks/admin-queue/reports/JUDGE-LATEST.md (131 lines)
+  report: tasks/admin-queue/reports/MANAGER-LATEST.md (163 lines)
+  report: tasks/admin-queue/reports/MORNING-BRIEF.md (160 lines)
+
+Pending:
+
+Running:
+
+Recent done:
+  20260808T-090-open-on-pc-qr-design-RESULT.md
+  20260809T063004Z-050-settings-last-connect-timing-RESULT.md
+  20260809T063842Z-051-device-smoke-189-baseline-RESULT.md
+  20260809T072230Z-052-hub-match-speed-answer-metrics-RESULT.md
+  20260809T072515Z-053-pair-smoke-connect-budget-RESULT.md
+
+Failed:
+  043-match-history-ctas.md
+  044-home-online-strip.md
+  045-open-on-pc-phase1-stub.md
+  046-i18n-overlay-fill.md
+  050-settings-last-connect-timing.md
+
+Blocked (needs human / deferred):
+  034-prefer-direct-or-quality-labels.md
+  038-build-apk-template.md
+
+Claude: idle
+
+Overnight branches / worktrees:
+  + admin/20260807T123651Z-001-connect-slow-offer
+  + admin/20260807T124036Z-002-mobile-answer-path
+  + admin/20260807T133045Z-003-offer-thrash
+  + admin/20260807T135136Z-004-web-kicksolo-speed
+  + admin/20260807T173736Z-021-background-keepalive-reconnect
+  + admin/20260807T175211Z-021b-cam-mute-parity-reapply
+  + admin/20260807T184705Z-022-friend-call-ring-parity
+  + admin/20260808T061535Z-040-hub-forensics-handoff
+  + admin/20260808T061721Z-041-device-smoke-refresh
+  + admin/20260808T070321Z-042-settings-soft-toasts
+  + admin/20260808T070621Z-043-match-history-ctas
+  + admin/20260808T074943Z-044-home-online-strip
+  + admin/20260808T075248Z-045-open-on-pc-phase1-stub
+  + admin/20260808T083840Z-046-i18n-overlay-fill
+  + admin/20260808T085014Z-047-web-soft-ux-pass
+  + admin/20260809T063004Z-050-settings-last-connect-timing
+  + admin/20260809T063842Z-051-device-smoke-189-baseline
+  + admin/20260809T072230Z-052-hub-match-speed-answer-metrics
+  + admin/20260809T072515Z-053-pair-smoke-connect-budget
+Worktrees:
+  20260807T123651Z-001-connect-slow-offer
+  20260807T124036Z-002-mobile-answer-path
+  20260807T133045Z-003-offer-thrash
+  20260807T135136Z-004-web-kicksolo-speed
+  20260807T173736Z-021-background-keepalive-reconnect
+  20260807T175211Z-021b-cam-mute-parity-reapply
+  20260807T184705Z-022-friend-call-ring-parity
+  20260808T061535Z-040-hub-forensics-handoff
+  20260808T061721Z-041-device-smoke-refresh
+  20260808T070321Z-042-settings-soft-toasts
+  20260808T070621Z-043-match-history-ctas
+  20260808T074943Z-044-home-online-strip
+  20260808T075248Z-045-open-on-pc-phase1-stub
+  20260808T083840Z-046-i18n-overlay-fill
+  20260808T085014Z-047-web-soft-ux-pass
+  20260809T063004Z-050-settings-last-connect-timing
+  20260809T063842Z-051-device-smoke-189-baseline
+  20260809T072230Z-052-hub-match-speed-answer-metrics
+  20260809T072515Z-053-pair-smoke-connect-budget
+
+Latest report:
+  /home/drakosik/freenet-roulette/tasks/admin-queue/reports/2026-08-09.md (7297 lines)
+  **Verdict:** `idle`
+  ## Queue empty
+  ## Cycle start (v4.2)
+  | max match_to_offer_ms | 0 |
+  **Verdict:** `idle`
+  ## Queue empty
+  ## Cycle start (v4.2)
+  | max match_to_offer_ms | 0 |
+  **Verdict:** `idle`
+  ## Queue empty
+
+Last hub metrics:
+  ADMIN_HUB_MATCHES=0
+  ADMIN_HUB_OFFERS=0
+  ADMIN_HUB_ANSWERS=0
+  ADMIN_HUB_DROPS=0
+  ADMIN_HUB_SLOW=0
+  ADMIN_HUB_MAX_MTO=0
+  ADMIN_HUB_MTO_SOURCE=timestamp_delta
+  ADMIN_HUB_VERDICT=idle
+
+Commands:
+  ./scripts/admin-agent/run-once.sh --forensics-only
+  ./scripts/admin-agent/run-once.sh
+  ./scripts/admin-agent/run-once.sh --grok-manager   # re-rank queue
+  ./scripts/admin-agent/run-once.sh --grok-judge     # judge admin/* branches
+  ./scripts/admin-agent/run-once.sh --with-grok      # MORNING-BRIEF
+  ./scripts/admin-agent/nightly.sh
+  ./scripts/admin-agent/morning.sh
+  ./scripts/admin-agent/snapshot-pre-sleep.sh
+  ./scripts/admin-agent/restore-pre-sleep.sh
+  ./scripts/admin-agent/enqueue.sh 030 short-slug <<'EOF' ... EOF
+
+Overnight branches / worktrees:
+  + admin/20260807T123651Z-001-connect-slow-offer
+  + admin/20260807T124036Z-002-mobile-answer-path
+  + admin/20260807T133045Z-003-offer-thrash
+  + admin/20260807T135136Z-004-web-kicksolo-speed
+  + admin/20260807T173736Z-021-background-keepalive-reconnect
+  + admin/20260807T175211Z-021b-cam-mute-parity-reapply
+  + admin/20260807T184705Z-022-friend-call-ring-parity
+  + admin/20260808T061535Z-040-hub-forensics-handoff
+  + admin/20260808T061721Z-041-device-smoke-refresh
+  + admin/20260808T070321Z-042-settings-soft-toasts
+  + admin/20260808T070621Z-043-match-history-ctas
+  + admin/20260808T074943Z-044-home-online-strip
+  + admin/20260808T075248Z-045-open-on-pc-phase1-stub
+  + admin/20260808T083840Z-046-i18n-overlay-fill
+  + admin/20260808T085014Z-047-web-soft-ux-pass
+  + admin/20260809T063004Z-050-settings-last-connect-timing
+  + admin/20260809T063842Z-051-device-smoke-189-baseline
+  + admin/20260809T072230Z-052-hub-match-speed-answer-metrics
+  + admin/20260809T072515Z-053-pair-smoke-connect-budget
+Worktrees:
+  20260807T123651Z-001-connect-slow-offer
+  20260807T124036Z-002-mobile-answer-path
+  20260807T133045Z-003-offer-thrash
+  20260807T135136Z-004-web-kicksolo-speed
+  20260807T173736Z-021-background-keepalive-reconnect
+  20260807T175211Z-021b-cam-mute-parity-reapply
+  20260807T184705Z-022-friend-call-ring-parity
+  20260808T061535Z-040-hub-forensics-handoff
+  20260808T061721Z-041-device-smoke-refresh
+  20260808T070321Z-042-settings-soft-toasts
+  20260808T070621Z-043-match-history-ctas
+  20260808T074943Z-044-home-online-strip
+  20260808T075248Z-045-open-on-pc-phase1-stub
+  20260808T083840Z-046-i18n-overlay-fill
+  20260808T085014Z-047-web-soft-ux-pass
+  20260809T063004Z-050-settings-last-connect-timing
+  20260809T063842Z-051-device-smoke-189-baseline
+  20260809T072230Z-052-hub-match-speed-answer-metrics
+  20260809T072515Z-053-pair-smoke-connect-budget
+
+-------- report verdicts / claude --------
+**Verdict:** `GREEN`
+## Claude finished (exit 126, verify=1, attempts=2)
+- branch: `admin/20260809T063004Z-050-settings-last-connect-timing`
+- worktree: `/home/drakosik/freenet-roulette/.admin-worktrees/20260809T063004Z-050-settings-last-connect-timing`
+- verify: FAIL
+- tsc --noEmit: **FAIL**
+## Claude finished (exit 0, verify=0, attempts=1)
+- branch: `admin/20260809T063842Z-051-device-smoke-189-baseline`
+- worktree: `/home/drakosik/freenet-roulette/.admin-worktrees/20260809T063842Z-051-device-smoke-189-baseline`
+- verify: PASS
+**Verdict:** `GREEN`
+## Claude finished (exit 0, verify=0, attempts=1)
+- branch: `admin/20260809T072230Z-052-hub-match-speed-answer-metrics`
+- worktree: `/home/drakosik/freenet-roulette/.admin-worktrees/20260809T072230Z-052-hub-match-speed-answer-metrics`
+- verify: PASS
+## Claude finished (exit 0, verify=0, attempts=1)
+- branch: `admin/20260809T072515Z-053-pair-smoke-connect-budget`
+- worktree: `/home/drakosik/freenet-roulette/.admin-worktrees/20260809T072515Z-053-pair-smoke-connect-budget`
+- verify: PASS
+- Post-PASS soft-assert logging hub `match_to_offer_ms` against a tighter 2000ms budget (`PAIR_SMOKE_MTO_ASSERT_MS`), separate from the existing hard 3000ms gate — informational only, never fails the run.
+| 5 | `admin/…-053-pair-smoke-connect-budget` | `scripts/pair-smoke.mjs` (soft MTO/trackMs after PASS) | hold→smoke-ok after reconcile | **keep w/ reconcile** — file never on `main` history; **diff vs** dirty main `scripts/pair-smoke.mjs` before land; soft-assert only (exit code unchanged) |
+**Verdict:** `GREEN`
+**Verdict:** `idle`
+**Verdict:** `idle`
+**Verdict:** `idle`
+**Verdict:** `idle`
+**Verdict:** `idle`
+**Verdict:** `idle`
+**Verdict:** `idle`
+**Verdict:** `idle`
+------------------------------------------
+
+======== Grok MORNING-BRIEF ========
+# MORNING-BRIEF — 2026-08-08
+
+**When:** ~14:14Z / 08:14 MDT (overnight review)  
+**Role:** Grok morning brief — read-only; **no deploy, no push, no merge**  
+**Sources:** `docs/CONNECTIVITY_LOCK.md`, `docs/ROADMAP_PLAY_BROWSER.md`, `last-hub-metrics.env`, `reports/2026-08-08.md`, `JUDGE-LATEST.md`, last-24h `*-RESULT.md`, `admin/*` branches + `.admin-worktrees/`
+
+---
+
+## 1. Hub verdict
+
+| Field | Current file | Last live sample (~06:15Z) |
+|-------|--------------|----------------------------|
+| **Verdict** | **`idle`** | **`GREEN`** |
+| Matches / offers / answers | 0 / 0 / 0 | **4 / 5 / 4** |
+| Drops / slow (>15s) | 0 / 0 | **0 / 0** |
+| **Max match_to_offer_ms** | **0** | **5268** |
+| MTO source | `timestamp_delta` | `hub_field` |
+
+**Read:** Night-idle zeros are **not** a regression. Earlier same-night window was healthy: every match got an offer, every offer an answer, **0 drops**. One bridge `WARN SLOW match_to_offer_ms=5268` (web) is under `SLOW_OFFER_MS=15000` → still GREEN. Typical first-offers in that window were ~169–218 ms.
+
+**Do not re-queue P0 001–004 / 001b** from hub alone. CONNECTIVITY_LOCK still holds (P2P, host coturn, `force_relay=false`, one offer per match). **Do not undo.**
+
+**Queue:** `pending/` empty · `running/` empty · `failed/` = 4 tooling flakes (043–046) · `blocked/` = 034 Prefer Direct + 038 APK template.
+
+---
+
+## 2. What Claude changed (overnight)
+
+### Night queue 040–047 (worktrees under `.admin-worktrees/`)
+
+| Task | Branch | Auto-commit | Product files | COMPLETE |
+|------|--------|-------------|---------------|----------|
+| **040** hub forensics | `admin/…-040-hub-forensics-handoff` | `d55fb12` | `FORENSICS-HANDOFF.md` only | yes |
+| **041** device smoke docs | `admin/…-041-device-smoke-refresh` | `9182cea` | `DEVICE_SMOKE`, Play checklist, `POLISH_NOW` → 0.1.148/vc156 | yes |
+| **042** settings soft toasts | `admin/…-042-settings-soft-toasts` | `947ad17` | **admin metadata only** (no `settings.tsx` on branch) | yes (claim) |
+| **043** match-history CTAs | `admin/…-043-match-history-ctas` | `a214bc8` | `mobile/app/friends.tsx` (Call back / Ring anyway pills) | yes |
+| **044** home online strip | `admin/…-044-home-online-strip` | `ed44248` | `mobile/app/index.tsx` online pill | yes |
+| **045** open-on-pc phase1 stub | `admin/…-045-open-on-pc-phase1-stub` | `50c1744` | `OpenOnPcSheet.tsx` + Settings row + en/ru keys | yes |
+| **046** i18n overlay fill | `admin/…-046-i18n-overlay-fill` | `be9dee9` | 14× `mobile/src/i18n/overlay/*.json` | yes |
+| **047** web soft UX audit | `admin/…-047-web-soft-ux-pass` | `701d653` | **none** (clean audit) | yes |
+
+All auto-commits: local only, message pattern `admin: <task>.md` — **no push**.
+
+### Outside admin branches (critical context)
+
+| Ref | What |
+|-----|------|
+| **`backup/pre-sleep-20260808T061524Z-wip`** (`a576143`) | ~**300 files / ~31k lines** ahead of `main` by **1** commit — source of shipped features in **APK 0.1.148 / vc156** |
+| **Dirty main WT** | Hundreds of modified/untracked paths (mobile live modular, bridge, `ui/webrtc.js`/`live.js`, i18n, deploy scripts). Includes **042-style** `showToast` in `settings.tsx` already. `main` tip committed: `b502154` (docs for 0.1.136). Dirty `app.json` already **0.1.148 / 156**. |
+| **`main` vs origin** | `main` **ahead 31** of `origin/main` (local only; do not push unsupervised) |
+
+### Older admin/* still present (pre-night / prior day)
+
+`001`, `002`, `003`, `004`, `021`, `021b`, `022` — mostly **30 behind** `main`; product largely superseded or empty (see §6).
+
+---
+
+## 3. Verify status
+
+| Task | Agent exit | Verify | Notes |
+|------|------------|--------|-------|
+| 040 | 0 | **PASS** | docs-only |
+| 041 | 0 | **PASS** | docs-only |
+| 042 | 0 | **PASS** | metadata commit only — product already in dirty WT |
+| 043 | **126** | **FAIL** | Product **COMPLETE** on branch; fail = `stdbuf: Argument list too long` on verify attempt 2 + worktree tsc env noise |
+| 044 | **126** | **FAIL** | same tooling flake |
+| 045 | **126** | **FAIL** | same tooling flake |
+| 046 | **126** | **FAIL** | same tooling flake; JSON validated by Claude |
+| 047 | 0 | **PASS** | no-op audit |
+
+**Treat failed/043–046 as tooling flake, not product failure** — RESULTs all mark **`COMPLETE`**.
+
+### COMPLETE RESULTs (last ~24h, high signal)
+
+Night product: **040, 041, 042, 043, 044, 045, 046, 047**, plus **090** design.  
+Earlier (still in window): **001b**, **022**, **023**, **033**, **035**, **036**, **037**, **020/021/021b**.
+
+---
+
+## 4. Connect risk → **HOLD** (do not deploy)
+
+**Verdict: HOLD** — be conservative.
+
+| Factor | Signal |
+|--------|--------|
+| Hub | idle / last live GREEN — good, not a green light for ship |
+| Night Claude product | mostly docs / polish / i18n / unwired stub — low connect risk **per branch** |
+| Dirty main + backup WIP | **high** — includes connect-touching paths (`ui/webrtc.js`, `ui/live.js`, `MediaSession`, bridge) unreviewed as a unit |
+| APK vs `main` tip | Binary **0.1.148-vc156** exists; committed `main` tip still documents **0.1.136**; feature source lives in **backup + dirty WT** |
+| Human Play↔PC smoke this morning | **not yet** recorded in this brief |
+
+**Safe to deploy only after:** Play↔PC smoke on intended APK + hard-refresh web ≥ lock rules, hub shows **1 offer + 1 answer**, `force_relay=false` on LAN, both cams + audio. Until then: **hold all deploys**.
+
+CONNECTIVITY_LOCK baseline remains: P2P only · host coturn · no always-on `force_relay` · no docker coturn revival · no double-offer thrash.
+
+---
+
+## 5. Top 3 next actions (human smoke + interactive Grok)
+
+1. **Play↔PC connect smoke (P0 gate)**  
+   - Install `mobile/artifacts/ruletka-0.1.148-vc156.apk` (or lock APK `0.1.126-vc134` if testing pure lock path).  
+   - Hard-refresh `https://ruletka.vip/live.html`. Both Start once; no Next spam 15s.  
+   - Expect both cams + audio; hub **1 offer + 1 answer**; `force_relay=false`.  
+   - Optional: `./scripts/hub-match-speed.sh 30` — target max MTO **&lt; 2000ms** on a real pair.
+
+2. **Reconcile WIP before any merge/APK bump**  
+   - Review `backup/pre-sleep-20260808T061524Z-wip` + dirty main against CONNECTIVITY_LOCK (especially `webrtc.js` / `live.js` / mobile media).  
+   - Land coherent commits on a **review branch** (not unsupervised dump-commit/`main` force).  
+   - **Do not** `--bump` from bare committed `main` (0.1.136 tip) or friends/gifts/Stop/toast features drop.
+
+3. **Merge ranked admin keeps after tip is clean** (order): **041 → 046 → 043/045 → 040**; skip discard list; re-apply **044** only if still wanted after backup land. Then seed optional **048** residual mojibake i18n only if queue should stay busy — **not** connect tickets.
+
+---
+
+## 6. admin/* branches — merge vs discard
+
+### Ready to merge (after WIP reconcile + smoke when product touches UI)
+
+| Priority | Branch | Why |
+|----------|--------|-----|
+| 1 | `…-041-device-smoke-refresh` | Docs → 0.1.148 matrix; flags backup gap; zero behavior |
+| 2 | `…-046-i18n-overlay-fill` | Pure overlay JSON; best product keep this cycle |
+| 3 | `…-043-match-history-ctas` | UI-only `friends.tsx`; **will conflict** with backup friends polish — cherry-pick after WIP preferred |
+| 4 | `…-045-open-on-pc-phase1-stub` | Unwired stub + en/ru; Settings conflict risk vs dirty WT |
+| 5 | `…-040-hub-forensics-handoff` | Report doc only; optional anytime |
+
+### Needs-fix (do not blind-merge)
+
+| Branch | Why |
+|--------|-----|
+| `…-044-home-online-strip` | Backup already surfaces online count differently; re-apply on tip if strip still wanted |
+| `…-022-friend-call-ring-parity` | ~29 behind; residual of interest only if tip lacks repeating `Vibration.vibrate([0,120,…], true)` on `incomingCall` |
+
+### Discard (noise / empty / superseded)
+
+| Branch | Why |
+|--------|-----|
+| `…-042-settings-soft-toasts` | **No product on branch**; soft toasts already in dirty main `settings.tsx` |
+| `…-047-web-soft-ux-pass` | Legitimate no-op audit |
+| `…-001-connect-slow-offer` | Empty product; P0 done on newer main |
+| `…-002-mobile-answer-path` | Ancient base + MediaSession thrash risk |
+| `…-003-offer-thrash` | Superseded ship path; do not merge |
+| `…-004-web-kicksolo-speed` | Empty product |
+| `…-021-background-keepalive-reconnect` | Base too old |
+| `…-021b-cam-mute-parity-reapply` | Already on tip / WIP |
+
+### Blocked tickets (leave)
+
+- `blocked/034-prefer-direct-or-quality-labels.md` — high connect risk; unblock only after green smoke + explicit OK  
+- `blocked/038-build-apk-template.md` — Grok owns APK after meaningful `mobile/` land  
+
+---
+
+## One-line status
+
+**Hub: idle (last live GREEN, max MTO 5.3s) · Night Claude: 8 COMPLETE polish/docs tasks · Verify flakes on 043–046 · Deploy: HOLD · First job: Play↔PC smoke + WIP reconcile, then merge 041/046/043/045.**
+
+---
+
+*No deploy · no push · no main merge performed by this brief.*
+====================================
+
+-------- Grok mid-night JUDGE (summary) --------
+# JUDGE-LATEST — night-shift manager
+
+**When:** 2026-08-09 ~01:30 MDT (Grok mid-night judge)  
+**Repo tip (committed `main`):** `b502154` — *docs(play): internal-test checklist + listing refresh for 0.1.136*  
+**Role:** judge only — no implement, no deploy, no push, no merge to main.  
+**Prior JUDGE:** 2026-08-08 (idle hub) — **superseded**.
+
+---
+
+## 1. Hub snapshot
+
+| Field | Value |
+|-------|--------|
+| **Verdict** | **`GREEN`** |
+| Matches / offers / answers | **7 / 9 / 9** |
+| Drops / slow | **1 / 0** |
+| **Max MTO** | **1170** ms |
+| MTO source | `hub_field` |
+| Metrics file | `scripts/admin-agent/logs/last-hub-metrics.env` (mtime ~2026-08-09 01:22 MDT) |
+
+**Read:** Live window is healthy. Offers ≥ matches, answers = offers, **0 SLOW**, max match→offer **~1.2 s** (well under lock targets). Single drop is not RED. **Do not re-open P0 001–004 / 001b** from hub pain — there is none.
+
+**CONNECTIVITY_LOCK (do not undo):** P2P only; host coturn; `pair_force_relay=true` for same public IP **or** web↔android/ios; one offer per match; offer debounce ~3.5s; answerer re-offer grace ≥30s; no docker coturn revival; no always-on force_relay outside those cases. Human baseline notes cameras linked fast (APK path **0.1.205** / lock doc; committed `main` still **0.1.136** — WIP lives outside commits).
+
+**Implication:** Morning gate is **WIP reconcile + selective cherry-pick**, not more offer-path tickets.
+
+---
+
+## 2. Branches table
+
+### Ranked merge list (human / Grok only — Claude must not merge)
+
+| Priority | Branch / worktree | Files touched | Connect risk | Verdict |
+|----------|-------------------|---------------|--------------|---------|
+| 1 | `admin/…-046-i18n-overlay-fill` | 14× `mobile/src/i18n/overlay/*.json` (notify/friends/live + env-leak fix + mojibake on needStars) | smoke-ok | **keep** — best pure-product keep; no connect path |
+| 2 | `admin/…-051-device-smoke-189-baseline` | `docs/DEVICE_SMOKE.md` (Start-once, CONNECT toast note, hub-only smoke) | smoke-ok | **keep** — docs; version left at real tip 0.1.136 (correct; do not invent 0.1.189 on `main`) |
+| 3 | `admin/…-041-device-smoke-refresh` | `DEVICE_SMOKE` + Play checklist + `POLISH_NOW` | smoke-ok | **keep** after 051 — fold if overlapping; prefer newer 051 wording where they collide |
+| 4 | `admin/…-052-hub-match-speed-answer-metrics` | `scripts/hub-match-speed.sh` (answer/grace/android-SLOW rows) | smoke-ok | **keep w/ reconcile** — main WT already has **untracked** richer script (`match_to_ice_ms`); **keep WT/Grok copy if newer**, drop branch duplicate |
+| 5 | `admin/…-053-pair-smoke-connect-budget` | `scripts/pair-smoke.mjs` (soft MTO/trackMs after PASS) | hold→smoke-ok after reconcile | **keep w/ reconcile** — file never on `main` history; **diff vs** dirty main `scripts/pair-smoke.mjs` before land; soft-assert only (exit code unchanged) |
+| 6 | `admin/…-043-match-history-ctas` | `mobile/app/friends.tsx` Call back / Ring anyway pills | smoke-ok | **keep** with care — UI-only; likely conflict with dirty friends/WIP modules |
+-----------------------------------------------
+
+-------- Grok MANAGER (queue re-rank) --------
+# Manager report — night shift (Claude rate-limited / idle)
+
+**When:** 2026-08-07 ~14:40 America/Edmonton (approx)  
+**Role:** Grok MANAGER — re-rank + sharpen only; no deploy / no big code  
+**Plan:** `docs/OVERNIGHT_9H_PLAY_PLAN.md`  
+**Lock:** `docs/CONNECTIVITY_LOCK.md` (do not undo)  
+**Prior:** previous `MANAGER-LATEST` (~13:10, hub **idle**) — **superseded** by live YELLOW traffic
+
+---
+
+## Hub verdict
+
+| Field | Value |
+|-------|------:|
+| Verdict | **`YELLOW_slow`** |
+| Matches / offers / answers | **8 / 11 / 11** |
+| Drops / slow | **6 / 5** |
+| Max match→offer | **24300 ms** |
+| MTO source | `hub_field` |
+| Metrics file | `scripts/admin-agent/logs/last-hub-metrics.env` |
+
+**Read:** Live traffic returned. Offers≈answers (good), but **max MTO still ~24s** and **drops=6**. This is **not** PASS. Prior `001` audit claimed client hot paths are already &lt;2s and blamed rematch gap; `003` thrash fix is on ship path — yet metrics still look like the historical YELLOW pattern. Claude’s job is **001b forensics**, not inventing Prefer Direct or force_relay.
+
+**CONNECTIVITY_LOCK baseline (do not regress):**
+- APK **`0.1.126` / versionCode `134`**
+- Web connect rules ≥ `85c5017` + veil `44136c9`
+- P2P only; host coturn; `force_relay=false` on same-IP; one offer per match
+
+**`main` tip (local, ahead of origin):**
+1. `f037942` — *polish(mobile): friend call no-answer Call back + clearer ring/end copy*
+2. `79478a3` — *docs: lock connect baseline 0.1.126; start polish*
+3. `44136c9` — real privacy veil
+4. `85c5017` — P2P real camera outbound
+5. `52bcb92` — one-way video + stop post-answer re-offer
+6. `7769c32` / `0d61dbb` — overnight connect keepers + faster match→offer
+
+**Working tree is dirty** (many uncommitted mobile/docs/bridge files). Claude must stay on **`admin/*` worktrees** and one-concern tickets; **do not** bulk-commit modular live WIP.
+
+---
+
+---------------------------------------------
+
+Suggested next:
+  1) less /home/drakosik/freenet-roulette/tasks/admin-queue/reports/2026-08-09.md
+  2) Review branches: git branch --list 'admin/*'
+  3) For each worktree: git -C .admin-worktrees/<dir> log --oneline -5 && git -C .admin-worktrees/<dir> diff main --stat
+  4) ./scripts/hub-match-speed.sh 60
+  5) Smoke Play↔PC (APK + hard-refresh)
+  6) Merge good admin/* only after smoke (agent never pushes)
+  7) Deploy only if GREEN and you tested
+
+Docs: docs/AGENT_FACTORY.md  CLAUDE.md  docs/CONNECTIVITY_LOCK.md

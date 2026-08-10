@@ -1,0 +1,1 @@
+All 31 `settings.conn*` keys in `ui/i18n/en.json` were already present and translated in `ru.json` — no gaps found, so no edits were made. RESULT written to `tasks/admin-queue/done/113-web-i18n-conn-keys-ru-RESULT.md` with Status: COMPLETE, Connect risk: none.

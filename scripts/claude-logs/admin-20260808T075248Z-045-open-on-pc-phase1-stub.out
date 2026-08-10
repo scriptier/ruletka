@@ -1,0 +1,19 @@
+
+===== attempt 1 / 2 =====
+Done. Summary:
+
+**Implemented** the Phase 1 "Open on PC" UI stub per `docs/OPEN_ON_PC_QR.md` (design doc found only as an untracked file in the main checkout, not this branch's history — read it directly to get spec):
+
+- New `mobile/src/pc/OpenOnPcSheet.tsx`: pure-UI bottom sheet, no QR lib (none in deps), shows the public URL (`https://ruletka.vip`) and friend code with tap-to-copy rows.
+- Wired one new row into `mobile/app/settings.tsx` → About section only (not Start/match/offer path).
+- Added `en`/`ru` i18n strings.
+- Committed on `admin/20260808T075248Z-045-open-on-pc-phase1-stub` (no push), following the same convention as the prior `003-offer-thrash` admin commit.
+
+**Verify:** JSON validated; `tsc --noEmit` run via a temp symlink to the main checkout's `node_modules` (this worktree has none, and much of `mobile/src/*` — e.g. `feedback/`, `safety/` — exists only as untracked files in the main working copy, so it's invisible to this branch). That pre-existing gap produces ~100 unrelated module-resolution errors project-wide, reproducing identically on `settings.tsx`'s existing imports; my new file introduced exactly one error, and it's the same pre-existing-environment one. No app run/smoke test possible in this worktree.
+
+One side note: committing triggered the repo's `post-commit` hook, which kicked off a **local, no-push, no-deploy** APK rebuild in the background (`mobile/artifacts/apk-hook.log`) — that's existing repo automation (`build-apk-local.sh`, no `--bump`), not something I invoked directly, and it doesn't touch Play/website.
+
+RESULT written to `tasks/admin-queue/done/20260808T075248Z-045-open-on-pc-phase1-stub-RESULT.md`, status **DONE / COMPLETE**.
+
+===== attempt 2 / 2 =====
+/home/drakosik/freenet-roulette/scripts/admin-agent/lib.sh: line 754: /usr/bin/stdbuf: Argument list too long

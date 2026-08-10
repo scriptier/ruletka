@@ -1,0 +1,25 @@
+I'll act as night-shift judge: gather hub metrics, admin branches, recent RESULT files, and pending queue—then write a ranked merge verdict.Hub is idle. Next I'll pull per-branch diffs and skim the latest RESULT files for merge verdicts.Main advanced with a ship commit; comparing it to admin branches to see what's already landed.Main already absorbed the overnight connect keepers. Writing the judge report with discard-heavy branch verdicts and the next-cycle queue.## Judge complete
+
+Wrote `tasks/admin-queue/reports/JUDGE-LATEST.md`.
+
+### Hub
+- **Verdict:** `idle` · **max MTO:** 0 (no live pairs — not a green connect)
+
+### Branches (decisive)
+| Verdict | Branch |
+|---------|--------|
+| **discard** | 001, 004 (audit-only / empty) |
+| **discard** | 002, 003, 021b — product already on `main` via **`7769c32` ship** |
+| **needs-fix** | 021 only residual: `onReconnectStart?` not on main; **do not merge whole branch** (would fight modular `live.tsx`) |
+
+**Do not merge any of the six `admin/*` branches as-is.** Ship commit already took: answer GUM cap (002), pending-remote-offer thrash guards (003), adaptiveQuality, camOffHint/LiveBottomBar, base background-pause.
+
+### Next Claude cycle
+1. **022** friend-call ring parity  
+2. **023** web unfocused notify  
+3. **036** Play checklist docs (safe filler while human smokes)
+
+**034** stays blocked until human Play↔PC green. No pending rewrites.
+
+### Morning human
+Smoke **Play↔PC on `main` `7769c32`**, then prune stale admin worktrees/branches. Optional tiny **021c** for reconnect banner wiring only.

@@ -1,0 +1,1 @@
+Audit complete: the notify friend-call chips already use the shared `Chip` component with proper `accessibilityState={{ selected }}`, `accessibilityRole="button"`, and label wiring — no changes needed. RESULT written to `tasks/admin-queue/done/125-settings-notify-chips-RESULT.md` with status COMPLETE.

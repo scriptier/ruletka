@@ -1,0 +1,3 @@
+
+===== attempt 1 / 2 =====
+Done. Summary: converted the non-destructive `Alert.alert` calls in `mobile/app/settings.tsx` (unblock failure, export success/fail, import needs-password/wrong-password/success/fail) to `showToast`, while keeping the unblock confirm, import-overwrite confirm, hub-unhealthy confirm, export-password-strength gate, and the legal-link URL fallback as Alerts. `tsc --noEmit` shows no errors in this file. RESULT written to `tasks/admin-queue/done/20260808T070321Z-042-settings-soft-toasts-RESULT.md` with `COMPLETE`.

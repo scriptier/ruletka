@@ -1,0 +1,7 @@
+Done. Synced the blur/privacy strings across all 12 non-EN/RU overlay packs:
+
+- **Fixed wrong "default" copy** in `ar`, `bg`, `cs`, `de`, `es`, `fr`, `pl`, `pt`, `uk` (they previously claimed Brief/Hold was the default; now correctly say Off is default/fastest).
+- **Added the missing block entirely** to `sr`, `tr`, `zh`, which had none of these keys and were silently falling back to (correct) English — now they show localized copy.
+- Added `blurModeSaved` and `mobile.home.liveTips` to every pack; `en.json` and `ru.json` were left untouched (already correct).
+
+No changes to `mobile/app/*`, media, or WebRTC code. RESULT written to `tasks/admin-queue/done/054-i18n-blur-overlay-sync-RESULT.md` with COMPLETE.

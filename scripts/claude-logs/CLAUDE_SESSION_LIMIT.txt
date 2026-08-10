@@ -1,0 +1,5 @@
+Claude CLI session limit hit ~2026-08-09 08:56Z
+Message: You've hit your session limit · resets 5:40am (America/Edmonton)
+Continuous shift stopped to avoid burning tasks.
+Resume after reset: ./scripts/agents/start-sleep-shift.sh
+Grok continues polish + APK builds until then.

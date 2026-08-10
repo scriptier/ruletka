@@ -1,0 +1,20 @@
+I'll act as night-shift judge: gather hub metrics, admin branches/diffs, recent RESULT files, and the pending queue, then write a ranked merge verdict.Next I'll inspect both admin branches' logs/diffs and the latest RESULT reports.Checking the real code delta on 002 and whether `adaptiveQuality.ts` is accidental branch pollution.Writing the judge report and tightening task `004` so the next cycle doesn't re-audit work already covered by `001`.## Judge complete
+
+Wrote **`tasks/admin-queue/reports/JUDGE-LATEST.md`**. Light rewrite of pending **`004`**. No blocked moves. No deploy/push/merge.
+
+### Hub
+**idle** · max MTO **0** · no live pain to score
+
+### Ranked merge
+| Rank | Branch | Verdict |
+|------|--------|---------|
+| 1 | `admin/…-002-mobile-answer-path` | **keep** — MediaSession answer-path GUM 1100ms cap; also lands missing `adaptiveQuality.ts` (untracked on main but imported). Smoke Play↔PC (web offerer, cold cam) before human merge. |
+| 2 | `admin/…-001-connect-slow-offer` | **discard** — audit-only, no product diff |
+
+### Next Claude cycle
+1. **`003-offer-thrash.md`** (P0) — promote-vs-real-offer residual from 002 + historic hub debounce drops  
+2. **`004-web-kicksolo-speed.md`** — short close-out (001 already proved budgets; ticket rewritten)  
+3. **`020-cam-mute-parity.md`** only after P0s  
+
+### Morning human
+Smoke → merge 002 (+ `adaptiveQuality.ts`) · discard 001 · do not trust idle hub as green light.

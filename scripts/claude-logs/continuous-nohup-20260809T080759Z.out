@@ -1,0 +1,75 @@
+[2026-08-09T08:07:59Z] CONTINUOUS START idle=180s between=20s auto_refill=1 max=0
+[2026-08-09T08:07:59Z] stop with: ./scripts/agents/stop-sleep-shift.sh
+[2026-08-09T08:07:59Z] refill → pending/058-settings-hint-consistency.md
+[2026-08-09T08:07:59Z] ▶ task 1: 058-settings-hint-consistency.md
+[2026-08-09T08:08:46Z] ✓ ok=1 fail=0
+[2026-08-09T08:09:06Z] refill → pending/059-home-offline-copy.md
+[2026-08-09T08:09:06Z] ▶ task 2: 059-home-offline-copy.md
+[2026-08-09T08:10:38Z] ✓ ok=2 fail=0
+[2026-08-09T08:10:58Z] refill → pending/060-docs-device-smoke-228.md
+[2026-08-09T08:10:58Z] ▶ task 3: 060-docs-device-smoke-228.md
+[2026-08-09T08:12:45Z] ✓ ok=3 fail=0
+[2026-08-09T08:13:05Z] refill → pending/061-pair-smoke-doc-link.md
+[2026-08-09T08:13:05Z] ▶ task 4: 061-pair-smoke-doc-link.md
+[2026-08-09T08:16:42Z] ✓ ok=4 fail=0
+[2026-08-09T08:17:02Z] refill → pending/062-friends-i18n-empty-keys.md
+[2026-08-09T08:17:02Z] ▶ task 5: 062-friends-i18n-empty-keys.md
+[2026-08-09T08:17:44Z] ✓ ok=5 fail=0
+[2026-08-09T08:18:04Z] refill → pending/063-unit-blurMode-edge.md
+[2026-08-09T08:18:04Z] ▶ task 6: 063-unit-blurMode-edge.md
+[2026-08-09T08:18:51Z] ✓ ok=6 fail=0
+[2026-08-09T08:19:11Z] refill → pending/064-mobile-npm-test-script-doc.md
+[2026-08-09T08:19:11Z] ▶ task 7: 064-mobile-npm-test-script-doc.md
+[2026-08-09T08:19:48Z] ✓ ok=7 fail=0
+[2026-08-09T08:20:08Z] refill → pending/065-web-hotkeys-verify-note.md
+[2026-08-09T08:20:08Z] ▶ task 8: 065-web-hotkeys-verify-note.md
+[2026-08-09T08:20:41Z] ✓ ok=8 fail=0
+[2026-08-09T08:21:01Z] refill → pending/066-report-sheet-i18n-scan.md
+[2026-08-09T08:21:01Z] ▶ task 9: 066-report-sheet-i18n-scan.md
+[2026-08-09T08:21:38Z] ✓ ok=9 fail=0
+[2026-08-09T08:21:58Z] refill → pending/069-live-meta-strip-a11y.md
+[2026-08-09T08:21:58Z] ▶ task 10: 069-live-meta-strip-a11y.md
+[2026-08-09T08:23:05Z] ✓ ok=10 fail=0
+[2026-08-09T08:23:25Z] refill → pending/070-partner-chrome-longpress-hint.md
+[2026-08-09T08:23:25Z] ▶ task 11: 070-partner-chrome-longpress-hint.md
+[2026-08-09T08:24:47Z] ✓ ok=11 fail=0
+[2026-08-09T08:25:07Z] refill → pending/071-gift-bar-empty-hint.md
+[2026-08-09T08:25:07Z] ▶ task 12: 071-gift-bar-empty-hint.md
+[2026-08-09T08:28:04Z] ✓ ok=12 fail=0
+[2026-08-09T08:28:24Z] refill → pending/072-connect-steps-i18n.md
+[2026-08-09T08:28:24Z] ▶ task 13: 072-connect-steps-i18n.md
+[2026-08-09T08:28:42Z] ✓ ok=13 fail=0
+[2026-08-09T08:29:02Z] refill → pending/074-index-build-badge-copy.md
+[2026-08-09T08:29:02Z] ▶ task 14: 074-index-build-badge-copy.md
+[2026-08-09T08:31:04Z] ✓ ok=14 fail=0
+[2026-08-09T08:31:24Z] queue empty — sleep 180s (add tasks to pending/ or backlog/)
+[2026-08-09T08:34:24Z] refill → pending/075-queue-hints-i18n.md
+[2026-08-09T08:34:24Z] ▶ task 15: 075-queue-hints-i18n.md
+[2026-08-09T08:36:01Z] ✓ ok=15 fail=0
+[2026-08-09T08:36:21Z] refill → pending/076-status-banners-a11y.md
+[2026-08-09T08:36:21Z] ▶ task 16: 076-status-banners-a11y.md
+[2026-08-09T08:38:08Z] ✓ ok=16 fail=0
+[2026-08-09T08:38:28Z] refill → pending/077-debate-chrome-a11y.md
+[2026-08-09T08:38:28Z] ▶ task 17: 077-debate-chrome-a11y.md
+[2026-08-09T08:40:40Z] ✓ ok=17 fail=0
+[2026-08-09T08:41:00Z] refill → pending/077-debate-chrome-a11y.md
+[2026-08-09T08:41:00Z] ▶ task 18: 077-debate-chrome-a11y.md
+[2026-08-09T08:44:47Z] ✓ ok=18 fail=0
+[2026-08-09T08:45:07Z] refill → pending/078-search-label-i18n.md
+[2026-08-09T08:45:07Z] ▶ task 19: 078-search-label-i18n.md
+[2026-08-09T08:46:33Z] ✓ ok=19 fail=0
+[2026-08-09T08:46:54Z] refill → pending/079-conn-pill-a11y.md
+[2026-08-09T08:46:54Z] ▶ task 20: 079-conn-pill-a11y.md
+[2026-08-09T08:51:11Z] ✓ ok=20 fail=0
+[2026-08-09T08:51:31Z] refill → pending/080-settings-save-feedback.md
+[2026-08-09T08:51:31Z] ▶ task 21: 080-settings-save-feedback.md
+[2026-08-09T08:54:54Z] ✓ ok=21 fail=0
+[2026-08-09T08:55:14Z] refill → pending/081-bottom-bar-state-hints.md
+[2026-08-09T08:55:14Z] ▶ task 22: 081-bottom-bar-state-hints.md
+[2026-08-09T08:56:31Z] ✓ ok=22 fail=0
+[2026-08-09T08:56:51Z] refill → pending/082-partner-blur-veil-a11y.md
+[2026-08-09T08:56:51Z] ▶ task 23: 082-partner-blur-veil-a11y.md
+[2026-08-09T08:57:02Z] ✓ ok=23 fail=0
+[2026-08-09T08:57:22Z] refill → pending/083-chat-overlay-a11y.md
+[2026-08-09T08:57:22Z] ▶ task 24: 083-chat-overlay-a11y.md
+[2026-08-09T08:57:29Z] ✓ ok=24 fail=0

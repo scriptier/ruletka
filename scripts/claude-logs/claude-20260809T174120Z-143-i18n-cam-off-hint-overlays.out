@@ -1,0 +1,5 @@
+Fixed. Audit found that `mobile.live.camOffHint` had drifted out of sync in 2 of 14 locales — `en.json` and `ru.json` had been overwritten with an unrelated phrase (bled in from the separate `camOffToast` key), while the other 12 locales still correctly read "Hidden from them" (matching web's `btn.selfBlurBadge` parity string from tasks 020/021b). Restored `en.json` → `"Hidden from them"` and `ru.json` → `"Скрыты от них"`, matching the other 12 locales and web. No new keys, no code changes.
+
+Also found (but left out of scope, since it's a different key and a larger job): `mobile.live.camOffToast` — the cam-off toast — has untranslated literal English in 9 locales and is missing entirely in 3 (sr/tr/zh). Noted in the RESULT for a follow-up ticket.
+
+RESULT written to `tasks/admin-queue/done/143-i18n-cam-off-hint-overlays-RESULT.md`, marked COMPLETE.

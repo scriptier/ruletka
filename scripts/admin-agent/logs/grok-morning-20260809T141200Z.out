@@ -1,0 +1,30 @@
+I'll gather the connectivity docs, hub metrics, admin queue reports/results, and admin branch/worktree state, then write the morning brief.Next I'll pull today's admin report, last-24h RESULT files, and git history on admin branches.Pulling the day's report head/tail, COMPLETE tallies, queue state, and product diffs on tonight's admin branches.I have enough to write an accurate morning brief: hub idle after a GREEN night window, Claude 050–053 on admin branches, then a large 054–100 polish wave mostly on the dirty main tree.Wrote **`tasks/admin-queue/reports/MORNING-BRIEF.md`**. Summary:
+
+### 1. Hub
+- **Current file: `idle`** (0/0/0)
+- **Last live night: GREEN** — max MTO **1140–1170 ms**, 0 slow, offers≈answers
+- Do **not** re-open P0 connect tickets
+
+### 2. Claude overnight
+- **050–053** on `admin/*` worktrees with auto-commits (local only)
+- **054–100** polish wave: COMPLETE RESULTs, mostly **dirty main**, **no** admin branches
+- Dirty WT still huge (~467 paths), including `webrtc.js` / `live.js` / MediaSession
+
+### 3. Verify
+- **051–053: PASS** · **050: FAIL** (tooling/`stdbuf`/worktree tsc)
+- All night RESULTs claim **COMPLETE**
+
+### 4. Deploy
+- **HOLD** — hub green ≠ ship green; unreviewed connect WIP + no morning smoke yet
+
+### 5. Top actions
+1. Play↔PC smoke on **0.1.244-vc252**
+2. Reconcile dirty main (connect paths first)
+3. Cherry-pick keep list after tip is clean
+
+### 6. Branches
+- **Keep:** 051, 041, 046, 043, 045, 040; 052/053 after script reconcile
+- **Fix later:** 050, 044, maybe 022 cherry
+- **Discard:** 001–004, 021/021b, 042, 047
+
+No deploy, no push, read-only review only.

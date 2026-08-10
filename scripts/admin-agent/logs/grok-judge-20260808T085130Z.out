@@ -1,0 +1,31 @@
+I'll judge Claude's overnight work: gather hub metrics, admin branches, queue state, and connectivity lock, then write a ranked merge verdict.Pending is empty; collecting branch diffs, latest RESULT summaries, and any open P0 tickets.Checking worktree dirtiness: RESULT claims product changes but some branches only show admin metadata.Writing the judge report: hub is idle (last live sample was GREEN); several night branches are empty or false-COMPLETE; real keepers are 041/046/043/045 with caveats.## Judge complete
+
+Wrote **`tasks/admin-queue/reports/JUDGE-LATEST.md`**.
+
+### Hub
+- **Now:** `idle` (all zeros) — night traffic gone, not a failure.
+- **Last live (040):** **GREEN**, max MTO **5268** ms, 0 drops. No P0 re-queue.
+
+### Ranked keep (human merge only)
+1. **041** docs smoke refresh  
+2. **046** i18n overlay fill (best product)  
+3. **043** friends history CTAs (UI; expect backup conflict)  
+4. **045** Open-on-PC stub  
+5. **040** forensics docs (optional)
+
+### Discard
+- Empty/no-op: **001, 004, 042, 047**  
+- Stale connect: **002, 003, 021, 021b**  
+- **042 is false COMPLETE** — branch has no product; soft toasts already sit in **dirty main** `settings.tsx`
+
+### Needs-fix
+- **044** (backup already has online count, different UI)  
+- **022** (old base; vibration-only residual at most)
+
+### Next Claude cycle
+- **`pending/` is empty** — do not invent connect work  
+- Seed **048 i18n mojibake residual** only after WIP reconcile  
+- **034 / 038** stay blocked  
+- Morning priority: reconcile **`backup/pre-sleep-…-wip`** + dirty main before next APK bump
+
+Hard rules unchanged: no deploy, no push, no merge to main, no CONNECTIVITY_LOCK undo.

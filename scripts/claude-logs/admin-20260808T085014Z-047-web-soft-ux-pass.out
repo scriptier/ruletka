@@ -1,0 +1,3 @@
+
+===== attempt 1 / 2 =====
+Audit complete, no changes needed. `ui/live.js` has zero blocking `alert()` calls and zero stop-confirm remnants; the 7 remaining `confirm()` calls all guard destructive/irreversible actions (identity wipe, plaintext export, overwrite import, block, clear chat), matching mobile's own `Alert.alert` pattern for the same actions — so this isn't a residual UX gap, it's intentional parity. RESULT written to `tasks/admin-queue/done/20260808T085014Z-047-web-soft-ux-pass-RESULT.md` with COMPLETE.
