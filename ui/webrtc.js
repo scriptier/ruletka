@@ -114,17 +114,16 @@ function setSessionForceRelay(on) {
     } catch (_) {}
   }
   applyIceDirectPreference();
-  // Policy flip → rewarm only if queue warm PC isn't already the right policy.
-  // Old code always clearIceWarm() here and killed pre-allocated TURN right
-  // before kickSolo (multi-second linking lag after a healthy SDP).
+  // force_relay is HYBRID (policy=all, TURN first) — never warm pure-relay PC.
+  // Pure relay warm + hybrid match PC caused thrash / peer_usage≈0 / PC black.
   if (was !== next && typeof warmIcePool === "function") {
     try {
-      const want = next ? "relay" : "all";
+      const want = "all";
       if (typeof warmPcPolicy === "function" && warmPcPolicy() === want) {
-        console.info("[webrtc] force_relay keep warm policy=" + want);
+        console.info("[webrtc] force_relay keep warm policy=all hybrid");
       } else {
         clearIceWarm();
-        warmIcePool({ force: true, preferRelay: !!next });
+        warmIcePool({ force: true, preferRelay: false });
       }
     } catch (_) {}
   }
@@ -546,12 +545,11 @@ function warmIcePool(opts = {}) {
       const urls = Array.isArray(s.urls) ? s.urls : s.urls ? [s.urls] : [];
       return urls.some((u) => /^turns?:/i.test(String(u || "")));
     });
-    // Warm pure-relay: one UDP TURN, pool=0 (no pre-ALLOC storm).
-    const wantRelayPath =
-      hideIpRelayOnlyEnabled() ||
-      sessionForceRelayEnabled() ||
-      !!opts.preferRelay;
-    if (wantRelayPath && hasTurn) {
+    // Pure-relay warm ONLY for Hide IP (or explicit preferRelay).
+    // force_relay match = hybrid warm (TURN first, policy=all).
+    const wantPureRelay =
+      hideIpRelayOnlyEnabled() || !!opts.preferRelay;
+    if (wantPureRelay && hasTurn) {
       const turnOnly = filterIceServersByMode(raw, "turn");
       if (turnOnly.length) {
         let udp = udpTurnOnly(preferFastTurnFirst(turnOnly));
@@ -565,11 +563,18 @@ function warmIcePool(opts = {}) {
         };
       }
     } else if (hasTurn) {
+      // Hybrid: TURN first + STUN, policy all (force_relay + normal)
+      const turnOnly = filterIceServersByMode(raw, "turn");
+      const stun = filterIceServersByMode(raw, "stun");
+      let turn = udpTurnOnly(preferFastTurnFirst(turnOnly));
+      if (!turn.length) turn = preferFastTurnFirst(turnOnly);
+      if (turn.length > 1) turn = turn.slice(0, 1);
       cfg = {
         ...cfg,
-        iceServers: preferFastTurnFirst(raw),
+        iceServers: preferFastTurnFirst([...turn, ...stun, ...raw]),
         iceTransportPolicy: "all",
-        iceCandidatePoolSize: ICE_CANDIDATE_POOL_SIZE,
+        iceCandidatePoolSize:
+          sessionForceRelayEnabled() ? 1 : ICE_CANDIDATE_POOL_SIZE,
       };
     }
     const policy =
@@ -1030,11 +1035,13 @@ function lowLatencyAudioConstraints(extra = {}) {
 }
 
 /**
- * Pure relay-only PC (Hide IP or hub force_relay).
+ * Pure iceTransportPolicy=relay PC — Hide IP privacy ONLY.
+ * Hub force_relay is HYBRID (policy=all + TURN preferred). Treating force_relay
+ * as pure relay rebuilt PCs against hybrid config → peer_usage≈0 / PC black
+ * partner on same-LAN (2026-08-10).
  */
 function isRelayMediaMode() {
   try {
-    if (sessionForceRelayEnabled()) return true;
     if (typeof hideIpRelayOnlyEnabled === "function" && hideIpRelayOnlyEnabled()) {
       return true;
     }
@@ -1046,6 +1053,11 @@ function isRelayMediaMode() {
   return false;
 }
 
+/** True when path may use TURN (jitter floors / soft recover timing). */
+function isTurnPreferredPath() {
+  return isRelayMediaMode() || sessionForceRelayEnabled();
+}
+
 /**
  * Playout target ms — same value applied to audio *and* video for lipsync.
  * On TURN/relay (Hide IP), use a slightly higher matched target so browsers
@@ -1055,7 +1067,7 @@ function isRelayMediaMode() {
  */
 function playoutTargetForTier(tier, opts = {}) {
   const low = isLowLatencyAudioEnabled();
-  const relay = opts.relay === true || isRelayMediaMode();
+  const relay = opts.relay === true || isTurnPreferredPath();
   // Floors kept conservative — too-low jitter targets underrun on Wi‑Fi/mobile
   // and sound like crackle / dropouts ("crapping out").
   if (relay) {
@@ -1615,8 +1627,7 @@ class RouletteWebRtc {
     // CRITICAL: never tear down a PC that is already negotiating / live.
     // Double connect() was closing PC1 mid-offer and sending a second offer
     // (hub logs: offer → answer → offer ~0.3s later) → black video thrash.
-    // force_relay / hide_ip: rebuild if PC is not already relay-policy.
-    // (Hub: web offer with relay_candidates=0 = all-policy PC leaked into match.)
+    // Hide IP only: rebuild if PC is not pure-relay. force_relay stays hybrid.
     try {
       applyIceDirectPreference();
     } catch (_) {}
@@ -1633,7 +1644,7 @@ class RouletteWebRtc {
         )
       );
     if (needRelayRebuild) {
-      console.info("[webrtc] connect() rebuild — force_relay/hide relay-only PC");
+      console.info("[webrtc] connect() rebuild — hide_ip pure-relay PC");
       try {
         this.pc.close();
       } catch (_) {}
@@ -1644,7 +1655,7 @@ class RouletteWebRtc {
       this.pc &&
       this.pc.signalingState !== "closed" &&
       this.pc.connectionState !== "closed" &&
-      // Do not keep a non-relay PC under force_relay just because it is "active"
+      // Pure hide_ip only — do not thrash hybrid force_relay PCs
       !(isRelayMediaMode() && !this._relayPc) &&
       (this.pc.localDescription ||
         this.pc.remoteDescription ||
@@ -1684,19 +1695,20 @@ class RouletteWebRtc {
     } catch (_) {}
     // Promote queue warm PC when policy matches — TURN already allocated
     // (biggest Play↔browser first-frame win). Else free warm and create cold.
-    const wantRelay = isRelayMediaMode();
+    // Hybrid force_relay + normal → warm "all". Pure hide_ip → warm "relay".
+    const wantPure = isRelayMediaMode();
     let promoted = false;
     try {
       if (
         typeof takeWarmPc === "function" &&
-        warmPcPolicy() === (wantRelay ? "relay" : "all")
+        warmPcPolicy() === (wantPure ? "relay" : "all")
       ) {
         const warm = takeWarmPc();
         if (warm && warm.signalingState !== "closed") {
           this.pc = warm;
           promoted = true;
           console.info(
-            "[webrtc] connect() promoted warm PC relay=" + (wantRelay ? 1 : 0)
+            "[webrtc] connect() promoted warm PC pure=" + (wantPure ? 1 : 0)
           );
         }
       } else if (typeof clearIceWarm === "function") {
@@ -1711,7 +1723,8 @@ class RouletteWebRtc {
       this.pc = new RTCPeerConnection(iceConfig);
     }
     this._pcBornAt = Date.now();
-    this._relayPc = isRelayMediaMode() || promoted;
+    this._relayPc =
+      iceConfig.iceTransportPolicy === "relay" || wantPure;
     this._offerInFlight = false;
     this._offerSentOnce = false;
     this._offerEmitOk = false;
@@ -2316,10 +2329,11 @@ class RouletteWebRtc {
             " warm=" +
             (warmOk ? 1 : 0)
         );
-        // One hard rebuild if still zero (wrong iceTransportPolicy PC)
-        if (n === 0 && !opts._relayRetry) {
+        // Pure hide_ip only: rebuild pure-relay PC if still no relay.
+        // force_relay hybrid: do NOT rebuild pure-relay (that caused PC black).
+        if (n === 0 && !opts._relayRetry && isRelayMediaMode()) {
           console.warn(
-            "[webrtc] offer no relay — rebuild relay PC and retry once"
+            "[webrtc] offer no relay — rebuild pure hide_ip PC and retry once"
           );
           try {
             this.pc.close();
@@ -2329,8 +2343,6 @@ class RouletteWebRtc {
           this._offerInFlight = false;
           this._offerSentOnce = false;
           this._offerEmitOk = false;
-          // CRITICAL: clear match lock before recursive retry — otherwise
-          // _createAndSendOffer sees lock held and skips forever (0 wire offers).
           try {
             if (typeof window !== "undefined") {
               window.__ruletMatchOfferLock = 0;
@@ -2740,8 +2752,8 @@ class RouletteWebRtc {
       // Rebuild only when policy is wrong (warm PC already relay → keep it).
       // Always-rebuild here made every answer cold-TURN (~0.5–1s).
       applyIceDirectPreference();
-      // force_relay: rebuild if wrong policy OR dirty warm (have-local-offer)
-      const frDirty =
+      // Hide IP pure only: rebuild if dirty warm. force_relay hybrid: keep PC.
+      const pureDirty =
         isRelayMediaMode() &&
         this.pc &&
         !this._answeredAt &&
@@ -2752,11 +2764,11 @@ class RouletteWebRtc {
           iceConfig.iceTransportPolicy === "relay" &&
           this.pc &&
           !this._relayPc) ||
-        frDirty
+        pureDirty
       ) {
         console.info(
-          "[webrtc] rebuild PC for force_relay before answer dirty=" +
-            (frDirty ? 1 : 0)
+          "[webrtc] rebuild PC for hide_ip before answer dirty=" +
+            (pureDirty ? 1 : 0)
         );
         try {
           this.pc.close();
@@ -3130,6 +3142,7 @@ if (typeof window !== "undefined") {
   window.sessionForceRelayEnabled = sessionForceRelayEnabled;
   window.setSessionForceRelay = setSessionForceRelay;
   window.isRelayMediaMode = isRelayMediaMode;
+  window.isTurnPreferredPath = isTurnPreferredPath;
   window.isRelayIceCandidate = isRelayIceCandidate;
   window.waitForIceGatherRelayOrDone = waitForIceGatherRelayOrDone;
   window.requestOutboundKeyframes = requestOutboundKeyframes;
