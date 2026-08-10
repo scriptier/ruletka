@@ -1397,12 +1397,11 @@ function LiveBody() {
             if (!skipEarly && !promoteSecondary) {
               remotePeerId.current = peer.peerId;
               const sess = mediaRef.current || media;
-              if (m.force_relay) {
-                try {
-                  sess.setForceRelay?.(true);
-                } catch {
-                  /* ignore */
-                }
+              // Always apply hub flag (true or false) — clears sticky pure after Stop.
+              try {
+                sess.setForceRelay?.(!!m.force_relay);
+              } catch {
+                /* ignore */
               }
               const t0 = Date.now();
               log(
@@ -1411,12 +1410,10 @@ function LiveBody() {
               // FAST: if search already prefetched TURN, do not await HTTP ICE.
               // await fetchIceConfig + warmConnection added 200–800ms every match.
               const kick = async () => {
-                if (m.force_relay) {
-                  try {
-                    sess.setForceRelay?.(true);
-                  } catch {
-                    /* ignore */
-                  }
+                try {
+                  sess.setForceRelay?.(!!m.force_relay);
+                } catch {
+                  /* ignore */
                 }
                 const iceWarm =
                   iceHasTurnRef.current ||
@@ -1447,7 +1444,7 @@ function LiveBody() {
                 // warmConnection: preferRelay when force_relay so answer reuses TURN PC
                 try {
                   const p = sess.warmConnection?.({
-                    preferRelay: !!(m.force_relay || iceWarm),
+                    preferRelay: !!m.force_relay,
                   });
                   if (p && !iceWarm) {
                     await Promise.race([
@@ -2298,7 +2295,7 @@ function LiveBody() {
   }, [connected, phase, reconnectHub]);
 
   // Prefetch ICE/TURN + cam on Live focus so first match is cache-hot.
-  // preferRelay: Play↔browser almost always force_relay — warm TURN PC early.
+  // Hybrid warm only — preferRelay arms pure force_relay (black same-LAN).
   useFocusEffect(
     useCallback(() => {
       hub
@@ -2309,7 +2306,7 @@ function LiveBody() {
           iceHasTurnRef.current = !!cfg.has_turn;
           void mediaRef.current?.ensureLocalStream().catch(() => {});
           void mediaRef.current
-            ?.warmConnection({ preferRelay: !!cfg.has_turn })
+            ?.warmConnection({ preferRelay: false })
             .catch(() => {});
         })
         .catch(() => {});
@@ -2325,7 +2322,7 @@ function LiveBody() {
         mediaRef.current?.setIceConfig(cfg);
         iceHasTurnRef.current = !!cfg.has_turn;
         return mediaRef.current?.warmConnection({
-          preferRelay: iceHasTurnRef.current,
+          preferRelay: false,
         });
       })
       .catch(() => {});
@@ -2593,7 +2590,7 @@ function LiveBody() {
     }
     // While queueing: warm TURN PC so match→offer is near-instant for web partners
     void mediaRef.current
-      ?.warmConnection({ preferRelay: iceHasTurnRef.current })
+      ?.warmConnection({ preferRelay: false })
       .catch(() => {});
   }
 
@@ -2659,7 +2656,7 @@ function LiveBody() {
           iceHasTurnRef.current = !!cfg.has_turn;
           push(`ICE prefetch has_turn=${cfg.has_turn}`);
           return mediaRef.current?.warmConnection({
-            preferRelay: !!cfg.has_turn,
+            preferRelay: false,
           });
         })
         .catch(() => {});
@@ -2709,30 +2706,26 @@ function LiveBody() {
       stayUntilRef.current = 0;
       setStayRemSecs(0);
       try {
-        if (iceHasTurnRef.current) {
-          mediaRef.current?.setForceRelay?.(true);
-          media2Ref.current?.setForceRelay?.(true);
-        }
+        mediaRef.current?.setForceRelay?.(false);
+        media2Ref.current?.setForceRelay?.(false);
       } catch {
         /* ignore */
       }
       media2Ref.current?.closeCall({ keepLocal: true, sendBye: true });
       mediaRef.current?.closeCall({ keepLocal: true, sendBye: true });
-      // Next = immediate re-search; warm while queueing so 2nd match isn't cold
+      // Next = re-search; hybrid warm (pure only if hub re-arms force_relay)
       hub
         .fetchIceConfig()
         .then((cfg) => {
           mediaRef.current?.setIceConfig(cfg);
           iceHasTurnRef.current = !!cfg.has_turn;
-          if (cfg.has_turn) {
-            try {
-              mediaRef.current?.setForceRelay?.(true);
-            } catch {
-              /* ignore */
-            }
+          try {
+            mediaRef.current?.setForceRelay?.(false);
+          } catch {
+            /* ignore */
           }
           return mediaRef.current?.warmConnection({
-            preferRelay: !!cfg.has_turn,
+            preferRelay: false,
           });
         })
         .catch(() => {});
@@ -2792,7 +2785,7 @@ function LiveBody() {
           media2Ref.current?.setIceConfig(cfg);
           iceHasTurnRef.current = !!cfg.has_turn;
           return mediaRef.current?.warmConnection({
-            preferRelay: !!cfg.has_turn,
+            preferRelay: false,
           });
         })
         .catch(() => {});
@@ -2818,32 +2811,28 @@ function LiveBody() {
       void leaveCallAudio();
       resetDebateUi();
       hapticLight();
-      // Prefer relay sticky before close so closeCall_rewarm uses TURN policy
+      // Clear pure-relay sticky — hub force_relay only (or Hide IP) may re-arm.
       try {
-        if (iceHasTurnRef.current) {
-          mediaRef.current?.setForceRelay?.(true);
-          media2Ref.current?.setForceRelay?.(true);
-        }
+        mediaRef.current?.setForceRelay?.(false);
+        media2Ref.current?.setForceRelay?.(false);
       } catch {
         /* ignore */
       }
       media2Ref.current?.closeCall({ keepLocal: true, sendBye: true });
       mediaRef.current?.closeCall({ keepLocal: true, sendBye: true });
-      // Re-warm TURN PC for next Start (Stop must not leave a cold path)
+      // Hybrid warm (TURN available, policy=all) — pure only if hide IP pref
       hub
         .fetchIceConfig()
         .then((cfg) => {
           mediaRef.current?.setIceConfig(cfg);
           iceHasTurnRef.current = !!cfg.has_turn;
-          if (cfg.has_turn) {
-            try {
-              mediaRef.current?.setForceRelay?.(true);
-            } catch {
-              /* ignore */
-            }
+          try {
+            mediaRef.current?.setForceRelay?.(false);
+          } catch {
+            /* ignore */
           }
           return mediaRef.current?.warmConnection({
-            preferRelay: !!cfg.has_turn,
+            preferRelay: false,
           });
         })
         .catch(() => {});

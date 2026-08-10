@@ -61,19 +61,8 @@ export async function runConnectRetry(
       deps.log("hard retry startCall ok (forced offerer)");
       return { hard, hasTurn, remoteStream: null, ok: true };
     }
-    // Soft: prefer TURN-only restart when still no remote video (host path
-    // often "connects" with black tiles / endless checking). Then iceRestart.
-    const noVideo =
-      !(media.getRemoteStream()?.getVideoTracks?.() || []).length;
-    if (
-      noVideo &&
-      hasTurn &&
-      typeof (media as { setForceRelay?: (on: boolean) => void }).setForceRelay ===
-        "function"
-    ) {
-      (media as { setForceRelay: (on: boolean) => void }).setForceRelay(true);
-      deps.log("soft retry arm force_relay (no remote video)");
-    }
+    // Soft: iceRestart only — do NOT arm pure force_relay.
+    // Pure TURN hairpin on same LAN left peer_usage=0 / both black (2026-08-10).
     // Soft: iceRestart / restartIce only — NEVER promote or hard-rebuild here.
     // Soft→hard escalate-as-offerer caused hub dual-offer @~6–12s
     // (android match_to_offer_ms 6200/11600) while web already had offer+answer.

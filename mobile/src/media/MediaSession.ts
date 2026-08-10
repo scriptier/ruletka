@@ -1299,13 +1299,20 @@ export class MediaSession {
   }
 
   /**
-   * Hub force_relay → pure iceTransportPolicy=relay (same-IP hairpin path).
+   * Hub force_relay / hide_ip → pure iceTransportPolicy=relay.
+   * Clearing must drop pure-relay PC so next call can use host (same LAN).
    */
   setForceRelay(on: boolean): void {
     const next = !!on;
     const was = this.forceRelayOnce;
     this.forceRelayOnce = next;
-    if (next === was) return;
+    if (next === was && !!this.pc) {
+      // Still ensure PC policy matches (sticky pure PC after clear race)
+      const wantPure = this.desiredRelayPolicy();
+      if (this.pcUsesRelayPolicy === wantPure) return;
+    } else if (next === was) {
+      return;
+    }
     if (next) {
       this.handlers.onConnectionState?.("force_relay_armed_pure");
     } else {
@@ -1319,18 +1326,13 @@ export class MediaSession {
       !this.makingOffer &&
       !this.offerSentThisCall;
     if (!idle) return;
-    if (!wantPure) {
+    if (this.pcUsesRelayPolicy === wantPure && !!this.pc) {
       this.handlers.onConnectionState?.(
-        `force_relay_keep_all fr=${next ? 1 : 0}`
+        `force_relay_keep_warm policy=${wantPure ? "relay" : "all"}`
       );
       return;
     }
-    if (this.pcUsesRelayPolicy === wantPure) {
-      this.handlers.onConnectionState?.(
-        `force_relay_keep_warm policy=relay`
-      );
-      return;
-    }
+    // Rebuild on pure↔all flip (critical: hangup used to leave pure PC forever)
     try {
       this.pc?.close();
     } catch {
@@ -1338,6 +1340,7 @@ export class MediaSession {
     }
     this.pc = null;
     this.warmed = false;
+    this.pcUsesRelayPolicy = false;
     this.pendingRemoteIce = [];
     this.makingOffer = false;
     try {
@@ -1345,7 +1348,7 @@ export class MediaSession {
         this.ensurePc();
         this.warmed = true;
         this.handlers.onConnectionState?.(
-          `force_relay_rewarm policy=relay pure=1`
+          `force_relay_rewarm policy=${wantPure ? "relay" : "all"} pure=${wantPure ? 1 : 0}`
         );
       }
     } catch {
@@ -3967,9 +3970,12 @@ export class MediaSession {
     this.relayPath = false;
     this.qualityTier = this.dataSaver || this.onCellular ? "low" : "mid";
     this.signalChain = Promise.resolve();
-    // Keep forceRelayOnce sticky across hangup so next warmConnection /
-    // startCall reuses relay policy without a cold all→relay rebuild.
-    // (2nd match slow was: close cleared path → warm "all" → match re-arms relay.)
+    // Clear sticky pure-relay unless Hide IP. Auto-arming forceRelay on every
+    // hangup forced pure TURN hairpin (peer_usage=0 / black both cams) even when
+    // hub force_relay=false for same-LAN host P2P (2026-08-10).
+    if (!this.hideIp) {
+      this.forceRelayOnce = false;
+    }
     if (sendBye) {
       try {
         this.handlers.onSignal?.("bye", "{}");
@@ -4002,22 +4008,16 @@ export class MediaSession {
       this.localStream = null;
       this.localStreamPromise = null;
     }
-    // Immediate idle warm under relay if TURN known (next Start/match attach-only)
-    // Full warmConnection primes real TURN ALLOCATE (not bare ensurePc).
-    if (this.hasTurn() || this.forceRelayOnce) {
-      try {
-        if (!this.forceRelayOnce && this.hasTurn()) {
-          this.forceRelayOnce = true;
-        }
-        if (this.hasIceServers() && keepLocal) {
-          void this.warmConnection({ preferRelay: true });
-          this.handlers.onConnectionState?.(
-            `closeCall_rewarm_async relay=${this.forceRelayOnce ? 1 : 0}`
-          );
-        }
-      } catch {
-        /* next startCall will create */
+    // Hybrid warm (policy=all + TURN) for next Start — pure only if hide_ip
+    try {
+      if (this.hasIceServers() && keepLocal) {
+        void this.warmConnection({ preferRelay: !!this.hideIp });
+        this.handlers.onConnectionState?.(
+          `closeCall_rewarm_async pure=${this.hideIp ? 1 : 0} fr=${this.forceRelayOnce ? 1 : 0}`
+        );
       }
+    } catch {
+      /* next startCall will create */
     }
   }
 

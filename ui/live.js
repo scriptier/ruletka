@@ -9891,13 +9891,22 @@ function startWebrtcWatch() {
       if (!selfBlurred && !camOff) void pushOutboundVideoTracks();
     } catch (_) {}
     try {
-      if (typeof setSessionForceRelay === "function") {
+      // Hard recover: rebuild PC without sticky pure-relay (same-LAN host path).
+      // Pure force_relay only for Hide IP — otherwise TURN hairpin blacks cams.
+      const hideOnly =
+        typeof hideIpRelayOnlyEnabled === "function" &&
+        hideIpRelayOnlyEnabled();
+      if (hideOnly && typeof setSessionForceRelay === "function") {
         setSessionForceRelay(true);
       }
       const target = rtc || [...peerPcs.values()][0];
       const pid =
         target?.remotePeerId || lastMatchedPeers?.[0]?.peer_id || "";
-      log("watch hard: no video — TURN rebuild");
+      log(
+        hideOnly
+          ? "watch hard: no video — pure TURN rebuild (hide_ip)"
+          : "watch hard: no video — hybrid rebuild"
+      );
       schedulePeerHardReconnect(pid, target || null);
     } catch (_) {}
   }, hardMs);
@@ -24052,10 +24061,21 @@ function resetClientMediaSession({ clearLastPeers = true } = {}) {
     schedulePeerHardReconnect._busy = false;
   } catch (_) {}
   try {
-    // KEEP session force_relay sticky after Stop/Next.
-    // Clearing it flipped relay→all, destroyed warm TURN PC, then next Matched
-    // re-armed force_relay and cold-allocated TURN → 2nd match "slow again".
-    // Hub still sends force_relay on Matched; arm only if needed (no clear).
+    // Clear session pure-relay on hangup unless Hide IP. Sticky pure after Stop
+    // forced TURN hairpin (peer_usage=0 / black cams) while hub force_relay=false
+    // for normal/same-LAN pairs (2026-08-10). Hub re-arms on next Matched if needed.
+    if (
+      typeof setSessionForceRelay === "function" &&
+      typeof hideIpRelayOnlyEnabled === "function" &&
+      !hideIpRelayOnlyEnabled()
+    ) {
+      setSessionForceRelay(false);
+    } else if (
+      typeof setSessionForceRelay === "function" &&
+      typeof hideIpRelayOnlyEnabled !== "function"
+    ) {
+      setSessionForceRelay(false);
+    }
   } catch (_) {}
   try {
     vpnRelayRecoveryDone = false;
@@ -24068,12 +24088,13 @@ function resetClientMediaSession({ clearLastPeers = true } = {}) {
       lastMatchedPeers = [];
     } catch (_) {}
   }
-  // IMMEDIATE re-warm after hangup (not only when still in queue).
-  // First match promotes warm PC → call; hangup closes it. Without this,
-  // 2nd Start races cold TURN ALLOCATE.
+  // Hybrid warm after hangup (policy=all + TURN). Pure only for Hide IP.
   try {
     if (typeof warmIcePool === "function") {
-      warmIcePool({ preferRelay: true, force: true });
+      const pure =
+        typeof hideIpRelayOnlyEnabled === "function" &&
+        hideIpRelayOnlyEnabled();
+      warmIcePool({ preferRelay: !!pure, force: true });
     }
   } catch (_) {}
   try {
