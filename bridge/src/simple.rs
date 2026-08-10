@@ -9572,8 +9572,13 @@ pub(crate) fn ip_untrusted_for_direct(ip: &str) -> bool {
 /// When hub should set `force_relay` on a stranger pair.
 ///
 /// **LOCK (2026-08-09):** do **not** force_relay solely because platforms are
-/// web↔android. That caused one-way / black PC partner. Only hide_ip, same
-/// public IP, or untrusted client IPs.
+/// web↔android. That caused one-way / black PC partner.
+///
+/// **LOCK (2026-08-10):** do **not** force_relay solely because public IPs are
+/// equal (same LAN / same Wi‑Fi). That forced pure TURN hairpin through
+/// coturn (`CREATE_PERM` to private 10.x, `peer_usage` rp=0) while host P2P
+/// works on home LAN — both cams black. Same-IP pairs use `policy=all` + TURN
+/// fail-open instead. Pure relay remains for hide_ip / untrusted IPs only.
 ///
 /// Platforms are intentionally **not** parameters — if you re-add web↔android
 /// here, `pair_force_relay_web_android_must_not_force` fails.
@@ -9589,11 +9594,8 @@ pub(crate) fn pair_force_relay_decision(
     if ip_untrusted_for_direct(ip_a) || ip_untrusted_for_direct(ip_b) {
         return true;
     }
-    let ia = ip_a.trim();
-    let ib = ip_b.trim();
-    if !ia.is_empty() && ia == ib {
-        return true;
-    }
+    // Same public IP: do NOT force_relay (see LOCK 2026-08-10 above).
+    let _ = (ip_a, ip_b);
     false
 }
 
@@ -9627,13 +9629,13 @@ mod connectivity_lock_tests {
     }
 
     #[test]
-    fn same_public_ip_forces() {
-        assert!(pair_force_relay_decision(
-            false,
-            false,
-            "203.0.113.10",
-            "203.0.113.10"
-        ));
+    fn same_public_ip_does_not_force() {
+        // Same LAN / same Wi‑Fi: host P2P preferred. force_relay pure-TURN
+        // hairpin left peer_usage=0 / both black (2026-08-10 headless forensics).
+        assert!(
+            !pair_force_relay_decision(false, false, "203.0.113.10", "203.0.113.10"),
+            "same public IP must NOT force_relay"
+        );
     }
 
     #[test]

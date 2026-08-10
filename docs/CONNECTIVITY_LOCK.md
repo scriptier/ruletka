@@ -31,7 +31,7 @@ Do **not** regress connect without a proven better alternative + **phone+PC smok
 |--------|--------------|-----|
 | coturn | **host** unit (`systemctl`), not docker | Docker lost auth → ALLOCATE failed |
 | `/etc/turnserver.conf` | `use-auth-secret` + **`external-ip=PUBLIC/PRIVATE`** | PUBLIC-only → CreatePermission **403** on relay↔relay |
-| **`pair_force_relay`** | **true** only for **hide_ip** **or** **same public IP** **or** **untrusted client IP** | **NOT** every web↔android — that caused **PC black partner** (2026-08-09) |
+| **`pair_force_relay`** | **true** only for **hide_ip** **or** **untrusted client IP** | **NOT** every web↔android · **NOT** same public IP (same-LAN pure TURN hairpin → peer_usage=0 / both black, 2026-08-10) |
 | offer debounce | hub drops 2nd offer within **~3.5s** | Sub-second thrash blocked |
 | answerer re-offer grace | drop offer from a client that already **answered** until match age **≥30s** | Phone rebuild@~10–24s after healthy path |
 | deploy | keep host coturn across `push.sh` | Never primary docker coturn |
@@ -51,8 +51,8 @@ cargo test -p freenet-roulette-bridge connectivity_lock
 2. **Answerer never re-offers** after answering (hub will drop; thrash kills media).
 3. **Answerer: no `addTrack` before `setRemote(offer)`** — only `replaceTrack` into offer m-lines (extra m-lines → phone→PC black).
 4. **Hide IP** → pure `iceTransportPolicy=relay` + strip host/srflx.
-5. **Hub `force_relay` (same public IP / untrusted IP)** → pure `iceTransportPolicy=relay` + strip host/srflx (UDP TURN only). Hybrid `policy=all` left host preferred → `peer_usage≈0` / both black (2026-08-10).
-6. **Normal match** (cross-network, `force_relay=false`) → `policy=all` + TURN in config; ICE picks path.
+5. **Hub `force_relay` (hide_ip / untrusted IP only)** → pure `iceTransportPolicy=relay` + strip host/srflx (UDP TURN only).
+6. **Normal match** (incl. same Wi‑Fi / same public IP) → `force_relay=false`, `policy=all` + TURN in config; ICE prefers **host** on LAN.
 7. Don’t treat **ICE checking alone** as “already live” without remote **frames**.
 8. **No force_relay arm mid-call** from auto soft/hard retry.
 9. Browser: real cam outbound for strangers; paint once when track + frames exist.
@@ -81,7 +81,7 @@ cargo test -p freenet-roulette-bridge connectivity_lock
 2. Hard-refresh `https://ruletka.vip/live.html` (**`webrtc.js?v=285`**).
 3. Hide IP **off**. Both Start **once**; **no Next spam for 15s**.
 4. Hub log for that match:
-   - Cross-network: **`force_relay=false`**; same Wi‑Fi: **`force_relay=true`** (pure TURN both sides)
+   - Normal / same Wi‑Fi: **`force_relay=false`** (host OK); hide_ip: **`force_relay=true`**
    - **1 offer (web) + 1 answer (android)**
    - **no** `answerer first-path grace` drop
    - `video_dir=sendrecv` on answer
@@ -105,7 +105,9 @@ cargo test -p freenet-roulette-bridge connectivity_lock
 - Dense `streamEpoch` / remount ladders after first frame  
 - Docker coturn as primary / peer IP allowlist on coturn  
 - `external-ip=PUBLIC` only  
-- Hybrid `policy=all` for hub `force_relay` (same-IP hairpin) — pure relay is required  
+- **`pair_force_relay` for same public IP** (same-LAN pure TURN hairpin blacked both cams)  
+- Hybrid thrash / pure thrash without phone+PC smoke  
+
 - Answerer `addTrack` before `setRemoteDescription(offer)`  
 - SFU/LiveKit as default media path  
 - Unmount partner RTCView while privacy-blurred (black hole) / RN Modal over SurfaceView  

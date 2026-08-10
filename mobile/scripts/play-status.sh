@@ -22,8 +22,8 @@ notes() {
 ${VER} (${VC}) — closed testing
 
 • Play↔PC both cams (CONNECTIVITY_LOCK · no blanket force_relay)
-• Location + behind bars on partner tile; post-call Start restored
-• Mute badge only; blur veil default off; hybrid ICE
+• Same Wi‑Fi: host P2P (no same-IP force_relay pure-TURN hang)
+• Blur mosaic (zOrder 0) · mute badges · post-call Start restored
 • Partner name · place · ★; gifts “To {partner}”
 • Privacy · Terms · Safety; 18+ · CSAE
 

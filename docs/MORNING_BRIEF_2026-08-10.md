@@ -13,6 +13,10 @@ adb install -r mobile/artifacts/ruletka-0.1.283-vc291.apk
 # eye blur → frosted mosaic (not pure black) · Show video
 ```
 
+**Hub fix live (overnight):** same public IP no longer sets `force_relay=true`
+(pure TURN hairpin left `peer_usage=0` / ICE stuck). Same Wi‑Fi should use **host**.
+Hub log expect: **`force_relay=false`** · 1 web offer + 1 android answer.
+
 Optional Internal: upload `mobile/artifacts/ruletka-0.1.283-vc291.aab`
 
 ## What overnight proved (no human phone)

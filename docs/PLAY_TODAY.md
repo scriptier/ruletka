@@ -11,10 +11,10 @@
 
 ## Why this build
 
-- **Same-LAN both cams** — hub `force_relay` → pure `iceTransportPolicy=relay` (not hybrid host-hang)
+- **Same-LAN both cams** — hub does **not** force_relay on same public IP (host P2P; pure TURN hairpin was black)
+- **Hide IP** still pure TURN; untrusted IP still force_relay
 - **No dual-offer** — Android hub-answerer never promotes@~9s
-- **Blur veil** — RTCView stays at **zOrder 0** under opaque mosaic (not pure black unmount hole)
-- **CONNECTIVITY_LOCK** — still **no** blanket web↔android force_relay; hide_ip pure only for privacy
+- **Blur veil** — RTCView at **zOrder 0** under opaque mosaic
 - Regression: `./scripts/test-connectivity-lock.sh`
 
 ## Smoke (before Console)
