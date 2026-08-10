@@ -1,37 +1,47 @@
-# Ship status — 0.1.280 (288)
+# Ship status — 0.1.282 (290)
 
-**Updated:** 2026-08-10 · **Prod:** healthy · **Git:** `main` on origin
+**Updated:** 2026-08-10 · **Prod web:** live · **Git:** `main` @ `cd22836`
 
 ## Gate results
 
 | Gate | Status |
 |------|--------|
-| `./scripts/test-connectivity-lock.sh` | Pass (7 cargo + 7 mobile units) |
+| `./scripts/test-connectivity-lock.sh` | Pass |
 | Hub `/health` | `ok` · TURN on |
-| Live assets | `live.js?v=520` · `live-stage.css?v=373` · brand/web-push 200 |
-| `play-status.sh` | 19 OK · 1 WARN (no auto-submit JSON) |
-| AAB / APK | `mobile/artifacts/ruletka-0.1.280-vc288.{aab,apk}` |
+| Live assets | `webrtc.js?v=285` · pure `force_relay` |
+| APK | `mobile/artifacts/ruletka-0.1.282-vc290.apk` |
 
-## What’s in this build
+## What this fix does (bilateral black video)
 
-- Play↔PC video: no blanket web↔android `force_relay` (CONNECTIVITY_LOCK)
-- Hub `partner_geo` (late IP lookup) · soft “looking up location…” on Android
-- Behind bars: PC paints jail on **self** tile ~15s (not toast-only)
-- Post-call: Start returns (clears stuck `has-remote-feed`)
-- Mute badge only · blur veil default off · hybrid ICE
+Same-LAN (same public IP) always sets hub `force_relay=true`. Hybrid
+`iceTransportPolicy=all` preferred host → hairpin hung, coturn
+`peer_usage≈0`, **both cams black**. Android answerer also promoted@~9s
+→ dual-offer glare.
 
-## Human-only remaining
+**Locked path now:**
 
-1. **Play Console → Internal testing**  
-   Upload: `mobile/artifacts/ruletka-0.1.280-vc288.aab`  
-   Notes: `cd mobile && ./scripts/play-status.sh --notes`
-2. **Device smoke** (one real phone + PC)  
-   ```bash
-   adb install -r mobile/artifacts/ruletka-0.1.280-vc288.apk
-   # hard-refresh https://ruletka.vip/live.html
-   # match ≥30s both cams · Stop → Start · optional 🔒 bars on PC self-cam
-   ```
+1. Hub `force_relay` → pure `iceTransportPolicy=relay` (UDP TURN only) on **web + Android**
+2. Strip host/srflx under force_relay (no private CREATE_PERM)
+3. Android hub-answerer **never promotes** to offerer (waits for web)
+4. Hide IP still pure relay (unchanged)
 
-## Agent stop line
+## Human smoke (required)
 
-No further product code required for this ship slice. Next “proceed” without a new bug report = maintenance only (docs, ignore noise, optional Play notes paste).
+```bash
+adb install -r mobile/artifacts/ruletka-0.1.282-vc290.apk
+# hard-refresh https://ruletka.vip/live.html  (must show webrtc.js?v=285)
+# Hide IP off · blur off · Start once · wait 15s · no Next spam
+```
+
+Success:
+
+- PC sees phone face **and** phone sees PC ≥30s
+- Hub: `force_relay=true` (same Wi‑Fi) · **1 web offer + 1 android answer**
+- No `answerer first-path grace` drop
+- Coturn: `peer_usage` rising both ways (not stuck ~0)
+
+## Do not re-enable without re-proof
+
+- Hybrid `policy=all` for hub force_relay
+- Answerer promote-to-offerer watchdog
+- Blanket web↔android force_relay (cross-city must stay false)
