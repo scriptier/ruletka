@@ -12,7 +12,6 @@ import {
   BackHandler,
   KeyboardAvoidingView,
   Linking,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -3253,7 +3252,7 @@ function LiveBody() {
     if (!partnerUserId.current) partnerUserId.current = uid;
     reportShotB64.current = null;
     setReportShotUri(null);
-    // Report Modal stacks above privacy Modal; keep veil (don't force unblur).
+    // Report sheet stacks above privacy veil; keep veil (don't force unblur).
     setMoreOpen(false);
     setReportOpen(true);
     setReportCapturing(true);
@@ -4679,7 +4678,7 @@ function LiveBody() {
                   theyMutedMe={theyMutedMe}
                   partnerMuted={partnerMuted}
                   remoteBlurred={remoteBlurred}
-                  // Full-screen Modal owns privacy UI — avoid duplicate blur row under bar
+                  // Full-screen overlay owns privacy UI — avoid duplicate blur row
                   showBlurBanner={!showPrivacyBlur}
                   theyMutedLabel={
                     t("mobile.live.theyMutedYou") ||
@@ -4940,35 +4939,30 @@ function LiveBody() {
       </View>
 
       {/*
-        Full-screen privacy Modal — separate window above any leftover SurfaceView.
-        Partner RTCView is also unmounted in LiveStageVideo while veiled.
+        Privacy veil: in-tree absolute overlay (NOT RN Modal).
+        On many Android OEMs, Modal sits UNDER WebRTC SurfaceView even with
+        zOrder games — user only saw a black stage. Partner RTCView is
+        unmounted while veiled; this View paints the mosaic on top.
       */}
-      <Modal
-        visible={!!showPrivacyBlur}
-        animationType="fade"
-        transparent={false}
-        presentationStyle="fullScreen"
-        statusBarTranslucent
-        hardwareAccelerated
-        onRequestClose={() => {
-          // Android back: reveal video (do not exit Live)
-          revealPartnerVideo("blur_modal_back");
-        }}
-      >
+      {showPrivacyBlur ? (
         <View
           style={{
-            flex: 1,
+            ...StyleSheet.absoluteFillObject,
+            zIndex: 9999,
+            elevation: 9999,
             backgroundColor: "#3a4a66",
             paddingTop: Math.max(insets.top, 16),
             paddingBottom: Math.max(insets.bottom, 16),
             paddingHorizontal: 20,
-            zIndex: 100,
-            elevation: 40,
           }}
           testID="live-blur-fullscreen"
           collapsable={false}
+          pointerEvents="auto"
         >
-          <View style={{ flex: 1, borderRadius: 20, overflow: "hidden" }} collapsable={false}>
+          <View
+            style={{ flex: 1, borderRadius: 20, overflow: "hidden" }}
+            collapsable={false}
+          >
             <PartnerBlurVeil
               title={t("mobile.live.blurTitle") || "Privacy veil"}
               partnerLabel={partnerBlurLine}
@@ -4989,7 +4983,7 @@ function LiveBody() {
               ready={!!remoteVideoReady || !!hasRemoteVideo}
               onPress={() => {
                 hapticLight();
-                revealPartnerVideo("blur_modal");
+                revealPartnerVideo("blur_overlay");
                 showToastRef.current(
                   t("mobile.live.partnerVideoOn") || "Partner video shown"
                 );
@@ -5007,7 +5001,7 @@ function LiveBody() {
             <Pressable
               onPress={() => {
                 hapticLight();
-                revealPartnerVideo("blur_modal_next");
+                revealPartnerVideo("blur_overlay_next");
                 next();
               }}
               style={{
@@ -5026,7 +5020,7 @@ function LiveBody() {
             <Pressable
               onPress={() => {
                 hapticLight();
-                revealPartnerVideo("blur_modal_stop");
+                revealPartnerVideo("blur_overlay_stop");
                 stop();
               }}
               style={{
@@ -5044,7 +5038,7 @@ function LiveBody() {
             </Pressable>
           </View>
         </View>
-      </Modal>
+      ) : null}
 
       <ReportSheet
         visible={reportOpen}

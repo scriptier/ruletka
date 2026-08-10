@@ -1287,14 +1287,19 @@ export class MediaSession {
     );
   }
 
-  /** Pure relay when force_relay or Hide IP and TURN available. */
+  /**
+   * Pure iceTransportPolicy=relay ONLY for Hide IP (privacy).
+   * Hub force_relay is HYBRID (policy=all, TURN preferred) — CONNECTIVITY_LOCK.
+   * Previously forceRelayOnce flipped this true while pcConfig stayed hybrid,
+   * so ensureRelayPolicyPc rebuilt PCs in a loop and same-IP hairpin went black.
+   */
   private desiredRelayPolicy(): boolean {
     const hasTurn = this.hasTurn() || this.ice?.has_turn === true;
-    return !!((this.hideIp || this.forceRelayOnce) && hasTurn);
+    return !!(this.hideIp && hasTurn);
   }
 
   /**
-   * Hub force_relay → rebuild warm PC as iceTransportPolicy=relay.
+   * Hub force_relay → hybrid ICE (TURN first, policy=all). Not pure relay.
    */
   setForceRelay(on: boolean): void {
     const next = !!on;
@@ -1302,11 +1307,12 @@ export class MediaSession {
     this.forceRelayOnce = next;
     if (next === was) return;
     if (next) {
-      this.handlers.onConnectionState?.("force_relay_armed");
+      this.handlers.onConnectionState?.("force_relay_armed_hybrid");
     } else {
       this.handlers.onConnectionState?.("force_relay_cleared");
     }
-    const wantRelay = this.desiredRelayPolicy();
+    // Pure-relay rebuild only when hide_ip requires policy=relay
+    const wantPure = this.desiredRelayPolicy();
     const idle =
       this.pc &&
       !this.hasRemoteDescription &&
@@ -1314,9 +1320,16 @@ export class MediaSession {
       !this.makingOffer &&
       !this.offerSentThisCall;
     if (!idle) return;
-    if (this.pcUsesRelayPolicy === wantRelay) {
+    // force_relay alone: keep hybrid warm PC (do not thrash rebuild)
+    if (!wantPure) {
       this.handlers.onConnectionState?.(
-        `force_relay_keep_warm policy=${wantRelay ? "relay" : "all"}`
+        `force_relay_keep_hybrid fr=${next ? 1 : 0}`
+      );
+      return;
+    }
+    if (this.pcUsesRelayPolicy === wantPure) {
+      this.handlers.onConnectionState?.(
+        `force_relay_keep_warm policy=relay`
       );
       return;
     }
@@ -1334,7 +1347,7 @@ export class MediaSession {
         this.ensurePc();
         this.warmed = true;
         this.handlers.onConnectionState?.(
-          `force_relay_rewarm policy=${wantRelay ? "relay" : "all"}`
+          `force_relay_rewarm policy=relay hide=1`
         );
       }
     } catch {
@@ -1379,8 +1392,12 @@ export class MediaSession {
       this.handlers.onError?.(new Error("WebRTC not linked"));
       return null;
     }
-    const cfg = this.pcConfig();
-    this.pcUsesRelayPolicy = this.desiredRelayPolicy();
+    const cfg = this.pcConfig() as {
+      iceTransportPolicy?: string;
+      iceServers?: unknown;
+    };
+    // Actual policy from config — hybrid force_relay uses "all", not pure relay
+    this.pcUsesRelayPolicy = cfg.iceTransportPolicy === "relay";
     const pc = new rtc.RTCPeerConnection(cfg);
     this.pc = pc;
     this.hasRemoteDescription = false;
@@ -2016,10 +2033,19 @@ export class MediaSession {
       this.offerWatchTimer = null;
       void (async () => {
         try {
+          // Once we answered (or applied remote offer), NEVER promote — hub
+          // drops answerer offers @~10s and thrash kills phone→PC video.
+          if (this.answeredAsAnswerer) {
+            this.handlers.onConnectionState?.("offer_watchdog_skip_answerer");
+            return;
+          }
           if (this.offerSentThisCall || this.hasRemoteDescription) return;
-          if (this.answeredAsAnswerer) return;
           if (this.gotRemoteVideo) return;
           if (this.pc?.remoteDescription) return;
+          if (this.lastRemoteOfferAt > 0) {
+            this.handlers.onConnectionState?.("offer_watchdog_skip_had_remote");
+            return;
+          }
           // Real offer mid-flight (queued behind ICE/GUM) — do not race promote
           if (
             this.pendingRemoteOfferSince &&
@@ -2438,6 +2464,7 @@ export class MediaSession {
     // answerer offers @~10s; thrash → peer_usage≈0 + PC black).
     if (
       this.answeredAsAnswerer ||
+      this.lastRemoteOfferAt > 0 ||
       (this.hasRemoteDescription && !this.isOfferer)
     ) {
       this.handlers.onConnectionState?.(
