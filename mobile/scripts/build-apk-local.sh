@@ -73,6 +73,19 @@ if [[ ! -d android/app ]]; then
   exit 1
 fi
 
+# Serialize all assembleRelease callers (manual + post-commit hook).
+# Dual builds race lintVital return-value file and fail intermittently.
+mkdir -p "$ROOT/artifacts"
+LOCK="$ROOT/artifacts/.apk-build.lock"
+exec 200>"$LOCK"
+if ! flock -n 200; then
+  echo "Another APK build is running (lock: $LOCK) — waiting…" >&2
+  if ! flock -w 1800 200; then
+    echo "Timed out after 30m waiting for the other build to finish." >&2
+    exit 1
+  fi
+fi
+
 printf 'sdk.dir=%s\n' "$ANDROID_HOME" > android/local.properties
 
 # ── Version: app.json is source of truth ────────────────────────────────────

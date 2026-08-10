@@ -29,48 +29,30 @@ fi
 BUILD="$ROOT/mobile/scripts/build-apk-local.sh"
 [[ -x "$BUILD" ]] || exit 0
 
+# Shared lock with build-apk-local.sh (that script holds flock for the whole
+# assemble). We only probe — do not hold across spawn (deadlock with child).
 LOCK="$ROOT/mobile/artifacts/.apk-build.lock"
 LOG="$ROOT/mobile/artifacts/apk-hook.log"
 mkdir -p "$ROOT/mobile/artifacts"
 
-# Don't stack builds: lock file OR any live assembleRelease/GradleWrapperMain
-if [[ -f "$LOCK" ]]; then
-  # stale lock > 45 min → ignore
-  if find "$LOCK" -mmin +45 2>/dev/null | grep -q .; then
-    rm -f "$LOCK"
-  else
-    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) skip: lock present" >>"$LOG"
-    exit 0
-  fi
+if ! flock -n "$LOCK" -c true 2>/dev/null; then
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) skip: build already running" >>"$LOG"
+  exit 0
 fi
-# Concurrent manual build (agent + hook) races lintVital return-value file
-if pgrep -f 'GradleWrapperMain :app:assembleRelease' >/dev/null 2>&1 \
-  || pgrep -f 'mobile/android/gradlew' >/dev/null 2>&1; then
+if pgrep -f 'GradleWrapperMain :app:assembleRelease' >/dev/null 2>&1; then
   echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) skip: gradle assemble already running" >>"$LOG"
   exit 0
 fi
 
+echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) post-commit APK rebuild (no bump) HEAD=$(git rev-parse --short HEAD)" >>"$LOG"
 (
-  # Exclusive flock — second hook exits 0 without starting
-  flock -n 9 || {
-    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) skip: flock busy" >>"$LOG"
-    exit 0
-  }
-  echo "$$" >"$LOCK"
-  trap 'rm -f "$LOCK"' EXIT
-  # Re-check after flock (race window)
-  if pgrep -f 'GradleWrapperMain :app:assembleRelease' >/dev/null 2>&1; then
-    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) skip: gradle after flock" >>"$LOG"
-    exit 0
-  fi
-  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) post-commit APK rebuild (no bump) HEAD=$(git rev-parse --short HEAD)" >>"$LOG"
-  # no --bump: avoid dirty app.json after commit (would loop if we auto-commit)
   if "$BUILD" >>"$LOG" 2>&1; then
     echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) ok" >>"$LOG"
   else
     echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) FAIL exit=$?" >>"$LOG"
   fi
-) 9>>"$LOCK" &
+) &
+disown
 
 echo "post-commit: APK rebuild started in background (log: mobile/artifacts/apk-hook.log)"
 exit 0
