@@ -24090,6 +24090,7 @@ function resetClientMediaSession({ clearLastPeers = true } = {}) {
     } catch (_) {}
   }
   // Hybrid warm after hangup (policy=all + TURN). Pure only for Hide IP.
+  // NEVER re-warm pure after hybrid — that sticky pure → black same-LAN (2026-08-10).
   try {
     if (typeof warmIcePool === "function") {
       const pure =
@@ -24104,7 +24105,10 @@ function resetClientMediaSession({ clearLastPeers = true } = {}) {
         .then(() => {
           try {
             if (typeof warmIcePool === "function") {
-              warmIcePool({ preferRelay: true });
+              const pure =
+                typeof hideIpRelayOnlyEnabled === "function" &&
+                hideIpRelayOnlyEnabled();
+              warmIcePool({ preferRelay: !!pure, force: true });
             }
           } catch (_) {}
         })
@@ -30696,18 +30700,23 @@ on("btn-spin", "click", () => {
   endActiveMatchChat(); // keep chat history after leaving
   updateFriendActionButtons();
   trackEvent("spin");
-  // Prefetch TURN + pre-gather ICE while waiting (phone↔browser first media)
+  // Hybrid warm while searching (pure only if Hide IP). preferRelay:true always
+  // locked pure TURN and blacked same-LAN Play↔PC (2026-08-10).
   try {
+    const pureWarm =
+      typeof hideIpRelayOnlyEnabled === "function" && hideIpRelayOnlyEnabled();
     if (typeof loadRtcConfig === "function") {
       loadRtcConfig(hubBase())
         .then(() => {
-          if (typeof warmIcePool === "function") warmIcePool({ preferRelay: true });
+          if (typeof warmIcePool === "function")
+            warmIcePool({ preferRelay: !!pureWarm });
         })
         .catch(() => {
-          if (typeof warmIcePool === "function") warmIcePool({ preferRelay: true });
+          if (typeof warmIcePool === "function")
+            warmIcePool({ preferRelay: !!pureWarm });
         });
     } else if (typeof warmIcePool === "function") {
-      warmIcePool({ preferRelay: true });
+      warmIcePool({ preferRelay: !!pureWarm });
     }
   } catch (_) {}
   send(spinPayload());
@@ -30787,18 +30796,22 @@ on("btn-next", "click", () => {
   schedulePostMatchFriendNudge("next");
   hubSignalOrphanCall = false;
   trackEvent("next");
-  // Re-warm ICE while searching for the next stranger
+  // Hybrid re-warm for next stranger (pure only if Hide IP)
   try {
+    const pureWarm =
+      typeof hideIpRelayOnlyEnabled === "function" && hideIpRelayOnlyEnabled();
     if (typeof loadRtcConfig === "function") {
       loadRtcConfig(hubBase())
         .then(() => {
-          if (typeof warmIcePool === "function") warmIcePool({ preferRelay: true });
+          if (typeof warmIcePool === "function")
+            warmIcePool({ preferRelay: !!pureWarm });
         })
         .catch(() => {
-          if (typeof warmIcePool === "function") warmIcePool({ preferRelay: true });
+          if (typeof warmIcePool === "function")
+            warmIcePool({ preferRelay: !!pureWarm });
         });
     } else if (typeof warmIcePool === "function") {
-      warmIcePool({ preferRelay: true });
+      warmIcePool({ preferRelay: !!pureWarm });
     }
   } catch (_) {}
   send(nextPayload());

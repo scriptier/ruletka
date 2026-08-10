@@ -1679,8 +1679,8 @@ export class MediaSession {
    * No second "gatherer" PC — dual PCs on Android regressed connect reliability.
    */
   /**
-   * Search-time pre-warm. PreferRelay=true builds a TURN-policy PC early so
-   * web↔android match (almost always force_relay) reuses it with zero rebuild.
+   * Search-time pre-warm. preferRelay only for hide_ip / hub force_relay pure.
+   * Do NOT latch forceRelayOnce from mere "has TURN" (sticky pure → black).
    */
   async warmConnection(opts?: { preferRelay?: boolean }): Promise<void> {
     if (this.hasRemoteDescription || this.makingOffer) return;
@@ -1690,9 +1690,12 @@ export class MediaSession {
       return;
     }
     try {
-      // Mobile strangers often hit web — pre-arm relay warm when asked or TURN-only hide-ip
-      if (opts?.preferRelay && this.hasTurn()) {
+      // Pure warm only when explicitly requested AND hide_ip (or already forced)
+      if (opts?.preferRelay && this.hasTurn() && this.hideIp) {
         this.forceRelayOnce = true;
+      } else if (opts?.preferRelay && this.hasTurn() && !this.hideIp) {
+        // Hub force_relay match will call setForceRelay(true) — do not sticky here
+        /* hybrid warm */
       }
       // Cam + PC in parallel (was serial: GUM then PC)
       const gum = this.ensureLocalStream();
