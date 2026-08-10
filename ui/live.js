@@ -9855,7 +9855,7 @@ function startWebrtcWatch() {
   // Soft recover must NOT early-return on ice=checking — that left
   // "Linking cameras / Connection weak" forever while host ICE hung and
   // never switched to TURN (DC/stars can work over hub while video is black).
-  // Soft/hard recover timing: TURN-preferred (hide_ip pure OR hub force_relay hybrid)
+  // Soft/hard recover timing: TURN-preferred (hide_ip pure OR hub force_relay pure)
   const relayMode =
     (typeof isTurnPreferredPath === "function" && isTurnPreferredPath()) ||
     (typeof isRelayMediaMode === "function" && isRelayMediaMode()) ||

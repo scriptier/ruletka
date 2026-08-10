@@ -114,16 +114,18 @@ function setSessionForceRelay(on) {
     } catch (_) {}
   }
   applyIceDirectPreference();
-  // force_relay is HYBRID (policy=all, TURN first) — never warm pure-relay PC.
-  // Pure relay warm + hybrid match PC caused thrash / peer_usage≈0 / PC black.
+  // force_relay = pure iceTransportPolicy=relay (same-IP hairpin). Hybrid
+  // policy=all left host preferred → peer_usage≈0 / both cams black (2026-08-10).
   if (was !== next && typeof warmIcePool === "function") {
     try {
-      const want = "all";
+      const want = next ? "relay" : "all";
       if (typeof warmPcPolicy === "function" && warmPcPolicy() === want) {
-        console.info("[webrtc] force_relay keep warm policy=all hybrid");
+        console.info(
+          "[webrtc] force_relay keep warm policy=" + want + (next ? " pure" : "")
+        );
       } else {
         clearIceWarm();
-        warmIcePool({ force: true, preferRelay: false });
+        warmIcePool({ force: true, preferRelay: !!next });
       }
     } catch (_) {}
   }
@@ -239,11 +241,12 @@ function udpTurnOnly(servers) {
 }
 
 /**
- * Strip host/srflx only for Hide IP privacy. force_relay is hybrid (keep host).
+ * Strip host/srflx for pure-relay modes (Hide IP + hub force_relay).
+ * Same-IP hairpin must not trickle private peers (coturn CREATE_PERM + no media).
  * @returns {boolean}
  */
 function shouldFilterToRelayCandidates() {
-  return hideIpRelayOnlyEnabled();
+  return hideIpRelayOnlyEnabled() || sessionForceRelayEnabled();
 }
 
 /**
@@ -370,8 +373,8 @@ function sanitizeRemoteDescription(desc) {
 /**
  * Apply ICE policy from prefs:
  * - hideIpRelayOnly → iceTransportPolicy "relay" + TURN only (privacy)
- * - sessionForceRelay (hub force_relay) → hybrid policy=all, TURN first
- *   (pure relay left peer_usage≈0 / PC black partner 2026-08-09)
+ * - sessionForceRelay (hub force_relay / same-IP hairpin) → pure relay
+ *   (hybrid policy=all left host preferred + peer_usage≈0 both black 2026-08-10)
  * - preferDirectOnly → STUN only
  * - default → all servers, policy "all"
  */
@@ -387,7 +390,9 @@ function applyIceDirectPreference() {
   let iceTransportPolicy = "all";
 
   let poolSize = ICE_CANDIDATE_POOL_SIZE;
-  if (hideOnly) {
+  if (hideOnly || forceRelay) {
+    // Pure relay for Hide IP privacy AND hub same-IP force_relay (hairpin).
+    // UDP TURN only, pool=0 — avoids ALLOCATE storms that left peer_usage=0.
     const turnOnly = filterIceServersByMode(raw, "turn");
     if (turnOnly.length) {
       servers = udpTurnOnly(preferFastTurnFirst(turnOnly));
@@ -398,18 +403,12 @@ function applyIceDirectPreference() {
     } else {
       servers = preferFastTurnFirst(raw);
       iceTransportPolicy = "all";
-      console.warn("[webrtc] hide_ip wanted TURN empty — fail-open all");
+      console.warn(
+        "[webrtc] pure-relay wanted TURN empty — fail-open all (" +
+          (hideOnly ? "hide_ip" : "force_relay") +
+          ")"
+      );
     }
-  } else if (forceRelay) {
-    // Hybrid: TURN first + STUN, policy all — media can use host or relay
-    const turnOnly = filterIceServersByMode(raw, "turn");
-    const stun = filterIceServersByMode(raw, "stun");
-    let turn = udpTurnOnly(preferFastTurnFirst(turnOnly));
-    if (!turn.length) turn = preferFastTurnFirst(turnOnly);
-    if (turn.length > 1) turn = turn.slice(0, 1);
-    servers = preferFastTurnFirst([...turn, ...stun, ...raw]);
-    iceTransportPolicy = "all";
-    poolSize = 1;
   } else if (directOnly) {
     servers = filterIceServersByMode(raw, "stun");
     if (!servers.length) servers = DEFAULT_ICE.iceServers;
@@ -545,10 +544,12 @@ function warmIcePool(opts = {}) {
       const urls = Array.isArray(s.urls) ? s.urls : s.urls ? [s.urls] : [];
       return urls.some((u) => /^turns?:/i.test(String(u || "")));
     });
-    // Pure-relay warm ONLY for Hide IP (or explicit preferRelay).
-    // force_relay match = hybrid warm (TURN first, policy=all).
+    // Pure-relay warm: Hide IP, hub force_relay (same-IP), or explicit preferRelay.
+    // Hybrid host-first on force_relay left peer_usage≈0 / black both cams.
     const wantPureRelay =
-      hideIpRelayOnlyEnabled() || !!opts.preferRelay;
+      hideIpRelayOnlyEnabled() ||
+      sessionForceRelayEnabled() ||
+      !!opts.preferRelay;
     if (wantPureRelay && hasTurn) {
       const turnOnly = filterIceServersByMode(raw, "turn");
       if (turnOnly.length) {
@@ -563,7 +564,7 @@ function warmIcePool(opts = {}) {
         };
       }
     } else if (hasTurn) {
-      // Hybrid: TURN first + STUN, policy all (force_relay + normal)
+      // Normal match: TURN first + STUN, policy all
       const turnOnly = filterIceServersByMode(raw, "turn");
       const stun = filterIceServersByMode(raw, "stun");
       let turn = udpTurnOnly(preferFastTurnFirst(turnOnly));
@@ -573,8 +574,7 @@ function warmIcePool(opts = {}) {
         ...cfg,
         iceServers: preferFastTurnFirst([...turn, ...stun, ...raw]),
         iceTransportPolicy: "all",
-        iceCandidatePoolSize:
-          sessionForceRelayEnabled() ? 1 : ICE_CANDIDATE_POOL_SIZE,
+        iceCandidatePoolSize: ICE_CANDIDATE_POOL_SIZE,
       };
     }
     const policy =
@@ -1035,12 +1035,16 @@ function lowLatencyAudioConstraints(extra = {}) {
 }
 
 /**
- * Pure iceTransportPolicy=relay PC — Hide IP privacy ONLY.
- * Hub force_relay is HYBRID (policy=all + TURN preferred). Treating force_relay
- * as pure relay rebuilt PCs against hybrid config → peer_usage≈0 / PC black
- * partner on same-LAN (2026-08-10).
+ * Pure iceTransportPolicy=relay PC — Hide IP privacy OR hub force_relay
+ * (same public IP hairpin). Hybrid force_relay left host preferred and
+ * peer_usage≈0 / both cams black on same-LAN (2026-08-10).
  */
 function isRelayMediaMode() {
+  try {
+    if (typeof sessionForceRelayEnabled === "function" && sessionForceRelayEnabled()) {
+      return true;
+    }
+  } catch (_) {}
   try {
     if (typeof hideIpRelayOnlyEnabled === "function" && hideIpRelayOnlyEnabled()) {
       return true;
@@ -1627,7 +1631,7 @@ class RouletteWebRtc {
     // CRITICAL: never tear down a PC that is already negotiating / live.
     // Double connect() was closing PC1 mid-offer and sending a second offer
     // (hub logs: offer → answer → offer ~0.3s later) → black video thrash.
-    // Hide IP only: rebuild if PC is not pure-relay. force_relay stays hybrid.
+    // Pure-relay (hide_ip / force_relay): rebuild if PC is not policy=relay.
     try {
       applyIceDirectPreference();
     } catch (_) {}
@@ -1644,7 +1648,7 @@ class RouletteWebRtc {
         )
       );
     if (needRelayRebuild) {
-      console.info("[webrtc] connect() rebuild — hide_ip pure-relay PC");
+      console.info("[webrtc] connect() rebuild — pure-relay PC (hide/force)");
       try {
         this.pc.close();
       } catch (_) {}
@@ -1655,7 +1659,7 @@ class RouletteWebRtc {
       this.pc &&
       this.pc.signalingState !== "closed" &&
       this.pc.connectionState !== "closed" &&
-      // Pure hide_ip only — do not thrash hybrid force_relay PCs
+      // Pure relay only thrash-rebuild via needRelayRebuild above
       !(isRelayMediaMode() && !this._relayPc) &&
       (this.pc.localDescription ||
         this.pc.remoteDescription ||
@@ -1695,7 +1699,7 @@ class RouletteWebRtc {
     } catch (_) {}
     // Promote queue warm PC when policy matches — TURN already allocated
     // (biggest Play↔browser first-frame win). Else free warm and create cold.
-    // Hybrid force_relay + normal → warm "all". Pure hide_ip → warm "relay".
+    // Pure hide_ip / force_relay → warm "relay". Normal → warm "all".
     const wantPure = isRelayMediaMode();
     let promoted = false;
     try {
@@ -2329,11 +2333,10 @@ class RouletteWebRtc {
             " warm=" +
             (warmOk ? 1 : 0)
         );
-        // Pure hide_ip only: rebuild pure-relay PC if still no relay.
-        // force_relay hybrid: do NOT rebuild pure-relay (that caused PC black).
+        // Pure relay (hide_ip / force_relay): rebuild once if still no relay.
         if (n === 0 && !opts._relayRetry && isRelayMediaMode()) {
           console.warn(
-            "[webrtc] offer no relay — rebuild pure hide_ip PC and retry once"
+            "[webrtc] offer no relay — rebuild pure-relay PC and retry once"
           );
           try {
             this.pc.close();
@@ -2752,7 +2755,7 @@ class RouletteWebRtc {
       // Rebuild only when policy is wrong (warm PC already relay → keep it).
       // Always-rebuild here made every answer cold-TURN (~0.5–1s).
       applyIceDirectPreference();
-      // Hide IP pure only: rebuild if dirty warm. force_relay hybrid: keep PC.
+      // Pure-relay (hide_ip / force_relay): rebuild if dirty warm or wrong policy.
       const pureDirty =
         isRelayMediaMode() &&
         this.pc &&
@@ -2767,7 +2770,7 @@ class RouletteWebRtc {
         pureDirty
       ) {
         console.info(
-          "[webrtc] rebuild PC for hide_ip before answer dirty=" +
+          "[webrtc] rebuild PC for pure-relay before answer dirty=" +
             (pureDirty ? 1 : 0)
         );
         try {
@@ -2856,7 +2859,7 @@ class RouletteWebRtc {
       } catch (e) {
         console.warn("[webrtc] setLocal answer failed", e);
       }
-      // Hide IP only waits for TURN in SDP; force_relay emits host ASAP.
+      // Pure-relay / TURN path: wait briefly for typ relay in answer SDP.
       if (shouldWaitForFirstRelay()) {
         const warmOk = !!(this.pc && this.pc.__ruletWarmPrimed);
         let n = 0;

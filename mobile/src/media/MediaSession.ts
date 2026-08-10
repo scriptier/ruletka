@@ -401,6 +401,8 @@ export class MediaSession {
   private remoteStream: MediaStreamLike | null = null;
   private remoteStreamUrl = "";
   private isOfferer = false;
+  /** Hub matched role — answerer never promotes even if web offer is late. */
+  private hubWantsOfferer = false;
   private makingOffer = false;
   /** Wall clock of last offer we sent (debounce double-offer / glare thrash). */
   private lastOfferAt = 0;
@@ -1193,17 +1195,17 @@ export class MediaSession {
 
   private pcConfig(): object {
     const raw = this.ice?.ice_servers;
-    // hide_ip → pure relay (privacy). force_relay alone → HYBRID (policy=all,
-    // TURN first): pure relay left peer_usage≈0 / PC black partner while phone
-    // still saw web cam (2026-08-09). pool=1 so first SDP can include relay.
+    // hide_ip OR hub force_relay (same-IP hairpin) → pure iceTransportPolicy=relay.
+    // Hybrid policy=all left host preferred → peer_usage≈0 / both cams black
+    // (2026-08-10). UDP TURN only, pool=0 to avoid ALLOCATE storms.
     const hasTurn = this.hasTurn() || this.ice?.has_turn === true;
-    const pureRelay = !!(this.hideIp && hasTurn);
-    const wantTurn = !!(hasTurn && (this.hideIp || this.forceRelayOnce));
+    const pureRelay = !!(hasTurn && (this.hideIp || this.forceRelayOnce));
+    const wantTurn = pureRelay;
     let servers = preferTcpTurnFirst(
       filterIce(raw, pureRelay ? "turn" : "all")
     );
     let iceTransportPolicy: "all" | "relay" = pureRelay ? "relay" : "all";
-    let iceCandidatePoolSize = pureRelay ? 0 : wantTurn ? 1 : 2;
+    let iceCandidatePoolSize = pureRelay ? 0 : 2;
     if (pureRelay) {
       servers = udpTurnOnly(servers);
       if (!servers.length) {
@@ -1288,18 +1290,16 @@ export class MediaSession {
   }
 
   /**
-   * Pure iceTransportPolicy=relay ONLY for Hide IP (privacy).
-   * Hub force_relay is HYBRID (policy=all, TURN preferred) — CONNECTIVITY_LOCK.
-   * Previously forceRelayOnce flipped this true while pcConfig stayed hybrid,
-   * so ensureRelayPolicyPc rebuilt PCs in a loop and same-IP hairpin went black.
+   * Pure iceTransportPolicy=relay for Hide IP privacy OR hub force_relay
+   * (same public IP hairpin). Hybrid left peer_usage≈0 both black (2026-08-10).
    */
   private desiredRelayPolicy(): boolean {
     const hasTurn = this.hasTurn() || this.ice?.has_turn === true;
-    return !!(this.hideIp && hasTurn);
+    return !!(hasTurn && (this.hideIp || this.forceRelayOnce));
   }
 
   /**
-   * Hub force_relay → hybrid ICE (TURN first, policy=all). Not pure relay.
+   * Hub force_relay → pure iceTransportPolicy=relay (same-IP hairpin path).
    */
   setForceRelay(on: boolean): void {
     const next = !!on;
@@ -1307,11 +1307,10 @@ export class MediaSession {
     this.forceRelayOnce = next;
     if (next === was) return;
     if (next) {
-      this.handlers.onConnectionState?.("force_relay_armed_hybrid");
+      this.handlers.onConnectionState?.("force_relay_armed_pure");
     } else {
       this.handlers.onConnectionState?.("force_relay_cleared");
     }
-    // Pure-relay rebuild only when hide_ip requires policy=relay
     const wantPure = this.desiredRelayPolicy();
     const idle =
       this.pc &&
@@ -1320,10 +1319,9 @@ export class MediaSession {
       !this.makingOffer &&
       !this.offerSentThisCall;
     if (!idle) return;
-    // force_relay alone: keep hybrid warm PC (do not thrash rebuild)
     if (!wantPure) {
       this.handlers.onConnectionState?.(
-        `force_relay_keep_hybrid fr=${next ? 1 : 0}`
+        `force_relay_keep_all fr=${next ? 1 : 0}`
       );
       return;
     }
@@ -1347,7 +1345,7 @@ export class MediaSession {
         this.ensurePc();
         this.warmed = true;
         this.handlers.onConnectionState?.(
-          `force_relay_rewarm policy=relay hide=1`
+          `force_relay_rewarm policy=relay pure=1`
         );
       }
     } catch {
@@ -1396,7 +1394,7 @@ export class MediaSession {
       iceTransportPolicy?: string;
       iceServers?: unknown;
     };
-    // Actual policy from config — hybrid force_relay uses "all", not pure relay
+    // Actual policy from config — force_relay + hide_ip use pure "relay"
     this.pcUsesRelayPolicy = cfg.iceTransportPolicy === "relay";
     const pc = new rtc.RTCPeerConnection(cfg);
     this.pc = pc;
@@ -1414,7 +1412,8 @@ export class MediaSession {
       if (ev.candidate) {
         try {
           const raw = ev.candidate as unknown as Record<string, unknown>;
-          // Hide IP only: drop host/srflx. force_relay keeps host for same-WiFi.
+          // Pure-relay (hide_ip / force_relay): drop host/srflx so coturn never
+          // CREATE_PERM private peers (403 / peer_usage=0).
           if (this.shouldFilterToRelayCandidates() && !isRelayIceCandidate(raw)) {
             return;
           }
@@ -1834,8 +1833,10 @@ export class MediaSession {
       // Never flip answerer → offerer mid-match (hub answerer grace drops offers)
       if (this.answeredAsAnswerer) {
         this.isOfferer = false;
+        // Keep hubWantsOfferer as-is (already latched answerer)
       } else {
-        this.isOfferer = !!opts.isOfferer;
+        this.hubWantsOfferer = !!opts.isOfferer;
+        this.isOfferer = this.hubWantsOfferer;
       }
       this.gotRemoteVideo = false;
       this.remoteVideoWaves = 0;
@@ -1851,8 +1852,8 @@ export class MediaSession {
       // Answerer: wait longer for web (preferred offerer). Short promote
       // caused dual-offer glare when web offer was only slightly delayed.
       this.armOfferWatchdog(this.isOfferer ? 400 : 3500);
-      // Clean dirty warm (have-local-offer) or wrong Hide-IP pure-relay policy.
-      // force_relay is hybrid (policy=all) — still must not start with stale offer.
+      // Clean dirty warm (have-local-offer) or wrong pure-relay policy
+      // (force_relay / hide_ip both want policy=relay).
       this.ensureRelayPolicyPc("startCall");
       if (
         this.pc &&
@@ -1872,7 +1873,7 @@ export class MediaSession {
         this.handlers.onConnectionState?.("startCall_policy_rebuild");
       } else if (this.pc && this.warmed) {
         this.handlers.onConnectionState?.(
-          `startCall_reuse_warm relay=${this.pcUsesRelayPolicy ? 1 : 0} hybrid=${this.forceRelayOnce && !this.hideIp ? 1 : 0}`
+          `startCall_reuse_warm relay=${this.pcUsesRelayPolicy ? 1 : 0} pure=${this.desiredRelayPolicy() ? 1 : 0}`
         );
       }
       this.markConnectStart(opts.isOfferer ? "start_offerer" : "start_answerer");
@@ -2060,6 +2061,32 @@ export class MediaSession {
             }
             return;
           }
+          // Hub designated us answerer (web preferred offerer). NEVER promote —
+          // dual-offer glare @~9s left peer_usage≈0 / both black (2026-08-10).
+          // Keep waiting; soft re-arm until remote offer lands or call ends.
+          if (!this.isOfferer && !this.hubWantsOfferer) {
+            const age = this.callStartAt ? Date.now() - this.callStartAt : 0;
+            this.handlers.onConnectionState?.(
+              `offer_watchdog_wait_web age=${age}`
+            );
+            // Soft keep-alive: ensure PC + cam ready for instant answer
+            if (!this.pc) this.ensurePc();
+            if (!this.localStream) {
+              try {
+                void this.ensureLocalStream();
+              } catch {
+                /* ignore */
+              }
+            }
+            if (
+              !this.hasRemoteDescription &&
+              !this.answeredAsAnswerer &&
+              !this.offerSentThisCall
+            ) {
+              this.armOfferWatchdog(5000);
+            }
+            return;
+          }
           // Ensure we have a PC + try cam once more before offering
           if (!this.localStream) {
             try {
@@ -2084,22 +2111,13 @@ export class MediaSession {
             );
             return;
           }
-          // Web is preferred offerer — only promote after long silence (≥8s)
-          const age = this.callStartAt ? Date.now() - this.callStartAt : 99999;
-          if (!this.isOfferer && age < 8000) {
-            this.handlers.onConnectionState?.(
-              `offer_watchdog_defer_promote age=${age}`
-            );
-            this.armOfferWatchdog(Math.max(500, 8000 - age));
+          if (!this.pc) this.ensurePc();
+          // Only hub offerers (or already latched isOfferer) may emit offers.
+          if (!this.isOfferer) {
+            this.handlers.onConnectionState?.("offer_watchdog_no_promote");
             return;
           }
-          if (!this.pc) this.ensurePc();
-          if (!this.isOfferer) {
-            this.handlers.onConnectionState?.("offer_watchdog_promote");
-            this.isOfferer = true;
-          } else {
-            this.handlers.onConnectionState?.("offer_watchdog_retry_offerer");
-          }
+          this.handlers.onConnectionState?.("offer_watchdog_retry_offerer");
           await this.createAndSendOffer(false);
           this.markPhase("offer_sent_watchdog");
         } catch (e) {
@@ -2443,9 +2461,9 @@ export class MediaSession {
     }
   }
 
-  /** Strip host/srflx only for Hide IP (privacy). force_relay keeps hybrid ICE. */
+  /** Strip host/srflx for pure-relay (Hide IP + hub force_relay hairpin). */
   private shouldFilterToRelayCandidates(): boolean {
-    return !!this.hideIp;
+    return this.desiredRelayPolicy();
   }
 
   /**
@@ -2579,7 +2597,7 @@ export class MediaSession {
         this.handlers.onConnectionState?.("offer_skip_stale_gen");
         return;
       }
-      // setLocal first — force_relay waits for first TURN in SDP (keep host too).
+      // setLocal first — pure force_relay/hide waits for typ relay then strips host.
       try {
         await pc.setLocalDescription(offer);
       } catch (e) {
@@ -3926,6 +3944,8 @@ export class MediaSession {
     this.offerSentThisCall = false;
     this.gotAnswerThisCall = false;
     this.answeredAsAnswerer = false;
+    this.hubWantsOfferer = false;
+    this.isOfferer = false;
     this.startCallInFlight = false;
     this.makingOffer = false;
     this.gotRemoteVideo = false;
