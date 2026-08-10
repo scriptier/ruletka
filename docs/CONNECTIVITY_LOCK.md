@@ -5,7 +5,7 @@ APK **0.1.278** + hub without blanket web↔android `force_relay`.
 
 | Artifact | Value |
 |----------|--------|
-| Mobile APK | **`0.1.280` / vc288** → `mobile/artifacts/ruletka-android-latest.apk` |
+| Mobile APK | **`0.1.283` / vc291** → `mobile/artifacts/ruletka-android-latest.apk` |
 | Plan / history | `docs/CONNECTIVITY_SPEED_PLAN.md` |
 | Coturn / peer_usage | `docs/VIDEO_PATH_LOCK.md` |
 | Media path | **P2P only** — SFU/LiveKit **shelved** |
@@ -51,11 +51,13 @@ cargo test -p freenet-roulette-bridge connectivity_lock
 2. **Answerer never re-offers** after answering (hub will drop; thrash kills media).
 3. **Answerer: no `addTrack` before `setRemote(offer)`** — only `replaceTrack` into offer m-lines (extra m-lines → phone→PC black).
 4. **Hide IP** → pure `iceTransportPolicy=relay` + strip host/srflx.
-5. **Normal match** (most Play↔browser) → `policy=all` + TURN in config; ICE picks path.
-6. Don’t treat **ICE checking alone** as “already live” without remote **frames**.
-7. **No force_relay arm mid-call** from auto soft/hard retry.
-8. Browser: real cam outbound for strangers; paint once when track + frames exist.
-9. Don’t multi-remount RTCView after first paint.
+5. **Hub `force_relay` (same public IP / untrusted IP)** → pure `iceTransportPolicy=relay` + strip host/srflx (UDP TURN only). Hybrid `policy=all` left host preferred → `peer_usage≈0` / both black (2026-08-10).
+6. **Normal match** (cross-network, `force_relay=false`) → `policy=all` + TURN in config; ICE picks path.
+7. Don’t treat **ICE checking alone** as “already live” without remote **frames**.
+8. **No force_relay arm mid-call** from auto soft/hard retry.
+9. Browser: real cam outbound for strangers; paint once when track + frames exist.
+10. Don’t multi-remount RTCView after first paint.
+11. **Android privacy blur:** keep partner RTCView **mounted at zOrder 0** + opaque `PartnerBlurVeil` (and full-screen mosaic). Do **not** unmount-to-black; do **not** use RN Modal over SurfaceView.
 
 ---
 
@@ -75,11 +77,11 @@ cargo test -p freenet-roulette-bridge connectivity_lock
 
 **Mandatory human gate for hub / MediaSession / ICE policy:**
 
-1. Install **latest** `mobile/artifacts/ruletka-android-latest.apk` (**≥ 0.1.278**).
-2. Hard-refresh `https://ruletka.vip/live.html` (check `webrtc.js?v=` cache bust).
-3. Hide IP **off**, blur **off**. Both Start **once**; **no Next spam for 15s**.
+1. Install **latest** `mobile/artifacts/ruletka-android-latest.apk` (**≥ 0.1.283**).
+2. Hard-refresh `https://ruletka.vip/live.html` (**`webrtc.js?v=285`**).
+3. Hide IP **off**. Both Start **once**; **no Next spam for 15s**.
 4. Hub log for that match:
-   - Normal pair: **`force_relay=false`**
+   - Cross-network: **`force_relay=false`**; same Wi‑Fi: **`force_relay=true`** (pure TURN both sides)
    - **1 offer (web) + 1 answer (android)**
    - **no** `answerer first-path grace` drop
    - `video_dir=sendrecv` on answer
@@ -103,10 +105,10 @@ cargo test -p freenet-roulette-bridge connectivity_lock
 - Dense `streamEpoch` / remount ladders after first frame  
 - Docker coturn as primary / peer IP allowlist on coturn  
 - `external-ip=PUBLIC` only  
-- Pure `iceTransportPolicy=relay` for every force_relay (hide_ip only for pure)  
+- Hybrid `policy=all` for hub `force_relay` (same-IP hairpin) — pure relay is required  
 - Answerer `addTrack` before `setRemoteDescription(offer)`  
 - SFU/LiveKit as default media path  
-- Opaque black blur covering Android SurfaceView  
+- Unmount partner RTCView while privacy-blurred (black hole) / RN Modal over SurfaceView  
 
 ---
 

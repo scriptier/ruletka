@@ -7,10 +7,10 @@ Expo Go is **not** enough for WebRTC.
 
 | Field | Value |
 |-------|--------|
-| Version | **0.1.280** / versionCode **288** (`mobile/artifacts/ruletka-android-latest.apk`) |
-| APK | local `mobile/artifacts/ruletka-0.1.280-vc288.apk` (no bulk site APKs) |
-| Notes | CONNECTIVITY_LOCK · partner_geo · bars on PC · post-call Start · blur Modal · mute badges |
-| Web | hard-refresh `live.html` (Ctrl+Shift+R) · `curl -s https://ruletka.vip/deploy.json` |
+| Version | **0.1.283** / versionCode **291** (`mobile/artifacts/ruletka-android-latest.apk`) |
+| APK | local `mobile/artifacts/ruletka-0.1.283-vc291.apk` (no bulk site APKs) |
+| Notes | pure force_relay (same-IP) · no answerer promote · blur zOrder 0 mosaic · CONNECTIVITY_LOCK |
+| Web | hard-refresh `live.html` → **`webrtc.js?v=285`** · `curl -s https://ruletka.vip/deploy.json` |
 | Play handoff | [`PLAY_INTERNAL_TEST_CHECKLIST.md`](PLAY_INTERNAL_TEST_CHECKLIST.md) · `PLAY_TODAY.md` |
 | Debug | [`CONNECT_DEBUG.md`](CONNECT_DEBUG.md) · [`CHANGE_LANES.md`](CHANGE_LANES.md) |
 
@@ -35,7 +35,7 @@ tail -5 artifacts/connect-scorecard.jsonl
 | # | Check | Pass? |
 |---|--------|-------|
 | P1 | Match with blur **Off** → cams link without black veil | |
-| P2 | Eye → mosaic Modal (not clear video / not pure black) | |
+| P2 | Eye → frosted mosaic overlay (not clear video / not pure black) | |
 | P3 | Show video → partner paints &lt; ~1s | |
 | P4 | Settings **Hold** → next stranger starts veiled | |
 | P5 | Settings blur chip saves immediately (toast, no Save required) | |

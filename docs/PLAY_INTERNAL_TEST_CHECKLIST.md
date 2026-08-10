@@ -1,11 +1,12 @@
 # Play internal-test readiness (human handoff)
 
 **Package:** `me.ruletka.app`  
-**Ship tip (sideload / Internal):** **0.1.223 / versionCode 231**  
+**Ship tip (sideload / Internal):** **0.1.283 / versionCode 291**  
 **Lock:** [`CONNECTIVITY_LOCK.md`](CONNECTIVITY_LOCK.md) · smoke: [`DEVICE_SMOKE.md`](DEVICE_SMOKE.md) · monitor: [`CONNECT_MONITOR.md`](CONNECT_MONITOR.md)
 
-> Ship from **working tree** `app.json` (0.1.223+) + matching AAB under `mobile/artifacts/`.
-> Hub: web↔android / same public IP → TURN (`force_relay`).
+> Ship from **working tree** `app.json` (**0.1.283** / vc291) + APK under `mobile/artifacts/`.  
+> Web: hard-refresh → **`webrtc.js?v=285`**.  
+> Same public IP → hub `force_relay=true` → clients pure TURN relay (not hybrid host-hang).
 
 **Out of scope for this checklist:** Play Console upload, bulk APK on website, production deploy.
 
@@ -35,8 +36,9 @@ cd mobile
 | 1 | Install APK on phone: `adb install -r mobile/artifacts/ruletka-latest.apk` | ☐ |
 | 2 | Browser: **hard refresh** `https://ruletka.vip/live.html` | ☐ |
 | 3 | **Play↔PC** (P0): both Start once; **no Next spam 15s** | ☐ |
-| 4 | Hub: **1 offer + 1 answer**; same public IP → `force_relay=true` (TURN OK) | ☐ |
-| 5 | Success: both cameras + audio (same Wi‑Fi included — not black while gifts work) | ☐ |
+| 4 | Hub: **1 offer (web) + 1 answer (android)**; same public IP → `force_relay=true` (TURN OK) | ☐ |
+| 5 | Success: both cameras + audio (same Wi‑Fi included — not black) | ☐ |
+| 5b | Eye blur: frosted mosaic (not pure black) · Show video restores face | ☐ |
 | 6 | Optional: mute partner → other side sees mute visuals | ☐ |
 | 7 | Optional: friend Call ring / Accept path | ☐ |
 | 8 | **Stop** one-tap ends chat, no confirm dialog | ☐ |
