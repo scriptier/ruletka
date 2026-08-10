@@ -73,6 +73,24 @@ if [[ ! -d android/app ]]; then
   exit 1
 fi
 
+# ── Serialize builds ─────────────────────────────────────────────────────────
+# Single source of truth for the "no concurrent assembleRelease" lock, used by
+# both this script (manual runs) and scripts/git-hooks/post-commit-apk (auto
+# runs). Gradle's lintVital task writes a shared return-value file per Android
+# module; two assembleRelease invocations racing on it corrupt/miss that file.
+# flock is released automatically on process exit, so a killed/crashed build
+# never leaves a stale lock behind.
+mkdir -p "$ROOT/artifacts"
+LOCK="$ROOT/artifacts/.apk-build.lock"
+exec 200>"$LOCK"
+if ! flock -n 200; then
+  echo "Another APK build is running (lock: $LOCK) — waiting…" >&2
+  if ! flock -w 1800 200; then
+    echo "Timed out after 30m waiting for the other build to finish." >&2
+    exit 1
+  fi
+fi
+
 printf 'sdk.dir=%s\n' "$ANDROID_HOME" > android/local.properties
 
 # ── Version: app.json is source of truth ────────────────────────────────────

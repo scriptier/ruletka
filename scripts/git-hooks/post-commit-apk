@@ -29,33 +29,31 @@ fi
 BUILD="$ROOT/mobile/scripts/build-apk-local.sh"
 [[ -x "$BUILD" ]] || exit 0
 
+# Same lock file build-apk-local.sh itself flocks for the whole build (manual
+# runs use it too). We only take a quick, non-holding probe here to decide
+# whether to skip queuing another background build — the actual "no
+# concurrent assembleRelease" guarantee lives in build-apk-local.sh. Holding
+# this lock here across the build would deadlock against the script's own
+# flock, since a child process's fd is a distinct lock holder from ours.
 LOCK="$ROOT/mobile/artifacts/.apk-build.lock"
 LOG="$ROOT/mobile/artifacts/apk-hook.log"
 mkdir -p "$ROOT/mobile/artifacts"
 
-# Don't stack builds
-if [[ -f "$LOCK" ]]; then
-  # stale lock > 45 min → ignore
-  if find "$LOCK" -mmin +45 2>/dev/null | grep -q .; then
-    rm -f "$LOCK"
-  else
-    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) skip: build already running" >>"$LOG"
-    exit 0
-  fi
+if ! flock -n "$LOCK" -c true 2>/dev/null; then
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) skip: build already running" >>"$LOG"
+  exit 0
 fi
 
+echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) post-commit APK rebuild (no bump) HEAD=$(git rev-parse --short HEAD)" >>"$LOG"
+# no --bump: avoid dirty app.json after commit (would loop if we auto-commit)
 (
-  flock -n 9 || exit 0
-  echo "$$" >"$LOCK"
-  trap 'rm -f "$LOCK"' EXIT
-  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) post-commit APK rebuild (no bump) HEAD=$(git rev-parse --short HEAD)" >>"$LOG"
-  # no --bump: avoid dirty app.json after commit (would loop if we auto-commit)
   if "$BUILD" >>"$LOG" 2>&1; then
     echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) ok" >>"$LOG"
   else
     echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) FAIL exit=$?" >>"$LOG"
   fi
-) 9>>"$LOCK" &
+) &
+disown
 
 echo "post-commit: APK rebuild started in background (log: mobile/artifacts/apk-hook.log)"
 exit 0
