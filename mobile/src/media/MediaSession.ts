@@ -1195,17 +1195,16 @@ export class MediaSession {
 
   private pcConfig(): object {
     const raw = this.ice?.ice_servers;
-    // hide_ip OR hub force_relay (same-IP hairpin) → pure iceTransportPolicy=relay.
-    // Hybrid policy=all left host preferred → peer_usage≈0 / both cams black
-    // (2026-08-10). UDP TURN only, pool=0 to avoid ALLOCATE storms.
+    // hide_ip → pure policy=relay. hub force_relay → policy=all + UDP TURN +
+    // strip host in trickle/SDP (pure relay left CREATE_PERM→10.x peer_usage=0).
     const hasTurn = this.hasTurn() || this.ice?.has_turn === true;
-    const pureRelay = !!(hasTurn && (this.hideIp || this.forceRelayOnce));
-    const wantTurn = pureRelay;
+    const pureRelay = !!(hasTurn && this.hideIp);
+    const forceHybrid = !!(hasTurn && this.forceRelayOnce && !this.hideIp);
     let servers = preferTcpTurnFirst(
       filterIce(raw, pureRelay ? "turn" : "all")
     );
     let iceTransportPolicy: "all" | "relay" = pureRelay ? "relay" : "all";
-    let iceCandidatePoolSize = pureRelay ? 0 : 2;
+    let iceCandidatePoolSize = pureRelay || forceHybrid ? 0 : 2;
     if (pureRelay) {
       servers = udpTurnOnly(servers);
       if (!servers.length) {
@@ -1213,26 +1212,13 @@ export class MediaSession {
       }
       if (servers.length > 1) servers = servers.slice(0, 1);
       iceTransportPolicy = servers.length ? "relay" : "all";
-    } else if (wantTurn) {
-      // Prefer UDP TURN first but keep STUN for fail-open
+    } else if (forceHybrid) {
       const turnFirst = preferTcpTurnFirst(filterIce(raw, "turn"));
-      const rest = filterIce(raw, "all").filter((s) => {
-        const u = String(Array.isArray(s.urls) ? s.urls[0] : s.urls || "");
-        return !u.toLowerCase().startsWith("turn");
-      });
-      servers = preferTcpTurnFirst([
-        ...udpTurnOnly(turnFirst).slice(0, 1),
-        ...turnFirst.filter(
-          (s) =>
-            !udpTurnOnly(turnFirst).some(
-              (u) =>
-                String(Array.isArray(u.urls) ? u.urls[0] : u.urls) ===
-                String(Array.isArray(s.urls) ? s.urls[0] : s.urls)
-            )
-        ),
-        ...rest,
-      ]);
-      if (!servers.length) servers = preferTcpTurnFirst(filterIce(raw, "all"));
+      const stun = filterIce(raw, "stun");
+      let udp = udpTurnOnly(turnFirst);
+      if (!udp.length) udp = turnFirst;
+      servers = preferTcpTurnFirst([...udp.slice(0, 1), ...stun]);
+      iceTransportPolicy = "all";
     }
     try {
       const nTurn = servers.filter((s) =>
@@ -1290,12 +1276,17 @@ export class MediaSession {
   }
 
   /**
-   * Pure iceTransportPolicy=relay for Hide IP privacy OR hub force_relay
-   * (same public IP hairpin). Hybrid left peer_usage≈0 both black (2026-08-10).
+   * Pure iceTransportPolicy=relay ONLY for Hide IP privacy.
+   * Hub force_relay uses host-stripped hybrid (policy=all).
    */
   private desiredRelayPolicy(): boolean {
     const hasTurn = this.hasTurn() || this.ice?.has_turn === true;
-    return !!(hasTurn && (this.hideIp || this.forceRelayOnce));
+    return !!(hasTurn && this.hideIp);
+  }
+
+  /** Drop typ host under force_relay or hide_ip. */
+  private shouldStripHostCandidates(): boolean {
+    return !!(this.hideIp || this.forceRelayOnce);
   }
 
   /**
@@ -1415,15 +1406,21 @@ export class MediaSession {
       if (ev.candidate) {
         try {
           const raw = ev.candidate as unknown as Record<string, unknown>;
-          // Pure-relay (hide_ip / force_relay): drop host/srflx so coturn never
-          // CREATE_PERM private peers (403 / peer_usage=0).
+          // Hide IP pure: only typ relay.
           if (this.shouldFilterToRelayCandidates() && !isRelayIceCandidate(raw)) {
             return;
           }
-          // Drop Chrome mDNS host (*.local) — RN rarely completes those checks.
           const candStr = String(
             (raw as { candidate?: string }).candidate || ""
           );
+          // force_relay / hide: drop all typ host (mDNS + private).
+          if (
+            this.shouldStripHostCandidates() &&
+            /\btyp\s+host\b/i.test(candStr)
+          ) {
+            return;
+          }
+          // Belt: always drop mDNS host.
           if (/\.local\b/i.test(candStr) && /\btyp\s+host\b/i.test(candStr)) {
             return;
           }
@@ -2645,9 +2642,17 @@ export class MediaSession {
       const local = pc.localDescription as { type?: string; sdp?: string } | null;
       const off = (local || offer) as { type?: string; sdp?: string };
       let sdp = String(off?.sdp || "");
-      // Only strip when ≥1 relay remains — never empty the path.
+      // Strip host for force_relay; pure hide_ip strips to relay only.
       if (this.shouldFilterToRelayCandidates() && sdp) {
         sdp = stripNonRelayCandidatesFromSdp(sdp);
+      } else if (this.shouldStripHostCandidates() && sdp) {
+        sdp = sdp
+          .split(/\r?\n/)
+          .filter(
+            (line) =>
+              !(/^a=candidate:/i.test(line) && /\btyp\s+host\b/i.test(line))
+          )
+          .join("\r\n");
       }
       if (sdp && gen === this.callGen && this.pc === pc) {
         this.lastOfferAt = Date.now();
@@ -3554,13 +3559,24 @@ export class MediaSession {
           this.offerWatchTimer = null;
         }
         const raw = JSON.parse(payload) as { type?: string; sdp?: string };
-        const desc =
-          this.shouldFilterToRelayCandidates() && raw?.sdp
-            ? {
-                ...raw,
-                sdp: stripNonRelayCandidatesFromSdp(String(raw.sdp)),
-              }
-            : raw;
+        let desc = raw;
+        if (raw?.sdp) {
+          let sdp = String(raw.sdp);
+          if (this.shouldFilterToRelayCandidates()) {
+            sdp = stripNonRelayCandidatesFromSdp(sdp);
+          } else if (this.shouldStripHostCandidates()) {
+            sdp = sdp
+              .split(/\r?\n/)
+              .filter(
+                (line) =>
+                  !(
+                    /^a=candidate:/i.test(line) && /\btyp\s+host\b/i.test(line)
+                  )
+              )
+              .join("\r\n");
+          }
+          desc = { ...raw, sdp };
+        }
         const state = String(pc.signalingState || "");
         // Web always applies remote offers (renego). Only skip exact duplicate
         // while still processing the first offer (have-remote-offer mid-answer).
@@ -3731,9 +3747,16 @@ export class MediaSession {
         if (sdp && /m=video/i.test(sdp)) {
           sdp = forceVideoSendrecvSdp(sdp);
         }
-        // Strip host only when ≥1 relay remains (never empty the SDP)
         if (this.shouldFilterToRelayCandidates() && sdp) {
           sdp = stripNonRelayCandidatesFromSdp(sdp);
+        } else if (this.shouldStripHostCandidates() && sdp) {
+          sdp = sdp
+            .split(/\r?\n/)
+            .filter(
+              (line) =>
+                !(/^a=candidate:/i.test(line) && /\btyp\s+host\b/i.test(line))
+            )
+            .join("\r\n");
         }
         if (sdp) {
           this.handlers.onSignal?.(

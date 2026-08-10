@@ -241,12 +241,46 @@ function udpTurnOnly(servers) {
 }
 
 /**
- * Strip host/srflx for pure-relay modes (Hide IP + hub force_relay).
- * Same-IP hairpin must not trickle private peers (coturn CREATE_PERM + no media).
+ * Strip to typ relay only — Hide IP privacy (true pure).
+ * Hub force_relay uses stripHostCandidates (host only) so srflx+relay remain.
  * @returns {boolean}
  */
 function shouldFilterToRelayCandidates() {
-  return hideIpRelayOnlyEnabled() || sessionForceRelayEnabled();
+  return hideIpRelayOnlyEnabled();
+}
+
+/**
+ * Drop typ host (incl. mDNS) under hub force_relay — keep srflx+relay.
+ * Pure hide_ip uses shouldFilterToRelayCandidates instead.
+ * @returns {boolean}
+ */
+function shouldStripHostCandidates() {
+  return (
+    sessionForceRelayEnabled() ||
+    hideIpRelayOnlyEnabled()
+  );
+}
+
+/**
+ * Strip typ host candidates (mDNS + private). Keep srflx + relay.
+ * @param {string} sdp
+ * @returns {string}
+ */
+function stripHostCandidatesFromSdp(sdp) {
+  if (!sdp || typeof sdp !== "string") return sdp;
+  const out = [];
+  let dropped = 0;
+  for (const line of sdp.split(/\r?\n/)) {
+    if (/^a=candidate:/i.test(line) && /\btyp\s+host\b/i.test(line)) {
+      dropped += 1;
+      continue;
+    }
+    out.push(line);
+  }
+  if (dropped) {
+    console.info(`[webrtc] stripped ${dropped} host candidates (keep srflx/relay)`);
+  }
+  return out.join("\r\n");
 }
 
 /**
@@ -321,6 +355,30 @@ function isMdnsHostIceCandidate(c) {
         );
   if (!s) return false;
   return /\.local\b/i.test(s) && /\btyp\s+host\b/i.test(s);
+}
+
+/**
+ * @param {RTCIceCandidateInit | RTCIceCandidate | string | null | undefined} c
+ * @returns {boolean}
+ */
+function isHostIceCandidate(c) {
+  if (c == null) return false;
+  const typ = String(
+    /** @type {{ type?: string, candidateType?: string }} */ (c).type ||
+      /** @type {{ candidateType?: string }} */ (c).candidateType ||
+      ""
+  ).toLowerCase();
+  if (typ === "host") return true;
+  const s =
+    typeof c === "string"
+      ? c
+      : String(
+          /** @type {{ candidate?: string }} */ (c).candidate ||
+            /** @type {{ toJSON?: () => { candidate?: string } }} */ (c).toJSON?.()
+              ?.candidate ||
+            ""
+        );
+  return !!s && /\btyp\s+host\b/i.test(s);
 }
 
 /**
@@ -417,10 +475,17 @@ function waitForIceGatherRelayOrDone(pc, maxMs = 150) {
  * @returns {RTCSessionDescriptionInit}
  */
 function sanitizeRemoteDescription(desc) {
-  if (!desc || !shouldFilterToRelayCandidates()) return desc;
-  const sdp = desc.sdp;
-  if (!sdp) return desc;
-  return { type: desc.type, sdp: stripNonRelayCandidatesFromSdp(sdp) };
+  if (!desc || !desc.sdp) return desc;
+  let sdp = String(desc.sdp);
+  sdp = stripMdnsHostCandidatesFromSdp(sdp);
+  if (shouldFilterToRelayCandidates()) {
+    sdp = stripNonRelayCandidatesFromSdp(sdp);
+  } else if (shouldStripHostCandidates()) {
+    sdp = stripHostCandidatesFromSdp(sdp);
+  } else {
+    return desc;
+  }
+  return { type: desc.type, sdp };
 }
 
 /**
@@ -443,9 +508,8 @@ function applyIceDirectPreference() {
   let iceTransportPolicy = "all";
 
   let poolSize = ICE_CANDIDATE_POOL_SIZE;
-  if (hideOnly || forceRelay) {
-    // Pure relay for Hide IP privacy AND hub same-IP force_relay (hairpin).
-    // UDP TURN only, pool=0 — avoids ALLOCATE storms that left peer_usage=0.
+  if (hideOnly) {
+    // Hide IP: true pure relay (privacy — no host/srflx path to peer).
     const turnOnly = filterIceServersByMode(raw, "turn");
     if (turnOnly.length) {
       servers = udpTurnOnly(preferFastTurnFirst(turnOnly));
@@ -456,12 +520,20 @@ function applyIceDirectPreference() {
     } else {
       servers = preferFastTurnFirst(raw);
       iceTransportPolicy = "all";
-      console.warn(
-        "[webrtc] pure-relay wanted TURN empty — fail-open all (" +
-          (hideOnly ? "hide_ip" : "force_relay") +
-          ")"
-      );
+      console.warn("[webrtc] hide_ip wanted TURN empty — fail-open all");
     }
+  } else if (forceRelay) {
+    // Same-IP force_relay: NOT pure policy=relay (CREATE_PERM to 10.x only +
+    // peer_usage=0 / both black). Use policy=all + UDP TURN + STUN, strip
+    // host/mDNS in SDP/trickle so ICE prefers srflx then relay hairpin.
+    const turnOnly = filterIceServersByMode(raw, "turn");
+    const stun = filterIceServersByMode(raw, "stun");
+    let turn = udpTurnOnly(preferFastTurnFirst(turnOnly));
+    if (!turn.length) turn = preferFastTurnFirst(turnOnly);
+    if (turn.length > 1) turn = turn.slice(0, 1);
+    servers = preferFastTurnFirst([...turn, ...stun]);
+    iceTransportPolicy = "all";
+    poolSize = 0;
   } else if (directOnly) {
     servers = filterIceServersByMode(raw, "stun");
     if (!servers.length) servers = DEFAULT_ICE.iceServers;
@@ -597,13 +669,10 @@ function warmIcePool(opts = {}) {
       const urls = Array.isArray(s.urls) ? s.urls : s.urls ? [s.urls] : [];
       return urls.some((u) => /^turns?:/i.test(String(u || "")));
     });
-    // Pure-relay warm: Hide IP, hub force_relay (same-IP), or explicit preferRelay.
-    // Hybrid host-first on force_relay left peer_usage≈0 / black both cams.
-    const wantPureRelay =
-      hideIpRelayOnlyEnabled() ||
-      sessionForceRelayEnabled() ||
-      !!opts.preferRelay;
-    if (wantPureRelay && hasTurn) {
+    // Pure-relay warm ONLY for Hide IP (or explicit preferRelay + hide).
+    // Hub force_relay warms hybrid (policy=all, UDP TURN) — strip host at emit.
+    const wantPureRelay = hideIpRelayOnlyEnabled() || !!opts.preferRelay;
+    if (wantPureRelay && hasTurn && hideIpRelayOnlyEnabled()) {
       const turnOnly = filterIceServersByMode(raw, "turn");
       if (turnOnly.length) {
         let udp = udpTurnOnly(preferFastTurnFirst(turnOnly));
@@ -617,7 +686,7 @@ function warmIcePool(opts = {}) {
         };
       }
     } else if (hasTurn) {
-      // Normal match: TURN first + STUN, policy all
+      // Normal + force_relay hybrid: TURN first + STUN, policy all
       const turnOnly = filterIceServersByMode(raw, "turn");
       const stun = filterIceServersByMode(raw, "stun");
       let turn = udpTurnOnly(preferFastTurnFirst(turnOnly));
@@ -1088,16 +1157,11 @@ function lowLatencyAudioConstraints(extra = {}) {
 }
 
 /**
- * Pure iceTransportPolicy=relay PC — Hide IP privacy OR hub force_relay
- * (same public IP hairpin). Hybrid force_relay left host preferred and
- * peer_usage≈0 / both cams black on same-LAN (2026-08-10).
+ * Pure iceTransportPolicy=relay — Hide IP privacy ONLY.
+ * Hub force_relay is host-stripped hybrid (policy=all, no typ host) so TURN
+ * hairpin can complete without pure-relay CREATE_PERM-to-10.x death.
  */
 function isRelayMediaMode() {
-  try {
-    if (typeof sessionForceRelayEnabled === "function" && sessionForceRelayEnabled()) {
-      return true;
-    }
-  } catch (_) {}
   try {
     if (typeof hideIpRelayOnlyEnabled === "function" && hideIpRelayOnlyEnabled()) {
       return true;
@@ -1791,15 +1855,18 @@ class RouletteWebRtc {
     this._pendingRemoteOfferSince = 0;
     this.pc.onicecandidate = (ev) => {
       if (!ev.candidate) return;
-      // Force-relay: never trickle host/srflx — peer TURN would CREATE_PERMISSION
-      // private/link-local addresses → coturn 403 and wasted ICE time.
+      // Hide IP pure: only trickle typ relay.
       if (
         shouldFilterToRelayCandidates() &&
         !isRelayIceCandidate(ev.candidate)
       ) {
         return;
       }
-      // Chrome mDNS host (*.local) rarely completes vs RN Android — drop.
+      // force_relay / hide: never trickle typ host (mDNS or private).
+      if (shouldStripHostCandidates() && isHostIceCandidate(ev.candidate)) {
+        return;
+      }
+      // Belt: drop mDNS host even on normal path.
       if (isMdnsHostIceCandidate(ev.candidate)) return;
       this._emitSignal("ice", JSON.stringify(ev.candidate));
       // First-frame forensics
@@ -2435,6 +2502,8 @@ class RouletteWebRtc {
         sdp = stripMdnsHostCandidatesFromSdp(sdp);
         if (shouldFilterToRelayCandidates()) {
           sdp = stripNonRelayCandidatesFromSdp(sdp);
+        } else if (shouldStripHostCandidates()) {
+          sdp = stripHostCandidatesFromSdp(sdp);
         }
         desc = { type: desc.type, sdp };
       }
