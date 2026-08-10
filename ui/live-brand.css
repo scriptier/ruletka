@@ -1,0 +1,184 @@
+/**
+ * Stage branding: text wordmarks only (no logo image).
+ * Center seam + both tiles. Occasional spin animation.
+ * Does not block clicks (pointer-events: none).
+ */
+
+/* —— Tile watermarks (partner + you) —— */
+.stage-wm {
+  position: absolute;
+  left: 50%;
+  bottom: 5.5rem;
+  z-index: 6;
+  transform: translateX(-50%);
+  pointer-events: none;
+  user-select: none;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+/* Show during live call */
+.stage.has-brand-live .stage-wm {
+  opacity: 0.55;
+}
+.stage.has-brand-live .tile-remote:hover .stage-wm,
+.stage.has-brand-live .tile-local:hover .stage-wm {
+  opacity: 0.72;
+}
+/* Hide on partner while empty / searching */
+#remote-empty:not(.hidden) ~ .stage-wm,
+.tile-remote:has(#remote-empty:not(.hidden)) .stage-wm {
+  opacity: 0 !important;
+}
+/* Hide on local while cam empty */
+#local-empty:not(.hidden) ~ .stage-wm-local,
+.tile-local:has(#local-empty:not(.hidden)) .stage-wm-local {
+  opacity: 0 !important;
+}
+
+.stage-wm-text {
+  display: inline-block;
+  font-family: var(--sans, "Inter", system-ui, sans-serif);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: lowercase;
+  color: rgba(255, 255, 255, 0.88);
+  text-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.9),
+    0 0 14px rgba(0, 0, 0, 0.5);
+  white-space: nowrap;
+  will-change: transform;
+}
+.stage-wm-text.is-spinning {
+  animation: stage-brand-spin-360 1.15s cubic-bezier(0.22, 0.9, 0.28, 1) both;
+}
+
+@media (max-width: 720px) {
+  .stage-wm {
+    bottom: 4.75rem;
+  }
+  .stage-wm-text {
+    font-size: 0.68rem;
+    letter-spacing: 0.14em;
+  }
+}
+
+/* —— Center seam wordmark (between partner | you) —— */
+.stage {
+  position: relative;
+}
+.stage-brand-center {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 18;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  pointer-events: none;
+  user-select: none;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+.stage.has-brand-live .stage-brand-center {
+  opacity: 1;
+}
+
+.stage-brand-spin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.45rem 0.85rem;
+  border-radius: 999px;
+  background: radial-gradient(
+    circle at 40% 35%,
+    rgba(36, 40, 52, 0.78),
+    rgba(8, 10, 14, 0.9)
+  );
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow:
+    0 6px 22px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* Text only — no logo image */
+.stage-brand-wordmark {
+  display: inline-block;
+  font-family: var(--sans, "Inter", system-ui, sans-serif);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: lowercase;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
+  will-change: transform;
+  line-height: 1.2;
+}
+.stage-brand-spin.is-spinning .stage-brand-wordmark {
+  animation: stage-brand-spin-360 1.15s cubic-bezier(0.22, 0.9, 0.28, 1) both;
+}
+
+@keyframes stage-brand-spin-360 {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+  40% {
+    transform: rotate(200deg) scale(1.08);
+  }
+  100% {
+    transform: rotate(360deg) scale(1);
+  }
+}
+
+/* Legacy class kept so old CSS rules don't break */
+.stage-brand-logo {
+  display: none !important;
+}
+.stage-brand-word {
+  display: none !important;
+}
+
+.stage.stage-trio .stage-brand-center {
+  left: 33.333%;
+}
+
+@media (max-width: 720px) {
+  .stage-brand-center {
+    left: 50%;
+    top: 42%;
+  }
+  .stage-brand-spin {
+    padding: 0.38rem 0.72rem;
+  }
+  .stage-brand-wordmark {
+    font-size: 0.62rem;
+    letter-spacing: 0.16em;
+  }
+}
+
+/* Themes */
+html[data-theme="light"] .stage-wm-text,
+html[data-theme="pink"] .stage-wm-text {
+  color: rgba(20, 24, 36, 0.75);
+  text-shadow:
+    0 1px 2px rgba(255, 255, 255, 0.8),
+    0 0 8px rgba(255, 255, 255, 0.4);
+}
+html[data-theme="light"] .stage-brand-wordmark,
+html[data-theme="pink"] .stage-brand-wordmark {
+  color: rgba(24, 28, 40, 0.88);
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.65);
+}
+html[data-theme="light"] .stage-brand-spin,
+html[data-theme="pink"] .stage-brand-spin {
+  background: radial-gradient(
+    circle at 40% 35%,
+    rgba(255, 255, 255, 0.88),
+    rgba(230, 234, 244, 0.92)
+  );
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+}
