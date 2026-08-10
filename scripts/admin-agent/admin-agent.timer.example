@@ -1,0 +1,19 @@
+# systemd --user example (optional)
+#
+#   mkdir -p ~/.config/systemd/user
+#   cp admin-agent.service.example ~/.config/systemd/user/ruletka-admin.service
+#   cp admin-agent.timer.example ~/.config/systemd/user/ruletka-admin.timer
+#   # edit paths in the .service file
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now ruletka-admin.timer
+#   systemctl --user list-timers
+
+[Unit]
+Description=Run ruletka overnight admin agent nightly
+
+[Timer]
+OnCalendar=*-*-* 00:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
