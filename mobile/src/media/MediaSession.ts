@@ -1420,6 +1420,13 @@ export class MediaSession {
           if (this.shouldFilterToRelayCandidates() && !isRelayIceCandidate(raw)) {
             return;
           }
+          // Drop Chrome mDNS host (*.local) — RN rarely completes those checks.
+          const candStr = String(
+            (raw as { candidate?: string }).candidate || ""
+          );
+          if (/\.local\b/i.test(candStr) && /\btyp\s+host\b/i.test(candStr)) {
+            return;
+          }
           const payload = serializeIceCandidate(raw);
           if (payload) this.handlers.onSignal?.("ice", payload);
         } catch {
@@ -2473,12 +2480,17 @@ export class MediaSession {
   }
 
   /**
-   * Wait for typ relay only in pure-relay modes (hide_ip / hub force_relay).
-   * Normal matches emit host ASAP — waiting on every TURN path delayed SDP
-   * and preferred broken coturn hairpin (2026-08-10 black both cams).
+   * Wait briefly for typ relay when pure (hide/force) OR when TURN is available
+   * (hybrid fallback). Same-WiFi Chrome mDNS host often fails vs Android with
+   * relay_candidates=0 → both black (2026-08-10).
    */
   private shouldWaitForFirstRelay(): boolean {
-    return this.desiredRelayPolicy();
+    if (this.desiredRelayPolicy()) return true;
+    return this.hasTurn() || this.ice?.has_turn === true;
+  }
+
+  private relayWaitBudgetMs(): number {
+    return this.desiredRelayPolicy() ? 1200 : 550;
   }
 
   private async createAndSendOffer(
@@ -2617,17 +2629,14 @@ export class MediaSession {
         return;
       }
       if (this.shouldWaitForFirstRelay()) {
-        // Must get relay — warm flag is not enough (new gather after setLocal).
-        let n = await waitForIceGatherRelayOrDone(
-          pc,
-          this.warmTurnPrimed ? 1000 : 1800
-        );
-        if (n === 0) n = await waitForIceGatherRelayOrDone(pc, 2500);
-        if (n === 0) n = await waitForIceGatherRelayOrDone(pc, 2000);
+        const budget = this.relayWaitBudgetMs();
+        let n = await waitForIceGatherRelayOrDone(pc, budget);
+        if (n === 0 && this.desiredRelayPolicy()) {
+          n = await waitForIceGatherRelayOrDone(pc, budget + 900);
+        }
         this.handlers.onConnectionState?.(
-          `offer_first_relay n=${n} primed=${this.warmTurnPrimed ? 1 : 0}`
+          `offer_first_relay n=${n} budget=${budget} pure=${this.desiredRelayPolicy() ? 1 : 0}`
         );
-        // Fail-open: emit host path rather than silence forever (black cams).
         if (n === 0) {
           this.handlers.onConnectionState?.("offer_emit_no_relay_failopen");
         }
@@ -3702,14 +3711,13 @@ export class MediaSession {
         this.scheduleOutboundVideoWatch();
         // force_relay / Hide IP: wait for typ relay in answer.
         if (this.shouldWaitForFirstRelay()) {
-          let n = await waitForIceGatherRelayOrDone(
-            pc2,
-            this.warmTurnPrimed ? 1200 : 2000
-          );
-          if (n === 0) n = await waitForIceGatherRelayOrDone(pc2, 3000);
-          if (n === 0) n = await waitForIceGatherRelayOrDone(pc2, 2500);
+          const budget = this.relayWaitBudgetMs();
+          let n = await waitForIceGatherRelayOrDone(pc2, budget);
+          if (n === 0 && this.desiredRelayPolicy()) {
+            n = await waitForIceGatherRelayOrDone(pc2, budget + 900);
+          }
           this.handlers.onConnectionState?.(
-            `answer_first_relay n=${n} primed=${this.warmTurnPrimed ? 1 : 0}`
+            `answer_first_relay n=${n} budget=${budget}`
           );
           if (n === 0) {
             this.handlers.onConnectionState?.("answer_emit_no_relay_failopen");

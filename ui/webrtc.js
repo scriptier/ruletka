@@ -250,17 +250,77 @@ function shouldFilterToRelayCandidates() {
 }
 
 /**
- * Wait for typ relay in SDP only in pure-relay modes (Hide IP / hub force_relay).
- * Waiting on every TURN-in-config match delayed host-path offers 1–10s and
- * pushed ICE toward broken TURN hairpin (peer 10.x CREATE_PERM, black cams).
- * Normal matches: emit ASAP with host/srflx; relay trickles later.
+ * Wait for typ relay in first SDP when pure-relay (hide/force) OR when TURN
+ * is available (hybrid fallback). Same-WiFi host/mDNS often fails Chrome↔Android
+ * with relay_candidates=0 → both black (2026-08-10). Short wait only for hybrid.
  * @returns {boolean}
  */
 function shouldWaitForFirstRelay() {
   try {
     if (preferDirectOnlyEnabled()) return false;
   } catch (_) {}
-  return hideIpRelayOnlyEnabled() || sessionForceRelayEnabled();
+  if (hideIpRelayOnlyEnabled() || sessionForceRelayEnabled()) return true;
+  try {
+    const raw = lastRawIceServers || iceConfig?.iceServers || [];
+    return (raw || []).some((s) => {
+      const urls = Array.isArray(s.urls) ? s.urls : s.urls ? [s.urls] : [];
+      return urls.some((u) => /^turns?:/i.test(String(u || "")));
+    });
+  } catch (_) {
+    return false;
+  }
+}
+
+/** Max ms to wait for first typ relay before emit (hybrid short, pure longer). */
+function relayWaitBudgetMs() {
+  if (hideIpRelayOnlyEnabled() || sessionForceRelayEnabled()) return 1200;
+  return 550;
+}
+
+/**
+ * Drop mDNS host candidates (*.local) — Chrome gathers them; RN Android often
+ * never completes ICE checks against them → black both sides on same Wi‑Fi.
+ * @param {string} sdp
+ * @returns {string}
+ */
+function stripMdnsHostCandidatesFromSdp(sdp) {
+  if (!sdp || typeof sdp !== "string") return sdp;
+  const out = [];
+  let dropped = 0;
+  for (const line of sdp.split(/\r?\n/)) {
+    if (
+      /^a=candidate:/i.test(line) &&
+      /\.local\b/i.test(line) &&
+      /\btyp\s+host\b/i.test(line)
+    ) {
+      dropped += 1;
+      continue;
+    }
+    out.push(line);
+  }
+  if (dropped) {
+    console.info(`[webrtc] stripped ${dropped} mDNS host candidates`);
+  }
+  return out.join("\r\n");
+}
+
+/**
+ * @param {RTCIceCandidateInit | RTCIceCandidate | string | null | undefined} c
+ * @returns {boolean}
+ */
+function isMdnsHostIceCandidate(c) {
+  if (c == null) return false;
+  const s =
+    typeof c === "string"
+      ? c
+      : String(
+          /** @type {{ candidate?: string }} */ (c).candidate ||
+            /** @type {{ toJSON?: () => { candidate?: string } }} */ (c).toJSON?.()
+              ?.candidate ||
+            ""
+        );
+  if (!s) return false;
+  return /\.local\b/i.test(s) && /\btyp\s+host\b/i.test(s);
 }
 
 /**
@@ -1739,6 +1799,8 @@ class RouletteWebRtc {
       ) {
         return;
       }
+      // Chrome mDNS host (*.local) rarely completes vs RN Android — drop.
+      if (isMdnsHostIceCandidate(ev.candidate)) return;
       this._emitSignal("ice", JSON.stringify(ev.candidate));
       // First-frame forensics
       try {
@@ -2302,10 +2364,10 @@ class RouletteWebRtc {
       // Answer path still emits before setLocal (safe: offerer already ready).
       await this.pc.setLocalDescription(offer);
       if (this._offerGen !== offerGen) return false;
-      // force_relay: MUST have typ relay in SDP (hub logged relay_candidates=0).
-      // Warm flag alone is not enough — new offer re-gathers.
+      // Include typ relay when possible (same-WiFi host/mDNS often fails).
       if (shouldWaitForFirstRelay()) {
         const warmOk = !!(this.pc && this.pc.__ruletWarmPrimed);
+        const budget = relayWaitBudgetMs();
         let n = 0;
         try {
           n = (
@@ -2315,18 +2377,20 @@ class RouletteWebRtc {
           ).length;
         } catch (_) {}
         if (n === 0) {
-          n = await waitForIceGatherRelayOrDone(this.pc, warmOk ? 600 : 900);
+          n = await waitForIceGatherRelayOrDone(this.pc, budget);
         }
-        if (n === 0) {
-          n = await waitForIceGatherRelayOrDone(this.pc, 1800);
+        if (n === 0 && isRelayMediaMode()) {
+          n = await waitForIceGatherRelayOrDone(this.pc, budget + 800);
         }
         console.info(
           "[webrtc] offer first-relay count=" +
             n +
             " warm=" +
-            (warmOk ? 1 : 0)
+            (warmOk ? 1 : 0) +
+            " budget=" +
+            budget
         );
-        // Pure relay (hide_ip / force_relay): rebuild once if still no relay.
+        // Pure relay only: rebuild once if still no relay.
         if (n === 0 && !opts._relayRetry && isRelayMediaMode()) {
           console.warn(
             "[webrtc] offer no relay — rebuild pure-relay PC and retry once"
@@ -2357,10 +2421,8 @@ class RouletteWebRtc {
           });
         }
         if (n === 0) {
-          // No TURN path — emit host/srflx anyway (same-LAN / no-TURN smoke).
-          // Blocking forever left match offer lock held + black both sides.
           console.warn(
-            "[webrtc] offer no relay after rebuild — emit host path (fail-open)"
+            "[webrtc] offer no relay after wait — emit host path (fail-open)"
           );
         }
       }
@@ -2368,11 +2430,13 @@ class RouletteWebRtc {
       this._lastOfferAt = Date.now();
       // Prefer localDescription (may include first relay after wait)
       let desc = this.pc.localDescription || offer;
-      if (desc && shouldFilterToRelayCandidates() && desc.sdp) {
-        desc = {
-          type: desc.type,
-          sdp: stripNonRelayCandidatesFromSdp(String(desc.sdp)),
-        };
+      if (desc && desc.sdp) {
+        let sdp = String(desc.sdp);
+        sdp = stripMdnsHostCandidatesFromSdp(sdp);
+        if (shouldFilterToRelayCandidates()) {
+          sdp = stripNonRelayCandidatesFromSdp(sdp);
+        }
+        desc = { type: desc.type, sdp };
       }
       // Prefer relay under force_relay, but never block emit forever (black cams).
       if (shouldWaitForFirstRelay()) {
@@ -2828,11 +2892,34 @@ class RouletteWebRtc {
           this.pc.connectionState === "connecting" ||
           this.pc.connectionState === "connected")
       ) {
-        console.info(
-          "[webrtc] skip remote offer — already negotiated, ICE",
+        // Don't let "checking" alone count as live (lock rule #7) — a peer
+        // that's been stuck in checking/connecting with zero painted frames
+        // for a while is a zombie, not an active negotiation. Without this
+        // escape hatch a legitimate one-shot black_watch rebuild offer from
+        // the other side gets swallowed here forever and both sides stay
+        // dark (see tasks/admin-queue/done/100-pair-smoke-headless-RESULT.md).
+        let painted = false;
+        try {
+          const el = this._videoEl;
+          if (el && el.videoWidth > 8 && el.readyState >= 2) painted = true;
+        } catch (_) {}
+        const stuckNoFrames =
+          !painted &&
+          this._answeredAt &&
+          Date.now() - this._answeredAt > 18000;
+        if (!stuckNoFrames) {
+          console.info(
+            "[webrtc] skip remote offer — already negotiated, ICE",
+            this.pc.iceConnectionState
+          );
+          return;
+        }
+        console.warn(
+          "[webrtc] accept renego offer — stuck no frames",
+          Date.now() - this._answeredAt,
+          "ICE",
           this.pc.iceConnectionState
         );
-        return;
       }
       if (raw?.sdp) this._lastRemoteOfferSdp = String(raw.sdp).slice(0, 200);
       await this.pc.setRemoteDescription(desc);
