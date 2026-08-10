@@ -27,6 +27,18 @@ ui/download/roulette-bridge-*
 !ui/download/*.sh
 !ui/download/*.ps1
 !ui/download/README.md
+# Never commit bulk sideload APKs (local only; Play uses mobile/artifacts AAB)
+ui/download/*.apk
+ui/download/archive/
+mobile/artifacts/*.apk
+mobile/artifacts/*.aab
+mobile/artifacts/apk-hook.log
+/artifacts/
+# Shelved / local-only
+scripts/livekit/
+/deploy/
+ui/brand/_backup_*/
+ui/brand/icon-source-cylinder.jpg
 
 # Local ops / personal
 phone-url.txt
