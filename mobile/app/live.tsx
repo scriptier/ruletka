@@ -271,8 +271,8 @@ function LiveBody() {
   }, []);
 
   /**
-   * Drop privacy veil. Avoid remount spam (CONNECTIVITY_LOCK: one paint).
-   * Only forceRepaint if still no frames after unblur.
+   * Drop privacy veil. RTCView stayed mounted at zOrder 0 under the mosaic —
+   * bump epoch once so Android rebinds after zOrder 0→1 flip.
    */
   const revealPartnerVideo = useCallback(
     (why: string) => {
@@ -280,14 +280,24 @@ function LiveBody() {
       setRemoteBlurred(false);
       remoteBlurredRef.current = false;
       push(`blur off (${why})`);
-      // Re-mount partner RTCView after privacy unmount (Android SurfaceView).
-      // Always epoch-bump once — no 150/500 remount ladder.
+      // zOrder 0→1 after veil: one epoch bump so SurfaceView reattaches cleanly.
       setRemoteEpoch((n) => n + 1);
       try {
         mediaRef.current?.forceRepaintRemote?.(why);
       } catch {
         /* ignore */
       }
+      // Soft second kick if first frame still missing (no remount ladder).
+      setTimeout(() => {
+        try {
+          if (!mediaRef.current?.hasInboundVideoFrames?.()) {
+            mediaRef.current?.forceRepaintRemote?.(`${why}_kick`);
+            setRemoteEpoch((n) => n + 1);
+          }
+        } catch {
+          /* ignore */
+        }
+      }, 400);
     },
     [clearIntroUnblurTimer, push]
   );
@@ -4939,15 +4949,18 @@ function LiveBody() {
       </View>
 
       {/*
-        Privacy veil: in-tree absolute overlay (NOT RN Modal).
-        On many Android OEMs, Modal sits UNDER WebRTC SurfaceView even with
-        zOrder games — user only saw a black stage. Partner RTCView is
-        unmounted while veiled; this View paints the mosaic on top.
+        Privacy veil: full-screen absolute overlay (NOT RN Modal).
+        LiveStageVideo drops all RTCViews to zOrder 0 while veiled so this
+        mosaic paints above SurfaceView. Solid non-black base — never #000.
       */}
       {showPrivacyBlur ? (
         <View
           style={{
-            ...StyleSheet.absoluteFillObject,
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
             zIndex: 9999,
             elevation: 9999,
             backgroundColor: "#3a4a66",

@@ -130,18 +130,19 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
   } = props;
 
   /**
-   * Privacy blur (strangers + friends via eye toggle).
-   * Android SurfaceView (RTCView zOrder ≥1) paints ABOVE RN Modal on many OEMs.
-   * While veiled: UNMOUNT every RTCView (partner + local PiP). MediaSession keeps
-   * tracks; full-screen Modal + PartnerBlurVeil own the pixels (no black hole).
+   * Privacy blur (eye / intro / hold).
+   *
+   * KEEP partner RTCView mounted at zOrder 0 + paint PartnerBlurVeil on top.
+   * Unmounting left a pure black hole when the overlay failed to fill (OEM
+   * SurfaceView / flex collapse). zOrder ≥1 punches through RN views — so
+   * drop to 0 while veiled; mosaic is fully opaque (#45536c+ cells).
+   * Self PiP stays mounted (user still sees own cam under privacy).
    */
   const privacyBlur = !!remoteBlurred;
   // Partner on main stage (normal) vs partner in PiP (swapped)
   const coverMainPartner = privacyBlur && !swapViews;
   const coverPipPartner = privacyBlur && swapViews;
-  /** Local self cam also punches through Modal — hide while veil is up. */
-  const hideLocalSurface = privacyBlur;
-  // Bars / mute / hide need zOrder 0 so RN overlays paint above SurfaceView.
+  // Bars / mute / hide / privacy need zOrder 0 so RN overlays paint above SurfaceView.
   const partnerBars = partnerFx === "bars";
   const selfBars = selfFx === "bars";
   // Normal layout: main = partner, pip = self. Swapped: main = self, pip = partner.
@@ -179,13 +180,13 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
   });
 
   /**
-   * WORKING baseline (a576143 / human pass): partner **zOrder 1**, self PiP **2**.
-   * zOrder 0 = behind RN window → pure black conversationalist on real devices
-   * (PiP at 1 still worked — that's how we diagnosed the regression).
-   * Only drop to 0 when RN overlays must cover that tile (mute / bars).
-   * Privacy blur unmounts partner RTCView (never cover a live surface).
+   * WORKING baseline: partner **zOrder 1**, self PiP **2**.
+   * Drop to 0 when RN must paint over that tile (mute / bars / privacy veil).
+   * Privacy: ALL RTCViews to zOrder 0 so fullscreen mosaic can cover the stage
+   * (zOrder ≥1 punches through RN absolute overlays on Android).
    */
   const mainZOrder =
+    privacyBlur ||
     mainBars ||
     (showPartnerMute && !swapViews) ||
     (showTheyMutedMe && swapViews) ||
@@ -193,6 +194,7 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
       ? 0
       : 1;
   const pipZOrder =
+    privacyBlur ||
     pipBars ||
     (showTheyMutedMe && !swapViews) ||
     (!camOn && !swapViews) ||
@@ -240,26 +242,14 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
                 onToggleFocusExtra();
               }}
             >
-              {/* Privacy: never mount remote RTCView while veiled (Android SurfaceView). */}
-              {tile.stream && !tile.placeholder && !privacyBlur ? (
+              {/* Keep remote RTCView mounted at zOrder 0 under opaque veil. */}
+              {tile.stream && !tile.placeholder ? (
                 <VideoView
                   stream={tile.stream}
                   streamEpoch={tile.epoch}
                   mirror={tile.mirror}
                   style={styles.remoteFill}
-                  zOrder={mainZOrder}
-                />
-              ) : privacyBlur ? (
-                <PartnerBlurVeil
-                  compact
-                  title={blurVeil?.title}
-                  partnerLabel={tile.name || partnerName}
-                  buttonLabel={L.unblurShort}
-                  style={styles.remoteFill}
-                  onPress={() => {
-                    onHaptic();
-                    blurVeil?.onUnblur();
-                  }}
+                  zOrder={privacyBlur ? 0 : mainZOrder}
                 />
               ) : (
                 <View style={[styles.remoteFill, styles.videoPlaceholder]}>
@@ -273,6 +263,19 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
                   ) : null}
                 </View>
               )}
+              {privacyBlur ? (
+                <PartnerBlurVeil
+                  compact
+                  title={blurVeil?.title}
+                  partnerLabel={tile.name || partnerName}
+                  buttonLabel={L.unblurShort}
+                  style={styles.remoteFill}
+                  onPress={() => {
+                    onHaptic();
+                    blurVeil?.onUnblur();
+                  }}
+                />
+              ) : null}
               {!privacyBlur ? (
                 <Text style={styles.splitLabel} numberOfLines={1}>
                   {tile.name}
@@ -300,11 +303,10 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
       ) : (
         <View style={styles.remoteFill} collapsable={false}>
           {/*
-            Partner privacy: UNMOUNT partner RTCView while veiled.
-            Covering a live SurfaceView with RN views fails on Android.
-            MediaSession keeps the track; we re-attach on unblur.
+            Partner privacy: KEEP RTCView at zOrder 0 + opaque PartnerBlurVeil.
+            Unmount-while-veiled left a black stage on Android OEMs.
           */}
-          {mainStream && !coverMainPartner && !(hideLocalSurface && swapViews) ? (
+          {mainStream ? (
             <VideoView
               stream={mainStream}
               streamEpoch={swapViews ? 0 : remoteEpoch}
@@ -312,19 +314,9 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
               style={styles.remoteFill}
               zOrder={mainZOrder}
             />
-          ) : coverMainPartner || (hideLocalSurface && swapViews) ? (
-            <View
-              style={[styles.remoteFill, styles.blurUnderlay]}
-              collapsable={false}
-              pointerEvents="none"
-            />
           ) : (
             <Pressable
-              style={[
-                styles.remoteFill,
-                styles.videoPlaceholder,
-                coverMainPartner && styles.blurUnderlay,
-              ]}
+              style={[styles.remoteFill, styles.videoPlaceholder]}
               accessibilityRole={phase === "matched" ? "button" : undefined}
               accessibilityLabel={
                 phase === "matched"
@@ -361,7 +353,7 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
               delayLongPress={450}
               disabled={phase !== "matched" || retryBusy}
             >
-              {phase === "matched" && !coverMainPartner ? (
+              {phase === "matched" ? (
                 <View style={styles.connectCard} collapsable={false}>
                   <View style={styles.connectPulseOuter} pointerEvents="none">
                     <View style={styles.connectPulseInner} />
@@ -396,10 +388,14 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
               ) : null}
             </Pressable>
           )}
-          {/* Soft mosaic privacy veil — partner RTCView unmounted while veiled */}
+          {/* Opaque mosaic veil over partner (RTCView stays zOrder 0 underneath) */}
           {coverMainPartner ? (
             <View
-              style={[styles.remoteFill, { zIndex: 50, elevation: 28 }]}
+              style={[
+                styles.remoteFill,
+                styles.blurUnderlay,
+                { zIndex: 50, elevation: 28 },
+              ]}
               collapsable={false}
             >
               <PartnerBlurVeil
@@ -417,10 +413,8 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
             </View>
           ) : null}
           {/*
-            Bars over conversationalist — main RTCView stays zOrder 0 so RN
-            can paint BarsOverlay above. While privacy veil is on, partner
-            RTCView is unmounted so bars wait until unblur.
-
+            Bars over conversationalist — main RTCView at zOrder 0 so RN
+            paints BarsOverlay above. Skip while privacy veil covers partner.
           */}
           {mainBars && !coverMainPartner ? (
             <View style={styles.barsOnTile} pointerEvents="none">
@@ -500,7 +494,7 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
           ) : null}
         </View>
       )}
-      {pipStream && !multiRemote && !hideLocalSurface ? (
+      {pipStream && !multiRemote ? (
         <DraggablePip
           stageW={stageW}
           stageH={stageH}
@@ -518,8 +512,14 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
             onSwapViews();
           }}
         >
-          {/* Partner in PiP while veiled: no RTCView. Self PiP also unmounted while
-              privacy Modal is up (SurfaceView would paint above Modal → black). */}
+          {/* Keep PiP RTCView mounted; veil at zOrder 0 + mosaic when partner is in PiP. */}
+          <VideoView
+            stream={pipStream}
+            streamEpoch={swapViews ? remoteEpoch : 0}
+            mirror={pipMirror}
+            style={styles.pipVideo}
+            zOrder={pipZOrder}
+          />
           {coverPipPartner ? (
             <PartnerBlurVeil
               compact
@@ -531,15 +531,7 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
                 blurVeil?.onUnblur();
               }}
             />
-          ) : (
-            <VideoView
-              stream={pipStream}
-              streamEpoch={swapViews ? remoteEpoch : 0}
-              mirror={pipMirror}
-              style={styles.pipVideo}
-              zOrder={pipZOrder}
-            />
-          )}
+          ) : null}
           {pipBars && !coverPipPartner ? (
             <View style={styles.barsOnPip} pointerEvents="none">
               <BarsOverlay />
@@ -584,7 +576,7 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
           ) : null}
         </DraggablePip>
       ) : null}
-      {multiRemote && localStream && !hideLocalSurface ? (
+      {multiRemote && localStream ? (
         <DraggablePip
           stageW={stageW}
           stageH={stageH}

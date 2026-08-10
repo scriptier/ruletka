@@ -2,10 +2,10 @@
  * Stable RTCView wrapper.
  *
  * Working baseline (cameras linked): zOrder **≥ 1** so remote video paints
- * above the RN window. zOrder **0** sits behind opaque parents and reads as
- * pure black partner stage (self PiP at zOrder 1 still works).
+ * above the RN window. zOrder **0** sits behind opaque RN overlays (privacy
+ * veil, bars, mute) — pair with a fully opaque cover, never leave bare.
  *
- * Privacy blur unmounts partner RTCView + Modal — never cover a live surface.
+ * Privacy blur: keep stream mounted at zOrder 0 + PartnerBlurVeil on top.
  * Do not remount on every layout tick (local cam blink).
  */
 import { memo, useMemo } from "react";
