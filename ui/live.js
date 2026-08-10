@@ -10413,35 +10413,16 @@ function resumeCallIceIfNeeded() {
 }
 
 /**
- * VPN / strict networks: if direct ICE keeps failing, force TURN relay for this
- * session and rebuild the PeerConnection so media still works.
- * @returns {boolean} true if relay mode was just enabled (caller should rebuild)
+ * VPN / strict networks: was used to force TURN when direct ICE failed.
+ *
+ * **DISABLED 2026-08-10:** prod coturn hairpin has peer_usage≈0 for same-LAN
+ * pairs. Auto-arming force_relay after ~30s of "linking cameras" stripped host
+ * candidates and guaranteed black A/V. Hide IP still uses pure relay via prefs.
+ * @returns {boolean} always false until TURN media path is proven again
  */
 function tryVpnRelayRecovery() {
-  if (vpnRelayRecoveryDone) return false;
-  if (typeof preferDirectOnlyEnabled === "function" && preferDirectOnlyEnabled()) {
-    return false; // prefer-direct auto-off handles its own rematch
-  }
-  if (typeof hideIpRelayOnlyEnabled === "function" && hideIpRelayOnlyEnabled()) {
-    return false; // already relay-only by user choice
-  }
-  if (typeof sessionForceRelayEnabled === "function" && sessionForceRelayEnabled()) {
-    return false;
-  }
-  const hasTurn =
-    !!(window.__hasTurn || window.__iceMeta?.has_turn) ||
-    !!(typeof getIceMeta === "function" && getIceMeta()?.has_turn);
-  if (!hasTurn) return false;
-  if (typeof setSessionForceRelay !== "function") return false;
-  vpnRelayRecoveryDone = true;
-  setSessionForceRelay(true);
-  setStatus(
-    _t("conn.vpnRelayOn") ||
-      "Hard network/VPN — switching to secure relay…"
-  );
-  trackEvent("vpn_relay_recovery");
-  log(_t("conn.vpnRelayOnLog") || "VPN/hard network: forced TURN relay");
-  return true;
+  // Do not setSessionForceRelay(true) — see LOCK above.
+  return false;
 }
 
 function schedulePeerHardReconnect(peerId, oldPc) {

@@ -9574,10 +9574,11 @@ pub(crate) fn ip_untrusted_for_direct(ip: &str) -> bool {
 /// **LOCK (2026-08-09):** do **not** force_relay solely because platforms are
 /// web↔android. That caused one-way / black PC partner.
 ///
-/// **Same public IP (2026-08-10 evening):** force pure TURN. Hybrid host-first
-/// left `relay_candidates=0` and Chrome mDNS failed vs Android — both black
-/// despite fast offer/answer. Coturn needs `allow-private-peer-ip` +
-/// `external-ip=PUBLIC/PRIVATE` (already on prod).
+/// **Same public IP / same Wi‑Fi (2026-08-10 night LOCK):** do **not**
+/// force_relay. Prod coturn hairpin has peer_usage≈0 and turnutils shows
+/// 100% loss to PUBLIC and 10.19 peers — forcing TURN + stripping host leaves
+/// both cams black (“linking cameras”). Same-LAN needs host/srflx (clients
+/// already drop Chrome mDNS host; Android private host + prflx recover LAN).
 ///
 /// Platforms are intentionally **not** parameters — if you re-add web↔android
 /// here, `pair_force_relay_web_android_must_not_force` fails.
@@ -9593,11 +9594,8 @@ pub(crate) fn pair_force_relay_decision(
     if ip_untrusted_for_direct(ip_a) || ip_untrusted_for_direct(ip_b) {
         return true;
     }
-    let ia = ip_a.trim();
-    let ib = ip_b.trim();
-    if !ia.is_empty() && ia == ib {
-        return true;
-    }
+    // Same public IP: allow direct host/srflx (NOT force_relay). See LOCK above.
+    let _ = (ip_a, ip_b);
     false
 }
 
@@ -9631,15 +9629,12 @@ mod connectivity_lock_tests {
     }
 
     #[test]
-    fn same_public_ip_forces() {
-        // Same LAN / same Wi‑Fi: pure TURN (host/mDNS fails Chrome↔Android).
-        // Requires coturn allow-private-peer-ip + external-ip PUBLIC/PRIVATE.
-        assert!(pair_force_relay_decision(
-            false,
-            false,
-            "203.0.113.10",
-            "203.0.113.10"
-        ));
+    fn same_public_ip_does_not_force() {
+        // Same LAN / same Wi‑Fi: host/srflx path (TURN hairpin dead on prod).
+        assert!(
+            !pair_force_relay_decision(false, false, "203.0.113.10", "203.0.113.10"),
+            "same public IP must NOT force_relay — LAN video"
+        );
     }
 
     #[test]
