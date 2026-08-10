@@ -8,6 +8,7 @@
 //! Media is browser WebRTC P2P; the bridge only does match + signaling.
 
 mod config;
+mod expo_push;
 mod federation;
 mod friends_store;
 mod geo;
@@ -16,6 +17,7 @@ mod protocol;
 mod push_tokens;
 mod simple;
 mod star_ledger;
+mod web_push_send;
 
 use axum::{
     body::Body,
@@ -419,6 +421,8 @@ struct AppState {
     analytics: AnalyticsPublic,
     /// True when ROULETTE_MOD_WEBHOOK_URL is set (never expose the URL).
     mod_webhook_set: bool,
+    /// VAPID public key for /config.json (None = web push not configured).
+    vapid_public: Option<String>,
     /// Static UI root (`ui/`). Used for host-aware HTML branding.
     ui_dir: PathBuf,
     /// Coarse global rate limit for POST /v1/funnel: (unix_minute, count).
@@ -431,6 +435,10 @@ impl AppState {
         let a = &self.analytics;
         if a.yandex_metrica_id.is_some() || a.ga_measurement_id.is_some() {
             cfg.analytics = Some(a.clone());
+        }
+        // Public VAPID only — private key stays on hub / vapid.env
+        if let Some(ref k) = self.vapid_public {
+            cfg.vapid_public_key = Some(k.clone());
         }
         cfg
     }
@@ -904,6 +912,7 @@ async fn admin_reports_handler(
     let path = hub.reports_file_path();
     let reports = read_reports_jsonl(&path, 200);
     let bans = hub.admin_bans();
+    let ip_bans = hub.admin_ip_bans();
     let targets = hub.admin_report_targets();
     let seeders = read_seeders_unique(&seeders_path_from_reports(&path), 40);
     let metrics = hub.metrics_snapshot();
@@ -913,6 +922,7 @@ async fn admin_reports_handler(
         "reports_path": path.display().to_string(),
         "reports": reports,
         "bans": bans,
+        "ip_bans": ip_bans,
         "targets": targets,
         "seeders": seeders,
         "recent_matches": recent_matches,
@@ -941,6 +951,23 @@ async fn admin_recent_matches_handler(
         "matches": matches,
     }))
     .into_response()
+}
+
+/// Live connect scorecard (SDP timing + relay_candidates + drops) for operator smoke.
+/// In-memory since process start — pair once after deploy to populate.
+async fn admin_connect_live_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if !admin_token_ok(&state, &headers) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"ok": false, "error": "unauthorized"})),
+        )
+            .into_response();
+    }
+    let hub = state.hub.lock().await;
+    Json(hub.admin_connect_live(80)).into_response()
 }
 
 /// List helper / seeder announcements; optional live health probe (`?probe=1`).
@@ -1039,7 +1066,11 @@ fn default_ban_secs() -> u64 {
 
 #[derive(Debug, serde::Deserialize)]
 struct AdminUnbanBody {
+    #[serde(default)]
     user_id: String,
+    /// Optional IP unban (when set, unbans IP only if user_id empty)
+    #[serde(default)]
+    ip: String,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -1079,7 +1110,16 @@ async fn admin_unban_handler(
         return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
     }
     let mut hub = state.hub.lock().await;
-    let ok = hub.admin_unban(&body.user_id);
+    let uid = body.user_id.trim();
+    let ip = body.ip.trim();
+    let ok = if !uid.is_empty() {
+        // User unban also clears linked IP bans
+        hub.admin_unban(uid)
+    } else if !ip.is_empty() {
+        hub.admin_unban_ip(ip)
+    } else {
+        false
+    };
     Json(serde_json::json!({"ok": ok})).into_response()
 }
 
@@ -1465,7 +1505,7 @@ async fn client_connection(
 
     let hello = {
         let mut hub = state.hub.lock().await;
-        match hub.try_add_client(client_id, tx.clone()) {
+        match hub.try_add_client(client_id, tx.clone(), client_ip.to_string()) {
             Ok(h) => h,
             Err(msg) => {
                 let _ = tx.send(ServerMsg::Error { message: msg });
@@ -1832,8 +1872,17 @@ async fn main() {
     if !push_hook.is_empty() {
         tracing::info!("push webhook configured for offline friend rings (URL not logged)");
     }
+    let vapid = web_push_send::load_from_env();
+    let vapid_public = vapid.as_ref().map(|v| v.public_b64.clone());
+    if vapid.is_some() {
+        tracing::info!("web push VAPID configured — offline friend rings for platform=web");
+    } else {
+        tracing::info!(
+            "web push VAPID not set (ROULETTE_VAPID_PRIVATE) — closed-tab web rings disabled"
+        );
+    }
     let state = AppState {
-        hub: Arc::new(Mutex::new(SimpleHub::with_limits_store_webhook(
+        hub: Arc::new(Mutex::new(SimpleHub::with_limits_store_webhook_vapid(
             limits,
             friends_path,
             if mod_hook.is_empty() {
@@ -1846,6 +1895,7 @@ async fn main() {
             } else {
                 Some(push_hook)
             },
+            vapid,
         ))),
         public_config,
         stun: args.stun.clone(),
@@ -1858,6 +1908,7 @@ async fn main() {
         admin_token,
         analytics,
         mod_webhook_set,
+        vapid_public,
         funnel_rl: Arc::new(Mutex::new((0u64, 0u32))),
         ui_dir: {
             if args.ui_dir.is_absolute() {
@@ -1913,6 +1964,10 @@ async fn main() {
         .route(
             "/v1/admin/recent_matches",
             get(admin_recent_matches_handler),
+        )
+        .route(
+            "/v1/admin/connect_live",
+            get(admin_connect_live_handler),
         )
         .route("/v1/seeder/request", post(seeder_request_handler))
         .route("/v1/funnel", post(funnel_handler))

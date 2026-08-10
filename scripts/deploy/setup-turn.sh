@@ -7,6 +7,10 @@ DOMAIN="${DOMAIN:-ruletka.vip}"
 APP_DIR="${APP_DIR:-/opt/ruletka}"
 PUBLIC_IP="${PUBLIC_IP:-$(curl -4 -fsS --max-time 5 ifconfig.me || curl -4 -fsS --max-time 5 icanhazip.com || true)}"
 PUBLIC_IP="${PUBLIC_IP//[$'\t\r\n ']/}"
+# DigitalOcean (and similar): private VPC IP on same NIC as public — needed for
+# external-ip=PUBLIC/PRIVATE mapping so relay hairpin works.
+PRIVATE_IP="${PRIVATE_IP:-$(ip -4 -o addr show scope global 2>/dev/null | awk '!/ docker|br-|veth/ && $4 ~ /^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)/ { split($4,a,"/"); print a[1]; exit }')}"
+PRIVATE_IP="${PRIVATE_IP//[$'\t\r\n ']/}"
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "Run as root"
@@ -16,6 +20,11 @@ fi
 if [[ -z "$PUBLIC_IP" ]]; then
   echo "Could not detect PUBLIC_IP"
   exit 1
+fi
+
+if [[ -z "$PRIVATE_IP" ]]; then
+  # Single-homed public-only host: map public to itself (no-op hairpin mapping)
+  PRIVATE_IP="$PUBLIC_IP"
 fi
 
 export DEBIAN_FRONTEND=noninteractive
@@ -52,20 +61,21 @@ TEMPLATE="$APP_DIR/deploy/coturn.conf"
 if [[ -f "$TEMPLATE" ]]; then
   sed -e "s/__TURN_SECRET__/${SECRET//\//\\/}/g" \
       -e "s/__PUBLIC_IP__/${PUBLIC_IP}/g" \
+      -e "s/__PRIVATE_IP__/${PRIVATE_IP}/g" \
       "$TEMPLATE" >/etc/turnserver.conf
 else
+  # Must use PUBLIC/PRIVATE mapping on DigitalOcean (self-peer 403 without it)
   cat >/etc/turnserver.conf <<EOF
 listening-ip=0.0.0.0
 listening-port=3478
 min-port=49160
-max-port=49300
+max-port=50000
 fingerprint
-lt-cred-mech
 use-auth-secret
 static-auth-secret=${SECRET}
 realm=${DOMAIN}
 server-name=${DOMAIN}
-external-ip=${PUBLIC_IP}
+external-ip=${PUBLIC_IP}/${PRIVATE_IP}
 no-multicast-peers
 no-cli
 simple-log

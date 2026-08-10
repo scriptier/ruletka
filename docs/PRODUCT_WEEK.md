@@ -4,14 +4,15 @@
 
 Supporting: alone% (`alone_joins / queue_joins`), wait time, friend rings → calls.
 
-## This week (P0)
+## This week (P0) — mobile shipped 0.1.74–0.1.76
 
-| Work | Done when |
-|------|-----------|
-| Invite funnel instrumented | Events: `funnel_invite_share` → `funnel_invite_land` → `funnel_invite_request` → `funnel_invite_connected` |
-| Empty pool = one Share CTA | Dominant button + auto QR; secondary under “More” |
-| Homepage busy hours + quiet CTA | Quiet pool highlights Invite friends |
-| Admin north star strip | Alone %, matches, friend calls, kill-polish tip |
+| Work | Done when | Status |
+|------|-----------|--------|
+| Invite funnel instrumented | Events: `funnel_invite_share` → land → request → connected | **Mobile 0.1.74** + hub `/v1/funnel` |
+| Empty pool = one Share CTA | Dominant invite on Home / alone queue | **Mobile 0.1.74–75** |
+| Homepage busy hours + quiet CTA | Quiet → Invite; busy (2+ wait) → Start | **Mobile 0.1.75** |
+| Admin north star strip | Alone %, matches, friend calls, kill-polish tip | **Web admin** (glance-north) |
+| Notif opt-in after Accept | One-shot enable call alerts | **Mobile 0.1.76** |
 
 ## Do not ship this week
 

@@ -6,7 +6,7 @@ Production hardening as of 2026-08-05. On-server note: `/opt/ruletka/deploy/HARD
 
 | Control | Setting |
 |--------|---------|
-| UFW | Default deny inbound; allow **22, 80, 443, TURN 3478 + 49160–49300** |
+| UFW | Default deny inbound; allow **22, 80, 443, TURN 3478 + 49160–53160** |
 | SSH IP allowlist | **Not used** — SSH stays open on 22 (keys only); no VPN/IP restriction |
 | SSH auth | Keys only · `PasswordAuthentication no` · root `prohibit-password` · `MaxAuthTries 3` |
 | Deploy user | `deploy` · sudo NOPASSWD · same key as root · password locked |
@@ -15,6 +15,24 @@ Production hardening as of 2026-08-05. On-server note: `/opt/ruletka/deploy/HARD
 | App bind | Bridge `127.0.0.1:8790` · Caddy TLS edge only |
 | Auto updates | unattended-upgrades + **reboot 04:17 UTC** when needed |
 | Backups | Daily 03:15 UTC on-disk · `latest.tgz` · operator **pull** off-box |
+| Admin UI/API | **HTTP Basic** on `/admin.html` + `/v1/admin/*` (Caddy) **and** `ROULETTE_ADMIN_TOKEN` (app) |
+
+## Admin access (two layers)
+
+1. **Browser login (Caddy Basic)** — user `operator` · password in `/opt/ruletka/data/admin-http.env`  
+2. **App token** — paste `ROULETTE_ADMIN_TOKEN` from `/opt/ruletka/data/admin.env` into the page  
+
+Hash lives in `/etc/caddy/ruletka-admin-auth.caddy` (mode `644`, hash only). Public site (`/live.html`, `/v1/*` non-admin) stays open.
+
+```bash
+# Rotate HTTP basic password
+PASS=$(openssl rand -base64 24 | tr -d '/+=' | head -c 28)
+HASH=$(caddy hash-password --plaintext "$PASS")
+printf 'basic_auth {\n\toperator %s\n}\n' "$HASH" > /etc/caddy/ruletka-admin-auth.caddy
+chmod 644 /etc/caddy/ruletka-admin-auth.caddy
+# update admin-http.env with new PASS, then:
+systemctl reload caddy
+```
 
 **OpenSSH note:** first match wins. Keep `00-ruletka-hardening.conf` and ensure cloud-init does not set `PasswordAuthentication yes`.
 

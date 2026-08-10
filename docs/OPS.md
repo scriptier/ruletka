@@ -35,7 +35,7 @@ Never `rsync --delete` the whole `/opt/ruletka` tree — that once wiped backups
 
 ## TURN / Hide IP (coturn)
 
-Prod coturn listens on **`turn:ruletka.vip:3478`** (UDP/TCP) with time-limited credentials from `turn.env`. Relay ports **49160–49300**. Config: `scripts/deploy/coturn.conf` + `setup-turn.sh`.
+Prod coturn listens on **`turn:ruletka.vip:3478`** (UDP/TCP) with time-limited credentials from `turn.env`. Relay ports **49160–53160**. Config: `scripts/deploy/coturn.conf` + `setup-turn.sh`.
 
 | Mode | Behavior |
 |------|----------|

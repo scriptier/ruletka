@@ -14,9 +14,10 @@ Web client (`ui/`) remains the **product reference**. Mobile reimplements the pr
 ## Architecture
 
 - **HubClient** — JSON WebSocket client (`docs/PROTOCOL.md`)
-- **MediaSession** — `react-native-webrtc` + ICE from `/config.json`
+- **MediaSession** — `react-native-webrtc` + ICE from `/config.json` (+ adaptive quality)
 - **Identity** — SecureStore `user_id` + password export compatible with web envelope
 - **Stars / friends** — hub-authoritative; never trust client-forged balances
+- **Live extract (`src/live/`)** — stage layout helpers, conn pill, search label, styles, PiP/VideoView (keeps `app/live.tsx` as orchestration)
 
 ## Phases
 
@@ -82,13 +83,13 @@ Push for friend rings while killed is **post-first-submit** unless schedule allo
 
 ## Explicit non-goals (v1) / known gaps vs web
 
-- **Multi-party video** (1v2 / 2v2 / 3-way / find-third): web only for now — mobile binds the first peer  
-- **Post-call surface**: web has star review + Add friend + Report/Block reason picker; mobile is thinner (gift card only)  
+- **Multi-party** (0.1.28–0.1.31): second remote tile + invite-join / find-third / browse-together + keep primary PC + tap-to-focus tiles; full 2v2 mesh chrome still thinner than web  
+- **Post-call surface**: recent matches + rate sheet + duration toast; web still richer  
 - Rooms, admin UI  
 - Full gift FX stack parity  
 - Capacitor / store PWA wrap  
 - LAN PeerRoulette protocol  
-- Multi-hub stars / location chips parity  
+- Multi-hub stars parity (location flag chips: basic on Live)  
 
 ## Store notes
 

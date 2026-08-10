@@ -40,6 +40,10 @@ pub struct PublicConfig {
     /// Optional analytics IDs (public; never put secrets here).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub analytics: Option<AnalyticsPublic>,
+    /// VAPID public key (URL-safe base64, no pad) for Web Push when tab is closed.
+    /// Only present when hub has `ROULETTE_VAPID_PRIVATE` configured.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vapid_public_key: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Default)]
@@ -60,11 +64,14 @@ pub struct SecurityHints {
     pub partner_can_record: bool,
 }
 
-/// Free public TURN (Open Relay / Metered) — demo-grade, not for production secrets.
+/// Free public TURN (Open Relay / Metered) — demo-grade fallback only.
+/// Prefer self-hosted coturn when ROULETTE_TURN is set. Open Relay free endpoints
+/// are often dead/rate-limited (TCP:80 returns HTTP; UDP times out) and waste ICE.
 pub const OPEN_RELAY_TURN_URLS: &str = "\
+turn:openrelay.metered.ca:80?transport=tcp,\
+turn:openrelay.metered.ca:443?transport=tcp,\
 turn:openrelay.metered.ca:80,\
-turn:openrelay.metered.ca:443,\
-turn:openrelay.metered.ca:443?transport=tcp";
+turn:openrelay.metered.ca:443";
 pub const OPEN_RELAY_USER: &str = "openrelayproject";
 pub const OPEN_RELAY_PASS: &str = "openrelayproject";
 
@@ -97,6 +104,24 @@ pub fn parse_urls(csv: &str) -> Vec<String> {
         .filter(|s| !s.is_empty())
         .map(str::to_string)
         .collect()
+}
+
+/// Normalize TURN URLs for RN WebRTC + browser.
+/// `?transport=udp` is default for turn: — keep it and some RN stacks never ALLOCATE.
+pub fn normalize_turn_url(url: &str) -> String {
+    let mut s = url.trim().to_string();
+    for pat in [
+        "?transport=udp",
+        "?transport=UDP",
+        "&transport=udp",
+        "&transport=UDP",
+    ] {
+        s = s.replace(pat, "");
+    }
+    while s.ends_with('?') || s.ends_with('&') {
+        s.pop();
+    }
+    s
 }
 
 /// Resolve TURN from env-style args.
@@ -225,19 +250,32 @@ pub fn build_public_config(
                     turn.static_pass.clone(),
                 )
             };
-            ice_servers.push(IceServer {
-                urls,
-                username,
-                credential,
-            });
+            // One IceServer per URL — multi-url arrays break RN WebRTC ALLOCATE
+            // (coturn only saw :web sessions with peer_usage=0 for Play↔browser).
+            for url in urls {
+                let nurl = normalize_turn_url(&url);
+                if nurl.is_empty() {
+                    continue;
+                }
+                ice_servers.push(IceServer {
+                    urls: vec![nurl],
+                    username: username.clone(),
+                    credential: credential.clone(),
+                });
+            }
             if turn.is_open_relay {
                 notes.push(
                     "TURN: free Open Relay (demo) — set ROULETTE_TURN + ROULETTE_TURN_SECRET for your own coturn"
                         .into(),
                 );
             } else if ephemeral {
+                // Self-coturn FIRST. Open Relay free was primary but is often dead
+                // (wastes 5–15s of ICE → soft-recover thrash → black video).
+                // force_relay = relay-to-relay: CHANNEL_BIND/CREATE_PERMISSION peer is
+                // our own external-ip. Coturn must allow that via allowed-peer-ip=<PUBLIC>
+                // (2026-08-09: missing → 403 Forbidden IP, peer_usage=0, black video).
                 notes.push(
-                    "TURN: self-hosted with short-lived credentials (coturn static-auth-secret)"
+                    "TURN: self-hosted coturn (ephemeral credentials)"
                         .into(),
                 );
             } else {
@@ -273,5 +311,6 @@ pub fn build_public_config(
         notes,
         security: security_hints(has_turn, turn.is_open_relay, ephemeral),
         analytics: None,
+        vapid_public_key: None,
     }
 }

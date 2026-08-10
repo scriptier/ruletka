@@ -38,7 +38,7 @@ missing features.
 | Report user | done — `reportPartner()` + reason sheet + optional screenshot (`ui/live.js:28459,28074`) | done — `ReportSheet.tsx` + screenshot capture (`mobile/app/live.tsx:2421-2456`) | Equivalent. | — |
 | 18+ age gate | done — blocks camera prompt until accepted (`ui/live.js:12483-12627,30317`) | done — `rules.tsx` age step, `index.tsx` redirects to `/rules` when `!rulesOk` before `HubProvider` mounts (`mobile/app/index.tsx:55-59`) | Equivalent, both gate before media/match access. | — |
 | Hide IP (force TURN relay, hide geo) | done — `setHideIpRelayOnly()` (`ui/live.js:9450-9479`) | done — `settings.tsx:661-675` toggle → `hideIp` pref → `forceRelay` in `pcConfig()` (`MediaSession.ts:876-880`) | Equivalent. | — |
-| Push notification for incoming friend call while app/tab closed | **missing** — only in-page `Notification` API while the tab is open (`ui/live.js:14255-14283,26130-26200`); no service-worker push subscription wired to `register_push` | done — real FCM/APNs/Expo push via `register_push` (`mobile/src/push/register.ts`) | Web users miss friend-call rings whenever the tab/site isn't open; Android users get rung even from a killed app. Most user-visible asymmetry found in this audit. | P1 |
+| Push notification for incoming friend call while app/tab closed | **done** — Web Push SW + VAPID (`ui/sw.js` push/notificationclick, `ui/web-push.js`, hub `ROULETTE_VAPID_*`, `register_push` platform=web); tab open+unfocused still uses in-page `Notification` | done — real FCM/APNs/Expo push via `register_push` (`mobile/src/push/register.ts`) | Both platforms ring when fully closed/killed when push is configured. | — |
 | Deep links / app links | done — URL query params only: `?friend=`, `?room=`, `?ref=` (`ui/live.js:118,12089-12131,13643`) | done — `FriendInviteHandler.tsx` + custom scheme `ruletka://` + universal/app links (`mobile/app.config.js:74,104-122`) | Different mechanisms, both functionally complete for their platform (not a real gap). | — |
 | Identity export/import | done — `buildProfileExport()`/`importProfileFile()`, **optional** password ("Export without password (not recommended)", `ui/live.js:19463-19467`); never includes stars or the raw signing key | done — `profileBackup.ts`, **always** PBKDF2(310k)+AES-GCM encrypted (`mobile/app/settings.tsx:369-477`) | Web allows a plaintext export path (with a warning); Android forces encryption. Exported payload itself (user_id/name/friends/prefs, no stars, no private key) is low-sensitivity, so risk is limited, but it's an inconsistent security posture across platforms. | P3 |
 | Find 3rd / party / browse_together | done — `btn-find-third`, `matchMode` `solo\|friend\|party_browse` (`ui/live.js:438,11742-11829`) | done — `browse_together`/`find_third_invite` wired (`mobile/app/live.tsx:2316,2328`) | Equivalent. | — |
@@ -47,11 +47,9 @@ missing features.
 
 ## Top gaps, ranked
 
-1. **P1 — No true push when the browser tab is fully closed.** Android rings via FCM/APNs/Expo
-   even when the app is killed (`mobile/src/push/register.ts`). **Web (2026-08-07):** tab **open
-   but unfocused/hidden** → OS `Notification` + title flash + ringtone (`tryShowCallNotification`,
-   `pageIsBackgrounded`, blur/visibility re-notify). **Still open:** tab fully closed needs a
-   service-worker / web-push follow-up (suggest task `039-web-push-sw-friend-call`).
+1. **P1 — Web push when tab closed: shipped (2026-08-07).** Requires hub `ROULETTE_VAPID_*`
+   (`data/vapid.env`), user opt-in Friends “call alerts”, and SW with push handler. Android still
+   uses Expo/FCM path.
 2. **P2 — Cam "mute" means different things per platform.** Web's mute button no longer disables
    the video track — it shows a privacy overlay while the track keeps streaming (`ui/live.js:18031-18032`,
    deliberate redesign); Android's mute genuinely disables the track (`mobile/app/live.tsx:2240-2245`).

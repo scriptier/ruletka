@@ -12,8 +12,10 @@ Companion to [`MOBILE.md`](MOBILE.md). Code lives in `mobile/`.
 | Privacy Policy URL | https://ruletka.vip/legal/privacy.html |
 | Terms / EULA URL | https://ruletka.vip/legal/terms.html · eula |
 | Data deletion URL | https://ruletka.vip/legal/delete.html |
+| **Child safety / CSAE standards URL** | **https://ruletka.vip/legal/child-safety.html** (also Settings → Child safety standards) |
 | Support email | support@ruletka.me |
 | Privacy email | privacy@ruletka.me |
+| Play CSAE contact | Developer account email (e.g. anton@shopops.ca) **or** support@ruletka.me if both are monitored |
 | App icons 1024 / Play feature graphic | Generated under `mobile/assets/` + `mobile/assets/store/` (from `ui/brand/`) |
 
 ## One-time EAS project setup
@@ -160,14 +162,23 @@ cd mobile && python3 scripts/gen-store-assets.py
 - [x] 1024×1024 icon, adaptive icon, splash (from brand)  
 - [x] Play feature graphic 1024×500  
 - [x] Short / long description draft (`assets/store/LISTING.md`)  
-- [ ] `eas init` real `projectId` (operator login)  
+- [x] Phone + tablet screenshots (`assets/store/screenshots/`)  
+- [x] CSAE standards URL live: https://ruletka.vip/legal/child-safety.html  
+- [x] Data safety draft: [`PLAY_DATA_SAFETY.md`](PLAY_DATA_SAFETY.md)  
+- [x] Closed-test ops: [`PLAY_OPS.md`](PLAY_OPS.md) · upload: [`PLAY_UPLOAD.md`](PLAY_UPLOAD.md)  
+- [x] Local signed AAB pipeline (`scripts/build-aab-local.sh` + upload keystore)  
+- [x] `eas` projectId in `app.json`  
+- [ ] Google: service account JSON under `secrets/google-play.json` (optional; manual upload works)  
 - [ ] Apple: create App, set ASC App ID in `eas.json`  
-- [ ] Google: create app, service account JSON under `secrets/`  
-- [ ] Screenshots on device — shot list in `LISTING.md` / `docs/DEVICE_SMOKE.md`  
-- [ ] Age rating questionnaires  
-- [ ] Privacy questionnaire matches this doc  
-- [ ] Internal test track / TestFlight smoke (A/V + friend call)  
+- [ ] Age rating questionnaires (IARC in Play Console)  
+- [ ] Privacy / Data safety form submitted in Console  
+- [ ] Internal test track smoke (A/V + friend call) — see DEVICE_SMOKE  
+- [ ] Closed testing country set (see PLAY_OPS.md)  
 - [ ] Production submit  
+
+```bash
+cd mobile && ./scripts/play-status.sh   # readiness report + release notes
+```
 
 ## App Links (after signing)
 

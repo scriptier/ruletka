@@ -53,3 +53,15 @@ mobile/node_modules/
 
 # i18n machine-translation cache
 ui/i18n/.mt-cache/
+
+# Overnight admin-agent isolation + runtime noise
+.admin-worktrees/
+scripts/admin-agent/logs/
+scripts/admin-agent/config.env
+scripts/claude-logs/
+tasks/admin-queue/running/
+tasks/admin-queue/failed/
+tasks/admin-queue/reports/
+# Local pre-sleep snapshot metadata (git branches backup/* hold the real restore)
+backups/
+artifacts/connect-scorecard.jsonl
