@@ -18,6 +18,8 @@ export type BackgroundMediaPauseOpts = {
   media2Ref: RefObject<MediaSession | null>;
   showToast: (msg: string) => void;
   resumedMessage: () => string;
+  /** Optional: remount partner RTCView / epoch after return from background. */
+  onResumeRepaint?: () => void;
 };
 
 export function useBackgroundMediaPause(opts: BackgroundMediaPauseOpts): void {
@@ -32,6 +34,7 @@ export function useBackgroundMediaPause(opts: BackgroundMediaPauseOpts): void {
     media2Ref,
     showToast,
     resumedMessage,
+    onResumeRepaint,
   } = opts;
 
   // Intentionally empty deps — all live values are refs / stable callbacks.
@@ -73,17 +76,34 @@ export function useBackgroundMediaPause(opts: BackgroundMediaPauseOpts): void {
             resumed = true;
           }
         }
-        // Android: after background, ICE often stalls — soft restart if no video
+        // Android: after background, ICE can stall — soft restartIce only.
+        // Never promote to offerer (dual-offer thrash vs web preferred offerer).
         if (stillMatched) {
-          const hasVid =
+          const framesOk =
+            !!mediaRef.current?.hasInboundVideoFrames?.() ||
             (mediaRef.current?.getRemoteStream()?.getVideoTracks?.()?.length ??
               0) > 0;
-          if (!hasVid) {
+          if (!framesOk) {
             void mediaRef.current?.tryIceRestart({
               force: true,
-              promoteOfferer: true,
+              promoteOfferer: false,
             });
-            void media2Ref.current?.tryIceRestart({ force: true });
+            void media2Ref.current?.tryIceRestart({
+              force: true,
+              promoteOfferer: false,
+            });
+          }
+          // Re-bind partner surface after background (SurfaceView often goes black).
+          try {
+            mediaRef.current?.forceRepaintRemote?.("app_resume");
+            media2Ref.current?.forceRepaintRemote?.("app_resume");
+          } catch {
+            /* ignore */
+          }
+          try {
+            onResumeRepaint?.();
+          } catch {
+            /* ignore */
           }
         }
         if (resumed) {

@@ -31,6 +31,8 @@ export type LiveBottomBarProps = {
   camOn: boolean;
   hasLocal: boolean;
   partnerMuted: boolean;
+  /** Partner video privacy veil is up */
+  remoteBlurred?: boolean;
   moreOpen: boolean;
   debateActive: boolean;
   debateISpeak: boolean;
@@ -55,6 +57,9 @@ export type LiveBottomBarProps = {
     flipCam: string;
     partnerMuteShort: string;
     partnerUnmuteShort: string;
+    /** Blur / unblur partner video */
+    blurShort?: string;
+    unblurShort?: string;
     more: string;
     cancel: string;
     invite: string;
@@ -71,6 +76,8 @@ export type LiveBottomBarProps = {
   onToggleCam: () => void;
   onFlipCam: () => void;
   onTogglePartnerMute: () => void;
+  /** Toggle partner privacy veil (strangers only). */
+  onToggleBlur?: () => void;
   onToggleMore: () => void;
   onInvite: () => void;
   onOpenFriends: () => void;
@@ -88,6 +95,7 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
     camOn,
     hasLocal,
     partnerMuted,
+    remoteBlurred = false,
     moreOpen,
     debateActive,
     debateISpeak,
@@ -100,6 +108,7 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
     onToggleCam,
     onFlipCam,
     onTogglePartnerMute,
+    onToggleBlur,
     onToggleMore,
     onInvite,
     onOpenFriends,
@@ -183,6 +192,9 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
                       ? L.nextGrace(nextGraceRemSecs)
                       : L.next
                 }
+                accessibilityState={{
+                  disabled: stayRemSecs > 0 || nextGraceRemSecs > 0,
+                }}
                 testID="live-next-btn"
                 hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
               >
@@ -240,7 +252,10 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
           onPress={onToggleMic}
           accessibilityRole="button"
           accessibilityLabel={micLabel}
-          accessibilityState={{ selected: micOn && !micForcedOff }}
+          accessibilityState={{
+            selected: micOn && !micForcedOff,
+            disabled: micForcedOff,
+          }}
           testID="live-mic-btn"
           hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
           android_ripple={{ color: "rgba(255,255,255,0.12)", borderless: false }}
@@ -257,9 +272,6 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
           onPress={onToggleCam}
           accessibilityRole="button"
           accessibilityLabel={camOn ? L.camOn : L.camOff}
-          accessibilityHint={
-            !camOn && L.camOffHint ? L.camOffHint : undefined
-          }
           accessibilityState={{ selected: camOn }}
           testID="live-cam-btn"
           hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
@@ -292,18 +304,53 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
         ) : null}
         {phase === "matched" ? (
           <Pressable
-            style={[styles.btnIcon, partnerMuted && styles.btnOff]}
+            style={[
+              styles.btnIcon,
+              partnerMuted && styles.btnMuteOn,
+            ]}
             onPress={onTogglePartnerMute}
             accessibilityRole="button"
             accessibilityLabel={
               partnerMuted ? L.partnerUnmuteShort : L.partnerMuteShort
             }
+            accessibilityState={{ selected: partnerMuted }}
+            testID="live-partner-mute-btn"
             hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+            android_ripple={{ color: "rgba(255,120,90,0.2)", borderless: false }}
           >
             <Ionicons
               name={partnerMuted ? "volume-mute" : "volume-high"}
               size={ICON}
-              color={ICON_COLOR}
+              color={partnerMuted ? "#ffb4a0" : ICON_COLOR}
+              importantForAccessibility="no"
+            />
+          </Pressable>
+        ) : null}
+        {/* Blur: eye-off = clear video (tap to veil); eye = veiled (tap Show) */}
+        {phase === "matched" && typeof onToggleBlur === "function" ? (
+          <Pressable
+            style={[styles.btnIcon, remoteBlurred && styles.btnBlurOn]}
+            onPress={onToggleBlur}
+            accessibilityRole="button"
+            accessibilityLabel={
+              remoteBlurred
+                ? L.unblurShort || "Show video"
+                : L.blurShort || "Blur partner"
+            }
+            accessibilityState={{ selected: remoteBlurred }}
+            accessibilityHint={
+              remoteBlurred
+                ? "Shows partner camera"
+                : "Hides partner camera behind privacy veil"
+            }
+            testID="live-blur-btn"
+            hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+            android_ripple={{ color: "rgba(100,160,255,0.2)", borderless: false }}
+          >
+            <Ionicons
+              name={remoteBlurred ? "eye" : "eye-off"}
+              size={ICON}
+              color={remoteBlurred ? "#9fd0ff" : ICON_COLOR}
               importantForAccessibility="no"
             />
           </Pressable>
@@ -314,6 +361,7 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
             onPress={onToggleMore}
             accessibilityRole="button"
             accessibilityLabel={moreOpen ? L.cancel : L.more}
+            accessibilityState={{ expanded: moreOpen }}
             hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
           >
             <Ionicons

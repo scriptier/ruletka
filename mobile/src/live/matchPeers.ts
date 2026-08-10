@@ -16,6 +16,8 @@ export type PeerPick = {
   flag: string;
   country: string;
   city: string;
+  /** Partner chose hide-IP privacy (partners only see cosmetic flag). */
+  hideIp: boolean;
 };
 
 export function normalizePeer(p: MatchPeer, msg: ServerMatched): PeerPick {
@@ -34,6 +36,7 @@ export function normalizePeer(p: MatchPeer, msg: ServerMatched): PeerPick {
     flag: String(p.flag || "").toUpperCase(),
     country: String(p.country || ""),
     city: String(p.city || ""),
+    hideIp: !!(p as { hide_ip?: boolean }).hide_ip || !!p.hide_ip,
   };
 }
 
@@ -55,6 +58,7 @@ export function pickPeer(msg: ServerMatched): PeerPick {
     flag: "",
     country: "",
     city: "",
+    hideIp: false,
   };
 }
 

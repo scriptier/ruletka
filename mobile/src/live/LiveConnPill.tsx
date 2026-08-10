@@ -21,6 +21,10 @@ export type LiveConnPillProps = {
   turnBadgeLabel: string;
   stageWaitVideoLabel: string;
   stageConnectingLabel: string;
+  /** Progressive: "Finding path…" (~3s+). Falls back to stageConnectingLabel. */
+  stageFindingPathLabel?: string;
+  /** Progressive: "Trying relay…" (~8s+). */
+  stageTryingRelayLabel?: string;
   /** Optional elapsed seconds while linking (shown as " · 3s"). */
   connectElapsedSecs?: number;
   retryPathLabel: string;
@@ -50,6 +54,8 @@ export function LiveConnPill(props: LiveConnPillProps) {
     turnBadgeLabel,
     stageWaitVideoLabel,
     stageConnectingLabel,
+    stageFindingPathLabel,
+    stageTryingRelayLabel,
     connectElapsedSecs = 0,
     retryPathLabel,
     retryingLabel,
@@ -61,14 +67,40 @@ export function LiveConnPill(props: LiveConnPillProps) {
   } = props;
 
   const elapsedSuffix =
-    connectElapsedSecs >= 2 ? ` · ${connectElapsedSecs}s` : "";
+    connectElapsedSecs >= 1 ? ` · ${connectElapsedSecs}s` : "";
+
+  function linkingLabel(): string {
+    if (connectElapsedSecs >= 8 && stageTryingRelayLabel) {
+      return stageTryingRelayLabel;
+    }
+    if (connectElapsedSecs >= 3 && stageFindingPathLabel) {
+      return stageFindingPathLabel;
+    }
+    return stageConnectingLabel;
+  }
 
   const pillText =
     awaitingRemoteVideo && (conn === "connected" || conn === "completed")
       ? `${stageWaitVideoLabel}${elapsedSuffix}`
       : conn === "connecting" || conn === "checking"
-        ? `${stageConnectingLabel}${elapsedSuffix}`
+        ? `${linkingLabel()}${elapsedSuffix}`
         : connLabel;
+
+  const qualityBits =
+    linkTierLabel && conn === "connected" && !awaitingRemoteVideo
+      ? [
+          linkTierLabel,
+          linkRtt > 0 ? `${linkRtt}ms` : "",
+          linkRelay ? turnBadgeLabel : "",
+          qualityTier ? `q:${qualityTier}` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : "";
+
+  const statusA11y = [callTimerText, pillText, qualityBits]
+    .filter(Boolean)
+    .join(". ");
 
   return (
     <View
@@ -90,29 +122,37 @@ export function LiveConnPill(props: LiveConnPillProps) {
         style,
       ]}
     >
-      {callTimerText ? (
-        <Text style={styles.connTimer}>{callTimerText}</Text>
-      ) : null}
-      <Text style={styles.connPillText}>{pillText}</Text>
-      {linkTierLabel &&
-      conn === "connected" &&
-      !awaitingRemoteVideo ? (
-        <Text style={styles.connQuality}>
-          {linkTierLabel}
-          {linkRtt > 0 ? ` · ${linkRtt}ms` : ""}
-          {linkRelay ? ` · ${turnBadgeLabel}` : ""}
-          {qualityTier ? ` · q:${qualityTier}` : ""}
+      <View
+        style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+        accessible
+        accessibilityRole="summary"
+        accessibilityLiveRegion="polite"
+        accessibilityLabel={statusA11y}
+      >
+        {callTimerText ? (
+          <Text style={styles.connTimer} importantForAccessibility="no">
+            {callTimerText}
+          </Text>
+        ) : null}
+        <Text style={styles.connPillText} importantForAccessibility="no">
+          {pillText}
         </Text>
-      ) : null}
+        {qualityBits ? (
+          <Text style={styles.connQuality} importantForAccessibility="no">
+            {qualityBits}
+          </Text>
+        ) : null}
+      </View>
       {showConnRetry ? (
         <Pressable
           style={styles.connRetryBtn}
           onPress={onSoftRetry}
           disabled={retryBusy}
           accessibilityRole="button"
-          accessibilityLabel={retryPathLabel}
+          accessibilityLabel={retryBusy ? retryingLabel : retryPathLabel}
+          accessibilityState={{ disabled: retryBusy, busy: retryBusy }}
         >
-          <Text style={styles.connRetryText}>
+          <Text style={styles.connRetryText} importantForAccessibility="no">
             {retryBusy ? retryingLabel : retryPathLabel}
           </Text>
         </Pressable>
@@ -123,9 +163,10 @@ export function LiveConnPill(props: LiveConnPillProps) {
           onPress={onHardRetry}
           disabled={retryBusy}
           accessibilityRole="button"
-          accessibilityLabel={rebuildPathLabel}
+          accessibilityLabel={retryBusy ? retryHardLabel : rebuildPathLabel}
+          accessibilityState={{ disabled: retryBusy, busy: retryBusy }}
         >
-          <Text style={styles.connRetryText}>
+          <Text style={styles.connRetryText} importantForAccessibility="no">
             {retryBusy ? retryHardLabel : rebuildPathLabel}
           </Text>
         </Pressable>
