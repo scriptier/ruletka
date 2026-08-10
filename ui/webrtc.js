@@ -2181,12 +2181,12 @@ class RouletteWebRtc {
           console.info("[webrtc] skip offer — match already offered", now - hard);
           return false;
         }
-        // iceRestart blocked 20s after first offer — including earlyBlack.
-        // earlyBlack@3.5s caused offer thrash@4s (black both cams, one-way TURN).
+        // iceRestart blocked 45s after first offer once answer exists.
+        // Re-offer@20s on pure force_relay killed settling media (2026-08-10).
         if (
           iceRestart &&
           hard &&
-          now - hard < 20000 &&
+          now - hard < 45000 &&
           (this._gotRemoteAnswerAt || this.pc?.currentRemoteDescription)
         ) {
           console.info(
@@ -2281,12 +2281,12 @@ class RouletteWebRtc {
       return false;
     }
     const iceGrace = earlyBlack
-      ? 15000
+      ? 45000
       : hasRemote
         ? hasPaintedRemote
-          ? 18000
-          : 15000
-        : 12000;
+          ? 45000
+          : 45000
+        : 20000;
     if (iceRestart && Math.min(pcAge, matchAge) < iceGrace) {
       console.info(
         "[webrtc] skip iceRestart (PC/match grace)",

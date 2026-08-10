@@ -3,7 +3,7 @@
     "name": "ruletka",
     "slug": "ruletka",
     "owner": "courtiers-team",
-    "version": "0.1.286",
+    "version": "0.1.287",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "ruletka",
@@ -29,7 +29,7 @@
         "backgroundColor": "#07080c"
       },
       "package": "me.ruletka.app",
-      "versionCode": 294,
+      "versionCode": 295,
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",

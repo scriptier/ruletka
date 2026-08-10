@@ -2555,11 +2555,8 @@ export class MediaSession {
     // (Was 8.5–18s always → earlyBlack tryIceRestart no-op as offerer.)
     if (iceRestart) {
       const age = this.callStartAt ? Date.now() - this.callStartAt : 99999;
-      const minAge = this._remoteFramesSeen
-        ? 18000
-        : earlyBlack
-          ? 3500
-          : 3500;
+      // 45s first-path freeze (align with web) — earlyBlack no longer short-circuits
+      const minAge = this._remoteFramesSeen ? 45000 : 45000;
       if (age < minAge) {
         this.handlers.onConnectionState?.(
           `offer_skip_restart_grace age=${age} need=${minAge} early=${earlyBlack ? 1 : 0}`
@@ -2730,20 +2727,21 @@ export class MediaSession {
     // answerer offers @~10s and thrash kills phone→web video).
     // Offerer: soft restart after 7s if still black.
     const answerer = !!this.answeredAsAnswerer || !this.isOfferer;
-    // LOCK: no iceRestart / stream rebuild in first 12s (thrash@3.5–7s killed
-    // first path — hub second offer@~20s, peer_usage=0 both black).
-    // Only keyframe + outbound rebind until frames or long grace.
+    // LOCK: no iceRestart / remount for 45s after SDP (web re-offer@20s/@40s
+    // killed pure force_relay media that had peer_usage rising).
     const waves: Array<{ delay: number; restart: boolean; rebuild: boolean }> =
       answerer
         ? [
             { delay: 2000, restart: false, rebuild: false },
-            { delay: 5000, restart: false, rebuild: false },
-            { delay: 12000, restart: false, rebuild: true },
+            { delay: 6000, restart: false, rebuild: false },
+            { delay: 15000, restart: false, rebuild: false },
+            { delay: 45000, restart: false, rebuild: true },
           ]
         : [
             { delay: 2500, restart: false, rebuild: false },
-            { delay: 6000, restart: false, rebuild: false },
-            { delay: 14000, restart: true, rebuild: false },
+            { delay: 8000, restart: false, rebuild: false },
+            { delay: 20000, restart: false, rebuild: false },
+            { delay: 45000, restart: true, rebuild: false },
           ];
     for (const w of waves) {
       const t = setTimeout(() => {

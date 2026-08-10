@@ -9861,12 +9861,12 @@ function startWebrtcWatch() {
     (typeof isRelayMediaMode === "function" && isRelayMediaMode()) ||
     (typeof sessionForceRelayEnabled === "function" &&
       sessionForceRelayEnabled());
-  // Soft = re-push cam + iceRestart; hard = TURN rebuild.
-  // Non-relay black path must not wait 20s (hairpin gifts-work / no-video).
-  // Leave first path alone for TURN settle; hard only if still dark.
-  // Too-fast soft (5s) caused dual-offer thrash with the phone.
-  const softMs = relayMode ? 12000 : 9000;
-  const hardMs = relayMode ? 20000 : 16000;
+  // Soft = re-push cam only for a long first-path window.
+  // Hard rebuild @20s on pure force_relay killed media that was still settling
+  // (2026-08-10: offer@1.8s answer@2.8s + re-offer@20s/@40s, peer_usage rising then cut).
+  // Pure/TURN: NO iceRestart/rebuild for 45s — keyframes + outbound only.
+  const softMs = relayMode ? 45000 : 12000;
+  const hardMs = relayMode ? 60000 : 25000;
   webrtcWatchSoftTimer = setTimeout(() => {
     if (!matched || hasLiveRemoteMedia()) return;
     if (autoDisablePreferDirectOnFail({ autoNext: false })) return;
@@ -9877,36 +9877,45 @@ function startWebrtcWatch() {
     try {
       const ice = target?.pc?.iceConnectionState || "";
       const cs = target?.pc?.connectionState || "";
-      log(`watch soft: no video ice=${ice} cs=${cs} — soft recover`);
-      // Prefer Direct off + soft ICE; do not thrash if already force-relay
-      if (target) trySoftRecoverAny(target, { reason: "watch_soft" });
+      log(`watch soft: no video ice=${ice} cs=${cs} — push tracks only`);
+      // Pure relay first path: never soft-recover (re-offer thrash). Hybrid only.
+      if (!relayMode && target) {
+        trySoftRecoverAny(target, { reason: "watch_soft" });
+      } else {
+        try {
+          const p = target?.pc;
+          if (p && typeof kickMediaAfterIce === "function") kickMediaAfterIce(p);
+          if (p && typeof requestOutboundKeyframes === "function") {
+            requestOutboundKeyframes(p);
+          }
+        } catch (_) {}
+      }
     } catch (_) {
-      if (target) trySoftRecoverAny(target, { reason: "watch_mid" });
+      if (!relayMode && target) {
+        trySoftRecoverAny(target, { reason: "watch_mid" });
+      }
     }
   }, softMs);
-  // Hard: force TURN rebuild once if still dark (even when ICE says connected)
+  // Hard: rebuild only after long grace (pure TURN needs settle, not thrash)
   webrtcWatchTimer = setTimeout(() => {
     if (!matched || hasLiveRemoteMedia()) return;
     try {
       if (!selfBlurred && !camOff) void pushOutboundVideoTracks();
     } catch (_) {}
     try {
-      // Hard recover: rebuild PC without sticky pure-relay (same-LAN host path).
-      // Pure force_relay only for Hide IP — otherwise TURN hairpin blacks cams.
-      const hideOnly =
-        typeof hideIpRelayOnlyEnabled === "function" &&
-        hideIpRelayOnlyEnabled();
-      if (hideOnly && typeof setSessionForceRelay === "function") {
-        setSessionForceRelay(true);
-      }
       const target = rtc || [...peerPcs.values()][0];
       const pid =
         target?.remotePeerId || lastMatchedPeers?.[0]?.peer_id || "";
-      log(
-        hideOnly
-          ? "watch hard: no video — pure TURN rebuild (hide_ip)"
-          : "watch hard: no video — hybrid rebuild"
-      );
+      if (relayMode) {
+        // Still pure: one more keyframe push, no PC rebuild (rebuild = dual ALLOCATE)
+        log("watch hard: pure-relay still dark — keyframe only (no rebuild)");
+        try {
+          const p = target?.pc;
+          if (p && typeof kickMediaAfterIce === "function") kickMediaAfterIce(p);
+        } catch (_) {}
+        return;
+      }
+      log("watch hard: no video — hybrid rebuild");
       schedulePeerHardReconnect(pid, target || null);
     } catch (_) {}
   }, hardMs);
@@ -10437,6 +10446,24 @@ function tryVpnRelayRecovery() {
 
 function schedulePeerHardReconnect(peerId, oldPc) {
   if (!matched) return;
+  // First 45s of pure force_relay: never hard rebuild (re-offer@20s killed media).
+  try {
+    const pure =
+      (typeof isRelayMediaMode === "function" && isRelayMediaMode()) ||
+      (typeof sessionForceRelayEnabled === "function" &&
+        sessionForceRelayEnabled());
+    const age =
+      typeof matchMediaGraceAt !== "undefined" && matchMediaGraceAt
+        ? Date.now() - matchMediaGraceAt
+        : 99999;
+    if (pure && age < 45000) {
+      log(`hard reconnect blocked first-path age=${age}`);
+      try {
+        if (!selfBlurred && !camOff) void pushOutboundVideoTracks();
+      } catch (_) {}
+      return;
+    }
+  } catch (_) {}
   // Never send a fresh (non-restart) offer before the match's no-duplicate-offer
   // grace. The "connected but no video" branch in startWebrtcWatch used to call
   // this directly at softMs (~14s, non-relay) — inside the window every other
