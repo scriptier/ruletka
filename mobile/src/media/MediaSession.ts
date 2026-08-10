@@ -1310,13 +1310,26 @@ export class MediaSession {
       this.handlers.onConnectionState?.("force_relay_cleared");
     }
     const wantPure = this.desiredRelayPolicy();
+    // Never tear PC while an offer is in-flight or startCall is running —
+    // that raced web offer@~600ms and left zero answer (linking forever).
+    const offerPending =
+      !!this.pendingRemoteOfferSince &&
+      Date.now() - this.pendingRemoteOfferSince < 8000;
     const idle =
       this.pc &&
       !this.hasRemoteDescription &&
       !this.gotRemoteVideo &&
       !this.makingOffer &&
-      !this.offerSentThisCall;
-    if (!idle) return;
+      !this.offerSentThisCall &&
+      !this.answeredAsAnswerer &&
+      !this.startCallInFlight &&
+      !offerPending;
+    if (!idle) {
+      this.handlers.onConnectionState?.(
+        `force_relay_defer_rebuild fr=${next ? 1 : 0} pendingOffer=${offerPending ? 1 : 0}`
+      );
+      return;
+    }
     if (this.pcUsesRelayPolicy === wantPure && !!this.pc) {
       this.handlers.onConnectionState?.(
         `force_relay_keep_warm policy=${wantPure ? "relay" : "all"}`
@@ -1721,10 +1734,13 @@ export class MediaSession {
         this.ensurePc();
       }
       await gum;
-      this.attachLocalTracksIfNeeded();
+      // Do NOT addTrack during search warm. Hub prefers web as offerer — phone
+      // is usually answerer. addTrack before setRemote(offer) creates extra
+      // m-lines → setRemote fails / no answer ("linking cameras" forever).
+      // Offerer match path attaches; answerer uses replaceTrack after setRemote.
       this.warmed = true;
       this.handlers.onConnectionState?.(
-        `pc_warmed relay=${this.pcUsesRelayPolicy ? 1 : 0}`
+        `pc_warmed relay=${this.pcUsesRelayPolicy ? 1 : 0} no_early_track=1`
       );
       // Do NOT createOffer during warm under force_relay — that storm of
       // ALLOCs + dirty have-local-offer left peer_usage=0. Match path gathers
@@ -1964,8 +1980,14 @@ export class MediaSession {
             this.pc.signalingState !== "stable" &&
             this.pc.signalingState !== "closed"));
 
-      if (pcBusy) {
-        this.attachLocalTracksIfNeeded();
+      const offerPending =
+        !!this.pendingRemoteOfferSince &&
+        Date.now() - this.pendingRemoteOfferSince < 8000;
+      if (pcBusy || offerPending) {
+        // Offerer may attach; answerer must wait for setRemote → replaceTrack.
+        if (this.isOfferer) {
+          this.attachLocalTracksIfNeeded();
+        }
         if (
           this.isOfferer &&
           this.pc?.createDataChannel &&
@@ -1989,10 +2011,21 @@ export class MediaSession {
       }
 
       // Reuse warm PC (pre-gathered ICE pool) — do not rebuild.
+      // Answerer: never addTrack before remote offer (Unified Plan m-line thrash).
       if (this.pc && this.warmed && !pcBusy) {
-        this.attachLocalTracksIfNeeded();
-        this.handlers.onConnectionState?.("reuse_warm_pc");
+        if (this.isOfferer) {
+          this.attachLocalTracksIfNeeded();
+        }
+        this.handlers.onConnectionState?.(
+          `reuse_warm_pc offerer=${this.isOfferer ? 1 : 0}`
+        );
       } else if (this.pc) {
+        // Never destroy PC while remote offer is mid-flight
+        if (offerPending || this.answeredAsAnswerer || this.hasRemoteDescription) {
+          this.handlers.onConnectionState?.("startCall_keep_pc_offer_pending");
+          this.scheduleConnectingWatch();
+          return;
+        }
         try {
           this.pc.close();
         } catch {
@@ -2151,7 +2184,13 @@ export class MediaSession {
     const pc = this.pc;
     const stream = this.localStream;
     if (!pc || !stream) return;
-    const answerer = !!opts?.answerer;
+    // Answerer before remote offer: enabling tracks only — never addTrack.
+    // Hub designates phone answerer when peer is web; pre-addTrack made
+    // setRemote(offer) fail → zero answer for force_relay=false (fast startCall).
+    const answerer =
+      !!opts?.answerer ||
+      this.answeredAsAnswerer ||
+      (!this.isOfferer && !this.hasRemoteDescription);
     try {
       // Ensure cam/mic are enabled outbound (privacy veil is UI-only on mobile)
       for (const track of stream.getTracks()) {
@@ -2162,6 +2201,10 @@ export class MediaSession {
         } catch {
           /* ignore */
         }
+      }
+      // Pre-offer answerer: stop here (no senders yet — wait for setRemote)
+      if (answerer && !this.hasRemoteDescription && !opts?.answerer) {
+        return;
       }
       type SenderRow = {
         track?: { kind?: string; id?: string; readyState?: string } | null;
@@ -3614,9 +3657,12 @@ export class MediaSession {
         // into offer senders → createAnswer.
         if (!this.localStream) {
           try {
-            await this.ensureLocalStream();
+            await Promise.race([
+              this.ensureLocalStream(),
+              new Promise<null>((r) => setTimeout(() => r(null), 400)),
+            ]);
           } catch {
-            /* continue */
+            /* continue — answer without cam still better than linking forever */
           }
         }
         try {
@@ -3633,7 +3679,30 @@ export class MediaSession {
         tagLocalTracks(
           this.localStream as Parameters<typeof tagLocalTracks>[0]
         );
-        await pc2.setRemoteDescription(new rtc.RTCSessionDescription(desc));
+        try {
+          await pc2.setRemoteDescription(new rtc.RTCSessionDescription(desc));
+        } catch (e1) {
+          // Warm PC may have had early addTrack (old builds) — rebuild once
+          this.handlers.onConnectionState?.(
+            `offer_setRemote_fail ${e1 instanceof Error ? e1.message : String(e1)}`
+          );
+          try {
+            pc2.close();
+          } catch {
+            /* ignore */
+          }
+          this.pc = null;
+          this.hasRemoteDescription = false;
+          this.pendingRemoteIce = [];
+          this.ensurePc();
+          const pc3 = this.pc as RTCPeerConnectionLike | null;
+          if (!pc3) throw e1;
+          await pc3.setRemoteDescription(
+            new rtc.RTCSessionDescription(desc)
+          );
+        }
+        const pcAnswer = this.pc;
+        if (!pcAnswer) return;
         this.hasRemoteDescription = true;
         // Keep answerer latch (already set at offer ingress)
         this.answeredAsAnswerer = true;
@@ -3647,23 +3716,26 @@ export class MediaSession {
         }
         // Codec prefs AFTER setRemote (transceiver kinds exist)
         try {
-          this.applyCodecPrefs(pc2);
+          this.applyCodecPrefs(pcAnswer);
         } catch {
           /* ignore */
         }
         // Bind cam/mic into web offer m-lines only
         const bound = await this.bindAnswerOutbound();
         if (!bound) {
-          // Cam late: one more GUM + bind
+          // Cam late: one more GUM + bind (hard-capped)
           try {
-            await this.ensureLocalStream();
+            await Promise.race([
+              this.ensureLocalStream(),
+              new Promise<null>((r) => setTimeout(() => r(null), 350)),
+            ]);
             await this.bindAnswerOutbound();
           } catch {
             /* ignore */
           }
         }
         try {
-          const senders = pc2.getSenders?.() || [];
+          const senders = pcAnswer.getSenders?.() || [];
           const vSend = senders.filter(
             (s) => (s as { track?: { kind?: string } }).track?.kind === "video"
           ).length;
@@ -3679,8 +3751,8 @@ export class MediaSession {
         } catch {
           /* ignore */
         }
-        const iceFlush = this.flushPendingIce(pc2, rtc);
-        const answer = await pc2.createAnswer();
+        const iceFlush = this.flushPendingIce(pcAnswer, rtc);
+        const answer = await pcAnswer.createAnswer();
         // Always force video sendrecv in answer SDP (belt)
         try {
           const ansObj = answer as { type?: string; sdp?: string };
@@ -3695,7 +3767,7 @@ export class MediaSession {
           /* ignore */
         }
         try {
-          await pc2.setLocalDescription(answer);
+          await pcAnswer.setLocalDescription(answer);
         } catch (e) {
           this.handlers.onConnectionState?.(
             `answer_setLocal_fail ${e instanceof Error ? e.message : String(e)}`
@@ -3703,11 +3775,11 @@ export class MediaSession {
         }
         // Confirm answer local SDP has video sendrecv + re-bind if needed
         try {
-          const loc = pc2.localDescription as { sdp?: string } | null;
+          const loc = pcAnswer.localDescription as { sdp?: string } | null;
           const sdp = String(loc?.sdp || "");
           const vSend = /m=video[\s\S]*?a=sendrecv/i.test(sdp) ? 1 : 0;
           const vRecv = /m=video[\s\S]*?a=recvonly/i.test(sdp) ? 1 : 0;
-          const vSenders = (pc2.getSenders?.() || []).filter(
+          const vSenders = (pcAnswer.getSenders?.() || []).filter(
             (s) => (s as { track?: { kind?: string } }).track?.kind === "video"
           ).length;
           this.handlers.onConnectionState?.(
@@ -3726,9 +3798,9 @@ export class MediaSession {
         // force_relay / Hide IP: wait for typ relay in answer.
         if (this.shouldWaitForFirstRelay()) {
           const budget = this.relayWaitBudgetMs();
-          let n = await waitForIceGatherRelayOrDone(pc2, budget);
+          let n = await waitForIceGatherRelayOrDone(pcAnswer, budget);
           if (n === 0 && this.desiredRelayPolicy()) {
-            n = await waitForIceGatherRelayOrDone(pc2, budget + 900);
+            n = await waitForIceGatherRelayOrDone(pcAnswer, budget + 900);
           }
           this.handlers.onConnectionState?.(
             `answer_first_relay n=${n} budget=${budget}`
@@ -3737,7 +3809,7 @@ export class MediaSession {
             this.handlers.onConnectionState?.("answer_emit_no_relay_failopen");
           }
         }
-        const local = pc2.localDescription as {
+        const local = pcAnswer.localDescription as {
           type?: string;
           sdp?: string;
         } | null;
@@ -3767,6 +3839,8 @@ export class MediaSession {
           this.isOfferer = false;
           this.markPhase("answer_sent");
           this.armStuckIceWatch();
+        } else {
+          this.handlers.onConnectionState?.("answer_emit_empty_sdp");
         }
         void iceFlush;
         // After answer is out: hard push outbound + keyframes (phone→PC)

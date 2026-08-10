@@ -477,13 +477,13 @@ function waitForIceGatherRelayOrDone(pc, maxMs = 150) {
 function sanitizeRemoteDescription(desc) {
   if (!desc || !desc.sdp) return desc;
   let sdp = String(desc.sdp);
+  // Always drop Chrome mDNS host — returning original `desc` here discarded the
+  // strip and left .local candidates in setRemote (same-LAN black / no answer).
   sdp = stripMdnsHostCandidatesFromSdp(sdp);
   if (shouldFilterToRelayCandidates()) {
     sdp = stripNonRelayCandidatesFromSdp(sdp);
   } else if (shouldStripHostCandidates()) {
     sdp = stripHostCandidatesFromSdp(sdp);
-  } else {
-    return desc;
   }
   return { type: desc.type, sdp };
 }
