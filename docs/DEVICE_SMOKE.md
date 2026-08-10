@@ -7,21 +7,56 @@ Expo Go is **not** enough for WebRTC.
 
 | Field | Value |
 |-------|--------|
-| Version | **0.1.136** / versionCode **144** (see `mobile/app.json`) |
-| APK | local `mobile/artifacts/ruletka-latest.apk` (no bulk site APKs) |
-| Notes | CONNECTIVITY_LOCK · one offer/match · partner mute / debate DC |
-| Web | hard-refresh `live.html` (Ctrl+Shift+R) · deploy stamp on `/health` |
-| Play handoff | [`PLAY_INTERNAL_TEST_CHECKLIST.md`](PLAY_INTERNAL_TEST_CHECKLIST.md) |
+| Version | **0.1.280** / versionCode **288** (`mobile/artifacts/ruletka-android-latest.apk`) |
+| APK | local `mobile/artifacts/ruletka-0.1.280-vc288.apk` (no bulk site APKs) |
+| Notes | CONNECTIVITY_LOCK · partner_geo · bars on PC · post-call Start · blur Modal · mute badges |
+| Web | hard-refresh `live.html` (Ctrl+Shift+R) · `curl -s https://ruletka.vip/deploy.json` |
+| Play handoff | [`PLAY_INTERNAL_TEST_CHECKLIST.md`](PLAY_INTERNAL_TEST_CHECKLIST.md) · `PLAY_TODAY.md` |
+| Debug | [`CONNECT_DEBUG.md`](CONNECT_DEBUG.md) · [`CHANGE_LANES.md`](CHANGE_LANES.md) |
+
+```bash
+# Gate before APK / human smoke (unit + web↔web pair budgets + rematch)
+./scripts/dev-smoke.sh
+
+# Or unit only / pair only:
+./scripts/dev-smoke.sh --unit
+./scripts/dev-smoke.sh --pair
+
+# After human Play↔browser: hub forensics + scorecard line
+./scripts/smoke-connect.sh --hub-only
+./scripts/connect-scorecard.sh 60
+
+# Scorecard history (append-only JSONL)
+tail -5 artifacts/connect-scorecard.jsonl
+```
+
+## Privacy / resume package (0.1.226+)
+
+| # | Check | Pass? |
+|---|--------|-------|
+| P1 | Match with blur **Off** → cams link without black veil | |
+| P2 | Eye → mosaic Modal (not clear video / not pure black) | |
+| P3 | Show video → partner paints &lt; ~1s | |
+| P4 | Settings **Hold** → next stranger starts veiled | |
+| P5 | Settings blur chip saves immediately (toast, no Save required) | |
+| P6 | Leave app 30s mid-call → return → video resumes | |
+| P7 | Report while veiled still opens sheet | |
+| P8 | Play↔PC both cams after unblur | |
 
 ```bash
 cd mobile
 ./scripts/play-status.sh
 npx tsc --noEmit
+# (also covered by ./scripts/dev-smoke.sh --unit)
 node scripts/test-connect-ui.mjs
 node scripts/test-friend-invite.mjs
 node src/live/callMetrics.test.mjs
 node src/live/stageStreams.test.mjs
 ```
+
+> **Note (2026-08-08 morning):** product polish lives in the **working tree** (+ overnight lands:
+> history CTAs, home online strip, Open-on-PC stub, i18n overlays). Committed `main` tip may still
+> lag; use `app.json` **0.1.248+** / `ruletka-latest.apk` for smoke. Next `--bump` from this WT.
 
 ## Build (local release)
 
@@ -57,10 +92,12 @@ Host: `ui/download/ruletka-android-latest.apk` and `ui/download/android.html`.
 | 6f | Weak link: quality steps down (less freeze than stuck high bitrate) | |
 | 7 | Connection pill / “Waiting for video” / Retry | |
 | 8 | Mic / cam / Flip; **More** menu | |
+| 8b | **Stop**: one tap ends chat immediately — no confirm dialog | |
 | 9 | Chat (prefer P2P) + typing indicator | |
 | 10 | **Debate**: invite, accept, pass, end, mic lock | |
-| 11 | Gifts if stars; report + block → toast + Next | |
+| 11 | Mid-chat gift chips (afford → spend; can't-afford tap ≠ silent); report + block → toast + Next | |
 | 11b | Gift FX: **bars** lock, **balloons** rise, **confetti** fall | |
+| 11c | Soft toasts: cam on/off, partner muted-you, pass-mic, queue-joined, call-ended — auto-dismiss, no dialog | |
 | 12 | Rate sheet after long chat (no double prompt) | |
 | 13 | PiP: drag, snap to corner, double-tap swap | |
 | 14 | Data saver mid-call via More | |
@@ -68,8 +105,9 @@ Host: `ui/download/ruletka-android-latest.apk` and `ui/download/android.html`.
 | 16 | Friends: add code, accept request, call, hang up | |
 | 16b | **Caller** stays in call with video (auto-opens Live) | |
 | 16c | Friends: search, pull refresh, block/remove ⋯ menu | |
-| 16d | Friend **Chat** DM + history (online/offline) | |
-| 16e | Live More → speaker / earpiece | |
+| 16d | Friend row CTAs: **Online** dot, **Call** (green when online), **Chat** with unread badge | |
+| 16e | Friend **Chat** DM + history (online/offline) | |
+| 16f | Live More → speaker / earpiece | |
 | 17 | Incoming friend call: **ringtone + vibe** | |
 | 17b | Background: minimize, friend calls → local OS alert | |
 | 18 | Missed call card on home → Friends history → Call back | |
@@ -86,7 +124,7 @@ Host: `ui/download/ruletka-android-latest.apk` and `ui/download/android.html`.
 | 26 | Live: partner mute; PartnerChrome flag/tier | |
 | 27 | Multi-peer: 2nd tile; tap focus; keep-PC on join | |
 | 28 | Friends: recent matches Add/Report/Block | |
-| 29 | Stranger blur-first → Show video; Settings blur pref | |
+| 29 | Stranger clear by default (Off); Settings **Brief/Hold** → veiled → Show video | |
 | 30 | Rate: ★ / Thanks / Skip | |
 | 31 | please_stay locks Next ~15s | |
 | 32 | Long search coach; gift unlock bar | |
@@ -116,15 +154,16 @@ Hub default: `https://ruletka.vip`.
 
 ## Play ↔ PC connect smoke (P0 — do this first)
 
-Goal: both cameras + audio, **fast**, **one offer/answer**. See `docs/CONNECTIVITY_LOCK.md`.
+Goal: both cameras + audio, **fast**, **one offer/answer**, **no flicker**. See `docs/CONNECTIVITY_LOCK.md` + `docs/CONNECTIVITY_SPEED_PLAN.md`.
 
 ### Manual steps (you)
-1. Install latest local APK on phone (not Expo Go).
-2. Hard-refresh browser `https://ruletka.vip` (or staging) live page.
-3. Both sides Start / match stranger (same Wi‑Fi first).
-4. Confirm **both** remote videos + audio within ~15s.
-5. Stay matched **15s without spamming Next**.
-6. Optional: Next once → rematch → still 1 offer/answer.
+1. Install latest local APK (`mobile/artifacts/ruletka-android-latest.apk`, not Expo Go).
+2. Hard-refresh browser `https://ruletka.vip/live.html`.
+3. Open Live on phone, wait **3s on search** (TURN warm).
+4. Both sides Start **once** (same Wi‑Fi first).
+5. Confirm **both** remote videos + audio within **~3–5s** (hard fail if &gt;15s).
+6. Stay matched **15s without spamming Next** — no black flash after first picture.
+7. Optional: Next once → rematch → still 1 offer/answer.
 
 ### Hub asserts (laptop, after the call)
 

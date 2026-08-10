@@ -31,6 +31,9 @@ pub enum ClientMsg {
         /// country/city — only optional cosmetic flag is shown to partners.
         #[serde(default)]
         hide_ip: bool,
+        /// Client platform: "web" | "android" | "ios" | "" — used to pick WebRTC offerer.
+        #[serde(default)]
+        platform: String,
     },
     /// Update soft match preferences without re-hello.
     SetPrefs {
@@ -133,6 +136,9 @@ pub enum ClientMsg {
         user_id: String,
         #[serde(default)]
         reason: String,
+        /// Optional JPEG evidence (raw base64, no data-url prefix). Capped server-side.
+        #[serde(default)]
+        screenshot_jpeg_b64: String,
     },
     /// Direct message a mutual friend (works online or offline — stored until they open chat).
     FriendChat {
@@ -158,8 +164,9 @@ pub enum ClientMsg {
         thanks: bool,
     },
     /// Spend reputation stars on a live effect for another user (no money).
-    /// effect: "heart"(1★) | "bars"|"flowers"|"balloons"|"confetti"(5★)
+    /// effect: "heart"(1★) | "bars"|"flowers"|"balloons"|"confetti"|"pass_mic"(5★)
     /// | "fireworks"(15★) | "please_stay"(30★, 15s no-Next, once/month per pair).
+    /// pass_mic: 5s cosmetic “give them a chance to speak” (pass the mic).
     /// op_id: optional client idempotency key — same op_id is applied at most once (anti double-spend on retry).
     SpendStars {
         to_user_id: String,
@@ -368,6 +375,21 @@ pub enum ServerMsg {
         #[serde(default)]
         flag: String,
     },
+    /// Partner geo became available after match (async IP lookup raced match).
+    /// Clients should refresh partner location chrome without rematching.
+    PartnerGeo {
+        peer_id: String,
+        #[serde(default)]
+        user_id: String,
+        #[serde(default)]
+        country: String,
+        #[serde(default)]
+        city: String,
+        #[serde(default)]
+        flag: String,
+        #[serde(default)]
+        hide_ip: bool,
+    },
     /// 1:1 or multi-peer match. `peers` lists everyone you should connect to.
     Matched {
         partner_short: String,
@@ -384,6 +406,10 @@ pub enum ServerMsg {
         your_role: String,
         #[serde(default)]
         peers: Vec<MatchPeer>,
+        /// Clients must use TURN relay-only ICE (same public IP hairpin / cross-country /
+        /// hide-ip). Without this, phone↔browser often shows "connected" with black video.
+        #[serde(default)]
+        force_relay: bool,
     },
     Chat {
         author: String,

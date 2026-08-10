@@ -21,12 +21,11 @@ notes() {
   cat <<EOF
 ${VER} (${VC}) — closed testing
 
-• Connect: one offer per match; stop 0.8s thrash / long black wait
-• Partner mute visuals + debate over data channel (Play)
-• Multi-party: horizontal stack layout
-• Soft ICE / hard rebuild (14s / 24s class); phone↔browser
-• Friends Call + DMs; report + block; 18+ gate
-• Child safety: ruletka.vip/legal/child-safety.html
+• Play↔PC both cams (CONNECTIVITY_LOCK · no blanket force_relay)
+• Location + behind bars on partner tile; post-call Start restored
+• Mute badge only; blur veil default off; hybrid ICE
+• Partner name · place · ★; gifts “To {partner}”
+• Privacy · Terms · Safety; 18+ · CSAE
 
 Hub: https://ruletka.vip
 Support: support@ruletka.me

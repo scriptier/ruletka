@@ -127,57 +127,82 @@ function loadWebrtc(): WebrtcMod | null {
   return null;
 }
 
+/**
+ * Normalize TURN URLs for react-native-webrtc.
+ * `?transport=udp` is default for turn: — some RN builds never ALLOCATE with it
+ * (hub force_relay + peer_usage=0 black video).
+ */
+function normalizeIceUrl(u: string): string {
+  let s = String(u || "").trim();
+  if (!s) return s;
+  // Strip explicit UDP transport query (keep transport=tcp)
+  s = s.replace(/\?transport=udp$/i, "");
+  s = s.replace(/([?&])transport=udp(&)?/gi, (_m, p1, p2) =>
+    p2 ? p1 : ""
+  );
+  s = s.replace(/[?&]$/, "");
+  return s;
+}
+
+/**
+ * RN WebRTC is flaky with multi-url iceServer entries — expand to one URL
+ * string per object (with username/credential copied). Also why coturn only
+ * saw `:web` ALLOCATEs and zero phone peer traffic.
+ */
+function expandIceServers(servers: RTCIceServer[] | undefined): RTCIceServer[] {
+  if (!servers?.length) {
+    return [{ urls: "stun:stun.l.google.com:19302" }];
+  }
+  const out: RTCIceServer[] = [];
+  for (const s of servers) {
+    const urls = Array.isArray(s.urls) ? s.urls : s.urls ? [s.urls] : [];
+    for (const u of urls) {
+      if (!u) continue;
+      const nu = normalizeIceUrl(String(u));
+      if (!nu) continue;
+      const entry: RTCIceServer = { urls: nu };
+      if (s.username) entry.username = s.username;
+      if (s.credential) entry.credential = s.credential;
+      out.push(entry);
+    }
+  }
+  return out.length ? out : [{ urls: "stun:stun.l.google.com:19302" }];
+}
+
 function filterIce(
   servers: RTCIceServer[] | undefined,
   mode: "all" | "turn" | "stun"
 ): RTCIceServer[] {
-  if (!servers?.length) {
-    return [{ urls: "stun:stun.l.google.com:19302" }];
-  }
-  if (mode === "all") return servers;
-  return servers
-    .map((s) => {
-      const urls = (Array.isArray(s.urls) ? s.urls : [s.urls]).filter((u) => {
-        const x = String(u).toLowerCase();
-        if (mode === "turn") return x.startsWith("turn:") || x.startsWith("turns:");
-        return x.startsWith("stun:") || (!x.startsWith("turn:") && !x.startsWith("turns:"));
-      });
-      if (!urls.length) return null;
-      return {
-        urls: urls.length === 1 ? urls[0] : urls,
-        username: s.username,
-        credential: s.credential,
-      } as RTCIceServer;
-    })
-    .filter(Boolean) as RTCIceServer[];
+  const expanded = expandIceServers(servers);
+  if (mode === "all") return expanded;
+  return expanded.filter((s) => {
+    const x = String(
+      Array.isArray(s.urls) ? s.urls[0] : s.urls || ""
+    ).toLowerCase();
+    if (mode === "turn") return x.startsWith("turn:") || x.startsWith("turns:");
+    return x.startsWith("stun:") || (!x.startsWith("turn:") && !x.startsWith("turns:"));
+  });
 }
 
 /**
- * Prefer TCP/TLS TURN before UDP — cellular / corporate Wi‑Fi often block UDP.
- * Mirrors ui/webrtc.js preferTcpTurnFirst (critical phone↔browser).
+ * Prefer UDP TURN first for fast first media; TCP/TURNS as fallback.
+ * (TCP-first delayed Play↔browser linking by 0.5–2s on normal Wi‑Fi.)
  */
 function preferTcpTurnFirst(servers: RTCIceServer[]): RTCIceServer[] {
-  return (servers || []).map((s) => {
-    const urls = Array.isArray(s.urls)
-      ? s.urls.slice()
-      : s.urls
-        ? [s.urls]
-        : [];
-    if (urls.length < 2) return s;
-    const score = (u: string) => {
-      const x = String(u).toLowerCase();
-      if (x.startsWith("turns:")) return 0;
-      if (x.includes("transport=tcp")) return 1;
-      if (x.startsWith("turn:")) return 2;
-      return 3;
-    };
-    urls.sort((a, b) => score(String(a)) - score(String(b)));
-    return {
-      urls: urls.length === 1 ? urls[0] : urls,
-      username: s.username,
-      credential: s.credential,
-    } as RTCIceServer;
-  });
+  const score = (u: string) => {
+    const x = String(u).toLowerCase();
+    if (x.startsWith("turn:") && !x.includes("transport=tcp")) return 0; // UDP
+    if (x.startsWith("turn:") && x.includes("transport=tcp")) return 1;
+    if (x.startsWith("turns:")) return 2;
+    return 3;
+  };
+  return (servers || [])
+    .slice()
+    .sort((a, b) => {
+      const ua = String(Array.isArray(a.urls) ? a.urls[0] : a.urls || "");
+      const ub = String(Array.isArray(b.urls) ? b.urls[0] : b.urls || "");
+      return score(ua) - score(ub);
+    });
 }
 
 function serializeIceCandidate(c: Record<string, unknown> | null | undefined): string {
@@ -203,18 +228,95 @@ function isRelayIceCandidate(
   c: Record<string, unknown> | string | null | undefined
 ): boolean {
   if (c == null) return false;
-  const s =
-    typeof c === "string"
-      ? c
-      : String((c as { candidate?: string }).candidate || "");
+  if (typeof c === "string") {
+    return /\btyp\s+relay\b/i.test(c);
+  }
+  // RN sometimes exposes type separately and leaves candidate sparse
+  const typ = String(
+    (c as { type?: string; candidateType?: string }).type ||
+      (c as { candidateType?: string }).candidateType ||
+      ""
+  ).toLowerCase();
+  if (typ === "relay") return true;
+  const s = String((c as { candidate?: string }).candidate || "");
   if (!s) return false;
   return /\btyp\s+relay\b/i.test(s);
 }
 
-/** Drop host/srflx lines from SDP (remote host still triggers TURN CREATE_PERMISSION). */
+/**
+ * Under force_relay: UDP TURN only (TCP dual-path caused ALLOCATE storms and
+ * never completed peer_usage for Play↔browser on same public IP).
+ */
+function udpTurnOnly(servers: RTCIceServer[]): RTCIceServer[] {
+  const udp = servers.filter((s) => {
+    const u = String(
+      Array.isArray(s.urls) ? s.urls[0] : s.urls || ""
+    ).toLowerCase();
+    if (!(u.startsWith("turn:") || u.startsWith("turns:"))) return false;
+    if (u.includes("transport=tcp")) return false;
+    if (u.startsWith("turns:")) return false; // keep plain turn: UDP first path
+    return true;
+  });
+  return udp.length ? udp : servers;
+}
+
+/**
+ * Force video m-line to a=sendrecv (phone answer was often a=recvonly when
+ * tracks attached too late → PC black partner, Android saw web cam fine).
+ */
+function forceVideoSendrecvSdp(sdp: string): string {
+  if (!sdp) return sdp;
+  const lines = sdp.split(/\r?\n/);
+  let inVideo = false;
+  let sawDir = false;
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^m=video\b/i.test(line)) {
+      inVideo = true;
+      sawDir = false;
+      out.push(line);
+      continue;
+    }
+    if (/^m=/i.test(line)) {
+      // Leaving video without a direction line — inject sendrecv
+      if (inVideo && !sawDir) {
+        out.push("a=sendrecv");
+      }
+      inVideo = false;
+      out.push(line);
+      continue;
+    }
+    if (inVideo && /^a=(sendrecv|recvonly|sendonly|inactive)\b/i.test(line)) {
+      if (!sawDir) {
+        out.push("a=sendrecv");
+        sawDir = true;
+      }
+      // drop original direction line (already replaced)
+      continue;
+    }
+    out.push(line);
+  }
+  if (inVideo && !sawDir) {
+    out.push("a=sendrecv");
+  }
+  return out.join("\r\n");
+}
+
+/**
+ * Drop host/srflx ONLY when ≥1 typ relay remains. Never empty the SDP.
+ */
 function stripNonRelayCandidatesFromSdp(sdp: string): string {
   if (!sdp) return sdp;
   const lines = sdp.split(/\r?\n/);
+  let relayN = 0;
+  let candN = 0;
+  for (const line of lines) {
+    if (!/^a=candidate:/i.test(line)) continue;
+    candN += 1;
+    if (/\btyp\s+relay\b/i.test(line)) relayN += 1;
+  }
+  if (relayN === 0 || relayN === candN) return sdp;
   const out: string[] = [];
   for (const line of lines) {
     if (/^a=candidate:/i.test(line) && !/\btyp\s+relay\b/i.test(line)) {
@@ -223,6 +325,69 @@ function stripNonRelayCandidatesFromSdp(sdp: string): string {
     out.push(line);
   }
   return out.join("\r\n");
+}
+
+/** Wait for TURN relay in local SDP (or gather complete / timeout). */
+function waitForIceGatherRelayOrDone(
+  pc: RTCPeerConnectionLike | null,
+  maxMs = 150
+): Promise<number> {
+  return new Promise((resolve) => {
+    if (!pc) {
+      resolve(0);
+      return;
+    }
+    let settled = false;
+    const countRelay = () => {
+      try {
+        const s = String(
+          (pc.localDescription as { sdp?: string } | null)?.sdp || ""
+        );
+        return (s.match(/\btyp\s+relay\b/gi) || []).length;
+      } catch {
+        return 0;
+      }
+    };
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve(countRelay());
+    };
+    if (countRelay() > 0 || String(pc.iceGatheringState || "") === "complete") {
+      finish();
+      return;
+    }
+    const prev = pc.onicecandidate;
+    const prevG = (
+      pc as unknown as { onicegatheringstatechange?: (() => void) | null }
+    ).onicegatheringstatechange;
+    pc.onicecandidate = (ev: { candidate?: unknown }) => {
+      try {
+        prev?.(ev as never);
+      } catch {
+        /* ignore */
+      }
+      if (
+        isRelayIceCandidate(
+          (ev?.candidate as Record<string, unknown>) || null
+        ) ||
+        countRelay() > 0
+      ) {
+        finish();
+      }
+    };
+    (
+      pc as unknown as { onicegatheringstatechange?: (() => void) | null }
+    ).onicegatheringstatechange = () => {
+      try {
+        prevG?.();
+      } catch {
+        /* ignore */
+      }
+      if (String(pc.iceGatheringState || "") === "complete") finish();
+    };
+    setTimeout(finish, Math.max(250, maxMs));
+  });
 }
 
 export class MediaSession {
@@ -247,6 +412,8 @@ export class MediaSession {
   private callGen = 0;
   /** Remote answer applied — never re-offer until hangup/rebuild. */
   private gotAnswerThisCall = false;
+  /** We sent an answer this call (answerer path) — never promote/re-startCall. */
+  private answeredAsAnswerer = false;
   /** Mutex: concurrent startCall was racing two offers before offerSent latched. */
   private startCallInFlight = false;
   /** When startCallInFlight latched — break if hung (getUserMedia stall). */
@@ -291,8 +458,14 @@ export class MediaSession {
   private onCellular = false;
   /** PC created during search to pre-gather ICE (poolSize) before match. */
   private warmed = false;
+  /** True after search warm completed at least one TURN relay candidate. */
+  private warmTurnPrimed = false;
+  /** iceTransportPolicy used for current pc (reuse warm only if matches). */
+  private pcUsesRelayPolicy = false;
   /** Wall time when startCall began (guards early ICE restarts). */
   private callStartAt = 0;
+  /** Match timing: first markPhase after match for connect speed logs. */
+  private matchMarkT0 = 0;
 
   constructor() {
     this.rtc = loadWebrtc();
@@ -333,26 +506,86 @@ export class MediaSession {
     }
   }
 
-  /** ms since connectT0 (or -1 if not started). */
+  /** ms since match/startCall (or -1 if not started). */
   private elapsedMs(): number {
-    if (!this.connectT0) return -1;
-    return Math.max(0, Date.now() - this.connectT0);
+    const t0 = this.matchMarkT0 || this.callStartAt || this.connectT0;
+    if (!t0) return -1;
+    return Math.max(0, Date.now() - t0);
   }
 
   private markConnectStart(why: string) {
     if (!this.connectT0) {
       this.connectT0 = Date.now();
-      this.handlers.onConnectionState?.(
-        `connect_t0 why=${why}`
-      );
+      this.handlers.onConnectionState?.(`connect_t0 why=${why}`);
     }
+    if (!this.matchMarkT0) this.matchMarkT0 = Date.now();
   }
+
+  /** Last match connect stopwatch (for Settings / smoke). */
+  private lastTiming: {
+    matchAt: number;
+    offerMs: number | null;
+    answerMs: number | null;
+    iceMs: number | null;
+    firstFrameMs: number | null;
+  } = {
+    matchAt: 0,
+    offerMs: null,
+    answerMs: null,
+    iceMs: null,
+    firstFrameMs: null,
+  };
 
   private markPhase(phase: string) {
     const ms = this.elapsedMs();
     this.handlers.onConnectionState?.(
       ms >= 0 ? `timing ${phase} +${ms}ms` : `timing ${phase}`
     );
+    // Capture key milestones for getLastConnectTiming()
+    if (ms >= 0) {
+      if (phase.startsWith("offer_sent") || phase === "offer_sent_watchdog") {
+        if (this.lastTiming.offerMs == null) this.lastTiming.offerMs = ms;
+      } else if (
+        phase === "answer_sent" ||
+        phase === "answer_applied" ||
+        phase === "offer_applied"
+      ) {
+        // answerer: answer_sent; offerer: answer_applied; answerer also offer_applied
+        if (phase === "answer_sent" || phase === "answer_applied") {
+          if (this.lastTiming.answerMs == null) this.lastTiming.answerMs = ms;
+        }
+      } else if (phase === "first_frame") {
+        if (this.lastTiming.firstFrameMs == null) {
+          this.lastTiming.firstFrameMs = ms;
+          this.handlers.onConnectionState?.(
+            `CONNECT offer=${this.lastTiming.offerMs ?? "?"} answer=${this.lastTiming.answerMs ?? "?"} frame=${ms}ms`
+          );
+        }
+      }
+    }
+  }
+
+  /** Snapshot for smoke UI / Settings. */
+  getLastConnectTiming(): {
+    offerMs: number | null;
+    answerMs: number | null;
+    iceMs: number | null;
+    firstFrameMs: number | null;
+    summary: string;
+  } {
+    const t = this.lastTiming;
+    const parts: string[] = [];
+    if (t.offerMs != null) parts.push(`offer ${t.offerMs}ms`);
+    if (t.answerMs != null) parts.push(`answer ${t.answerMs}ms`);
+    if (t.iceMs != null) parts.push(`ice ${t.iceMs}ms`);
+    if (t.firstFrameMs != null) parts.push(`frame ${t.firstFrameMs}ms`);
+    return {
+      offerMs: t.offerMs,
+      answerMs: t.answerMs,
+      iceMs: t.iceMs,
+      firstFrameMs: t.firstFrameMs,
+      summary: parts.length ? parts.join(" · ") : "no connect yet",
+    };
   }
 
   setHandlers(h: MediaHandlers) {
@@ -569,6 +802,33 @@ export class MediaSession {
     }
   }
 
+  /** Public: re-push outbound cam + keyframes (phone→web black recovery). */
+  kickMediaAfterIce(why = "ui"): void {
+    try {
+      if (this.answeredAsAnswerer) {
+        void this.bindAnswerOutbound();
+      } else {
+        void this.attachLocalTracksIfNeeded();
+      }
+      this.kickMediaAfterIcePrivate(why);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** True only after inbound-rtp shows frames (not just a video track). */
+  hasInboundVideoFrames(): boolean {
+    return this._remoteFramesSeen === true;
+  }
+
+  /** ICE + PC state for UI recovery decisions (avoid hard rebuild when connected). */
+  getIceSnapshot(): { ice: string; cs: string } {
+    return {
+      ice: String(this.pc?.iceConnectionState || ""),
+      cs: String(this.pc?.connectionState || ""),
+    };
+  }
+
   /**
    * Reuse another session's local tracks (multi-peer secondary PC).
    * Avoids a second getUserMedia on the same camera.
@@ -676,6 +936,8 @@ export class MediaSession {
   private async adaptQualityOnce() {
     const pc = this.pc;
     if (!pc || typeof pc.getStats !== "function") return;
+    // Don't re-encode upward until partner first frame (TURN keyframe race)
+    if (!this._remoteFramesSeen) return;
     if (
       pc.connectionState !== "connected" &&
       pc.iceConnectionState !== "connected" &&
@@ -931,25 +1193,60 @@ export class MediaSession {
 
   private pcConfig(): object {
     const raw = this.ice?.ice_servers;
-    // Default iceTransportPolicy=all (STUN + TURN). Always-relay caused endless
-    // "Connection weak — reconnecting" (ICE disconnected flaps + soft-recover
-    // thrash) and black video when TURN CHANNEL_BIND failed.
-    // force_relay only when hub asks, hide-ip, or explicit rebuild after fail.
-    const hasTurn = this.hasTurn() || this.ice?.has_turn !== false;
-    const forceRelay =
-      this.forceRelayOnce || (this.hideIp && hasTurn);
-    const warmOnly = !this.callStartAt && !this.forceRelayOnce && !this.hideIp;
-    const useRelay = forceRelay && !warmOnly;
-    const mode = useRelay ? "turn" : this.hideIp ? "turn" : "all";
-    let servers = preferTcpTurnFirst(filterIce(raw, mode));
-    let iceTransportPolicy: "all" | "relay" = useRelay ? "relay" : "all";
-    if (useRelay && !servers.length) {
-      servers = preferTcpTurnFirst(filterIce(raw, "all"));
-      iceTransportPolicy = "all";
+    // hide_ip → pure relay (privacy). force_relay alone → HYBRID (policy=all,
+    // TURN first): pure relay left peer_usage≈0 / PC black partner while phone
+    // still saw web cam (2026-08-09). pool=1 so first SDP can include relay.
+    const hasTurn = this.hasTurn() || this.ice?.has_turn === true;
+    const pureRelay = !!(this.hideIp && hasTurn);
+    const wantTurn = !!(hasTurn && (this.hideIp || this.forceRelayOnce));
+    let servers = preferTcpTurnFirst(
+      filterIce(raw, pureRelay ? "turn" : "all")
+    );
+    let iceTransportPolicy: "all" | "relay" = pureRelay ? "relay" : "all";
+    let iceCandidatePoolSize = pureRelay ? 0 : wantTurn ? 1 : 2;
+    if (pureRelay) {
+      servers = udpTurnOnly(servers);
+      if (!servers.length) {
+        servers = preferTcpTurnFirst(filterIce(raw, "turn"));
+      }
+      if (servers.length > 1) servers = servers.slice(0, 1);
+      iceTransportPolicy = servers.length ? "relay" : "all";
+    } else if (wantTurn) {
+      // Prefer UDP TURN first but keep STUN for fail-open
+      const turnFirst = preferTcpTurnFirst(filterIce(raw, "turn"));
+      const rest = filterIce(raw, "all").filter((s) => {
+        const u = String(Array.isArray(s.urls) ? s.urls[0] : s.urls || "");
+        return !u.toLowerCase().startsWith("turn");
+      });
+      servers = preferTcpTurnFirst([
+        ...udpTurnOnly(turnFirst).slice(0, 1),
+        ...turnFirst.filter(
+          (s) =>
+            !udpTurnOnly(turnFirst).some(
+              (u) =>
+                String(Array.isArray(u.urls) ? u.urls[0] : u.urls) ===
+                String(Array.isArray(s.urls) ? s.urls[0] : s.urls)
+            )
+        ),
+        ...rest,
+      ]);
+      if (!servers.length) servers = preferTcpTurnFirst(filterIce(raw, "all"));
+    }
+    try {
+      const nTurn = servers.filter((s) =>
+        String(Array.isArray(s.urls) ? s.urls[0] : s.urls || "")
+          .toLowerCase()
+          .startsWith("turn")
+      ).length;
+      this.handlers.onConnectionState?.(
+        `pc_cfg policy=${iceTransportPolicy} servers=${servers.length} turn=${nTurn} pool=${iceCandidatePoolSize} fr=${this.forceRelayOnce ? 1 : 0} hide=${this.hideIp ? 1 : 0} warm=${this.warmed ? 1 : 0}`
+      );
+    } catch {
+      /* ignore */
     }
     return {
       iceServers: servers,
-      iceCandidatePoolSize: 8,
+      iceCandidatePoolSize,
       bundlePolicy: "max-bundle",
       rtcpMuxPolicy: "require",
       iceTransportPolicy,
@@ -957,46 +1254,91 @@ export class MediaSession {
   }
 
   /**
-   * Prefer TURN relay for the next PC.
-   * Hub sends force_relay on same-IP / cross-country matches.
-   * Drops a warm (non-relay) PC so startCall builds with iceTransportPolicy=relay.
+   * Clean pure-relay PC before SDP (wrong policy or dirty warm have-local-offer).
+   */
+  private ensureRelayPolicyPc(why: string): void {
+    const wantPure = this.desiredRelayPolicy();
+    const dirty =
+      !!this.pc &&
+      !this.hasRemoteDescription &&
+      !this.answeredAsAnswerer &&
+      (!!this.pc.localDescription ||
+        String(this.pc.signalingState || "") === "have-local-offer");
+    const wrongPolicy = !!this.pc && wantPure && !this.pcUsesRelayPolicy;
+    if (!this.pc) {
+      this.ensurePc();
+      this.handlers.onConnectionState?.(`relay_pc_create ${why}`);
+      return;
+    }
+    if (!wrongPolicy && !dirty) return;
+    try {
+      this.pc.close();
+    } catch {
+      /* ignore */
+    }
+    this.pc = null;
+    this.warmed = false;
+    this.warmTurnPrimed = false;
+    this.pendingRemoteIce = [];
+    this.makingOffer = false;
+    this.ensurePc();
+    this.handlers.onConnectionState?.(
+      `relay_pc_rebuild ${why} wrong=${wrongPolicy ? 1 : 0} dirty=${dirty ? 1 : 0}`
+    );
+  }
+
+  /** Pure relay when force_relay or Hide IP and TURN available. */
+  private desiredRelayPolicy(): boolean {
+    const hasTurn = this.hasTurn() || this.ice?.has_turn === true;
+    return !!((this.hideIp || this.forceRelayOnce) && hasTurn);
+  }
+
+  /**
+   * Hub force_relay → rebuild warm PC as iceTransportPolicy=relay.
    */
   setForceRelay(on: boolean): void {
     const next = !!on;
     const was = this.forceRelayOnce;
     this.forceRelayOnce = next;
+    if (next === was) return;
     if (next) {
       this.handlers.onConnectionState?.("force_relay_armed");
-      // Warm search PC is STUN-first — must not keep it for a relay match
-      if (this.pc && !this.hasRemoteDescription && !this.gotRemoteVideo) {
-        try {
-          this.pc.close();
-        } catch {
-          /* ignore */
-        }
-        this.pc = null;
-        this.warmed = false;
-        this.pendingRemoteIce = [];
-        this.makingOffer = false;
-      }
-    } else if (was) {
-      // Hub cleared force_relay — drop relay-only PC so next startCall uses "all"
+    } else {
       this.handlers.onConnectionState?.("force_relay_cleared");
-      if (
-        this.pc &&
-        !this.hasRemoteDescription &&
-        !this.gotRemoteVideo &&
-        !this.makingOffer
-      ) {
-        try {
-          this.pc.close();
-        } catch {
-          /* ignore */
-        }
-        this.pc = null;
-        this.warmed = false;
-        this.pendingRemoteIce = [];
+    }
+    const wantRelay = this.desiredRelayPolicy();
+    const idle =
+      this.pc &&
+      !this.hasRemoteDescription &&
+      !this.gotRemoteVideo &&
+      !this.makingOffer &&
+      !this.offerSentThisCall;
+    if (!idle) return;
+    if (this.pcUsesRelayPolicy === wantRelay) {
+      this.handlers.onConnectionState?.(
+        `force_relay_keep_warm policy=${wantRelay ? "relay" : "all"}`
+      );
+      return;
+    }
+    try {
+      this.pc?.close();
+    } catch {
+      /* ignore */
+    }
+    this.pc = null;
+    this.warmed = false;
+    this.pendingRemoteIce = [];
+    this.makingOffer = false;
+    try {
+      if (this.hasIceServers()) {
+        this.ensurePc();
+        this.warmed = true;
+        this.handlers.onConnectionState?.(
+          `force_relay_rewarm policy=${wantRelay ? "relay" : "all"}`
+        );
       }
+    } catch {
+      /* match path will create PC */
     }
   }
 
@@ -1011,6 +1353,8 @@ export class MediaSession {
     }
     this.forceRelayOnce = true;
     this.handlers.onConnectionState?.("force_relay_rebuild");
+    // Keep answeredAsAnswerer / offerSent — clearing them mid-match made the
+    // phone re-offer@9s (hub drops answerer offers → thrash + crash risk).
     try {
       this.pc?.close();
     } catch {
@@ -1018,6 +1362,7 @@ export class MediaSession {
     }
     this.pc = null;
     this.warmed = false;
+    this.pcUsesRelayPolicy = false;
     this.hasRemoteDescription = false;
     this.pendingRemoteIce = [];
     this.makingOffer = false;
@@ -1035,6 +1380,7 @@ export class MediaSession {
       return null;
     }
     const cfg = this.pcConfig();
+    this.pcUsesRelayPolicy = this.desiredRelayPolicy();
     const pc = new rtc.RTCPeerConnection(cfg);
     this.pc = pc;
     this.hasRemoteDescription = false;
@@ -1042,14 +1388,16 @@ export class MediaSession {
 
     const hasTurn = !!(this.ice?.has_turn && this.ice?.ice_servers?.length);
     this.handlers.onConnectionState?.(
-      hasTurn ? "pc_ready_turn" : "pc_ready_stun_only"
+      hasTurn
+        ? `pc_ready_turn relay=${this.pcUsesRelayPolicy ? 1 : 0}`
+        : "pc_ready_stun_only"
     );
 
     pc.onicecandidate = (ev) => {
       if (ev.candidate) {
         try {
           const raw = ev.candidate as unknown as Record<string, unknown>;
-          // Live calls use relay policy — never trickle host/srflx (coturn 403).
+          // Hide IP only: drop host/srflx. force_relay keeps host for same-WiFi.
           if (this.shouldFilterToRelayCandidates() && !isRelayIceCandidate(raw)) {
             return;
           }
@@ -1149,12 +1497,23 @@ export class MediaSession {
           /* ignore */
         }
 
+        // Force enable inbound (browser may mark muted until first keyframe)
+        try {
+          if (track && track.enabled === false) {
+            (track as { enabled: boolean }).enabled = true;
+          }
+        } catch {
+          /* ignore */
+        }
         this.pushRemoteStreamToUi(track?.kind || "track");
-        // Video path: multi-wave repaint — Android SurfaceView often paints late
+        // Paint once (+ one late nudge if still no frames). Dense remounts = flicker.
         if (track?.kind === "video") {
-          setTimeout(() => this.repaintRemoteStream("ontrack_v_200"), 200);
-          setTimeout(() => this.repaintRemoteStream("ontrack_v_800"), 800);
-          setTimeout(() => this.repaintRemoteStream("ontrack_v_2s"), 2000);
+          this.repaintRemoteStream("ontrack_v");
+          setTimeout(() => {
+            if (!this._remoteFramesSeen) {
+              this.repaintRemoteStream("ontrack_v_nudge");
+            }
+          }, 300);
         }
       } catch (e) {
         this.handlers.onError?.(
@@ -1173,18 +1532,40 @@ export class MediaSession {
       }
       if (pc.connectionState === "connecting") {
         this.scheduleConnectingWatch();
+        // Keyframe while path is still forming (don't wait for connected)
+        this.kickMediaAfterIce("pc_connecting");
       }
       if (pc.connectionState === "connected") {
         this.clearIceRestartProbe();
         this.clearConnectingWatch();
         this.iceRestartCount = 0;
+        if (this.lastTiming.iceMs == null) {
+          this.lastTiming.iceMs = this.elapsedMs();
+        }
         this.scheduleRemoteVideoWatch();
-        void this.applyQualityTier(this.qualityTier || "mid");
+        // Hold low until first frame paints (mid re-encode delays TURN keyframe)
+        if (!this._remoteFramesSeen) {
+          void this.applyQualityTier("low");
+        } else {
+          void this.applyQualityTier(
+            this.dataSaver || this.onCellular ? "low" : this.qualityTier || "mid"
+          );
+        }
         this.startAdaptiveQuality();
+        // Connected: one media kick + harvest. No multi-remount spam (crashes /
+        // black thrash). Black watch handles delayed paint if needed.
+        this.attachLocalTracksIfNeeded();
+        this.kickMediaAfterIce("pc_connected");
         this.harvestRemoteReceivers("pc_connected");
         this.repaintRemoteStream("pc_connected");
-        setTimeout(() => this.repaintRemoteStream("pc_connected_500"), 500);
-        setTimeout(() => this.repaintRemoteStream("pc_connected_2s"), 2000);
+        setTimeout(() => {
+          if (!this._remoteFramesSeen) {
+            this.attachLocalTracksIfNeeded();
+            this.kickMediaAfterIce("pc_connected_nudge");
+            this.harvestRemoteReceivers("pc_connected_nudge");
+            this.repaintRemoteStream("pc_connected_nudge");
+          }
+        }, 500);
       }
       if (
         pc.connectionState === "failed" ||
@@ -1203,6 +1584,8 @@ export class MediaSession {
       }
       if (pc.iceConnectionState === "checking") {
         this.scheduleConnectingWatch();
+        // Keyframe while TURN path is still negotiating (don't wait connected)
+        this.kickMediaAfterIce("ice_checking");
       }
       if (
         pc.iceConnectionState === "connected" ||
@@ -1211,15 +1594,28 @@ export class MediaSession {
         this.clearIceRestartProbe();
         this.clearConnectingWatch();
         this.iceRestartCount = 0;
+        if (this.lastTiming.iceMs == null) {
+          this.lastTiming.iceMs = this.elapsedMs();
+        }
         this.scheduleRemoteVideoWatch();
-        void this.applyQualityTier(this.qualityTier || "mid");
+        // Stay on low until first_frame — mid re-encode on ICE up delayed TURN keyframe
+        if (!this._remoteFramesSeen) {
+          void this.applyQualityTier("low");
+        } else {
+          void this.applyQualityTier(
+            this.dataSaver || this.onCellular ? "low" : "mid"
+          );
+        }
         this.startAdaptiveQuality();
-        // Android: ICE connected but RTCView still black — harvest receivers
-        // (ontrack may have only delivered audio) and re-push to RTCView.
+        // ICE up: one harvest + keyframe + one paint (no multi-wave flicker)
+        this.kickMediaAfterIce("ice_connected");
         this.harvestRemoteReceivers("ice_connected");
         this.repaintRemoteStream("ice_connected");
-        setTimeout(() => this.repaintRemoteStream("ice_connected_500"), 500);
-        setTimeout(() => this.repaintRemoteStream("ice_connected_2s"), 2000);
+        setTimeout(() => {
+          if (!this._remoteFramesSeen) {
+            this.repaintRemoteStream("ice_connected_nudge");
+          }
+        }, 300);
       }
     };
 
@@ -1263,7 +1659,11 @@ export class MediaSession {
    * During search: open cam + create PC (iceCandidatePoolSize pre-gathers).
    * No second "gatherer" PC — dual PCs on Android regressed connect reliability.
    */
-  async warmConnection(): Promise<void> {
+  /**
+   * Search-time pre-warm. PreferRelay=true builds a TURN-policy PC early so
+   * web↔android match (almost always force_relay) reuses it with zero rebuild.
+   */
+  async warmConnection(opts?: { preferRelay?: boolean }): Promise<void> {
     if (this.hasRemoteDescription || this.makingOffer) return;
     if (this.pc?.localDescription || this.pc?.remoteDescription) return;
     if (!this.hasIceServers()) {
@@ -1271,17 +1671,65 @@ export class MediaSession {
       return;
     }
     try {
-      await this.ensureLocalStream();
+      // Mobile strangers often hit web — pre-arm relay warm when asked or TURN-only hide-ip
+      if (opts?.preferRelay && this.hasTurn()) {
+        this.forceRelayOnce = true;
+      }
+      // Cam + PC in parallel (was serial: GUM then PC)
+      const gum = this.ensureLocalStream();
+      if (
+        this.pc &&
+        this.pcUsesRelayPolicy !== this.desiredRelayPolicy() &&
+        !this.hasRemoteDescription
+      ) {
+        try {
+          this.pc.close();
+        } catch {
+          /* ignore */
+        }
+        this.pc = null;
+        this.warmed = false;
+        this.warmTurnPrimed = false;
+      }
       if (!this.pc) {
         this.ensurePc();
-        this.warmed = true;
-        this.handlers.onConnectionState?.("pc_warmed");
-      } else {
-        this.attachLocalTracksIfNeeded();
+      }
+      await gum;
+      this.attachLocalTracksIfNeeded();
+      this.warmed = true;
+      this.handlers.onConnectionState?.(
+        `pc_warmed relay=${this.pcUsesRelayPolicy ? 1 : 0}`
+      );
+      // Do NOT createOffer during warm under force_relay — that storm of
+      // ALLOCs + dirty have-local-offer left peer_usage=0. Match path gathers
+      // a single fresh relay on the real offer/answer PC (pool=0).
+      if (this.hasTurn() && (this.pcUsesRelayPolicy || this.forceRelayOnce)) {
+        this.warmTurnPrimed = false;
+        this.handlers.onConnectionState?.(
+          `pc_warm_skip_prime pool0 fr=${this.forceRelayOnce ? 1 : 0}`
+        );
       }
     } catch {
       /* non-fatal — match path will retry */
     }
+  }
+
+  /** Search-time TURN ALLOCATE finished (for match kick to skip cold wait). */
+  isWarmTurnPrimed(): boolean {
+    return !!this.warmTurnPrimed && !!this.warmed;
+  }
+
+  /**
+   * Wait until warm TURN prime completes (or timeout). Call on force_relay match.
+   */
+  async waitWarmTurnPrimed(maxMs = 1100): Promise<boolean> {
+    if (this.warmTurnPrimed) return true;
+    const t0 = Date.now();
+    while (Date.now() - t0 < maxMs) {
+      if (this.warmTurnPrimed) return true;
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    return !!this.warmTurnPrimed;
   }
 
   /**
@@ -1313,6 +1761,22 @@ export class MediaSession {
       this.pc?.iceConnectionState === "connected" ||
       this.pc?.iceConnectionState === "completed" ||
       this.pc?.connectionState === "connected";
+    // Answerer who already applied remote offer (and maybe sent answer) must
+    // NEVER re-enter startCall — that re-armed promote watchdog and dual-offered
+    // at ~6s while web path was healthy (hub: android match_to_offer_ms~6200).
+    const hasRemoteSdp =
+      this.hasRemoteDescription ||
+      !!this.pc?.remoteDescription ||
+      this.answeredAsAnswerer;
+    if (hasRemoteSdp && this.pc && !opts.isOfferer) {
+      this.attachLocalTracksIfNeeded();
+      this.handlers.onConnectionState?.(
+        `startCall_skip_answerer_remote ice=${this.pc?.iceConnectionState || "?"} cs=${this.pc?.connectionState || "?"}`
+      );
+      this.scheduleConnectingWatch();
+      this.scheduleRemoteVideoWatch();
+      return;
+    }
     const alreadyLive =
       !!this.pc &&
       (this.gotRemoteVideo ||
@@ -1350,9 +1814,16 @@ export class MediaSession {
     this.startCallInFlight = true;
     this.startCallInFlightAt = Date.now();
     try {
-      this.isOfferer = !!opts.isOfferer;
+      // Never flip answerer → offerer mid-match (hub answerer grace drops offers)
+      if (this.answeredAsAnswerer) {
+        this.isOfferer = false;
+      } else {
+        this.isOfferer = !!opts.isOfferer;
+      }
       this.gotRemoteVideo = false;
       this.remoteVideoWaves = 0;
+      this._remoteFramesSeen = false;
+      this._lastInboundFrames = 0;
       this.callStartAt = Date.now();
       this.iceRestartCount = 0;
       // Do NOT clear offerSent if we somehow already sent (mutex should prevent)
@@ -1360,33 +1831,62 @@ export class MediaSession {
       // Offerer: retry soon if createOffer stalls.
       // Answerer: wait for browser (web preferred offerer). Promote only if
       // web silent ~2s — 250ms promote caused glare + hub debounce + 18–24s wait.
-      this.armOfferWatchdog(this.isOfferer ? 400 : 2000);
-      // Only drop warm PC when hub/hide-ip armed force_relay (relay policy change).
-      // Do NOT always force_relay — that caused endless reconnect thrash.
-      if (this.forceRelayOnce || this.hideIp) {
-        if (this.pc && !this.hasRemoteDescription && !this.makingOffer) {
-          try {
-            this.pc.close();
-          } catch {
-            /* ignore */
-          }
-          this.pc = null;
-          this.warmed = false;
-          this.pendingRemoteIce = [];
-          this.makingOffer = false;
-          this.handlers.onConnectionState?.("startCall_relay_rebuild");
+      // Answerer: wait longer for web (preferred offerer). Short promote
+      // caused dual-offer glare when web offer was only slightly delayed.
+      this.armOfferWatchdog(this.isOfferer ? 400 : 3500);
+      // Clean dirty warm (have-local-offer) or wrong Hide-IP pure-relay policy.
+      // force_relay is hybrid (policy=all) — still must not start with stale offer.
+      this.ensureRelayPolicyPc("startCall");
+      if (
+        this.pc &&
+        !this.hasRemoteDescription &&
+        !this.makingOffer &&
+        this.pcUsesRelayPolicy !== this.desiredRelayPolicy()
+      ) {
+        try {
+          this.pc.close();
+        } catch {
+          /* ignore */
         }
+        this.pc = null;
+        this.warmed = false;
+        this.pendingRemoteIce = [];
+        this.makingOffer = false;
+        this.handlers.onConnectionState?.("startCall_policy_rebuild");
+      } else if (this.pc && this.warmed) {
+        this.handlers.onConnectionState?.(
+          `startCall_reuse_warm relay=${this.pcUsesRelayPolicy ? 1 : 0} hybrid=${this.forceRelayOnce && !this.hideIp ? 1 : 0}`
+        );
       }
       this.markConnectStart(opts.isOfferer ? "start_offerer" : "start_answerer");
+      this.matchMarkT0 = Date.now();
+      this.lastTiming = {
+        matchAt: this.matchMarkT0,
+        offerMs: null,
+        answerMs: null,
+        iceMs: null,
+        firstFrameMs: null,
+      };
 
-      // FAST PATH: preview cam already live → do not await GUM / ICE HTTP
+      // force_relay needs TURN credentials — skip wait when search already prefetched
+      if ((this.forceRelayOnce || this.hideIp) && !this.hasTurn()) {
+        await this.waitForIceConfig(1200);
+        this.handlers.onConnectionState?.(
+          this.hasTurn()
+            ? "ice_force_relay_turn_ok"
+            : "ice_force_relay_no_turn"
+        );
+      } else if (this.hasTurn()) {
+        this.handlers.onConnectionState?.("ice_force_relay_turn_prewarmed");
+      }
+
+      // FAST PATH: cam + ICE already warm from search → zero await
       const camReady = !!(this.localStream?.getVideoTracks?.() || []).some(
         (t) => (t as { readyState?: string }).readyState === "live"
       );
       let local = this.localStream;
       if (!camReady) {
-        // Cap GUM wait — hung camera was the 25s "matched with no offer" case
-        const iceWaitMs = this.hasIceServers() ? 0 : 400;
+        const iceWaitMs = this.hasIceServers() ? 0 : 200;
         const gum = this.ensureLocalStream();
         const [iceOkSettle, gumResult] = await Promise.all([
           iceWaitMs === 0
@@ -1394,12 +1894,8 @@ export class MediaSession {
             : this.waitForIceConfig(iceWaitMs),
           Promise.race([
             gum,
-            // Offerer: fail-open faster so SDP can leave without full GUM
             new Promise<MediaStreamLike | null>((resolve) =>
-              setTimeout(
-                () => resolve(this.localStream),
-                this.isOfferer ? 700 : 1100
-              )
+              setTimeout(() => resolve(this.localStream), 150)
             ),
           ]),
         ]);
@@ -1412,8 +1908,15 @@ export class MediaSession {
               : "ice_timeout"
         );
       } else {
+        if (!this.hasIceServers()) {
+          await this.waitForIceConfig(400);
+        }
         this.markPhase(
-          this.hasTurn() ? "ice_ready_turn_fast" : "ice_ready_fast"
+          this.hasTurn()
+            ? this.warmed
+              ? "ice_ready_turn_warm"
+              : "ice_ready_turn_fast"
+            : "ice_ready_fast"
         );
       }
       if (!local && !this.localStream) {
@@ -1514,16 +2017,21 @@ export class MediaSession {
       void (async () => {
         try {
           if (this.offerSentThisCall || this.hasRemoteDescription) return;
+          if (this.answeredAsAnswerer) return;
           if (this.gotRemoteVideo) return;
           if (this.pc?.remoteDescription) return;
           // Real offer mid-flight (queued behind ICE/GUM) — do not race promote
           if (
             this.pendingRemoteOfferSince &&
-            Date.now() - this.pendingRemoteOfferSince < 4000
+            Date.now() - this.pendingRemoteOfferSince < 8000
           ) {
             this.handlers.onConnectionState?.(
               "offer_watchdog_skip_pending_remote"
             );
+            // Re-arm once more if still silent after pending window
+            if (!this.hasRemoteDescription && !this.answeredAsAnswerer) {
+              this.armOfferWatchdog(4000);
+            }
             return;
           }
           // Ensure we have a PC + try cam once more before offering
@@ -1539,14 +2047,24 @@ export class MediaSession {
           }
           // Re-check — real offer may have landed during GUM race above
           if (this.offerSentThisCall || this.hasRemoteDescription) return;
+          if (this.answeredAsAnswerer) return;
           if (this.pc?.remoteDescription) return;
           if (
             this.pendingRemoteOfferSince &&
-            Date.now() - this.pendingRemoteOfferSince < 4000
+            Date.now() - this.pendingRemoteOfferSince < 8000
           ) {
             this.handlers.onConnectionState?.(
               "offer_watchdog_skip_pending_remote"
             );
+            return;
+          }
+          // Web is preferred offerer — only promote after long silence (≥8s)
+          const age = this.callStartAt ? Date.now() - this.callStartAt : 99999;
+          if (!this.isOfferer && age < 8000) {
+            this.handlers.onConnectionState?.(
+              `offer_watchdog_defer_promote age=${age}`
+            );
+            this.armOfferWatchdog(Math.max(500, 8000 - age));
             return;
           }
           if (!this.pc) this.ensurePc();
@@ -1567,36 +2085,390 @@ export class MediaSession {
     }, ms);
   }
 
-  private attachLocalTracksIfNeeded() {
+  /**
+   * Attach cam/mic to the PC. MUST be awaited before createAnswer.
+   * @param opts.answerer — after setRemote(offer): ONLY replaceTrack into
+   *   existing senders/transceivers. Never addTrack (extra m-lines without
+   *   renego → phone→web black while Android still sees PC).
+   */
+  private async attachLocalTracksIfNeeded(opts?: {
+    answerer?: boolean;
+  }): Promise<void> {
     const pc = this.pc;
     const stream = this.localStream;
     if (!pc || !stream) return;
+    const answerer = !!opts?.answerer;
     try {
+      // Ensure cam/mic are enabled outbound (privacy veil is UI-only on mobile)
       for (const track of stream.getTracks()) {
         try {
-          pc.addTrack(track, stream);
+          if ((track as { enabled?: boolean }).enabled === false) {
+            (track as { enabled: boolean }).enabled = true;
+          }
         } catch {
-          /* already added */
+          /* ignore */
         }
+      }
+      type SenderRow = {
+        track?: { kind?: string; id?: string; readyState?: string } | null;
+        replaceTrack?: (t: unknown) => Promise<void>;
+      };
+      type TransceiverRow = {
+        sender?: SenderRow;
+        receiver?: { track?: { kind?: string } | null };
+        mid?: string | null;
+        direction?: string;
+      };
+      const senders =
+        (pc as unknown as { getSenders?: () => SenderRow[] }).getSenders?.() ||
+        [];
+      const transceivers =
+        (
+          pc as unknown as { getTransceivers?: () => TransceiverRow[] }
+        ).getTransceivers?.() || [];
+      // Force sendrecv so createAnswer does not emit a=recvonly on video
+      for (const tr of transceivers) {
+        try {
+          if (tr && typeof tr.direction === "string") {
+            (tr as { direction: string }).direction = "sendrecv";
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      const claimed = new Set<SenderRow>();
+      const pending: Promise<void>[] = [];
+      // Prefer audio then video so null-sender claim order matches SDP m-lines
+      const tracks = [...stream.getTracks()].sort((a, b) => {
+        const ka = (a as { kind?: string }).kind || "";
+        const kb = (b as { kind?: string }).kind || "";
+        if (ka === kb) return 0;
+        return ka === "audio" ? -1 : 1;
+      });
+      for (const track of tracks) {
+        if ((track as { readyState?: string }).readyState === "ended") continue;
+        const kind = (track as { kind?: string }).kind;
+        const tid = (track as { id?: string }).id;
+        // 1) Same track already attached
+        let sender = senders.find(
+          (s) => s.track && tid && s.track.id === tid
+        );
+        // 2) Sender already carrying this kind (replace if different/ended)
+        if (!sender) {
+          sender = senders.find(
+            (s) => s.track && s.track.kind === kind && !claimed.has(s)
+          );
+        }
+        // 3) Transceiver whose receiver is this kind and sender is empty
+        if (!sender && kind) {
+          const tr = transceivers.find(
+            (t) =>
+              t.receiver?.track?.kind === kind &&
+              t.sender &&
+              !t.sender.track &&
+              !claimed.has(t.sender)
+          );
+          if (tr?.sender) sender = tr.sender;
+        }
+        // 4) Null sender in m-line order (audio first claimed already)
+        if (!sender) {
+          sender = senders.find((s) => !s.track && !claimed.has(s));
+        }
+        if (sender) claimed.add(sender);
+        if (sender?.replaceTrack) {
+          const cur = sender.track;
+          if (cur && tid && cur.id === tid && cur.readyState !== "ended") {
+            continue;
+          }
+          pending.push(
+            sender.replaceTrack(track).catch((e) => {
+              this.handlers.onConnectionState?.(
+                `replaceTrack_fail kind=${kind} ${e instanceof Error ? e.message : String(e)}`
+              );
+              // Answerer: never addTrack (orphan m-line). Offerer may.
+              if (!answerer) {
+                try {
+                  pc.addTrack(track, stream);
+                } catch {
+                  /* ignore */
+                }
+              }
+            })
+          );
+        } else if (!answerer) {
+          try {
+            pc.addTrack(track, stream);
+          } catch {
+            /* already added */
+          }
+        } else {
+          this.handlers.onConnectionState?.(
+            `attach_no_sender kind=${kind} answerer=1`
+          );
+        }
+      }
+      if (pending.length) {
+        await Promise.all(pending);
       }
     } catch {
       /* ignore */
     }
   }
 
-  /** Hide-ip / hub force_relay / explicit rebuild: only exchange typ relay. */
-  private shouldFilterToRelayCandidates(): boolean {
-    if (this.hideIp || this.forceRelayOnce) return true;
-    return false;
+  /**
+   * After remote offer: bind local A/V into offer m-lines only (replaceTrack).
+   * Returns true if a live video sender exists.
+   */
+  private async bindAnswerOutbound(): Promise<boolean> {
+    const pc = this.pc;
+    const stream = this.localStream;
+    if (!pc || !stream) return false;
+    await this.attachLocalTracksIfNeeded({ answerer: true });
+    // Second pass: match by transceiver mid order if any video still unbound
+    try {
+      const localV = (stream.getVideoTracks?.() || []).find(
+        (t) => (t as { readyState?: string }).readyState === "live"
+      );
+      const localA = (stream.getAudioTracks?.() || []).find(
+        (t) => (t as { readyState?: string }).readyState === "live"
+      );
+      const trs =
+        (
+          pc as unknown as {
+            getTransceivers?: () => Array<{
+              sender?: {
+                track?: { kind?: string } | null;
+                replaceTrack?: (t: unknown) => Promise<void>;
+              };
+              receiver?: { track?: { kind?: string } | null };
+              direction?: string;
+            }>;
+          }
+        ).getTransceivers?.() || [];
+      for (const tr of trs) {
+        try {
+          if (tr) (tr as { direction: string }).direction = "sendrecv";
+        } catch {
+          /* ignore */
+        }
+        const rKind = tr.receiver?.track?.kind;
+        const want =
+          rKind === "video" ? localV : rKind === "audio" ? localA : null;
+        if (!want || !tr.sender?.replaceTrack) continue;
+        if (tr.sender.track?.kind === rKind) continue;
+        try {
+          await tr.sender.replaceTrack(want);
+        } catch {
+          /* ignore */
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    const vSend = (pc.getSenders?.() || []).filter(
+      (s) =>
+        (s as { track?: { kind?: string; readyState?: string } | null }).track
+          ?.kind === "video" &&
+        (s as { track?: { readyState?: string } | null }).track?.readyState ===
+          "live"
+    ).length;
+    this.handlers.onConnectionState?.(
+      `bind_answer_outbound vLiveSenders=${vSend}`
+    );
+    return vSend > 0;
   }
 
-  private async createAndSendOffer(iceRestart = false): Promise<void> {
+  /** Sync wrapper for call sites that cannot await (ICE handlers, etc.). */
+  private attachLocalTracksFireAndForget(): void {
+    void this.attachLocalTracksIfNeeded();
+  }
+
+  /**
+   * After answer/ICE: verify outbound video is actually encoding. Phone→web
+   * black with HOT peer_usage one-way was often a live GUM track not bound to
+   * the answer transceiver (null-track sender left empty).
+   */
+  private scheduleOutboundVideoWatch(): void {
+    if (this._outboundWatchArmed) return;
+    this._outboundWatchArmed = true;
+    const waves = [800, 2000, 4500, 9000];
+    for (const delay of waves) {
+      setTimeout(() => {
+        void this.pollOutboundVideo(delay);
+      }, delay);
+    }
+  }
+
+  private _outboundWatchArmed = false;
+  private _outboundFramesSeen = false;
+
+  private async pollOutboundVideo(waveMs: number): Promise<void> {
+    const pc = this.pc as unknown as {
+      getStats?: () => Promise<
+        Map<
+          string,
+          {
+            type?: string;
+            kind?: string;
+            mediaType?: string;
+            framesEncoded?: number;
+            bytesSent?: number;
+            packetsSent?: number;
+          }
+        >
+      >;
+      getSenders?: () => Array<{
+        track?: { kind?: string; enabled?: boolean; readyState?: string } | null;
+        replaceTrack?: (t: unknown) => Promise<void>;
+        generateKeyFrame?: () => Promise<void>;
+      }>;
+    } | null;
+    if (!pc || !this.localStream) return;
+    try {
+      this.attachLocalTracksIfNeeded();
+      // Force enable + keyframe on every video sender
+      const senders = pc.getSenders?.() || [];
+      let vSenders = 0;
+      let vLive = 0;
+      for (const s of senders) {
+        const t = s?.track;
+        if (!t || t.kind !== "video") continue;
+        vSenders += 1;
+        if (t.readyState === "live") vLive += 1;
+        try {
+          if (t.enabled === false) t.enabled = true;
+        } catch {
+          /* ignore */
+        }
+        try {
+          if (typeof s.generateKeyFrame === "function") {
+            void s.generateKeyFrame().catch(() => {});
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      // No video sender but we have a live cam → hard re-attach
+      const localV = (this.localStream.getVideoTracks?.() || []).filter(
+        (t) => (t as { readyState?: string }).readyState === "live"
+      );
+      if (vSenders === 0 && localV.length > 0) {
+        this.handlers.onConnectionState?.(
+          `outbound_no_sender wave=${waveMs} localV=${localV.length}`
+        );
+        this.attachLocalTracksIfNeeded();
+        // Try replaceTrack on any null sender again
+        for (const s of senders) {
+          if (s.track) continue;
+          if (typeof s.replaceTrack === "function" && localV[0]) {
+            try {
+              await s.replaceTrack(localV[0]);
+              this.handlers.onConnectionState?.("outbound_replace_null_ok");
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+      }
+      if (!pc.getStats) {
+        this.handlers.onConnectionState?.(
+          `outbound_check wave=${waveMs} vSend=${vSenders} vLive=${vLive}`
+        );
+        return;
+      }
+      const report = await pc.getStats();
+      let frames = 0;
+      let bytes = 0;
+      let packets = 0;
+      report.forEach((r) => {
+        if (
+          r.type === "outbound-rtp" &&
+          (r.kind === "video" || r.mediaType === "video")
+        ) {
+          if (typeof r.framesEncoded === "number") frames += r.framesEncoded;
+          if (typeof r.bytesSent === "number") bytes += r.bytesSent;
+          if (typeof r.packetsSent === "number") packets += r.packetsSent;
+        }
+      });
+      if (frames > 2 || bytes > 8000) {
+        this._outboundFramesSeen = true;
+        this.handlers.onConnectionState?.(
+          `outbound_video_ok wave=${waveMs} frames=${frames} bytes=${bytes}`
+        );
+        return;
+      }
+      this.handlers.onConnectionState?.(
+        `outbound_video_weak wave=${waveMs} frames=${frames} bytes=${bytes} pkts=${packets} vSend=${vSenders} vLive=${vLive}`
+      );
+      // Recover: re-enable tracks + keyframes; re-GUM if track ended
+      if (localV.length === 0) {
+        try {
+          await this.ensureLocalStream();
+          this.attachLocalTracksIfNeeded();
+        } catch {
+          /* ignore */
+        }
+      } else {
+        this.attachLocalTracksIfNeeded();
+        this.kickMediaAfterIce(`outbound_weak_${waveMs}`);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Strip host/srflx only for Hide IP (privacy). force_relay keeps hybrid ICE. */
+  private shouldFilterToRelayCandidates(): boolean {
+    return !!this.hideIp;
+  }
+
+  /**
+   * Wait for ≥1 typ relay whenever TURN is available (web↔android black when
+   * offer left with relay_candidates=0). Strip stays force/hide only.
+   */
+  private shouldWaitForFirstRelay(): boolean {
+    return this.hasTurn() || this.ice?.has_turn === true;
+  }
+
+  private async createAndSendOffer(
+    iceRestart = false,
+    opts?: { earlyBlack?: boolean }
+  ): Promise<void> {
+    // Already answered / applied remote offer — NEVER re-offer (hub drops
+    // answerer offers @~10s; thrash → peer_usage≈0 + PC black).
+    if (
+      this.answeredAsAnswerer ||
+      (this.hasRemoteDescription && !this.isOfferer)
+    ) {
+      this.handlers.onConnectionState?.(
+        iceRestart
+          ? "offer_skip_answerer_ice_restart"
+          : "offer_skip_was_answerer"
+      );
+      if (iceRestart && typeof this.pc?.restartIce === "function") {
+        try {
+          this.pc.restartIce();
+          this.kickMediaAfterIce("answerer_offer_blocked_restart");
+        } catch {
+          /* ignore */
+        }
+      } else if (!iceRestart) {
+        // Soft recovery: re-bind outbound + keyframes only
+        void this.bindAnswerOutbound();
+        this.kickMediaAfterIce("answerer_soft_outbound");
+      }
+      return;
+    }
+    if (this.desiredRelayPolicy()) {
+      this.ensureRelayPolicyPc("create_offer");
+    }
     const pc = this.ensurePc();
     const rtc = this.rtc;
     if (!pc || !rtc) return;
     if (this.makingOffer) return;
     const now = Date.now();
     const gen = this.callGen;
+    const earlyBlack = !!opts?.earlyBlack;
     // ONE offer per match unless iceRestart AFTER 15s grace (see tryIceRestart).
     // Hub logs: offer→answer→offer in ~0.3s kills media (black cams).
     if (this.offerSentThisCall && !iceRestart) {
@@ -1607,11 +2479,27 @@ export class MediaSession {
       this.handlers.onConnectionState?.("offer_skip_already_answered");
       return;
     }
-    // Even iceRestart must not fire early
+    if (
+      this.hasRemoteDescription &&
+      !iceRestart &&
+      !this.isOfferer
+    ) {
+      this.handlers.onConnectionState?.("offer_skip_has_remote_answerer");
+      return;
+    }
+    // iceRestart grace: earlyBlack / zero-frames → ~3.5s; frames OK → 18s.
+    // (Was 8.5–18s always → earlyBlack tryIceRestart no-op as offerer.)
     if (iceRestart) {
       const age = this.callStartAt ? Date.now() - this.callStartAt : 99999;
-      if (age < 15000) {
-        this.handlers.onConnectionState?.(`offer_skip_restart_grace age=${age}`);
+      const minAge = this._remoteFramesSeen
+        ? 18000
+        : earlyBlack
+          ? 3500
+          : 3500;
+      if (age < minAge) {
+        this.handlers.onConnectionState?.(
+          `offer_skip_restart_grace age=${age} need=${minAge} early=${earlyBlack ? 1 : 0}`
+        );
         return;
       }
     }
@@ -1643,12 +2531,12 @@ export class MediaSession {
       tagLocalTracks(
         this.localStream as Parameters<typeof tagLocalTracks>[0]
       );
-      this.applyCodecPrefs(pc);
-      // Don't await setParameters before offer — shaves 50–200ms on first SDP.
-      // Encoding still applies for subsequent frames via adaptive ladder.
-      void this.applyQualityTier(
-        this.dataSaver || this.onCellular ? "low" : "mid"
-      );
+      // Codec prefs affect SDP — keep before createOffer. Quality after emit.
+      try {
+        this.applyCodecPrefs(pc);
+      } catch {
+        /* ignore */
+      }
       // Match web: offerToReceive* so browser answerers always get A/V m-lines
       const offer = await pc.createOffer(
         iceRestart
@@ -1664,36 +2552,61 @@ export class MediaSession {
         this.handlers.onConnectionState?.("offer_skip_stale_gen");
         return;
       }
-      await pc.setLocalDescription(offer);
+      // setLocal first — force_relay waits for first TURN in SDP (keep host too).
+      try {
+        await pc.setLocalDescription(offer);
+      } catch (e) {
+        this.handlers.onConnectionState?.(
+          `offer_setLocal_fail ${e instanceof Error ? e.message : String(e)}`
+        );
+      }
       if (gen !== this.callGen || this.pc !== pc) {
         this.handlers.onConnectionState?.("offer_skip_stale_after_local");
         return;
       }
-      // Micro-gather only (trickle sends the rest). Long waits delayed first media.
-      if (!iceRestart && !this.warmed) {
-        await this.waitForInitialIce(pc, 40);
+      if (this.shouldWaitForFirstRelay()) {
+        // Must get relay — warm flag is not enough (new gather after setLocal).
+        let n = await waitForIceGatherRelayOrDone(
+          pc,
+          this.warmTurnPrimed ? 1000 : 1800
+        );
+        if (n === 0) n = await waitForIceGatherRelayOrDone(pc, 2500);
+        if (n === 0) n = await waitForIceGatherRelayOrDone(pc, 2000);
+        this.handlers.onConnectionState?.(
+          `offer_first_relay n=${n} primed=${this.warmTurnPrimed ? 1 : 0}`
+        );
+        // Fail-open: emit host path rather than silence forever (black cams).
+        if (n === 0) {
+          this.handlers.onConnectionState?.("offer_emit_no_relay_failopen");
+        }
       }
-      const desc = pc.localDescription as { type?: string; sdp?: string } | null;
-      if (desc && gen === this.callGen && this.pc === pc) {
+      if (gen !== this.callGen || this.pc !== pc) {
+        this.handlers.onConnectionState?.("offer_skip_stale_after_relay");
+        return;
+      }
+      const local = pc.localDescription as { type?: string; sdp?: string } | null;
+      const off = (local || offer) as { type?: string; sdp?: string };
+      let sdp = String(off?.sdp || "");
+      // Only strip when ≥1 relay remains — never empty the path.
+      if (this.shouldFilterToRelayCandidates() && sdp) {
+        sdp = stripNonRelayCandidatesFromSdp(sdp);
+      }
+      if (sdp && gen === this.callGen && this.pc === pc) {
         this.lastOfferAt = Date.now();
         this.offerSentThisCall = true;
-        let sdp = String(desc.sdp || "");
-        // NEVER strip candidates unless force_relay is still on — stripping
-        // host lines on same-WiFi left both sides black with no path.
-        if (this.shouldFilterToRelayCandidates() && sdp) {
-          sdp = stripNonRelayCandidatesFromSdp(sdp);
-        }
         this.handlers.onSignal?.(
           "offer",
-          JSON.stringify({ type: desc.type, sdp })
+          JSON.stringify({ type: off?.type || "offer", sdp })
         );
         this.handlers.onConnectionState?.(
           `offer_sent bytes=${sdp.length} restart=${iceRestart ? 1 : 0}`
         );
+        this.armStuckIceWatch();
       } else if (!iceRestart) {
-        // Failed to produce SDP — allow one retry
         this.offerSentThisCall = false;
       }
+      // First path always low bitrate → faster TURN keyframe; ramp on ICE up.
+      void this.applyQualityTier("low");
     } catch (e) {
       if (!iceRestart && gen === this.callGen) this.offerSentThisCall = false;
       this.handlers.onError?.(e instanceof Error ? e : new Error(String(e)));
@@ -1709,12 +2622,12 @@ export class MediaSession {
    */
   private scheduleIceRestartProbe() {
     if (this.discIceTimers.length) return;
-    // Recover failed/long-disconnect without thrashing healthy checking
-    // First wave only after 15s — early force restarts caused double-offer thrash
+    // Recover failed/long-disconnect without thrashing healthy checking.
+    // Align with force iceRestart grace (~8.5s); was 16s first wave.
     const waves: Array<{ delay: number; force: boolean }> = [
-      { delay: 16000, force: true },
-      { delay: 24000, force: true },
-      { delay: 32000, force: true },
+      { delay: 10000, force: true },
+      { delay: 18000, force: true },
+      { delay: 28000, force: true },
     ];
     for (const w of waves) {
       const t = setTimeout(() => {
@@ -1740,6 +2653,67 @@ export class MediaSession {
   private clearIceRestartProbe() {
     for (const t of this.discIceTimers) clearTimeout(t);
     this.discIceTimers = [];
+    // Do NOT clear stuck/black watch here — ICE "connected" often fires with
+    // zero frames; black_watch must keep running until first_frame.
+  }
+
+  /**
+   * After SDP: recover black / stuck TURN without waiting 14–18s call grace.
+   * Waves: keyframe-only while ICE up; soft restart if still no frames.
+   * (0.1.202 stuck watch called tryIceRestart but grace blocked until 14s.)
+   */
+  private stuckIceTimers: ReturnType<typeof setTimeout>[] = [];
+  private armStuckIceWatch(): void {
+    this.clearStuckIceWatch();
+    // Answerer: keyframes + outbound only — NEVER iceRestart/re-offer (hub drops
+    // answerer offers @~10s and thrash kills phone→web video).
+    // Offerer: soft restart after 7s if still black.
+    const answerer = !!this.answeredAsAnswerer || !this.isOfferer;
+    const waves: Array<{ delay: number; restart: boolean; rebuild: boolean }> =
+      answerer
+        ? [
+            { delay: 1500, restart: false, rebuild: false },
+            { delay: 3500, restart: false, rebuild: true },
+            { delay: 7000, restart: false, rebuild: true },
+          ]
+        : [
+            { delay: 2000, restart: false, rebuild: false },
+            { delay: 3800, restart: true, rebuild: false },
+            { delay: 7000, restart: true, rebuild: true },
+          ];
+    for (const w of waves) {
+      const t = setTimeout(() => {
+        const pc = this.pc;
+        if (!pc) return;
+        // Frames only — track presence with black SurfaceView must still recover
+        if (this._remoteFramesSeen) return;
+        if (!this.hasRemoteDescription && !pc.remoteDescription) return;
+        const ice = String(pc.iceConnectionState || "");
+        const cs = String(pc.connectionState || "");
+        this.pollInboundFrames();
+        this.handlers.onConnectionState?.(
+          `black_watch ice=${ice} cs=${cs} d=${w.delay} restart=${w.restart ? 1 : 0} ans=${this.answeredAsAnswerer ? 1 : 0}`
+        );
+        this.kickMediaAfterIce(`black_${w.delay}`);
+        this.requestInboundKeyframes(`black_${w.delay}`);
+        this.repaintRemoteStream(`black_${w.delay}`);
+        // Always push outbound (phone→web black)
+        this.attachLocalTracksIfNeeded();
+        void this.pollOutboundVideo(w.delay);
+        if (w.rebuild) {
+          this.forceRebuildRemoteStreamForPaint(`black_${w.delay}`);
+        }
+        if (w.restart && !this.answeredAsAnswerer) {
+          void this.tryIceRestart({ force: true, earlyBlack: true });
+        }
+      }, w.delay);
+      this.stuckIceTimers.push(t);
+    }
+  }
+
+  private clearStuckIceWatch(): void {
+    for (const t of this.stuckIceTimers) clearTimeout(t);
+    this.stuckIceTimers = [];
   }
 
   /**
@@ -1751,9 +2725,10 @@ export class MediaSession {
     if (this.connectWatchTimer) return;
     const noRemoteYet =
       !this.isOfferer && !this.hasRemoteDescription && !this.gotRemoteVideo;
-    // Answerer: wait for browser offer (Play↔browser TURN often 3–8s).
+    // Answerer: wait for browser offer (Play↔browser often 0.2–3s, rarely 8s).
     // Offerer: wait for answer/ICE before restart. Early promote = glare thrash.
-    const delay = noRemoteYet ? 12000 : 6000;
+    // Was 12s/6s — left "Linking…" dead for too long when browser silent.
+    const delay = noRemoteYet ? 9000 : 4500;
     this.connectWatchTimer = setTimeout(() => {
       this.connectWatchTimer = null;
       const pc = this.pc;
@@ -1773,7 +2748,7 @@ export class MediaSession {
       }
       // Still checking / connecting with SDP applied — give TURN more time
       if (
-        age < 12000 &&
+        age < 10000 &&
         (ice === "new" || ice === "checking" || cs === "connecting") &&
         !noRemote
       ) {
@@ -1783,21 +2758,22 @@ export class MediaSession {
       // Recent remote offer — never promote (browser is driving)
       const recentRemoteOffer =
         this.lastRemoteOfferAt > 0 &&
-        Date.now() - this.lastRemoteOfferAt < 6000;
+        Date.now() - this.lastRemoteOfferAt < 5000;
       if (
         cs === "failed" ||
         ice === "failed" ||
-        (noRemote && age >= 12000 && !recentRemoteOffer) ||
-        ((cs === "disconnected" || ice === "disconnected") && age >= 10000)
+        (noRemote && age >= 9000 && !recentRemoteOffer) ||
+        ((cs === "disconnected" || ice === "disconnected") && age >= 9000)
       ) {
         this.handlers.onConnectionState?.(
           `ice_stuck_retry ice=${ice} cs=${cs} noRemote=${noRemote ? 1 : 0} age=${age}`
         );
-        // Promote only after long wait with no offer at all
+        // Never promote if we already answered web. Only after long true silence.
         const promote =
           !this.isOfferer &&
+          !this.answeredAsAnswerer &&
           noRemote &&
-          age >= 12000 &&
+          age >= 25000 &&
           !recentRemoteOffer &&
           !this.makingOffer;
         void this.tryIceRestart({
@@ -1841,42 +2817,77 @@ export class MediaSession {
       const receivers =
         (
           pc as unknown as {
-            getReceivers?: () => Array<{ track?: { id?: string; kind?: string; enabled?: boolean } | null }>;
+            getReceivers?: () => Array<{
+              track?: {
+                id?: string;
+                kind?: string;
+                enabled?: boolean;
+                readyState?: string;
+              } | null;
+            }>;
           }
         ).getReceivers?.() || [];
+      const found: unknown[] = [];
+      let addedVideo = false;
       for (const r of receivers) {
         const track = r?.track;
         if (!track) continue;
+        if (track.readyState === "ended") continue;
         try {
           if (track.enabled === false) track.enabled = true;
         } catch {
           /* ignore */
         }
-        if (!this.remoteStream && rtc.MediaStream) {
-          this.remoteStream = new rtc.MediaStream([track as never]);
-          continue;
-        }
-        if (!this.remoteStream) continue;
-        const existing = this.remoteStream.getTracks?.() || [];
-        const has = existing.some(
-          (t) =>
-            (t as { id?: string }).id &&
-            (t as { id?: string }).id === track.id
-        );
-        if (!has) {
-          try {
-            (
-              this.remoteStream as unknown as {
-                addTrack?: (t: unknown) => void;
+        found.push(track);
+      }
+      if (!found.length) return;
+
+      // Always rebuild MediaStream from receivers when video appears.
+      // addTrack-only left Android RTCView black (same streamURL, no rebind).
+      const hadVideo =
+        (this.remoteStream?.getVideoTracks?.()?.length ?? 0) > 0;
+      const nowVideo = found.some(
+        (t) => (t as { kind?: string }).kind === "video"
+      );
+      if (!this.remoteStream || (nowVideo && !hadVideo) || rtc.MediaStream) {
+        try {
+          if (rtc.MediaStream) {
+            // Prefer full rebuild when we can — forces new toURL for RTCView
+            if (!this.remoteStream || (nowVideo && !hadVideo)) {
+              this.remoteStream = new rtc.MediaStream(found as never[]);
+              addedVideo = nowVideo && !hadVideo;
+            } else {
+              for (const track of found) {
+                const existing = this.remoteStream.getTracks?.() || [];
+                const id = (track as { id?: string }).id;
+                const has = existing.some(
+                  (t) => (t as { id?: string }).id && (t as { id?: string }).id === id
+                );
+                if (!has) {
+                  try {
+                    (
+                      this.remoteStream as unknown as {
+                        addTrack?: (t: unknown) => void;
+                      }
+                    ).addTrack?.(track);
+                    if ((track as { kind?: string }).kind === "video") {
+                      addedVideo = true;
+                    }
+                  } catch {
+                    /* ignore */
+                  }
+                }
               }
-            ).addTrack?.(track);
-          } catch {
-            /* ignore */
+            }
           }
+        } catch {
+          /* ignore */
         }
       }
       if (this.remoteStream) {
-        this.pushRemoteStreamToUi(`harvest_${why}`);
+        this.pushRemoteStreamToUi(
+          addedVideo ? `harvest_v_${why}` : `harvest_${why}`
+        );
       }
     } catch {
       /* ignore */
@@ -1896,25 +2907,27 @@ export class MediaSession {
     const trackCount = (rs.getTracks?.() || []).length;
     const videoCount = (rs.getVideoTracks?.() || []).length;
     if (videoCount > 0) {
-      if (!this.gotRemoteVideo) {
-        this.gotRemoteVideo = true;
-        this.markPhase("remote_video");
-      }
-      this.clearRemoteVideoWatch();
+      this.markPhase(`remote_tracks_v=${videoCount}`);
     }
-    // Include why + time so React streamEpoch always bumps on video events
-    // (same toURL() after audio-then-video used to leave RTCView black).
-    const sig = `${url}#t${trackCount}v${videoCount}-${why}-${Date.now()}`;
-    // Always notify on video; skip only pure audio spam with same signature
+    // Stable signature — do NOT include Date.now() (that remounted RTCView every
+    // repaint and caused visible flicker). Only notify UI when stream/tracks change
+    // or caller forces a rebuild (why starts with rebuild_).
+    const base = `${url}#t${trackCount}v${videoCount}`;
+    const force =
+      why.startsWith("rebuild_") || why.startsWith("force_");
+    if (!force && base === this.remoteStreamUrl) {
+      return;
+    }
+    // Audio-only spam: keep first notification only
     if (
-      sig.split("-")[0] === this.remoteStreamUrl.split("-")[0] &&
+      !force &&
       videoCount === 0 &&
+      this.remoteStreamUrl.startsWith(`${url}#t`) &&
       this.remoteStreamUrl.includes("v0")
     ) {
-      // still allow periodic audio-only push once
-      if (this.remoteStreamUrl.includes(`#t${trackCount}v0`)) return;
+      return;
     }
-    this.remoteStreamUrl = sig;
+    this.remoteStreamUrl = base;
     this.handlers.onRemoteStream?.(rs);
     this.handlers.onConnectionState?.(
       videoCount > 0
@@ -1949,51 +2962,264 @@ export class MediaSession {
     this.pushRemoteStreamToUi(`repaint_${why}`);
   }
 
+  /**
+   * After ICE: enable tracks + request outbound keyframes so first frame
+   * arrives sooner on TURN (common 2–8s black after "connected").
+   */
+  private kickMediaAfterIcePrivate(why: string): void {
+    const pc = this.pc;
+    if (!pc) return;
+    try {
+      this.attachLocalTracksIfNeeded();
+    } catch {
+      /* ignore */
+    }
+    try {
+      const senders =
+        (
+          pc as unknown as {
+            getSenders?: () => Array<{
+              track?: { kind?: string; enabled?: boolean; readyState?: string } | null;
+              generateKeyFrame?: () => Promise<void>;
+              requestKeyFrame?: () => void;
+            }>;
+          }
+        ).getSenders?.() || [];
+      for (const s of senders) {
+        const t = s?.track;
+        if (!t || t.kind !== "video" || t.readyState === "ended") continue;
+        try {
+          if (t.enabled === false) t.enabled = true;
+        } catch {
+          /* ignore */
+        }
+        try {
+          if (typeof s.generateKeyFrame === "function") {
+            void s.generateKeyFrame().catch(() => {});
+          } else if (typeof s.requestKeyFrame === "function") {
+            s.requestKeyFrame();
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    this.handlers.onConnectionState?.(`kick_media_${why}`);
+    // Burst: 0 + 80 + 200 + 500ms keyframes (TURN first-frame often late)
+    if (!String(why).includes("_retry")) {
+      setTimeout(() => {
+        try {
+          this.kickMediaAfterIce(`${why}_retry`);
+        } catch {
+          /* ignore */
+        }
+      }, 80);
+      setTimeout(() => {
+        try {
+          this.kickMediaAfterIce(`${why}_retry2`);
+        } catch {
+          /* ignore */
+        }
+      }, 200);
+      setTimeout(() => {
+        try {
+          this.kickMediaAfterIce(`${why}_retry3`);
+        } catch {
+          /* ignore */
+        }
+      }, 500);
+    }
+  }
+
+  /** True if this call already answered a remote offer (must not re-offer). */
+  hasAnsweredAsAnswerer(): boolean {
+    return !!this.answeredAsAnswerer;
+  }
+
   private scheduleRemoteVideoWatch() {
     if (!this.pc) return;
     if (this.remoteVideoWatchTimer) return;
-    // Faster waves: browser→phone video often lands after audio; RTCView needs rebind
-    const delays = [800, 1500, 2500, 4000, 6000];
+    // Sparse: poll frames; only remount if still black. Stop after first frame.
+    // First wave ASAP — first paint target is <2.5s after answer.
+    const delays = [80, 400, 1200, 3000, 7000, 14000];
     const wave = this.remoteVideoWaves;
     if (wave >= delays.length) return;
     this.remoteVideoWatchTimer = setTimeout(() => {
       this.remoteVideoWatchTimer = null;
       if (!this.pc) return;
-      // Always harvest + repaint — even if tracks exist (black RTCView case)
+      this.pollInboundFrames();
+      const framesOk = this.remoteFramesSeenRecently();
+      if (framesOk) {
+        this.markPhase("first_frame");
+        this.handlers.onConnectionState?.(
+          `remote_frames_ok w=${wave} age=${this.elapsedMs()}`
+        );
+        this.clearRemoteVideoWatch();
+        this.clearStuckIceWatch();
+        // First paint done — ramp quality (held low for faster TURN keyframe)
+        if (!this.dataSaver && !this.onCellular) {
+          void this.applyQualityTier("mid");
+        }
+        return;
+      }
       this.harvestRemoteReceivers(`watch_w${wave}`);
-      const v = this.remoteStream?.getVideoTracks?.()?.length ?? 0;
-      if (v > 0) {
-        this.gotRemoteVideo = true;
+      if (wave === 0 || wave === 2) {
+        try {
+          this.requestInboundKeyframes(`watch_w${wave}`);
+          this.kickMediaAfterIce(`watch_w${wave}`);
+        } catch {
+          /* ignore */
+        }
+      }
+      // One remount only if still black at ~3s
+      if (wave === 2) {
+        this.forceRebuildRemoteStreamForPaint(`watch_w${wave}`);
+      } else {
         this.repaintRemoteStream(`video_watch_w${wave}`);
-        // One more repaint after surface settles
-        setTimeout(() => this.repaintRemoteStream("video_watch_settle"), 400);
-        return;
       }
-      // ICE still checking / just connected — wait, don't restart yet
-      const ice = this.pc.iceConnectionState;
-      const cs = this.pc.connectionState;
-      if (
-        ice === "checking" ||
-        ice === "new" ||
-        (ice === "connected" && wave === 0)
-      ) {
-        // First wave after ICE connected: give frames time before restart
-        this.remoteVideoWaves = ice === "connected" ? 1 : this.remoteVideoWaves;
-        this.scheduleRemoteVideoWatch();
-        return;
-      }
-      if (cs === "connected" && wave < 1) {
-        this.remoteVideoWaves = 1;
-        this.scheduleRemoteVideoWatch();
-        return;
-      }
-      this.remoteVideoWaves += 1;
+      const v = this.remoteStream?.getVideoTracks?.()?.length ?? 0;
+      if (v > 0) this.gotRemoteVideo = true;
+      const age = this.callStartAt ? Date.now() - this.callStartAt : 0;
+      this.remoteVideoWaves = wave + 1;
       this.handlers.onConnectionState?.(
-        `no_remote_video_retry w=${this.remoteVideoWaves}`
+        `remote_paint_retry w=${this.remoteVideoWaves} v=${v} age=${age}`
       );
-      void this.tryIceRestart({ force: true });
+      // Black path: soft ICE restart only, stay answerer, never before 8s
+      // (early thrash @3s caused answerer re-offer drops + crash loops).
+      if (age >= 8000 && wave >= 3 && !this.answeredAsAnswerer) {
+        void this.tryIceRestart({
+          force: true,
+          promoteOfferer: false,
+          earlyBlack: true,
+        });
+      } else if (age >= 8000 && wave >= 3 && this.answeredAsAnswerer) {
+        if (typeof this.pc?.restartIce === "function") {
+          try {
+            this.pc.restartIce();
+            this.kickMediaAfterIce("black_watch_answerer_soft");
+          } catch {
+            /* ignore */
+          }
+        }
+      }
       this.scheduleRemoteVideoWatch();
-    }, delays[wave] ?? 6000);
+    }, delays[wave] ?? 5000);
+  }
+
+  /** True if inbound video has received frames recently (getStats). */
+  private remoteFramesSeenRecently(): boolean {
+    // Sync peek of last polled frame count (updated async by pollInboundFrames)
+    return this._remoteFramesSeen === true;
+  }
+
+  private _remoteFramesSeen = false;
+  private _lastInboundFrames = 0;
+
+  /** Poll getStats for inbound-rtp video framesDecoded/framesReceived. */
+  private pollInboundFrames(): void {
+    const pc = this.pc as unknown as {
+      getStats?: () => Promise<Map<string, { type?: string; kind?: string; framesDecoded?: number; framesReceived?: number; mediaType?: string }>>;
+    } | null;
+    if (!pc?.getStats) return;
+    void pc
+      .getStats()
+      .then((stats) => {
+        let frames = 0;
+        stats.forEach((r) => {
+          if (r.type !== "inbound-rtp") return;
+          if (r.kind !== "video" && r.mediaType !== "video") return;
+          frames = Math.max(
+            frames,
+            r.framesDecoded || 0,
+            r.framesReceived || 0
+          );
+        });
+        if (frames > this._lastInboundFrames) {
+          this._lastInboundFrames = frames;
+          this._remoteFramesSeen = true;
+        }
+      })
+      .catch(() => {});
+  }
+
+  /** Ask remote encoder for a keyframe via receiver API when available. */
+  private requestInboundKeyframes(why: string): void {
+    const pc = this.pc as unknown as {
+      getReceivers?: () => Array<{
+        track?: { kind?: string } | null;
+        requestKeyFrame?: () => void;
+        play?: () => void;
+      }>;
+    } | null;
+    if (!pc?.getReceivers) return;
+    try {
+      for (const r of pc.getReceivers() || []) {
+        if (r?.track?.kind !== "video") continue;
+        try {
+          r.requestKeyFrame?.();
+        } catch {
+          /* ignore */
+        }
+      }
+      this.handlers.onConnectionState?.(`inbound_kf_${why}`);
+    } catch {
+      /* ignore */
+    }
+    this.pollInboundFrames();
+  }
+
+  /**
+   * Clone remote tracks into a brand-new MediaStream so RTCView toURL() changes
+   * and the SurfaceView rebinds (track-present-but-black case).
+   */
+  private forceRebuildRemoteStreamForPaint(why: string): void {
+    const rtc = this.rtc;
+    const rs = this.remoteStream;
+    if (!rtc?.MediaStream || !rs) return;
+    try {
+      const tracks = (rs.getTracks?.() || []).filter(
+        (t) => (t as { readyState?: string }).readyState !== "ended"
+      );
+      if (!tracks.length) return;
+      for (const t of tracks) {
+        try {
+          if ((t as { enabled?: boolean }).enabled === false) {
+            (t as { enabled: boolean }).enabled = true;
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      // Prefer empty stream + addTrack — some RN builds crash if tracks are
+      // still owned by another MediaStream when passed to the constructor.
+      let next: MediaStreamLike;
+      try {
+        next = new rtc.MediaStream() as MediaStreamLike;
+        for (const t of tracks) {
+          try {
+            (
+              next as unknown as { addTrack?: (tr: unknown) => void }
+            ).addTrack?.(t);
+          } catch {
+            /* skip track */
+          }
+        }
+      } catch {
+        try {
+          next = new rtc.MediaStream(tracks as never[]) as MediaStreamLike;
+        } catch {
+          this.repaintRemoteStream(`rebuild_fail_${why}`);
+          return;
+        }
+      }
+      this.remoteStream = next;
+      this.remoteStreamUrl = "";
+      this.pushRemoteStreamToUi(`rebuild_${why}`);
+    } catch {
+      /* never crash the app from paint recovery */
+    }
   }
 
   private clearRemoteVideoWatch() {
@@ -2014,20 +3240,65 @@ export class MediaSession {
     force?: boolean;
     /** Answerer: become offerer and send iceRestart offer (phone-driven recover). */
     promoteOfferer?: boolean;
+    /**
+     * Connected/checking but zero frames after SDP — bypass long call grace.
+     * Used by black_watch (was no-op until 14s → 30s black product lag).
+     */
+    earlyBlack?: boolean;
   }): Promise<boolean> {
     const force = !!opts?.force;
     const promote = !!opts?.promoteOfferer;
+    const earlyBlack = !!opts?.earlyBlack;
     const now = Date.now();
-    // First 12s of force-relay call: let TURN finish. Early restarts = thrash.
+    // First seconds of force-relay: let TURN finish. Early restarts = thrash.
     const age = this.callStartAt ? now - this.callStartAt : 99999;
-    if (!force && this.shouldFilterToRelayCandidates() && age < 12000) {
-      this.handlers.onConnectionState?.(`ice_restart_skip_relay_grace age=${age}`);
+    // Relay first path needs time for ALLOCATE + first frames — do not thrash
+    // earlyBlack is already past that window by design (≥2s media, ≥4s restart).
+    if (
+      !force &&
+      !earlyBlack &&
+      this.shouldFilterToRelayCandidates() &&
+      age < 9000
+    ) {
+      this.handlers.onConnectionState?.(
+        `ice_restart_skip_relay_grace age=${age}`
+      );
       return false;
     }
-    // Hard gate: no iceRestart offer for first 15s of any call (force or not).
-    // force:true at 3.5s was still able to bypass softer guards.
-    if (age < 15000) {
-      this.handlers.onConnectionState?.(`ice_restart_skip_call_grace age=${age}`);
+    // At most ONE ice restart attempt per call after SDP
+    if (this.iceRestartCount >= 1 && this.hasRemoteDescription) {
+      this.handlers.onConnectionState?.(
+        `ice_restart_skip_once n=${this.iceRestartCount}`
+      );
+      return false;
+    }
+    // Frames OK → long grace. Black: never renego before 20s.
+    if (this._remoteFramesSeen) {
+      if (age < 18000) {
+        this.handlers.onConnectionState?.(
+          `ice_restart_skip_call_grace age=${age} frames=1`
+        );
+        return false;
+      }
+    } else {
+      const grace = 20000;
+      if (age < grace) {
+        this.handlers.onConnectionState?.(
+          `ice_restart_skip_call_grace age=${age} need=${grace} force=${force ? 1 : 0} early=${earlyBlack ? 1 : 0} frames=0`
+        );
+        return false;
+      }
+    }
+    // Still checking — do not renego at all
+    if (
+      this.pc &&
+      (this.pc.iceConnectionState === "checking" ||
+        this.pc.iceConnectionState === "new" ||
+        this.pc.connectionState === "connecting")
+    ) {
+      this.handlers.onConnectionState?.(
+        `ice_restart_skip_checking ice=${this.pc.iceConnectionState}`
+      );
       return false;
     }
     // Never iceRestart while first answer is still landing
@@ -2058,9 +3329,20 @@ export class MediaSession {
         !this.hasRemoteDescription &&
         !recentRemoteOffer &&
         !this.makingOffer;
+      // Answerer with SDP done: only soft restartIce — never re-offer (hub 30s drop)
+      if (this.answeredAsAnswerer || (this.hasRemoteDescription && !this.isOfferer)) {
+        if (typeof pc.restartIce === "function") {
+          pc.restartIce();
+          this.handlers.onConnectionState?.("ice_restart_answerer_soft");
+          this.kickMediaAfterIce("answerer_restart");
+          return true;
+        }
+        this.handlers.onConnectionState?.("ice_restart_answerer_no_api");
+        return false;
+      }
       if (this.isOfferer || canPromote) {
         if (canPromote && !this.isOfferer) this.isOfferer = true;
-        await this.createAndSendOffer(true);
+        await this.createAndSendOffer(true, { earlyBlack });
         return true;
       }
       if (typeof pc.restartIce === "function") {
@@ -2075,7 +3357,7 @@ export class MediaSession {
         ) {
           this.handlers.onConnectionState?.("ice_restart_promote_offerer");
           this.isOfferer = true;
-          await this.createAndSendOffer(true);
+          await this.createAndSendOffer(true, { earlyBlack });
         }
         return true;
       }
@@ -2144,38 +3426,49 @@ export class MediaSession {
 
     this.markConnectStart(`signal_${kind}`);
     // Parallel prep — browser often sends offer before startCall finishes.
-    // Don't stall answer on ICE HTTP if we already have servers.
-    // Cap GUM like startCall — uncapped await left answerer silent on cold cam (002).
-    await Promise.all([
-      this.hasIceServers()
-        ? Promise.resolve(true)
-        : this.waitForIceConfig(1000),
-      Promise.race([
-        this.ensureLocalStream(),
-        new Promise<MediaStreamLike | null>((resolve) =>
-          setTimeout(() => resolve(this.localStream), 1100)
-        ),
-      ]),
-    ]);
+    // Fast path: warm cam + ICE already ready → answer immediately.
+    const camLive = !!(this.localStream?.getVideoTracks?.() || []).some(
+      (t) => (t as { readyState?: string }).readyState === "live"
+    );
+    if (camLive && this.hasIceServers()) {
+      this.attachLocalTracksIfNeeded();
+    } else if (!(this.localStream && this.hasIceServers())) {
+      await Promise.all([
+        this.hasIceServers()
+          ? Promise.resolve(true)
+          : this.waitForIceConfig(250),
+        Promise.race([
+          this.ensureLocalStream(),
+          new Promise<MediaStreamLike | null>((resolve) =>
+            // 150ms — was 280/700; cold GUM still fail-opens for SDP
+            setTimeout(() => resolve(this.localStream), 150)
+          ),
+        ]),
+      ]);
+    } else {
+      this.attachLocalTracksIfNeeded();
+    }
     // Mark call started on first signal so timers work.
     if (!this.callStartAt) this.callStartAt = Date.now();
-    // Only rebuild warm PC for force_relay/hide-ip (not always).
-    if (
-      (this.forceRelayOnce || this.hideIp) &&
-      this.pc &&
-      !this.hasRemoteDescription &&
-      !this.makingOffer &&
-      kind === "offer"
-    ) {
-      try {
-        this.pc.close();
-      } catch {
-        /* ignore */
+    // force_relay: clean relay PC before setRemote (wrong policy / dirty warm).
+    if (kind === "offer" && !this.hasRemoteDescription && !this.answeredAsAnswerer) {
+      if (this.desiredRelayPolicy()) {
+        this.ensureRelayPolicyPc("signal_offer");
+      } else if (
+        this.pc &&
+        !this.makingOffer &&
+        this.pcUsesRelayPolicy !== this.desiredRelayPolicy()
+      ) {
+        try {
+          this.pc.close();
+        } catch {
+          /* ignore */
+        }
+        this.pc = null;
+        this.warmed = false;
+        this.pendingRemoteIce = [];
+        this.handlers.onConnectionState?.("signal_offer_policy_rebuild");
       }
-      this.pc = null;
-      this.warmed = false;
-      this.pendingRemoteIce = [];
-      this.handlers.onConnectionState?.("signal_offer_relay_rebuild");
     }
     // Do not replace PC if we already negotiated — attach tracks only
     if (!this.pc) {
@@ -2188,6 +3481,15 @@ export class MediaSession {
 
     try {
       if (kind === "offer") {
+        // Latch answerer role IMMEDIATELY — before GUM/relay awaits or createAnswer.
+        // Watchdog promote@3.5s raced late latch → re-offer@~10s thrash (hub drop).
+        this.answeredAsAnswerer = true;
+        this.isOfferer = false;
+        this.lastRemoteOfferAt = Date.now();
+        if (this.offerWatchTimer) {
+          clearTimeout(this.offerWatchTimer);
+          this.offerWatchTimer = null;
+        }
         const raw = JSON.parse(payload) as { type?: string; sdp?: string };
         const desc =
           this.shouldFilterToRelayCandidates() && raw?.sdp
@@ -2227,50 +3529,186 @@ export class MediaSession {
         }
         const pc2 = this.pc;
         if (!pc2) return;
-        await pc2.setRemoteDescription(new rtc.RTCSessionDescription(desc));
-        this.hasRemoteDescription = true;
-        this.pendingRemoteOfferSince = 0;
-        this.isOfferer = false;
-        this.lastRemoteOfferAt = Date.now();
-        this.markPhase("offer_applied");
-        // Flush ICE while building answer (don't block answer SDP on mid adds)
-        const iceFlush = this.flushPendingIce(pc2, rtc);
-        this.attachLocalTracksIfNeeded();
+        // Answerer Unified Plan: NEVER addTrack before setRemote — that creates
+        // extra m-lines not in the web offer → phone→PC black (Android still
+        // sees PC on the real recv m-line). Flow: GUM → setRemote → replaceTrack
+        // into offer senders → createAnswer.
+        if (!this.localStream) {
+          try {
+            await this.ensureLocalStream();
+          } catch {
+            /* continue */
+          }
+        }
+        try {
+          (this.localStream?.getTracks?.() || []).forEach((t) => {
+            try {
+              (t as { enabled: boolean }).enabled = true;
+            } catch {
+              /* ignore */
+            }
+          });
+        } catch {
+          /* ignore */
+        }
         tagLocalTracks(
           this.localStream as Parameters<typeof tagLocalTracks>[0]
         );
-        this.applyCodecPrefs(pc2);
+        await pc2.setRemoteDescription(new rtc.RTCSessionDescription(desc));
+        this.hasRemoteDescription = true;
+        // Keep answerer latch (already set at offer ingress)
+        this.answeredAsAnswerer = true;
+        this.isOfferer = false;
+        this.pendingRemoteOfferSince = 0;
+        this.lastRemoteOfferAt = Date.now();
+        this.markPhase("offer_applied");
+        if (this.offerWatchTimer) {
+          clearTimeout(this.offerWatchTimer);
+          this.offerWatchTimer = null;
+        }
+        // Codec prefs AFTER setRemote (transceiver kinds exist)
+        try {
+          this.applyCodecPrefs(pc2);
+        } catch {
+          /* ignore */
+        }
+        // Bind cam/mic into web offer m-lines only
+        const bound = await this.bindAnswerOutbound();
+        if (!bound) {
+          // Cam late: one more GUM + bind
+          try {
+            await this.ensureLocalStream();
+            await this.bindAnswerOutbound();
+          } catch {
+            /* ignore */
+          }
+        }
+        try {
+          const senders = pc2.getSenders?.() || [];
+          const vSend = senders.filter(
+            (s) => (s as { track?: { kind?: string } }).track?.kind === "video"
+          ).length;
+          const vNull = senders.filter(
+            (s) => !(s as { track?: unknown }).track
+          ).length;
+          const vLive = (this.localStream?.getVideoTracks?.() || []).filter(
+            (t) => (t as { readyState?: string }).readyState === "live"
+          ).length;
+          this.handlers.onConnectionState?.(
+            `answer_outbound vSenders=${vSend} vNull=${vNull} vLive=${vLive}`
+          );
+        } catch {
+          /* ignore */
+        }
+        const iceFlush = this.flushPendingIce(pc2, rtc);
+        const answer = await pc2.createAnswer();
+        // Always force video sendrecv in answer SDP (belt)
+        try {
+          const ansObj = answer as { type?: string; sdp?: string };
+          if (ansObj?.sdp && /m=video/i.test(ansObj.sdp)) {
+            const before = ansObj.sdp;
+            ansObj.sdp = forceVideoSendrecvSdp(ansObj.sdp);
+            if (ansObj.sdp !== before) {
+              this.handlers.onConnectionState?.("answer_sdp_force_sendrecv");
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+        try {
+          await pc2.setLocalDescription(answer);
+        } catch (e) {
+          this.handlers.onConnectionState?.(
+            `answer_setLocal_fail ${e instanceof Error ? e.message : String(e)}`
+          );
+        }
+        // Confirm answer local SDP has video sendrecv + re-bind if needed
+        try {
+          const loc = pc2.localDescription as { sdp?: string } | null;
+          const sdp = String(loc?.sdp || "");
+          const vSend = /m=video[\s\S]*?a=sendrecv/i.test(sdp) ? 1 : 0;
+          const vRecv = /m=video[\s\S]*?a=recvonly/i.test(sdp) ? 1 : 0;
+          const vSenders = (pc2.getSenders?.() || []).filter(
+            (s) => (s as { track?: { kind?: string } }).track?.kind === "video"
+          ).length;
+          this.handlers.onConnectionState?.(
+            `answer_sdp_check vSendrecv=${vSend} vRecvonly=${vRecv} vSenders=${vSenders}`
+          );
+        } catch {
+          /* ignore */
+        }
+        await this.bindAnswerOutbound();
+        this.kickMediaAfterIce("answer_setLocal");
+        // Prefer mid bitrate outbound so PC gets real frames (low was too thin on TURN)
         void this.applyQualityTier(
           this.dataSaver || this.onCellular ? "low" : "mid"
         );
-        const answer = await pc2.createAnswer();
-        await pc2.setLocalDescription(answer);
-        // Send answer ASAP — trickle ICE carries candidates (no 180ms stall)
+        this.scheduleOutboundVideoWatch();
+        // force_relay / Hide IP: wait for typ relay in answer.
+        if (this.shouldWaitForFirstRelay()) {
+          let n = await waitForIceGatherRelayOrDone(
+            pc2,
+            this.warmTurnPrimed ? 1200 : 2000
+          );
+          if (n === 0) n = await waitForIceGatherRelayOrDone(pc2, 3000);
+          if (n === 0) n = await waitForIceGatherRelayOrDone(pc2, 2500);
+          this.handlers.onConnectionState?.(
+            `answer_first_relay n=${n} primed=${this.warmTurnPrimed ? 1 : 0}`
+          );
+          if (n === 0) {
+            this.handlers.onConnectionState?.("answer_emit_no_relay_failopen");
+          }
+        }
         const local = pc2.localDescription as {
           type?: string;
           sdp?: string;
         } | null;
-        if (local) {
-          let sdp = String(local.sdp || "");
-          if (this.shouldFilterToRelayCandidates() && sdp) {
-            sdp = stripNonRelayCandidatesFromSdp(sdp);
-          }
+        const ans = (local || answer) as { type?: string; sdp?: string };
+        let sdp = String(ans?.sdp || "");
+        // Belt: never emit video recvonly answer (PC black partner)
+        if (sdp && /m=video/i.test(sdp)) {
+          sdp = forceVideoSendrecvSdp(sdp);
+        }
+        // Strip host only when ≥1 relay remains (never empty the SDP)
+        if (this.shouldFilterToRelayCandidates() && sdp) {
+          sdp = stripNonRelayCandidatesFromSdp(sdp);
+        }
+        if (sdp) {
           this.handlers.onSignal?.(
             "answer",
-            JSON.stringify({ type: local.type, sdp })
+            JSON.stringify({ type: ans?.type || "answer", sdp })
           );
+          this.answeredAsAnswerer = true;
+          this.isOfferer = false;
           this.markPhase("answer_sent");
-          void iceFlush;
-          this.scheduleConnectingWatch();
-          this.scheduleRemoteVideoWatch();
-          // Browser→phone: harvest receivers + repaint ASAP (audio-first black RTCView)
-          setTimeout(() => this.harvestRemoteReceivers("post_answer"), 200);
-          setTimeout(() => this.repaintRemoteStream("post_answer_400"), 400);
-          setTimeout(() => this.repaintRemoteStream("post_answer_1200"), 1200);
-          setTimeout(() => this.repaintRemoteStream("post_answer_3000"), 3000);
-        } else {
-          await iceFlush;
+          this.armStuckIceWatch();
         }
+        void iceFlush;
+        // After answer is out: hard push outbound + keyframes (phone→PC)
+        void this.bindAnswerOutbound();
+        this.kickMediaAfterIce("answer_sent");
+        this.kickMediaAfterIce("post_answer");
+        this.scheduleConnectingWatch();
+        this.scheduleRemoteVideoWatch();
+        // Immediate harvest + early nudge — first paint target <2.5s after answer
+        this.harvestRemoteReceivers("post_answer");
+        setTimeout(() => this.harvestRemoteReceivers("post_answer_40"), 40);
+        setTimeout(() => {
+          if (!this._remoteFramesSeen) {
+            this.repaintRemoteStream("post_answer_nudge");
+          }
+        }, 100);
+        // Outbound keyframe bursts for browser first paint
+        [300, 800, 1500, 3000].forEach((ms) => {
+          setTimeout(() => {
+            try {
+              void this.bindAnswerOutbound();
+              this.kickMediaAfterIce(`post_answer_${ms}`);
+            } catch {
+              /* ignore */
+            }
+          }, ms);
+        });
       } else if (kind === "answer") {
         const parseAns = () => {
           const raw = JSON.parse(payload) as { type?: string; sdp?: string };
@@ -2288,13 +3726,18 @@ export class MediaSession {
           this.hasRemoteDescription = true;
           this.gotAnswerThisCall = true;
           this.markPhase("answer_applied");
-          await this.flushPendingIce(pc, rtc);
-          // Phone as offerer: remote video often late — multi-wave harvest/repaint
+          // Parallel media kick — don't await ICE flush before keyframes
+          void this.flushPendingIce(pc, rtc);
+          this.kickMediaAfterIce("got_answer");
+          this.armStuckIceWatch();
           this.scheduleRemoteVideoWatch();
-          setTimeout(() => this.harvestRemoteReceivers("got_answer"), 150);
-          setTimeout(() => this.repaintRemoteStream("got_answer_500"), 500);
-          setTimeout(() => this.repaintRemoteStream("got_answer_1500"), 1500);
-          setTimeout(() => this.repaintRemoteStream("got_answer_3s"), 3000);
+          this.harvestRemoteReceivers("got_answer");
+          setTimeout(() => this.harvestRemoteReceivers("got_answer_40"), 40);
+          setTimeout(() => {
+            if (!this._remoteFramesSeen) {
+              this.repaintRemoteStream("got_answer_nudge");
+            }
+          }, 100);
         } else {
           // Renego answer when we re-offered (hard retry as offerer)
           try {
@@ -2305,7 +3748,7 @@ export class MediaSession {
             this.markPhase("answer_renego");
             await this.flushPendingIce(pc, rtc);
             this.scheduleRemoteVideoWatch();
-            setTimeout(() => this.repaintRemoteStream("answer_renego"), 400);
+            this.repaintRemoteStream("answer_renego");
           } catch {
             /* ignore stale answer */
           }
@@ -2440,6 +3883,7 @@ export class MediaSession {
     const { keepLocal = false, sendBye = true } = opts;
     this.callGen += 1; // invalidate in-flight createOffer/answer
     this.clearIceRestartProbe();
+    this.clearStuckIceWatch();
     this.clearConnectingWatch();
     this.clearRemoteVideoWatch();
     if (this.offerWatchTimer) {
@@ -2454,20 +3898,31 @@ export class MediaSession {
     this.pendingRemoteOfferSince = 0;
     this.offerSentThisCall = false;
     this.gotAnswerThisCall = false;
+    this.answeredAsAnswerer = false;
     this.startCallInFlight = false;
     this.makingOffer = false;
     this.gotRemoteVideo = false;
     this.remoteVideoWaves = 0;
+    this._outboundWatchArmed = false;
+    this._outboundFramesSeen = false;
     this.pendingRemoteIce = [];
     this.hasRemoteDescription = false;
     this.warmed = false;
+    this.warmTurnPrimed = false;
+    this.pcUsesRelayPolicy = false;
     this.callStartAt = 0;
+    this.matchMarkT0 = 0;
     this.connectT0 = 0;
+    this._remoteFramesSeen = false;
+    this._lastInboundFrames = 0;
     this.rttEma = 0;
     this.lossEma = 0;
     this.relayPath = false;
     this.qualityTier = this.dataSaver || this.onCellular ? "low" : "mid";
     this.signalChain = Promise.resolve();
+    // Keep forceRelayOnce sticky across hangup so next warmConnection /
+    // startCall reuses relay policy without a cold all→relay rebuild.
+    // (2nd match slow was: close cleared path → warm "all" → match re-arms relay.)
     if (sendBye) {
       try {
         this.handlers.onSignal?.("bye", "{}");
@@ -2499,6 +3954,23 @@ export class MediaSession {
       }
       this.localStream = null;
       this.localStreamPromise = null;
+    }
+    // Immediate idle warm under relay if TURN known (next Start/match attach-only)
+    // Full warmConnection primes real TURN ALLOCATE (not bare ensurePc).
+    if (this.hasTurn() || this.forceRelayOnce) {
+      try {
+        if (!this.forceRelayOnce && this.hasTurn()) {
+          this.forceRelayOnce = true;
+        }
+        if (this.hasIceServers() && keepLocal) {
+          void this.warmConnection({ preferRelay: true });
+          this.handlers.onConnectionState?.(
+            `closeCall_rewarm_async relay=${this.forceRelayOnce ? 1 : 0}`
+          );
+        }
+      } catch {
+        /* next startCall will create */
+      }
     }
   }
 

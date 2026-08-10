@@ -346,9 +346,9 @@
     #tile-local .side-rail { z-index: 50 !important; }
 </style>
   <!-- Load stage CSS as all immediately — no media=print FOUC trick (was leaving rails opacity:0) -->
-  <link rel="stylesheet" href="live-stage.css?v=369" />
-  <link rel="stylesheet" href="live-brand.css?v=1" />
-  <link rel="preload" href="live.js?v=501" as="script" />
+  <link rel="stylesheet" href="live-stage.css?v=373" />
+  <link rel="stylesheet" href="live-brand.css?v=2" />
+  <link rel="preload" href="live.js?v=520" as="script" />
   <link rel="preload" href="i18n.js?v=246" as="script" />
   <script src="brand.js?v=2" defer></script>
   <script>
@@ -588,27 +588,19 @@
 
     <!-- Dual video stage -->
     <main class="stage">
-      <!-- Center brand (rulet.tv-style seam between you ↔ partner); spins on match / idle -->
+      <!-- Center wordmark between partner | you — text only, spins occasionally -->
       <div class="stage-brand-center" id="stage-brand-center" aria-hidden="true">
         <div class="stage-brand-spin" id="stage-brand-spin">
-          <img
-            class="stage-brand-logo"
-            src="/brand/logo-mark.png?v=12"
-            width="56"
-            height="56"
-            alt=""
-            draggable="false"
-          />
+          <span class="stage-brand-wordmark" data-brand-name>ruletka</span>
         </div>
-        <span class="stage-brand-word">ruletka.me</span>
       </div>
       <!-- PARTNER (left) — solo: one video; stranger vs party: vertical split; trio: partner1 column -->
       <section class="tile tile-remote" id="tile-remote">
         <div class="remote-stack" id="remote-stack">
           <video id="remote" class="vid remote" autoplay playsinline playsInline webkit-playsinline></video>
-          <!-- Brand watermark on partner feed (competitor-style edge mark) -->
-          <div class="stage-wm" id="stage-wm" aria-hidden="true">
-            <span class="stage-wm-text">ruletka.me</span>
+          <!-- Wordmark watermark on partner tile -->
+          <div class="stage-wm stage-wm-remote" id="stage-wm" aria-hidden="true">
+            <span class="stage-wm-text stage-wm-spin-el" data-brand-name>ruletka</span>
           </div>
           <div class="remote-b-wrap" id="remote2-wrap" hidden>
             <video id="remote2" class="vid remote remote-b" autoplay playsinline playsInline webkit-playsinline></video>
@@ -1010,6 +1002,10 @@
       <!-- YOU (right / middle in trio) -->
       <section class="tile tile-local" id="tile-local">
         <video id="local" class="vid local" autoplay playsinline playsInline webkit-playsinline muted></video>
+        <!-- Wordmark watermark on your tile (matches partner) -->
+        <div class="stage-wm stage-wm-local" id="stage-wm-local" aria-hidden="true">
+          <span class="stage-wm-text stage-wm-spin-el" data-brand-name>ruletka</span>
+        </div>
         <!-- Canvas mirror: paints when <video> stays black (Linux/Chrome GPU quirks) -->
         <canvas id="local-preview-canvas" class="local-preview-canvas" aria-hidden="true" hidden></canvas>
         <!-- Debate: you muted / speaking badges -->
@@ -1212,6 +1208,7 @@
         <li><kbd>P</kbd> <span data-i18n="keys.partner">Mute partner</span></li>
         <li><kbd>B</kbd> <span data-i18n="keys.blur">Blur partner</span></li>
         <li><kbd>H</kbd> <span data-i18n="keys.hide">Hide yourself from partner</span></li>
+        <li><kbd>Shift</kbd>+<kbd>B</kbd> <span data-i18n="keys.hideAlt">Hide yourself (alternate)</span></li>
         <li><kbd>F</kbd> <span data-i18n="keys.full">Fullscreen partner</span></li>
         <li><kbd>?</kbd> <span data-i18n="keys.this">This help</span></li>
         <li><kbd>Esc</kbd> <span data-i18n="keys.esc">Close menus</span></li>
@@ -2122,15 +2119,15 @@
               title="Mic boost" aria-label="Mic boost — how loud partners hear you" />
           </div>
           <p class="hint-inline settings-mic-boost-hint" data-i18n="settings.micBoostHint">How loud partners hear you. 100% = no extra gain. Default 125% with a soft limiter.</p>
-          <label class="settings-toggle-row settings-audio-mode-row">
-            <span class="toggle-copy">
+          <label class="settings-row settings-row-toggle settings-audio-mode-row">
+            <span class="row-left toggle-copy">
               <span class="toggle-title" data-i18n="settings.lowLatencyAudio">Low delay mode</span>
               <span class="toggle-mode-pill" id="audio-mode-pill-devices" data-audio-mode-pill>Noise reduction · recommended</span>
-              <span class="toggle-hint" data-i18n="settings.lowLatencyAudioHint">Off (recommended): noise reduction + echo control — better in noisy rooms and multi-person calls. On: less delay so voice matches lips — only if speech feels late and the room is quiet.</span>
+              <span class="toggle-hint" data-i18n="settings.lowLatencyAudioHintShort">Off = noise reduction (recommended). On = less lag if speech feels late.</span>
             </span>
-            <span class="toggle-switch">
+            <span class="switch">
               <input type="checkbox" id="chk-low-latency-audio" />
-              <span class="toggle-ui" aria-hidden="true"></span>
+              <span class="switch-ui" aria-hidden="true"></span>
             </span>
           </label>
         </div>
@@ -2647,11 +2644,58 @@
       </header>
       <div class="sheet-body settings-body">
         <p class="hint-inline" data-i18n="settings.connHint">
-          Media is peer-to-peer when possible. VPN is welcome — our TURN relay carries video when direct paths fail (slightly higher latency).
+          Media is peer-to-peer when possible. VPN is welcome — TURN carries video when direct paths fail.
         </p>
-        <p class="hint-inline muted" data-i18n="settings.vpnOk">
-          On VPN: keep Prefer Direct off. Optional: enable Hide my IP to force relay every call.
-        </p>
+
+        <!-- Controls first: real iOS-style switches (not raw checkboxes) -->
+        <p class="settings-section-label" data-i18n="settings.connOptions">Options</p>
+        <div class="settings-group">
+          <label class="settings-row settings-row-toggle conn-hide-ip-row">
+            <span class="row-left toggle-copy">
+              <span class="toggle-title" data-i18n="settings.hideIp">Hide my IP</span>
+              <span class="toggle-hint" data-i18n="settings.hideIpHintShort">Off = faster P2P. On = force TURN (more lag). Needs hub TURN.</span>
+            </span>
+            <span class="switch">
+              <input type="checkbox" id="chk-hide-ip" />
+              <span class="switch-ui" aria-hidden="true"></span>
+            </span>
+          </label>
+          <div class="conn-flag-sub" id="hide-ip-flag-section" hidden>
+            <button type="button" class="settings-row" data-settings-open="flag">
+              <span class="row-left">
+                <span class="row-flag" id="settings-flag-emoji" aria-hidden="true">🏳️</span>
+                <span data-i18n="flag.labelHideIp">Display flag</span>
+              </span>
+              <span class="row-right"><span id="settings-flag-value" class="row-value">None</span> <span class="chev">›</span></span>
+            </button>
+            <p class="hint-inline conn-flag-hint" data-i18n="flag.hintHideIp">
+              Shown instead of your real country while Hide my IP is on.
+            </p>
+          </div>
+          <label class="settings-row settings-row-toggle conn-prefer-direct-row">
+            <span class="row-left toggle-copy">
+              <span class="toggle-title" data-i18n="settings.preferDirect">Prefer Direct only</span>
+              <span class="toggle-hint" data-i18n="settings.preferDirectHintShort">Disables TURN for next match. Some mobile networks won’t connect.</span>
+            </span>
+            <span class="switch">
+              <input type="checkbox" id="chk-prefer-direct" />
+              <span class="switch-ui" aria-hidden="true"></span>
+            </span>
+          </label>
+          <label class="settings-row settings-row-toggle settings-audio-mode-row">
+            <span class="row-left toggle-copy">
+              <span class="toggle-title" data-i18n="settings.lowLatencyAudio">Low delay mode</span>
+              <span class="toggle-mode-pill" id="audio-mode-pill-conn" data-audio-mode-pill>Noise reduction · recommended</span>
+              <span class="toggle-hint" data-i18n="settings.lowLatencyAudioHintShort">Off = noise reduction (recommended). On = less lag if speech feels late.</span>
+            </span>
+            <span class="switch">
+              <input type="checkbox" id="chk-low-latency-audio-conn" />
+              <span class="switch-ui" aria-hidden="true"></span>
+            </span>
+          </label>
+        </div>
+
+        <p class="settings-section-label" data-i18n="settings.connStatus">Status</p>
         <div class="settings-group conn-detail-list">
           <div class="conn-detail-row">
             <span class="conn-detail-label" data-i18n="settings.connMediaPath">Media path</span>
@@ -2682,6 +2726,11 @@
             <span class="conn-detail-value mono" id="conn-detail-hub">—</span>
           </div>
           <div class="conn-detail-row">
+            <span class="conn-detail-label" data-i18n="settings.connLastLink">Last connect</span>
+            <span class="conn-detail-value mono" id="conn-detail-last-link">—</span>
+            <span class="conn-detail-hint" id="conn-detail-last-link-hint" data-i18n="settings.connLastLinkHint">Offer / answer / ICE / first frame from the last match (ms).</span>
+          </div>
+          <div class="conn-detail-row">
             <span class="conn-detail-label" data-i18n="settings.connIdentity">Identity</span>
             <span class="conn-detail-value" id="conn-detail-identity">—</span>
             <span class="conn-detail-hint" data-i18n="settings.connIdentityHint">Export a profile backup before clearing browser data.</span>
@@ -2690,61 +2739,8 @@
             <span class="conn-detail-label" data-i18n="settings.connSafety">Safety note</span>
             <span class="conn-detail-value" id="conn-detail-safety">—</span>
           </div>
-          <div class="conn-detail-row">
-            <span class="conn-detail-label" data-i18n="settings.preferDirect">Prefer Direct only</span>
-            <span class="conn-detail-value" id="conn-detail-direct-pref">—</span>
-            <span class="conn-detail-hint" data-i18n="settings.preferDirectHint">Disables TURN for the next match. Some mobile networks won’t connect.</span>
-          </div>
-          <div class="conn-detail-row">
-            <span class="conn-detail-label" data-i18n="settings.hideIp">Hide my IP</span>
-            <span class="conn-detail-value" id="conn-detail-hide-ip">—</span>
-            <span class="conn-detail-hint" data-i18n="settings.hideIpHint">Routes via TURN so they never see your IP. May add a little lag. Needs hub TURN.</span>
-          </div>
         </div>
-        <label class="settings-toggle-row conn-hide-ip-row">
-          <span class="toggle-copy">
-            <span class="toggle-title" data-i18n="settings.hideIp">Hide my IP</span>
-            <span class="toggle-hint" data-i18n="settings.hideIpHint">Off by default (faster P2P). On: force TURN so they never see your IP — more lag, uses hub relay. Needs TURN.</span>
-          </span>
-          <span class="toggle-switch">
-            <input type="checkbox" id="chk-hide-ip" />
-            <span class="toggle-ui" aria-hidden="true"></span>
-          </span>
-        </label>
-        <!-- Cosmetic flag only when Hide IP is on (real location is hub geo otherwise) -->
-        <div class="settings-group hide-ip-flag-group" id="hide-ip-flag-section" hidden>
-          <button type="button" class="settings-row" data-settings-open="flag">
-            <span class="row-left">
-              <span class="row-flag" id="settings-flag-emoji" aria-hidden="true">🏳️</span>
-              <span data-i18n="flag.labelHideIp">Display flag</span>
-            </span>
-            <span class="row-right"><span id="settings-flag-value" class="row-value">None</span> <span class="chev">›</span></span>
-          </button>
-          <p class="hint-inline" data-i18n="flag.hintHideIp">
-            Shown instead of your real country while Hide my IP is on. Pick any flag — partners won’t see your city.
-          </p>
-        </div>
-        <label class="settings-toggle-row conn-prefer-direct-row">
-          <span class="toggle-copy">
-            <span class="toggle-title" data-i18n="settings.preferDirect">Prefer Direct only</span>
-            <span class="toggle-hint" data-i18n="settings.preferDirectHint">Disables TURN for the next match. Some mobile networks won’t connect. Conflicts with Hide my IP.</span>
-          </span>
-          <span class="toggle-switch">
-            <input type="checkbox" id="chk-prefer-direct" />
-            <span class="toggle-ui" aria-hidden="true"></span>
-          </span>
-        </label>
-        <label class="settings-toggle-row settings-audio-mode-row">
-          <span class="toggle-copy">
-            <span class="toggle-title" data-i18n="settings.lowLatencyAudio">Low delay mode</span>
-            <span class="toggle-mode-pill" id="audio-mode-pill-conn" data-audio-mode-pill>Noise reduction · recommended</span>
-            <span class="toggle-hint" data-i18n="settings.lowLatencyAudioHint">Off (recommended): noise reduction + echo control — better in noisy rooms and multi-person calls. On: less delay so voice matches lips — only if speech feels late and the room is quiet.</span>
-          </span>
-          <span class="toggle-switch">
-            <input type="checkbox" id="chk-low-latency-audio-conn" />
-            <span class="toggle-ui" aria-hidden="true"></span>
-          </span>
-        </label>
+
         <div class="settings-row-actions settings-row-actions-loose">
           <button type="button" class="settings-mini-btn" id="btn-conn-refresh" data-i18n="settings.connRefresh">Refresh</button>
           <button type="button" class="settings-mini-btn" id="btn-reset-path-stats" data-i18n="settings.connDirectReset">Reset Direct stats</button>
@@ -2981,12 +2977,13 @@
   <!-- Critical path: defer app scripts. QR / invite-copy / live-window load on demand. -->
   <script src="analytics.js?v=4" defer></script>
   <script src="pwa-install.js?v=12" defer></script>
+  <script src="web-push.js?v=1" defer></script>
   <script src="i18n.js?v=247" defer></script>
   <script src="geoLocalize.js?v=3" defer></script>
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=156" defer></script>
-  <script src="webrtc.js?v=262" defer></script>
-  <script src="live.js?v=501" defer></script>
+  <script src="webrtc.js?v=283" defer></script>
+  <script src="live.js?v=520" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

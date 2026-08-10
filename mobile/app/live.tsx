@@ -1,4 +1,5 @@
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
+import Constants from "expo-constants";
 import { Redirect, router, useFocusEffect } from "expo-router";
 import {
   useCallback,
@@ -11,10 +12,12 @@ import {
   BackHandler,
   KeyboardAvoidingView,
   Linking,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
   Share,
+  StyleSheet,
   Text,
   TextInput,
   View,
@@ -28,8 +31,11 @@ import {
   type MatchHistoryEntry,
 } from "../src/calls/matchHistory";
 import type { BlurStrangersMode } from "../src/prefs/store";
-import { PartnerChrome } from "../src/identity/PartnerChrome";
-import { flagEmoji } from "../src/identity/flagTrust";
+import {
+  formatPartnerSummary,
+  PartnerChrome,
+} from "../src/identity/PartnerChrome";
+import { formatLocLine } from "../src/identity/flagTrust";
 import { hubBase, isFriendsOnly } from "../src/config";
 import {
   hapticDebateTurn,
@@ -40,13 +46,14 @@ import {
 } from "../src/feedback/haptics";
 import { useHub } from "../src/hub/HubProvider";
 import type { MatchPeer, ServerMatched, ServerMsg } from "../src/hub/types";
-import { useT } from "../src/i18n";
+import { useI18n, useT } from "../src/i18n";
 import { friendInviteShareMessage } from "../src/linking/friendInvite";
 import {
   LiveBottomBar,
   LiveChatOverlay,
   LiveConnectSteps,
   LiveConnPill,
+  PartnerBlurVeil,
   LiveDebateChrome,
   LiveGiftBar,
   LiveMetaStrip,
@@ -54,6 +61,7 @@ import {
   LiveQueueHints,
   LiveSearchLabel,
   LiveStageVideo,
+  LiveStatusBanners,
   QUEUE_CONFIRM_DELAYS_MS,
   SPIN_KEEPALIVE_MS,
   computeMatchContinuity,
@@ -92,8 +100,16 @@ import { MediaSession, type MediaStreamLike } from "../src/media/MediaSession";
 import { loadPipPrefs } from "../src/media/pipPrefs";
 import { useAutoConnectRetry } from "../src/media/useAutoConnectRetry";
 import { useNetworkMediaPolicy } from "../src/media/useNetworkMediaPolicy";
-import { ensureMediaPermissions } from "../src/permissions/media";
-import { loadMatchPrefs, saveMatchPrefs } from "../src/prefs/store";
+import {
+  clearMediaPermissionCache,
+  ensureMediaPermissions,
+  hasMediaPermissions,
+} from "../src/permissions/media";
+import {
+  loadMatchPrefs,
+  saveMatchPrefs,
+  type LiveLayoutMode,
+} from "../src/prefs/store";
 import { rememberBlock } from "../src/safety/blocks";
 import { pushReportHistory } from "../src/safety/reportHistory";
 import {
@@ -136,6 +152,7 @@ export default function LiveScreen() {
 
 function LiveBody() {
   const t = useT();
+  const { lang } = useI18n();
   const insets = useSafeAreaInsets();
   const friendsOnly = isFriendsOnly();
   const {
@@ -165,6 +182,13 @@ function LiveBody() {
   const partnerUserId = useRef<string>("");
   const partnerFriendCode = useRef<string>("");
   const partnerNameRef = useRef<string>("");
+  /** Last known partner ids for report/block (survives thrash rematch empty uid). */
+  const lastPartnerIdsRef = useRef<{
+    userId: string;
+    peerId: string;
+    friendCode: string;
+    shortId: string;
+  }>({ userId: "", peerId: "", friendCode: "", shortId: "" });
   const phaseRef = useRef<LivePhase>("idle");
   const searchingRef = useRef(false);
   /** Hub confirmed us in the stranger queue (status phase=waiting). */
@@ -201,17 +225,27 @@ function LiveBody() {
   const [partnerFlag, setPartnerFlag] = useState("");
   const [partnerCountry, setPartnerCountry] = useState("");
   const [partnerCity, setPartnerCity] = useState("");
+  const [partnerHideIp, setPartnerHideIp] = useState(false);
   /** Local mute of remote audio (you stop hearing them). */
   const [partnerMuted, setPartnerMuted] = useState(false);
   const partnerMutedRef = useRef(false);
   /** Partner muted our audio on their device — show same mute veil on self. */
   const [theyMutedMe, setTheyMutedMe] = useState(false);
+  const theyMutedMeRef = useRef(false);
+  theyMutedMeRef.current = theyMutedMe;
+  /** Mount-time hub/DC handlers call through this ref. */
+  const applyTheyMutedMeRef = useRef<(muted: boolean, why: string) => void>(
+    () => {}
+  );
   const [findThirdPending, setFindThirdPending] = useState(false);
   /** Extra match peers (beyond primary) for multi-tile UI. */
   const [extraPeers, setExtraPeers] = useState<PeerPick[]>([]);
   /** When multi: show secondary peer in the top tile (tap to swap focus). */
   const [focusExtra, setFocusExtra] = useState(false);
   const [dataSaverOn, setDataSaverOn] = useState(false);
+  /** native = bottom call bar; browser = full-bleed dock over video */
+  const [liveLayout, setLiveLayout] = useState<LiveLayoutMode>("native");
+  const isBrowserLayout = liveLayout === "browser";
   /**
    * Stranger safety veil over partner video (friends never start veiled).
    * Modes: off | intro (brief frost) | hold (until Show video).
@@ -221,11 +255,14 @@ function LiveBody() {
   remoteBlurredRef.current = remoteBlurred;
   /** @deprecated use blurModeRef — kept for any leftover true checks */
   const blurStrangersRef = useRef(true);
-  const blurModeRef = useRef<BlurStrangersMode>("intro");
+  // Default off until prefs load (media-first). Eye toggles mid-call.
+  const blurModeRef = useRef<BlurStrangersMode>("off");
+  const blurPrefsReadyRef = useRef(false);
   const introUnblurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
-  const INTRO_UNBLUR_MS = 2500;
+  /** Intro veil: brief soft cover after partner frames, then auto-reveal. */
+  const INTRO_UNBLUR_MS = 2800;
 
   const clearIntroUnblurTimer = useCallback(() => {
     if (introUnblurTimerRef.current) {
@@ -235,58 +272,102 @@ function LiveBody() {
   }, []);
 
   /**
-   * Reveal partner cam: drop veil + force RTCView rebinds (one tap used to
-   * need many presses because SurfaceView stayed black).
+   * Drop privacy veil. Avoid remount spam (CONNECTIVITY_LOCK: one paint).
+   * Only forceRepaint if still no frames after unblur.
    */
   const revealPartnerVideo = useCallback(
     (why: string) => {
       clearIntroUnblurTimer();
       setRemoteBlurred(false);
+      remoteBlurredRef.current = false;
+      push(`blur off (${why})`);
+      // Re-mount partner RTCView after privacy unmount (Android SurfaceView).
+      // Always epoch-bump once — no 150/500 remount ladder.
       setRemoteEpoch((n) => n + 1);
       try {
         mediaRef.current?.forceRepaintRemote?.(why);
       } catch {
         /* ignore */
       }
-      // Android: staggered rebinds after veil lifts
-      setTimeout(() => {
-        setRemoteEpoch((n) => n + 1);
-        try {
-          mediaRef.current?.forceRepaintRemote?.(`${why}_300`);
-        } catch {
-          /* ignore */
-        }
-      }, 300);
-      setTimeout(() => {
-        setRemoteEpoch((n) => n + 1);
-        try {
-          mediaRef.current?.forceRepaintRemote?.(`${why}_900`);
-        } catch {
-          /* ignore */
-        }
-      }, 900);
     },
-    [clearIntroUnblurTimer]
+    [clearIntroUnblurTimer, push]
   );
 
-  /** Schedule intro auto-reveal once video is ready (mode=intro only). */
+  /** Schedule intro auto-reveal only after partner video is actually painting. */
   const scheduleIntroUnblur = useCallback(() => {
     if (blurModeRef.current !== "intro") return;
     if (!remoteBlurredRef.current) return;
     clearIntroUnblurTimer();
-    introUnblurTimerRef.current = setTimeout(() => {
-      introUnblurTimerRef.current = null;
+    const tick = (delay: number) => {
+      introUnblurTimerRef.current = setTimeout(() => {
+        introUnblurTimerRef.current = null;
+        if (phaseRef.current !== "matched") return;
+        if (!remoteBlurredRef.current) return;
+        if (blurModeRef.current !== "intro") return;
+        // Do not peel the veil onto a black stage — wait for frames
+        const frames =
+          !!remoteVideoSeenRef.current ||
+          !!mediaRef.current?.hasInboundVideoFrames?.();
+        if (!frames) {
+          push("blur intro wait frames");
+          tick(1200);
+          return;
+        }
+        revealPartnerVideo("intro_auto");
+        try {
+          showToastRef.current(tRef.current("mobile.live.partnerVideoOn"));
+        } catch {
+          /* ignore */
+        }
+      }, delay);
+    };
+    tick(INTRO_UNBLUR_MS);
+  }, [clearIntroUnblurTimer, revealPartnerVideo, push]);
+
+  /**
+   * Auto privacy veil for stranger matches (prefs intro/hold).
+   * Friends never auto-veil; eye toggle still works for everyone mid-call.
+   */
+  const applyMatchBlurVeil = useCallback(
+    (why: string, opts?: { isFriend?: boolean }) => {
       if (phaseRef.current !== "matched") return;
-      if (!remoteBlurredRef.current) return;
-      if (blurModeRef.current !== "intro") return;
-      revealPartnerVideo("intro_auto");
-      try {
-        showToastRef.current(tRef.current("mobile.live.partnerVideoOn"));
-      } catch {
-        /* ignore */
+      const isFriend =
+        !!opts?.isFriend || matchModeRef.current === "friend";
+      if (isFriend) return;
+      const mode = blurModeRef.current || "intro";
+      if (mode !== "hold" && mode !== "intro") return;
+      if (remoteBlurredRef.current) {
+        if (mode === "intro") scheduleIntroUnblur();
+        return;
       }
-    }, INTRO_UNBLUR_MS);
-  }, [clearIntroUnblurTimer, revealPartnerVideo]);
+      clearIntroUnblurTimer();
+      setRemoteBlurred(true);
+      remoteBlurredRef.current = true;
+      push(`blur on (${why}) mode=${mode}`);
+      if (mode === "intro") scheduleIntroUnblur();
+    },
+    [clearIntroUnblurTimer, scheduleIntroUnblur, push]
+  );
+
+  /** Eye / more-sheet: toggle privacy veil (strangers + friends). */
+  const togglePartnerBlur = useCallback(() => {
+    hapticLight();
+    if (remoteBlurredRef.current) {
+      revealPartnerVideo("toggle_unblur");
+      showToastRef.current(
+        t("mobile.live.partnerVideoOn") || "Partner video shown"
+      );
+      return;
+    }
+    clearIntroUnblurTimer();
+    setRemoteBlurred(true);
+    remoteBlurredRef.current = true;
+    push("blur on (toggle)");
+    showToastRef.current(
+      t("mobile.live.reblurToast") ||
+        "Privacy veil — tap Show video when ready"
+    );
+  }, [clearIntroUnblurTimer, revealPartnerVideo, push, t]);
   const [matchMode, setMatchModeState] = useState("");
   const setMatchMode = useCallback((m: string) => {
     matchModeRef.current = m;
@@ -309,6 +390,12 @@ function LiveBody() {
   const [giftFlash, setGiftFlash] = useState<string | null>(null);
   /** Active gift effect id for stage chrome (bars, confetti, …). */
   const [giftEffect, setGiftEffect] = useState<string | null>(null);
+  /** Bars on partner tile (conversationalist) — SurfaceView-safe path. */
+  const [partnerFx, setPartnerFx] = useState<string | null>(null);
+  /** Bars on self cam when someone barred you. */
+  const [selfFx, setSelfFx] = useState<string | null>(null);
+  const partnerFxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selfFxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const giftFxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [friendAdded, setFriendAdded] = useState(false);
   const [partnerCode, setPartnerCode] = useState("");
@@ -403,6 +490,11 @@ function LiveBody() {
     media2Ref,
     showToast: (msg) => showToastRef.current(msg),
     resumedMessage: () => tRef.current("mobile.live.mediaResumed"),
+    onResumeRepaint: () => {
+      // Epoch bump remounts RTCView after Android SurfaceView black-on-return
+      setRemoteEpoch((n) => n + 1);
+      setRemoteEpoch2((n) => n + 1);
+    },
   });
 
   // Friends screen uses liveBusy to switch Call → Invite (join mesh)
@@ -630,6 +722,44 @@ function LiveBody() {
       },
       onConnectionState: (s) => {
         // Soft labels for UI (raw still in debug log)
+        const liveVt =
+          media.getRemoteStream()?.getVideoTracks?.()?.length ?? 0;
+        // Never flip UI back to "Linking…" if video track already exists
+        // (ice_restart / checking after ontrack made connect feel stuck).
+        if (liveVt > 0 && !s.startsWith("quality_tier")) {
+          if (
+            s === "connected" ||
+            s.startsWith("remote_video_ok") ||
+            s.startsWith("remote_tracks") ||
+            s === "checking" ||
+            s === "connecting" ||
+            s.startsWith("ice_restart") ||
+            s === "ice_stuck_retry" ||
+            s.startsWith("no_remote_video")
+          ) {
+            setAwaitingRemoteVideo(false);
+            setConn("connected");
+            setConnSince(0);
+            if (s.startsWith("remote_video_ok")) {
+              const tm = /t=(\d+)ms/.exec(s);
+              const ms = tm ? Number(tm[1]) : media.connectElapsedMs();
+              track("video_ok", {
+                ms: ms >= 0 ? ms : 0,
+                turn: iceHasTurnRef.current ? 1 : 0,
+              });
+              track("connect_video_ms", {
+                ms: ms >= 0 ? ms : 0,
+                turn: iceHasTurnRef.current ? 1 : 0,
+                quality: media.getQualityTier(),
+              });
+            }
+            if (s === "datachannel_open") setDcOpen(true);
+            log(
+              `pc ${s} turn=${iceHasTurnRef.current ? "yes" : "no"} peer=${remotePeerId.current || "-"} (video live — keep connected UI)`
+            );
+            return;
+          }
+        }
         if (
           s === "connecting" ||
           s === "pc_ready_turn" ||
@@ -648,9 +778,7 @@ function LiveBody() {
           setConnSince(0);
           // Don't re-arm "waiting for video" if we already have a video track
           // (connectionState can fire after ontrack and blank the UI again).
-          const vt =
-            media.getRemoteStream()?.getVideoTracks?.()?.length ?? 0;
-          setAwaitingRemoteVideo(vt === 0);
+          setAwaitingRemoteVideo(liveVt === 0);
         } else if (s.startsWith("remote_video_ok")) {
           setAwaitingRemoteVideo(false);
           setConn("connected");
@@ -672,16 +800,69 @@ function LiveBody() {
           if (qt) setQualityTier(qt);
           track("quality_tier", { tier: qt });
         } else if (s.startsWith("timing ")) {
-          // Already logged via onConnectionState path below
+          // Connect speed pipeline: timing offer_sent_ms=N / answer_applied / first_frame
+          try {
+            const msM = /\+(\d+)ms/.exec(s);
+            const ms = msM ? Number(msM[1]) : -1;
+            if (s.includes("offer_sent") || s.includes("offer_applied")) {
+              track("connect_offer_ms", {
+                ms: ms >= 0 ? ms : 0,
+                turn: iceHasTurnRef.current ? 1 : 0,
+              });
+            } else if (s.includes("answer_sent") || s.includes("answer_applied")) {
+              track("connect_answer_ms", {
+                ms: ms >= 0 ? ms : 0,
+                turn: iceHasTurnRef.current ? 1 : 0,
+              });
+            } else if (s.includes("first_frame")) {
+              track("connect_first_frame_ms", {
+                ms: ms >= 0 ? ms : 0,
+                turn: iceHasTurnRef.current ? 1 : 0,
+              });
+            }
+          } catch {
+            /* ignore */
+          }
+        } else if (s.startsWith("CONNECT ")) {
+          // Visible stopwatch: CONNECT offer=X answer=Y frame=Zms
+          log(s);
+          try {
+            showToastRef.current(s.replace(/^CONNECT\s+/, "Link "));
+          } catch {
+            /* ignore */
+          }
+          // Persist for Settings "Last connect" polish
+          try {
+            const t = mediaRef.current?.getLastConnectTiming?.();
+            if (t) {
+              void import("../src/media/lastConnectStats").then((m) =>
+                m.saveLastConnectStats({
+                  offerMs: t.offerMs,
+                  answerMs: t.answerMs,
+                  iceMs: t.iceMs,
+                  firstFrameMs: t.firstFrameMs,
+                  summary: t.summary || s.replace(/^CONNECT\s+/, ""),
+                })
+              );
+            }
+          } catch {
+            /* ignore */
+          }
+        } else if (s.startsWith("startCall_reuse_warm") || s.startsWith("force_relay_rewarm") || s.startsWith("startCall_policy_rebuild")) {
+          track("connect_warm_reuse", {
+            reuse: s.startsWith("startCall_reuse_warm") ? 1 : 0,
+            rewarm: s.startsWith("force_relay_rewarm") ? 1 : 0,
+            rebuild: s.startsWith("startCall_policy_rebuild") ? 1 : 0,
+          });
         } else if (s.startsWith("remote_tracks")) {
           // Audio-only so far — keep waiting indicator, stay "connecting" soft
-          const vt =
-            media.getRemoteStream()?.getVideoTracks?.()?.length ?? 0;
-          if (vt > 0) setAwaitingRemoteVideo(false);
+          if (liveVt > 0) setAwaitingRemoteVideo(false);
         } else if (s.startsWith("no_remote_video_retry")) {
-          setAwaitingRemoteVideo(true);
-          setConn("connecting");
-          setConnSince((t0) => t0 || Date.now());
+          if (liveVt === 0) {
+            setAwaitingRemoteVideo(true);
+            setConn("connecting");
+            setConnSince((t0) => t0 || Date.now());
+          }
         } else if (s === "failed" || s === "disconnected" || s === "closed") {
           setConn(s);
           if (s === "failed" || s === "disconnected") {
@@ -715,14 +896,25 @@ function LiveBody() {
         // Re-announce mute state when DC opens (muted before channel ready)
         if (open) {
           try {
-            media.sendDataMessage({
+            const payload = {
               v: 1,
               type: "partner_mute",
               muted: !!partnerMutedRef.current,
               user_id: userIdRef.current || "",
               name: displayNameRef.current || "anon",
               ts: Date.now(),
-            });
+            };
+            media.sendDataMessage(payload);
+            try {
+              // Broadcast to session (empty to=) — same as togglePartnerMute
+              hubRefLive.current.signal(
+                "partner_mute",
+                JSON.stringify(payload),
+                ""
+              );
+            } catch {
+              /* hub optional */
+            }
           } catch {
             /* ignore */
           }
@@ -747,9 +939,8 @@ function LiveBody() {
             }
             return;
           }
-          if (typ === "partner_mute") {
-            // Ignore our own echo if peer echoes (defensive)
-            const fromUid = String(msg.user_id || "").trim();
+          if (typ === "partner_mute" || typ === "partnerMute") {
+            const fromUid = String(msg.user_id || msg.from || "").trim();
             if (
               fromUid &&
               userIdRef.current &&
@@ -757,19 +948,21 @@ function LiveBody() {
             ) {
               return;
             }
-            const muted = !!msg.muted;
-            setTheyMutedMe(muted);
-            log(`partner_mute ← theyMutedMe=${muted ? 1 : 0}`);
-            if (muted) {
-              showToastRef.current(
-                tRef.current("mobile.live.theyMutedYouToast")
-              );
-            }
+            if (fromUid) notePartnerUserId(fromUid, "partner_mute");
+            const mutedVal = msg.muted;
+            const on =
+              mutedVal === true ||
+              mutedVal === 1 ||
+              mutedVal === "1" ||
+              mutedVal === "true";
+            applyTheyMutedMeRef.current(on, "p2p_dc");
             return;
           }
           if (typ === "chat" || typ === "friend_chat") {
             const body = String(msg.body || "").trim().slice(0, 280);
             if (!body) return;
+            const fromUid = String(msg.user_id || "").trim();
+            if (fromUid) notePartnerUserId(fromUid, "chat");
             const from =
               String(msg.name || msg.user_id || "peer").slice(0, 24) || "peer";
             setChat((c) => [...c, { from, body }].slice(-30));
@@ -840,9 +1033,18 @@ function LiveBody() {
       media2.setHideIp(prefs.hideIp);
       media2.setDataSaver(!!prefs.dataSaver);
       setDataSaverOn(!!prefs.dataSaver);
-      const mode = prefs.blurStrangersMode || "intro";
+      setLiveLayout(
+        prefs.liveLayout === "browser" ? "browser" : "native"
+      );
+      const mode = prefs.blurStrangersMode || "off";
       blurModeRef.current = mode;
       blurStrangersRef.current = mode !== "off";
+      blurPrefsReadyRef.current = true;
+      log(`blur prefs mode=${mode}`);
+      // Prefs arrived after match: apply veil if still stranger-matched
+      if (phaseRef.current === "matched" && mode !== "off") {
+        applyMatchBlurVeil("prefs_load");
+      }
     });
     loadPipPrefs().then((p) => {
       if (p?.hintSeen) setPipHint(false);
@@ -866,27 +1068,30 @@ function LiveBody() {
     // Refresh credentials periodically (ephemeral TURN ~6h; also heals first failure)
     const iceRefresh = setInterval(loadIce, 30 * 60 * 1000);
 
-    // Ask cam/mic if still denied (e.g. skipped age gate or denied earlier)
-    ensureMediaPermissions()
-      .then((perm) => {
+    // Cam/mic: silent when already granted — never re-show system dialogs
+    void (async () => {
+      try {
+        const already = await hasMediaPermissions();
+        const perm = already
+          ? { allGranted: true, camera: true, mic: true, bluetooth: true }
+          : await ensureMediaPermissions();
         if (!perm.allGranted) {
           log(`media perms cam=${perm.camera} mic=${perm.mic}`);
           setMediaBlocked(true);
+          return;
         }
-        return media.ensureLocalStream();
-      })
-      .then((s) => {
+        const s = await media.ensureLocalStream();
         if (s) {
           log("local preview ready");
           setMediaBlocked(false);
         } else {
           setMediaBlocked(true);
         }
-      })
-      .catch((e) => {
+      } catch (e) {
         log(`local preview ${e}`);
         setMediaBlocked(true);
-      });
+      }
+    })();
 
     const unsub = addMsgRef.current((msg: ServerMsg) => {
       switch (msg.type) {
@@ -900,6 +1105,44 @@ function LiveBody() {
             setRateMinSecs(secs);
             rateMinSecsRef.current = secs;
           }
+          break;
+        }
+        case "partner_geo": {
+          // Late hub geo after match — refresh partner chrome (was "Location unknown")
+          const g = msg as {
+            peer_id?: string;
+            user_id?: string;
+            country?: string;
+            city?: string;
+            flag?: string;
+            hide_ip?: boolean;
+          };
+          const pid = String(g.peer_id || "");
+          const primary = remotePeerId.current || "";
+          const uid = String(g.user_id || "");
+          const isPrimary =
+            (pid && primary && pid === primary) ||
+            (uid &&
+              partnerUserId.current &&
+              uid.toLowerCase() === partnerUserId.current.toLowerCase()) ||
+            // 1v1: accept if we only have one partner and ids match short form
+            (pid && primary && pid.slice(0, 8) === primary.slice(0, 8));
+          if (!isPrimary && phaseRef.current === "matched") {
+            // Still apply when no peer_id match but we're 1v1 (legacy)
+            if (primary && primary !== "legacy" && pid && pid !== primary) {
+              log(
+                `partner_geo skip pid=${pid.slice(0, 8)} primary=${primary.slice(0, 8)}`
+              );
+              break;
+            }
+          }
+          if (g.flag != null) setPartnerFlag(String(g.flag || "").toUpperCase());
+          if (g.country != null) setPartnerCountry(String(g.country || ""));
+          if (g.city != null) setPartnerCity(String(g.city || ""));
+          if (g.hide_ip != null) setPartnerHideIp(!!g.hide_ip);
+          log(
+            `partner_geo ${String(g.flag || "")} ${String(g.country || "")}/${String(g.city || "")} hide=${g.hide_ip ? 1 : 0}`
+          );
           break;
         }
         case "status": {
@@ -962,6 +1205,7 @@ function LiveBody() {
             setPartnerFlag("");
             setPartnerCountry("");
       setPartnerCity("");
+      setPartnerHideIp(false);
             setAwaitingRemoteVideo(false);
             setMoreOpen(false);
             remotePeerId.current = "";
@@ -1058,17 +1302,6 @@ function LiveBody() {
           let allPeers = rawPeers.length
             ? rawPeers.map((p) => normalizePeer(p, m))
             : [pickPeer(m)];
-          // Hub force_relay: arm OR clear. Stuck true after prior matches
-          // left phone on TURN-only → slow connect + one-way black video.
-          try {
-            mediaRef.current?.setForceRelay?.(!!m.force_relay);
-            media2Ref.current?.setForceRelay?.(!!m.force_relay);
-            if (m.force_relay) {
-              log("force_relay from hub (hairpin / long-distance)");
-            }
-          } catch {
-            /* ignore */
-          }
           const wasMatched = phaseRef.current === "matched";
           const prevPrimary = remotePeerId.current;
           const prevSecondary = secondaryPeerId.current;
@@ -1086,6 +1319,22 @@ function LiveBody() {
             ...peer,
             mode: String(m.mode || peer.mode || "solo"),
           };
+          // Hub force_relay only (same-IP / hide_ip). No belt-arm for every web peer.
+          try {
+            const plat = String(
+              (peer as { platform?: string }).platform ||
+                (rawPeers[0] as { platform?: string } | undefined)?.platform ||
+                ""
+            ).toLowerCase();
+            const wantRelay = !!m.force_relay;
+            mediaRef.current?.setForceRelay?.(wantRelay);
+            media2Ref.current?.setForceRelay?.(wantRelay);
+            log(
+              `force_relay hub=${m.force_relay ? 1 : 0} peerPlat=${plat || "?"} `
+            );
+          } catch {
+            /* ignore */
+          }
           const extras = allPeers.filter((p) => p.peerId !== peer.peerId);
           const second = extras[0] || null;
           let { keepPrimary, keepSecondary, promoteSecondary } =
@@ -1098,21 +1347,8 @@ function LiveBody() {
               hasMedia2: !!media2Ref.current,
             });
 
-          // Same partner re-Matched mid-connect — never tear down (hub thrash)
-          if (
-            wasMatched &&
-            prevPrimary &&
-            prevPrimary === peer.peerId &&
-            prevPrimary !== "legacy"
-          ) {
-            keepPrimary = true;
-            log(
-              `matched keep same peer=${peer.peerId.slice(0, 8)} (skip startCall thrash)`
-            );
-          }
-
-          // SPEED: kick WebRTC the instant we know offerer role — before UI
-          // state storm / secondary PC shuffle (those added multi-second lag).
+          // Same partner re-Matched — keep only if video is actually live.
+          // Keeping a black "connected" PC forever was gifts-OK / cams-dead.
           {
             const hasLiveRemoteEarly = !!(
               remoteStream &&
@@ -1120,6 +1356,30 @@ function LiveBody() {
                 (t) => t.readyState === "live"
               )
             );
+            if (
+              wasMatched &&
+              prevPrimary &&
+              prevPrimary === peer.peerId &&
+              prevPrimary !== "legacy" &&
+              hasLiveRemoteEarly
+            ) {
+              keepPrimary = true;
+              log(
+                `matched keep same peer=${peer.peerId.slice(0, 8)} (live video)`
+              );
+            } else if (
+              wasMatched &&
+              prevPrimary === peer.peerId &&
+              !hasLiveRemoteEarly
+            ) {
+              keepPrimary = false;
+              log(
+                `matched rebuild peer=${String(peer.peerId).slice(0, 8)} (no live video)`
+              );
+            }
+
+            // SPEED: kick WebRTC the instant we know offerer role — before UI
+            // state storm / secondary PC shuffle (those added multi-second lag).
             const skipEarly =
               keepPrimary &&
               hasLiveRemoteEarly &&
@@ -1128,13 +1388,95 @@ function LiveBody() {
             if (!skipEarly && !promoteSecondary) {
               remotePeerId.current = peer.peerId;
               const sess = mediaRef.current || media;
+              if (m.force_relay) {
+                try {
+                  sess.setForceRelay?.(true);
+                } catch {
+                  /* ignore */
+                }
+              }
               const t0 = Date.now();
               log(
                 `startCall EARLY offerer=${peer.isOfferer ? 1 : 0} fr=${m.force_relay ? 1 : 0}`
               );
-              void sess
-                .startCall({ isOfferer: !!peer.isOfferer })
-                .then(() => log(`startCall early ok +${Date.now() - t0}ms`))
+              // FAST: if search already prefetched TURN, do not await HTTP ICE.
+              // await fetchIceConfig + warmConnection added 200–800ms every match.
+              const kick = async () => {
+                if (m.force_relay) {
+                  try {
+                    sess.setForceRelay?.(true);
+                  } catch {
+                    /* ignore */
+                  }
+                }
+                const iceWarm =
+                  iceHasTurnRef.current ||
+                  !!(sess as { hasTurn?: () => boolean }).hasTurn?.();
+                if (!iceWarm) {
+                  try {
+                    const cfg = await Promise.race([
+                      hubRefLive.current.fetchIceConfig(),
+                      new Promise<null>((r) => setTimeout(() => r(null), 400)),
+                    ]);
+                    if (cfg) {
+                      sess.setIceConfig(cfg);
+                      iceHasTurnRef.current = !!cfg.has_turn;
+                    }
+                  } catch {
+                    /* startCall still waits internally */
+                  }
+                } else {
+                  // Background refresh only — never block first SDP
+                  void hubRefLive.current
+                    .fetchIceConfig()
+                    .then((cfg) => {
+                      sess.setIceConfig(cfg);
+                      iceHasTurnRef.current = !!cfg.has_turn;
+                    })
+                    .catch(() => {});
+                }
+                // warmConnection: preferRelay when force_relay so answer reuses TURN PC
+                try {
+                  const p = sess.warmConnection?.({
+                    preferRelay: !!(m.force_relay || iceWarm),
+                  });
+                  if (p && !iceWarm) {
+                    await Promise.race([
+                      p,
+                      new Promise((r) => setTimeout(r, 200)),
+                    ]);
+                  } else {
+                    void p;
+                  }
+                  // force_relay: wait briefly for TURN ALLOCATE from search warm
+                  if (
+                    m.force_relay &&
+                    typeof (sess as { waitWarmTurnPrimed?: (n: number) => Promise<boolean> })
+                      .waitWarmTurnPrimed === "function"
+                  ) {
+                    const primed = (
+                      sess as { isWarmTurnPrimed?: () => boolean }
+                    ).isWarmTurnPrimed?.();
+                    if (!primed) {
+                      const ok = await (
+                        sess as {
+                          waitWarmTurnPrimed: (n: number) => Promise<boolean>;
+                        }
+                      ).waitWarmTurnPrimed(1100);
+                      log(`warm TURN prime ${ok ? "ok" : "timeout"} before startCall`);
+                    }
+                  }
+                } catch {
+                  /* ignore */
+                }
+                return sess.startCall({ isOfferer: !!peer.isOfferer });
+              };
+              void kick()
+                .then(() =>
+                  log(
+                    `startCall early ok +${Date.now() - t0}ms (warm path)`
+                  )
+                )
                 .catch((e) => log(`startCall early FAIL ${e}`));
             }
           }
@@ -1269,12 +1611,24 @@ function LiveBody() {
             track("multi_promote", { kept: kept ? 1 : 0 });
           }
 
-          // Labels / meta always refresh
-          remotePeerId.current = peer.peerId;
-          partnerUserId.current = peer.userId;
-          partnerFriendCode.current = peer.friendCode;
-          partnerNameRef.current = peer.name;
-          setPartnerCode(peer.friendCode);
+          // Labels / meta always refresh — never wipe a known user_id with empty
+          // (thrash re-Matched can briefly omit peers[].user_id → block/report broken)
+          remotePeerId.current = peer.peerId || remotePeerId.current;
+          if (peer.userId) {
+            partnerUserId.current = peer.userId;
+          }
+          if (peer.friendCode) {
+            partnerFriendCode.current = peer.friendCode;
+          }
+          partnerNameRef.current = peer.name || partnerNameRef.current;
+          lastPartnerIdsRef.current = {
+            userId: partnerUserId.current || lastPartnerIdsRef.current.userId,
+            peerId: remotePeerId.current || lastPartnerIdsRef.current.peerId,
+            friendCode:
+              partnerFriendCode.current || lastPartnerIdsRef.current.friendCode,
+            shortId: String(peer.peerId || "").slice(0, 8) || lastPartnerIdsRef.current.shortId,
+          };
+          setPartnerCode(partnerFriendCode.current || peer.friendCode);
           if (!keepPrimary) setFriendAdded(false);
           setPartner(peer.name);
           setPartnerStars(peer.stars);
@@ -1282,6 +1636,7 @@ function LiveBody() {
           setPartnerFlag(peer.flag);
           setPartnerCountry(peer.country || "");
           setPartnerCity(peer.city || "");
+          setPartnerHideIp(!!peer.hideIp);
           if (!keepPrimary) {
             setPartnerMuted(false);
             setTheyMutedMe(false);
@@ -1302,13 +1657,22 @@ function LiveBody() {
           setAlone(false);
           setMoreOpen(false);
           if (extras.length === 0) setFocusExtra(false);
-          // Stranger safety veil (not friend 1:1); Settings: off | intro | hold
+          // Privacy veil when Settings intro/hold (default intro). Eye toggles anytime.
           const isFriendMatch =
             peer.mode === "friend" || String(m.mode || "") === "friend";
           if (!keepPrimary) {
             clearIntroUnblurTimer();
-            const mode = blurModeRef.current;
-            setRemoteBlurred(!isFriendMatch && mode !== "off");
+            const mode = blurModeRef.current || "off";
+            const wantBlur =
+              !isFriendMatch && (mode === "hold" || mode === "intro");
+            setRemoteBlurred(wantBlur);
+            remoteBlurredRef.current = wantBlur;
+            log(
+              `blur match mode=${mode} veiled=${wantBlur ? 1 : 0} friend=${isFriendMatch ? 1 : 0} prefsReady=${blurPrefsReadyRef.current ? 1 : 0}`
+            );
+            if (wantBlur && mode === "intro") {
+              scheduleIntroUnblur();
+            }
           }
 
           if (!keepPrimary) {
@@ -1335,6 +1699,11 @@ function LiveBody() {
             if (camOnRef.current) {
               m1.setCamEnabled(true);
               m2.setCamEnabled(true);
+              try {
+                m1.forceRepaintRemote?.("match_start");
+              } catch {
+                /* ignore */
+              }
             }
             if (micOnRef.current && !debateMicLockedRef.current) {
               m1.setMicEnabled(true);
@@ -1362,7 +1731,7 @@ function LiveBody() {
           }
           void enterCallAudio();
           log(
-            `matched ${peer.name} mode=${peer.mode} offerer=${peer.isOfferer} uid=${peer.userId.slice(0, 8)} code=${peer.friendCode || "-"} ★${peer.stars} trust=${peer.trust} peers=${allPeers.length} keepP=${keepPrimary} keepS=${keepSecondary} turn=${iceHasTurnRef.current}`
+            `matched ${peer.name} mode=${peer.mode} offerer=${peer.isOfferer} uid=${peer.userId.slice(0, 8)} code=${peer.friendCode || "-"} ★${peer.stars} trust=${peer.trust} loc=${peer.flag || "-"}/${peer.country || "-"}/${peer.city || "-"} hideIp=${peer.hideIp ? 1 : 0} peers=${allPeers.length} keepP=${keepPrimary} keepS=${keepSecondary} turn=${iceHasTurnRef.current}`
           );
 
           const nPeers = allPeers.length;
@@ -1479,6 +1848,47 @@ function LiveBody() {
             from_peer?: string;
           };
           const from = String(m.from_peer || "");
+          const kind = String(m.kind || "");
+          // App-level control plane over hub (works when P2P datachannel is down)
+          if (kind === "partner_mute" || kind === "partnerMute") {
+            try {
+              let raw: unknown = m.payload;
+              if (typeof raw === "string" && raw.trim()) {
+                raw = JSON.parse(raw);
+                // Double-encoded JSON string
+                if (typeof raw === "string") {
+                  try {
+                    raw = JSON.parse(raw);
+                  } catch {
+                    /* keep */
+                  }
+                }
+              }
+              const body =
+                raw && typeof raw === "object"
+                  ? (raw as Record<string, unknown>)
+                  : {};
+              const fromUid = String(body.user_id || body.from || "").trim();
+              if (
+                fromUid &&
+                userIdRef.current &&
+                fromUid === userIdRef.current
+              ) {
+                break; // own echo
+              }
+              if (fromUid) notePartnerUserId(fromUid, "partner_mute_hub");
+              const mutedVal = body.muted;
+              const on =
+                mutedVal === true ||
+                mutedVal === 1 ||
+                mutedVal === "1" ||
+                mutedVal === "true";
+              applyTheyMutedMeRef.current(on, "hub_signal");
+            } catch (e) {
+              log(`partner_mute hub parse ${e}`);
+            }
+            break;
+          }
           // Route multi-peer signals via refs (survives promote swap)
           const primarySess = mediaRef.current || media;
           const secondarySess = media2Ref.current || media2;
@@ -1488,23 +1898,23 @@ function LiveBody() {
             from === secondaryPeerId.current
           ) {
             log(
-              `signal2 ← ${m.kind} from=${from.slice(0, 8)} len=${String(m.payload || "").length}`
+              `signal2 ← ${kind} from=${from.slice(0, 8)} len=${String(m.payload || "").length}`
             );
             secondarySess
-              .handleRemoteSignal(String(m.kind || ""), String(m.payload || ""))
+              .handleRemoteSignal(kind, String(m.payload || ""))
               .catch((e) => log(`signal2 ${e}`));
             break;
           }
           if (from) remotePeerId.current = from;
           log(
-            `signal ← ${m.kind} from=${(m.from_peer || "").slice(0, 8)} len=${String(m.payload || "").length}`
+            `signal ← ${kind} from=${(m.from_peer || "").slice(0, 8)} len=${String(m.payload || "").length}`
           );
-          if (m.kind && m.payload != null) {
+          if (kind && m.payload != null) {
             primarySess
-              .handleRemoteSignal(m.kind, m.payload)
+              .handleRemoteSignal(kind, m.payload)
               .then(() => {
-                if (m.kind === "offer" || m.kind === "answer") {
-                  log(`signal ${m.kind} applied ok`);
+                if (kind === "offer" || kind === "answer") {
+                  log(`signal ${kind} applied ok`);
                 }
               })
               .catch((e) => log(`handle ${e}`));
@@ -1535,8 +1945,27 @@ function LiveBody() {
           break;
         }
         case "chat": {
-          const m = msg as { author?: string; body?: string };
-          const body = String(m.body || "").trim().slice(0, 280);
+          const m = msg as {
+            author?: string;
+            body?: string;
+            from_user_id?: string;
+          };
+          const bodyRaw = String(m.body || "");
+          // Control plane fallback (partner mute) — never show as chat bubble
+          const muteCtrl = tryParseMuteControl(bodyRaw);
+          if (muteCtrl !== null) {
+            const fromUid = String(m.from_user_id || "").trim();
+            if (
+              fromUid &&
+              userIdRef.current &&
+              fromUid === userIdRef.current
+            ) {
+              break; // own echo
+            }
+            applyTheyMutedMeRef.current(muteCtrl, "hub_chat_ctrl");
+            break;
+          }
+          const body = bodyRaw.trim().slice(0, 280);
           if (body) {
             setChat((c) =>
               [...c, { from: m.author || "peer", body }].slice(-30)
@@ -1555,7 +1984,20 @@ function LiveBody() {
             cost?: number;
             until?: number;
             effect_until?: number;
+            message?: string;
+            spender_stars?: number;
           };
+          if (m.ok === false) {
+            // Hub rejected spend — clear optimistic FX + show why
+            setGiftFlash(null);
+            setGiftEffect(null);
+            setPartnerFx(null);
+            setSelfFx(null);
+            if (m.message) {
+              showToastRef.current(String(m.message).slice(0, 80));
+            }
+            break;
+          }
           if (m.ok && m.effect) {
             const gift = GIFTS.find((g) => g.id === m.effect);
             const label = gift
@@ -1567,13 +2009,43 @@ function LiveBody() {
                 ? `${gift?.emoji || "🎤"} ${m.from_name || tRef.current("mobile.live.passMicTitle")}`.trim()
                 : label || m.effect;
             setGiftFlash(giftLabel);
-            setGiftEffect(effectId);
+            // Non-bars gifts keep full-stage flash; bars paint on the tile (SurfaceView)
+            if (effectId !== "bars") {
+              setGiftEffect(effectId);
+            } else {
+              setGiftEffect(null);
+            }
             if (giftFxTimerRef.current) clearTimeout(giftFxTimerRef.current);
-            const hold = giftFxHoldMs(effectId);
+            const rawUntil = m.until ?? m.effect_until;
+            const untilMs =
+              rawUntil && rawUntil > 1e9
+                ? rawUntil * 1000
+                : rawUntil && rawUntil > Date.now()
+                  ? rawUntil
+                  : Date.now() + giftFxHoldMs(effectId);
+            const hold = Math.max(800, untilMs - Date.now());
             giftFxTimerRef.current = setTimeout(() => {
               setGiftFlash(null);
               setGiftEffect(null);
             }, hold);
+            // Route bars to partner vs self tile (web: remote-fx / local-fx)
+            const targetUid = String(m.user_id || "").trim();
+            const me = String(userIdRef.current || "").trim();
+            if (effectId === "bars") {
+              if (targetUid && me && targetUid === me) {
+                setSelfFx("bars");
+                if (selfFxTimerRef.current) clearTimeout(selfFxTimerRef.current);
+                selfFxTimerRef.current = setTimeout(() => setSelfFx(null), hold);
+              } else {
+                setPartnerFx("bars");
+                if (partnerFxTimerRef.current)
+                  clearTimeout(partnerFxTimerRef.current);
+                partnerFxTimerRef.current = setTimeout(
+                  () => setPartnerFx(null),
+                  hold
+                );
+              }
+            }
             // please_stay: lock Next ~15s (hub may also send effect_until)
             if (m.effect === "please_stay") {
               const rawUntil = m.until ?? m.effect_until;
@@ -1655,11 +2127,14 @@ function LiveBody() {
           setPartnerFlag("");
           setPartnerCountry("");
       setPartnerCity("");
+      setPartnerHideIp(false);
           setPartnerMuted(false);
           setTheyMutedMe(false);
           setFindThirdPending(false);
           setGiftFlash(null);
           setGiftEffect(null);
+          setPartnerFx(null);
+          setSelfFx(null);
           setRemoteBlurred(false);
           stayUntilRef.current = 0;
           setStayRemSecs(0);
@@ -1673,8 +2148,10 @@ function LiveBody() {
           setAwaitingRemoteVideo(false);
           setMoreOpen(false);
           remotePeerId.current = "";
-          partnerUserId.current = "";
-          partnerFriendCode.current = "";
+          // Keep lastPartnerIdsRef until Start/Next so late Report still works
+          partnerUserId.current = lastPartnerIdsRef.current.userId || "";
+          partnerFriendCode.current =
+            lastPartnerIdsRef.current.friendCode || "";
           setMatchMode("");
           matchModeRef.current = "";
           if (autoNext) {
@@ -1764,9 +2241,16 @@ function LiveBody() {
         mediaRef.current?.setDataSaver(!!prefs.dataSaver);
         media2Ref.current?.setDataSaver(!!prefs.dataSaver);
         setDataSaverOn(!!prefs.dataSaver);
-        const mode = prefs.blurStrangersMode || "intro";
+        const mode = prefs.blurStrangersMode || "off";
         blurModeRef.current = mode;
         blurStrangersRef.current = mode !== "off";
+        blurPrefsReadyRef.current = true;
+        // Returning from Settings mid-call: apply new mode
+        if (phaseRef.current === "matched") {
+          if (mode === "hold" || mode === "intro") {
+            applyMatchBlurVeil("settings_focus");
+          }
+        }
         void mediaRef.current?.reapplyLocalVideoConstraints();
       });
       // Idle teaser: most recent stranger chat
@@ -1775,12 +2259,18 @@ function LiveBody() {
           .then((list) => setLastMatchHint(list[0] || null))
           .catch(() => setLastMatchHint(null));
       }
-      // Warm camera early so Start → match is snappier
+      // Warm camera early so Start → match is snappier (no dialog if already allowed)
       if (phaseRef.current === "idle" || phaseRef.current === "error") {
-        void ensureMediaPermissions().then((p) => {
-          if (p.allGranted) {
+        void hasMediaPermissions().then((ok) => {
+          if (ok) {
             void mediaRef.current?.ensureLocalStream();
+            return;
           }
+          void ensureMediaPermissions().then((p) => {
+            if (p.allGranted) {
+              void mediaRef.current?.ensureLocalStream();
+            }
+          });
         });
       }
     }, [clearLastError])
@@ -1798,7 +2288,8 @@ function LiveBody() {
     return () => clearInterval(id);
   }, [connected, phase, reconnectHub]);
 
-  // Prefetch ICE/TURN on Live focus so first match is cache-hot
+  // Prefetch ICE/TURN + cam on Live focus so first match is cache-hot.
+  // preferRelay: Play↔browser almost always force_relay — warm TURN PC early.
   useFocusEffect(
     useCallback(() => {
       hub
@@ -1807,8 +2298,10 @@ function LiveBody() {
           mediaRef.current?.setIceConfig(cfg);
           media2Ref.current?.setIceConfig(cfg);
           iceHasTurnRef.current = !!cfg.has_turn;
-          // Warm cam early (not full PC until search — saves battery idle on Live)
           void mediaRef.current?.ensureLocalStream().catch(() => {});
+          void mediaRef.current
+            ?.warmConnection({ preferRelay: !!cfg.has_turn })
+            .catch(() => {});
         })
         .catch(() => {});
     }, [hub])
@@ -1822,7 +2315,9 @@ function LiveBody() {
       .then((cfg) => {
         mediaRef.current?.setIceConfig(cfg);
         iceHasTurnRef.current = !!cfg.has_turn;
-        return mediaRef.current?.warmConnection();
+        return mediaRef.current?.warmConnection({
+          preferRelay: iceHasTurnRef.current,
+        });
       })
       .catch(() => {});
   }, [outboundCall?.user_id, hub]);
@@ -1991,7 +2486,10 @@ function LiveBody() {
                   t("mobile.friends.requestSent", { code })
                 );
               } catch (e) {
-                Alert.alert(t("mobile.friends.notConnected"), String(e));
+                showToastRef.current(
+                  t("mobile.friends.notConnected") +
+                    (e ? `: ${String(e).slice(0, 60)}` : "")
+                );
               }
             },
           },
@@ -2001,40 +2499,73 @@ function LiveBody() {
   }
 
   function copyPartnerCode() {
-    const code = partnerFriendCode.current || partnerCode;
-    if (!code) {
+    copyPartnerIdentity();
+  }
+
+  /** Copy name · location · ★ · friend code for paste / share. */
+  function copyPartnerIdentity() {
+    const name = (partnerNameRef.current || partner || "").trim();
+    const code = (
+      partnerFriendCode.current ||
+      partnerCode ||
+      ""
+    )
+      .trim()
+      .toUpperCase();
+    const loc = formatLocLine({
+      flag: partnerFlag,
+      country: partnerCountry,
+      city: partnerCity,
+      lang: lang || "ru",
+    });
+    const lines = [
+      name || null,
+      loc || null,
+      `★ ${Math.max(0, partnerStars)}`,
+      code ? `${t("mobile.live.friendCodeLabel") || "Code"}: ${code}` : null,
+    ].filter(Boolean) as string[];
+    if (!lines.length) {
       showToastRef.current(t("mobile.live.partnerNotReady"));
       return;
     }
-    void Clipboard.setStringAsync(code)
+    void Clipboard.setStringAsync(lines.join("\n"))
       .then(() => {
-        showToastRef.current(t("mobile.friends.codeCopied"));
+        showToastRef.current(
+          t("mobile.live.partnerCopied") ||
+            (code
+              ? t("mobile.friends.codeCopied")
+              : "Partner info copied")
+        );
         hapticLight();
       })
       .catch(() => {});
   }
 
   /**
-   * Local rate/review popup after Next/Stop.
-   * Only if chat lasted ≥5 minutes (no short-call review spam).
-   * Hub rate_prompt is separate (also ≥5 / 15 min server-side).
+   * Local rate sheet only if hub may accept it.
+   * Hub needs chat ≥ rate_min_secs (5 min first partners, else 15 min) and a
+   * pending review. Showing at hard-coded 5 min while hub wants 15 min caused
+   * "no review available" / can't-review toasts after tapping ★.
+   * Prefer waiting for hub `rate_prompt`; local is a fallback only.
    */
   function maybeOfferRateAfterChat() {
     if (ratedThisMatchRef.current) return;
     const uid = partnerUserId.current;
-    if (!uid) return;
+    if (!uid || uid.length < 8) return;
+    // Peer ids / short slices are not rate targets
+    if (uid === "legacy" || !uid.includes("-")) return;
     const started = matchStartedAtRef.current;
     if (!started) return;
     const dur = Math.floor((Date.now() - started) / 1000);
-    const MIN_REVIEW_SECS = 5 * 60;
-    if (dur < MIN_REVIEW_SECS) return;
+    const need = Math.max(60, rateMinSecsRef.current || 15 * 60);
+    if (dur < need) return;
     ratedThisMatchRef.current = true;
     offerRateRef.current({
       user_id: uid,
       name: partnerNameRef.current || partner || "Partner",
       duration_secs: dur,
       max_gift: 1,
-      early: dur < rateMinSecsRef.current,
+      early: need < 15 * 60,
     });
   }
 
@@ -2051,8 +2582,10 @@ function LiveBody() {
     if (opts?.toast !== false) {
       showToastRef.current(t("mobile.live.queueJoined"));
     }
-    // While queueing: warm PC + ICE pool so match→offer is near-instant
-    void mediaRef.current?.warmConnection().catch(() => {});
+    // While queueing: warm TURN PC so match→offer is near-instant for web partners
+    void mediaRef.current
+      ?.warmConnection({ preferRelay: iceHasTurnRef.current })
+      .catch(() => {});
   }
 
   function sendSpin(why: string) {
@@ -2069,7 +2602,7 @@ function LiveBody() {
   function start() {
     if (friendsOnly) {
       push("friends-only: stranger Start disabled");
-      Alert.alert(t("mobile.nav.live"), t("mobile.live.friendsOnlyHint"));
+      showToastRef.current(t("mobile.live.friendsOnlyHint"));
       return;
     }
     if (!guardAction()) return;
@@ -2090,6 +2623,7 @@ function LiveBody() {
       setPartnerFlag("");
       setPartnerCountry("");
       setPartnerCity("");
+      setPartnerHideIp(false);
       setPartnerMuted(false);
       setTheyMutedMe(false);
       setFindThirdPending(false);
@@ -2098,6 +2632,12 @@ function LiveBody() {
       remotePeerId.current = "";
       partnerUserId.current = "";
       partnerFriendCode.current = "";
+      lastPartnerIdsRef.current = {
+        userId: "",
+        peerId: "",
+        friendCode: "",
+        shortId: "",
+      };
       setChat([]);
       media2Ref.current?.closeCall({ keepLocal: true, sendBye: false });
       mediaRef.current?.closeCall({ keepLocal: true, sendBye: false });
@@ -2109,7 +2649,9 @@ function LiveBody() {
           media2Ref.current?.setIceConfig(cfg);
           iceHasTurnRef.current = !!cfg.has_turn;
           push(`ICE prefetch has_turn=${cfg.has_turn}`);
-          return mediaRef.current?.warmConnection();
+          return mediaRef.current?.warmConnection({
+            preferRelay: !!cfg.has_turn,
+          });
         })
         .catch(() => {});
       if (!connected) {
@@ -2157,8 +2699,34 @@ function LiveBody() {
       hapticLight();
       stayUntilRef.current = 0;
       setStayRemSecs(0);
+      try {
+        if (iceHasTurnRef.current) {
+          mediaRef.current?.setForceRelay?.(true);
+          media2Ref.current?.setForceRelay?.(true);
+        }
+      } catch {
+        /* ignore */
+      }
       media2Ref.current?.closeCall({ keepLocal: true, sendBye: true });
       mediaRef.current?.closeCall({ keepLocal: true, sendBye: true });
+      // Next = immediate re-search; warm while queueing so 2nd match isn't cold
+      hub
+        .fetchIceConfig()
+        .then((cfg) => {
+          mediaRef.current?.setIceConfig(cfg);
+          iceHasTurnRef.current = !!cfg.has_turn;
+          if (cfg.has_turn) {
+            try {
+              mediaRef.current?.setForceRelay?.(true);
+            } catch {
+              /* ignore */
+            }
+          }
+          return mediaRef.current?.warmConnection({
+            preferRelay: !!cfg.has_turn,
+          });
+        })
+        .catch(() => {});
       setRemoteStream(null);
       setRemoteStream2(null);
       setPartner("");
@@ -2167,11 +2735,14 @@ function LiveBody() {
       setPartnerFlag("");
       setPartnerCountry("");
       setPartnerCity("");
+      setPartnerHideIp(false);
       setPartnerMuted(false);
       setTheyMutedMe(false);
       setFindThirdPending(false);
       setGiftFlash(null);
       setGiftEffect(null);
+      setPartnerFx(null);
+      setSelfFx(null);
       setFocusExtra(false);
       setRemoteBlurred(false);
       stayUntilRef.current = 0;
@@ -2183,6 +2754,13 @@ function LiveBody() {
       remotePeerId.current = "";
       secondaryPeerId.current = "";
       partnerUserId.current = "";
+      partnerFriendCode.current = "";
+      lastPartnerIdsRef.current = {
+        userId: "",
+        peerId: "",
+        friendCode: "",
+        shortId: "",
+      };
       matchStartedAtRef.current = 0;
       if (matchMode === "friend") {
         try {
@@ -2204,7 +2782,9 @@ function LiveBody() {
           mediaRef.current?.setIceConfig(cfg);
           media2Ref.current?.setIceConfig(cfg);
           iceHasTurnRef.current = !!cfg.has_turn;
-          return mediaRef.current?.warmConnection();
+          return mediaRef.current?.warmConnection({
+            preferRelay: !!cfg.has_turn,
+          });
         })
         .catch(() => {});
       try {
@@ -2229,8 +2809,35 @@ function LiveBody() {
       void leaveCallAudio();
       resetDebateUi();
       hapticLight();
+      // Prefer relay sticky before close so closeCall_rewarm uses TURN policy
+      try {
+        if (iceHasTurnRef.current) {
+          mediaRef.current?.setForceRelay?.(true);
+          media2Ref.current?.setForceRelay?.(true);
+        }
+      } catch {
+        /* ignore */
+      }
       media2Ref.current?.closeCall({ keepLocal: true, sendBye: true });
       mediaRef.current?.closeCall({ keepLocal: true, sendBye: true });
+      // Re-warm TURN PC for next Start (Stop must not leave a cold path)
+      hub
+        .fetchIceConfig()
+        .then((cfg) => {
+          mediaRef.current?.setIceConfig(cfg);
+          iceHasTurnRef.current = !!cfg.has_turn;
+          if (cfg.has_turn) {
+            try {
+              mediaRef.current?.setForceRelay?.(true);
+            } catch {
+              /* ignore */
+            }
+          }
+          return mediaRef.current?.warmConnection({
+            preferRelay: !!cfg.has_turn,
+          });
+        })
+        .catch(() => {});
       setRemoteStream(null);
       setRemoteStream2(null);
       setPartner("");
@@ -2239,11 +2846,14 @@ function LiveBody() {
       setPartnerFlag("");
       setPartnerCountry("");
       setPartnerCity("");
+      setPartnerHideIp(false);
       setPartnerMuted(false);
       setTheyMutedMe(false);
       setFindThirdPending(false);
       setGiftFlash(null);
       setGiftEffect(null);
+      setPartnerFx(null);
+      setSelfFx(null);
       setFocusExtra(false);
       setRemoteBlurred(false);
       stayUntilRef.current = 0;
@@ -2255,6 +2865,13 @@ function LiveBody() {
       remotePeerId.current = "";
       secondaryPeerId.current = "";
       partnerUserId.current = "";
+      partnerFriendCode.current = "";
+      lastPartnerIdsRef.current = {
+        userId: "",
+        peerId: "",
+        friendCode: "",
+        shortId: "",
+      };
       matchStartedAtRef.current = 0;
       searchingRef.current = false;
       queueAckedRef.current = false;
@@ -2281,47 +2898,7 @@ function LiveBody() {
 
   function stop() {
     if (!guardAction()) return;
-    const name = partnerNameRef.current || partner || "…";
-    // Confirm end for any live match lasting a bit (and always for friend calls)
-    const elapsed =
-      matchStartedAt > 0
-        ? Math.floor((Date.now() - matchStartedAt) / 1000)
-        : 0;
-    const needConfirm =
-      phase === "matched" &&
-      (matchMode === "friend" || elapsed >= 15);
-    if (needConfirm) {
-      Alert.alert(
-        matchMode === "friend" ? t("friends.hangup") : t("btn.stop"),
-        t("mobile.live.hangupConfirm", { name }),
-        [
-          { text: t("mobile.common.cancel"), style: "cancel" },
-          {
-            text:
-              matchMode === "friend" ? t("friends.hangup") : t("btn.stop"),
-            style: "destructive",
-            onPress: () => doStop(),
-          },
-        ]
-      );
-      return;
-    }
-    // Long search — confirm cancel so a mis-tap doesn't kill queue position
-    if (phase === "search" && searchSecs >= 25) {
-      Alert.alert(
-        t("btn.stop"),
-        t("mobile.live.stopSearchConfirm"),
-        [
-          { text: t("mobile.common.cancel"), style: "cancel" },
-          {
-            text: t("btn.stop"),
-            style: "destructive",
-            onPress: () => doStop(),
-          },
-        ]
-      );
-      return;
-    }
+    // Immediate stop — no confirm dialogs (web parity; one tap = leave)
     doStop();
   }
 
@@ -2367,6 +2944,8 @@ function LiveBody() {
   }
 
   function toggleCam() {
+    // Parity with web Hide: pause outbound video track so partner cannot see you.
+    // Local preview stays bound; UI shows cam-off state on the button.
     const nextOn = !camOn;
     setCamOn(nextOn);
     camOnRef.current = nextOn;
@@ -2374,7 +2953,6 @@ function LiveBody() {
     mediaRef.current?.setCamEnabled(nextOn);
     media2Ref.current?.setCamEnabled(nextOn);
     hapticLight();
-    // Clear copy: Android pauses the track (unlike web "Hide" black canvas).
     try {
       showToastRef.current(
         nextOn
@@ -2386,44 +2964,12 @@ function LiveBody() {
     }
   }
 
-  // Android system back: never dump a live call / search silently
+  // Android system back: leave call/search immediately (no confirm popup)
   useEffect(() => {
     const onBack = () => {
       const p = phaseRef.current;
-      if (p === "matched") {
-        const name = partnerNameRef.current || "…";
-        Alert.alert(
-          matchModeRef.current === "friend"
-            ? t("friends.hangup")
-            : t("btn.stop"),
-          t("mobile.live.hangupConfirm", { name }),
-          [
-            { text: t("mobile.common.cancel"), style: "cancel" },
-            {
-              text:
-                matchModeRef.current === "friend"
-                  ? t("friends.hangup")
-                  : t("btn.stop"),
-              style: "destructive",
-              onPress: () => doStop(),
-            },
-          ]
-        );
-        return true;
-      }
-      if (p === "search") {
-        Alert.alert(
-          t("btn.stop"),
-          t("mobile.live.stopSearchConfirm"),
-          [
-            { text: t("mobile.common.cancel"), style: "cancel" },
-            {
-              text: t("btn.stop"),
-              style: "destructive",
-              onPress: () => doStop(),
-            },
-          ]
-        );
+      if (p === "matched" || p === "search") {
+        doStop();
         return true;
       }
       return false;
@@ -2438,6 +2984,36 @@ function LiveBody() {
     };
   }, [t]);
 
+  function applyTheyMutedMe(muted: boolean, why: string) {
+    const on = !!muted;
+    const was = theyMutedMeRef.current;
+    theyMutedMeRef.current = on;
+    setTheyMutedMe(on);
+    if (was === on) {
+      push(`theyMutedMe keep=${on ? 1 : 0} (${why})`);
+      return;
+    }
+    push(`theyMutedMe=${on ? 1 : 0} (${why})`);
+    // Inline badge only (PartnerChrome / stage pill). No Alert.alert —
+    // the grey system popup was worse than the “They muted you · no sound” chip.
+    if (on) {
+      hapticLight();
+    }
+  }
+  applyTheyMutedMeRef.current = applyTheyMutedMe;
+
+  /** Parse mute control from hub chat fallback: "\x01pmute:1" / "\x01pmute:0" */
+  function tryParseMuteControl(body: string): boolean | null {
+    const s = String(body || "");
+    if (s.startsWith("\x01pmute:")) {
+      return s.charAt(7) === "1" || s.slice(7, 8) === "t";
+    }
+    if (s.startsWith("__pmute:")) {
+      return s.charAt(8) === "1" || s.startsWith("__pmute:true");
+    }
+    return null;
+  }
+
   function togglePartnerMute() {
     const next = !partnerMuted;
     setPartnerMuted(next);
@@ -2445,41 +3021,72 @@ function LiveBody() {
     mediaRef.current?.setRemoteAudioEnabled(!next);
     media2Ref.current?.setRemoteAudioEnabled(!next);
     hapticLight();
-    // Notify partner so they see the same mute visuals on their self tile
-    const payload = {
-      v: 1 as const,
-      type: "partner_mute",
-      muted: next,
-      user_id: userIdRef.current || "",
-      name: displayNameRef.current || "anon",
-      ts: Date.now(),
-    };
-    let ok = false;
-    try {
-      ok = !!mediaRef.current?.sendDataMessage(payload);
-    } catch {
-      ok = false;
-    }
-    // Retry once shortly if DC was still settling (common right after match)
-    if (!ok) {
-      push("partner_mute send failed — retry in 400ms");
-      setTimeout(() => {
+    // Triple path: P2P DC + hub signal + hub chat control (chat always relays)
+    const sendMute = (why: string): boolean => {
+      const muted = !!partnerMutedRef.current;
+      const payload = {
+        v: 1 as const,
+        type: "partner_mute",
+        muted,
+        user_id: userIdRef.current || "",
+        name: displayNameRef.current || "anon",
+        ts: Date.now(),
+      };
+      let p2p = false;
+      try {
+        p2p = !!mediaRef.current?.sendDataMessage(payload);
+      } catch {
+        p2p = false;
+      }
+      let hubSig = false;
+      try {
+        hubRefLive.current.signal(
+          "partner_mute",
+          JSON.stringify(payload),
+          ""
+        );
+        hubSig = true;
+      } catch {
+        hubSig = false;
+      }
+      if (remotePeerId.current) {
         try {
-          const again = mediaRef.current?.sendDataMessage({
-            ...payload,
-            muted: partnerMutedRef.current,
-            ts: Date.now(),
-          });
-          if (!again) {
-            showToastRef.current(
-              tRef.current("mobile.live.muteP2pWait") ||
-                "Muted locally — partner notify when chat link is ready"
-            );
-          }
+          hubRefLive.current.signal(
+            "partner_mute",
+            JSON.stringify(payload),
+            remotePeerId.current
+          );
         } catch {
           /* ignore */
         }
-      }, 400);
+      }
+      // Hub chat control — works whenever chat works (match room)
+      let hubChat = false;
+      try {
+        hubRefLive.current.chat(`\x01pmute:${muted ? "1" : "0"}`);
+        hubChat = true;
+      } catch {
+        hubChat = false;
+      }
+      if (p2p || hubSig || hubChat) {
+        push(
+          `partner_mute → ${muted ? 1 : 0} p2p=${p2p ? 1 : 0} sig=${hubSig ? 1 : 0} chat=${hubChat ? 1 : 0} (${why})`
+        );
+      }
+      return p2p || hubSig || hubChat;
+    };
+    const ok = sendMute("tap");
+    for (const ms of [300, 900, 2000, 4000]) {
+      setTimeout(() => sendMute(`retry_${ms}`), ms);
+    }
+    showToastRef.current(
+      next
+        ? t("mobile.live.youMutedThemToast") ||
+            "Muted — they can't be heard · partner notified"
+        : t("mobile.live.youUnmutedThemToast") || "Unmuted — you hear them again"
+    );
+    if (!ok) {
+      push("partner_mute first send failed — hub+p2p retries armed");
     }
   }
 
@@ -2491,7 +3098,9 @@ function LiveBody() {
       showToastRef.current(t("mobile.party.browseSent"));
       push("→ browse_together");
     } catch (e) {
-      Alert.alert(t("mobile.live.errorTitle"), String(e));
+      showToastRef.current(
+        t("mobile.live.errorTitle") + `: ${String(e).slice(0, 80)}`
+      );
     }
   }
 
@@ -2503,7 +3112,9 @@ function LiveBody() {
       showToastRef.current(t("mobile.party.findThirdSent"));
       push("→ find_third_invite");
     } catch (e) {
-      Alert.alert(t("mobile.live.errorTitle"), String(e));
+      showToastRef.current(
+        t("mobile.live.errorTitle") + `: ${String(e).slice(0, 80)}`
+      );
     }
   }
 
@@ -2529,9 +3140,11 @@ function LiveBody() {
     });
     try {
       if (!viaP2p) hub.chat(body);
-      else {
-        // stop typing for peer
+      // Always clear typing indicator for peer when we send a line
+      try {
         mediaRef.current?.sendDataMessage({ type: "typing_stop" });
+      } catch {
+        /* DC may be closed */
       }
       setChat((c) =>
         [
@@ -2588,20 +3201,66 @@ function LiveBody() {
     }).catch(() => {});
   }
 
+  /**
+   * Best partner id for report/block. Prefer persistent user_id; fall back to
+   * peer_id / friend_code so hub can resolve while they are still online.
+   * Never wipe a known user_id with empty on thrash rematch.
+   */
+  function resolvePartnerTargetId(): string {
+    const mine = String(userIdRef.current || "").trim();
+    const candidates = [
+      partnerUserId.current,
+      lastPartnerIdsRef.current.userId,
+      partnerFriendCode.current,
+      lastPartnerIdsRef.current.friendCode,
+      remotePeerId.current,
+      lastPartnerIdsRef.current.peerId,
+      lastPartnerIdsRef.current.shortId,
+    ];
+    for (const c of candidates) {
+      const id = String(c || "").trim();
+      if (!id || id === "legacy") continue;
+      if (mine && id === mine) continue;
+      return id;
+    }
+    return "";
+  }
+
+  function notePartnerUserId(raw: string, src = "") {
+    const uid = String(raw || "").trim();
+    if (!uid || uid === "legacy") return;
+    const mine = String(userIdRef.current || "").trim();
+    if (mine && uid === mine) return;
+    if (!partnerUserId.current) {
+      partnerUserId.current = uid;
+      if (src) push(`partner uid learned (${src}) ${uid.slice(0, 8)}`);
+    }
+    if (!lastPartnerIdsRef.current.userId) {
+      lastPartnerIdsRef.current = {
+        ...lastPartnerIdsRef.current,
+        userId: uid,
+      };
+    }
+  }
+
   async function openReport() {
-    const uid = partnerUserId.current;
+    const uid = resolvePartnerTargetId();
     if (!uid) {
-      Alert.alert(t("mobile.live.safetyTitle"), t("mobile.live.partnerNotReady"));
+      showToastRef.current(t("mobile.live.partnerNotReady"));
       return;
     }
+    // Prefer sticky user_id for rest of report flow
+    if (!partnerUserId.current) partnerUserId.current = uid;
     reportShotB64.current = null;
     setReportShotUri(null);
+    // Report Modal stacks above privacy Modal; keep veil (don't force unblur).
+    setMoreOpen(false);
     setReportOpen(true);
     setReportCapturing(true);
     try {
-      // Capture stage (remote + local PiP) before UI covers it.
-      // Android SurfaceView (RTCView) may not always appear in the bitmap —
-      // we still allow report without a shot.
+      // Capture stage (remote + local PiP). While privacy veil is on, partner
+      // RTCView is unmounted — shot may be underlay only; report still proceeds.
+      // Android SurfaceView may not always appear in the bitmap either.
       const uri = await captureRef(stageRef, {
         format: "jpg",
         quality: 0.55,
@@ -2643,8 +3302,11 @@ function LiveBody() {
   }
 
   function doBlockOnly() {
-    const uid = partnerUserId.current;
-    if (!uid) return;
+    const uid = resolvePartnerTargetId();
+    if (!uid) {
+      showToastRef.current(t("mobile.live.partnerNotReady"));
+      return;
+    }
     try {
       hub.blockUser(uid);
       void rememberBlock(uid, partnerNameRef.current || partner);
@@ -2668,8 +3330,13 @@ function LiveBody() {
   }
 
   function doReport(reason: ReportReason) {
-    const uid = partnerUserId.current;
-    if (!uid || reportBusy) return;
+    const uid = resolvePartnerTargetId();
+    if (!uid || reportBusy) {
+      if (!uid) {
+        showToastRef.current(t("mobile.live.partnerNotReady"));
+      }
+      return;
+    }
     setReportBusy(true);
     try {
       const shot = reportShotB64.current || undefined;
@@ -2707,24 +3374,48 @@ function LiveBody() {
     async (opts?: { hard?: boolean }) => {
       if (retryBusy || phaseRef.current !== "matched") return;
       const hard = !!opts?.hard;
-      if (hard) {
+      // Answerer who already completed SDP must never hard-rebuild as offerer
+      // (hub thrash: match_to_offer_ms 17–24s after healthy answer).
+      let doHard = hard;
+      if (
+        doHard &&
+        mediaRef.current?.hasAnsweredAsAnswerer?.()
+      ) {
+        push("hard retry blocked — answered as answerer; soft ICE only");
+        doHard = false;
+        mediaRef.current?.forceRepaintRemote?.("hard_block_answerer");
+      }
+      if (doHard) {
         const startedAt = matchStartedAtRef.current;
         const age = startedAt > 0 ? Date.now() - startedAt : 99999;
-        // Hard rebuild does closeCall+startCall — a genuine fresh offer, not a
-        // restart. Never fire it before the match's 15s no-duplicate-offer
-        // grace (MediaSession iceRestart grace / browser matchMediaGraceAt),
-        // whether triggered by auto-retry or the manual Rebuild button.
-        if (age < 15000) {
-          push(`hard retry skipped — match grace age=${age}`);
+        const framesOk = !!mediaRef.current?.hasInboundVideoFrames?.();
+        const need = framesOk ? 30000 : 28000;
+        if (age < need) {
+          push(`hard retry skipped — match grace age=${age} need=${need}`);
           return;
+        }
+        try {
+          const snap = mediaRef.current?.getIceSnapshot?.();
+          const ice = `${snap?.ice || ""} ${snap?.cs || ""}`;
+          if (/connected|completed|checking/i.test(ice) && !framesOk) {
+            push(`hard retry demoted — path alive (${ice.trim()}), soft only`);
+            mediaRef.current?.forceRepaintRemote?.("hard_demote_ice_ok");
+            void mediaRef.current?.tryIceRestart?.({
+              force: true,
+              promoteOfferer: false,
+            });
+            return;
+          }
+        } catch {
+          /* fall through */
         }
       }
       setRetryBusy(true);
       hapticLight();
       flashStatus(
-        hard ? t("mobile.live.retryHard") : t("mobile.live.retrying")
+        doHard ? t("mobile.live.retryHard") : t("mobile.live.retrying")
       );
-      track(hard ? "hard_retry" : "ice_retry", {
+      track(doHard ? "hard_retry" : "ice_retry", {
         turn: iceHasTurnRef.current ? 1 : 0,
       });
       const result = await runConnectRetry(
@@ -2736,18 +3427,20 @@ function LiveBody() {
             iceHasTurnRef.current = v;
           },
           log: push,
-          // Soft: stay answerer/offerer as-is. Hard rebuild: phone drives offer.
-          forceOfferer: hard,
+          // Hard as offerer ONLY if we never answered (true cold silence).
+          forceOfferer: doHard && !mediaRef.current?.hasAnsweredAsAnswerer?.(),
         },
-        { hard }
+        { hard: doHard }
       );
-      if (hard) {
+      if (doHard && result.ok && result.hard) {
         setRemoteStream(null);
         setRemoteEpoch((n) => n + 1);
         setAwaitingRemoteVideo(true);
         remoteVideoSeenRef.current = false;
         setRemoteVideoReady(false);
-        isOffererRef.current = true;
+        if (!mediaRef.current?.hasAnsweredAsAnswerer?.()) {
+          isOffererRef.current = true;
+        }
       } else if (result.remoteStream) {
         setRemoteStream(result.remoteStream);
         setRemoteEpoch((n) => n + 1);
@@ -2762,18 +3455,54 @@ function LiveBody() {
     [retryBusy, t, hub, flashStatus, push]
   );
 
+  /** Match web GIFT_RATE_LIMIT_MS — hub also rate-limits, but UI should not spam. */
+  const lastGiftSpendAtRef = useRef(0);
+  const GIFT_RATE_LIMIT_MS = 10_000;
+
   function spend(effect: string, cost: number) {
-    const uid = partnerUserId.current;
-    if (!uid || phase !== "matched") return;
-    if (!guardAction()) return; // debounce double-taps on gift chips
+    // Prefer sticky user_id; fall back to peer/code resolve (same as report)
+    const uid = resolvePartnerTargetId();
+    const inLive =
+      phase === "matched" ||
+      phaseRef.current === "matched" ||
+      !!(remoteStream?.getVideoTracks?.()?.length || remoteStream?.getAudioTracks?.()?.length);
+    if (!uid || !inLive) {
+      if (inLive && !uid) {
+        showToastRef.current(
+          t("mobile.live.partnerNotReady") || "Partner id not ready yet"
+        );
+      } else if (!inLive) {
+        showToastRef.current(
+          t("mobile.live.needLiveChat") || "Only during a live chat"
+        );
+      }
+      return;
+    }
+    if (!partnerUserId.current) partnerUserId.current = uid;
+    // Double-tap debounce (short) + gift rate limit (10s, web parity)
+    if (!guardAction()) return;
+    const now = Date.now();
+    if (
+      lastGiftSpendAtRef.current &&
+      now - lastGiftSpendAtRef.current < GIFT_RATE_LIMIT_MS
+    ) {
+      const wait = Math.ceil(
+        (GIFT_RATE_LIMIT_MS - (now - lastGiftSpendAtRef.current)) / 1000
+      );
+      showToastRef.current(
+        t("mobile.live.giftRateLimit", { s: wait }) ||
+          `Wait ${wait}s before next gift`
+      );
+      return;
+    }
     if (stars < cost) {
-      Alert.alert(
-        t("mobile.live.needStarsTitle"),
+      showToastRef.current(
         t("mobile.live.needStars", { cost, stars })
       );
       return;
     }
     try {
+      lastGiftSpendAtRef.current = now;
       hub.spendStars(uid, effect);
       push(`→ spend ${effect} (−${cost}★)`);
       hapticLight();
@@ -2781,12 +3510,27 @@ function LiveBody() {
       const gift = GIFTS.find((g) => g.id === effect);
       if (gift) {
         setGiftFlash(`${gift.emoji}`);
-        setGiftEffect(effect);
-        if (giftFxTimerRef.current) clearTimeout(giftFxTimerRef.current);
-        giftFxTimerRef.current = setTimeout(() => {
-          setGiftFlash(null);
+        // Bars: paint on partner tile immediately (not full-stage under SurfaceView)
+        if (effect === "bars") {
           setGiftEffect(null);
-        }, giftFxHoldMs(effect));
+          setPartnerFx("bars");
+          if (partnerFxTimerRef.current) clearTimeout(partnerFxTimerRef.current);
+          partnerFxTimerRef.current = setTimeout(
+            () => setPartnerFx(null),
+            giftFxHoldMs("bars")
+          );
+        } else {
+          setGiftEffect(effect);
+          if (giftFxTimerRef.current) clearTimeout(giftFxTimerRef.current);
+          giftFxTimerRef.current = setTimeout(() => {
+            setGiftFlash(null);
+            setGiftEffect(null);
+          }, giftFxHoldMs(effect));
+        }
+        if (effect === "bars") {
+          if (giftFxTimerRef.current) clearTimeout(giftFxTimerRef.current);
+          giftFxTimerRef.current = setTimeout(() => setGiftFlash(null), 2200);
+        }
         void playGiftChime();
       }
       // Local please_stay lock (also applied on hub echo)
@@ -2804,6 +3548,7 @@ function LiveBody() {
 
   async function retryMedia() {
     setMediaBlocked(false);
+    clearMediaPermissionCache();
     const perm = await ensureMediaPermissions();
     if (!perm.allGranted) {
       setMediaBlocked(true);
@@ -2817,7 +3562,7 @@ function LiveBody() {
   function addPartnerFriend() {
     const code = partnerFriendCode.current || partnerCode;
     if (!code || code.length < 4) {
-      Alert.alert(t("mobile.live.addFriendFail"), t("mobile.live.partnerNotReady"));
+      showToastRef.current(t("mobile.live.partnerNotReady"));
       return;
     }
     try {
@@ -2825,12 +3570,12 @@ function LiveBody() {
       setFriendAdded(true);
       push(`→ add_friend ${code}`);
       track("add_friend_match", { via: "live" });
-      Alert.alert(
-        t("mobile.friends.requestSentTitle"),
-        t("mobile.friends.requestSent", { code })
-      );
+      showToastRef.current(t("mobile.friends.requestSent", { code }));
     } catch (e) {
-      Alert.alert(t("mobile.friends.notConnected"), String(e));
+      showToastRef.current(
+        t("mobile.friends.notConnected") +
+          (e ? `: ${String(e).slice(0, 60)}` : "")
+      );
     }
   }
 
@@ -2853,9 +3598,16 @@ function LiveBody() {
     setPhase("matched");
     phaseRef.current = "matched";
     searchingRef.current = false;
+    // Start clocks so gift/review timers advance even if Matched was missed
+    if (!matchStartedAtRef.current) {
+      const t0 = Date.now();
+      matchStartedAtRef.current = t0;
+      setMatchStartedAt(t0);
+    }
   }, [remoteLive, phase]);
 
-  const showAloneBanner = uiPhase === "search" && alone;
+  // Alone-queue "Invite someone to live" card removed (product: less noise on Android Live).
+  const showAloneBanner = false;
   const isFriendCall = matchMode === "friend";
   const alreadyFriends = !!(
     partnerUserId.current &&
@@ -2877,8 +3629,24 @@ function LiveBody() {
   const callElapsedSecs = elapsedSecs;
   const callTimerText = formatCallTimer(callElapsedSecs);
 
-  const hasRemoteVideo =
-    (remoteStream?.getVideoTracks?.()?.length ?? 0) > 0;
+  // Any non-ended video track — don't require readyState===live (Android often
+  // keeps tracks "muted" until first frame; requiring live left black stage).
+  const hasRemoteVideo = (remoteStream?.getVideoTracks?.() || []).some(
+    (t) => (t as { readyState?: string }).readyState !== "ended"
+  );
+
+  // Never keep self as fullscreen main if partner video is gone / not live
+  useEffect(() => {
+    if (!hasRemoteVideo && swapViews) setSwapViews(false);
+  }, [hasRemoteVideo, swapViews]);
+
+  // New match: always partner-main / self-PiP (not leftover swap from prior call)
+  useEffect(() => {
+    if (uiPhase === "matched") setSwapViews(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only on match entry
+  }, [matchStartedAt]);
+
+  // No timed epoch bumps — MediaSession paints once; remount only on stream change.
 
   const {
     tier: linkTier,
@@ -2957,13 +3725,43 @@ function LiveBody() {
     void media2Ref.current?.tryIceRestart({ force: true });
   }, [netPolicy.pathEpoch, netPolicy.isConnected, netPolicy.kind, phase, push, t]);
 
+  // Tracks alone are not enough — black partner + Report meant auto-retry
+  // never fired. Only treat as OK when inbound frames decoded.
+  const remoteFramesOk = !!mediaRef.current?.hasInboundVideoFrames?.();
   const autoRetryCount = useAutoConnectRetry({
     phase,
     matchStartedAt,
     nowTick,
-    hasRemoteVideo,
-    onSoft: () => void retryConnection({ hard: false }),
-    onHard: () => void retryConnection({ hard: true }),
+    remoteFramesOk,
+    onSoft: () => {
+      // Soft only: paint + iceRestart. NEVER force_relay arm mid-call —
+      // that rebuilt pure-relay PC and zeroed peer_usage (PC black partner).
+      if (mediaRef.current?.hasAnsweredAsAnswerer?.()) {
+        push("auto soft answerer — paint/outbound only");
+        mediaRef.current?.forceRepaintRemote?.("auto_soft_answerer");
+        try {
+          mediaRef.current?.kickMediaAfterIce?.("auto_soft");
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
+      void retryConnection({ hard: false });
+    },
+    onHard: () => {
+      // Never auto hard-rebuild as offerer after we already answered web.
+      if (mediaRef.current?.hasAnsweredAsAnswerer?.()) {
+        push("auto hard demoted → paint only (was answerer)");
+        mediaRef.current?.forceRepaintRemote?.("auto_hard_demote");
+        try {
+          mediaRef.current?.kickMediaAfterIce?.("auto_hard_answerer");
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
+      void retryConnection({ hard: true });
+    },
     onTip: () => showToastRef.current(t("mobile.live.stillNoVideoTip")),
     log: push,
   });
@@ -3022,15 +3820,32 @@ function LiveBody() {
       ? Math.max(0, Math.min(1, debate.remMs / debate.turnMs))
       : 0;
 
+  const partnerBlurLine = formatPartnerSummary({
+    name: partner,
+    stars: partnerStars,
+    flag: partnerFlag,
+    country: partnerCountry,
+    city: partnerCity,
+    lang: lang || "ru",
+  });
+  const showPrivacyBlur =
+    remoteBlurred && (phase === "matched" || uiPhase === "matched");
+
   return (
     <KeyboardAvoidingView
-      style={styles.root}
+      style={
+        isBrowserLayout
+          ? styles.rootBrowser
+          : uiPhase === "matched" || uiPhase === "search"
+            ? styles.rootMatched
+            : styles.root
+      }
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={0}
     >
       <View
         ref={stageRef}
-        style={styles.stage}
+        style={isBrowserLayout ? styles.stageBrowser : styles.stage}
         collapsable={false}
         onLayout={(e) => {
           const { width, height } = e.nativeEvent.layout;
@@ -3050,49 +3865,135 @@ function LiveBody() {
           swapViews={swapViews}
           focusExtra={focusExtra}
           partnerName={partner}
+          partnerStars={partnerStars}
+          partnerLoc={formatLocLine({
+            flag: partnerFlag,
+            country: partnerCountry,
+            city: partnerCity,
+            lang: lang || "ru",
+          })}
           secondName={extraPeers[0]?.name || t("mobile.live.peer2")}
           isFriendCall={isFriendCall}
           remoteBlurred={remoteBlurred}
+          camOn={camOn}
           partnerMuted={partnerMuted}
           theyMutedMe={theyMutedMe}
           retryBusy={retryBusy}
           autoRetryCount={autoRetryCount}
           hasTurn={iceHasTurnRef.current}
+          partnerFx={partnerFx}
+          selfFx={selfFx}
+          barsCaption={
+            partnerFx === "bars"
+              ? t("mobile.live.giftBars")
+              : selfFx === "bars"
+                ? t("mobile.live.giftBars")
+                : undefined
+          }
+          connectElapsedSecs={
+            matchStartedAt > 0 && uiPhase === "matched"
+              ? Math.floor((nowTick - matchStartedAt) / 1000)
+              : 0
+          }
           stageW={stageSize.w}
           stageH={stageSize.h}
           pipHint={pipHint}
           labels={{
             connectingPeer: t("mobile.live.connectingPeer"),
             linkingCameras: t("mobile.live.linkingCameras"),
+            findingPath: t("mobile.live.stageFindingPath"),
+            tryingRelay: t("mobile.live.stageTryingRelay"),
             retryHard: t("mobile.live.retryHard"),
             retrying: t("mobile.live.retrying"),
             turnReady: t("mobile.live.turnReady"),
             turnLoading: t("mobile.live.turnLoading"),
             tapToRetry: t("mobile.live.tapToRetry"),
+            retryPath: t("mobile.live.retryPath"),
             focus: t("mobile.live.focus"),
             pipHint: t("mobile.live.pipHint"),
             partnerMutedBadge: t("mobile.live.youMutedThem"),
             theyMutedYouBadge: t("mobile.live.theyMutedYou"),
+            longPressReport: t("mobile.live.longPressReport"),
+            selfHiddenBadge:
+              t("mobile.live.selfHiddenBadge") || "Hidden from them",
+            unblurShort:
+              t("mobile.live.unblurShort") || "Show video",
           }}
           onToggleFocusExtra={() => setFocusExtra((v) => !v)}
           onRetryConnect={(hard) => void retryConnection({ hard })}
+          onReport={() => {
+            hapticLight();
+            setMoreOpen(false);
+            void openReport();
+          }}
           onDoubleTapReblur={() => {
             hapticLight();
             clearIntroUnblurTimer();
             setRemoteBlurred(true);
-            showToastRef.current(t("mobile.live.reblurToast"));
+            remoteBlurredRef.current = true;
+            showToastRef.current(
+              t("mobile.live.reblurToast") || "Partner blurred again"
+            );
           }}
           onPipHintSeen={() => setPipHint(false)}
           onSwapViews={() => setSwapViews((v) => !v)}
           onHaptic={() => hapticLight()}
+          blurVeil={
+            showPrivacyBlur
+              ? {
+                  title: t("mobile.live.blurTitle") || "Privacy veil",
+                  body:
+                    t("mobile.live.blurBodyHold") ||
+                    "Partner video is hidden. Tap Show video when ready.",
+                  buttonLabel:
+                    t("mobile.live.unblurReady") ||
+                    t("mobile.live.unblur") ||
+                    "Show video",
+                  hint:
+                    t("mobile.live.blurHint") ||
+                    "Double-tap video later to re-cover",
+                  partnerLabel: partnerBlurLine,
+                  ready: !!remoteVideoReady || !!hasRemoteVideo,
+                  onUnblur: () => {
+                    hapticLight();
+                    revealPartnerVideo("veil_unblur");
+                    showToastRef.current(
+                      t("mobile.live.partnerVideoOn") || "Partner video shown"
+                    );
+                  },
+                }
+              : null
+          }
         />
-        <View style={styles.overlay}>
+        {/* Report only once video is live — less clutter while linking */}
+        {uiPhase === "matched" && !isFriendCall && hasRemoteVideo ? (
           <Pressable
-            onLongPress={() => {
-              if (uiPhase === "matched") copyPartnerCode();
+            style={[
+              styles.stageReportFab,
+              { top: Math.max(insets.top, 8) + 2 },
+            ]}
+            onPress={() => {
+              hapticLight();
+              setMoreOpen(false);
+              void openReport();
             }}
-            delayLongPress={400}
+            accessibilityRole="button"
+            accessibilityLabel={t("mobile.live.reportFab")}
+            testID="live-stage-report-fab"
+            hitSlop={8}
           >
+            <Text style={styles.stageReportFabText}>
+              ⚑ {t("mobile.live.reportFab")}
+            </Text>
+          </Pressable>
+        ) : null}
+        <View
+          style={[
+            styles.overlay,
+            { paddingTop: Math.max(insets.top, 8) + 2 },
+          ]}
+        >
+          <View>
             {uiPhase === "matched" ? (
               <PartnerChrome
                 name={partner}
@@ -3101,8 +4002,20 @@ function LiveBody() {
                 flag={partnerFlag}
                 country={partnerCountry}
                 city={partnerCity}
+                hideIp={partnerHideIp}
                 muted={partnerMuted}
+                theyMutedMe={theyMutedMe}
                 isFriend={isFriendCall}
+                timer={
+                  hasRemoteVideo && !awaitingRemoteVideo && callTimerText
+                    ? callTimerText
+                    : undefined
+                }
+                onLongPress={copyPartnerIdentity}
+                longPressHint={
+                  t("mobile.live.partnerLongPress") ||
+                  "Long-press to copy name · place · ★"
+                }
               />
             ) : uiPhase === "search" ? (
               <LiveSearchLabel
@@ -3133,26 +4046,36 @@ function LiveBody() {
                     ? t("mobile.live.preview")
                     : t("mobile.live.idle")}
                 </Text>
+                <Text style={styles.stagePool}>
+                  {connected
+                    ? t("mobile.live.idleHint", {
+                        online: Math.max(online, 0),
+                      }) ||
+                      (online > 0
+                        ? `${online} online · tap Start`
+                        : t("mobile.live.idleHintOffline") ||
+                          "Tap Start when ready")
+                    : t("mobile.live.reconnecting").replace(/^ · /, "") ||
+                      "Reconnecting…"}
+                </Text>
               </View>
             )}
-          </Pressable>
-          <LiveConnectSteps
-            phase={uiPhase}
-            queueAcked={queueAcked}
-            connectedHub={connected}
-            conn={conn}
-            hasRemoteVideo={hasRemoteVideo}
-            awaitingRemoteVideo={awaitingRemoteVideo}
-            labels={{
-              queue: t("mobile.live.stepQueue"),
-              media: t("mobile.live.stepMedia"),
-              video: t("mobile.live.stepVideo"),
-            }}
-          />
-          {uiPhase === "matched" && extraPeers.length > 0 ? (
-            <Text style={styles.plusPeersLine}>
-              {t("mobile.live.plusPeers", { n: extraPeers.length })}
-            </Text>
+          </View>
+          {/* Steps only while joining queue — hide once looking (less top stack) */}
+          {uiPhase === "search" && !queueAcked ? (
+            <LiveConnectSteps
+              phase={uiPhase}
+              queueAcked={queueAcked}
+              connectedHub={connected}
+              conn={conn}
+              hasRemoteVideo={hasRemoteVideo}
+              awaitingRemoteVideo={awaitingRemoteVideo}
+              labels={{
+                queue: t("mobile.live.stepQueue"),
+                media: t("mobile.live.stepMedia"),
+                video: t("mobile.live.stepVideo"),
+              }}
+            />
           ) : null}
           {uiPhase === "matched" && extraPeers.length > 0 ? (
             <View style={styles.peerStrip}>
@@ -3168,7 +4091,6 @@ function LiveBody() {
               >
                 <Text style={styles.peerChipText} numberOfLines={1}>
                   {partner || "…"}
-                  {` · ${t("mobile.live.focus")}`}
                 </Text>
               </Pressable>
               {extraPeers.map((p) => (
@@ -3181,58 +4103,63 @@ function LiveBody() {
                   }}
                 >
                   <Text style={styles.peerChipText} numberOfLines={1}>
-                    {flagEmoji(p.flag) ? `${flagEmoji(p.flag)} ` : ""}
                     {p.name || t("mobile.live.peer2")}
-                    {p.stars > 0 ? ` ★${p.stars}` : ""}
-                    {` · ${
-                      p.role === "friend"
-                        ? t("mobile.live.roleFriend")
-                        : p.role === "party"
-                          ? t("mobile.live.roleParty")
-                          : t("mobile.live.role3rd")
-                    }`}
                   </Text>
                 </Pressable>
               ))}
             </View>
           ) : null}
-          {uiPhase === "matched" && stayRemSecs > 0 ? (
-            <View style={styles.stayPill}>
-              <Text style={styles.stayPillText}>
-                {t("mobile.live.stayPill", { s: stayRemSecs })}
-              </Text>
-            </View>
+          {/* Build id for smoke (confirm 0.1.210+ installed) */}
+          {uiPhase === "matched" || uiPhase === "search" ? (
+            <Text
+              style={{
+                position: "absolute",
+                top: 6,
+                right: 8,
+                zIndex: 20,
+                fontSize: 10,
+                opacity: 0.45,
+                color: "#c8d0dc",
+              }}
+              pointerEvents="none"
+            >
+              {Constants.expoConfig?.version || "?"}
+              {Constants.expoConfig?.android?.versionCode
+                ? `·${Constants.expoConfig.android.versionCode}`
+                : ""}
+            </Text>
           ) : null}
-          {uiPhase === "matched" && dataSaverOn ? (
-            <View style={styles.dataSaverPill}>
-              <Text style={styles.dataSaverPillText}>
-                {t("mobile.live.dataSaverOn")}
-              </Text>
-            </View>
-          ) : null}
-          {uiPhase === "matched" && connLabel ? (
+          {/* One slim status line: timer + linking / connected (no duplicate hints) */}
+          {uiPhase === "matched" &&
+          (!hasRemoteVideo ||
+            awaitingRemoteVideo ||
+            conn === "connecting" ||
+            conn === "checking" ||
+            conn === "failed" ||
+            conn === "disconnected" ||
+            showConnRetry ||
+            showHardRetry) ? (
             <LiveConnPill
-              conn={conn}
-              connLabel={connLabel}
+              conn={conn || "connecting"}
+              connLabel={connLabel || t("mobile.live.stageConnecting")}
               callTimerText={callTimerText}
-              awaitingRemoteVideo={awaitingRemoteVideo}
+              awaitingRemoteVideo={awaitingRemoteVideo || !hasRemoteVideo}
               connSlow={connSlow}
               linkTier={linkTier}
-              linkTierLabel={linkTierLabel}
-              linkRtt={linkRtt}
-              linkRelay={linkRelay}
-              qualityTier={qualityTier}
-              showConnRetry={showConnRetry}
-              showHardRetry={showHardRetry}
+              linkTierLabel=""
+              linkRtt={0}
+              linkRelay={false}
+              qualityTier=""
+              showConnRetry={showConnRetry && !hasRemoteVideo}
+              showHardRetry={showHardRetry && !hasRemoteVideo}
               retryBusy={retryBusy}
-              turnBadgeLabel={t("mobile.live.turnBadge")}
+              turnBadgeLabel=""
               stageWaitVideoLabel={t("mobile.live.stageWaitVideo")}
               stageConnectingLabel={t("mobile.live.stageConnecting")}
+              stageFindingPathLabel={t("mobile.live.stageFindingPath")}
+              stageTryingRelayLabel={t("mobile.live.stageTryingRelay")}
               connectElapsedSecs={
-                matchStartedAt > 0 &&
-                (awaitingRemoteVideo ||
-                  conn === "connecting" ||
-                  conn === "checking")
+                matchStartedAt > 0 && !hasRemoteVideo
                   ? Math.floor((nowTick - matchStartedAt) / 1000)
                   : 0
               }
@@ -3244,25 +4171,11 @@ function LiveBody() {
               onHardRetry={() => void retryConnection({ hard: true })}
             />
           ) : null}
+          {/* ★ bar only near unlock / ready — not a permanent second header row */}
           {uiPhase === "matched" &&
-          awaitingRemoteVideo &&
-          !remoteStream?.getVideoTracks?.()?.length ? (
-            <Text style={styles.waitVideoHint}>
-              {matchStartedAt > 0 && nowTick - matchStartedAt > 8000
-                ? t("mobile.live.waitVideoHintSlow")
-                : t("mobile.live.waitVideoHint")}
-            </Text>
-          ) : null}
-          {uiPhase === "matched" &&
-          linkTier === "bad" &&
+          hasRemoteVideo &&
           !awaitingRemoteVideo &&
-          matchStartedAt > 0 &&
-          nowTick - matchStartedAt > 10_000 ? (
-            <Text style={styles.weakLinkHint}>
-              {t("mobile.live.weakLinkHint")}
-            </Text>
-          ) : null}
-          {uiPhase === "matched" ? (
+          (starReady || starProgress >= 0.55) ? (
             <View style={styles.starProg}>
               <View style={styles.starProgTrack}>
                 <View
@@ -3274,8 +4187,8 @@ function LiveBody() {
               </View>
               <Text style={styles.starProgLabel}>
                 {starReady
-                  ? t("mobile.live.starReady")
-                  : t("mobile.live.starUnlock", {
+                  ? t("mobile.live.starReviewReady")
+                  : t("mobile.live.starUnlockReview", {
                       n: needMin,
                       time: `${Math.floor(elapsedSecs / 60)}:${String(elapsedSecs % 60).padStart(2, "0")}`,
                     })}
@@ -3316,81 +4229,7 @@ function LiveBody() {
           ) : null}
         </View>
 
-        {uiPhase === "matched" && remoteBlurred && !isFriendCall ? (
-          <Pressable
-            style={styles.blurOverlay}
-            onPress={() => {
-              hapticLight();
-              revealPartnerVideo("tap_show");
-              const vt = remoteStream?.getVideoTracks?.()?.length ?? 0;
-              if (vt === 0) {
-                showToastRef.current(t("mobile.live.waitVideo"));
-              } else {
-                // Clean history snap after reveal (on-device only)
-                const uid = partnerUserId.current;
-                if (uid && stageRef.current) {
-                  void (async () => {
-                    try {
-                      const { loadMatchPrefs } = await import(
-                        "../src/prefs/store"
-                      );
-                      const p = await loadMatchPrefs();
-                      if (p.historySnaps === false) return;
-                      const uri = await captureRef(stageRef, {
-                        format: "jpg",
-                        quality: 0.45,
-                        result: "tmpfile",
-                        width: 160,
-                      });
-                      if (uri) {
-                        const { saveMatchThumbFromUri } = await import(
-                          "../src/calls/matchThumbs"
-                        );
-                        await saveMatchThumbFromUri(uid, uri);
-                      }
-                    } catch {
-                      /* optional */
-                    }
-                  })();
-                }
-              }
-            }}
-          >
-            {/* Frost layers — partner video stays under (not pure black wall) */}
-            <View style={styles.blurFrostA} pointerEvents="none" />
-            <View style={styles.blurFrostB} pointerEvents="none" />
-            <View style={styles.blurCard} pointerEvents="none">
-              <Text style={styles.blurTitle}>{t("mobile.live.blurTitle")}</Text>
-              {partner ? (
-                <Text style={styles.blurPartner} numberOfLines={1}>
-                  {partner}
-                  {partnerFlag ? ` · ${partnerFlag}` : ""}
-                </Text>
-              ) : null}
-              <Text style={styles.blurBody}>
-                {blurModeRef.current === "hold"
-                  ? t("mobile.live.blurBodyHold")
-                  : t("mobile.live.blurBody")}
-              </Text>
-              <View
-                style={[styles.blurBtn, remoteVideoReady && styles.blurBtnReady]}
-              >
-                <Text style={styles.blurBtnText}>
-                  {remoteVideoReady
-                    ? t("mobile.live.unblurReady")
-                    : t("mobile.live.unblur")}
-                </Text>
-              </View>
-              <Text style={styles.blurHint}>
-                {remoteVideoReady
-                  ? blurModeRef.current === "intro"
-                    ? t("mobile.live.blurReadyHintIntro")
-                    : t("mobile.live.blurReadyHint")
-                  : t("mobile.live.blurHint")}
-              </Text>
-            </View>
-          </Pressable>
-        ) : null}
+        {/* Partner privacy veil is drawn inside LiveStageVideo (hides clear RTCView). */}
 
         {giftFlash || giftEffect ? (
           <GiftFxOverlay
@@ -3457,7 +4296,6 @@ function LiveBody() {
             phase === "search" && searchSecs >= 45 && !showAloneBanner
           }
           showAlone={showAloneBanner}
-          searchSecs={searchSecs}
           friendCode={friendCode || ""}
           inviteUrl={
             friendInviteShareMessage(hubBase(), friendCode || "……", "ruletka")
@@ -3503,6 +4341,15 @@ function LiveBody() {
           scrollRef={chatScrollRef}
           sayHiLabel={t("mobile.chat.sayHi")}
           typingLabel={t("mobile.chat.typing")}
+          youLabels={[
+            t("mobile.chat.you") || "you",
+            t("mobile.chat.youP2p") || "you",
+            "you",
+          ]}
+          style={isBrowserLayout ? styles.chatOverlayBrowser : undefined}
+          emptyHintStyle={
+            isBrowserLayout ? styles.chatEmptyHintBrowser : undefined
+          }
           onCopyLine={(body) => {
             void Clipboard.setStringAsync(body).then(() => {
               showToastRef.current(t("mobile.chat.copied"));
@@ -3550,6 +4397,7 @@ function LiveBody() {
             composeTitle: t("debate.composeTitle"),
             composeHint: t("debate.composeHint"),
             turnLength: t("debate.turnLength"),
+            turnSecondsOption: (s) => t("debate.turnSecondsOption", { s }),
             topicLabel: t("debate.topicLabel"),
             topicPlaceholder: t("debate.topicPlaceholder"),
             cancel: t("mobile.common.cancel"),
@@ -3566,7 +4414,8 @@ function LiveBody() {
         ) : null}
       </View>
 
-      {uiPhase === "matched" ? (
+      {/* Native layout: gifts + chat under the stage (classic call UI) */}
+      {uiPhase === "matched" && !isBrowserLayout ? (
         <>
           <LiveGiftBar
             starReady={starReady}
@@ -3575,21 +4424,50 @@ function LiveBody() {
             elapsedSecs={elapsedSecs}
             stars={stars}
             gifts={GIFTS}
-            unlockLabel={t("mobile.live.starUnlock", {
-              n: needMin,
-              time: `${Math.floor(elapsedSecs / 60)}:${String(
-                elapsedSecs % 60
-              ).padStart(2, "0")}`,
-            })}
-            readyLabel={t("mobile.live.starReady")}
-            onLockedPress={() => {
+            giftsTitle={t("mobile.live.giftsTitle") || "Gifts"}
+            partnerLine={
+              partner
+                ? t("mobile.live.giftsTo", {
+                    who: formatPartnerSummary({
+                      name: partner,
+                      stars: partnerStars,
+                      flag: partnerFlag,
+                      country: partnerCountry,
+                      city: partnerCity,
+                      lang: lang || "ru",
+                    }),
+                  }) ||
+                  `To ${formatPartnerSummary({
+                    name: partner,
+                    stars: partnerStars,
+                    flag: partnerFlag,
+                    country: partnerCountry,
+                    city: partnerCity,
+                    lang: lang || "ru",
+                  })}`
+                : undefined
+            }
+            unlockLabel={
+              t("mobile.live.starUnlockReview", {
+                n: needMin,
+                time: `${Math.floor(elapsedSecs / 60)}:${String(
+                  elapsedSecs % 60
+                ).padStart(2, "0")}`,
+              }) ||
+              t("mobile.live.starUnlock", {
+                n: needMin,
+                time: `${Math.floor(elapsedSecs / 60)}:${String(
+                  elapsedSecs % 60
+                ).padStart(2, "0")}`,
+              })
+            }
+            readyLabel={
+              t("mobile.live.starReviewReady") || t("mobile.live.starReady")
+            }
+            onCantAfford={(cost, have) => {
               showToastRef.current(
-                t("mobile.live.starUnlock", {
-                  n: needMin,
-                  time: `${Math.floor(elapsedSecs / 60)}:${String(
-                    elapsedSecs % 60
-                  ).padStart(2, "0")}`,
-                })
+                t("mobile.live.needStars", { cost, stars: have }) ||
+                  `Need ${cost}★ (you have ${have})`
               );
             }}
             onSpend={(id, cost) => spend(id, cost)}
@@ -3604,9 +4482,17 @@ function LiveBody() {
               onSubmitEditing={sendChat}
               returnKeyType="send"
               maxLength={CHAT_MAX}
+              accessibilityLabel={t("mobile.chat.placeholder")}
             />
-            <Pressable style={styles.chatSend} onPress={sendChat}>
-              <Text style={styles.btnText}>{t("mobile.common.send")}</Text>
+            <Pressable
+              style={styles.chatSend}
+              onPress={sendChat}
+              accessibilityRole="button"
+              accessibilityLabel={t("mobile.common.send")}
+            >
+              <Text style={styles.chatSendText}>
+                {t("mobile.common.send") || "Send"}
+              </Text>
             </Pressable>
           </View>
           {chatDraft.length >= 200 ? (
@@ -3619,7 +4505,102 @@ function LiveBody() {
         </>
       ) : null}
 
-      <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+      <View
+        style={
+          isBrowserLayout
+            ? [
+                styles.browserDock,
+                { paddingBottom: Math.max(insets.bottom, 10) },
+              ]
+            : [styles.bar, { paddingBottom: Math.max(insets.bottom, 10) }]
+        }
+      >
+        {/* Browser layout: gifts + chat docked over full-bleed video */}
+        {uiPhase === "matched" && isBrowserLayout ? (
+          <>
+            <View style={styles.browserGifts}>
+              <LiveGiftBar
+                starReady={starReady}
+                starProgress={starProgress}
+                needMin={needMin}
+                elapsedSecs={elapsedSecs}
+                stars={stars}
+                gifts={GIFTS}
+                giftsTitle={t("mobile.live.giftsTitle") || "Gifts"}
+                partnerLine={
+                  partner
+                    ? t("mobile.live.giftsTo", {
+                        who: formatPartnerSummary({
+                          name: partner,
+                          stars: partnerStars,
+                          flag: partnerFlag,
+                          country: partnerCountry,
+                          city: partnerCity,
+                          lang: lang || "ru",
+                        }),
+                      }) ||
+                      `To ${formatPartnerSummary({
+                        name: partner,
+                        stars: partnerStars,
+                        flag: partnerFlag,
+                        country: partnerCountry,
+                        city: partnerCity,
+                        lang: lang || "ru",
+                      })}`
+                    : undefined
+                }
+                unlockLabel={
+                  t("mobile.live.starUnlockReview", {
+                    n: needMin,
+                    time: `${Math.floor(elapsedSecs / 60)}:${String(
+                      elapsedSecs % 60
+                    ).padStart(2, "0")}`,
+                  }) ||
+                  t("mobile.live.starUnlock", {
+                    n: needMin,
+                    time: `${Math.floor(elapsedSecs / 60)}:${String(
+                      elapsedSecs % 60
+                    ).padStart(2, "0")}`,
+                  })
+                }
+                readyLabel={
+                  t("mobile.live.starReviewReady") ||
+                  t("mobile.live.starReady")
+                }
+                onCantAfford={(cost, have) => {
+                  showToastRef.current(
+                    t("mobile.live.needStars", { cost, stars: have }) ||
+                      `Need ${cost}★ (you have ${have})`
+                  );
+                }}
+                onSpend={(id, cost) => spend(id, cost)}
+              />
+            </View>
+            <View style={styles.browserChatCompose}>
+              <TextInput
+                style={styles.browserChatInput}
+                value={chatDraft}
+                onChangeText={onChatDraftChange}
+                placeholder={t("mobile.chat.placeholder")}
+                placeholderTextColor="#6b7a90"
+                onSubmitEditing={sendChat}
+                returnKeyType="send"
+                maxLength={CHAT_MAX}
+                accessibilityLabel={t("mobile.chat.placeholder")}
+              />
+              <Pressable
+                style={styles.chatSend}
+                onPress={sendChat}
+                accessibilityRole="button"
+                accessibilityLabel={t("mobile.common.send")}
+              >
+                <Text style={styles.chatSendText}>
+                  {t("mobile.common.send") || "Send"}
+                </Text>
+              </Pressable>
+            </View>
+          </>
+        ) : null}
         {(() => {
           const q = floorQueueCounts(waiting, online, uiPhase === "search");
           let meta = t("mobile.live.meta", {
@@ -3693,6 +4674,33 @@ function LiveBody() {
                   setShowLog(true);
                 }}
               />
+              {uiPhase === "matched" ? (
+                <LiveStatusBanners
+                  theyMutedMe={theyMutedMe}
+                  partnerMuted={partnerMuted}
+                  remoteBlurred={remoteBlurred}
+                  // Full-screen Modal owns privacy UI — avoid duplicate blur row under bar
+                  showBlurBanner={!showPrivacyBlur}
+                  theyMutedLabel={
+                    t("mobile.live.theyMutedYou") ||
+                    "They muted you · no sound"
+                  }
+                  partnerMutedLabel={
+                    t("mobile.live.youMutedThem") || "You muted · no sound"
+                  }
+                  blurredLabel={
+                    t("mobile.live.blurTitle") || "Privacy veil on"
+                  }
+                  unblurLabel={t("mobile.live.unblur") || "Show video"}
+                  onUnblur={() => {
+                    hapticLight();
+                    revealPartnerVideo("banner_unblur");
+                    showToastRef.current(
+                      t("mobile.live.partnerVideoOn") || "Partner video shown"
+                    );
+                  }}
+                />
+              ) : null}
               <LiveBottomBar
                 phase={uiPhase}
                 friendsOnly={friendsOnly}
@@ -3706,6 +4714,7 @@ function LiveBody() {
                 camOn={camOn}
                 hasLocal={!!localStream}
                 partnerMuted={partnerMuted}
+                remoteBlurred={remoteBlurred}
                 moreOpen={moreOpen}
                 debateActive={debate.active}
                 debateISpeak={debateISpeak}
@@ -3727,6 +4736,10 @@ function LiveBody() {
                   flipCam: t("btn.flipCam"),
                   partnerMuteShort: t("mobile.live.partnerMuteShort"),
                   partnerUnmuteShort: t("mobile.live.partnerUnmuteShort"),
+                  blurShort:
+                    t("mobile.live.blurShort") || "Blur partner",
+                  unblurShort:
+                    t("mobile.live.unblurShort") || "Show video",
                   more: t("mobile.live.more"),
                   cancel: t("mobile.common.cancel"),
                   invite: t("mobile.live.invite"),
@@ -3751,6 +4764,7 @@ function LiveBody() {
                   });
                 }}
                 onTogglePartnerMute={togglePartnerMute}
+                onToggleBlur={togglePartnerBlur}
                 onToggleMore={() => {
                   hapticLight();
                   setMoreOpen((v) => !v);
@@ -3766,6 +4780,7 @@ function LiveBody() {
         })()}
         {uiPhase === "matched" && moreOpen ? (
           <LiveMoreSheet
+            style={isBrowserLayout ? styles.moreSheetBrowser : undefined}
             partnerMuted={partnerMuted}
             isFriendCall={isFriendCall}
             remoteBlurred={remoteBlurred}
@@ -3773,6 +4788,7 @@ function LiveBody() {
             matchMode={matchMode}
             findThirdPending={findThirdPending}
             dataSaverOn={dataSaverOn}
+            liveLayout={liveLayout}
             earpiece={earpiece}
             debateActive={debate.active}
             debatePending={String(debate.pending || "")}
@@ -3790,6 +4806,12 @@ function LiveBody() {
               flipCam: t("btn.flipCam"),
               dataSaverOn: t("mobile.settings.dataSaverOn"),
               dataSaver: t("mobile.settings.dataSaver"),
+              layoutNative:
+                t("mobile.settings.liveLayoutUseNative") ||
+                "Use native call layout",
+              layoutBrowser:
+                t("mobile.settings.liveLayoutUseBrowser") ||
+                "Use browser-style layout",
               speakerOn: t("mobile.live.speakerOn"),
               earpieceOn: t("mobile.live.earpieceOn"),
               debateEnd: t("debate.end"),
@@ -3803,14 +4825,25 @@ function LiveBody() {
               togglePartnerMute();
               setMoreOpen(false);
             }}
-            onToggleBlur={() => {
+            onToggleLiveLayout={() => {
               hapticLight();
-              if (remoteBlurredRef.current) {
-                revealPartnerVideo("more_unblur");
-              } else {
-                clearIntroUnblurTimer();
-                setRemoteBlurred(true);
-              }
+              const next: LiveLayoutMode =
+                liveLayout === "browser" ? "native" : "browser";
+              setLiveLayout(next);
+              void loadMatchPrefs().then((p) =>
+                saveMatchPrefs({ ...p, liveLayout: next })
+              );
+              showToastRef.current(
+                next === "browser"
+                  ? t("mobile.settings.liveLayoutBrowserOn") ||
+                      "Browser-style layout"
+                  : t("mobile.settings.liveLayoutNativeOn") ||
+                      "Native call layout"
+              );
+              setMoreOpen(false);
+            }}
+            onToggleBlur={() => {
+              togglePartnerBlur();
               setMoreOpen(false);
             }}
             onBrowseTogether={() => {
@@ -3906,6 +4939,113 @@ function LiveBody() {
         ) : null}
       </View>
 
+      {/*
+        Full-screen privacy Modal — separate window above any leftover SurfaceView.
+        Partner RTCView is also unmounted in LiveStageVideo while veiled.
+      */}
+      <Modal
+        visible={!!showPrivacyBlur}
+        animationType="fade"
+        transparent={false}
+        presentationStyle="fullScreen"
+        statusBarTranslucent
+        hardwareAccelerated
+        onRequestClose={() => {
+          // Android back: reveal video (do not exit Live)
+          revealPartnerVideo("blur_modal_back");
+        }}
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "#3a4a66",
+            paddingTop: Math.max(insets.top, 16),
+            paddingBottom: Math.max(insets.bottom, 16),
+            paddingHorizontal: 20,
+            zIndex: 100,
+            elevation: 40,
+          }}
+          testID="live-blur-fullscreen"
+          collapsable={false}
+        >
+          <View style={{ flex: 1, borderRadius: 20, overflow: "hidden" }} collapsable={false}>
+            <PartnerBlurVeil
+              title={t("mobile.live.blurTitle") || "Privacy veil"}
+              partnerLabel={partnerBlurLine}
+              body={
+                t("mobile.live.blurBodyHold") ||
+                "Partner video is hidden. Tap Show video when ready."
+              }
+              buttonLabel={
+                t("mobile.live.unblurReady") ||
+                t("mobile.live.unblur") ||
+                "Show video"
+              }
+              hint={
+                theyMutedMe
+                  ? t("mobile.live.theyMutedYou") || "They muted you · no sound"
+                  : t("mobile.live.blurHint") || undefined
+              }
+              ready={!!remoteVideoReady || !!hasRemoteVideo}
+              onPress={() => {
+                hapticLight();
+                revealPartnerVideo("blur_modal");
+                showToastRef.current(
+                  t("mobile.live.partnerVideoOn") || "Partner video shown"
+                );
+              }}
+            />
+          </View>
+          <View
+            style={{
+              flexDirection: "row",
+              gap: 12,
+              marginTop: 12,
+              paddingHorizontal: 8,
+            }}
+          >
+            <Pressable
+              onPress={() => {
+                hapticLight();
+                revealPartnerVideo("blur_modal_next");
+                next();
+              }}
+              style={{
+                flex: 1,
+                backgroundColor: "rgba(255,255,255,0.14)",
+                paddingVertical: 14,
+                borderRadius: 999,
+                alignItems: "center",
+              }}
+              accessibilityRole="button"
+            >
+              <Text style={{ color: "#fff", fontWeight: "700" }}>
+                {t("btn.next") || "Next"}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                hapticLight();
+                revealPartnerVideo("blur_modal_stop");
+                stop();
+              }}
+              style={{
+                flex: 1,
+                backgroundColor: "rgba(255,80,90,0.4)",
+                paddingVertical: 14,
+                borderRadius: 999,
+                alignItems: "center",
+              }}
+              accessibilityRole="button"
+            >
+              <Text style={{ color: "#fff", fontWeight: "700" }}>
+                {t("btn.stop") || "Stop"}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       <ReportSheet
         visible={reportOpen}
         partnerLabel={partner || (partnerUserId.current || "").slice(0, 8) || "…"}
@@ -3927,6 +5067,7 @@ function LiveBody() {
           ))}
         </View>
       ) : null}
+
     </KeyboardAvoidingView>
   );
 }

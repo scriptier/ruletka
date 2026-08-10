@@ -1,19 +1,20 @@
 # Google Play Console — upload (current)
 
 Package: **`me.ruletka.app`**  
-**Ship tip:** **0.1.136 · versionCode 144** (sideload APK)  
-Ops: [`PLAY_OPS.md`](PLAY_OPS.md) · Data safety: [`PLAY_DATA_SAFETY.md`](PLAY_DATA_SAFETY.md) · **Checklist:** [`PLAY_INTERNAL_TEST_CHECKLIST.md`](PLAY_INTERNAL_TEST_CHECKLIST.md)
+**Ship tip:** **0.1.280 · versionCode 288** (connect lock + location + bars + post-call Start)  
+Ops: [`PLAY_OPS.md`](PLAY_OPS.md) · Data safety: [`PLAY_DATA_SAFETY.md`](PLAY_DATA_SAFETY.md) · **Checklist:** [`PLAY_INTERNAL_TEST_CHECKLIST.md`](PLAY_INTERNAL_TEST_CHECKLIST.md) · **Today:** [`PLAY_TODAY.md`](PLAY_TODAY.md)
 
 ## Ready binaries
 
 ```text
 # Sideload (device smoke) — always keep current
-mobile/artifacts/ruletka-0.1.136-vc144.apk
+mobile/artifacts/ruletka-0.1.280-vc288.apk
+mobile/artifacts/ruletka-android-latest.apk
 mobile/artifacts/ruletka-latest.apk
 
-# Play Console — build AAB when ready to upload
-cd mobile && ./scripts/build-aab-local.sh
-# → mobile/artifacts/ruletka-0.1.136-vc144.aab  (or next versionCode)
+# Play Console — AAB
+mobile/artifacts/ruletka-0.1.280-vc288.aab
+# or: cd mobile && ./scripts/build-aab-local.sh
 ```
 
 Signed with Play upload keystore (`mobile/secrets/ruletka-upload.jks`).
@@ -40,18 +41,19 @@ Open: [play.google.com/console](https://play.google.com/console) → app **me.ru
 
 1. **Testing → Internal testing → Create new release**
 2. Upload AAB from `mobile/artifacts/` (versionCode **>** last published)
-3. **Release name:** `0.1.136 (144)` (or current)
+3. **Release name:** `0.1.220 (228)` (or current from `app.json`)
 4. **Release notes** — run `./scripts/play-status.sh --notes` or:
 
 ```
-0.1.136 (144) — closed testing
+0.1.220 (228) — closed testing
 
-• Connect: one offer per match; no 0.8s thrash / 20s black wait
-• Partner mute visuals + debate over data channel (Play fix)
-• Multi-party: horizontal stack layout
-• Soft ICE / hard rebuild budgets restored (14s / 24s)
-• Friends Call + DMs; report + block; 18+ gate
-• Child safety: ruletka.vip/legal/child-safety.html
+• Blur: eye button on call bar + full-screen soft veil
+• Mute: banners you-muted / they-muted-you; hub notify partner
+• Partner card: name · location · ★ (long-press copy)
+• Android video under chrome so badges actually show
+• Gifts show who you’re gifting
+• Play↔PC TURN same Wi‑Fi; Friends Call/Chat
+• Home Privacy · Terms · Safety; 18+ · CSAE
 
 Hub: https://ruletka.vip
 Support: support@ruletka.me

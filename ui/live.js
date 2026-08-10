@@ -8361,6 +8361,20 @@ function sendPartnerMuteP2p(muted) {
     }
     if (!ok && rtc?.sendChatMessage?.(payload)) ok = true;
   } catch (_) {}
+  // Hub signal fallback — empty to= broadcasts to session peers (reliable on Play)
+  try {
+    send({
+      type: "signal",
+      kind: "partner_mute",
+      payload: JSON.stringify(payload),
+    });
+    ok = true;
+  } catch (_) {}
+  // Hub chat control — Android parses before showing chat bubble
+  try {
+    send({ type: "chat", body: "\x01pmute:" + (muted ? "1" : "0") });
+    ok = true;
+  } catch (_) {}
   return ok;
 }
 
@@ -8407,9 +8421,13 @@ function syncTheyMutedMeUi() {
 function handlePartnerMuteP2p(msg) {
   const uid = String(msg.user_id || "").slice(0, 64);
   if (uid && myUserId && uid === myUserId) return;
-  // Only current live partner
+  // Prefer live partner id, but accept during match if ids not fully synced yet
   const partner = primaryPartnerUserId || "";
-  if (partner && uid && uid !== partner) return;
+  const alt = String(lastMatchMeta?.user_id || "").slice(0, 64);
+  if (partner && uid && uid !== partner && (!alt || uid !== alt)) {
+    // Still accept when matched — uid mismatch was dropping mute on Play↔PC
+    if (!(matched || inFriendCall)) return;
+  }
   setTheyMutedMe(!!msg.muted, { toast: !!msg.muted });
 }
 
@@ -9494,7 +9512,7 @@ function clearOfferKickWatch() {
  * @param {object} peer peers[0]
  * @param {number[]} delaysMs
  */
-function armOfferKickWatch(msg, peer, delaysMs = [2000, 4500, 8000]) {
+function armOfferKickWatch(msg, peer, delaysMs = [600, 1400, 3200]) {
   clearOfferKickWatch();
   if (!msg || !peer) return;
   for (const ms of delaysMs) {
@@ -9502,42 +9520,82 @@ function armOfferKickWatch(msg, peer, delaysMs = [2000, 4500, 8000]) {
       try {
         if (!matched) return;
         if (!isOfferer) return;
-        // Match-level: first offer already left / locked — never rebuild
-        try {
-          if (window.__ruletMatchOfferAt || window.__ruletMatchOfferLock) {
-            return;
-          }
-        } catch (_) {}
         const peerId = (peer && peer.peer_id) || "legacy";
         const existing = peerId ? findPcForPeer(peerId) : null;
-        // Offer already on the wire, or answer already applied — leave alone
-        if (
-          existing &&
-          (existing._offerEmitOk ||
-            existing._gotRemoteAnswerAt ||
-            existing.pc?.currentRemoteDescription ||
-            existing.pc?.remoteDescription ||
-            existing.pc?.localDescription)
-        ) {
-          return;
-        }
-        // Any PC already offered this match
+        // REAL wire evidence only — must have actually emitted offer or got answer.
+        // localDescription alone is NOT enough: setLocal without emit caused
+        // the 35s MTO stall (offerKick returned early every wave).
+        const hasRealSdp = (pc) =>
+          !!(
+            pc &&
+            (pc._offerEmitOk ||
+              pc._gotRemoteAnswerAt ||
+              pc.pc?.currentRemoteDescription ||
+              pc.pc?.remoteDescription)
+          );
+        if (hasRealSdp(existing)) return;
         for (const pc of peerPcs.values()) {
-          if (
-            pc?._offerEmitOk ||
-            pc?._gotRemoteAnswerAt ||
-            pc?.pc?.localDescription
-          ) {
-            return;
-          }
+          if (hasRealSdp(pc)) return;
         }
         // Live media already — no need
         if (hasLiveRemoteMedia()) return;
+        // In-flight createOffer <0.9s — give it a moment before tear
+        if (
+          existing?._offerInFlight &&
+          ms < 900 &&
+          !existing._offerEmitOk
+        ) {
+          return;
+        }
+        // Local offer exists but never left the wire → re-emit (no rebuild)
+        const local = existing?.pc?.localDescription;
+        if (
+          existing &&
+          local &&
+          String(local.type || "") === "offer" &&
+          !existing._offerEmitOk
+        ) {
+          try {
+            log(
+              `offerKick re-emit +${ms}ms peer=${String(peerId).slice(0, 8)}`
+            );
+            let desc = local;
+            try {
+              if (
+                typeof shouldFilterToRelayCandidates === "function" &&
+                shouldFilterToRelayCandidates() &&
+                desc.sdp &&
+                typeof stripNonRelayCandidatesFromSdp === "function"
+              ) {
+                desc = {
+                  type: desc.type,
+                  sdp: stripNonRelayCandidatesFromSdp(String(desc.sdp)),
+                };
+              }
+            } catch (_) {}
+            if (typeof existing._emitSignal === "function") {
+              existing._emitSignal("offer", JSON.stringify(desc));
+            } else if (typeof existing.hooks?.onSignal === "function") {
+              existing.hooks.onSignal("offer", JSON.stringify(desc));
+            }
+            existing._offerEmitOk = true;
+            existing._offerSentOnce = true;
+            existing._lastOfferAt = Date.now();
+            try {
+              window.__ruletMatchOfferAt = Date.now();
+              window.__ruletMatchOfferAttemptAt = window.__ruletMatchOfferAt;
+              window.__ruletMatchOfferLock = 1;
+            } catch (_) {}
+            return;
+          } catch (e) {
+            console.warn("[offerKick] re-emit failed", e);
+          }
+        }
         log(
-          `offerKick re-kick +${ms}ms peer=${String(peerId).slice(0, 8)} emit=${existing?._offerEmitOk ? 1 : 0}`
+          `offerKick re-kick +${ms}ms peer=${String(peerId).slice(0, 8)} emit=${existing?._offerEmitOk ? 1 : 0} lock=${window.__ruletMatchOfferLock ? 1 : 0}`
         );
-        // Only tear if truly stuck with no local SDP
-        if (existing && !existing.pc?.localDescription) {
+        // Only tear if truly stuck with no local SDP / no emit
+        if (existing && !existing._offerEmitOk) {
           try {
             existing._offerSentOnce = false;
             existing._offerEmitOk = false;
@@ -9547,13 +9605,14 @@ function armOfferKickWatch(msg, peer, delaysMs = [2000, 4500, 8000]) {
           try {
             peerPcs.delete(peerId);
           } catch (_) {}
-        } else if (existing?.pc?.localDescription) {
-          return; // mid-negotiation — do not thrash
+        } else if (existing?._offerEmitOk) {
+          return; // already on wire
         }
-        // Clear lock so kick can emit one first offer
+        // Clear STALE lock (no real SDP) so kick can emit one first offer
         try {
           window.__ruletMatchOfferLock = 0;
           window.__ruletMatchOfferAttemptAt = 0;
+          window.__ruletMatchOfferAt = 0;
         } catch (_) {}
         void kickSoloWebRtc(msg, peer).catch((e) =>
           log(`offerKick fail ${e}`)
@@ -9568,7 +9627,15 @@ function armOfferKickWatch(msg, peer, delaysMs = [2000, 4500, 8000]) {
 
 function hideCallCoach() {
   const el = $("call-coach");
-  if (el) el.hidden = true;
+  if (el) {
+    el.hidden = true;
+    try {
+      el.setAttribute("hidden", "");
+      el.style.display = "none";
+      el.style.visibility = "hidden";
+      el.style.pointerEvents = "none";
+    } catch (_) {}
+  }
   const allowBtn = $("btn-coach-allow-turn");
   if (allowBtn) allowBtn.hidden = true;
 }
@@ -9708,15 +9775,24 @@ function autoDisablePreferDirectOnFail({ autoNext = true } = {}) {
  */
 function hasLiveRemoteMedia() {
   try {
+    // Prefer actual video frames / live video tracks — audio-only kept "Linking"
+    // forever while gifts still worked (hub path).
+    if (typeof partnerVideoHasFrames === "function" && partnerVideoHasFrames()) {
+      return true;
+    }
     const streams = [];
     const r = $("remote")?.srcObject;
     if (r) streams.push(r);
     const t = $("remote-third")?.srcObject;
     if (t) streams.push(t);
+    for (const pc of peerPcs.values()) {
+      if (pc?.remoteStream) streams.push(pc.remoteStream);
+    }
     for (const s of streams) {
-      if ((s.getTracks?.() || []).some((tr) => tr.readyState === "live")) {
-        return true;
-      }
+      const v = (s.getVideoTracks?.() || []).some(
+        (tr) => tr.readyState === "live" && tr.enabled !== false
+      );
+      if (v) return true;
     }
   } catch (_) {}
   return false;
@@ -9729,49 +9805,45 @@ function showPreferDirectAutoToast() {
   );
 }
 
+/**
+ * Connection-problem modal permanently disabled (user request).
+ * Silent recovery continues via TURN rebuild / soft ICE — no blocking popup.
+ * (Deploy must ship this — cached showCallCoach used to unhide #call-coach.)
+ */
 function showCallCoach(reasonKey) {
-  if (coachShownForMatch && $("call-coach") && !$("call-coach").hidden) return;
-  coachShownForMatch = true;
-  const el = $("call-coach");
-  if (!el) return;
+  try {
+    hideCallCoach();
+  } catch (_) {}
+  // Belt-and-suspenders: never leave the dialog visible even if CSS fails
+  try {
+    const el = $("call-coach");
+    if (el) {
+      el.hidden = true;
+      el.setAttribute("hidden", "");
+      el.style.display = "none";
+      el.style.visibility = "hidden";
+      el.style.pointerEvents = "none";
+    }
+  } catch (_) {}
   try {
     trackEvent("match_fail_ice", {
       reason: String(reasonKey || "coach").slice(0, 40),
       mode: matchMode || "solo",
+      ui: "coach_disabled",
     });
   } catch (_) {}
-  const prefer =
-    typeof preferDirectOnlyEnabled === "function" && preferDirectOnlyEnabled();
-  const lead = $("call-coach-lead");
-  if (lead) {
-    if (prefer && (reasonKey === "coach.failed" || reasonKey === "coach.timeout")) {
-      lead.textContent =
-        _t("coach.preferDirectFail") ||
-        _t(reasonKey || "coach.lead") ||
-        "Could not connect with Prefer Direct (no TURN). Allow TURN or try Next.";
-    } else {
-      lead.textContent = _t(reasonKey || "coach.lead");
+  // Soft strip only — never a blocking "Connection problem" dialog
+  try {
+    log(_t("log.webrtcFail") || String(reasonKey || "connection issue"));
+    // Prefer linking copy over "Connection problem" / "Weak"
+    if (!hasLiveRemoteMedia()) {
+      setConnStrip(
+        "warn",
+        _t("remote.connecting") || "Linking cameras…",
+        ""
+      );
     }
-  }
-  const meta = $("call-coach-meta");
-  if (meta) {
-    const turn =
-      window.__hasTurn || window.__iceMeta?.has_turn
-        ? _t("coach.metaTurnOn")
-        : _t("coach.metaTurnOff");
-    const path = $("ice-path")?.textContent || "";
-    const pd = prefer
-      ? _t("settings.preferDirectOn") || "Prefer Direct on"
-      : "";
-    meta.textContent = [turn, path, pd].filter(Boolean).join(" · ");
-  }
-  const allowBtn = $("btn-coach-allow-turn");
-  if (allowBtn) {
-    allowBtn.hidden = !prefer;
-  }
-  el.hidden = false;
-  setConnStrip("bad", _t("coach.strip"), "");
-  log(_t("log.webrtcFail"));
+  } catch (_) {}
 }
 
 function startWebrtcWatch() {
@@ -9780,66 +9852,42 @@ function startWebrtcWatch() {
   coachShownForMatch = false;
   hideCallCoach();
   // TURN / force-relay needs longer first path (alloc + permissions + relay RTT).
-  // Soft recover at 5.5s was thrashing phone↔browser into endless
-  // "Connection weak — reconnecting…" before media could land.
+  // Soft recover must NOT early-return on ice=checking — that left
+  // "Linking cameras / Connection weak" forever while host ICE hung and
+  // never switched to TURN (DC/stars can work over hub while video is black).
   const relayMode =
     (typeof isRelayMediaMode === "function" && isRelayMediaMode()) ||
     (typeof sessionForceRelayEnabled === "function" &&
       sessionForceRelayEnabled());
-  // First path often needs 10–20s (mobile + TURN). Soft recover earlier =
-  // endless "Connection weak — reconnecting" and zero media.
-  // Known-good budgets (0d61dbb/3cd1b44): soft 14s / hard 24s.
-  // Over-long graces (20–30s) made black screens feel worse than before.
-  const softMs = relayMode ? 22000 : 14000;
-  const hardMs = relayMode ? 35000 : 24000;
+  // Soft = re-push cam + iceRestart; hard = TURN rebuild.
+  // Non-relay black path must not wait 20s (hairpin gifts-work / no-video).
+  // Leave first path alone for TURN settle; hard only if still dark.
+  // Too-fast soft (5s) caused dual-offer thrash with the phone.
+  const softMs = relayMode ? 12000 : 9000;
+  const hardMs = relayMode ? 20000 : 16000;
   webrtcWatchSoftTimer = setTimeout(() => {
     if (!matched || hasLiveRemoteMedia()) return;
     if (autoDisablePreferDirectOnFail({ autoNext: false })) return;
     const target = rtc || [...peerPcs.values()][0];
     try {
+      if (!selfBlurred && !camOff) void pushOutboundVideoTracks();
+    } catch (_) {}
+    try {
       const ice = target?.pc?.iceConnectionState || "";
       const cs = target?.pc?.connectionState || "";
-      // Still negotiating — leave alone (esp. TURN checking)
-      if (
-        ice === "checking" ||
-        ice === "new" ||
-        cs === "connecting" ||
-        cs === "new"
-      ) {
-        return;
-      }
-      // ICE "connected" with black tiles: force TURN rebuild once (not every 5s)
-      if (
-        (ice === "connected" ||
-          ice === "completed" ||
-          cs === "connected") &&
-        !hasLiveRemoteMedia()
-      ) {
-        if (typeof setSessionForceRelay === "function") {
-          setSessionForceRelay(true);
-        }
-        log(
-          _t("log.forceRelayRecover") ||
-            "no video after connect — rebuilding on TURN relay"
-        );
-        try {
-          const pid =
-            target?.remotePeerId ||
-            lastMatchedPeers?.[0]?.peer_id ||
-            "";
-          schedulePeerHardReconnect(pid, target || null);
-        } catch (_) {
-          if (target) trySoftRecoverAny(target, { reason: "no_video_relay" });
-        }
-        return;
-      }
-    } catch (_) {}
-    if (target) trySoftRecoverAny(target, { reason: "watch_mid" });
+      log(`watch soft: no video ice=${ice} cs=${cs} — soft recover`);
+      // Prefer Direct off + soft ICE; do not thrash if already force-relay
+      if (target) trySoftRecoverAny(target, { reason: "watch_soft" });
+    } catch (_) {
+      if (target) trySoftRecoverAny(target, { reason: "watch_mid" });
+    }
   }, softMs);
-  // Coach if still dark after hardMs
+  // Hard: force TURN rebuild once if still dark (even when ICE says connected)
   webrtcWatchTimer = setTimeout(() => {
     if (!matched || hasLiveRemoteMedia()) return;
-    // Last chance: force relay + hard rebuild
+    try {
+      if (!selfBlurred && !camOff) void pushOutboundVideoTracks();
+    } catch (_) {}
     try {
       if (typeof setSessionForceRelay === "function") {
         setSessionForceRelay(true);
@@ -9847,20 +9895,20 @@ function startWebrtcWatch() {
       const target = rtc || [...peerPcs.values()][0];
       const pid =
         target?.remotePeerId || lastMatchedPeers?.[0]?.peer_id || "";
+      log("watch hard: no video — TURN rebuild");
       schedulePeerHardReconnect(pid, target || null);
     } catch (_) {}
-    if (!hasLiveRemoteMedia()) {
-      if (!autoDisablePreferDirectOnFail({ autoNext: false })) {
-        showCallCoach("coach.timeout");
-      }
-    }
   }, hardMs);
 }
 
 function handleWebrtcConnectionState(s, pcHint) {
   setStatus(_t("status.webrtc", { s }));
   if (s === "connected") {
-    webrtcConnectedOk = true;
+    // ICE "connected" is NOT enough — same-WiFi hairpin often selects host and
+    // stays black forever while gifts still work over the hub. Only treat as
+    // media-ok when remote video is actually live.
+    const mediaLive = hasLiveRemoteMedia();
+    webrtcConnectedOk = mediaLive;
     // Grab a local history thumb once media is up (on-device only)
     try {
       startHistoryThumbWatch();
@@ -9871,21 +9919,53 @@ function handleWebrtcConnectionState(s, pcHint) {
       }, 1200);
     } catch (_) {}
     // Allow another soft-ICE cycle after a successful recovery
-    if (pcHint) clearSoftRecoverFlags(pcHint);
-    clearWebrtcWatch();
+    if (pcHint && mediaLive) clearSoftRecoverFlags(pcHint);
+    // Keep video watch until frames — clearing it on ICE-only left black cams
+    if (mediaLive) {
+      clearWebrtcWatch();
+    } else if (!webrtcWatchTimer && !webrtcWatchSoftTimer) {
+      // Re-arm only if not already watching (avoid resetting soft/hard timers)
+      try {
+        startWebrtcWatch();
+      } catch (_) {}
+    }
     hideCallCoach();
     startStats();
     setRemoteEmpty(false);
+    // ICE up → push our cam + keyframes so partner paints sooner (TURN lag)
+    try {
+      if (!selfBlurred && !camOff) void pushOutboundVideoTracks();
+    } catch (_) {}
+    try {
+      const p = pcHint?.pc || rtc?.pc || [...peerPcs.values()][0]?.pc;
+      if (p && typeof kickMediaAfterIce === "function") kickMediaAfterIce(p);
+      else if (p && typeof requestOutboundKeyframes === "function") {
+        requestOutboundKeyframes(p);
+      }
+    } catch (_) {}
     ensurePartnerVideoVisible();
+    setTimeout(() => {
+      try {
+        ensurePartnerVideoVisible();
+        if (!selfBlurred && !camOff) void pushOutboundVideoTracks();
+      } catch (_) {}
+    }, 200);
+    setTimeout(() => {
+      try {
+        ensurePartnerVideoVisible();
+      } catch (_) {}
+    }, 700);
     try {
       watchPartnerVideoFrames();
     } catch (_) {}
     setArchPill("p2p");
     setConnStrip(
-      "call",
-      matchMode === "friend" || inFriendCall
-        ? _t("conn.friend") || "Friend call"
-        : _t("conn.matched"),
+      mediaLive ? "call" : "warn",
+      mediaLive
+        ? matchMode === "friend" || inFriendCall
+          ? _t("conn.friend") || "Friend call"
+          : _t("conn.matched")
+        : _t("remote.connecting") || "Linking cameras…",
       ""
     );
     updateChatHeader();
@@ -10060,15 +10140,23 @@ function startSoftRecoverPipeline(peerId, pc, opts = {}) {
   // to bypass this grace entirely — an early ICE "failed" (glare, first-path
   // hiccup) fired an immediate soft-recover attempt + "reconnecting" UI before
   // TURN/ICE even had a chance to settle.
-  // If first SDP already negotiated, protect it longer. If no remote SDP yet,
-  // allow recover sooner (was 25s — felt slower than known-good builds).
+  // If video is already live, protect the path longer. If black (hairpin),
+  // allow recover sooner so TURN can take over without a 20s dead wait.
   const age = matchMediaGraceAt ? Date.now() - matchMediaGraceAt : 99999;
   let hasRemoteSdp = false;
   try {
     const t = pc?.pc || pc;
     hasRemoteSdp = !!(t?.currentRemoteDescription || t?.remoteDescription);
   } catch (_) {}
-  const grace = hasRemoteSdp ? 20000 : 8000;
+  const noVideo = !hasLiveRemoteMedia();
+  // Never soft-recover thrash during first media path (was 4–6.5s → black forever)
+  const grace = noVideo
+    ? hasRemoteSdp
+      ? 25000
+      : 15000
+    : hasRemoteSdp
+      ? 30000
+      : 15000;
   if (age < grace) {
     console.info(
       "[soft recover] skipped — match grace",
@@ -10078,6 +10166,12 @@ function startSoftRecoverPipeline(peerId, pc, opts = {}) {
     );
     return;
   }
+  // Cap: one soft-recover pipeline per match
+  if (pc._softRecoverDone) {
+    console.info("[soft recover] skipped — already ran this match");
+    return;
+  }
+  pc._softRecoverDone = true;
   pc._softRecoverActive = true;
   pc._softIceTried = true;
   pc._softIceAttempts = 0;
@@ -10337,6 +10431,8 @@ function schedulePeerHardReconnect(peerId, oldPc) {
   // this directly at softMs (~14s, non-relay) — inside the window every other
   // recovery path now treats as off-limits — re-offering the same peer mid-match.
   // Hard rebuild only after first path had a chance; shorter if never got remote SDP.
+  // CRITICAL: when ICE is "connected" but video is black (hairpin), do NOT wait
+  // 18s — that left gifts working and cameras dark forever.
   const age = matchMediaGraceAt ? Date.now() - matchMediaGraceAt : 99999;
   let hasRemoteSdp = false;
   try {
@@ -10346,11 +10442,25 @@ function schedulePeerHardReconnect(peerId, oldPc) {
       oldPc?.currentRemoteDescription
     );
   } catch (_) {}
-  const grace = hasRemoteSdp ? 18000 : 10000;
+  const noVideo = !hasLiveRemoteMedia();
+  // First path must settle. Hard rebuild before 30s was thrash (black forever).
+  const grace = noVideo
+    ? hasRemoteSdp
+      ? 30000
+      : 20000
+    : hasRemoteSdp
+      ? 45000
+      : 25000;
   if (age < grace) {
     console.info("[hard reconnect] skipped — match grace", age, grace);
     return;
   }
+  // Cap one hard reconnect per match
+  if (schedulePeerHardReconnect._done) {
+    console.info("[hard reconnect] skipped — already once this match");
+    return;
+  }
+  schedulePeerHardReconnect._done = true;
   if (oldPc) oldPc._softReconnectScheduled = true;
   if (schedulePeerHardReconnect._busy) return;
   // Before rebuild: force TURN if still failing (VPN / CGNAT / corporate)
@@ -10358,6 +10468,9 @@ function schedulePeerHardReconnect(peerId, oldPc) {
     tryVpnRelayRecovery();
   } catch (_) {}
   schedulePeerHardReconnect._busy = true;
+  // Generation token — Stop/Next bumps media generation; ignore stale rebuilds
+  const gen = (schedulePeerHardReconnect._gen =
+    (schedulePeerHardReconnect._gen || 0) + 1);
   setStatus(
     _t("conn.reconnectingMedia") ||
       _t("trio.peerRetry") ||
@@ -10375,6 +10488,11 @@ function schedulePeerHardReconnect(peerId, oldPc) {
   });
   (async () => {
     try {
+      // Stop / Next mid-rebuild must not rejoin the OLD partner
+      if (!matched || gen !== schedulePeerHardReconnect._gen) {
+        console.info("[hard reconnect] aborted — left match");
+        return;
+      }
       const existing =
         (peerId && peerPcs.get(peerId)) ||
         (oldPc &&
@@ -10399,6 +10517,7 @@ function schedulePeerHardReconnect(peerId, oldPc) {
           if (v === existing) peerPcs.delete(k);
         }
       }
+      if (!matched || gen !== schedulePeerHardReconnect._gen) return;
       // Rebuild from last matched peer list (same conversation — no hub rematch)
       const peers =
         (lastMatchedPeers && lastMatchedPeers.length
@@ -10407,11 +10526,14 @@ function schedulePeerHardReconnect(peerId, oldPc) {
         ).slice();
       if (!peers.length) return;
       await joinPeers(peers);
+      if (!matched || gen !== schedulePeerHardReconnect._gen) return;
       ensurePartnerVideoVisible();
     } catch (e) {
       console.warn("[soft reconnect]", e);
     } finally {
-      schedulePeerHardReconnect._busy = false;
+      if (gen === schedulePeerHardReconnect._gen) {
+        schedulePeerHardReconnect._busy = false;
+      }
     }
   })();
 }
@@ -10516,7 +10638,7 @@ function setSplitRemote(on) {
 }
 
 const STAGE_LAYOUT_KEY = "ruletka-stage-layout-v1";
-/** @type {"stack"|"grid"} stack = horizontal conversationalists; grid = equal windows */
+/** @type {"stack"|"grid"} stack = horizontal side-by-side columns; grid = 2×2 equal windows */
 let stageLayoutMode = "stack";
 
 function loadStageLayoutPref() {
@@ -10572,7 +10694,7 @@ function isMultiPartyStage() {
 }
 
 /**
- * Apply stack (horizontal conversationalists) or equal grid layout.
+ * Apply stack (horizontal side-by-side) or equal grid layout.
  * Default stack; user can toggle to 2×2 equal windows.
  */
 /**
@@ -11416,8 +11538,30 @@ function startPeerBlurCanvas(slot) {
   if (!canvas) return;
   canvas.hidden = false;
   canvas.classList.add("is-active");
+  // Soft slate immediately so user never sees a black frame while waiting
+  try {
+    const boot = canvas.getContext("2d", { alpha: false });
+    if (boot) {
+      if (!canvas.width || !canvas.height) {
+        canvas.width = 360;
+        canvas.height = 640;
+      }
+      drawSoftBlurredVideo(boot, video, canvas, { mirror: false });
+    }
+  } catch (_) {}
   const ctx = canvas.getContext("2d", { alpha: false });
   if (!ctx) return;
+  // Kick again when first frames arrive (canvas was empty slate before)
+  const onReady = () => {
+    if (!peerBlurredByEl[slot]) return;
+    try {
+      drawSoftBlurredVideo(ctx, video, canvas, { mirror: false });
+    } catch (_) {}
+  };
+  try {
+    video.addEventListener("loadeddata", onReady, { once: true });
+    video.addEventListener("playing", onReady, { once: true });
+  } catch (_) {}
   const tick = () => {
     if (!peerBlurredByEl[slot]) {
       stopPeerBlurCanvas(slot);
@@ -11674,10 +11818,38 @@ function prepareVideoEl(el, { muted = false } = {}) {
 
 function playVideoEl(el) {
   if (!el) return;
-  prepareVideoEl(el, { muted: el.id === "local" || el.muted });
+  const isLocal =
+    el.id === "local" ||
+    el.id === "local-pip-mirror" ||
+    el.id === "friend-pip";
+  // Local must stay muted for autoplay. Remote: try unmuted first (user clicked
+  // Start), but if autoplay policy blocks, mute → play so FRAMES still paint
+  // (one-way black on PC was often paused <video> with live tracks).
+  prepareVideoEl(el, { muted: isLocal });
+  if (!isLocal) {
+    try {
+      el.muted = false;
+      el.removeAttribute("muted");
+    } catch (_) {}
+  }
   try {
     const p = el.play?.();
-    if (p && typeof p.catch === "function") p.catch(() => {});
+    if (p && typeof p.catch === "function") {
+      p.catch(() => {
+        if (isLocal) return;
+        try {
+          el.muted = true;
+          const p2 = el.play?.();
+          if (p2 && typeof p2.then === "function") {
+            p2.then(() => {
+              try {
+                el.muted = false;
+              } catch (_) {}
+            }).catch(() => {});
+          }
+        } catch (_) {}
+      });
+    }
   } catch (_) {}
 }
 
@@ -11731,22 +11903,74 @@ function bindPcVideo(pc, el) {
 }
 
 function paintRemoteFromPc(pc, stream) {
-  const el = pc?._videoEl;
+  // Prefer live #remote (may have been remounted)
+  let el = pc?._videoEl || $("remote");
+  try {
+    const live = $("remote");
+    if (live && live !== el) el = live;
+  } catch (_) {}
   if (!el) return;
+  if (pc) pc._videoEl = el;
   prepareVideoEl(el, { muted: false });
-  const next = stream || pc.remoteStream || null;
-  // Avoid thrashing srcObject (resets A/V sync clocks in some browsers)
-  if (el.srcObject !== next) el.srcObject = next;
+  const next = stream || pc?.remoteStream || null;
+  if (!next) return;
+  // Diagnostic: log track state once per bind (helps PC black forensics)
+  try {
+    if (!paintRemoteFromPc._logged || paintRemoteFromPc._logged !== next.id) {
+      paintRemoteFromPc._logged = next.id || String(Date.now());
+      const vt = next.getVideoTracks?.() || [];
+      const at = next.getAudioTracks?.() || [];
+      log(
+        `paint remote a=${at.length} v=${vt.length} vLive=${vt.filter((t) => t.readyState === "live").length} muted=${vt[0]?.muted ? 1 : 0}`
+      );
+    }
+  } catch (_) {}
+  // Force enable inbound tracks (Android may mark muted until keyframe)
+  try {
+    (next.getTracks?.() || []).forEach((t) => {
+      try {
+        if (t.enabled === false) t.enabled = true;
+      } catch (_) {}
+    });
+  } catch (_) {}
+  // HARD show video element (some paths left [hidden] or empty overlay on top)
+  try {
+    el.hidden = false;
+    el.removeAttribute("hidden");
+    el.style.setProperty("display", "block", "important");
+    el.style.setProperty("opacity", "1", "important");
+    el.style.setProperty("visibility", "visible", "important");
+    el.style.setProperty("z-index", "5", "important");
+  } catch (_) {}
+  // Always rebind srcObject when any video track present (audio-first black)
+  try {
+    const hasV = (next.getVideoTracks?.() || []).length > 0;
+    if (hasV || el.srcObject !== next) {
+      if (el.srcObject !== next) {
+        try {
+          el.srcObject = null;
+        } catch (_) {}
+        el.srcObject = next;
+      }
+    }
+  } catch (_) {
+    try {
+      el.srcObject = next;
+    } catch (_) {}
+  }
   playVideoEl(el);
-  // Keep receive jitter buffers tight so audio doesn't drift behind video
   try {
     if (typeof applyLowLatencyPlayout === "function" && pc?.pc) {
       applyLowLatencyPlayout(pc.pc);
     }
   } catch (_) {}
-  // Partner tiles only — not friend PiP / local
   if (isMainRemoteVideoEl(el)) {
+    // Force-hide empty overlay — z-index 2 covers #remote (z-index 1)
     setRemoteEmpty(false);
+    try {
+      $("remote-empty")?.classList.add("hidden");
+      $("tile-remote")?.classList.add("has-remote-feed");
+    } catch (_) {}
     applyRemoteVolume();
     applySpeaker();
   }
@@ -11757,20 +11981,36 @@ function ensurePartnerVideoVisible() {
   for (const id of ["remote", "remote2", "remote-third"]) {
     const el = $(id);
     if (!el?.srcObject) continue;
+    // Any video track is enough — readyState can lag first frame
+    const hasVid = (el.srcObject.getVideoTracks?.() || []).length > 0;
     const live = (el.srcObject.getTracks?.() || []).some(
       (t) => t.kind === "video" && t.readyState === "live"
     );
-    if (!live) continue;
+    if (!hasVid && !live) continue;
+    try {
+      el.hidden = false;
+      el.removeAttribute("hidden");
+      el.style.setProperty("display", "block", "important");
+      el.style.setProperty("opacity", "1", "important");
+      el.style.setProperty("z-index", "5", "important");
+    } catch (_) {}
     setRemoteEmpty(false);
+    try {
+      $("remote-empty")?.classList.add("hidden");
+      $("tile-remote")?.classList.add("has-remote-feed");
+    } catch (_) {}
     playVideoEl(el);
   }
   // Also re-paint from peer map (srcObject may be set but overlay still up)
   for (const pc of peerPcs.values()) {
-    if (!pc?.remoteStream || !isMainRemoteVideoEl(pc._videoEl)) continue;
-    const hasVid = (pc.remoteStream.getVideoTracks?.() || []).some(
-      (t) => t.readyState === "live"
-    );
+    if (!pc?.remoteStream) continue;
+    const hasVid = (pc.remoteStream.getVideoTracks?.() || []).length > 0;
     if (hasVid) {
+      if (!pc._videoEl) {
+        try {
+          pc._videoEl = $("remote");
+        } catch (_) {}
+      }
       paintRemoteFromPc(pc, pc.remoteStream);
     }
   }
@@ -12935,13 +13175,100 @@ function partnerVideoHasFrames() {
   return false;
 }
 
+/**
+ * Nuclear remount of #remote when tracks are live but videoWidth stays 0.
+ * Some Chrome builds keep a paused/detached decoder after audio-first ontrack;
+ * recreating the <video> + rebinding srcObject forces a new media element path.
+ */
+function remountRemoteVideoEl(reason) {
+  try {
+    const old = $("remote");
+    const stack = $("remote-stack") || $("tile-remote");
+    if (!old || !stack) return null;
+    const stream =
+      old.srcObject ||
+      rtc?.remoteStream ||
+      [...peerPcs.values()][0]?.remoteStream ||
+      null;
+    const neu = document.createElement("video");
+    neu.id = "remote";
+    neu.className = old.className || "vid remote";
+    neu.autoplay = true;
+    neu.playsInline = true;
+    neu.setAttribute("playsinline", "");
+    neu.setAttribute("webkit-playsinline", "");
+    // Keep muted=false path; playVideoEl will mute-failopen if needed
+    neu.muted = false;
+    try {
+      old.srcObject = null;
+    } catch (_) {}
+    try {
+      old.pause?.();
+    } catch (_) {}
+    old.replaceWith(neu);
+    // Re-point peer PCs at the new element
+    for (const pc of peerPcs.values()) {
+      try {
+        if (pc && (pc._videoEl === old || !pc._videoEl || pc._videoEl?.id === "remote")) {
+          pc._videoEl = neu;
+        }
+      } catch (_) {}
+    }
+    if (stream) {
+      try {
+        neu.srcObject = stream;
+      } catch (_) {}
+      playVideoEl(neu);
+    }
+    try {
+      neu.style.setProperty("display", "block", "important");
+      neu.style.setProperty("opacity", "1", "important");
+      neu.style.setProperty("visibility", "visible", "important");
+      neu.style.setProperty("z-index", "5", "important");
+    } catch (_) {}
+    setRemoteEmpty(false);
+    $("tile-remote")?.classList.add("has-remote-feed");
+    log(`remount #remote (${reason || "?"}) stream=${stream ? 1 : 0}`);
+    return neu;
+  } catch (e) {
+    log(`remount #remote fail ${e}`);
+    return null;
+  }
+}
+
+/** Read inbound video framesDecoded from the active PC (decode vs paint). */
+async function peekInboundVideoStats() {
+  const pc = rtc?.pc || [...peerPcs.values()][0]?.pc;
+  if (!pc?.getStats) return { frames: 0, bytes: 0 };
+  try {
+    const report = await pc.getStats();
+    let frames = 0;
+    let bytes = 0;
+    report.forEach((r) => {
+      if (
+        r.type === "inbound-rtp" &&
+        (r.kind === "video" || r.mediaType === "video")
+      ) {
+        if (typeof r.framesDecoded === "number") frames += r.framesDecoded;
+        else if (typeof r.framesReceived === "number") frames += r.framesReceived;
+        if (typeof r.bytesReceived === "number") bytes += r.bytesReceived;
+      }
+    });
+    return { frames, bytes };
+  } catch (_) {
+    return { frames: 0, bytes: 0 };
+  }
+}
+
 /** Watch for blank partner feed after match and surface a clear status (not a crash). */
 let blankVideoWatchTimer = 0;
+let blankVideoRemounted = false;
 function watchPartnerVideoFrames() {
   if (blankVideoWatchTimer) {
     clearInterval(blankVideoWatchTimer);
     blankVideoWatchTimer = 0;
   }
+  blankVideoRemounted = false;
   if (!matched && !inFriendCall) return;
   let ticks = 0;
   blankVideoWatchTimer = setInterval(() => {
@@ -12956,6 +13283,14 @@ function watchPartnerVideoFrames() {
       blankVideoWatchTimer = 0;
       return;
     }
+    // After ~2s: force hide empty + play (cover was common with HOT RTP)
+    if (ticks === 4) {
+      try {
+        ensurePartnerVideoVisible();
+        const pc = rtc || [...peerPcs.values()][0];
+        if (pc?.remoteStream) paintRemoteFromPc(pc, pc.remoteStream);
+      } catch (_) {}
+    }
     // After ~3s with a "live" track but no frames, tell the user what's going on
     if (ticks === 6 && partnerHasLiveVideo()) {
       setStatus(
@@ -12963,9 +13298,61 @@ function watchPartnerVideoFrames() {
           "Connected — waiting for their camera…"
       );
       trackEvent("partner_video_blank", { t: 3 });
+      // Re-push our cam + rebind remote — tracks may exist without frames
+      try {
+        if (!selfBlurred && !camOff) void pushOutboundVideoTracks();
+      } catch (_) {}
+      try {
+        const pc = rtc || [...peerPcs.values()][0];
+        if (pc?.remoteStream) paintRemoteFromPc(pc, pc.remoteStream);
+      } catch (_) {}
+      // Log decode path
+      void peekInboundVideoStats().then((s) => {
+        log(`blank@3s inbound frames=${s.frames} bytes=${s.bytes}`);
+      });
     }
-    // After ~10s still blank: soft recovery nudge
-    if (ticks >= 20) {
+    // At ~4s: remount <video> once if track live but still no paint
+    if (
+      ticks === 8 &&
+      !blankVideoRemounted &&
+      partnerHasLiveVideo() &&
+      !partnerVideoHasFrames()
+    ) {
+      blankVideoRemounted = true;
+      remountRemoteVideoEl("blank@4s");
+      try {
+        const pc = rtc || [...peerPcs.values()][0];
+        if (pc?.remoteStream) paintRemoteFromPc(pc, pc.remoteStream);
+      } catch (_) {}
+      trackEvent("partner_video_remount", { t: 4 });
+    }
+    // At 5s: paint/keyframe only — NEVER hard-reconnect (that was the thrash
+    // that left partner black forever: rebuild@5s killed first TURN path).
+    if (ticks === 10 && !partnerVideoHasFrames() && (matched || inFriendCall)) {
+      trackEvent("partner_video_blank", { t: 5 });
+      try {
+        if (!selfBlurred && !camOff) void pushOutboundVideoTracks();
+      } catch (_) {}
+      try {
+        const pc = rtc || [...peerPcs.values()][0];
+        if (pc?.remoteStream) paintRemoteFromPc(pc, pc.remoteStream);
+        if (pc?.pc) {
+          try {
+            requestOutboundKeyframes?.(pc.pc);
+          } catch (_) {}
+          try {
+            kickMediaAfterIce?.(pc.pc);
+          } catch (_) {}
+        }
+      } catch (_) {}
+      void peekInboundVideoStats().then((s) => {
+        log(
+          `blank@5s paint/keyframe inbound frames=${s.frames} bytes=${s.bytes}`
+        );
+      });
+    }
+    // After ~15s still blank: message only (no soft-recover thrash)
+    if (ticks >= 30) {
       clearInterval(blankVideoWatchTimer);
       blankVideoWatchTimer = 0;
       if (!partnerVideoHasFrames() && (matched || inFriendCall)) {
@@ -12973,14 +13360,7 @@ function watchPartnerVideoFrames() {
           _t("conn.partnerVideoBlank") ||
             "Their video is blank — they may have camera off, or Next for someone else."
         );
-        trackEvent("partner_video_blank", { t: 10 });
-        // Try soft ICE once in case path is stuck
-        try {
-          const pc = rtc || [...peerPcs.values()][0];
-          if (pc && !webrtcConnectedOk) {
-            trySoftRecoverAny(pc, { reason: "blank_video" });
-          }
-        } catch (_) {}
+        trackEvent("partner_video_blank", { t: 15 });
       }
     }
   }, 500);
@@ -12998,6 +13378,17 @@ function setRemoteEmpty(show, opts) {
   $("remote-empty")?.classList.toggle("hidden", !show);
   // Hide partner name chip when no one is connected
   if (show) {
+    // CRITICAL: has-remote-feed CSS forces #remote-empty { display:none !important }
+    // Even after .hidden is removed. Leaving the class after hangup/partner-left
+    // blanked the partner tile and hid Start — only Messages/Friends remained.
+    $("tile-remote")?.classList.remove("has-remote-feed");
+    try {
+      const r = $("remote");
+      if (r && !matched) {
+        // Drop black <video> surface so empty Start layer is visible again
+        if (!peerPcs.size) r.srcObject = null;
+      }
+    } catch (_) {}
     const wrap = $("remote-tile-tag");
     const tag = $("remote-tag");
     const nameEl = $("remote-name");
@@ -13199,6 +13590,7 @@ function showPartnerEmptyWithBrand({ searching = false } = {}) {
       }
     }
   } catch (_) {}
+  $("tile-remote")?.classList.remove("has-remote-feed");
   setRemoteEmpty(true, { force: true });
   const empty = $("remote-empty");
   if (empty) {
@@ -13632,15 +14024,41 @@ function syncMatchChrome() {
   const next = $("btn-next");
   const stop = $("btn-stop");
   const spin = $("btn-spin");
+  const br = $("btn-block-report");
+  const tileRemote = $("tile-remote");
+
+  // Heal stuck post-call state: feed class without a live match hides Start forever
+  if (
+    !matched &&
+    !inFriendCall &&
+    tileRemote?.classList.contains("has-remote-feed") &&
+    !(typeof partnerHasLiveVideo === "function" && partnerHasLiveVideo())
+  ) {
+    tileRemote.classList.remove("has-remote-feed");
+    try {
+      const r = $("remote");
+      if (r && !peerPcs.size) r.srcObject = null;
+    } catch (_) {}
+  }
 
   const emptyOpen =
     !!empty && !empty.classList.contains("hidden") && !matched && !inFriendCall;
   const isIdle =
-    emptyOpen && !inQueue && !wantSearch && !trioBrowse && !findThirdPending;
+    !matched &&
+    !inFriendCall &&
+    !inQueue &&
+    !wantSearch &&
+    !trioBrowse &&
+    !findThirdPending;
   const isSearching =
     !matched && !inFriendCall && (inQueue || wantSearch) && !trioBrowse;
-  const isLive =
-    matched || inFriendCall || !!trioBrowse;
+  const isLive = matched || inFriendCall || !!trioBrowse;
+
+  // Idle always needs empty + Start visible (even if a prior path left empty.hidden)
+  if (isIdle && empty) {
+    empty.classList.remove("hidden", "is-searching");
+    tileRemote?.classList.remove("has-remote-feed");
+  }
 
   if (startBtn) startBtn.hidden = !isIdle;
   document.documentElement.classList.toggle("start-idle", isIdle);
@@ -13658,14 +14076,17 @@ function syncMatchChrome() {
   if (isIdle) {
     if (next) next.hidden = true;
     if (stop) stop.hidden = true;
+    if (br) br.hidden = true;
   } else if (isSearching) {
     if (next) next.hidden = true;
     if (stop) stop.hidden = false;
+    if (br) br.hidden = true;
   } else if (isLive) {
     // Pure 1v1 friend call: hang-up is the main exit; Next is for strangers
     const pureFriend = inFriendCall && matchMode === "friend" && !trioBrowse;
     if (next) next.hidden = pureFriend;
     if (stop) stop.hidden = false;
+    // Block·Report: updateFriendActionButtons owns canMod; don't force-show here
   } else {
     if (next) next.hidden = false;
     if (stop) stop.hidden = false;
@@ -13689,6 +14110,25 @@ function syncMatchChrome() {
   if (localFloor) {
     localFloor.classList.toggle("is-idle", isIdle);
     localFloor.classList.toggle("has-invite", !!( $("footer-invite") && !$("footer-invite").hidden ));
+  }
+  // Clear leftover mute badges when not live (were stuck after hangup)
+  if (!isLive) {
+    try {
+      [
+        "peer-mute-badge-remote",
+        "peer-mute-badge-local-by-them",
+        "peer-mute-badge-remote2",
+        "peer-mute-badge-third",
+      ].forEach((id) => {
+        const el = $(id);
+        if (el) el.hidden = true;
+      });
+      if (!matched) {
+        partnerMuted = false;
+        theyMutedMe = false;
+        peerMutedByEl.remote = false;
+      }
+    } catch (_) {}
   }
   updateEmptyShareVisibility();
   if (isIdle) maybeShowPeopleOnlineNudge();
@@ -14606,6 +15046,30 @@ function ensureNotifPermissionSoft() {
   } catch (_) {}
 }
 
+/**
+ * Register / clear Web Push with hub (platform=web) so offline call_friend
+ * can ring when the tab is fully closed. No-op without VAPID or SW.
+ */
+async function syncWebPushRegistration(enabled) {
+  try {
+    const wp = window.RuletWebPush;
+    if (!wp || typeof wp.syncHubPush !== "function") return;
+    const r = await wp.syncHubPush(send, !!enabled);
+    if (r && r.ok && enabled) {
+      trackEvent("web_push_register", { ok: 1, n: r.tokenLen || 0 });
+    } else if (enabled && r && !r.ok) {
+      trackEvent("web_push_register", { ok: 0, reason: String(r.reason || "") });
+    }
+  } catch (e) {
+    try {
+      trackEvent("web_push_register", {
+        ok: 0,
+        reason: String(e && e.message ? e.message : "err").slice(0, 40),
+      });
+    } catch (_) {}
+  }
+}
+
 async function setFriendOnlineNotif(on) {
   savePrefs({ friendOnlineNotif: !!on });
   syncFriendOnlineNotifUi();
@@ -14614,6 +15078,7 @@ async function setFriendOnlineNotif(on) {
     setStatus(
       _t("friends.notifOffline") || "Call & online alerts off"
     );
+    void syncWebPushRegistration(false);
     return;
   }
   if (typeof Notification === "undefined") {
@@ -14627,8 +15092,9 @@ async function setFriendOnlineNotif(on) {
   if (Notification.permission === "granted") {
     setStatus(
       _t("friends.notifOnCalls") ||
-        "Alerts on — calls & friends online when this tab is in the background"
+        "Alerts on — calls even if this tab is closed (when push is available)"
     );
+    void syncWebPushRegistration(true);
     return;
   }
   if (Notification.permission === "denied") {
@@ -14646,8 +15112,9 @@ async function setFriendOnlineNotif(on) {
     if (p === "granted") {
       setStatus(
         _t("friends.notifOnCalls") ||
-          "Alerts on — calls & friends online when this tab is in the background"
+          "Alerts on — calls even if this tab is closed (when push is available)"
       );
+      void syncWebPushRegistration(true);
     } else {
       savePrefs({ friendOnlineNotif: false });
       syncFriendOnlineNotifUi();
@@ -15227,6 +15694,34 @@ function refreshConnectionDetails() {
     else qualEl.textContent = tt("settings.connQualityAuto", "Auto");
   }
   if (resEl) resEl.textContent = videoResLabel(getVideoResolutionPref());
+  // Last connect stopwatch (persisted when CONNECT stats land)
+  try {
+    const lastEl = $("conn-detail-last-link");
+    if (lastEl) {
+      let c = null;
+      try {
+        c = window.__ruletConnect || null;
+      } catch (_) {}
+      if (!c || (c.offerMs == null && c.answerMs == null && c.iceMs == null && c.trackMs == null)) {
+        try {
+          const raw = localStorage.getItem("ruletka-last-connect-v1");
+          if (raw) c = JSON.parse(raw);
+        } catch (_) {}
+      }
+      if (c && (c.offerMs != null || c.answerMs != null || c.iceMs != null || c.trackMs != null || c.frameMs != null)) {
+        const parts = [];
+        if (c.offerMs != null) parts.push(`offer ${c.offerMs}ms`);
+        if (c.answerMs != null) parts.push(`answer ${c.answerMs}ms`);
+        if (c.iceMs != null) parts.push(`ice ${c.iceMs}ms`);
+        const fr = c.trackMs != null ? c.trackMs : c.frameMs;
+        if (fr != null) parts.push(`frame ${fr}ms`);
+        lastEl.textContent = parts.join(" · ") || "—";
+      } else {
+        lastEl.textContent =
+          _t("settings.connLastLinkEmpty") || "No connect yet";
+      }
+    }
+  } catch (_) {}
   if (hubEl) {
     try {
       hubEl.textContent =
@@ -16145,11 +16640,19 @@ async function pushOutboundVideoTracks() {
  */
 function needsCanvasVideoBlur() {
   try {
-    // Coarse pointer / no hover ≈ phone/tablet; also force for iOS UA
+    // CSS filter:blur() on <video> paints solid black on many Android/iOS builds.
+    // Always use canvas sampling on mobile UA — never rely on media-query alone
+    // (desktop-mode Chrome on phones can report hover:hover + fine pointer).
     const ua = navigator.userAgent || "";
-    if (/iPhone|iPad|iPod|Android|Mobile|webOS/i.test(ua)) return true;
+    if (/iPhone|iPad|iPod|Android|Mobile|webOS|Silk|Kindle/i.test(ua)) {
+      return true;
+    }
     if (window.matchMedia?.("(hover: none)").matches) return true;
     if (window.matchMedia?.("(pointer: coarse)").matches) return true;
+    // Touch-capable laptops still often black out video filter — prefer canvas
+    if (navigator.maxTouchPoints > 0 && /Chrome|CriOS|Edg/i.test(ua)) {
+      return true;
+    }
   } catch (_) {}
   return false;
 }
@@ -16692,8 +17195,10 @@ function clearFailedCameras() {
   localCameraCycleTried.clear();
 }
 
-function isBlackProneCameraLabel(label) {
-  return /kiyo|razer\s*kiyo/i.test(String(label || ""));
+function isBlackProneCameraLabel(_label) {
+  // Was used to auto-kill Razer Kiyo on Linux (stop tracks → LED off).
+  // User wants Kiyo when selected — never treat it as "black-prone".
+  return false;
 }
 
 function isDesktopLinuxCam() {
@@ -16885,7 +17390,9 @@ async function probeOpenBestCamera(audioDeviceId) {
  * After GUM: if we got Kiyo while a normal webcam exists, drop Kiyo and open that cam.
  * Desktop Linux only. Always stops tracks first so USB is free.
  */
-async function rejectBlackProneIfAlternatives(stream, audioDeviceId) {
+async function rejectBlackProneIfAlternatives(stream, _audioDeviceId) {
+  // Disabled: previously stopped Kiyo and switched away (LED off, no video).
+  return stream;
   if (!stream || !isDesktopLinuxCam()) return stream;
   const track = stream.getVideoTracks?.()?.[0];
   const label = track?.label || "";
@@ -16957,9 +17464,9 @@ async function listVideoCameras() {
         let score = 10;
         if (/integrated|webcam|usb 2\.0|usb camera|hd |face|c920|c922|brill|vitade|microdia/.test(l))
           score += 20;
-        // Kiyo often black on Linux UVC — demote, do not remove
-        if (/kiyo/.test(l)) score += desktopLinux ? -25 : 1;
-        if (/razer/.test(l) && desktopLinux) score -= 10;
+        // Razer Kiyo is a real USB cam — do not demote (demotion caused
+        // auto-switch-away and the LED never staying on).
+        if (/kiyo|razer/.test(l)) score += 15;
         if (/logitech|hd pro|c9\d\d/.test(l)) score += 8;
         if (/ir\b|infrared|depth|meta|virtual|obs|snap|manycam|ndi|dummy/.test(l))
           score -= 20;
@@ -17694,10 +18201,28 @@ function buildMediaAttempts(videoDeviceId, audioDeviceId) {
   const micId = audioDeviceId || null;
 
   // Explicit camera pick: deviceId first (iOS lists Front/Back with stable ids after permission)
+  // Never mix facingMode with a USB cam id — Kiyo/Logitech ignore it or stay powered off.
   if (camId) {
     attempts.push({
       video: { deviceId: { exact: camId }, ...videoHi },
       audio: micId ? { deviceId: { ideal: micId }, ...audioBase } : audioBase,
+    });
+    attempts.push({
+      video: { deviceId: { exact: camId }, ...videoMid },
+      audio: micId ? { deviceId: { ideal: micId }, ...audioBase } : audioBase,
+    });
+    attempts.push({
+      video: {
+        deviceId: { exact: camId },
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+        frameRate: { ideal: 30 },
+      },
+      audio: micId ? { deviceId: { ideal: micId }, ...audioBase } : true,
+    });
+    attempts.push({
+      video: { deviceId: { exact: camId } },
+      audio: true,
     });
     attempts.push({
       video: { deviceId: { ideal: camId }, ...videoHi },
@@ -17711,15 +18236,17 @@ function buildMediaAttempts(videoDeviceId, audioDeviceId) {
       video: { deviceId: { ideal: camId } },
       audio: true,
     });
-    // Pair deviceId with facingMode when we know front/back (helps some WebKits)
-    attempts.push({
-      video: {
-        deviceId: { ideal: camId },
-        facingMode: { ideal: face },
-        ...videoMid,
-      },
-      audio: true,
-    });
+    // facingMode only on mobile phones (front/back), never for desktop USB
+    if (mobile) {
+      attempts.push({
+        video: {
+          deviceId: { ideal: camId },
+          facingMode: { ideal: face },
+          ...videoMid,
+        },
+        audio: true,
+      });
+    }
   }
 
   // Mobile / strict facing: facingMode path (rear = environment)
@@ -18007,14 +18534,15 @@ async function startPreview() {
     if (mobile && videoDeviceId && !isKnownCameraId(videoDeviceId)) {
       videoDeviceId = null;
     }
-    // Desktop Linux: prefer USB over black Kiyo ONLY when user has no saved cam
-    // (do not steal the camera they used last time)
+    // Desktop Linux cold start with no saved cam: prefer a labeled USB webcam
+    // (Kiyo/Razer included — older code excluded Kiyo and stole the selection).
     if (
       !mobile &&
       /Linux/i.test(navigator.userAgent || "") &&
       !forceCameraDeviceId &&
       !prefs.cameraId &&
-      !prefs.cameraLabel
+      !prefs.cameraLabel &&
+      !videoDeviceId
     ) {
       try {
         const all = await navigator.mediaDevices.enumerateDevices();
@@ -18023,10 +18551,11 @@ async function startPreview() {
             d.kind === "videoinput" &&
             d.deviceId &&
             d.label &&
-            !/kiyo/i.test(d.label) &&
-            /usb|webcam|vitade|microdia|c9\d\d|hd /i.test(d.label)
+            /kiyo|razer|logitech|usb|webcam|vitade|microdia|c9\d\d|hd\s/i.test(
+              d.label
+            )
         );
-        if (usb && !videoDeviceId) {
+        if (usb) {
           videoDeviceId = usb.deviceId;
           try {
             if ($("sel-camera")) $("sel-camera").value = usb.deviceId;
@@ -18084,41 +18613,49 @@ async function startPreview() {
     }
     if (!stream) throw lastErr || new Error("getUserMedia failed");
 
-    // Linux: if stream is Kiyo and USB exists, reopen USB
-    if (!mobile && /Linux/i.test(navigator.userAgent || "") && !forceCameraDeviceId) {
+    // If user picked Kiyo (or any specific cam) but GUM fell back to another
+    // device, re-open with exact deviceId so the LED actually turns on.
+    if (videoDeviceId && stream.getVideoTracks?.().length) {
       try {
-        const lab = stream.getVideoTracks()?.[0]?.label || "";
-        if (/kiyo/i.test(lab)) {
-          const all = await navigator.mediaDevices.enumerateDevices();
-          const usb = all.find(
-            (d) =>
-              d.kind === "videoinput" &&
-              d.deviceId &&
-              d.label &&
-              !/kiyo/i.test(d.label) &&
-              /usb|webcam|vitade|microdia|c9\d\d|hd /i.test(d.label)
-          );
-          if (usb) {
-            stream.getTracks().forEach((t) => {
-              try { t.stop(); } catch (_) {}
-            });
-            await new Promise((r) => setTimeout(r, 300));
-            stream = await navigator.mediaDevices.getUserMedia({
-              video: {
-                deviceId: { exact: usb.deviceId },
-                width: { ideal: 640 },
-                height: { ideal: 480 },
-              },
-              audio: true,
-            });
+        const gotId =
+          stream.getVideoTracks()[0]?.getSettings?.()?.deviceId || "";
+        const gotLab = stream.getVideoTracks()[0]?.label || "";
+        const wantKiyo = /kiyo|razer/i.test(
+          cameraOptionLabel(videoDeviceId) || ""
+        );
+        const gotWrong =
+          (gotId && gotId !== videoDeviceId) ||
+          (wantKiyo && gotLab && !/kiyo|razer/i.test(gotLab));
+        if (gotWrong) {
+          stream.getTracks().forEach((t) => {
             try {
-              savePrefs({ cameraId: usb.deviceId });
-              if ($("sel-camera")) $("sel-camera").value = usb.deviceId;
+              t.stop();
             } catch (_) {}
-          }
+          });
+          await new Promise((r) => setTimeout(r, 200));
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              deviceId: { exact: videoDeviceId },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+              frameRate: { ideal: 30 },
+            },
+            audio: audioDeviceId
+              ? { deviceId: { ideal: audioDeviceId } }
+              : true,
+          });
         }
-      } catch (_) {}
+      } catch (_) {
+        /* keep previous stream if exact reopen fails */
+      }
     }
+
+    // Ensure video tracks are enabled (Kiyo stays dark if enabled:false)
+    try {
+      stream.getVideoTracks?.().forEach((t) => {
+        t.enabled = true;
+      });
+    } catch (_) {}
 
     // If we only got one kind, try to add the other
     if (!stream.getVideoTracks().length) {
@@ -21779,6 +22316,12 @@ function handleServer(msg) {
       try {
         maybeWelcomeBackOnHello();
       } catch (_) {}
+      // Re-register Web Push after hello so offline rings work (token per user_id)
+      try {
+        if (friendOnlineNotifEnabled() && typeof Notification !== "undefined" && Notification.permission === "granted") {
+          void syncWebPushRegistration(true);
+        }
+      } catch (_) {}
       if (mySocialForceMuted) {
         try {
           setStatus(
@@ -21859,6 +22402,64 @@ function handleServer(msg) {
         city: String(msg.city || "").trim(),
       };
       refreshLocalLocationChip();
+      break;
+    case "partner_geo":
+      // Partner IP→geo finished after match (race fix — was "Location unknown")
+      {
+        const pid = String(msg.peer_id || "");
+        const uid = String(msg.user_id || "");
+        const primaryPid = String(lastMatchMeta?.peer_id || "");
+        const primaryUid = String(
+          primaryPartnerUserId || lastMatchMeta?.user_id || ""
+        );
+        const matches =
+          (pid && primaryPid && pid === primaryPid) ||
+          (uid && primaryUid && uid === primaryUid) ||
+          (pid && primaryPid && pid.slice(0, 8) === primaryPid.slice(0, 8)) ||
+          (matched && !primaryPid); // 1v1 fallback when meta lacks peer_id
+        if (!matches) break;
+        const meta = {
+          flag: normalizeFlagCode(msg.flag || lastMatchMeta?.flag || ""),
+          country: String(msg.country || "").trim(),
+          city: String(msg.city || "").trim(),
+          hide_ip: !!msg.hide_ip,
+        };
+        if (lastMatchMeta) {
+          lastMatchMeta = { ...lastMatchMeta, ...meta };
+        } else {
+          lastMatchMeta = { ...meta, peer_id: pid, user_id: uid };
+        }
+        // Refresh partner tile location chips
+        try {
+          const tag =
+            document.getElementById("remote-tag") ||
+            document.querySelector(".remote-tag, .partner-tag, #partner-loc");
+          if (tag && typeof setLocationOnTile === "function") {
+            setLocationOnTile(tag, {
+              flag: meta.flag,
+              country: meta.country,
+              city: meta.city,
+              hide_ip: meta.hide_ip,
+            });
+          }
+          // Stage partner location stack
+          document
+            .querySelectorAll("[data-partner-loc], .stage-partner-loc, #remote-loc")
+            .forEach((el) => {
+              try {
+                setLocationOnTile(el, {
+                  flag: meta.flag,
+                  country: meta.country,
+                  city: meta.city,
+                  hide_ip: meta.hide_ip,
+                });
+              } catch (_) {}
+            });
+        } catch (_) {}
+        log(
+          `partner_geo ${meta.flag || "-"} ${meta.country || ""}/${meta.city || ""}`
+        );
+      }
       break;
     case "friends":
       {
@@ -22235,12 +22836,20 @@ function handleServer(msg) {
       {
         const uid = String(msg.user_id || "");
         const kind = String(msg.effect || "");
-        const until = Math.max(0, Number(msg.until) || 0);
+        // Hub sends unix seconds; tolerate effect_until alias + accidental ms
+        let until = Math.max(
+          0,
+          Number(msg.until != null ? msg.until : msg.effect_until) || 0
+        );
+        if (until > 1e12) until = Math.floor(until / 1000); // ms → sec
         const level = Math.max(1, Math.min(3, Number(msg.level) || 1));
         const cost = Math.max(0, Number(msg.cost) || 0);
         const meta = giftKindMeta(kind);
+        const myUid = String(myUserId || "");
         const fromMe =
-          String(msg.from_user_id || "") === String(myUserId || "");
+          String(msg.from_user_id || "").toLowerCase() === myUid.toLowerCase();
+        const onMe =
+          !!uid && !!myUid && uid.toLowerCase() === myUid.toLowerCase();
         if (msg.ok) {
           if (fromMe) {
             myStars = Math.max(0, Number(msg.spender_stars) || 0);
@@ -22295,7 +22904,8 @@ function handleServer(msg) {
               } catch (_) {}
             }
           }
-          if (uid === myUserId) {
+          if (onMe) {
+            // You are the target — paint jail / gift on YOUR tile (not a flash toast only)
             setFxOverlay("local", kind, until, level);
             if (!fromMe && msg.from_user_id) {
               const name = msg.from_name || "Someone";
@@ -22366,16 +22976,23 @@ function handleServer(msg) {
               playGiftCelebrate(kind, c);
             }
           }
-          if (
-            uid &&
-            (uid === primaryPartnerUserId || uid === lastMatchMeta?.user_id)
-          ) {
-            setFxOverlay("remote", kind, until, level);
-            if (msg.target_stars != null) {
-              setStarsBadge(
-                "remote",
-                Math.max(0, Number(msg.target_stars) || 0)
-              );
+          {
+            const partnerUid = String(
+              primaryPartnerUserId || lastMatchMeta?.user_id || ""
+            );
+            const onPartner =
+              !!uid &&
+              !!partnerUid &&
+              uid.toLowerCase() === partnerUid.toLowerCase();
+            if (onPartner) {
+              // Partner is target — bars on their (remote) tile for full until
+              setFxOverlay("remote", kind, until, level);
+              if (msg.target_stars != null) {
+                setStarsBadge(
+                  "remote",
+                  Math.max(0, Number(msg.target_stars) || 0)
+                );
+              }
             }
           }
         } else {
@@ -22511,8 +23128,6 @@ function handleServer(msg) {
         closeAllPeers({ keepFriend });
         if (!keepFriend) {
           setSplitRemote(false);
-          setRemoteEmpty(true);
-          resetRemoteEmptyCopy();
           clearPartnerStarsBadge();
           clearRemoteMatchFx();
           matchMode = "solo";
@@ -22525,6 +23140,7 @@ function handleServer(msg) {
           endActiveMatchChat();
           if (shouldRequeue) {
             inQueue = true;
+            wantSearch = true;
             showStartButton(false);
             showPartnerEmptyWithBrand({ searching: true });
             try {
@@ -22543,6 +23159,15 @@ function handleServer(msg) {
                 `requeue after partner left secs=${chatSecsAtLeave} hub=${hubSaysRequeue ? 1 : 0} short=${shortCallAutoNext ? 1 : 0}`
               );
             } catch (_) {}
+          } else {
+            // Full idle — restore Start (was black tile: has-remote-feed stuck)
+            inQueue = false;
+            wantSearch = false;
+            showPartnerEmptyWithBrand({ searching: false });
+            $("remote-empty")?.classList.remove("is-searching");
+            resetRemoteEmptyCopy();
+            showStartButton(true);
+            setPhase("idle");
           }
         } else if (keepParty) {
           // Party still together — hunting for (next) stranger
@@ -22648,6 +23273,24 @@ function handleServer(msg) {
       handleFindThirdResult(msg);
       break;
     case "chat": {
+      const bodyRaw = String(msg.body || "");
+      // Partner-mute control (Android/web) — never show as chat
+      if (bodyRaw.startsWith("\x01pmute:") || bodyRaw.startsWith("__pmute:")) {
+        const mineCtrl =
+          msg.from_user_id === myUserId ||
+          msg.author === myShortId;
+        if (!mineCtrl) {
+          const on =
+            bodyRaw.indexOf(":1") >= 0 || bodyRaw.indexOf(":true") >= 0;
+          try {
+            handlePartnerMuteP2p({
+              muted: on,
+              user_id: msg.from_user_id || "",
+            });
+          } catch (_) {}
+        }
+        break;
+      }
       const myName = getDisplayName();
       const mine =
         msg.from_user_id === myUserId ||
@@ -22793,15 +23436,15 @@ function handleMatched(msg) {
     }
   } catch (_) {}
 
-  // Hub force_relay: arm OR clear. Leaving it stuck true after an old match
-  // forced TURN-only forever → one-way / black / 30s+ connect.
+  // Hub force_relay only (same-IP / hide_ip). Do not belt-arm for mobile peer —
+  // that forced pure-relay thrash and black cams on cross-network Play↔browser.
   try {
     if (typeof setSessionForceRelay === "function") {
       if (msg.force_relay) {
         setSessionForceRelay(true);
         log(
           _t("log.forceRelay") ||
-            "path: TURN relay (same network or long-distance)"
+            "path: TURN relay (same network / hide IP)"
         );
       } else if (
         typeof sessionForceRelayEnabled === "function" &&
@@ -22816,6 +23459,22 @@ function handleMatched(msg) {
   matched = true;
   inQueue = false;
   matchMediaGraceAt = Date.now();
+  // Fresh match — allow one hard reconnect later if needed
+  try {
+    schedulePeerHardReconnect._done = false;
+    schedulePeerHardReconnect._busy = false;
+  } catch (_) {}
+  // Connect stopwatch (smoke: log CONNECT offer/answer/frame)
+  try {
+    window.__ruletConnectT0 = Date.now();
+    window.__ruletConnect = {
+      matchAt: window.__ruletConnectT0,
+      offerMs: null,
+      answerMs: null,
+      iceMs: null,
+      trackMs: null,
+    };
+  } catch (_) {}
   // Fresh match → allow one first offer (blocks dual-PC thrash)
   try {
     window.__ruletMatchOfferAt = 0;
@@ -22827,12 +23486,6 @@ function handleMatched(msg) {
   nextGraceUntil =
     Date.now() +
     (msg.force_relay ? 5000 : 2500);
-  // Prefetch ICE config in parallel (do not await before joinPeers)
-  try {
-    if (typeof loadRtcConfig === "function") {
-      loadRtcConfig(hubBase()).catch(() => {});
-    }
-  } catch (_) {}
   pathStatRecordedForMatch = false;
   wantSearch = msg.mode !== "friend";
   isOfferer = !!msg.is_offerer;
@@ -22873,14 +23526,101 @@ function handleMatched(msg) {
         setSelfBlur(false, { fromAuto: true, silent: true });
       }
     } catch (_) {}
-    void kickSoloWebRtc(msg, peersFast[0])
-      .then(() =>
-        log(`kickSolo ok +${Date.now() - tJoin0}ms offerer=${isOfferer ? 1 : 0}`)
-      )
+    // Force-relay: MUST have TURN URLs before PC is built (STUN-only +
+    // iceTransportPolicy=relay falls open to "all" → hairpin black again).
+    const kick = async () => {
+      try {
+        // Prefer warm path: search already loaded ICE + warmIcePool.
+        // Only block for force_relay when TURN is missing (cold config).
+        // Always-force refresh was +0–800ms on every Play↔browser match.
+        if (typeof loadRtcConfig === "function") {
+          const hasTurnWarm =
+            !!(window.__hasTurn || window.__iceMeta?.has_turn) ||
+            (() => {
+              try {
+                const s = getIceConfig?.()?.iceServers || [];
+                return s.some((e) => {
+                  const urls = Array.isArray(e?.urls)
+                    ? e.urls
+                    : e?.urls
+                      ? [e.urls]
+                      : [];
+                  return urls.some((u) =>
+                    /^turns?:/i.test(String(u || ""))
+                  );
+                });
+              } catch (_) {
+                return false;
+              }
+            })();
+          if (msg.force_relay && !hasTurnWarm) {
+            await Promise.race([
+              loadRtcConfig(hubBase(), { force: true }),
+              new Promise((r) => setTimeout(r, 400)),
+            ]);
+            try {
+              window.__hasTurn = true;
+            } catch (_) {}
+          } else {
+            // Cached path — fire-and-forget soft refresh, never block kick
+            loadRtcConfig(hubBase()).catch(() => {});
+          }
+          try {
+            applyIceDirectPreference?.();
+          } catch (_) {}
+        }
+        // force_relay: ensure TURN ALLOCATE finished during search before SDP.
+        // If user hit Start instantly, prime briefly (max 800ms) then kick.
+        try {
+          const needRelay = !!(
+            msg.force_relay ||
+            (typeof sessionForceRelayEnabled === "function" &&
+              sessionForceRelayEnabled())
+          );
+          if (needRelay && typeof warmIcePool === "function") {
+            const primed =
+              typeof isIceWarmPrimed === "function" && isIceWarmPrimed();
+            if (!primed) {
+              warmIcePool({ preferRelay: true, force: true });
+              if (typeof waitIceWarmPrimed === "function") {
+                const ok = await waitIceWarmPrimed(1200);
+                log(`warm TURN prime ${ok ? "ok" : "timeout"} before kick`);
+              }
+            }
+          }
+        } catch (_) {}
+      } catch (_) {}
+      // Do NOT clearIceWarm here — connect() promotes warm PC (TURN already
+      // allocated). Clearing forced cold ALLOCATE and multi-second linking.
+      return kickSoloWebRtc(msg, peersFast[0]);
+    };
+    void kick()
+      .then(() => {
+        log(`kickSolo ok +${Date.now() - tJoin0}ms offerer=${isOfferer ? 1 : 0}`);
+        try {
+          if (window.__ruletConnect && !window.__ruletConnect.offerMs && isOfferer) {
+            // offer may land slightly after kickSolo returns; poll once
+            setTimeout(() => {
+              try {
+                const c = window.__ruletConnect;
+                if (c && c.offerMs != null) {
+                  log(
+                    `CONNECT offer=${c.offerMs} answer=${c.answerMs ?? "?"} ice=${c.iceMs ?? "?"} track=${c.trackMs ?? "?"}ms`
+                  );
+                }
+              } catch (_) {}
+            }, 2500);
+          }
+        } catch (_) {}
+      })
       .catch((e) => log(`kickSolo fail ${e}`));
-    // Offerer silent → re-kick at 1.5s / 3.5s (do not wait hardMs ~24s)
+    // Offerer silent → re-kick (tighter — 35s MTO was offer never left wire)
     if (isOfferer) {
-      armOfferKickWatch(msg, peersFast[0], [2000, 4500, 8000]);
+      armOfferKickWatch(
+        msg,
+        peersFast[0],
+        msg.force_relay ? [900, 2200, 4500] : [600, 1600, 3500]
+      );
     } else {
       clearOfferKickWatch();
     }
@@ -22902,8 +23642,9 @@ function handleMatched(msg) {
       })
       .catch((e) => log(`joinPeers fail ${e}`));
   }
+  // One paint pass + one nudge (was 3 timeouts → flicker / wasted work)
+  setTimeout(() => ensurePartnerVideoVisible(), 150);
   setTimeout(() => ensurePartnerVideoVisible(), 600);
-  setTimeout(() => ensurePartnerVideoVisible(), 2000);
 
   // Friend answered (or any match) — never leave "Calling…" toast stuck over the call
   dismissFriendRingUi();
@@ -23050,6 +23791,7 @@ function handleMatched(msg) {
   primaryPartnerUserId = primary?.user_id || "";
   lastMatchMeta = primary
     ? {
+        peer_id: primary.peer_id || "",
         user_id: primary.user_id || "",
         name: primary.name || msg.partner_short || "",
         short_id: primary.short_id || msg.partner_short || "",
@@ -23069,6 +23811,7 @@ function handleMatched(msg) {
         trust_gifters: Math.max(0, Number(primary.trust_gifters) || 0),
       }
     : {
+        peer_id: "",
         user_id: "",
         name: msg.partner_short || "",
         short_id: msg.partner_short || "",
@@ -23237,6 +23980,24 @@ function handleMatched(msg) {
 }
 
 function handleIncomingSignal(msg) {
+  const kind = String(msg.kind || "");
+  // App control plane over hub (partner_mute works without P2P datachannel)
+  if (kind === "partner_mute") {
+    try {
+      const body =
+        typeof msg.payload === "string" && msg.payload
+          ? JSON.parse(msg.payload)
+          : msg.payload && typeof msg.payload === "object"
+            ? msg.payload
+            : {};
+      handlePartnerMuteP2p(body || {});
+    } catch (e) {
+      try {
+        log("partner_mute hub parse " + e);
+      } catch (_) {}
+    }
+    return;
+  }
   const from = msg.from_peer || "";
   let pc = from ? findPcForPeer(from) : null;
   // Legacy 1v1 only: signals without from_peer when a single PC exists.
@@ -23252,6 +24013,80 @@ function handleIncomingSignal(msg) {
   } else {
     pendingSignals.push(msg);
   }
+}
+
+/**
+ * Full client media reset when leaving a match (Stop / Next / Spin).
+ * Without this, mid-call TURN rebuild / offer locks / soft-recover can
+ * fire after Stop and poison the next match until a full page refresh.
+ */
+function resetClientMediaSession({ clearLastPeers = true } = {}) {
+  try {
+    clearWebrtcWatch();
+  } catch (_) {}
+  try {
+    clearOfferKickWatch();
+  } catch (_) {}
+  try {
+    if (blankVideoWatchTimer) {
+      clearInterval(blankVideoWatchTimer);
+      blankVideoWatchTimer = 0;
+    }
+  } catch (_) {}
+  try {
+    window.__ruletMatchOfferAt = 0;
+    window.__ruletMatchOfferAttemptAt = 0;
+    window.__ruletMatchOfferLock = 0;
+  } catch (_) {}
+  try {
+    kickSoloWebRtc._inflight = false;
+    kickSoloWebRtc._inflightPeer = "";
+    kickSoloWebRtc._retryArm = 0;
+  } catch (_) {}
+  try {
+    // Invalidate any in-flight hard reconnect (Stop mid-rebuild)
+    schedulePeerHardReconnect._gen =
+      (schedulePeerHardReconnect._gen || 0) + 1;
+    schedulePeerHardReconnect._busy = false;
+  } catch (_) {}
+  try {
+    // KEEP session force_relay sticky after Stop/Next.
+    // Clearing it flipped relay→all, destroyed warm TURN PC, then next Matched
+    // re-armed force_relay and cold-allocated TURN → 2nd match "slow again".
+    // Hub still sends force_relay on Matched; arm only if needed (no clear).
+  } catch (_) {}
+  try {
+    vpnRelayRecoveryDone = false;
+  } catch (_) {}
+  webrtcConnectedOk = false;
+  matchMediaGraceAt = 0;
+  pendingSignals.length = 0;
+  if (clearLastPeers) {
+    try {
+      lastMatchedPeers = [];
+    } catch (_) {}
+  }
+  // IMMEDIATE re-warm after hangup (not only when still in queue).
+  // First match promotes warm PC → call; hangup closes it. Without this,
+  // 2nd Start races cold TURN ALLOCATE.
+  try {
+    if (typeof warmIcePool === "function") {
+      warmIcePool({ preferRelay: true, force: true });
+    }
+  } catch (_) {}
+  try {
+    if (typeof loadRtcConfig === "function") {
+      loadRtcConfig(hubBase())
+        .then(() => {
+          try {
+            if (typeof warmIcePool === "function") {
+              warmIcePool({ preferRelay: true });
+            }
+          } catch (_) {}
+        })
+        .catch(() => {});
+    }
+  } catch (_) {}
 }
 
 function closeAllPeers({ keepFriend = false } = {}) {
@@ -23295,6 +24130,9 @@ function closeAllPeers({ keepFriend = false } = {}) {
       isTeammateRole(pc._role);
     if (keep) continue;
     try {
+      clearSoftRecoverFlags(pc);
+    } catch (_) {}
+    try {
       pc.closeCall({ keepLocal: true, sendBye: true });
     } catch (_) {}
     peerPcs.delete(pid);
@@ -23304,6 +24142,8 @@ function closeAllPeers({ keepFriend = false } = {}) {
     try {
       clearMultiPartyChrome();
     } catch (_) {}
+    // Unlock Start / brand empty (CSS hides #remote-empty while this is set)
+    $("tile-remote")?.classList.remove("has-remote-feed");
     if ($("remote")) $("remote").srcObject = null;
     if ($("remote2")) $("remote2").srcObject = null;
     if ($("remote2-wrap")) $("remote2-wrap").hidden = true;
@@ -23315,6 +24155,8 @@ function closeAllPeers({ keepFriend = false } = {}) {
     }
     showFriendPip(false);
     enableTrioLayout(false);
+    // Kill ghost recovery + offer locks so next Start is clean
+    resetClientMediaSession({ clearLastPeers: true });
   } else {
     // Stranger gone — clear extra tiles so they don't stay black
     clearOrphanVideoSlots({ keepMain: true });
@@ -23562,6 +24404,13 @@ async function kickSoloWebRtc(msg, p) {
   const iOffer = !!(msg && msg.is_offerer);
   isOfferer = iOffer;
 
+  // Re-arm force_relay only when hub said so (same-IP / hide_ip).
+  try {
+    if (msg?.force_relay && typeof setSessionForceRelay === "function") {
+      setSessionForceRelay(true);
+    }
+  } catch (_) {}
+
   // Mutex: concurrent kickSolo (matched race / retry) was dual-PC → 2nd offer@800ms
   if (kickSoloWebRtc._inflight && kickSoloWebRtc._inflightPeer === peerId) {
     log(`kickSolo skip concurrent peer=${String(peerId).slice(0, 8)}`);
@@ -23614,7 +24463,8 @@ async function kickSoloWebRtc(msg, p) {
         new Promise((_, rej) =>
           setTimeout(
             () => rej(new Error("gum timeout")),
-            iOffer ? 400 : 900
+            // Answerer must not wait 900ms — hub match_to_answer ~1s target
+            iOffer ? 350 : 250
           )
         ),
       ]);
@@ -23744,16 +24594,24 @@ async function kickSoloWebRtc(msg, p) {
         log(
           `kickSolo keep mid-offer young peer=${String(peerId).slice(0, 8)} age=${pcAge}`
         );
-        // Offerer: ensure first offer actually left if latch lied
+        // Offerer: ensure first offer actually left if latch lied.
+        // NEVER clear offerSentOnce if match-level emit already succeeded —
+        // that was a source of second offer@~800ms → hub debounce → 18s black.
         if (
           iOffer &&
           existing._createAndSendOffer &&
           !existing._offerInFlight
         ) {
           try {
+            const matchOffered =
+              typeof window !== "undefined" &&
+              !!(window.__ruletMatchOfferAt || window.__ruletMatchOfferLock);
             existing.isOfferer = true;
-            // Allow one retry if previous send never hit the wire
-            if (!existing._offerEmitOk) {
+            if (
+              !existing._offerEmitOk &&
+              !matchOffered &&
+              !existing.pc?.localDescription
+            ) {
               existing._offerSentOnce = false;
               void existing._createAndSendOffer({ iceRestart: false });
             }
@@ -23788,6 +24646,16 @@ async function kickSoloWebRtc(msg, p) {
           paintRemoteFromPc(pc, stream);
         } catch (_) {}
         ensurePartnerVideoVisible();
+        // Burst paint — media often arrives before layout; empty layer z-index
+        // was covering #remote while peer_usage showed real RTP.
+        [50, 150, 400, 1000, 2500].forEach((ms) => {
+          setTimeout(() => {
+            try {
+              paintRemoteFromPc(pc, stream || pc.remoteStream);
+              ensurePartnerVideoVisible();
+            } catch (_) {}
+          }, ms);
+        });
       },
       onConnectionState: (s) => {
         try {
@@ -23809,6 +24677,25 @@ async function kickSoloWebRtc(msg, p) {
           dismissFriendRingUi();
           if (pc.remoteStream) paintRemoteFromPc(pc, pc.remoteStream);
           ensurePartnerVideoVisible();
+          // One-way black fix: rebind + play a few times after ICE up
+          setTimeout(() => {
+            try {
+              if (pc.remoteStream) paintRemoteFromPc(pc, pc.remoteStream);
+              ensurePartnerVideoVisible();
+            } catch (_) {}
+          }, 200);
+          setTimeout(() => {
+            try {
+              if (pc.remoteStream) paintRemoteFromPc(pc, pc.remoteStream);
+              ensurePartnerVideoVisible();
+            } catch (_) {}
+          }, 800);
+          setTimeout(() => {
+            try {
+              if (pc.remoteStream) paintRemoteFromPc(pc, pc.remoteStream);
+              ensurePartnerVideoVisible();
+            } catch (_) {}
+          }, 2000);
         }
       },
       onDataChannel: (open) => {
@@ -26339,10 +27226,36 @@ function startMatchTimer() {
   }, 1000);
 }
 
-/** Center cylinder + edge watermark visibility during live call */
+/** Center + both-tile wordmarks visibility during live call */
 function setStageBrandLive(on) {
   try {
     document.querySelector("main.stage")?.classList.toggle("has-brand-live", !!on);
+  } catch (_) {}
+  // Host brand short form on stage wordmarks only (not header logo area)
+  try {
+    let name = "";
+    try {
+      if (typeof RuletBrand !== "undefined" && typeof RuletBrand.name === "function") {
+        name = RuletBrand.name();
+      }
+    } catch (_) {}
+    if (!name) {
+      try {
+        const h = (location.hostname || "").toLowerCase();
+        if (h.includes("ruletka.me")) name = "ruletka.me";
+        else name = "ruletka.vip";
+      } catch (_) {
+        name = "ruletka";
+      }
+    }
+    const short = String(name).replace(/\.(vip|me)$/i, "") || "ruletka";
+    document
+      .querySelectorAll(".stage-brand-wordmark, .stage-wm-text")
+      .forEach((el) => {
+        try {
+          el.textContent = short;
+        } catch (_) {}
+      });
   } catch (_) {}
 }
 
@@ -26354,35 +27267,41 @@ function stopStageBrandSpinLoop() {
   }
 }
 /**
- * Occasional 360° spin (rulet.tv-style). Force on new match; random idle ~40–90s.
+ * Spin wordmarks: center pill + both tile texts. No logo.
  * @param {{ force?: boolean }} [opts]
  */
 function spinStageBrand(opts = {}) {
-  const spin = $("stage-brand-spin");
-  if (!spin) return;
   try {
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) {
       return;
     }
   } catch (_) {}
-  spin.classList.remove("is-spinning");
-  // reflow so animation can re-trigger
-  void spin.offsetWidth;
-  spin.classList.add("is-spinning");
-  setTimeout(() => {
-    try {
-      spin.classList.remove("is-spinning");
-    } catch (_) {}
-  }, 1300);
+  const spinOnce = (el, cls = "is-spinning") => {
+    if (!el) return;
+    el.classList.remove(cls);
+    void el.offsetWidth;
+    el.classList.add(cls);
+    setTimeout(() => {
+      try {
+        el.classList.remove(cls);
+      } catch (_) {}
+    }, 1300);
+  };
+  // Center pill spins its wordmark via parent .is-spinning
+  spinOnce($("stage-brand-spin"));
+  // Both tile watermarks spin the text itself
+  document.querySelectorAll(".stage-wm-spin-el").forEach((el) => {
+    spinOnce(el);
+  });
   if (opts.force) {
-    /* match entrance spin only */
+    /* match entrance spin */
   }
 }
 function startStageBrandSpinLoop() {
   stopStageBrandSpinLoop();
   const schedule = () => {
-    // Random interval 40–90s between idle spins
-    const ms = 40000 + Math.floor(Math.random() * 50000);
+    // Random interval ~35–75s between idle spins
+    const ms = 35000 + Math.floor(Math.random() * 40000);
     stageBrandSpinTimer = setTimeout(() => {
       if (matched || inFriendCall) {
         spinStageBrand();
@@ -29758,13 +30677,13 @@ on("btn-spin", "click", () => {
     if (typeof loadRtcConfig === "function") {
       loadRtcConfig(hubBase())
         .then(() => {
-          if (typeof warmIcePool === "function") warmIcePool();
+          if (typeof warmIcePool === "function") warmIcePool({ preferRelay: true });
         })
         .catch(() => {
-          if (typeof warmIcePool === "function") warmIcePool();
+          if (typeof warmIcePool === "function") warmIcePool({ preferRelay: true });
         });
     } else if (typeof warmIcePool === "function") {
-      warmIcePool();
+      warmIcePool({ preferRelay: true });
     }
   } catch (_) {}
   send(spinPayload());
@@ -29849,13 +30768,13 @@ on("btn-next", "click", () => {
     if (typeof loadRtcConfig === "function") {
       loadRtcConfig(hubBase())
         .then(() => {
-          if (typeof warmIcePool === "function") warmIcePool();
+          if (typeof warmIcePool === "function") warmIcePool({ preferRelay: true });
         })
         .catch(() => {
-          if (typeof warmIcePool === "function") warmIcePool();
+          if (typeof warmIcePool === "function") warmIcePool({ preferRelay: true });
         });
     } else if (typeof warmIcePool === "function") {
-      warmIcePool();
+      warmIcePool({ preferRelay: true });
     }
   } catch (_) {}
   send(nextPayload());
@@ -29915,7 +30834,9 @@ function doStopMatchmaking() {
   clearWeakConnWatch();
   closeAllPeers({ keepFriend: false });
   setSplitRemote(false);
-  setRemoteEmpty(true);
+  // Force idle empty: brand loop + Start (never leave black partner tile)
+  showPartnerEmptyWithBrand({ searching: false });
+  $("remote-empty")?.classList.remove("is-searching");
   const titleEl = $("remote-empty")?.querySelector(".empty-title");
   const subEl = $("remote-empty")?.querySelector(".empty-sub");
   // No "Stopped" banner — idle is just brand loop + Start
@@ -29943,12 +30864,8 @@ function doStopMatchmaking() {
   updateEmptyShareVisibility();
   trackEvent("stop");
   log(_t("log.stopped") || "stopped");
-  // Soft one-shot invite when alone (after friend-nudge timeout window)
-  setTimeout(() => {
-    try {
-      maybeShowStopInviteNudge();
-    } catch (_) {}
-  }, 1600);
+  // No post-stop invite popup — Stop is one-tap leave (same as mobile).
+  // Friends invite remains available from Friends sheet / empty stage share.
 }
 on("btn-stop", "click", () => doStopMatchmaking());
 on("btn-start-match", "click", () => startMatchFromIdle());
@@ -30852,26 +31769,20 @@ on("btn-restart-cam", "click", async (e) => {
   mediaPermissionDenied = false;
   setStatus(_t("status.previewStarting") || "starting camera…");
   try {
-    // Prefer ranked non-Kiyo when restarting after black
-    forceCameraDeviceId = null;
+    // Keep the user's selected camera (including Kiyo) on restart
+    const keepId =
+      forceCameraDeviceId ||
+      $("sel-camera")?.value ||
+      loadPrefs()?.cameraId ||
+      null;
+    forceCameraDeviceId = keepId || null;
     mediaPreviewBusy = false;
     await hardReleaseLocalCamera(350);
-    // Point select at best-ranked camera (USB over black Kiyo on Linux)
-    try {
-      const ranked = await listVideoCameras();
-      const best = ranked[0];
-      if (best?.id && $("sel-camera")) {
-        const sel = $("sel-camera");
-        if (![...sel.options].some((o) => o.value === best.id)) {
-          const opt = document.createElement("option");
-          opt.value = best.id;
-          opt.textContent = best.label || best.id.slice(0, 12);
-          sel.appendChild(opt);
-        }
-        sel.value = best.id;
-        savePrefs({ cameraId: best.id });
-      }
-    } catch (_) {}
+    if (keepId && $("sel-camera")) {
+      try {
+        $("sel-camera").value = keepId;
+      } catch (_) {}
+    }
     await startPreview();
     await ensureLocalPreviewVisible("manual-restart");
     if (!localPreviewIsPainting()) {

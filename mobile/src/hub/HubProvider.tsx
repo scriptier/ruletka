@@ -438,10 +438,14 @@ export function HubProvider(props: {
             name: identity.name,
             gender: prefs.gender,
             looking: prefs.looking,
+            flag: prefs.flag || "",
+            hide_ip: !!prefs.hideIp,
           });
           hub.setPrefs({
             gender: prefs.gender,
             looking: prefs.looking,
+            flag: prefs.flag || "",
+            hide_ip: !!prefs.hideIp,
           });
         } catch {
           /* ignore */
@@ -771,12 +775,34 @@ export function HubProvider(props: {
               message?: string;
             };
             // rate_result.stars is the *target* balance — do not overwrite ours
-            if (m.message) setToast(m.message);
-            else if (m.ok && m.star)
+            if (m.ok && m.star) {
               setToast(
                 tRef.current("mobile.toast.gifted", { n: m.amount || 1 })
               );
-            else if (m.ok) setToast(tRef.current("mobile.toast.reviewSaved"));
+            } else if (m.ok) {
+              setToast(tRef.current("mobile.toast.reviewSaved"));
+            } else {
+              // Friendly copy for hub denials (was raw "no review available…")
+              const raw = String(m.message || "").toLowerCase();
+              let toast = tRef.current("mobile.toast.reviewFailed");
+              if (raw.includes("too short")) {
+                toast = tRef.current("mobile.toast.reviewTooShort");
+              } else if (
+                raw.includes("already") ||
+                raw.includes("reviewed")
+              ) {
+                toast = tRef.current("mobile.toast.reviewAlready");
+              } else if (
+                raw.includes("expired") ||
+                raw.includes("no review") ||
+                raw.includes("not available")
+              ) {
+                toast = tRef.current("mobile.toast.reviewExpired");
+              } else if (raw.includes("invalid")) {
+                toast = tRef.current("mobile.toast.reviewFailed");
+              }
+              setToast(toast);
+            }
             setRatePrompt(null);
             break;
           }

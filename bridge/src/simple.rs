@@ -24,6 +24,53 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+/// Extract video m-line direction from a signal payload (raw SDP or JSON {sdp}).
+fn sdp_video_direction(payload: &str) -> &'static str {
+    let sdp = if let Ok(v) = serde_json::from_str::<serde_json::Value>(payload) {
+        v.get("sdp")
+            .and_then(|x| x.as_str())
+            .unwrap_or(payload)
+            .to_string()
+    } else {
+        payload.to_string()
+    };
+    let mut in_video = false;
+    for line in sdp.lines() {
+        let t = line.trim();
+        if t.starts_with("m=video") {
+            in_video = true;
+            continue;
+        }
+        if t.starts_with("m=") {
+            if in_video {
+                break;
+            }
+            continue;
+        }
+        if !in_video {
+            continue;
+        }
+        let lower = t.to_ascii_lowercase();
+        if lower == "a=sendrecv" {
+            return "sendrecv";
+        }
+        if lower == "a=recvonly" {
+            return "recvonly";
+        }
+        if lower == "a=sendonly" {
+            return "sendonly";
+        }
+        if lower == "a=inactive" {
+            return "inactive";
+        }
+    }
+    if sdp.contains("m=video") {
+        "unknown"
+    } else {
+        "none"
+    }
+}
+
 /// Shape JSON body for common chat webhook providers.
 fn webhook_body_for_url(
     url: &str,
@@ -155,7 +202,7 @@ pub struct Client {
     geo_city: String,
     /// Public client IP (from WS connect / X-Forwarded-For). Used for force_relay hairpin.
     client_ip: String,
-    /// "web" | "android" | "ios" | "" from Hello — web always offers vs mobile (speed).
+    /// "web" | "android" | "ios" | "" from Hello — web offers vs mobile.
     platform: String,
     /// Small avatar data URL (jpeg/png/webp). Empty = none.
     avatar: String,
@@ -168,6 +215,10 @@ pub struct Client {
     match_started: Option<Instant>,
     /// Last time this client sent an SDP offer (drop thrash doubles that kill media).
     last_offer_at: Option<Instant>,
+    /// Last time this client sent an SDP answer (drop answerer re-offer thrash).
+    last_answer_at: Option<Instant>,
+    /// First ICE candidate signal after match (forensics for black-video).
+    last_ice_at: Option<Instant>,
     /// When this client entered the queue (for avg wait metrics).
     wait_started: Option<Instant>,
     /// After a long match ends: partner user_id eligible for one-time star review.
@@ -294,6 +345,8 @@ pub struct SimpleHub {
     report_recent: HashMap<String, Vec<u64>>,
     /// In-memory ring of recent matches for admin (not persisted across restart).
     recent_matches: VecDeque<serde_json::Value>,
+    /// Connect forensics ring (match/offer/answer/ice/drop) for admin live monitor.
+    connect_events: VecDeque<serde_json::Value>,
     /// Friend DMs: conversation_key → messages (newest last)
     dms: HashMap<String, Vec<friends_store::StoredDm>>,
     /// user_id → public star count (cache; authority is star_ledger)
@@ -304,6 +357,9 @@ pub struct SimpleHub {
     mint_day: HashMap<String, (u32, u64)>,
     /// Directed from|to edges (one review per pair)
     star_edges: HashSet<String>,
+    /// Survives WS reconnect: me_uid → (them_uid, chat_secs, expires_at)
+    /// so post-chat ★ review still works if the client reconnects before tapping ★.
+    rate_offer_cache: HashMap<String, (String, u64, Instant)>,
     /// Directed from|to thanks/vouch (no trust mint)
     vouch_edges: HashSet<String>,
     /// user_id → active star-bought effect until unix
@@ -326,6 +382,8 @@ pub struct SimpleHub {
     push_tokens_path: PathBuf,
     /// Optional HTTPS webhook for offline ring delivery (custom push relay / ntfy / etc.)
     push_webhook_url: Option<String>,
+    /// Optional VAPID keys for native Web Push (platform=web).
+    vapid: Option<crate::web_push_send::VapidKeys>,
     /// Optional HTTPS webhook (Slack/Discord/Telegram bot URL) fired on auto-ban.
     mod_webhook_url: Option<String>,
     /// Federated sessions by session_id
@@ -564,6 +622,22 @@ impl SimpleHub {
         mod_webhook_url: Option<String>,
         push_webhook_url: Option<String>,
     ) -> Self {
+        Self::with_limits_store_webhook_vapid(
+            limits,
+            friends_path,
+            mod_webhook_url,
+            push_webhook_url,
+            None,
+        )
+    }
+
+    pub fn with_limits_store_webhook_vapid(
+        limits: LimitConfig,
+        friends_path: PathBuf,
+        mod_webhook_url: Option<String>,
+        push_webhook_url: Option<String>,
+        vapid: Option<crate::web_push_send::VapidKeys>,
+    ) -> Self {
         let stored = friends_store::load(&friends_path);
         if !stored.friendships.is_empty()
             || !stored.code_index.is_empty()
@@ -628,11 +702,13 @@ impl SimpleHub {
             user_last_ip: stored.user_last_ip,
             report_recent: HashMap::new(),
             recent_matches: VecDeque::new(),
+            connect_events: VecDeque::new(),
             dms: stored.dms,
             star_counts,
             star_ledger,
             mint_day: HashMap::new(),
             star_edges: stored.star_edges,
+            rate_offer_cache: HashMap::new(),
             vouch_edges: stored.vouch_edges,
             star_effects: stored.star_effects,
             hour_star_sessions: stored.hour_star_sessions,
@@ -646,6 +722,7 @@ impl SimpleHub {
             push_tokens,
             push_tokens_path,
             push_webhook_url: push_wh,
+            vapid,
             mod_webhook_url: webhook,
             fed_sessions: HashMap::new(),
             fed_by_client: HashMap::new(),
@@ -687,6 +764,47 @@ impl SimpleHub {
             };
             let _ = client.post(&url).json(&body).send().await;
         });
+    }
+
+    /// Native Web Push for platform=web (tab fully closed). No-op without VAPID.
+    fn fire_web_push(&self, token: String, payload: serde_json::Value) {
+        let Some(vapid) = self.vapid.clone() else {
+            return;
+        };
+        tokio::spawn(async move {
+            match crate::web_push_send::send_friend_ring(&vapid, &token, &payload).await {
+                Ok(()) => {
+                    tracing::info!("web push friend_call_ring delivered");
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "web push friend_call_ring failed");
+                }
+            }
+        });
+    }
+
+    /// Expo Push API (no custom relay required when token is ExponentPushToken[…]).
+    fn fire_expo_push(&self, token: String, payload: serde_json::Value) {
+        tokio::spawn(async move {
+            match crate::expo_push::send_friend_ring(&token, &payload).await {
+                Ok(()) => tracing::info!("expo push friend_call_ring delivered"),
+                Err(e) => tracing::warn!(error = %e, "expo push friend_call_ring failed"),
+            }
+        });
+    }
+
+    /// Offline ring: Web Push (web), Expo Push API (mobile), optional webhook.
+    fn fire_offline_ring(&self, tok: &crate::push_tokens::PushToken, payload: serde_json::Value) {
+        let plat = tok.platform.to_ascii_lowercase();
+        let token = tok.token.as_str();
+        if plat == "web" || token.trim_start().starts_with('{') {
+            self.fire_web_push(tok.token.clone(), payload.clone());
+        }
+        if crate::expo_push::is_expo_token(token) {
+            self.fire_expo_push(tok.token.clone(), payload.clone());
+        }
+        // Optional custom relay (ntfy / worker) when configured
+        self.fire_push_webhook(payload);
     }
 
     fn fire_mod_webhook(&self, payload: serde_json::Value) {
@@ -1716,7 +1834,6 @@ impl SimpleHub {
             );
             return;
         };
-        let to_user_id = to_user_id.trim().to_string();
         let op_id = op_id.trim().chars().take(80).collect::<String>();
         let Some(c) = self.clients.get(&id) else {
             return;
@@ -1724,6 +1841,28 @@ impl SimpleHub {
         let me_uid = c.user_id.clone();
         let me_name = c.name.clone();
         let my_stars = self.stars_for(&me_uid);
+
+        // Resolve peer_id / friend code → user_id (mobile often has peer_id first)
+        let Some(to_user_id) = self.resolve_target_user_id(&to_user_id) else {
+            self.metrics_inc_star_spend(kind, false, 0);
+            self.send(
+                id,
+                ServerMsg::StarEffect {
+                    ok: false,
+                    user_id: to_user_id.trim().to_string(),
+                    effect: kind.into(),
+                    until: 0,
+                    level: 1,
+                    cost: 0,
+                    spender_stars: my_stars,
+                    target_stars: 0,
+                    message: "invalid target".into(),
+                    from_user_id: me_uid,
+                    from_name: me_name,
+                },
+            );
+            return;
+        };
 
         if me_uid.is_empty() || to_user_id.is_empty() || to_user_id == me_uid {
             self.metrics_inc_star_spend(kind, false, 0);
@@ -2481,6 +2620,15 @@ impl SimpleHub {
             c.pending_rate_name = them_name.clone();
             c.pending_rate_secs = secs;
         }
+        // Cache for ~30m so reconnect / multi-tab still can rate
+        self.rate_offer_cache.insert(
+            me_uid.clone(),
+            (
+                them_uid.clone(),
+                secs,
+                Instant::now() + Duration::from_secs(30 * 60),
+            ),
+        );
         let max_gift = self.max_post_chat_gift(&me_uid);
         self.send(
             id,
@@ -2538,8 +2686,21 @@ impl SimpleHub {
             );
             return;
         }
-        let pending_uid = c.pending_rate_uid.clone();
-        let pending_secs = c.pending_rate_secs;
+        let mut pending_uid = c.pending_rate_uid.clone();
+        let mut pending_secs = c.pending_rate_secs;
+        // Restore from cache if connection was replaced (reconnect wiped Client pending)
+        if pending_uid.as_deref() != Some(target_uid.as_str()) {
+            if let Some((them, secs, exp)) = self.rate_offer_cache.get(&me_uid) {
+                if Instant::now() < *exp && them.as_str() == target_uid.as_str() {
+                    pending_uid = Some(them.clone());
+                    pending_secs = *secs;
+                    if let Some(c) = self.clients.get_mut(&id) {
+                        c.pending_rate_uid = pending_uid.clone();
+                        c.pending_rate_secs = pending_secs;
+                    }
+                }
+            }
+        }
         if pending_uid.as_deref() != Some(target_uid.as_str()) {
             self.send(
                 id,
@@ -2550,7 +2711,7 @@ impl SimpleHub {
                     amount: 0,
                     stars: 0,
                     trust: 0,
-                    message: "no review available for this person".into(),
+                    message: "review expired — next long chat unlocks ★ again".into(),
                     from_user_id: String::new(),
                     from_name: String::new(),
                 },
@@ -2635,6 +2796,7 @@ impl SimpleHub {
             c.pending_rate_name.clear();
             c.pending_rate_secs = 0;
         }
+        self.rate_offer_cache.remove(&me_uid);
         self.persist_friends();
         let gave = gift_n > 0;
         let me_name = self
@@ -2983,6 +3145,8 @@ impl SimpleHub {
     const PERMANENT_BAN_UNTIL: u64 = 7_258_118_400;
     /// Max recent matches kept for /v1/admin/recent_matches.
     const MAX_RECENT_MATCHES: usize = 80;
+    /// Max connect forensics events for /v1/admin/connect_live.
+    const MAX_CONNECT_EVENTS: usize = 200;
 
     /// Display / audit weight from effective trust (1 / 2 / 3).
     /// Ban scoring no longer multiplies by this for non-underage (brigade-resistant v1).
@@ -3832,6 +3996,8 @@ impl SimpleHub {
             c.friend_call = None;
             c.match_started = Some(Instant::now());
             c.last_offer_at = None;
+            c.last_answer_at = None;
+            c.last_ice_at = None;
         }
 
         self.fed_sessions.insert(
@@ -4065,6 +4231,8 @@ impl SimpleHub {
                 report_times: Vec::new(),
                 match_started: None,
                 last_offer_at: None,
+                last_answer_at: None,
+                last_ice_at: None,
                 wait_started: None,
                 pending_rate_uid: None,
                 pending_rate_name: String::new(),
@@ -4107,6 +4275,8 @@ impl SimpleHub {
 
     /// Apply hub-side geo after async IP lookup (may race with disconnect).
     /// Pushes `Geo` so the client can refresh its own location chip without re-hello.
+    /// If already matched, also pushes `PartnerGeo` to session peers (match often
+    /// races the lookup → Android showed "Location unknown" forever).
     pub fn set_client_geo(&mut self, id: Uuid, code: String, country: String, city: String) {
         let code = normalize_flag(&code);
         let country: String = country.chars().take(64).collect();
@@ -4121,11 +4291,57 @@ impl SimpleHub {
         self.send(
             id,
             ServerMsg::Geo {
-                country,
-                city,
-                flag: code,
+                country: country.clone(),
+                city: city.clone(),
+                flag: code.clone(),
             },
         );
+        // Late geo after match: refresh partner chrome (no rematch needed).
+        let (mates, pub_flag, pub_country, pub_city, hide_ip, peer_id, user_id) = {
+            let Some(c) = self.clients.get(&id) else {
+                return;
+            };
+            let mates: Vec<Uuid> = c
+                .session_peers
+                .iter()
+                .copied()
+                .chain(c.partner)
+                .collect();
+            let (flag, country, city, hide_ip) = Self::public_location(c);
+            (
+                mates,
+                flag,
+                country,
+                city,
+                hide_ip,
+                c.peer_id.clone(),
+                c.user_id.clone(),
+            )
+        };
+        if mates.is_empty() {
+            return;
+        }
+        // Dedupe mates (partner may also be in session_peers)
+        let mut seen = std::collections::HashSet::new();
+        for mate in mates {
+            if mate == id || !seen.insert(mate) {
+                continue;
+            }
+            if !self.clients.contains_key(&mate) {
+                continue;
+            }
+            self.send(
+                mate,
+                ServerMsg::PartnerGeo {
+                    peer_id: peer_id.clone(),
+                    user_id: user_id.clone(),
+                    country: pub_country.clone(),
+                    city: pub_city.clone(),
+                    flag: pub_flag.clone(),
+                    hide_ip,
+                },
+            );
+        }
     }
 
     pub fn notify_join(&mut self) {
@@ -4724,8 +4940,11 @@ impl SimpleHub {
         effect_level: u32,
     ) -> MatchPeer {
         let (flag, country, city, hide_ip) = Self::public_location(to);
-        // SPEED: browser always offers vs Android/iOS (desktop WebRTC is faster).
-        // Fallback: longer waiter, then peer_id.
+        // Web offers vs mobile (desktop SDP/ICE is faster; phone answers).
+        // 2026-08-09 mobile-offer flip: SDP looked OK but TURN peer_usage~0 and
+        // Android UX broke — reverted. Phone→web black is fixed on answer path
+        // (await replaceTrack + force sendrecv), not by swapping roles.
+        // Fallback (same platform): longer waiter, then peer_id.
         let from_web = from.platform == "web";
         let to_web = to.platform == "web";
         let from_mobile = matches!(
@@ -4767,35 +4986,8 @@ impl SimpleHub {
         }
     }
 
-    /// True for RFC1918 / loopback / link-local / empty — hairpin detection is unreliable.
-    fn ip_untrusted_for_direct(ip: &str) -> bool {
-        let ip = ip.trim();
-        if ip.is_empty() || ip == "0.0.0.0" || ip == "::" || ip == "::1" {
-            return true;
-        }
-        ip.starts_with("10.")
-            || ip.starts_with("192.168.")
-            || ip.starts_with("127.")
-            || ip.starts_with("169.254.")
-            || ip.starts_with("fc")
-            || ip.starts_with("fd")
-            || ip.starts_with("fe80:")
-            || {
-                // 172.16.0.0 – 172.31.255.255
-                ip.strip_prefix("172.")
-                    .and_then(|rest| rest.split('.').next())
-                    .and_then(|o| o.parse::<u16>().ok())
-                    .map(|o| (16..=31).contains(&o))
-                    .unwrap_or(false)
-            }
-    }
-
-    /// TURN relay-only ICE when host/srflx is known-broken for this pair.
-    ///
-    /// Phone↔PC on the same public IP (home Wi‑Fi / CGNAT) almost never gets
-    /// working host hairpin through browser+RN WebRTC — black cams while
-    /// "connected". Force TURN for that case (and hide_ip / untrusted IPs).
-    /// Do NOT always-force every match (that caused soft-recover thrash).
+    /// Prefer TURN-heavy ICE when direct path is known-broken.
+    /// Clients: hide_ip → pure relay; normal force_relay → hybrid (see CONNECTIVITY_LOCK).
     fn pair_force_relay(&self, a: Uuid, b: Uuid) -> bool {
         let Some(ca) = self.clients.get(&a) else {
             return false;
@@ -4803,21 +4995,14 @@ impl SimpleHub {
         let Some(cb) = self.clients.get(&b) else {
             return false;
         };
-        if ca.hide_ip || cb.hide_ip {
-            return true;
-        }
-        if Self::ip_untrusted_for_direct(&ca.client_ip)
-            || Self::ip_untrusted_for_direct(&cb.client_ip)
-        {
-            return true;
-        }
-        // Same public IP (home Wi‑Fi / CGNAT): do NOT force TURN-only.
-        // Phone↔PC on the same LAN can use host candidates (192.168.x) when
-        // iceTransportPolicy=all. force_relay here caused:
-        //  - relay-only gathering stalls on RN when TURN is flaky
-        //  - hub "matched force_relay=true" with ZERO offer/answer
-        // Soft-recover / hide_ip still force relay when needed.
-        false
+        // Platform intentionally unused: web↔android must NOT auto force_relay
+        // (CONNECTIVITY_LOCK / pair_force_relay_decision unit tests).
+        pair_force_relay_decision(
+            ca.hide_ip,
+            cb.hide_ip,
+            &ca.client_ip,
+            &cb.client_ip,
+        )
     }
 
     /// What partners may see: real geo unless hide_ip (then cosmetic flag only).
@@ -4877,6 +5062,8 @@ impl SimpleHub {
                 c.party_with = None;
                 c.match_started = Some(Instant::now());
             c.last_offer_at = None;
+            c.last_answer_at = None;
+            c.last_ice_at = None;
             }
             let offerer = peer.is_offerer;
             self.send(
@@ -4956,6 +5143,8 @@ impl SimpleHub {
                 c.party_with = party;
                 c.match_started = Some(Instant::now());
             c.last_offer_at = None;
+            c.last_answer_at = None;
+            c.last_ice_at = None;
             }
         };
         set_matched(&mut self.clients, solo, &[a, b], None);
@@ -5111,6 +5300,8 @@ impl SimpleHub {
                     c.party_with = Some(party);
                     c.match_started = Some(Instant::now());
             c.last_offer_at = None;
+            c.last_answer_at = None;
+            c.last_ice_at = None;
                 }
             };
         set_matched(&mut self.clients, a1, &[b1, b2, a2], a2);
@@ -5219,6 +5410,8 @@ impl SimpleHub {
                 c.last_partner = Some(them);
                 c.match_started = Some(Instant::now());
             c.last_offer_at = None;
+            c.last_answer_at = None;
+            c.last_ice_at = None;
             }
             let offerer = peer.is_offerer;
             self.send(
@@ -5297,6 +5490,16 @@ impl SimpleHub {
             "solo matched"
         );
         self.push_recent_match("solo", &ua, &ub, &na, &nb);
+        self.push_connect_event(serde_json::json!({
+            "kind": "match",
+            "force_relay": force_relay,
+            "platform_a": plat_a,
+            "platform_b": plat_b,
+            "offerer_a": off_a,
+            "offerer_b": off_b,
+            "name_a": na,
+            "name_b": nb,
+        }));
         self.broadcast_lobby_info();
     }
 
@@ -5496,6 +5699,8 @@ impl SimpleHub {
                     cl.party_with = party;
                     cl.match_started = Some(Instant::now());
             cl.last_offer_at = None;
+            cl.last_answer_at = None;
+            cl.last_ice_at = None;
                 }
             };
         set_matched(&mut self.clients, solo, &[a, b, c], None);
@@ -6024,6 +6229,10 @@ impl SimpleHub {
             c.session_peers.clear();
             c.session_id = None;
             c.match_started = None;
+            // Clear offer debounce so rematch after Stop/Next can send SDP immediately
+            c.last_offer_at = None;
+            c.last_answer_at = None;
+            c.last_ice_at = None;
             if c.phase == Phase::Matched || c.phase == Phase::Waiting {
                 c.phase = Phase::Idle;
             }
@@ -6082,6 +6291,11 @@ impl SimpleHub {
             c.party_with = None;
             c.stranger_party = false;
             c.friend_call = None;
+            // Fresh next match may offer immediately — don't inherit 8s debounce
+            c.last_offer_at = None;
+            c.last_answer_at = None;
+            c.last_ice_at = None;
+            c.match_started = None;
         }
         self.status(id, "stopped — idle");
         self.broadcast_lobby_info();
@@ -6823,6 +7037,44 @@ impl SimpleHub {
         self.status(id, "friend removed");
     }
 
+    /// Resolve report/block target: persistent user_id, friend code, or live peer_id/short_id.
+    /// Mobile sometimes only has peer_id early (or after thrash rematch wiped user_id).
+    fn resolve_target_user_id(&self, raw: &str) -> Option<String> {
+        let t = raw.trim();
+        if t.is_empty() {
+            return None;
+        }
+        // Exact online user_id
+        if self.by_user.contains_key(t) {
+            return Some(t.to_string());
+        }
+        // Friend code (case-insensitive)
+        let code = t.to_ascii_uppercase();
+        if let Some(uid) = self.code_index.get(&code) {
+            if !uid.is_empty() {
+                return Some(uid.clone());
+            }
+        }
+        // Live peer_id or short_id → user_id
+        for c in self.clients.values() {
+            if c.user_id.is_empty() {
+                continue;
+            }
+            if c.peer_id == t || c.short_id == t {
+                return Some(c.user_id.clone());
+            }
+            // Federated peer_id may be "base|peer" — match suffix
+            if c.peer_id.ends_with(t) || t.ends_with(&c.peer_id) {
+                return Some(c.user_id.clone());
+            }
+        }
+        // Already looks like a stable user_id (hex / uuid-ish) — accept offline target
+        if t.len() >= 16 {
+            return Some(t.to_string());
+        }
+        None
+    }
+
     fn handle_report_user(
         &mut self,
         id: Uuid,
@@ -6830,11 +7082,16 @@ impl SimpleHub {
         reason: String,
         screenshot_jpeg_b64: String,
     ) {
-        let user_id = user_id.trim().to_string();
-        let reason = reason.trim().chars().take(64).collect::<String>();
-        if user_id.is_empty() {
+        let Some(user_id) = self.resolve_target_user_id(&user_id) else {
+            self.send(
+                id,
+                ServerMsg::Error {
+                    message: "cannot report — partner id unknown".into(),
+                },
+            );
             return;
-        }
+        };
+        let reason = reason.trim().chars().take(64).collect::<String>();
         // Optional evidence JPEG — store beside reports.jsonl (not in WS logs).
         let evidence_path = Self::save_report_screenshot(
             self.reports_path().as_ref(),
@@ -7583,6 +7840,132 @@ impl SimpleHub {
         }
     }
 
+    fn push_connect_event(&mut self, mut entry: serde_json::Value) {
+        if let Some(obj) = entry.as_object_mut() {
+            obj.entry("ts".to_string())
+                .or_insert_with(|| serde_json::json!(Self::now_unix()));
+        }
+        self.connect_events.push_back(entry);
+        while self.connect_events.len() > Self::MAX_CONNECT_EVENTS {
+            self.connect_events.pop_front();
+        }
+    }
+
+    /// Live connect scorecard for admin monitor (in-memory since process start).
+    pub fn admin_connect_live(&self, limit: usize) -> serde_json::Value {
+        let lim = limit.clamp(1, 200);
+        let events: Vec<_> = self
+            .connect_events
+            .iter()
+            .rev()
+            .take(lim)
+            .cloned()
+            .collect();
+
+        let mut offers = 0u64;
+        let mut answers = 0u64;
+        let mut ices = 0u64;
+        let mut drops = 0u64;
+        let mut matches = 0u64;
+        let mut web_relay0 = 0u64;
+        let mut phone_relay0 = 0u64;
+        let mut max_mto = 0u64;
+        let mut max_mta = 0u64;
+        let mut max_mti = 0u64;
+        let mut min_relay: Option<u64> = None;
+        let mut max_relay: Option<u64> = None;
+
+        for e in &self.connect_events {
+            let kind = e.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+            match kind {
+                "match" => matches += 1,
+                "offer" => {
+                    offers += 1;
+                    if let Some(ms) = e.get("ms").and_then(|v| v.as_u64()) {
+                        max_mto = max_mto.max(ms);
+                    }
+                    if let Some(r) = e.get("relay_candidates").and_then(|v| v.as_u64()) {
+                        min_relay = Some(min_relay.map_or(r, |m| m.min(r)));
+                        max_relay = Some(max_relay.map_or(r, |m| m.max(r)));
+                        if r == 0 {
+                            let plat = e.get("platform").and_then(|v| v.as_str()).unwrap_or("");
+                            if plat == "web" {
+                                web_relay0 += 1;
+                            } else if plat == "android" || plat == "ios" {
+                                phone_relay0 += 1;
+                            } else {
+                                web_relay0 += 1;
+                            }
+                        }
+                    }
+                }
+                "answer" => {
+                    answers += 1;
+                    if let Some(ms) = e.get("ms").and_then(|v| v.as_u64()) {
+                        max_mta = max_mta.max(ms);
+                    }
+                    if let Some(r) = e.get("relay_candidates").and_then(|v| v.as_u64()) {
+                        min_relay = Some(min_relay.map_or(r, |m| m.min(r)));
+                        max_relay = Some(max_relay.map_or(r, |m| m.max(r)));
+                        if r == 0 {
+                            let plat = e.get("platform").and_then(|v| v.as_str()).unwrap_or("");
+                            if plat == "android" || plat == "ios" || plat == "mobile" {
+                                phone_relay0 += 1;
+                            }
+                        }
+                    }
+                }
+                "ice" => {
+                    ices += 1;
+                    if let Some(ms) = e.get("ms").and_then(|v| v.as_u64()) {
+                        max_mti = max_mti.max(ms);
+                    }
+                }
+                "drop" => drops += 1,
+                _ => {}
+            }
+        }
+
+        let verdict = if matches == 0 && offers == 0 {
+            "IDLE"
+        } else if web_relay0 > 0 || phone_relay0 > 0 {
+            "RED"
+        } else if drops > 2 || max_mta > 3000 || max_mto > 2000 {
+            "YELLOW"
+        } else {
+            "OK"
+        };
+        let reason = match verdict {
+            "IDLE" => "no connect events yet — pair once",
+            "RED" => "relay_candidates=0 on offer/answer (media path will black)",
+            "YELLOW" => "slow SDP or offer thrash drops",
+            _ => "SDP path looks healthy (check coturn peer_usage separately)",
+        };
+
+        serde_json::json!({
+            "ok": true,
+            "verdict": verdict,
+            "reason": reason,
+            "online": self.clients.len(),
+            "waiting": self.waiting_count(),
+            "summary": {
+                "matches": matches,
+                "offers": offers,
+                "answers": answers,
+                "ices": ices,
+                "drops": drops,
+                "web_relay0": web_relay0,
+                "phone_relay0": phone_relay0,
+                "max_mto_ms": max_mto,
+                "max_mta_ms": max_mta,
+                "max_mti_ms": max_mti,
+                "relay_min": min_relay,
+                "relay_max": max_relay,
+            },
+            "events": events,
+        })
+    }
+
     pub fn admin_report_targets(&self) -> Vec<serde_json::Value> {
         let now = Self::now_unix();
         let mut out: Vec<_> = self
@@ -7614,10 +7997,15 @@ impl SimpleHub {
     }
 
     fn handle_block_user(&mut self, id: Uuid, user_id: String) {
-        let user_id = user_id.trim().to_string();
-        if user_id.is_empty() {
+        let Some(user_id) = self.resolve_target_user_id(&user_id) else {
+            self.send(
+                id,
+                ServerMsg::Error {
+                    message: "cannot block — partner id unknown".into(),
+                },
+            );
             return;
-        }
+        };
         let Some(me) = self.clients.get(&id).map(|c| c.user_id.clone()) else {
             return;
         };
@@ -7819,15 +8207,20 @@ impl SimpleHub {
                     "ruletka: {} is calling you — open the app to answer",
                     my_name
                 );
-                self.fire_push_webhook(serde_json::json!({
+                let payload = serde_json::json!({
                     "type": "friend_call_ring",
+                    "title": "Incoming call",
+                    "body": format!("{} is calling — tap to answer", my_name),
                     "text": text,
                     "to_user_id": user_id,
                     "from_user_id": my_uid,
                     "from_name": my_name,
                     "token": tok.token,
                     "platform": tok.platform,
-                }));
+                    "url": "/live.html",
+                    "tag": "ruletka-friend-call",
+                });
+                self.fire_offline_ring(&tok, payload);
                 self.metrics_inc_call_ring();
                 self.send(
                     id,
@@ -8072,6 +8465,8 @@ impl SimpleHub {
                 cl.stranger_party = false;
                 cl.match_started = Some(Instant::now());
             cl.last_offer_at = None;
+            cl.last_answer_at = None;
+            cl.last_ice_at = None;
                 // Keep friend_call between a–b only
                 if id == c {
                     cl.friend_call = None;
@@ -8187,7 +8582,13 @@ impl SimpleHub {
             );
             return;
         }
-        let tok = token.chars().take(512).collect::<String>();
+        // Web Push subscription JSON can be ~400–1500 chars; Expo tokens are short.
+        let max_tok = if platform.eq_ignore_ascii_case("web") {
+            4096
+        } else {
+            1024
+        };
+        let tok = token.chars().take(max_tok).collect::<String>();
         let plat = platform.chars().take(32).collect::<String>();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -8771,34 +9172,215 @@ impl SimpleHub {
 
         // Drop double-offer thrash (phone+watchdog / rematch race). Hub logs
         // showed offer→answer→offer in <1s → black video both ways.
+        // 3.5s (was 8s): still blocks sub-second thrash, but allows earlyBlack
+        // ICE renego ~4s when first path is black (client black_watch).
         if kind == "offer" {
+            let mut drop_why: Option<(&'static str, u64, String, String)> = None;
+            let mut first_offer: Option<(u64, usize, String, String)> = None;
             if let Some(c) = self.clients.get(&id) {
                 if let Some(t) = c.last_offer_at {
-                    if t.elapsed() < std::time::Duration::from_secs(8) {
-                        tracing::info!(
-                            from = %c.short_id,
-                            age_ms = t.elapsed().as_millis() as u64,
-                            "signal offer dropped: debounce (prevent thrash)"
-                        );
-                        return;
+                    if t.elapsed() < std::time::Duration::from_millis(3500) {
+                        drop_why = Some((
+                            "debounce",
+                            t.elapsed().as_millis() as u64,
+                            c.short_id.clone(),
+                            c.platform.clone(),
+                        ));
+                    }
+                }
+                // Answerer re-offer thrash: web offered, phone answered, then
+                // phone hard-rebuild sends a 2nd offer @17–24s (worse black).
+                if drop_why.is_none()
+                    && c.last_answer_at.is_some()
+                    && c.last_offer_at.is_none()
+                {
+                    if let Some(ms) = c.match_started {
+                        let age = ms.elapsed();
+                        if age < std::time::Duration::from_secs(30) {
+                            drop_why = Some((
+                                "answerer_grace",
+                                age.as_millis() as u64,
+                                c.short_id.clone(),
+                                c.platform.clone(),
+                            ));
+                        }
                     }
                 }
                 // Speed forensics: ONLY the first accepted offer after match.
-                // Later offers (soft/hard rebuild ~18–24s) used to re-log as
-                // "first offer" with huge match_to_offer_ms and false YELLOW.
-                if c.last_offer_at.is_none() {
+                if drop_why.is_none() && c.last_offer_at.is_none() {
                     if let Some(ms) = c.match_started {
-                        tracing::info!(
-                            from = %c.short_id,
-                            match_to_offer_ms = ms.elapsed().as_millis() as u64,
-                            platform = %c.platform,
-                            "first offer after match"
-                        );
+                        let mto = ms.elapsed().as_millis() as u64;
+                        let relay_n = payload.matches("typ relay").count();
+                        first_offer = Some((
+                            mto,
+                            relay_n,
+                            c.short_id.clone(),
+                            c.platform.clone(),
+                        ));
                     }
                 }
             }
+            if let Some((why, age_ms, short, plat)) = drop_why {
+                if why == "debounce" {
+                    tracing::info!(
+                        from = %short,
+                        age_ms,
+                        platform = %plat,
+                        "signal offer dropped: debounce (prevent thrash)"
+                    );
+                } else {
+                    tracing::info!(
+                        from = %short,
+                        age_ms,
+                        platform = %plat,
+                        "signal offer dropped: answerer first-path grace"
+                    );
+                }
+                self.push_connect_event(serde_json::json!({
+                    "kind": "drop",
+                    "reason": why,
+                    "ms": age_ms,
+                    "from": short,
+                    "platform": plat,
+                }));
+                return;
+            }
+            if let Some((mto, relay_n, short, plat)) = first_offer {
+                let v_dir = sdp_video_direction(&payload);
+                if mto >= 3000 {
+                    tracing::warn!(
+                        from = %short,
+                        match_to_offer_ms = mto,
+                        platform = %plat,
+                        relay_candidates = relay_n,
+                        video_dir = %v_dir,
+                        "first offer after match SLOW"
+                    );
+                } else {
+                    tracing::info!(
+                        from = %short,
+                        match_to_offer_ms = mto,
+                        platform = %plat,
+                        relay_candidates = relay_n,
+                        video_dir = %v_dir,
+                        "first offer after match"
+                    );
+                }
+                self.push_connect_event(serde_json::json!({
+                    "kind": "offer",
+                    "ms": mto,
+                    "relay_candidates": relay_n,
+                    "from": short,
+                    "platform": plat,
+                    "slow": mto >= 3000,
+                    "video_dir": v_dir,
+                }));
+            }
             if let Some(c) = self.clients.get_mut(&id) {
                 c.last_offer_at = Some(Instant::now());
+            }
+        }
+
+        // First answer latency (match → answer) for Play↔browser forensics.
+        if kind == "answer" {
+            let mut first_ans: Option<(u64, usize, String, String)> = None;
+            if let Some(c) = self.clients.get(&id) {
+                if c.last_answer_at.is_none() {
+                    if let Some(ms) = c.match_started {
+                        let mta = ms.elapsed().as_millis() as u64;
+                        let relay_n = payload.matches("typ relay").count();
+                        first_ans = Some((
+                            mta,
+                            relay_n,
+                            c.short_id.clone(),
+                            c.platform.clone(),
+                        ));
+                    }
+                }
+            }
+            if let Some((mta, relay_n, short, plat)) = first_ans {
+                let v_dir = sdp_video_direction(&payload);
+                if mta >= 4000 {
+                    tracing::warn!(
+                        from = %short,
+                        match_to_answer_ms = mta,
+                        platform = %plat,
+                        relay_candidates = relay_n,
+                        video_dir = %v_dir,
+                        "first answer after match SLOW"
+                    );
+                } else {
+                    tracing::info!(
+                        from = %short,
+                        match_to_answer_ms = mta,
+                        platform = %plat,
+                        relay_candidates = relay_n,
+                        video_dir = %v_dir,
+                        "first answer after match"
+                    );
+                }
+                if v_dir == "recvonly" || v_dir == "inactive" {
+                    tracing::warn!(
+                        from = %short,
+                        platform = %plat,
+                        video_dir = %v_dir,
+                        "answer video not sendrecv — phone→browser may stay black"
+                    );
+                }
+                self.push_connect_event(serde_json::json!({
+                    "kind": "answer",
+                    "ms": mta,
+                    "video_dir": v_dir,
+                    "relay_candidates": relay_n,
+                    "from": short,
+                    "platform": plat,
+                    "slow": mta >= 4000,
+                }));
+            }
+            if let Some(c) = self.clients.get_mut(&id) {
+                c.last_answer_at = Some(Instant::now());
+            }
+        }
+
+        // First ICE after match (forensics: was media black while SDP fast?)
+        if kind == "ice" {
+            let mut first_ice: Option<(u64, String, String)> = None;
+            if let Some(c) = self.clients.get(&id) {
+                if c.last_ice_at.is_none() {
+                    if let Some(ms) = c.match_started {
+                        let mti = ms.elapsed().as_millis() as u64;
+                        first_ice = Some((mti, c.short_id.clone(), c.platform.clone()));
+                    }
+                }
+            }
+            if let Some((mti, short, plat)) = first_ice {
+                if mti >= 5000 {
+                    tracing::warn!(
+                        from = %short,
+                        match_to_ice_ms = mti,
+                        platform = %plat,
+                        "first ice after match SLOW"
+                    );
+                } else {
+                    tracing::info!(
+                        from = %short,
+                        match_to_ice_ms = mti,
+                        platform = %plat,
+                        "first ice after match"
+                    );
+                }
+                self.push_connect_event(serde_json::json!({
+                    "kind": "ice",
+                    "ms": mti,
+                    "from": short,
+                    "platform": plat,
+                    "slow": mti >= 5000,
+                }));
+            }
+            if let Some(c) = self.clients.get_mut(&id) {
+                if c.last_ice_at.is_none() {
+                    c.last_ice_at = Some(Instant::now());
+                }
             }
         }
 
@@ -8957,5 +9539,148 @@ impl SimpleHub {
 impl Default for SimpleHub {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Pure connectivity policy (unit-tested — CONNECTIVITY_LOCK / VIDEO_PATH_LOCK)
+// ---------------------------------------------------------------------------
+
+/// True for RFC1918 / loopback / link-local / empty — hairpin detection is unreliable.
+pub(crate) fn ip_untrusted_for_direct(ip: &str) -> bool {
+    let ip = ip.trim();
+    if ip.is_empty() || ip == "0.0.0.0" || ip == "::" || ip == "::1" {
+        return true;
+    }
+    ip.starts_with("10.")
+        || ip.starts_with("192.168.")
+        || ip.starts_with("127.")
+        || ip.starts_with("169.254.")
+        || ip.starts_with("fc")
+        || ip.starts_with("fd")
+        || ip.starts_with("fe80:")
+        || {
+            // 172.16.0.0 – 172.31.255.255
+            ip.strip_prefix("172.")
+                .and_then(|rest| rest.split('.').next())
+                .and_then(|o| o.parse::<u16>().ok())
+                .map(|o| (16..=31).contains(&o))
+                .unwrap_or(false)
+        }
+}
+
+/// When hub should set `force_relay` on a stranger pair.
+///
+/// **LOCK (2026-08-09):** do **not** force_relay solely because platforms are
+/// web↔android. That caused one-way / black PC partner. Only hide_ip, same
+/// public IP, or untrusted client IPs.
+///
+/// Platforms are intentionally **not** parameters — if you re-add web↔android
+/// here, `pair_force_relay_web_android_must_not_force` fails.
+pub(crate) fn pair_force_relay_decision(
+    hide_ip_a: bool,
+    hide_ip_b: bool,
+    ip_a: &str,
+    ip_b: &str,
+) -> bool {
+    if hide_ip_a || hide_ip_b {
+        return true;
+    }
+    if ip_untrusted_for_direct(ip_a) || ip_untrusted_for_direct(ip_b) {
+        return true;
+    }
+    let ia = ip_a.trim();
+    let ib = ip_b.trim();
+    if !ia.is_empty() && ia == ib {
+        return true;
+    }
+    false
+}
+
+#[cfg(test)]
+mod connectivity_lock_tests {
+    use super::{ip_untrusted_for_direct, pair_force_relay_decision};
+
+    #[test]
+    fn public_ips_different_no_force() {
+        // Calgary phone + Vancouver PC — the working path after 2026-08-09 fix
+        assert!(
+            !pair_force_relay_decision(false, false, "162.157.227.46", "187.15.153.15"),
+            "web↔android across cities must NOT force_relay"
+        );
+    }
+
+    #[test]
+    fn hide_ip_forces() {
+        assert!(pair_force_relay_decision(
+            true,
+            false,
+            "162.157.227.46",
+            "187.15.153.15"
+        ));
+        assert!(pair_force_relay_decision(
+            false,
+            true,
+            "162.157.227.46",
+            "187.15.153.15"
+        ));
+    }
+
+    #[test]
+    fn same_public_ip_forces() {
+        assert!(pair_force_relay_decision(
+            false,
+            false,
+            "203.0.113.10",
+            "203.0.113.10"
+        ));
+    }
+
+    #[test]
+    fn private_ip_forces() {
+        assert!(pair_force_relay_decision(
+            false,
+            false,
+            "10.0.0.2",
+            "187.15.153.15"
+        ));
+        assert!(pair_force_relay_decision(
+            false,
+            false,
+            "192.168.1.5",
+            "8.8.8.8"
+        ));
+        assert!(pair_force_relay_decision(
+            false,
+            false,
+            "172.16.0.9",
+            "1.1.1.1"
+        ));
+    }
+
+    #[test]
+    fn empty_ip_forces() {
+        assert!(pair_force_relay_decision(false, false, "", "8.8.8.8"));
+    }
+
+    #[test]
+    fn pair_force_relay_web_android_must_not_force() {
+        // Explicit regression: never re-introduce platform-based force_relay
+        // for ordinary public-IP stranger matches.
+        assert!(!pair_force_relay_decision(
+            false,
+            false,
+            "1.2.3.4",
+            "5.6.7.8"
+        ));
+    }
+
+    #[test]
+    fn ip_untrusted_helpers() {
+        assert!(ip_untrusted_for_direct(""));
+        assert!(ip_untrusted_for_direct("127.0.0.1"));
+        assert!(ip_untrusted_for_direct("10.1.2.3"));
+        assert!(!ip_untrusted_for_direct("8.8.8.8"));
+        assert!(!ip_untrusted_for_direct("187.15.153.15"));
     }
 }

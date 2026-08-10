@@ -51,6 +51,7 @@ import {
   loadMatchPrefs,
   saveMatchPrefs,
   type BlurStrangersMode,
+  type LiveLayoutMode,
   type LookingFor,
   type MatchPrefs,
   type SoftGender,
@@ -71,6 +72,7 @@ import {
   loadSoundPref,
   setSoundPref,
 } from "../src/feedback/audioSession";
+import OpenOnPcSheet from "../src/pc/OpenOnPcSheet";
 import { openBatterySettings } from "../src/push/batteryOptIn";
 import {
   pushModuleAvailable,
@@ -81,6 +83,10 @@ import {
   trustTier,
   trustTierI18nKey,
 } from "../src/identity/flagTrust";
+import {
+  loadLastConnectStats,
+  type LastConnectStats,
+} from "../src/media/lastConnectStats";
 import { useApp } from "./_layout";
 
 function Chip(props: {
@@ -95,8 +101,14 @@ function Chip(props: {
         props.onPress();
       }}
       style={[styles.chip, props.active && styles.chipOn]}
+      accessibilityRole="button"
+      accessibilityLabel={props.label}
+      accessibilityState={{ selected: props.active }}
     >
-      <Text style={[styles.chipText, props.active && styles.chipTextOn]}>
+      <Text
+        style={[styles.chipText, props.active && styles.chipTextOn]}
+        importantForAccessibility="no"
+      >
         {props.label}
       </Text>
     </Pressable>
@@ -121,9 +133,10 @@ function Section(props: {
         }}
         style={styles.cardHead}
         accessibilityRole="button"
+        accessibilityLabel={props.title}
         accessibilityState={{ expanded: props.open }}
       >
-        <View style={styles.cardHeadText}>
+        <View style={styles.cardHeadText} importantForAccessibility="no">
           <View style={styles.cardTitleRow}>
             <Text style={styles.cardTitle}>{props.title}</Text>
             {props.badge ? (
@@ -199,6 +212,10 @@ function SettingsBody() {
   >([]);
   const [hubBusy, setHubBusy] = useState(false);
   const [moreLangs, setMoreLangs] = useState(false);
+  const [pcSheetOpen, setPcSheetOpen] = useState(false);
+  const [lastConnect, setLastConnect] = useState<LastConnectStats | null>(
+    null
+  );
   const [openSec, setOpenSec] = useState<Record<SectionKey, boolean>>({
     profile: true,
     match: true,
@@ -285,6 +302,7 @@ function SettingsBody() {
       refreshBlocks();
       refreshReports();
       void refreshHubs();
+      void loadLastConnectStats().then(setLastConnect).catch(() => setLastConnect(null));
     }, [refreshBlocks, refreshReports, refreshHubs])
   );
 
@@ -306,12 +324,69 @@ function SettingsBody() {
               void forgetBlock(uid);
               setBlocked((list) => list.filter((e) => e.user_id !== uid));
             } catch (e) {
-              Alert.alert(t("mobile.common.offline"), String(e));
+              showToast(`${t("mobile.common.offline")}: ${String(e)}`);
             }
           },
         },
       ]
     );
+  }
+
+  /** Persist hide-IP immediately + push hub so partners see correct loc privacy. */
+  async function setHideIp(on: boolean) {
+    if (!prefs) return;
+    const next: MatchPrefs = { ...prefs, hideIp: on };
+    setPrefs(next);
+    try {
+      await saveMatchPrefs(next);
+      if (connected) {
+        try {
+          hub.setPrefs({
+            gender: next.gender || "",
+            looking: next.looking || "any",
+            flag: next.flag || "",
+            hide_ip: !!on,
+          });
+        } catch {
+          /* offline */
+        }
+      }
+      hapticLight();
+      showToast(
+        on
+          ? t("settings.hideIpOnStatus") || "Location hidden from partners"
+          : t("settings.hideIpOffStatus") || "Location visible to partners"
+      );
+    } catch (e) {
+      showToast(`${t("mobile.common.offline")}: ${String(e)}`);
+    }
+  }
+
+  /** Persist blur mode immediately (no need to tap Save) — soft toast. */
+  async function setBlurMode(mode: BlurStrangersMode) {
+    if (!prefs) return;
+    const next: MatchPrefs = {
+      ...prefs,
+      blurStrangersMode: mode,
+      blurStrangers: mode !== "off",
+    };
+    setPrefs(next);
+    try {
+      await saveMatchPrefs(next);
+      hapticLight();
+      const label =
+        mode === "off"
+          ? t("mobile.settings.blurModeOff")
+          : mode === "intro"
+            ? t("mobile.settings.blurModeIntro")
+            : t("mobile.settings.blurModeHold");
+      showToast(
+        t("mobile.settings.blurModeSaved", { mode: label }) ||
+          `Privacy veil: ${label}`
+      );
+    } catch (e) {
+      showToast(`${t("mobile.common.offline")}: ${String(e)}`);
+    }
   }
 
   async function save() {
@@ -325,12 +400,16 @@ function SettingsBody() {
         hub.setPrefs({
           gender: prefs.gender || "",
           looking: prefs.looking || "any",
+          flag: prefs.flag || "",
+          hide_ip: !!prefs.hideIp,
         });
         hub.hello({
           user_id: identity.user_id,
           name: name || identity.name || "anon",
           gender: prefs.gender || "",
           looking: prefs.looking || "any",
+          flag: prefs.flag || "",
+          hide_ip: !!prefs.hideIp,
         });
       } catch {
         /* offline */
@@ -372,9 +451,11 @@ function SettingsBody() {
       } else {
         await shareProfileJson(plain, `ruletka-profile-${stamp}.json`);
       }
-      Alert.alert(t("settings.exportDone"), t("settings.exportStarsNote"));
+      showToast(
+        `${t("settings.exportDone")} — ${t("settings.exportStarsNote")}`
+      );
     } catch (e) {
-      Alert.alert(t("settings.exportFail"), String(e));
+      showToast(`${t("settings.exportFail")}: ${String(e)}`);
     } finally {
       setBusy(false);
     }
@@ -407,9 +488,8 @@ function SettingsBody() {
         const pw = (importPw || "").trim();
         if (!pw) {
           // Was wrongly showing exportPwTooWeak (“use longer password…”)
-          Alert.alert(
-            t("settings.importFail"),
-            t("mobile.settings.importNeedPw")
+          showToast(
+            `${t("settings.importFail")}: ${t("mobile.settings.importNeedPw")}`
           );
           setBusy(false);
           return;
@@ -417,9 +497,8 @@ function SettingsBody() {
         try {
           raw = await decryptProfile(raw, pw);
         } catch {
-          Alert.alert(
-            t("settings.importFail"),
-            t("mobile.settings.importWrongPw")
+          showToast(
+            `${t("settings.importFail")}: ${t("mobile.settings.importWrongPw")}`
           );
           setBusy(false);
           return;
@@ -465,6 +544,11 @@ function SettingsBody() {
                         ? true
                         : !!profile.prefs.notifyFriendCalls,
                     dataSaver: !!profile.prefs.dataSaver,
+                    liveLayout:
+                      (profile.prefs as { liveLayout?: string }).liveLayout ===
+                      "browser"
+                        ? "browser"
+                        : "native",
                     blurStrangers:
                       profile.prefs.blurStrangers === undefined
                         ? true
@@ -488,12 +572,13 @@ function SettingsBody() {
                 replaceAppIdentity(next);
                 setIdentityName(next.name);
                 setName(next.name);
-                Alert.alert(
-                  t("settings.importDoneStarsHub"),
-                  t("mobile.settings.importDoneDevice")
+                showToast(
+                  `${t("settings.importDoneStarsHub")} — ${t(
+                    "mobile.settings.importDoneDevice"
+                  )}`
                 );
               } catch (e) {
-                Alert.alert(t("settings.importFail"), String(e));
+                showToast(`${t("settings.importFail")}: ${String(e)}`);
               } finally {
                 setBusy(false);
               }
@@ -502,7 +587,7 @@ function SettingsBody() {
         ]
       );
     } catch (e) {
-      Alert.alert(t("settings.importFail"), String(e));
+      showToast(`${t("settings.importFail")}: ${String(e)}`);
       setBusy(false);
     }
   }
@@ -525,6 +610,7 @@ function SettingsBody() {
   const hubHost = (hubBaseUrl || hubBase()).replace(/^https?:\/\//, "");
 
   return (
+    <>
     <ScrollView
       contentContainerStyle={styles.root}
       keyboardShouldPersistTaps="handled"
@@ -549,6 +635,7 @@ function SettingsBody() {
           maxLength={32}
           placeholder="anon"
           placeholderTextColor="#6b7a90"
+          accessibilityLabel={t("mobile.settings.displayName")}
         />
         <Text style={styles.fieldLabel}>{t("mobile.settings.reputation")}</Text>
         <View style={styles.repRow}>
@@ -619,8 +706,12 @@ function SettingsBody() {
           <Pressable
             onPress={() => setMoreLangs(true)}
             style={styles.moreLangsBtn}
+            accessibilityRole="button"
+            accessibilityLabel={t("mobile.settings.moreLangs", {
+              n: langChips.rest.length,
+            })}
           >
-            <Text style={styles.moreLangsText}>
+            <Text style={styles.moreLangsText} importantForAccessibility="no">
               {t("mobile.settings.moreLangs", { n: langChips.rest.length })}
             </Text>
           </Pressable>
@@ -673,12 +764,12 @@ function SettingsBody() {
           <Chip
             label={t("mobile.settings.hideIpOff")}
             active={!prefs.hideIp}
-            onPress={() => setPrefs({ ...prefs, hideIp: false })}
+            onPress={() => void setHideIp(false)}
           />
           <Chip
             label={t("mobile.settings.hideIpOn")}
             active={prefs.hideIp}
-            onPress={() => setPrefs({ ...prefs, hideIp: true })}
+            onPress={() => void setHideIp(true)}
           />
         </View>
         <Text style={styles.hint}>{t("settings.hideIpHint")}</Text>
@@ -698,41 +789,91 @@ function SettingsBody() {
         </View>
 
         <Text style={styles.fieldLabel}>
+          {t("mobile.settings.liveLayout") || "Live layout"}
+        </Text>
+        <View style={styles.row}>
+          <Chip
+            label={t("mobile.settings.liveLayoutNative") || "Native call"}
+            active={(prefs.liveLayout || "native") === "native"}
+            onPress={() =>
+              setPrefs({
+                ...prefs,
+                liveLayout: "native" as LiveLayoutMode,
+              })
+            }
+          />
+          <Chip
+            label={t("mobile.settings.liveLayoutBrowser") || "Browser style"}
+            active={prefs.liveLayout === "browser"}
+            onPress={() =>
+              setPrefs({
+                ...prefs,
+                liveLayout: "browser" as LiveLayoutMode,
+              })
+            }
+          />
+        </View>
+        <Text style={styles.hint}>
+          {t("mobile.settings.liveLayoutHint") ||
+            "Native: bottom Start/Next/Stop bar. Browser: full-screen video with controls over the stage (like mobile web)."}
+        </Text>
+
+        <Text style={styles.fieldLabel}>
+          {t("mobile.settings.lastConnect") || "Last connect"}
+        </Text>
+        <Text style={styles.hint} selectable>
+          {lastConnect?.summary
+            ? `${lastConnect.summary}${
+                lastConnect.at
+                  ? ` · ${new Date(lastConnect.at).toLocaleString()}`
+                  : ""
+              }`
+            : t("mobile.settings.lastConnectEmpty") ||
+              "No connect yet — complete a match to see offer / answer / frame times."}
+        </Text>
+        {lastConnect?.firstFrameMs != null || lastConnect?.offerMs != null ? (
+          <Text style={styles.hint}>
+            {[
+              lastConnect.offerMs != null
+                ? `offer ${lastConnect.offerMs}ms`
+                : null,
+              lastConnect.answerMs != null
+                ? `answer ${lastConnect.answerMs}ms`
+                : null,
+              lastConnect.iceMs != null ? `ice ${lastConnect.iceMs}ms` : null,
+              lastConnect.firstFrameMs != null
+                ? `frame ${lastConnect.firstFrameMs}ms`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </Text>
+        ) : null}
+
+        <Text style={styles.fieldLabel}>
           {t("mobile.settings.blurStrangers")}
         </Text>
         <View style={styles.row}>
           <Chip
             label={t("mobile.settings.blurModeOff")}
             active={(prefs.blurStrangersMode || "intro") === "off"}
-            onPress={() =>
-              setPrefs({
-                ...prefs,
-                blurStrangersMode: "off",
-                blurStrangers: false,
-              })
-            }
+            onPress={() => {
+              void setBlurMode("off");
+            }}
           />
           <Chip
             label={t("mobile.settings.blurModeIntro")}
             active={(prefs.blurStrangersMode || "intro") === "intro"}
-            onPress={() =>
-              setPrefs({
-                ...prefs,
-                blurStrangersMode: "intro",
-                blurStrangers: true,
-              })
-            }
+            onPress={() => {
+              void setBlurMode("intro");
+            }}
           />
           <Chip
             label={t("mobile.settings.blurModeHold")}
             active={(prefs.blurStrangersMode || "intro") === "hold"}
-            onPress={() =>
-              setPrefs({
-                ...prefs,
-                blurStrangersMode: "hold",
-                blurStrangers: true,
-              })
-            }
+            onPress={() => {
+              void setBlurMode("hold");
+            }}
           />
         </View>
         <Text style={styles.hint}>{t("mobile.settings.blurStrangersHint")}</Text>
@@ -754,7 +895,17 @@ function SettingsBody() {
         </View>
         <Text style={styles.hint}>{t("mobile.settings.historySnapsHint")}</Text>
 
-        <Pressable style={styles.cta} onPress={save} disabled={busy}>
+        <Pressable
+          style={styles.cta}
+          onPress={save}
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: busy, busy }}
+          accessibilityLiveRegion="polite"
+          accessibilityLabel={
+            saved ? t("mobile.settings.saved") : t("mobile.settings.save")
+          }
+        >
           <Text style={styles.ctaText}>
             {saved ? t("mobile.settings.saved") : t("mobile.settings.save")}
           </Text>
@@ -831,8 +982,10 @@ function SettingsBody() {
                   showToast(msg);
                 }
               }}
+              accessibilityRole="button"
+              accessibilityLabel={t("mobile.settings.pushRegister")}
             >
-              <Text style={styles.secondaryText}>
+              <Text style={styles.secondaryText} importantForAccessibility="no">
                 {t("mobile.settings.pushRegister")}
               </Text>
             </Pressable>
@@ -846,8 +999,10 @@ function SettingsBody() {
             onPress={() => {
               void Linking.openSettings().catch(() => {});
             }}
+            accessibilityRole="button"
+            accessibilityLabel={t("mobile.settings.openNotifSettings")}
           >
-            <Text style={styles.secondaryText}>
+            <Text style={styles.secondaryText} importantForAccessibility="no">
               {t("mobile.settings.openNotifSettings")}
             </Text>
           </Pressable>
@@ -861,8 +1016,10 @@ function SettingsBody() {
                   }
                 });
               }}
+              accessibilityRole="button"
+              accessibilityLabel={t("mobile.settings.openBattery")}
             >
-              <Text style={styles.secondaryText}>
+              <Text style={styles.secondaryText} importantForAccessibility="no">
                 {t("mobile.settings.openBattery")}
               </Text>
             </Pressable>
@@ -871,7 +1028,17 @@ function SettingsBody() {
         {pushStatus ? (
           <Text style={styles.metaInline}>{pushStatus}</Text>
         ) : null}
-        <Pressable style={styles.cta} onPress={save} disabled={busy}>
+        <Pressable
+          style={styles.cta}
+          onPress={save}
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: busy, busy }}
+          accessibilityLiveRegion="polite"
+          accessibilityLabel={
+            saved ? t("mobile.settings.saved") : t("mobile.settings.save")
+          }
+        >
           <Text style={styles.ctaText}>
             {saved ? t("mobile.settings.saved") : t("mobile.settings.save")}
           </Text>
@@ -905,8 +1072,10 @@ function SettingsBody() {
             reconnectHub();
             showToast(t("mobile.settings.hubReconnecting"));
           }}
+          accessibilityRole="button"
+          accessibilityLabel={t("mobile.settings.hubReconnect")}
         >
-          <Text style={styles.secondaryText}>
+          <Text style={styles.secondaryText} importantForAccessibility="no">
             {t("mobile.settings.hubReconnect")}
           </Text>
         </Pressable>
@@ -914,8 +1083,15 @@ function SettingsBody() {
           style={[styles.secondary, styles.hubBtn]}
           onPress={() => void refreshHubs()}
           disabled={hubBusy}
+          accessibilityRole="button"
+          accessibilityLabel={
+            hubBusy
+              ? t("mobile.common.loading")
+              : t("mobile.settings.hubProbe")
+          }
+          accessibilityState={{ disabled: hubBusy, busy: hubBusy }}
         >
-          <Text style={styles.secondaryText}>
+          <Text style={styles.secondaryText} importantForAccessibility="no">
             {hubBusy
               ? t("mobile.common.loading")
               : t("mobile.settings.hubProbe")}
@@ -926,6 +1102,12 @@ function SettingsBody() {
         const host = row.base.replace(/^https?:\/\//, "");
         const active =
           normalizeBase(hubBaseUrl || hubBase()) === normalizeBase(row.base);
+        const health =
+          row.ok === true
+            ? t("mobile.settings.hubHealthy")
+            : row.ok === false
+              ? t("mobile.settings.hubDown")
+              : t("mobile.common.loading");
         return (
           <Pressable
             key={row.base}
@@ -954,8 +1136,17 @@ function SettingsBody() {
               await switchHub(row.base);
               showToast(t("mobile.toast.hubSwitched", { hub: host }));
             }}
+            accessibilityRole="button"
+            accessibilityLabel={`${host}. ${health}${
+              active ? `. ${t("mobile.settings.hubActive")}` : ""
+            }`}
+            accessibilityState={{ selected: active }}
           >
-            <Text style={styles.hubHost} numberOfLines={1}>
+            <Text
+              style={styles.hubHost}
+              numberOfLines={1}
+              importantForAccessibility="no"
+            >
               {host}
               {active ? ` · ${t("mobile.settings.hubActive")}` : ""}
             </Text>
@@ -965,12 +1156,9 @@ function SettingsBody() {
                 row.ok === true && styles.hubOkYes,
                 row.ok === false && styles.hubOkNo,
               ]}
+              importantForAccessibility="no"
             >
-              {row.ok === true
-                ? t("mobile.settings.hubHealthy")
-                : row.ok === false
-                  ? t("mobile.settings.hubDown")
-                  : "…"}
+              {health}
             </Text>
           </Pressable>
         );
@@ -1068,6 +1256,7 @@ function SettingsBody() {
               onPress={() => {
                 clearReportHistory().then(() => setReports([]));
               }}
+              accessibilityRole="button"
             >
               <Text style={styles.secondaryText}>
                 {t("mobile.settings.reportHistoryClear")}
@@ -1097,11 +1286,15 @@ function SettingsBody() {
           autoCorrect={false}
           placeholder={t("mobile.settings.exportPw")}
           placeholderTextColor="#6b7a90"
+          accessibilityLabel={t("mobile.settings.exportPw")}
         />
         <Pressable
           style={styles.secondary}
           onPress={exportBackup}
           disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel={t("mobile.settings.exportBtn")}
+          accessibilityState={{ disabled: busy, busy }}
         >
           <Text style={styles.secondaryText}>
             {t("mobile.settings.exportBtn")}
@@ -1121,11 +1314,15 @@ function SettingsBody() {
           autoCorrect={false}
           placeholder={t("mobile.settings.importPw")}
           placeholderTextColor="#6b7a90"
+          accessibilityLabel={t("mobile.settings.importPw")}
         />
         <Pressable
           style={styles.secondary}
           onPress={importBackup}
           disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel={t("mobile.settings.importBtn")}
+          accessibilityState={{ disabled: busy, busy }}
         >
           <Text style={styles.secondaryText}>
             {t("mobile.settings.importBtn")}
@@ -1173,9 +1370,15 @@ function SettingsBody() {
               const url = urlFn();
               Linking.openURL(url).catch(() => Alert.alert(label, url));
             }}
+            accessibilityRole="link"
+            accessibilityLabel={label}
           >
-            <Text style={styles.linkText}>{label}</Text>
-            <Text style={styles.linkChevron}>{chev || "↗"}</Text>
+            <Text style={styles.linkText} importantForAccessibility="no">
+              {label}
+            </Text>
+            <Text style={styles.linkChevron} importantForAccessibility="no">
+              {chev || "↗"}
+            </Text>
           </Pressable>
         ))}
       </Section>
@@ -1205,11 +1408,33 @@ function SettingsBody() {
                 showToast(t("mobile.settings.pinHint"));
               }
             }}
+            accessibilityRole="button"
+            accessibilityLabel={t("mobile.settings.pinHome")}
           >
-            <Text style={styles.linkText}>{t("mobile.settings.pinHome")}</Text>
-            <Text style={styles.linkChevron}>+</Text>
+            <Text style={styles.linkText} importantForAccessibility="no">
+              {t("mobile.settings.pinHome")}
+            </Text>
+            <Text style={styles.linkChevron} importantForAccessibility="no">
+              +
+            </Text>
           </Pressable>
         ) : null}
+        <Pressable
+          style={styles.linkRow}
+          onPress={() => {
+            hapticLight();
+            setPcSheetOpen(true);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={t("mobile.settings.openOnPc")}
+        >
+          <Text style={styles.linkText} importantForAccessibility="no">
+            {t("mobile.settings.openOnPc")}
+          </Text>
+          <Text style={styles.linkChevron} importantForAccessibility="no">
+            ↗
+          </Text>
+        </Pressable>
         <Pressable
           style={styles.linkRow}
           onPress={() => {
@@ -1219,9 +1444,15 @@ function SettingsBody() {
             });
             Share.share({ message: msg, title: "ruletka" }).catch(() => {});
           }}
+          accessibilityRole="button"
+          accessibilityLabel={t("mobile.settings.shareApp")}
         >
-          <Text style={styles.linkText}>{t("mobile.settings.shareApp")}</Text>
-          <Text style={styles.linkChevron}>↗</Text>
+          <Text style={styles.linkText} importantForAccessibility="no">
+            {t("mobile.settings.shareApp")}
+          </Text>
+          <Text style={styles.linkChevron} importantForAccessibility="no">
+            ↗
+          </Text>
         </Pressable>
         <Pressable
           style={styles.linkRow}
@@ -1234,11 +1465,17 @@ function SettingsBody() {
               Linking.openURL(`mailto:${em}`).catch(() => {});
             }
           }}
+          accessibilityRole="button"
+          accessibilityLabel={t("mobile.settings.copySupport", {
+            email: supportEmail(),
+          })}
         >
-          <Text style={styles.linkText}>
+          <Text style={styles.linkText} importantForAccessibility="no">
             {t("mobile.settings.copySupport", { email: supportEmail() })}
           </Text>
-          <Text style={styles.linkChevron}>⎘</Text>
+          <Text style={styles.linkChevron} importantForAccessibility="no">
+            ⎘
+          </Text>
         </Pressable>
         <Pressable
           onLongPress={async () => {
@@ -1253,6 +1490,9 @@ function SettingsBody() {
           }}
           delayLongPress={400}
           style={styles.buildBox}
+          accessibilityRole="button"
+          accessibilityLabel={buildLabel()}
+          accessibilityHint={t("mobile.settings.buildCopyHint")}
         >
           <Text style={styles.buildText}>
             {t("mobile.settings.userMeta", {
@@ -1285,6 +1525,13 @@ function SettingsBody() {
 
       <View style={{ height: 32 }} />
     </ScrollView>
+    <OpenOnPcSheet
+      visible={pcSheetOpen}
+      onClose={() => setPcSheetOpen(false)}
+      url="https://ruletka.vip"
+      code={friendCode || undefined}
+    />
+    </>
   );
 }
 

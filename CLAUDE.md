@@ -9,6 +9,7 @@ Keep this file short. Claude Code loads it every session.
 
 ## #1 priority
 Play ↔ PC: both cameras + audio, **fast** connect. See `docs/CONNECTIVITY_LOCK.md` and `docs/ROADMAP_PLAY_BROWSER.md`.
+Before hub / ICE / MediaSession changes: `./scripts/test-connectivity-lock.sh` (must pass) + phone+PC smoke.
 
 ## Hard never
 1. Production deploy (rsync, systemctl, coturn, droplet)

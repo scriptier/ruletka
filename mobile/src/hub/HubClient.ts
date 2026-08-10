@@ -17,6 +17,9 @@ export class HubClient {
   private shouldReconnect = false;
   private reconnectAttempt = 0;
   private intentionalClose = false;
+  /** Short-lived /config.json cache so match path never blocks on HTTP. */
+  private iceCache: { at: number; cfg: IceConfig } | null = null;
+  private iceInflight: Promise<IceConfig> | null = null;
 
   constructor(base = hubBase()) {
     this.base = base.replace(/\/$/, "");
@@ -24,6 +27,7 @@ export class HubClient {
 
   setBase(base: string) {
     this.base = String(base || "").replace(/\/$/, "") || hubBase();
+    this.iceCache = null;
   }
 
   setHandlers(h: HubClientHandlers) {
@@ -38,10 +42,47 @@ export class HubClient {
     return this.base;
   }
 
-  async fetchIceConfig(): Promise<IceConfig> {
-    const res = await fetch(configUrl(this.base));
-    if (!res.ok) throw new Error(`config.json HTTP ${res.status}`);
-    return (await res.json()) as IceConfig;
+  /**
+   * Fetch ICE/TURN. Cached ~5 min (ephemeral TURN is ~6h).
+   * Fresh match often hits cache → zero RTT before startCall.
+   */
+  async fetchIceConfig(opts?: { force?: boolean }): Promise<IceConfig> {
+    const force = !!opts?.force;
+    const now = Date.now();
+    const maxAge = 5 * 60 * 1000;
+    const softAge = 90 * 1000;
+    if (!force && this.iceCache && now - this.iceCache.at < maxAge) {
+      // Background refresh when aging (don't block caller)
+      if (now - this.iceCache.at > softAge && !this.iceInflight) {
+        void this.refreshIceConfig().catch(() => {});
+      }
+      return this.iceCache.cfg;
+    }
+    return this.refreshIceConfig();
+  }
+
+  private async refreshIceConfig(): Promise<IceConfig> {
+    if (this.iceInflight) return this.iceInflight;
+    this.iceInflight = (async () => {
+      // Bound the request — a hung /config.json must never block startCall
+      // forever (matched → no offer). Callers fall back to STUN / cached ICE.
+      const ac =
+        typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timer = ac ? setTimeout(() => ac.abort(), 4000) : null;
+      try {
+        const res = await fetch(configUrl(this.base), {
+          signal: ac?.signal,
+        });
+        if (!res.ok) throw new Error(`config.json HTTP ${res.status}`);
+        const cfg = (await res.json()) as IceConfig;
+        this.iceCache = { at: Date.now(), cfg };
+        return cfg;
+      } finally {
+        if (timer) clearTimeout(timer);
+        this.iceInflight = null;
+      }
+    })();
+    return this.iceInflight;
   }
 
   connect(opts: { autoReconnect?: boolean } = {}): void {
@@ -141,6 +182,8 @@ export class HubClient {
     name: string;
     gender?: string;
     looking?: string;
+    flag?: string;
+    hide_ip?: boolean;
   }): void {
     this.send({
       type: "hello",
@@ -148,20 +191,28 @@ export class HubClient {
       name: opts.name || "anon",
       gender: opts.gender || "",
       looking: opts.looking || "any",
-      flag: "",
+      flag: opts.hide_ip ? String(opts.flag || "").toUpperCase().slice(0, 2) : "",
       avatar: "",
       tags: [],
+      platform: "android",
+      hide_ip: !!opts.hide_ip,
     });
   }
 
-  setPrefs(opts: { gender?: string; looking?: string }): void {
+  setPrefs(opts: {
+    gender?: string;
+    looking?: string;
+    flag?: string;
+    hide_ip?: boolean;
+  }): void {
     this.send({
       type: "set_prefs",
       gender: opts.gender || "",
       looking: opts.looking || "any",
-      flag: "",
+      flag: opts.hide_ip ? String(opts.flag || "").toUpperCase().slice(0, 2) : "",
       avatar: "",
       tags: [],
+      hide_ip: !!opts.hide_ip,
     });
   }
 
@@ -183,8 +234,29 @@ export class HubClient {
   blockUser(user_id: string): void {
     this.send({ type: "block_user", user_id });
   }
-  reportUser(user_id: string, reason = "other"): void {
-    this.send({ type: "report_user", user_id, reason });
+  unblockUser(user_id: string): void {
+    this.send({ type: "unblock_user", user_id });
+  }
+  reportUser(
+    user_id: string,
+    reason = "other",
+    screenshotJpegB64?: string
+  ): void {
+    const msg: {
+      type: "report_user";
+      user_id: string;
+      reason: string;
+      screenshot_jpeg_b64?: string;
+    } = { type: "report_user", user_id, reason };
+    // Cap ~90KB decoded; keep WS frames reasonable
+    if (screenshotJpegB64 && screenshotJpegB64.length > 0) {
+      const capped =
+        screenshotJpegB64.length > 120_000
+          ? screenshotJpegB64.slice(0, 120_000)
+          : screenshotJpegB64;
+      msg.screenshot_jpeg_b64 = capped;
+    }
+    this.send(msg);
   }
   addFriend(code: string): void {
     this.send({ type: "add_friend", code: code.trim().toUpperCase() });
@@ -198,8 +270,39 @@ export class HubClient {
   removeFriend(user_id: string): void {
     this.send({ type: "remove_friend", user_id });
   }
-  callFriend(user_id: string): void {
-    this.send({ type: "call_friend", user_id });
+  /** Private 1:1 ring, or join=true to invite into current live 1v1 as 3rd. */
+  callFriend(user_id: string, opts?: { join?: boolean }): void {
+    this.send({
+      type: "call_friend",
+      user_id,
+      join: !!opts?.join,
+    });
+  }
+  /** Friend call → form party of 2 and hunt a stranger together. */
+  browseTogether(room = ""): void {
+    this.send({ type: "browse_together", room });
+  }
+  /** Stranger (or friend) 1v1 → invite partner to find a 3rd. */
+  findThirdInvite(): void {
+    this.send({ type: "find_third_invite" });
+  }
+  findThirdRespond(accept: boolean): void {
+    this.send({ type: "find_third_respond", accept: !!accept });
+  }
+  findThirdCancel(): void {
+    this.send({ type: "find_third_cancel" });
+  }
+  /** DM a mutual friend (stored if offline). */
+  friendChat(to_user_id: string, body: string): void {
+    this.send({
+      type: "friend_chat",
+      to_user_id,
+      body: String(body || "").trim().slice(0, 2000),
+    });
+  }
+  /** Load last N stored DMs with a friend. */
+  friendChatHistory(with_user_id: string): void {
+    this.send({ type: "friend_chat_history", with_user_id });
   }
   callRespond(user_id: string, accept: boolean): void {
     this.send({ type: "call_respond", user_id, accept });
@@ -220,12 +323,22 @@ export class HubClient {
     this.send({ type: "hangup_friend" });
   }
 
-  ratePartner(user_id: string, star: boolean, amount = 1): void {
+  /**
+   * Post-chat rate. star=true gifts 1–3★; star=false + thanks=true is vouch (no mint);
+   * bare skip is star=false, thanks=false.
+   */
+  ratePartner(
+    user_id: string,
+    star: boolean,
+    amount = 1,
+    opts?: { thanks?: boolean }
+  ): void {
     this.send({
       type: "rate_partner",
       user_id,
-      star,
+      star: !!star,
       amount: star ? Math.max(1, Math.min(3, amount)) : 0,
+      thanks: !star && !!opts?.thanks,
     });
   }
 
