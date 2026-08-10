@@ -6,7 +6,7 @@
  * - Bump CACHE when shell list changes so activate cleans old entries.
  * - No skipWaiting on install (avoids mid-call takeover); client posts SKIP_WAITING on Reload.
  */
-const CACHE = "rulet-shell-v24";
+const CACHE = "rulet-shell-v25";
 
 /** Offline-safe shell only — keep small (no 250KB icons / mp4). Live stack is network-first. */
 const SHELL = [
@@ -34,6 +34,7 @@ function isVolatilePath(pathname) {
     pathname === "/hubs.js" ||
     pathname === "/i18n.js" ||
     pathname === "/pwa-install.js" ||
+    pathname === "/web-push.js" ||
     pathname === "/brand.js" ||
     pathname === "/home.css" ||
     pathname === "/style.css" ||
@@ -87,6 +88,87 @@ self.addEventListener("message", (event) => {
   if (data === "SKIP_WAITING" || data.type === "SKIP_WAITING") {
     self.skipWaiting();
   }
+});
+
+/**
+ * True Web Push — friend call when the tab is fully closed.
+ * Hub sends AES128GCM payload JSON: { type, title, body, from_name, url, tag }.
+ */
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    if (event.data) {
+      const t = event.data.text();
+      try {
+        data = JSON.parse(t);
+      } catch (_) {
+        data = { body: t };
+      }
+    }
+  } catch (_) {}
+
+  const title =
+    (data && (data.title || data.from_name)) ||
+    "Incoming call";
+  const body =
+    (data && (data.body || data.text)) ||
+    (data && data.from_name
+      ? `${data.from_name} is calling — tap to answer`
+      : "A friend is calling — tap to answer");
+  const tag = (data && data.tag) || "ruletka-friend-call";
+  const url = (data && data.url) || "/live.html";
+  const fromName = (data && data.from_name) || "";
+
+  event.waitUntil(
+    self.registration.showNotification(String(title).slice(0, 80), {
+      body: String(body).slice(0, 180),
+      tag,
+      renotify: true,
+      requireInteraction: true,
+      silent: false,
+      icon: "/brand/icon-192.png",
+      badge: "/brand/favicon-32.png",
+      data: {
+        url,
+        type: (data && data.type) || "friend_call_ring",
+        from_name: fromName,
+        from_user_id: (data && data.from_user_id) || "",
+      },
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const data = (event.notification && event.notification.data) || {};
+  let path = data.url || "/live.html";
+  if (typeof path !== "string" || !path.startsWith("/")) path = "/live.html";
+  // Prefer live stage for friend rings
+  const targetUrl = new URL(path, self.location.origin).href;
+
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then((clientList) => {
+        for (const client of clientList) {
+          try {
+            if (client.url && client.url.indexOf(self.location.origin) === 0) {
+              if ("focus" in client) {
+                client.postMessage({
+                  type: "PUSH_OPEN_CALL",
+                  from_name: data.from_name || "",
+                  from_user_id: data.from_user_id || "",
+                });
+                return client.focus();
+              }
+            }
+          } catch (_) {}
+        }
+        if (self.clients.openWindow) {
+          return self.clients.openWindow(targetUrl);
+        }
+      })
+  );
 });
 
 function isApiPath(pathname) {

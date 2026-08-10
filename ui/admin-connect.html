@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>ruletka — connect monitor</title>
+  <link rel="icon" href="/brand/favicon-32.png?v=10" type="image/png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #07080c;
+      --border: rgba(255, 255, 255, 0.1);
+      --text: #eef2f7;
+      --muted: #8b9bb0;
+      --accent: #5b9dff;
+      --good: #3dd68c;
+      --warn: #f5a524;
+      --danger: #ff2d55;
+      --sans: "Inter", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { color-scheme: dark; }
+    body {
+      margin: 0;
+      min-height: 100dvh;
+      font-family: var(--sans);
+      background:
+        radial-gradient(ellipse 70% 50% at 15% 0%, rgba(91, 157, 255, 0.1), transparent 55%),
+        var(--bg);
+      color: var(--text);
+      padding: 1.25rem 1rem 2.5rem;
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrap { max-width: 920px; margin: 0 auto; }
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem 1rem;
+      margin-bottom: 1.1rem;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .badge {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 0.25rem 0.55rem;
+      border-radius: 999px;
+      border: 1px solid rgba(91, 157, 255, 0.35);
+      background: rgba(91, 157, 255, 0.12);
+      color: #9ec5ff;
+    }
+    a.btn, button {
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.05);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 0.5rem 0.95rem;
+      font: inherit;
+      font-size: 0.88rem;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    button.primary {
+      background: linear-gradient(180deg, #6ba8ff, #4a8ef0);
+      border-color: transparent;
+      color: #061018;
+      font-weight: 600;
+    }
+    .auth {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      padding: 0.9rem 1rem;
+      background: rgba(16, 22, 32, 0.75);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      margin-bottom: 1rem;
+    }
+    .auth input {
+      flex: 1 1 14rem;
+      min-width: 0;
+      border: 1px solid var(--border);
+      background: #0e131a;
+      color: var(--text);
+      border-radius: 10px;
+      padding: 0.55rem 0.75rem;
+      font: inherit;
+    }
+    .hint {
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.45;
+      margin: 0 0 1rem;
+    }
+    .hint code {
+      font-size: 0.78rem;
+      background: rgba(255,255,255,0.06);
+      padding: 0.1rem 0.35rem;
+      border-radius: 4px;
+    }
+    .err {
+      color: var(--danger);
+      background: rgba(255, 45, 85, 0.1);
+      border: 1px solid rgba(255, 45, 85, 0.3);
+      border-radius: 10px;
+      padding: 0.65rem 0.85rem;
+      margin-bottom: 1rem;
+      font-size: 0.88rem;
+    }
+    .panel {
+      background: rgba(16, 22, 32, 0.72);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1rem 1.1rem 1.15rem;
+    }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.65rem 0.85rem;
+      margin-bottom: 0.85rem;
+    }
+    .verdict {
+      font-size: 0.75rem;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      padding: 0.3rem 0.65rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(139,155,176,0.2);
+      color: var(--muted);
+    }
+    .verdict.ok { background: rgba(61,214,140,0.18); color: var(--good); border-color: rgba(61,214,140,0.4); }
+    .verdict.red { background: rgba(255,45,85,0.18); color: var(--danger); border-color: rgba(255,45,85,0.4); }
+    .verdict.yellow { background: rgba(245,165,36,0.18); color: var(--warn); border-color: rgba(245,165,36,0.4); }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+      gap: 0.55rem;
+      margin-bottom: 1rem;
+    }
+    .stat {
+      background: rgba(0,0,0,0.25);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 0.55rem 0.65rem;
+      font-size: 0.72rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .stat strong {
+      display: block;
+      margin-top: 0.2rem;
+      font-size: 1.05rem;
+      color: var(--text);
+      font-weight: 700;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.84rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.45rem 0.4rem;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    th {
+      color: var(--muted);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-weight: 600;
+    }
+    tr.bad td { color: var(--danger); }
+    .empty { color: var(--muted); text-align: center; padding: 1.25rem; }
+    .scroll { max-height: min(50vh, 380px); overflow: auto; border: 1px solid var(--border); border-radius: 12px; }
+    label.chk {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.85rem;
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <img src="/brand/logo-mark.png?v=10" width="32" height="32" alt="" style="border-radius:8px" />
+      <h1>Connect monitor</h1>
+      <span class="badge">automation</span>
+      <span style="flex:1"></span>
+      <a class="btn" href="/admin.html">Full admin</a>
+      <a class="btn" href="/live.html">Live</a>
+    </header>
+
+    <div class="auth">
+      <input id="token" type="password" placeholder="Admin token (ROULETTE_ADMIN_TOKEN)" autocomplete="current-password" />
+      <button type="button" class="primary" id="btn-load">Start</button>
+      <button type="button" id="btn-clear">Forget</button>
+    </div>
+    <p class="hint">
+      Pair phone + browser while this page is open. Auto-refresh every 5s.
+      CLI (hub + coturn): <code>./scripts/connect-monitor.sh</code>
+      · API: <code>GET /v1/admin/connect_live</code>
+    </p>
+    <div class="err" id="err" hidden></div>
+
+    <div class="panel" id="panel">
+      <div class="row">
+        <span class="verdict" id="verdict">IDLE</span>
+        <span class="hint" id="reason" style="margin:0;flex:1">Enter token and Start</span>
+        <label class="chk"><input type="checkbox" id="auto" checked /> auto 5s</label>
+        <button type="button" id="btn-refresh">Refresh</button>
+      </div>
+      <div class="stats">
+        <div class="stat">Matches <strong id="s-matches">—</strong></div>
+        <div class="stat">Offers <strong id="s-offers">—</strong></div>
+        <div class="stat">Answers <strong id="s-answers">—</strong></div>
+        <div class="stat">Drops <strong id="s-drops">—</strong></div>
+        <div class="stat">Web relay=0 <strong id="s-web0">—</strong></div>
+        <div class="stat">Phone relay=0 <strong id="s-phone0">—</strong></div>
+        <div class="stat">Max MTO <strong id="s-mto">—</strong></div>
+        <div class="stat">Max MTA <strong id="s-mta">—</strong></div>
+        <div class="stat">Max MTI <strong id="s-mti">—</strong></div>
+        <div class="stat">Relay min/max <strong id="s-relay">—</strong></div>
+        <div class="stat">Online <strong id="s-online">—</strong></div>
+        <div class="stat">Waiting <strong id="s-waiting">—</strong></div>
+      </div>
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Kind</th>
+              <th>Platform</th>
+              <th>ms</th>
+              <th>Relay</th>
+              <th>From / note</th>
+            </tr>
+          </thead>
+          <tbody id="tbody">
+            <tr><td colspan="5" class="empty">No events yet</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const KEY = "rulet.admin.token";
+    const $ = (id) => document.getElementById(id);
+    let timer = 0;
+
+    function token() {
+      return ($("token").value || "").trim();
+    }
+    function saveToken(t) {
+      try {
+        if (t) localStorage.setItem(KEY, t);
+        else localStorage.removeItem(KEY);
+      } catch (_) {}
+    }
+    function loadSaved() {
+      try {
+        const t = localStorage.getItem(KEY) || "";
+        if (t) $("token").value = t;
+        const q = new URLSearchParams(location.search).get("token");
+        if (q) $("token").value = q;
+      } catch (_) {}
+    }
+    function headers() {
+      const t = token();
+      return {
+        Authorization: "Bearer " + t,
+        "X-Admin-Token": t,
+        "Content-Type": "application/json",
+      };
+    }
+    function showErr(msg) {
+      const el = $("err");
+      if (!msg) {
+        el.hidden = true;
+        el.textContent = "";
+        return;
+      }
+      el.hidden = false;
+      el.textContent = msg;
+    }
+    function esc(s) {
+      return String(s || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+    function setVerdict(v) {
+      const el = $("verdict");
+      el.textContent = v || "IDLE";
+      el.className = "verdict";
+      if (v === "OK") el.classList.add("ok");
+      else if (v === "RED") el.classList.add("red");
+      else if (v === "YELLOW") el.classList.add("yellow");
+    }
+
+    async function load() {
+      showErr("");
+      const t = token();
+      if (!t) {
+        showErr("Enter admin token");
+        return;
+      }
+      saveToken(t);
+      try {
+        const r = await fetch("/v1/admin/connect_live", {
+          headers: headers(),
+          cache: "no-store",
+        });
+        if (r.status === 401) throw new Error("Unauthorized — check admin token");
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || r.statusText || "failed");
+        const s = data.summary || {};
+        setVerdict(data.verdict || "IDLE");
+        $("reason").textContent = data.reason || "";
+        $("s-matches").textContent = s.matches ?? 0;
+        $("s-offers").textContent = s.offers ?? 0;
+        $("s-answers").textContent = s.answers ?? 0;
+        $("s-drops").textContent = s.drops ?? 0;
+        $("s-web0").textContent = s.web_relay0 ?? 0;
+        $("s-phone0").textContent = s.phone_relay0 ?? 0;
+        $("s-mto").textContent = s.max_mto_ms != null ? s.max_mto_ms + "ms" : "—";
+        $("s-mta").textContent = s.max_mta_ms != null ? s.max_mta_ms + "ms" : "—";
+        $("s-mti").textContent = s.max_mti_ms != null ? s.max_mti_ms + "ms" : "—";
+        $("s-relay").textContent =
+          (s.relay_min != null ? s.relay_min : "—") +
+          " / " +
+          (s.relay_max != null ? s.relay_max : "—");
+        $("s-online").textContent = data.online ?? "—";
+        $("s-waiting").textContent = data.waiting ?? "—";
+
+        const ev = data.events || [];
+        const body = $("tbody");
+        if (!ev.length) {
+          body.innerHTML =
+            '<tr><td colspan="5" class="empty">No events yet — Start once on phone + browser</td></tr>';
+          return;
+        }
+        body.innerHTML = ev
+          .slice(0, 50)
+          .map((e) => {
+            const bad =
+              e.relay_candidates === 0 || e.kind === "drop" || e.slow;
+            const note = esc(
+              e.reason ||
+                e.from ||
+                (e.force_relay != null
+                  ? "force_relay=" + (e.force_relay ? 1 : 0)
+                  : "") ||
+                ""
+            );
+            return (
+              "<tr class='" +
+              (bad ? "bad" : "") +
+              "'><td>" +
+              esc(e.kind) +
+              "</td><td>" +
+              esc(e.platform || e.platform_a || "—") +
+              "</td><td>" +
+              (e.ms != null ? e.ms : "—") +
+              "</td><td>" +
+              (e.relay_candidates != null ? e.relay_candidates : "—") +
+              "</td><td>" +
+              note +
+              "</td></tr>"
+            );
+          })
+          .join("");
+      } catch (e) {
+        showErr(e.message || String(e));
+      }
+    }
+
+    function startPoll() {
+      if (timer) clearInterval(timer);
+      timer = 0;
+      if (!$("auto").checked) return;
+      timer = setInterval(() => {
+        if (token() && document.visibilityState === "visible") load();
+      }, 5000);
+    }
+
+    $("btn-load").addEventListener("click", () => {
+      load();
+      startPoll();
+    });
+    $("btn-refresh").addEventListener("click", () => load());
+    $("btn-clear").addEventListener("click", () => {
+      $("token").value = "";
+      saveToken("");
+      showErr("");
+    });
+    $("auto").addEventListener("change", () => startPoll());
+    $("token").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        load();
+        startPoll();
+      }
+    });
+
+    loadSaved();
+    if (token()) {
+      load();
+      startPoll();
+    }
+  </script>
+</body>
+</html>

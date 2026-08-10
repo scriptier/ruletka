@@ -1934,5 +1934,7 @@
   "wait.alone": "Jste jediný, kdo čeká. Pozvěte přítele pomocí svého kódu přítele – otevřou se živě, vy Přijmete a poté Zavoláte.",
   "wait.body": "Jen málo lidí je teď online. Sdílejte svou pozvánku na přátelství nebo to zkuste znovu později – odejděte, kdykoli budete chtít.",
   "wait.few": "Skoro nikdo nečeká. Pozvěte přítele pomocí svého kódu přítele nebo to zkuste znovu později.",
-  "wait.title": "Stále hledá…"
+  "wait.title": "Stále hledá…",
+  "live.theyMutedYou": "They muted you · no sound",
+  "live.theyMutedYouToast": "Partner muted you — they can't hear you"
 }

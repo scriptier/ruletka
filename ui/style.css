@@ -146,7 +146,7 @@ button.video { color: #c4b5fd; }
 .vid {
   width: 100%;
   aspect-ratio: 4/3;
-  background: #0a0d12;
+  background: transparent;
   border: 1px solid var(--border);
   border-radius: 10px;
   object-fit: cover;

@@ -1,39 +1,46 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160">
-  <!-- Dark open chain-link (ref: images.jpeg) -->
+  <!-- Dark steel chain-link — denser metal, clearer joints -->
   <defs>
     <linearGradient id="w" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#6a7278"/>
-      <stop offset="45%" stop-color="#2a3036"/>
-      <stop offset="100%" stop-color="#0c1014"/>
+      <stop offset="0%" stop-color="#8a949c"/>
+      <stop offset="40%" stop-color="#3a424a"/>
+      <stop offset="100%" stop-color="#0e1216"/>
     </linearGradient>
-    <filter id="s"><feDropShadow dx="0.3" dy="0.5" stdDeviation="0.4" flood-opacity="0.5"/></filter>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#c8d0d6" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#1a2026" stop-opacity="0.2"/>
+    </linearGradient>
+    <filter id="s"><feDropShadow dx="0.4" dy="0.7" stdDeviation="0.55" flood-opacity="0.55"/></filter>
   </defs>
   <g fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#s)">
-    <g stroke="#080a0c" stroke-width="3.6">
+    <g stroke="#05070a" stroke-width="4.1">
       <path d="M0,40.0 L40.0,0 L80,40.0 L40.0,80 Z M80,40.0 L120.0,0 L160,40.0 L120.0,80 Z M0,120.0 L40.0,80 L80,120.0 L40.0,160 Z M80,120.0 L120.0,80 L160,120.0 L120.0,160 Z"/>
     </g>
-    <g stroke="url(#w)" stroke-width="2.35">
+    <g stroke="url(#w)" stroke-width="2.55">
+      <path d="M0,40.0 L40.0,0 L80,40.0 L40.0,80 Z M80,40.0 L120.0,0 L160,40.0 L120.0,80 Z M0,120.0 L40.0,80 L80,120.0 L40.0,160 Z M80,120.0 L120.0,80 L160,120.0 L120.0,160 Z"/>
+    </g>
+    <g stroke="url(#rim)" stroke-width="0.7" opacity="0.85">
       <path d="M0,40.0 L40.0,0 L80,40.0 L40.0,80 Z M80,40.0 L120.0,0 L160,40.0 L120.0,80 Z M0,120.0 L40.0,80 L80,120.0 L40.0,160 Z M80,120.0 L120.0,80 L160,120.0 L120.0,160 Z"/>
     </g>
   </g>
-  <g fill="#2e363c" stroke="#0a0c0e" stroke-width="0.35">
-    <ellipse cx="40.0" cy="0" rx="3.2" ry="2.15" transform="rotate(45 40.0 0)"/>
-    <ellipse cx="0" cy="40.0" rx="3.2" ry="2.15" transform="rotate(45 0 40.0)"/>
-    <ellipse cx="120.0" cy="0" rx="3.2" ry="2.15" transform="rotate(45 120.0 0)"/>
-    <ellipse cx="80" cy="40.0" rx="3.2" ry="2.15" transform="rotate(45 80 40.0)"/>
-    <ellipse cx="160" cy="40.0" rx="3.2" ry="2.15" transform="rotate(45 160 40.0)"/>
-    <ellipse cx="40.0" cy="80" rx="3.2" ry="2.15" transform="rotate(45 40.0 80)"/>
-    <ellipse cx="0" cy="120.0" rx="3.2" ry="2.15" transform="rotate(45 0 120.0)"/>
-    <ellipse cx="120.0" cy="80" rx="3.2" ry="2.15" transform="rotate(45 120.0 80)"/>
-    <ellipse cx="80" cy="120.0" rx="3.2" ry="2.15" transform="rotate(45 80 120.0)"/>
-    <ellipse cx="160" cy="120.0" rx="3.2" ry="2.15" transform="rotate(45 160 120.0)"/>
-    <ellipse cx="40.0" cy="160" rx="3.2" ry="2.15" transform="rotate(45 40.0 160)"/>
-    <ellipse cx="120.0" cy="160" rx="3.2" ry="2.15" transform="rotate(45 120.0 160)"/>
+  <g fill="#3a444c" stroke="#080a0c" stroke-width="0.4">
+    <ellipse cx="40.0" cy="0" rx="3.5" ry="2.35" transform="rotate(45 40.0 0)"/>
+    <ellipse cx="0" cy="40.0" rx="3.5" ry="2.35" transform="rotate(45 0 40.0)"/>
+    <ellipse cx="120.0" cy="0" rx="3.5" ry="2.35" transform="rotate(45 120.0 0)"/>
+    <ellipse cx="80" cy="40.0" rx="3.5" ry="2.35" transform="rotate(45 80 40.0)"/>
+    <ellipse cx="160" cy="40.0" rx="3.5" ry="2.35" transform="rotate(45 160 40.0)"/>
+    <ellipse cx="40.0" cy="80" rx="3.5" ry="2.35" transform="rotate(45 40.0 80)"/>
+    <ellipse cx="0" cy="120.0" rx="3.5" ry="2.35" transform="rotate(45 0 120.0)"/>
+    <ellipse cx="120.0" cy="80" rx="3.5" ry="2.35" transform="rotate(45 120.0 80)"/>
+    <ellipse cx="80" cy="120.0" rx="3.5" ry="2.35" transform="rotate(45 80 120.0)"/>
+    <ellipse cx="160" cy="120.0" rx="3.5" ry="2.35" transform="rotate(45 160 120.0)"/>
+    <ellipse cx="40.0" cy="160" rx="3.5" ry="2.35" transform="rotate(45 40.0 160)"/>
+    <ellipse cx="120.0" cy="160" rx="3.5" ry="2.35" transform="rotate(45 120.0 160)"/>
   </g>
-  <g fill="#b8c0c6" fill-opacity="0.55">
-    <circle cx="79.3" cy="39.15" r="0.55"/>
-    <circle cx="39.3" cy="79.15" r="0.55"/>
-    <circle cx="119.3" cy="79.15" r="0.55"/>
-    <circle cx="79.3" cy="119.15" r="0.55"/>
+  <g fill="#d0d8de" fill-opacity="0.65">
+    <circle cx="79.3" cy="39.15" r="0.7"/>
+    <circle cx="39.3" cy="79.15" r="0.7"/>
+    <circle cx="119.3" cy="79.15" r="0.7"/>
+    <circle cx="79.3" cy="119.15" r="0.7"/>
   </g>
 </svg>
