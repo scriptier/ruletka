@@ -250,24 +250,17 @@ function shouldFilterToRelayCandidates() {
 }
 
 /**
- * Wait for ≥1 typ relay whenever TURN is in config (Play↔browser black when
- * web emitted host-only offer relay_candidates=0 while phone had relay).
- * Pure strip/filter stays hide/force only — this only delays emit for TURN.
+ * Wait for typ relay in SDP only in pure-relay modes (Hide IP / hub force_relay).
+ * Waiting on every TURN-in-config match delayed host-path offers 1–10s and
+ * pushed ICE toward broken TURN hairpin (peer 10.x CREATE_PERM, black cams).
+ * Normal matches: emit ASAP with host/srflx; relay trickles later.
  * @returns {boolean}
  */
 function shouldWaitForFirstRelay() {
   try {
     if (preferDirectOnlyEnabled()) return false;
   } catch (_) {}
-  try {
-    const raw = lastRawIceServers || iceConfig?.iceServers || [];
-    return (raw || []).some((s) => {
-      const urls = Array.isArray(s.urls) ? s.urls : s.urls ? [s.urls] : [];
-      return urls.some((u) => /^turns?:/i.test(String(u || "")));
-    });
-  } catch (_) {
-    return hideIpRelayOnlyEnabled() || sessionForceRelayEnabled();
-  }
+  return hideIpRelayOnlyEnabled() || sessionForceRelayEnabled();
 }
 
 /**

@@ -23630,7 +23630,8 @@ function handleMatched(msg) {
       armOfferKickWatch(
         msg,
         peersFast[0],
-        msg.force_relay ? [900, 2200, 4500] : [600, 1600, 3500]
+        // Fast re-kick: host path must not sit silent (18:01 match had ice only, no offer)
+        msg.force_relay ? [800, 2000, 4000] : [400, 1200, 2500]
       );
     } else {
       clearOfferKickWatch();

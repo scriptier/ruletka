@@ -2470,11 +2470,12 @@ export class MediaSession {
   }
 
   /**
-   * Wait for ≥1 typ relay whenever TURN is available (web↔android black when
-   * offer left with relay_candidates=0). Strip stays force/hide only.
+   * Wait for typ relay only in pure-relay modes (hide_ip / hub force_relay).
+   * Normal matches emit host ASAP — waiting on every TURN path delayed SDP
+   * and preferred broken coturn hairpin (2026-08-10 black both cams).
    */
   private shouldWaitForFirstRelay(): boolean {
-    return this.hasTurn() || this.ice?.has_turn === true;
+    return this.desiredRelayPolicy();
   }
 
   private async createAndSendOffer(
@@ -2717,17 +2718,20 @@ export class MediaSession {
     // answerer offers @~10s and thrash kills phone→web video).
     // Offerer: soft restart after 7s if still black.
     const answerer = !!this.answeredAsAnswerer || !this.isOfferer;
+    // LOCK: no iceRestart / stream rebuild in first 12s (thrash@3.5–7s killed
+    // first path — hub second offer@~20s, peer_usage=0 both black).
+    // Only keyframe + outbound rebind until frames or long grace.
     const waves: Array<{ delay: number; restart: boolean; rebuild: boolean }> =
       answerer
         ? [
-            { delay: 1500, restart: false, rebuild: false },
-            { delay: 3500, restart: false, rebuild: true },
-            { delay: 7000, restart: false, rebuild: true },
+            { delay: 2000, restart: false, rebuild: false },
+            { delay: 5000, restart: false, rebuild: false },
+            { delay: 12000, restart: false, rebuild: true },
           ]
         : [
-            { delay: 2000, restart: false, rebuild: false },
-            { delay: 3800, restart: true, rebuild: false },
-            { delay: 7000, restart: true, rebuild: true },
+            { delay: 2500, restart: false, rebuild: false },
+            { delay: 6000, restart: false, rebuild: false },
+            { delay: 14000, restart: true, rebuild: false },
           ];
     for (const w of waves) {
       const t = setTimeout(() => {
@@ -2747,6 +2751,7 @@ export class MediaSession {
         this.repaintRemoteStream(`black_${w.delay}`);
         // Always push outbound (phone→web black)
         this.attachLocalTracksIfNeeded();
+        void this.bindAnswerOutbound();
         void this.pollOutboundVideo(w.delay);
         if (w.rebuild) {
           this.forceRebuildRemoteStreamForPaint(`black_${w.delay}`);
