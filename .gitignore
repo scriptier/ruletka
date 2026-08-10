@@ -39,6 +39,8 @@ scripts/livekit/
 /deploy/
 ui/brand/_backup_*/
 ui/brand/icon-source-cylinder.jpg
+ui/livekit-media.js
+tasks/screenshot-*.png
 
 # Local ops / personal
 phone-url.txt

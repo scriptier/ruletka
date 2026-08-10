@@ -47,6 +47,6 @@ fi
 echo ""
 echo "connectivity-lock OK"
 echo "Human gate still required for connect PRs:"
-echo "  install mobile/artifacts/ruletka-android-latest.apk (≥0.1.278)"
+echo "  install mobile/artifacts/ruletka-android-latest.apk (≥0.1.280)"
 echo "  hard-refresh live.html · match once · PC must see phone face"
 echo "  hub: force_relay=false for normal pair · no answerer offer drop"

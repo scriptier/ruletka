@@ -120,7 +120,7 @@ cargo test -p freenet-roulette-bridge connectivity_lock
 cd ~/freenet-roulette
 ./scripts/test-connectivity-lock.sh
 ./scripts/hub-match-speed.sh 30
-# Install mobile/artifacts/ruletka-android-latest.apk (0.1.278+)
+# Install mobile/artifacts/ruletka-android-latest.apk (0.1.280+)
 ```
 
 See also: `docs/VIDEO_PATH_LOCK.md`, `docs/CONNECT_MONITOR.md`, `docs/PC_BROWSER_SMOKE.md`.
