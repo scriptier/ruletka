@@ -1,30 +1,41 @@
-# Ship status — 0.1.283 (291)
+# Ship status — 0.1.283 (291) · morning 2026-08-10
 
-**Updated:** 2026-08-10 · **Prod web:** live · **Git:** `main` @ `999081a`
+**Git:** `main` @ `7de3dee` · **Prod hub:** live (same-IP no force_relay) · **Web:** `webrtc.js?v=285`
 
-## Gate results
+## Packages
 
-| Gate | Status |
-|------|--------|
-| Hub `/health` | `ok` · TURN on |
-| Live assets | `webrtc.js?v=285` · pure `force_relay` |
+| Artifact | Path |
+|----------|------|
 | APK | `mobile/artifacts/ruletka-0.1.283-vc291.apk` |
+| AAB | `mobile/artifacts/ruletka-0.1.283-vc291.aab` |
+| Latest symlink | `mobile/artifacts/ruletka-android-latest.apk` |
 
-## Fixes in this build
+## Overnight stack (ready for human smoke)
 
-### 1. Both cams black (PC + Android) — pure force_relay
-Same-LAN `force_relay=true` no longer hybrid host-hang. Pure TURN relay +
-answerer never dual-offers.
+1. **Pure force_relay client** (hide_ip / untrusted only) + answerer never promotes  
+2. **Android blur** — RTCView zOrder 0 + opaque mosaic (not unmount black)  
+3. **Hub:** same public IP does **not** force_relay → same Wi‑Fi uses **host P2P**  
+4. connectivity-lock + coturn self-peer **PASS**
 
-### 2. Android privacy blur black stage
-Veil no longer **unmounts** partner RTCView (that left a black hole). Keeps
-streams at **zOrder 0** under opaque `PartnerBlurVeil` + full-screen mosaic.
-
-## Human smoke
+## Human smoke now
 
 ```bash
-adb install -r mobile/artifacts/ruletka-0.1.283-vc291.apk
-# hard-refresh https://ruletka.vip/live.html  (webrtc.js?v=285)
-# 1) blur OFF → both faces ≥30s
-# 2) eye / privacy → frosted mosaic (not pure black) · Show video works
+export PATH="$HOME/Android/Sdk/platform-tools:$PATH"
+adb install -r ~/freenet-roulette/mobile/artifacts/ruletka-0.1.283-vc291.apk
+# hard-refresh https://ruletka.vip/live.html  → webrtc.js?v=285
+# Hide IP off · Start once both sides · wait 15s · no Next spam
 ```
+
+| Check | Pass |
+|-------|------|
+| Hub | `force_relay=false` · 1 web offer + 1 android answer |
+| Video | PC sees phone + phone sees PC ≥30s |
+| Blur | Eye → frosted mosaic · Show video restores face |
+| After | `./scripts/hub-match-speed.sh 15` · `./scripts/connect-monitor.sh --once` |
+
+## Do not regress
+
+- Same-IP force_relay again  
+- Answerer promote  
+- Unmount RTCView on blur  
+- Blanket web↔android force_relay  
