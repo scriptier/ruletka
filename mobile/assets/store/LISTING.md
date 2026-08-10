@@ -20,7 +20,9 @@ Match with strangers or Call friends by code. Video goes device-to-device when p
 • Friends Call + DMs; background ring when alerts are on
 • Adaptive video quality on weak mobile networks
 • Soft / hard reconnect when video stalls (phone↔browser)
-• Partner mute: they see the same mute visuals you do
+• See partner name, location, and ★ reputation during chat
+• Partner mute: they see when you mute them (and you see when they mute you)
+• Privacy veil — soft blur first; Show video when ready (eye button)
 • Formal debate mode (turn-taking) over a private data channel
 • Multi-party layout: side-by-side stack (3–4 way) or equal grid
 • Block and Report in every call (optional screenshot evidence)
@@ -46,14 +48,15 @@ Support: support@ruletka.me · Privacy: privacy@ruletka.me
 Regenerate: `cd mobile && ./scripts/play-status.sh --notes`
 
 ```
-0.1.136 (144) — closed testing
+0.1.220 (228) — closed testing
 
-• Connect: one offer per match; stop 0.8s thrash / long black wait
-• Partner mute visuals + debate over data channel (Play)
-• Multi-party: horizontal stack (toggle equal grid on web)
-• Soft ICE / hard rebuild budgets (14s / 24s class)
-• Friends Call + DMs; report + block; 18+ gate
-• Child safety: ruletka.vip/legal/child-safety.html
+• Blur: eye button on call bar + full-screen soft veil
+• Mute: banners you-muted / they-muted-you; hub notify partner
+• Partner card: name · location · ★ (long-press copy)
+• Android video under chrome so badges actually show
+• Gifts show who you’re gifting
+• Play↔PC TURN same Wi‑Fi; Friends Call/Chat
+• Home Privacy · Terms · Safety; 18+ · CSAE
 
 Hub: https://ruletka.vip
 Support: support@ruletka.me

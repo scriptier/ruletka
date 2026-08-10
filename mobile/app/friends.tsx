@@ -91,16 +91,31 @@ function FriendRow(props: {
     onBlock,
   } = props;
   const t = useT();
+  /** Short label on the row CTA; longer a11y when offline ring. */
   const callLabel = liveBusy
+    ? t("mobile.friends.inviteJoin")
+    : t("friends.call");
+  const callA11y = liveBusy
     ? t("mobile.friends.inviteJoin")
     : item.online
       ? t("friends.call")
       : t("mobile.history.ringAnyway");
-  const callActive = liveBusy ? item.online : item.online;
+  const chatLabel = t("mobile.friends.chat");
+  const callActive = liveBusy ? item.online : true;
+  const friendName =
+    item.name || item.short_id || t("mobile.friends.friend");
+  const onlineState = item.online
+    ? t("mobile.common.online")
+    : t("mobile.common.offline");
+
   return (
     <View style={styles.row}>
-      <Pressable onPress={onChat}>
-        <View style={styles.avatar}>
+      <Pressable
+        onPress={onChat}
+        accessibilityRole="button"
+        accessibilityLabel={`${friendName}. ${onlineState}. ${chatLabel}`}
+      >
+        <View style={styles.avatar} importantForAccessibility="no">
           <Text style={styles.avatarText}>
             {(item.name || item.short_id || "?").slice(0, 1).toUpperCase()}
           </Text>
@@ -120,15 +135,24 @@ function FriendRow(props: {
         style={styles.rowMain}
         onPress={onChat}
         onLongPress={onCopyCode}
+        accessibilityRole="button"
+        accessibilityLabel={`${friendName}. ${onlineState}`}
+        accessibilityHint={t("mobile.friends.copyCode")}
       >
-        <Text style={styles.name} numberOfLines={1}>
-          {item.name || item.short_id || t("mobile.friends.friend")}
+        <View style={styles.nameRow}>
+          <Text style={styles.name} numberOfLines={1}>
+            {item.name || item.short_id || t("mobile.friends.friend")}
+          </Text>
           {item.online ? (
-            <Text style={styles.online}> · {t("mobile.common.online")}</Text>
+            <View style={styles.onlinePill}>
+              <Text style={styles.onlinePillText}>
+                {t("mobile.common.online")}
+              </Text>
+            </View>
           ) : (
-            <Text style={styles.offline}> · {t("mobile.common.offline")}</Text>
+            <Text style={styles.offlinePill}>{t("mobile.common.offline")}</Text>
           )}
-        </Text>
+        </View>
         <Text
           style={[styles.sub, unread > 0 && styles.subUnread]}
           numberOfLines={1}
@@ -140,81 +164,98 @@ function FriendRow(props: {
           {item.last_msg ? ` · ${item.last_msg.slice(0, 28)}` : ""}
         </Text>
       </Pressable>
-      <Pressable
-        style={[styles.iconBtn, unread > 0 && styles.iconBtnUnread]}
-        onPress={onChat}
-        accessibilityRole="button"
-        accessibilityLabel={
-          unread > 0
-            ? `${t("mobile.friends.chat")} (${unread > 9 ? "9+" : unread})`
-            : t("mobile.friends.chat")
-        }
-        hitSlop={4}
-      >
-        <Ionicons
-          name={unread > 0 ? "chatbubble" : "chatbubble-outline"}
-          size={20}
-          color="#fff"
-        />
-        {unread > 0 ? (
-          <View style={styles.iconBadge}>
-            <Text style={styles.iconBadgeText}>
-              {unread > 9 ? "9+" : String(unread)}
-            </Text>
-          </View>
-        ) : null}
-      </Pressable>
-      <Pressable
-        style={callActive ? styles.callIconBtn : styles.iconBtn}
-        onPress={liveBusy ? onInvite : onCall}
-        accessibilityRole="button"
-        accessibilityLabel={callLabel}
-        hitSlop={4}
-      >
-        <Ionicons
-          name={liveBusy ? "person-add" : "call"}
-          size={20}
-          color="#fff"
-        />
-      </Pressable>
-      <Pressable
-        style={styles.iconBtn}
-        accessibilityRole="button"
-        accessibilityLabel={t("mobile.friends.actionsHint")}
-        onPress={() => {
-          Alert.alert(
-            item.name || t("mobile.friends.friend"),
-            t("mobile.friends.actionsHint"),
-            [
-              { text: t("mobile.common.cancel"), style: "cancel" },
-              {
-                text: t("mobile.friends.chat"),
-                onPress: onChat,
-              },
-              {
-                text: callLabel,
-                onPress: liveBusy ? onInvite : onCall,
-              },
-              {
-                text: t("mobile.friends.copyCode"),
-                onPress: onCopyCode,
-              },
-              {
-                text: t("mobile.friends.removeBtn"),
-                style: "destructive",
-                onPress: onRemove,
-              },
-              {
-                text: t("mobile.friends.blockBtn"),
-                style: "destructive",
-                onPress: onBlock,
-              },
-            ]
-          );
-        }}
-      >
-        <Ionicons name="ellipsis-horizontal" size={20} color="#9aa8bc" />
-      </Pressable>
+      <View style={styles.rowActions}>
+        <Pressable
+          style={[styles.ctaBtn, unread > 0 && styles.ctaBtnUnread]}
+          onPress={onChat}
+          accessibilityRole="button"
+          accessibilityLabel={
+            unread > 0
+              ? `${chatLabel} (${unread > 9 ? "9+" : unread})`
+              : chatLabel
+          }
+          hitSlop={2}
+        >
+          <Ionicons
+            name={unread > 0 ? "chatbubble" : "chatbubble-outline"}
+            size={14}
+            color={unread > 0 ? "#c8dcff" : "#e8eef7"}
+          />
+          <Text
+            style={[styles.ctaBtnText, unread > 0 && styles.ctaBtnTextUnread]}
+            numberOfLines={1}
+          >
+            {chatLabel}
+          </Text>
+          {unread > 0 ? (
+            <View style={styles.ctaBadge}>
+              <Text style={styles.ctaBadgeText}>
+                {unread > 9 ? "9+" : String(unread)}
+              </Text>
+            </View>
+          ) : null}
+        </Pressable>
+        <Pressable
+          style={[
+            styles.ctaBtn,
+            callActive ? styles.ctaBtnCall : styles.ctaBtnMuted,
+            liveBusy && !item.online && styles.ctaBtnMuted,
+          ]}
+          onPress={liveBusy ? onInvite : onCall}
+          accessibilityRole="button"
+          accessibilityLabel={callA11y}
+          hitSlop={2}
+        >
+          <Ionicons
+            name={liveBusy ? "person-add" : "call"}
+            size={14}
+            color={
+              callActive && !(liveBusy && !item.online) ? "#b8f5d4" : "#9aa8bc"
+            }
+          />
+          <Text
+            style={[
+              styles.ctaBtnText,
+              callActive && !(liveBusy && !item.online)
+                ? styles.ctaBtnTextCall
+                : styles.ctaBtnTextMuted,
+            ]}
+            numberOfLines={1}
+          >
+            {callLabel}
+          </Text>
+        </Pressable>
+        <Pressable
+          style={styles.moreBtn}
+          accessibilityRole="button"
+          accessibilityLabel={t("mobile.friends.actionsHint")}
+          onPress={() => {
+            Alert.alert(
+              item.name || t("mobile.friends.friend"),
+              t("mobile.friends.actionsHint"),
+              [
+                { text: t("mobile.common.cancel"), style: "cancel" },
+                {
+                  text: t("mobile.friends.copyCode"),
+                  onPress: onCopyCode,
+                },
+                {
+                  text: t("mobile.friends.removeBtn"),
+                  style: "destructive",
+                  onPress: onRemove,
+                },
+                {
+                  text: t("mobile.friends.blockBtn"),
+                  style: "destructive",
+                  onPress: onBlock,
+                },
+              ]
+            );
+          }}
+        >
+          <Ionicons name="ellipsis-horizontal" size={18} color="#9aa8bc" />
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -353,11 +394,11 @@ function FriendsBody() {
   function add() {
     const c = code.trim().toUpperCase();
     if (c.length < 4) {
-      Alert.alert(t("mobile.friends.codeShort"));
+      showToast(t("mobile.friends.codeShort"));
       return;
     }
     if (!connected) {
-      Alert.alert(t("mobile.friends.notConnected"));
+      showToast(t("mobile.friends.notConnected"));
       return;
     }
     try {
@@ -367,7 +408,7 @@ function FriendsBody() {
       track("funnel_invite_request", { via: "friends_add", code: c.slice(0, 8) });
       showToast(t("mobile.friends.requestSent", { code: c }));
     } catch (e) {
-      Alert.alert(t("mobile.friends.notConnected"), String(e));
+      showToast(t("mobile.friends.notConnected"));
     }
   }
 
@@ -397,33 +438,25 @@ function FriendsBody() {
     opts?: { join?: boolean }
   ) {
     if (!friends.some((x) => x.user_id === f.user_id)) {
-      Alert.alert(
-        t("friends.callOnlyFriends"),
-        t("mobile.friends.empty")
-      );
+      showToast(t("friends.callOnlyFriends"));
       return;
     }
     if (!connected) {
-      Alert.alert(t("mobile.friends.notConnected"));
+      showToast(t("mobile.friends.notConnected"));
       return;
     }
     hapticLight();
     if (opts?.join && !liveBusy) {
-      Alert.alert(
-        t("mobile.friends.inviteJoin"),
-        t("mobile.friends.inviteNeedLive")
-      );
+      showToast(t("mobile.friends.inviteNeedLive"));
       return;
     }
     if (opts?.join && !("online" in f ? f.online : true)) {
-      Alert.alert(
-        t("mobile.friends.inviteJoin"),
-        t("mobile.friends.inviteNeedOnline")
-      );
+      showToast(t("mobile.friends.inviteNeedOnline"));
       return;
     }
     try {
       const online = "online" in f ? !!f.online : true;
+      clearNoAnswerPrompt();
       hub.callFriend(f.user_id, { join: !!opts?.join });
       setOutboundCall({
         user_id: f.user_id,
@@ -455,17 +488,14 @@ function FriendsBody() {
         }
       }
     } catch (e) {
-      Alert.alert(t("mobile.friends.callFailed"), String(e));
+      showToast(t("mobile.friends.callFailed"));
     }
   }
 
   function callFromHistory(h: CallHistoryEntry) {
     const fr = friends.find((f) => f.user_id === h.user_id);
     if (!fr) {
-      Alert.alert(
-        t("friends.callOnlyFriends"),
-        t("mobile.history.notFriend")
-      );
+      showToast(t("mobile.history.notFriend") || t("friends.callOnlyFriends"));
       return;
     }
     if (!fr.online) {
@@ -496,7 +526,7 @@ function FriendsBody() {
             hub.removeFriend(item.user_id);
             showToast(t("mobile.friends.removed"));
           } catch (e) {
-            Alert.alert(t("mobile.friends.notConnected"), String(e));
+            showToast(t("mobile.friends.notConnected"));
           }
         },
       },
@@ -525,7 +555,7 @@ function FriendsBody() {
               });
               showToast(t("mobile.friends.blocked"));
             } catch (e) {
-              Alert.alert(t("mobile.friends.notConnected"), String(e));
+              showToast(t("mobile.friends.notConnected"));
             }
           },
         },
@@ -557,7 +587,7 @@ function FriendsBody() {
               hapticLight();
               showToast(t("mobile.friends.blocked"));
             } catch (e) {
-              Alert.alert(t("mobile.friends.notConnected"), String(e));
+              showToast(t("mobile.friends.notConnected"));
             }
           },
         },
@@ -608,7 +638,7 @@ function FriendsBody() {
       hapticLight();
       showToast(t("mobile.history.reported"));
     } catch (e) {
-      Alert.alert(t("mobile.friends.notConnected"), String(e));
+      showToast(t("mobile.friends.notConnected"));
     }
   }
 
@@ -623,7 +653,7 @@ function FriendsBody() {
       hapticLight();
       showToast(t("mobile.friends.requestSent", { code }));
     } catch (e) {
-      Alert.alert(t("mobile.friends.notConnected"), String(e));
+      showToast(t("mobile.friends.notConnected"));
     }
   }
 
@@ -634,25 +664,55 @@ function FriendsBody() {
         <Pressable
           onLongPress={() => copyCode(friendCode)}
           onPress={shareMyCode}
+          accessibilityRole="button"
+          accessibilityLabel={
+            friendCode
+              ? `${t("mobile.friends.yourCode")} ${friendCode}`
+              : t("mobile.friends.yourCode")
+          }
+          accessibilityHint={t("mobile.friends.tapCodeHint")}
         >
-          <Text style={styles.heroCode}>{friendCode || "…"}</Text>
+          <Text style={styles.heroCode} importantForAccessibility="no">
+            {friendCode || "…"}
+          </Text>
         </Pressable>
         <Text style={styles.copyHint}>{t("mobile.friends.tapCodeHint")}</Text>
         <View style={styles.heroActions}>
-          <Pressable style={styles.shareBtn} onPress={shareMyCode}>
-            <Text style={styles.btnText}>{t("mobile.friends.shareInvite")}</Text>
+          <Pressable
+            style={styles.shareBtn}
+            onPress={shareMyCode}
+            accessibilityRole="button"
+            accessibilityLabel={t("mobile.friends.shareInvite")}
+          >
+            <Text style={styles.btnText} importantForAccessibility="no">
+              {t("mobile.friends.shareInvite")}
+            </Text>
           </Pressable>
           <Pressable
             style={styles.copyBtn}
             onPress={() => copyCode(friendCode)}
+            accessibilityRole="button"
+            accessibilityLabel={t("mobile.friends.copyCode")}
           >
-            <Text style={styles.btnText}>{t("mobile.friends.copyCode")}</Text>
+            <Text style={styles.btnText} importantForAccessibility="no">
+              {t("mobile.friends.copyCode")}
+            </Text>
           </Pressable>
         </View>
         {!connected ? (
-          <Text style={styles.warn}>{t("mobile.friends.offline")}</Text>
+          <Text
+            style={styles.warn}
+            accessibilityRole="alert"
+            accessibilityLiveRegion="polite"
+          >
+            {t("mobile.friends.offline")}
+          </Text>
         ) : (
-          <Text style={styles.onlineCount}>
+          <Text
+            style={styles.onlineCount}
+            accessibilityRole="text"
+            accessibilityLiveRegion="polite"
+          >
             {t("mobile.friends.onlineCount", {
               n: onlineCount,
               total: friends.length,
@@ -677,12 +737,18 @@ function FriendsBody() {
           placeholderTextColor="#6b7a90"
           onSubmitEditing={add}
           returnKeyType="done"
+          accessibilityLabel={t("mobile.friends.codePlaceholder")}
         />
         <Pressable
           style={[styles.addBtn, !connected && styles.addBtnDisabled]}
           onPress={add}
+          accessibilityRole="button"
+          accessibilityLabel={t("mobile.friends.add")}
+          accessibilityState={{ disabled: !connected }}
         >
-          <Text style={styles.btnText}>{t("mobile.friends.add")}</Text>
+          <Text style={styles.btnText} importantForAccessibility="no">
+            {t("mobile.friends.add")}
+          </Text>
         </Pressable>
       </View>
 
@@ -695,6 +761,7 @@ function FriendsBody() {
           placeholderTextColor="#6b7a90"
           autoCorrect={false}
           clearButtonMode="while-editing"
+          accessibilityLabel={t("mobile.friends.search")}
         />
       ) : null}
 
@@ -744,7 +811,7 @@ function FriendsBody() {
                         showToast(t("mobile.notif.optInEnabled")),
                     });
                   } catch (e) {
-                    Alert.alert(String(e));
+                    showToast(String(e).slice(0, 80));
                   }
                 }}
               >
@@ -989,7 +1056,7 @@ function FriendsBody() {
                 </View>
                 {fr ? (
                   <Pressable
-                    style={online ? styles.callIconBtn : styles.iconBtn}
+                    style={online ? styles.histCallBtn : styles.histCallBtnMuted}
                     onPress={() => callFromHistory(h)}
                     accessibilityRole="button"
                     accessibilityLabel={
@@ -1000,9 +1067,21 @@ function FriendsBody() {
                   >
                     <Ionicons
                       name={online ? "call" : "call-outline"}
-                      size={20}
-                      color="#fff"
+                      size={14}
+                      color={online ? "#b8f5d4" : "#9aa8bc"}
                     />
+                    <Text
+                      style={
+                        online
+                          ? styles.histCallBtnText
+                          : styles.histCallBtnTextMuted
+                      }
+                      numberOfLines={1}
+                    >
+                      {online
+                        ? t("friends.call")
+                        : t("mobile.history.ringAnyway")}
+                    </Text>
                   </Pressable>
                 ) : null}
               </View>
@@ -1011,7 +1090,7 @@ function FriendsBody() {
         </View>
       ) : null}
 
-      <Text style={styles.sectionTitle}>
+      <Text style={styles.sectionTitle} accessibilityRole="header">
         {t("mobile.friends.list", { n: sortedFriends.length })}
         {query ? ` · “${query}”` : ""}
       </Text>
@@ -1031,10 +1110,21 @@ function FriendsBody() {
         style={styles.list}
         ListHeaderComponent={listHeader}
         ListEmptyComponent={
-          <View style={styles.emptyWrap}>
-            <Text style={styles.empty}>{t("mobile.friends.empty")}</Text>
-            <Pressable style={styles.shareBtn} onPress={shareMyCode}>
-              <Text style={styles.btnText}>
+          <View
+            style={styles.emptyWrap}
+            accessibilityRole="summary"
+            accessibilityLabel={t("mobile.friends.empty")}
+          >
+            <Text style={styles.empty} importantForAccessibility="no">
+              {t("mobile.friends.empty")}
+            </Text>
+            <Pressable
+              style={styles.shareBtn}
+              onPress={shareMyCode}
+              accessibilityRole="button"
+              accessibilityLabel={t("mobile.friends.shareInvite")}
+            >
+              <Text style={styles.btnText} importantForAccessibility="no">
                 {t("mobile.friends.shareInvite")}
               </Text>
             </Pressable>
@@ -1047,6 +1137,9 @@ function FriendsBody() {
             tintColor="#9ec5ff"
             colors={["#3d7eff"]}
             progressBackgroundColor="#12151c"
+            accessibilityLabel={t("mobile.friends.list", {
+              n: sortedFriends.length,
+            })}
           />
         }
         renderItem={({ item }) => (
@@ -1196,6 +1289,89 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "rgba(255,255,255,0.08)",
   },
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexWrap: "wrap",
+  },
+  onlinePill: {
+    backgroundColor: "rgba(61,255,160,0.16)",
+    borderWidth: 1,
+    borderColor: "rgba(61,255,160,0.4)",
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 999,
+  },
+  onlinePillText: {
+    color: "#6dffa8",
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+  },
+  offlinePill: {
+    color: "#6b7a90",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  rowActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    flexShrink: 0,
+  },
+  ctaBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 7,
+    paddingHorizontal: 9,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    maxWidth: 88,
+  },
+  ctaBtnUnread: {
+    backgroundColor: "rgba(61,126,255,0.28)",
+    borderWidth: 1,
+    borderColor: "rgba(100,160,255,0.4)",
+  },
+  ctaBtnCall: {
+    backgroundColor: "rgba(45,159,111,0.4)",
+    borderWidth: 1,
+    borderColor: "rgba(45,159,111,0.55)",
+  },
+  ctaBtnMuted: {
+    backgroundColor: "rgba(255,255,255,0.05)",
+    opacity: 0.85,
+  },
+  ctaBtnText: {
+    color: "#e8eef7",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  ctaBtnTextUnread: { color: "#c8dcff" },
+  ctaBtnTextCall: { color: "#b8f5d4" },
+  ctaBtnTextMuted: { color: "#9aa8bc", fontWeight: "700" },
+  ctaBadge: {
+    minWidth: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: "#ff2d55",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 3,
+  },
+  ctaBadgeText: {
+    color: "#fff",
+    fontSize: 9,
+    fontWeight: "800",
+  },
+  moreBtn: {
+    width: 32,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   /** On-device center crop of partner (match history) */
   histThumb: {
     width: 42,
@@ -1322,6 +1498,39 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#2d9f6f",
+  },
+  /** Labeled call CTA on call-history rows */
+  histCallBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: "rgba(45,159,111,0.4)",
+    borderWidth: 1,
+    borderColor: "rgba(45,159,111,0.55)",
+    maxWidth: 120,
+  },
+  histCallBtnMuted: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    maxWidth: 130,
+  },
+  histCallBtnText: {
+    color: "#b8f5d4",
+    fontWeight: "800",
+    fontSize: 11,
+  },
+  histCallBtnTextMuted: {
+    color: "#9aa8bc",
+    fontWeight: "700",
+    fontSize: 11,
   },
   iconBadge: {
     position: "absolute",

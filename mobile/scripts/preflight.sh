@@ -64,4 +64,5 @@ if [[ "$fail" -gt 0 ]]; then
   exit 1
 fi
 echo "Ready for: npx eas build --profile development --platform android"
-echo "See: docs/OPERATOR_NEXT.md  docs/DEVICE_SMOKE.md"
+echo "Play closed-test: ./scripts/play-status.sh  (see docs/PLAY_OPS.md)"
+echo "See: docs/OPERATOR_NEXT.md  docs/DEVICE_SMOKE.md  docs/PLAY_OPS.md"

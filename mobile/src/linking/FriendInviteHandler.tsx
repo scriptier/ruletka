@@ -4,17 +4,25 @@
  */
 import * as Linking from "expo-linking";
 import { router } from "expo-router";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import { track } from "../analytics/track";
 import { useHub } from "../hub/HubProvider";
 import { parseFriendInviteUrl } from "./friendInvite";
 
 export function FriendInviteHandler() {
   const { consumeFriendInvite } = useHub();
+  const landed = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     function handle(url: string | null) {
       const code = parseFriendInviteUrl(url);
       if (!code) return;
+      // One land per code per session (avoid double getInitialURL + event)
+      if (!landed.current.has(code)) {
+        landed.current.add(code);
+        track("funnel_invite_land", { via: "deep_link" });
+        track("friend_invite_deep_link", { code: code.slice(0, 8) });
+      }
       consumeFriendInvite(code);
       try {
         router.push("/friends");

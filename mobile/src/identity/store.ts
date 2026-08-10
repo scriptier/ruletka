@@ -20,22 +20,43 @@ async function randomUserId(): Promise<string> {
 }
 
 export async function loadOrCreateIdentity(): Promise<LocalIdentity> {
-  let user_id = await SecureStore.getItemAsync(KEY_USER);
-  if (!user_id || user_id.length < 8) {
-    user_id = await randomUserId();
-    await SecureStore.setItemAsync(KEY_USER, user_id);
+  try {
+    let user_id = await SecureStore.getItemAsync(KEY_USER);
+    if (!user_id || user_id.length < 8) {
+      user_id = await randomUserId();
+      await SecureStore.setItemAsync(KEY_USER, user_id);
+    }
+    let name = (await SecureStore.getItemAsync(KEY_NAME)) || "";
+    if (!name) {
+      name = "anon";
+      await SecureStore.setItemAsync(KEY_NAME, name);
+    }
+    return { user_id, name };
+  } catch {
+    // SecureStore can throw on some devices / locked storage — still boot the app
+    const user_id = await randomUserId().catch(
+      () => `anon-${Date.now().toString(16)}`
+    );
+    return { user_id, name: "anon" };
   }
-  let name = (await SecureStore.getItemAsync(KEY_NAME)) || "";
-  if (!name) {
-    name = "anon";
-    await SecureStore.setItemAsync(KEY_NAME, name);
-  }
-  return { user_id, name };
 }
 
 export async function setDisplayName(name: string): Promise<void> {
   const n = String(name || "anon").slice(0, 32);
   await SecureStore.setItemAsync(KEY_NAME, n);
+}
+
+/** Full identity swap (profile import). Caller must remount HubProvider. */
+export async function replaceIdentity(
+  user_id: string,
+  name: string
+): Promise<LocalIdentity> {
+  const uid = String(user_id || "").trim();
+  if (uid.length < 8) throw new Error("bad user_id");
+  const n = String(name || "anon").slice(0, 32);
+  await SecureStore.setItemAsync(KEY_USER, uid);
+  await SecureStore.setItemAsync(KEY_NAME, n);
+  return { user_id: uid, name: n };
 }
 
 export async function rulesAccepted(): Promise<boolean> {

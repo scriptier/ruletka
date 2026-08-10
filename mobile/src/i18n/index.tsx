@@ -34,77 +34,34 @@ export const SUPPORTED_LANGS = [
 
 export type LangCode = (typeof SUPPORTED_LANGS)[number];
 
+// Non-ASCII labels use \\u escapes so the source file is pure ASCII —
+// avoids the UTF-8-as-Latin-1 mojibake bug some older Android bundles hit.
 export const LANG_LABELS: Record<LangCode, string> = {
   en: "English",
-  ru: "Русский",
-  uk: "Українська",
+  ru: "\u0420\u0443\u0441\u0441\u043a\u0438\u0439",
+  uk: "\u0423\u043a\u0440\u0430\u0457\u043d\u0441\u044c\u043a\u0430",
   pl: "Polski",
-  cs: "Čeština",
-  bg: "Български",
-  sr: "Српски",
+  cs: "\u010ce\u0161tina",
+  bg: "\u0411\u044a\u043b\u0433\u0430\u0440\u0441\u043a\u0438",
+  sr: "\u0421\u0440\u043f\u0441\u043a\u0438",
   de: "Deutsch",
-  es: "Español",
-  fr: "Français",
-  pt: "Português",
-  tr: "Türkçe",
-  ar: "العربية",
-  zh: "中文",
+  es: "Espa\u00f1ol",
+  fr: "Fran\u00e7ais",
+  pt: "Portugu\u00eas",
+  tr: "T\u00fcrk\u00e7e",
+  ar: "\u0627\u0644\u0639\u0631\u0628\u064a\u0629",
+  zh: "\u4e2d\u6587",
 };
 
 type Pack = Record<string, string>;
 
-function loadWebPack(code: string): Pack {
-  // Packs synced from ui/i18n via mobile/scripts/sync-i18n.sh
-  try {
-    switch (code) {
-      case "en":
-        return require("./packs/en.json") as Pack;
-      case "ru":
-        return require("./packs/ru.json") as Pack;
-      case "de":
-        return require("./packs/de.json") as Pack;
-      case "es":
-        return require("./packs/es.json") as Pack;
-      case "fr":
-        return require("./packs/fr.json") as Pack;
-      case "pl":
-        return require("./packs/pl.json") as Pack;
-      case "pt":
-        return require("./packs/pt.json") as Pack;
-      case "tr":
-        return require("./packs/tr.json") as Pack;
-      case "uk":
-        return require("./packs/uk.json") as Pack;
-      case "zh":
-        return require("./packs/zh.json") as Pack;
-      case "cs":
-        return require("./packs/cs.json") as Pack;
-      case "bg":
-        return require("./packs/bg.json") as Pack;
-      case "sr":
-        return require("./packs/sr.json") as Pack;
-      case "ar":
-        return require("./packs/ar.json") as Pack;
-      default:
-        return require("./packs/en.json") as Pack;
-    }
-  } catch {
-    try {
-      return require("./packs/en.json") as Pack;
-    } catch {
-      return {};
-    }
-  }
-}
-
-const enPack = loadWebPack("en");
-const packCache = new Map<string, Pack>([["en", enPack]]);
-
-function getPack(code: string): Pack {
-  if (packCache.has(code)) return packCache.get(code)!;
-  const p = loadWebPack(code);
-  packCache.set(code, p);
-  return p;
+/**
+ * Mobile ships only the compact overlay packs (~few KB each), not the full
+ * web i18n JSON (~2.5MB). That keeps cold start light and avoids OOM on low-end
+ * devices when Hermes parses giant tables at boot.
+ */
+function getOverlay(code: string): Pack {
+  return (MOBILE_BY_LANG[code] || {}) as Pack;
 }
 
 export function deviceLang(): LangCode {
@@ -133,20 +90,41 @@ function format(
   );
 }
 
+/**
+ * Repair classic UTF-8-as-Latin-1 mojibake (e.g. "ÐŸÑ€Ð¸Ð½ÑÑ‚ÑŒ" → "Принять").
+ * Older APKs shipped a few RU strings double-encoded; this is a runtime safety net.
+ */
+function fixMojibake(s: string): string {
+  if (!s || s.length < 2) return s;
+  // Already proper Cyrillic / CJK / Arabic — leave alone
+  if (/[\u0400-\u04FF\u0600-\u06FF\u4E00-\u9FFF]/.test(s)) return s;
+  // UTF-8 Cyrillic misread as Latin-1 almost always yields Ð (0xD0) / Ñ (0xD1)
+  if (!/[ÐÑÃÂ]/.test(s)) return s;
+  try {
+    const bytes = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) {
+      const c = s.charCodeAt(i);
+      if (c > 255) return s;
+      bytes[i] = c;
+    }
+    const decoded = new TextDecoder("utf-8").decode(bytes);
+    if (/[\u0400-\u04FF\u0600-\u06FF\u4E00-\u9FFF]/.test(decoded)) {
+      return decoded;
+    }
+  } catch {
+    /* ignore */
+  }
+  return s;
+}
+
 export function translate(
   lang: LangCode,
   key: string,
   vars?: Record<string, string | number>
 ): string {
-  const overlay = MOBILE_BY_LANG[lang] || {};
-  const pack = getPack(lang);
+  const overlay = getOverlay(lang);
   const enOverlay = MOBILE_EN;
-  const raw =
-    overlay[key] ??
-    pack[key] ??
-    enOverlay[key] ??
-    enPack[key] ??
-    key;
+  const raw = fixMojibake(overlay[key] ?? enOverlay[key] ?? key);
   return format(raw, vars);
 }
 

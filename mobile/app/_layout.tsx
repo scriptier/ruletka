@@ -698,7 +698,15 @@ function StackNav() {
       <Stack.Screen name="rules" options={{ title: t("mobile.nav.rules") }} />
       <Stack.Screen
         name="live"
-        options={{ title: t("mobile.nav.live"), headerShown: false }}
+        options={{
+          title: t("mobile.nav.live"),
+          headerShown: false,
+          // CRITICAL: opaque stack content hid Android SurfaceView (black stage
+          // while audio still worked — video painted "behind" the dark shell).
+          contentStyle: { backgroundColor: "transparent" },
+          statusBarBackgroundColor: "#050608",
+          navigationBarColor: "#050608",
+        }}
       />
       <Stack.Screen
         name="settings"
