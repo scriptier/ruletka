@@ -202,3 +202,81 @@ Ship APKs: **0.1.178** (A), **0.1.179** (B), **0.1.180** (C+D) — smoke after e
 ---
 
 *Author: post-0.1.177 session. Related: `CONNECTIVITY_LOCK.md`, `DEVICE_SMOKE.md`.*
+
+---
+
+## 2026-08-11 — match→offer latency budget (real hub evidence, task 006)
+
+`./scripts/hub-match-speed.sh 720 2000` against prod (`journalctl -u
+roulette-bridge`, read-only) over a 12h window, 69 matches / 58 offers:
+
+| metric | value |
+|---|---|
+| slow offers (&gt;2000ms) | 19 / 58 |
+| max `match_to_offer_ms` | 26176 |
+| android SLOW first-offers | 0 (android is never the slow offerer — web is) |
+
+`match_to_offer_ms` for **web** offerers (the always-preferred offerer, see
+CONNECTIVITY_LOCK "Client rules" #1) is **trimodal**, not evenly spread:
+
+| cluster | samples (ms) | share |
+|---|---|---|
+| healthy | 200–2369 (most under 1000) | ~34/58, meets &lt;2000 target |
+| mid-stall | 8549, 8550, 8562, 8584, 8592, 9109, 9415 | 7/58 |
+| hard-stall | 25533, 25547, 25561, 25568, 25570, 25592, 25618, 26176 | 8/58 |
+
+The two stall clusters are each tight (mid-stall spans 866ms, hard-stall
+spans 643ms across 8 samples) — this is a deterministic recovery-timer
+tail firing, not network jitter.
+
+**Root cause (code reading, `ui/live.js` / `ui/webrtc.js`):** the offerer's
+first-offer recovery ladder (`armOfferKickWatch`, `ui/live.js:9515`) re-kicks
+a stuck `kickSolo` at fixed delays and, on its **last** wave, tears down and
+calls `kickSoloWebRtc()` fresh. Before this task the call-site ladder ended
+at 2500ms (normal) / 4000ms (`force_relay`). The rebuild itself (cam +
+`createOffer` + `setLocalDescription` + relay-candidate wait + emit) can
+itself take several seconds under load — roughly matching the mid-stall
+cluster (last wave + a multi-second rebuild ≈ 8.5–9.4s). When *that* rebuild
+also stalls, there was **no further wave scheduled** — the ladder just
+stops — so recovery had to wait on some other/later mechanism, landing in
+the ~25.5s hard-stall cluster.
+
+### Fix landed (small, safe — this task)
+
+`ui/live.js` (`armOfferKickWatch` call site, ~line 23636): extended the
+retry ladder's tail with two more waves, still ≥3s apart (hub debounce is
+~3.5s) and still gated by the same `hasRealSdp()` / `hasLiveRemoteMedia()`
+guards that make every wave a no-op once a real offer is on the wire:
+
+- normal: `[400, 1200, 2500, 6000, 9500]`
+- `force_relay`: `[800, 2000, 4000, 8000, 12000]`
+
+This does not change hub `force_relay` policy, debounce, answerer behavior,
+or add a new offer path — it only gives the existing self-healing rebuild
+another chance or two before the current ~25s tail. Expected effect: the
+hard-stall cluster should mostly collapse into the ~9.5–13s range (one more
+rebuild cycle) instead of ~25s+; does not by itself fix the *rebuild taking
+several seconds* problem (see checklist).
+
+### Checklist / follow-up (needs live Play↔PC smoke — do not do unsupervised)
+
+1. Re-run `./scripts/hub-match-speed.sh 60 2000` after this change ships;
+   confirm no new `answerer first-path grace` drops or double-offer thrash
+   (`offer drops` count must not increase).
+2. Investigate why the **rebuild itself** (not just the wait-to-retry) takes
+   several seconds: instrument `_createAndSendOffer` (createOffer /
+   setLocalDescription / relay-wait / emit, `ui/webrtc.js`) with per-phase
+   timestamps for one full session to see which phase dominates — prime
+   suspect is TURN relay-candidate gathering (`waitForIceGatherRelayOrDone`)
+   under cold/loaded coturn, since offer `payload_len` in the hub log is
+   consistently ~7500 bytes (candidates already included — i.e. the offer is
+   never trickled, so slow gathering directly inflates `match_to_offer_ms`).
+3. If (2) confirms gathering is the dominant cost, the correct fix is
+   probably switching first-offer emit to **trickle ICE** (emit the offer as
+   soon as `setLocalDescription` resolves, send candidates as separate signal
+   messages) instead of waiting on `waitForIceGatherRelayOrDone` at all —
+   that is a bigger, riskier change than this task's scope and needs its own
+   phone+PC smoke pass before merge.
+4. Target stays `match_to_offer_ms < 2000` per CONNECTIVITY_LOCK; current
+   healthy-path median is already well inside that — the trimodal stall tail
+   is the whole gap.

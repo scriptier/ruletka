@@ -23634,12 +23634,26 @@ function handleMatched(msg) {
       })
       .catch((e) => log(`kickSolo fail ${e}`));
     // Offerer silent → re-kick (tighter — 35s MTO was offer never left wire)
+    // 2026-08-11 hub evidence (task 006, ./scripts/hub-match-speed.sh 720 2000
+    // against prod journalctl): web-offerer match_to_offer_ms is trimodal —
+    // healthy (<2.4s), a tight mid-stall cluster (~8.5-9.4s, 7 samples), and a
+    // tight hard-stall cluster (~25.5-26.2s, 8 samples within a 643ms band —
+    // deterministic, not jitter). The ladder's last wave tears down and
+    // rebuilds via kickSoloWebRtc, which can itself take several seconds
+    // (cam + createOffer + relay-wait + emit) under load; when that rebuild
+    // also stalls there was nothing scheduled after it, so recovery had to
+    // wait on some other/later mechanism — landing in the ~25s tail. Add two
+    // more spaced waves (still >=3s apart, hub debounce is ~3.5s, and every
+    // wave is a no-op via hasRealSdp()/hasLiveRemoteMedia() once real SDP is
+    // on the wire) so a stuck rebuild gets another chance well before that.
     if (isOfferer) {
       armOfferKickWatch(
         msg,
         peersFast[0],
         // Fast re-kick: host path must not sit silent (18:01 match had ice only, no offer)
-        msg.force_relay ? [800, 2000, 4000] : [400, 1200, 2500]
+        msg.force_relay
+          ? [800, 2000, 4000, 8000, 12000]
+          : [400, 1200, 2500, 6000, 9500]
       );
     } else {
       clearOfferKickWatch();
