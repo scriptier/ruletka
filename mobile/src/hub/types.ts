@@ -186,11 +186,15 @@ export type ServerGeo = {
 export type ServerPartnerGeo = {
   type: "partner_geo";
   peer_id: string;
+  /** camelCase alias (older bridges) */
+  peerId?: string;
   user_id?: string;
+  userId?: string;
   country?: string;
   city?: string;
   flag?: string;
   hide_ip?: boolean;
+  hideIp?: boolean;
 };
 
 export type ServerStatus = {
@@ -223,10 +227,21 @@ export type MatchPeer = {
   friend_code?: string;
   /** "friend" | "stranger" | "party" | "teammate" | … */
   role?: string;
+  /** ISO flag from hub public_location (real geo or cosmetic when hide_ip). */
   flag?: string;
   country?: string;
   city?: string;
   hide_ip?: boolean;
+  /** camelCase / bridge aliases — normalizePeer reads these too */
+  peerId?: string;
+  userId?: string;
+  shortId?: string;
+  friendCode?: string;
+  isOfferer?: boolean;
+  hideIp?: boolean;
+  Flag?: string;
+  Country?: string;
+  City?: string;
   avatar?: string;
   /** Spendable ★ balance shown on partner badge. */
   stars?: number;

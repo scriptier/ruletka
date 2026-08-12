@@ -47,11 +47,16 @@ import { useApp } from "./_layout";
 import { friendInviteShareMessage } from "../src/linking/friendInvite";
 import { FriendChatSheet } from "../src/friends/FriendChatSheet";
 import { hapticLight } from "../src/feedback/haptics";
-import { flagEmoji, trustTierI18nKey } from "../src/identity/flagTrust";
+import { flagEmoji } from "../src/identity/flagTrust";
 import { loadMatchPrefs } from "../src/prefs/store";
 import { maybeOfferNotifOptIn } from "../src/push/notifOptIn";
 import { rememberBlock } from "../src/safety/blocks";
 import { pushReportHistory } from "../src/safety/reportHistory";
+import {
+  cleanPartnerLabel,
+  isHexIdLike,
+  isPlaceholderPartnerName,
+} from "../src/live/matchPeers";
 
 function formatWhen(ts: number): string {
   try {
@@ -65,6 +70,182 @@ function formatWhen(ts: number): string {
   } catch {
     return "";
   }
+}
+
+/** data: / http(s) / file:// — hub may send avatar as data URL. */
+function isAvatarUri(uri: string | undefined | null): boolean {
+  if (!uri || typeof uri !== "string") return false;
+  const s = uri.trim();
+  if (!s) return false;
+  return (
+    s.startsWith("data:image/") ||
+    s.startsWith("https://") ||
+    s.startsWith("http://") ||
+    s.startsWith("file://")
+  );
+}
+
+/**
+ * Prefer a real display name; if name is 6–12 hex poison, show friend_code
+ * (or a non-hex short_id) instead of raw hex as the "name".
+ */
+function friendDisplayName(
+  item: {
+    name?: string;
+    short_id?: string;
+    friend_code?: string;
+    user_id?: string;
+  },
+  fallback: string
+): string {
+  const name = (item.name || "").trim();
+  const code = (item.friend_code || "").trim();
+  const shortId = (item.short_id || "").trim();
+  const ids = { userId: item.user_id, shortId };
+  if (name && !isPlaceholderPartnerName(name, ids) && !isHexIdLike(name)) {
+    return name;
+  }
+  if (code) return code;
+  if (shortId && !isHexIdLike(shortId)) return shortId;
+  if (name) return name;
+  if (shortId) return shortId;
+  return fallback;
+}
+
+/**
+ * Match-history title: real name preferred; never pure hex as primary when
+ * friend_code exists → "Partner · CODE". Friend list name wins when non-poison.
+ */
+function matchHistoryDisplayName(
+  h: MatchHistoryEntry,
+  fr?: FriendInfo | null
+): { title: string; letter: string } {
+  const ids = {
+    userId: h.user_id,
+    shortId: h.short_id || fr?.short_id,
+  };
+  const code = cleanPartnerLabel(h.friend_code || fr?.friend_code).toUpperCase();
+  const friendName = cleanPartnerLabel(fr?.name);
+  if (friendName && !isPlaceholderPartnerName(friendName, ids)) {
+    return {
+      title: friendName,
+      letter: friendName.charAt(0).toUpperCase() || "?",
+    };
+  }
+  const raw = cleanPartnerLabel(h.name);
+  if (raw && !isPlaceholderPartnerName(raw, ids)) {
+    return {
+      title: raw,
+      letter: raw.charAt(0).toUpperCase() || "?",
+    };
+  }
+  if (code) {
+    return {
+      title: `Partner · ${code}`,
+      letter: code.charAt(0).toUpperCase() || "P",
+    };
+  }
+  return { title: "Partner", letter: "P" };
+}
+
+/** Soft two-tone letter tile palette (no linear-gradient dep). */
+const LETTER_TILE_PALETTE: {
+  top: string;
+  bot: string;
+  text: string;
+  border: string;
+}[] = [
+  {
+    top: "rgba(61,126,255,0.42)",
+    bot: "rgba(30,60,120,0.55)",
+    text: "#d4e4ff",
+    border: "rgba(120,170,255,0.35)",
+  },
+  {
+    top: "rgba(255,45,85,0.38)",
+    bot: "rgba(100,20,40,0.55)",
+    text: "#ffc8d4",
+    border: "rgba(255,120,150,0.32)",
+  },
+  {
+    top: "rgba(45,180,120,0.40)",
+    bot: "rgba(20,80,55,0.55)",
+    text: "#c0f5dc",
+    border: "rgba(80,220,160,0.32)",
+  },
+  {
+    top: "rgba(180,120,255,0.40)",
+    bot: "rgba(70,40,120,0.55)",
+    text: "#e4d4ff",
+    border: "rgba(180,140,255,0.32)",
+  },
+  {
+    top: "rgba(255,170,60,0.38)",
+    bot: "rgba(120,70,20,0.55)",
+    text: "#ffe4b8",
+    border: "rgba(255,190,100,0.32)",
+  },
+  {
+    top: "rgba(60,200,220,0.38)",
+    bot: "rgba(20,80,100,0.55)",
+    text: "#c8f4fc",
+    border: "rgba(100,210,230,0.32)",
+  },
+];
+
+function letterTilePalette(seed: string) {
+  let h = 0;
+  const s = seed || "?";
+  for (let i = 0; i < s.length; i++) {
+    h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+  }
+  return LETTER_TILE_PALETTE[Math.abs(h) % LETTER_TILE_PALETTE.length];
+}
+
+function MatchThumbLetter(props: {
+  letter: string;
+  seed: string;
+  size?: number;
+  radius?: number;
+}) {
+  const { letter, seed, size = 54, radius = 12 } = props;
+  const pal = letterTilePalette(seed);
+  return (
+    <View
+      style={[
+        styles.histThumbLetter,
+        {
+          width: size,
+          height: size,
+          borderRadius: radius,
+          borderColor: pal.border,
+          backgroundColor: pal.bot,
+        },
+      ]}
+    >
+      <View
+        style={[
+          styles.histThumbLetterGrad,
+          {
+            backgroundColor: pal.top,
+            borderTopLeftRadius: radius,
+            borderTopRightRadius: radius,
+          },
+        ]}
+      />
+      <Text style={[styles.histThumbLetterText, { color: pal.text }]}>
+        {(letter || "?").slice(0, 1).toUpperCase()}
+      </Text>
+    </View>
+  );
+}
+
+/** Last-message preview for row line 3 (~48 chars). */
+function lastMsgSnippet(msg: string | undefined, max = 48): string {
+  const s = (msg || "").trim().replace(/\s+/g, " ");
+  if (!s) return "";
+  if (s.length <= max) return s;
+  return `${s.slice(0, Math.max(1, max - 1))}…`;
 }
 
 function FriendRow(props: {
@@ -102,11 +283,31 @@ function FriendRow(props: {
       : t("mobile.history.ringAnyway");
   const chatLabel = t("mobile.friends.chat");
   const callActive = liveBusy ? item.online : true;
-  const friendName =
-    item.name || item.short_id || t("mobile.friends.friend");
+  const friendName = friendDisplayName(
+    {
+      name: item.name,
+      short_id: item.short_id,
+      friend_code: item.friend_code,
+      user_id: item.user_id,
+    },
+    t("mobile.friends.friend")
+  );
   const onlineState = item.online
     ? t("mobile.common.online")
     : t("mobile.common.offline");
+  const avatarUri = isAvatarUri(item.avatar) ? item.avatar!.trim() : "";
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  useEffect(() => {
+    setAvatarFailed(false);
+  }, [avatarUri]);
+  const letter = (friendName || "?").slice(0, 1).toUpperCase();
+  const codeLine = item.friend_code
+    ? t("mobile.friends.codeLabel", { code: item.friend_code })
+    : item.user_id.slice(0, 12);
+  /** Line 2: code · ★ only (last_msg is dedicated line 3). */
+  const metaLine = `${codeLine}${item.stars ? ` · ★${item.stars}` : ""}`;
+  const snippet = lastMsgSnippet(item.last_msg, 48);
+  const showAvatar = !!avatarUri && !avatarFailed;
 
   return (
     <View style={styles.row}>
@@ -114,11 +315,21 @@ function FriendRow(props: {
         onPress={onChat}
         accessibilityRole="button"
         accessibilityLabel={`${friendName}. ${onlineState}. ${chatLabel}`}
+        hitSlop={4}
       >
-        <View style={styles.avatar} importantForAccessibility="no">
-          <Text style={styles.avatarText}>
-            {(item.name || item.short_id || "?").slice(0, 1).toUpperCase()}
-          </Text>
+        <View style={styles.avatarOuter} importantForAccessibility="no">
+          <View style={styles.avatar}>
+            {showAvatar ? (
+              <Image
+                source={{ uri: avatarUri }}
+                style={styles.avatarImg}
+                resizeMode="cover"
+                onError={() => setAvatarFailed(true)}
+              />
+            ) : (
+              <Text style={styles.avatarText}>{letter}</Text>
+            )}
+          </View>
           <View
             style={[styles.dot, item.online ? styles.dotOn : styles.dotOff]}
           />
@@ -136,12 +347,14 @@ function FriendRow(props: {
         onPress={onChat}
         onLongPress={onCopyCode}
         accessibilityRole="button"
-        accessibilityLabel={`${friendName}. ${onlineState}`}
+        accessibilityLabel={`${friendName}. ${onlineState}${
+          snippet ? `. ${snippet}` : ""
+        }`}
         accessibilityHint={t("mobile.friends.copyCode")}
       >
         <View style={styles.nameRow}>
           <Text style={styles.name} numberOfLines={1}>
-            {item.name || item.short_id || t("mobile.friends.friend")}
+            {friendName}
           </Text>
           {item.online ? (
             <View style={styles.onlinePill}>
@@ -153,16 +366,17 @@ function FriendRow(props: {
             <Text style={styles.offlinePill}>{t("mobile.common.offline")}</Text>
           )}
         </View>
-        <Text
-          style={[styles.sub, unread > 0 && styles.subUnread]}
-          numberOfLines={1}
-        >
-          {item.friend_code
-            ? t("mobile.friends.codeLabel", { code: item.friend_code })
-            : item.user_id.slice(0, 12)}
-          {item.stars ? ` · ★${item.stars}` : ""}
-          {item.last_msg ? ` · ${item.last_msg.slice(0, 28)}` : ""}
+        <Text style={styles.sub} numberOfLines={1}>
+          {metaLine}
         </Text>
+        {snippet ? (
+          <Text
+            style={[styles.snippet, unread > 0 && styles.snippetUnread]}
+            numberOfLines={1}
+          >
+            {snippet}
+          </Text>
+        ) : null}
       </Pressable>
       <View style={styles.rowActions}>
         <Pressable
@@ -229,9 +443,10 @@ function FriendRow(props: {
           style={styles.moreBtn}
           accessibilityRole="button"
           accessibilityLabel={t("mobile.friends.actionsHint")}
+          hitSlop={6}
           onPress={() => {
             Alert.alert(
-              item.name || t("mobile.friends.friend"),
+              friendName,
               t("mobile.friends.actionsHint"),
               [
                 { text: t("mobile.common.cancel"), style: "cancel" },
@@ -296,6 +511,8 @@ function FriendsBody() {
   const [matchHistory, setMatchHistory] = useState<MatchHistoryEntry[]>([]);
   /** user_id → on-device file:// thumb (never from server) */
   const [matchThumbs, setMatchThumbs] = useState<Record<string, string>>({});
+  /** user_id → Image onError (broken/missing file://) */
+  const [failedThumbs, setFailedThumbs] = useState<Record<string, true>>({});
   const [missed, setMissed] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [chatFriend, setChatFriend] = useState<FriendInfo | null>(null);
@@ -327,8 +544,11 @@ function FriendsBody() {
     try {
       const ids = matches.map((m) => m.user_id).filter(Boolean);
       setMatchThumbs(await loadMatchThumbsMap(ids));
+      // Fresh map may restore paths that previously failed to paint
+      setFailedThumbs({});
     } catch {
       setMatchThumbs({});
+      setFailedThumbs({});
     }
     await markMissedCallsRead();
     setMissed(0);
@@ -516,7 +736,8 @@ function FriendsBody() {
   }
 
   function removeFriend(item: FriendInfo) {
-    Alert.alert(t("mobile.friends.remove"), item.name || item.short_id, [
+    const label = friendDisplayName(item, t("mobile.friends.friend"));
+    Alert.alert(t("mobile.friends.remove"), label, [
       { text: t("mobile.common.cancel"), style: "cancel" },
       {
         text: t("mobile.friends.removeBtn"),
@@ -534,10 +755,11 @@ function FriendsBody() {
   }
 
   function blockFriend(item: FriendInfo) {
+    const label = friendDisplayName(item, "…");
     Alert.alert(
       t("mobile.friends.blockTitle"),
       t("mobile.friends.blockBody", {
-        name: item.name || item.short_id || "…",
+        name: label,
       }),
       [
         { text: t("mobile.common.cancel"), style: "cancel" },
@@ -547,10 +769,10 @@ function FriendsBody() {
           onPress: () => {
             try {
               hub.blockUser(item.user_id);
-              void rememberBlock(item.user_id, item.name || item.short_id);
+              void rememberBlock(item.user_id, label);
               void pushReportHistory({
                 user_id: item.user_id,
-                name: item.name || item.short_id || item.user_id.slice(0, 8),
+                name: label || item.user_id.slice(0, 8),
                 kind: "block",
               });
               showToast(t("mobile.friends.blocked"));
@@ -885,6 +1107,7 @@ function FriendsBody() {
                       await clearMatchThumbs();
                       setMatchHistory([]);
                       setMatchThumbs({});
+                      setFailedThumbs({});
                     },
                   },
                 ]);
@@ -901,21 +1124,62 @@ function FriendsBody() {
               (h.duration_secs || 0) >= 60
                 ? `${mins}m${secs ? ` ${secs}s` : ""}`
                 : `${h.duration_secs || 0}s`;
-            const thumb = matchThumbs[h.user_id];
-            const letter = (h.name || "?").trim().charAt(0).toUpperCase() || "?";
+            const thumbUri = matchThumbs[h.user_id];
+            const showThumb = !!thumbUri && !failedThumbs[h.user_id];
+            // Prefer on-device match thumb; else friend hub avatar; else letter tile.
+            const friendAv =
+              !showThumb &&
+              fr &&
+              isAvatarUri(fr.avatar) &&
+              !failedThumbs[`fav:${h.user_id}`]
+                ? fr.avatar!.trim()
+                : "";
+            const { title: matchTitle, letter } = matchHistoryDisplayName(h, fr);
+            const flag = flagEmoji(h.flag) || (h.flag ? String(h.flag) : "");
+            const starsN = Number(h.stars) || 0;
+            const friendSnippet = fr?.last_msg
+              ? lastMsgSnippet(fr.last_msg, 48)
+              : "";
+            const subParts = [
+              dur,
+              formatWhen(h.t),
+              fr ? t("mobile.friends.friend") : "",
+              starsN > 0 ? `★${starsN}` : "",
+              h.mode && h.mode !== "solo" ? h.mode : "",
+            ].filter(Boolean);
             return (
               <View key={h.id} style={styles.matchCard}>
                 <View style={styles.row}>
-                  {thumb ? (
+                  {showThumb ? (
                     <Image
-                      source={{ uri: thumb }}
+                      source={{ uri: thumbUri }}
                       style={styles.histThumb}
                       accessibilityLabel={t("mobile.history.thumbOnDevice")}
+                      onError={() => {
+                        setFailedThumbs((prev) =>
+                          prev[h.user_id]
+                            ? prev
+                            : { ...prev, [h.user_id]: true }
+                        );
+                      }}
+                    />
+                  ) : friendAv ? (
+                    <Image
+                      source={{ uri: friendAv }}
+                      style={styles.histThumb}
+                      resizeMode="cover"
+                      onError={() => {
+                        const k = `fav:${h.user_id}`;
+                        setFailedThumbs((prev) =>
+                          prev[k] ? prev : { ...prev, [k]: true }
+                        );
+                      }}
                     />
                   ) : (
-                    <View style={styles.histThumbLetter}>
-                      <Text style={styles.histThumbLetterText}>{letter}</Text>
-                    </View>
+                    <MatchThumbLetter
+                      letter={letter}
+                      seed={h.user_id || matchTitle}
+                    />
                   )}
                   <Pressable
                     style={styles.rowMain}
@@ -930,24 +1194,17 @@ function FriendsBody() {
                     delayLongPress={380}
                   >
                     <Text style={styles.name} numberOfLines={1}>
-                      {flagEmoji(h.flag)
-                        ? `${flagEmoji(h.flag)} `
-                        : h.flag
-                          ? `${h.flag} `
-                          : ""}
-                      {h.name}
-                      {h.friend_code ? ` · ${h.friend_code}` : ""}
+                      {flag ? `${flag} ` : ""}
+                      {matchTitle}
                     </Text>
-                    <Text style={styles.sub}>
-                      {dur}
-                      {h.stars ? ` · ★${h.stars}` : ""}
-                      {h.trust
-                        ? ` · ${t(trustTierI18nKey(h.trust))} ${h.trust}`
-                        : ""}
-                      {h.mode && h.mode !== "solo" ? ` · ${h.mode}` : ""}
-                      {` · ${formatWhen(h.t)}`}
-                      {fr ? ` · ${t("mobile.friends.friend")}` : ""}
+                    <Text style={styles.sub} numberOfLines={1}>
+                      {subParts.join(" · ")}
                     </Text>
+                    {friendSnippet ? (
+                      <Text style={styles.matchLastMsg} numberOfLines={1}>
+                        {`Last: ${friendSnippet}`}
+                      </Text>
+                    ) : null}
                   </Pressable>
                 </View>
                 <View style={styles.matchActions}>
@@ -1037,56 +1294,14 @@ function FriendsBody() {
               <Text style={styles.clearLink}>{t("mobile.friends.clear")}</Text>
             </Pressable>
           </View>
-          {history.slice(0, 20).map((h) => {
-            const fr = friends.find((f) => f.user_id === h.user_id);
-            const online = !!fr?.online;
-            return (
-              <View key={h.id} style={styles.row}>
-                <View style={styles.rowMain}>
-                  <Text style={styles.name}>{h.name}</Text>
-                  <Text style={styles.sub}>
-                    {t(kindI18nKey(h.kind))}
-                    {h.kind === "missed"
-                      ? ` · ${t("mobile.history.callbackHint")}`
-                      : ""}{" "}
-                    · {formatWhen(h.t)}
-                    {online ? ` · ${t("mobile.common.online")}` : ""}
-                    {!fr ? ` · ${t("mobile.history.notFriend")}` : ""}
-                  </Text>
-                </View>
-                {fr ? (
-                  <Pressable
-                    style={online ? styles.histCallBtn : styles.histCallBtnMuted}
-                    onPress={() => callFromHistory(h)}
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      online
-                        ? t("mobile.history.callBack")
-                        : t("mobile.history.ringAnyway")
-                    }
-                  >
-                    <Ionicons
-                      name={online ? "call" : "call-outline"}
-                      size={14}
-                      color={online ? "#b8f5d4" : "#9aa8bc"}
-                    />
-                    <Text
-                      style={
-                        online
-                          ? styles.histCallBtnText
-                          : styles.histCallBtnTextMuted
-                      }
-                      numberOfLines={1}
-                    >
-                      {online
-                        ? t("friends.call")
-                        : t("mobile.history.ringAnyway")}
-                    </Text>
-                  </Pressable>
-                ) : null}
-              </View>
-            );
-          })}
+          {history.slice(0, 20).map((h) => (
+            <CallHistRow
+              key={h.id}
+              entry={h}
+              friend={friends.find((f) => f.user_id === h.user_id)}
+              onCall={() => callFromHistory(h)}
+            />
+          ))}
         </View>
       ) : null}
 
@@ -1165,6 +1380,96 @@ function FriendsBody() {
         visible={!!chatFriend}
         onClose={() => setChatFriend(null)}
       />
+    </View>
+  );
+}
+
+/** Call-history row: left circle = friend avatar or letter. */
+function CallHistRow(props: {
+  entry: CallHistoryEntry;
+  friend?: FriendInfo;
+  onCall: () => void;
+}) {
+  const { entry: h, friend: fr, onCall } = props;
+  const t = useT();
+  const online = !!fr?.online;
+  const histName = friendDisplayName(
+    {
+      name: h.name || fr?.name,
+      short_id: h.short_id || fr?.short_id,
+      friend_code: h.friend_code || fr?.friend_code,
+      user_id: h.user_id,
+    },
+    h.name || t("mobile.friends.friend")
+  );
+  const av = fr && isAvatarUri(fr.avatar) ? fr.avatar!.trim() : "";
+  const [avFailed, setAvFailed] = useState(false);
+  useEffect(() => {
+    setAvFailed(false);
+  }, [av]);
+  const letter = (histName || "?").slice(0, 1).toUpperCase();
+  const showAv = !!av && !avFailed;
+  return (
+    <View style={styles.histRow}>
+      <View style={styles.histAvatar} importantForAccessibility="no">
+        {showAv ? (
+          <Image
+            source={{ uri: av }}
+            style={styles.histAvatarImg}
+            resizeMode="cover"
+            onError={() => setAvFailed(true)}
+          />
+        ) : (
+          <Text style={styles.histAvatarText}>{letter}</Text>
+        )}
+      </View>
+      <Pressable
+        style={styles.rowMain}
+        onPress={fr ? onCall : undefined}
+        disabled={!fr}
+        accessibilityRole={fr ? "button" : "text"}
+        accessibilityLabel={`${histName}. ${t(kindI18nKey(h.kind))}`}
+      >
+        <Text style={styles.name} numberOfLines={1}>
+          {histName}
+        </Text>
+        <Text style={styles.sub} numberOfLines={2}>
+          {t(kindI18nKey(h.kind))}
+          {h.kind === "missed"
+            ? ` · ${t("mobile.history.callbackHint")}`
+            : ""}{" "}
+          · {formatWhen(h.t)}
+          {online ? ` · ${t("mobile.common.online")}` : ""}
+          {!fr ? ` · ${t("mobile.history.notFriend")}` : ""}
+        </Text>
+      </Pressable>
+      {fr ? (
+        <Pressable
+          style={online ? styles.histCallBtn : styles.histCallBtnMuted}
+          onPress={onCall}
+          accessibilityRole="button"
+          accessibilityLabel={
+            online
+              ? t("mobile.history.callBack")
+              : t("mobile.history.ringAnyway")
+          }
+          hitSlop={8}
+        >
+          <Ionicons
+            name={online ? "call" : "call-outline"}
+            size={15}
+            color={online ? "#b8f5d4" : "#9aa8bc"}
+          />
+          <Text
+            style={
+              online ? styles.histCallBtnText : styles.histCallBtnTextMuted
+            }
+            numberOfLines={1}
+          >
+            {online ? t("friends.call") : t("mobile.history.ringAnyway")}
+          </Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -1372,35 +1677,85 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  /** On-device center crop of partner (match history) */
+  /** On-device center crop of partner (match history) — 54px · rounded-12 */
   histThumb: {
-    width: 42,
-    height: 42,
-    borderRadius: 10,
+    width: 54,
+    height: 54,
+    borderRadius: 12,
     backgroundColor: "#121820",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
+    borderColor: "rgba(255,255,255,0.14)",
   },
   histThumbLetter: {
-    width: 42,
-    height: 42,
-    borderRadius: 10,
+    width: 54,
+    height: 54,
+    borderRadius: 12,
     backgroundColor: "#1a2230",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.1)",
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+    position: "relative",
+    flexShrink: 0,
+  },
+  /** Soft top wash for letter tiles (no linear-gradient dep). */
+  histThumbLetterGrad: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: "55%",
   },
   histThumbLetterText: {
     color: "#9aabbf",
-    fontWeight: "700",
-    fontSize: 16,
+    fontWeight: "800",
+    fontSize: 20,
+    zIndex: 1,
+  },
+  /** Call-history row: slightly taller for avatar + larger CTA */
+  histRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 12,
+    minHeight: 56,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(255,255,255,0.08)",
+  },
+  histAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(61,126,255,0.22)",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    flexShrink: 0,
+  },
+  histAvatarImg: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  histAvatarText: {
+    color: "#c8dcff",
+    fontWeight: "800",
+    fontSize: 15,
   },
   matchCard: {
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "rgba(255,255,255,0.08)",
     gap: 6,
+  },
+  matchLastMsg: {
+    color: "#7a8a9e",
+    fontSize: 12,
+    marginTop: 2,
+    lineHeight: 16,
   },
   matchActions: {
     flexDirection: "row",
@@ -1423,15 +1778,29 @@ const styles = StyleSheet.create({
   matchActText: { color: "#b8f5d4", fontSize: 11, fontWeight: "800" },
   matchActTextMuted: { color: "#9aa8bc", fontSize: 11, fontWeight: "700" },
   matchActTextWarn: { color: "#ffb0bc", fontSize: 11, fontWeight: "700" },
+  /** Outer so online dot + DM badge are not clipped by avatar overflow. */
+  avatarOuter: {
+    width: 46,
+    height: 46,
+    position: "relative",
+  },
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     backgroundColor: "rgba(61,126,255,0.25)",
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
   },
-  avatarText: { color: "#c8dcff", fontWeight: "800", fontSize: 16 },
+  avatarImg: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+  },
+  avatarText: { color: "#c8dcff", fontWeight: "800", fontSize: 17 },
   dmBadge: {
     position: "absolute",
     top: -4,
@@ -1451,20 +1820,31 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 0,
     bottom: 0,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 11,
+    height: 11,
+    borderRadius: 6,
     borderWidth: 1.5,
     borderColor: "#07080c",
   },
   dotOn: { backgroundColor: "#3dffa0" },
   dotOff: { backgroundColor: "#556070" },
-  rowMain: { flex: 1 },
-  name: { color: "#e8eef7", fontWeight: "700", fontSize: 15 },
+  rowMain: { flex: 1, minWidth: 0 },
+  name: { color: "#e8eef7", fontWeight: "700", fontSize: 15, flexShrink: 1 },
   online: { color: "#6dffa8", fontWeight: "600" },
   offline: { color: "#6b7a90", fontWeight: "500" },
   sub: { color: "#6b7a90", fontSize: 12, marginTop: 2 },
   subUnread: { color: "#c8dcff", fontWeight: "700" },
+  /** Line 3: last DM preview (only when last_msg present). */
+  snippet: {
+    color: "#7a8a9e",
+    fontSize: 12,
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  snippetUnread: {
+    color: "#c8dcff",
+    fontWeight: "700",
+  },
   callBtn: {
     backgroundColor: "#2d9f6f",
     paddingVertical: 8,
@@ -1499,38 +1879,40 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#2d9f6f",
   },
-  /** Labeled call CTA on call-history rows */
+  /** Labeled call CTA on call-history rows (larger tap target). */
   histCallBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    minHeight: 40,
     borderRadius: 999,
     backgroundColor: "rgba(45,159,111,0.4)",
     borderWidth: 1,
     borderColor: "rgba(45,159,111,0.55)",
-    maxWidth: 120,
+    maxWidth: 130,
   },
   histCallBtnMuted: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    minHeight: 40,
     borderRadius: 999,
     backgroundColor: "rgba(255,255,255,0.08)",
-    maxWidth: 130,
+    maxWidth: 140,
   },
   histCallBtnText: {
     color: "#b8f5d4",
     fontWeight: "800",
-    fontSize: 11,
+    fontSize: 12,
   },
   histCallBtnTextMuted: {
     color: "#9aa8bc",
     fontWeight: "700",
-    fontSize: 11,
+    fontSize: 12,
   },
   iconBadge: {
     position: "absolute",
