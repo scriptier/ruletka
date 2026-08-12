@@ -93,7 +93,10 @@
       overflow: hidden !important;
       opacity: 1 !important;
     }
-    /* Side rails INSIDE both tiles — never opacity:0 / display:none */
+    /*
+     * Side rails layout only — do NOT force opacity:1 (that killed chrome-autohide).
+     * Visibility is driven by html.chrome-autohide + .is-chrome-open (live-stage.css + live.js).
+     */
     .side-rail,
     .side-rail-right,
     .side-rail-left,
@@ -106,13 +109,41 @@
       position: absolute !important;
       bottom: 0.4rem !important;
       z-index: 50 !important;
+    }
+    #tile-local > .side-rail.side-rail-right { right: 0.4rem !important; left: auto !important; top: auto !important; }
+    #tile-remote > .side-rail.side-rail-left { left: 0.4rem !important; right: auto !important; top: auto !important; }
+    /* When always-on (touch) or tile chrome open — paint rails + floors */
+    html.chrome-always .side-rail,
+    html.chrome-always .side-rail-left,
+    html.chrome-always .side-rail-right,
+    html.chrome-always .tile-floor-partner,
+    html.chrome-always .tile-floor-local,
+    html.chrome-autohide #tile-remote.is-chrome-open .side-rail-left,
+    html.chrome-autohide #tile-remote.is-chrome-open .tile-floor-partner,
+    html.chrome-autohide #tile-local.is-chrome-open .side-rail-right,
+    html.chrome-autohide #tile-local.is-chrome-open .tile-floor-local {
       opacity: 1 !important;
       visibility: visible !important;
       pointer-events: auto !important;
       transform: none !important;
     }
-    #tile-local > .side-rail.side-rail-right { right: 0.4rem !important; left: auto !important; top: auto !important; }
-    #tile-remote > .side-rail.side-rail-left { left: 0.4rem !important; right: auto !important; top: auto !important; }
+    /* Desktop idle: hide both rails + floors (partner mute/vol/eye + self flip/mic/hide/settings) */
+    html.chrome-autohide #tile-remote:not(.is-chrome-open) .side-rail-left,
+    html.chrome-autohide #tile-remote:not(.is-chrome-open) .tile-floor-partner,
+    html.chrome-autohide #tile-local:not(.is-chrome-open) .side-rail-right,
+    html.chrome-autohide #tile-local:not(.is-chrome-open) .tile-floor-local {
+      opacity: 0 !important;
+      visibility: hidden !important;
+      pointer-events: none !important;
+    }
+    /* Settings sheet open: keep local rail reachable (do not pin forever) */
+    html.chrome-autohide.sheet-settings-open #tile-local .side-rail-right,
+    html.chrome-autohide:has(#settings-sheet.is-open:not([hidden])) #tile-local .side-rail-right {
+      opacity: 1 !important;
+      visibility: visible !important;
+      pointer-events: auto !important;
+      transform: none !important;
+    }
     .side-rail .side-btn,
     #btn-settings, #btn-blur-self, #btn-flip-cam, #btn-mute-mic,
     #btn-mute-remote, #btn-blur-remote {
@@ -123,9 +154,6 @@
       width: 48px !important;
       min-height: 48px !important;
       height: auto !important;
-      opacity: 1 !important;
-      visibility: visible !important;
-      pointer-events: auto !important;
       z-index: 51 !important;
       background: rgba(28, 36, 52, 0.94) !important;
       border: 1px solid rgba(255,255,255,0.28) !important;
@@ -133,7 +161,14 @@
       border-radius: 999px !important;
       box-shadow: 0 4px 16px rgba(0,0,0,0.55) !important;
     }
-    .side-rail .side-btn .lbl { display: block !important; opacity: 1 !important; color: #e8eef7 !important; font-size: 0.62rem !important; }
+    /* Buttons inherit rail visibility — do not force opacity:1 here */
+    html.chrome-always .side-rail .side-btn,
+    html.chrome-autohide .is-chrome-open .side-rail .side-btn {
+      opacity: 1 !important;
+      visibility: visible !important;
+      pointer-events: auto !important;
+    }
+    .side-rail .side-btn .lbl { display: block !important; color: #e8eef7 !important; font-size: 0.62rem !important; }
     #btn-fs-remote, .tile-fs-btn {
       opacity: 1 !important; visibility: visible !important; display: flex !important;
       pointer-events: auto !important; z-index: 52 !important;
@@ -322,6 +357,17 @@
       text-align: center !important;
     }
     #remote-name[hidden] { display: none !important; }
+    /* Never show "Незнакомец · friend_code" under partner name (1v1 product) */
+    #remote-who-sub,
+    html.match-live #remote-who-sub,
+    .stage.has-brand-live #remote-who-sub {
+      display: none !important;
+      visibility: hidden !important;
+      max-height: 0 !important;
+      overflow: hidden !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
     /* HARD: local video always on top of empty/canvas (mobile + desktop) */
     #tile-local #local,
     #tile-local #local.vid.local {
@@ -346,9 +392,9 @@
     #tile-local .side-rail { z-index: 50 !important; }
 </style>
   <!-- Load stage CSS as all immediately — no media=print FOUC trick (was leaving rails opacity:0) -->
-  <link rel="stylesheet" href="live-stage.css?v=373" />
-  <link rel="stylesheet" href="live-brand.css?v=2" />
-  <link rel="preload" href="live.js?v=526" as="script" />
+  <link rel="stylesheet" href="live-stage.css?v=380" />
+  <link rel="stylesheet" href="live-brand.css?v=10" />
+  <link rel="preload" href="live.js?v=552" as="script" />
   <link rel="preload" href="i18n.js?v=246" as="script" />
   <script src="brand.js?v=2" defer></script>
   <script>
@@ -588,19 +634,19 @@
 
     <!-- Dual video stage -->
     <main class="stage">
-      <!-- Center wordmark between partner | you — text only, spins occasionally -->
+      <!-- Center seam between partner | you — 360° every 15s mid-match -->
       <div class="stage-brand-center" id="stage-brand-center" aria-hidden="true">
         <div class="stage-brand-spin" id="stage-brand-spin">
-          <span class="stage-brand-wordmark" data-brand-name>ruletka</span>
+          <span class="stage-brand-wordmark">ruletka.me</span>
         </div>
       </div>
       <!-- PARTNER (left) — solo: one video; stranger vs party: vertical split; trio: partner1 column -->
       <section class="tile tile-remote" id="tile-remote">
         <div class="remote-stack" id="remote-stack">
           <video id="remote" class="vid remote" autoplay playsinline playsInline webkit-playsinline></video>
-          <!-- Wordmark watermark on partner tile -->
+          <!-- Tile wm kept in DOM but CSS-hidden on PC match (seam owns brand) -->
           <div class="stage-wm stage-wm-remote" id="stage-wm" aria-hidden="true">
-            <span class="stage-wm-text stage-wm-spin-el" data-brand-name>ruletka</span>
+            <span class="stage-wm-text stage-wm-spin-el">ruletka.me</span>
           </div>
           <div class="remote-b-wrap" id="remote2-wrap" hidden>
             <video id="remote2" class="vid remote remote-b" autoplay playsinline playsInline webkit-playsinline></video>
@@ -1004,7 +1050,7 @@
         <video id="local" class="vid local" autoplay playsinline playsInline webkit-playsinline muted></video>
         <!-- Wordmark watermark on your tile (matches partner) -->
         <div class="stage-wm stage-wm-local" id="stage-wm-local" aria-hidden="true">
-          <span class="stage-wm-text stage-wm-spin-el" data-brand-name>ruletka</span>
+          <span class="stage-wm-text stage-wm-spin-el">ruletka.me</span>
         </div>
         <!-- Canvas mirror: paints when <video> stays black (Linux/Chrome GPU quirks) -->
         <canvas id="local-preview-canvas" class="local-preview-canvas" aria-hidden="true" hidden></canvas>
@@ -2982,8 +3028,8 @@
   <script src="geoLocalize.js?v=3" defer></script>
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=156" defer></script>
-  <script src="webrtc.js?v=290" defer></script>
-  <script src="live.js?v=526" defer></script>
+  <script src="webrtc.js?v=311" defer></script>
+  <script src="live.js?v=552" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

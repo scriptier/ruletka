@@ -1069,20 +1069,34 @@ function syncPartnerBlurButtonLabels() {
   }
 }
 
-/** Current display name for UI + server (falls back to short id / anon). */
+/** Current display name for UI + server. Never myShortId / peer hex. */
 /** Session short id from bridge (not shown in header). */
 let myShortId = "";
+
+/** Hex peer ids / anon / Partner / empty — must not become MatchPeer.name via hello. */
+function isPoisonDisplayName(raw) {
+  const n = String(raw || "").trim();
+  if (!n) return true;
+  if (/^anon$/i.test(n)) return true;
+  if (/^partner$/i.test(n)) return true;
+  // 6–12 hex = peer/user short id paint (e.g. myShortId), never a real name
+  if (/^[0-9a-f]{6,12}$/i.test(n)) return true;
+  return false;
+}
 
 function getDisplayName() {
   const fromInput =
     $("display-name-top")?.value?.trim() ||
     $("display-name")?.value?.trim() ||
     $("display-name-settings")?.value?.trim();
-  if (fromInput) return fromInput;
+  // Real typed name (incl. Cyrillic «Драконов») always wins.
+  if (fromInput && !isPoisonDisplayName(fromInput)) return fromInput;
   const saved = (loadIdentity().name || "").trim();
-  if (saved) return saved;
-  if (myShortId) return myShortId;
-  return "anon";
+  if (saved && !isPoisonDisplayName(saved)) return saved;
+  // NEVER fall back to myShortId (8-char peer hex) — that poisoned MatchPeer.name
+  // so Android painted "3dc02a71" / "Partner" instead of real names like «Драконов».
+  // Prefer empty string rather than short_id; hello may coerce to "anon".
+  return "";
 }
 
 function syncNameInputs(name) {
@@ -1411,6 +1425,64 @@ function formatNameWithFlag(name, flag) {
 
 /** Hub geo for *you* (always real when known — for local tile). */
 let myGeo = { flag: "", country: "", city: "" };
+/** Last non-empty hub geo (hello / geo) so identity push still works if myGeo raced empty. */
+let lastHubGeo = { flag: "", country: "", city: "" };
+/** Match-time identity re-push timers (DC may open after first announce). */
+let identityPushTimers = [];
+
+function rememberHubGeo(flag, country, city) {
+  const g = {
+    flag: normalizeFlagCode(flag || ""),
+    country: String(country || "").trim(),
+    city: String(city || "").trim(),
+  };
+  if (!g.flag && !g.country && !g.city) return;
+  lastHubGeo = { ...g };
+  myGeo = { ...g };
+}
+
+/** Fill myGeo from last hub snapshot when empty (async geo vs early DC). */
+function ensureMyGeoForIdentity() {
+  const empty = !String(myGeo.flag || "").trim() &&
+    !String(myGeo.country || "").trim() &&
+    !String(myGeo.city || "").trim();
+  if (
+    empty &&
+    (lastHubGeo.flag || lastHubGeo.country || lastHubGeo.city)
+  ) {
+    myGeo = {
+      flag: lastHubGeo.flag || "",
+      country: lastHubGeo.country || "",
+      city: lastHubGeo.city || "",
+    };
+  }
+}
+
+function clearIdentityPushTimers() {
+  for (const t of identityPushTimers) {
+    try {
+      clearTimeout(t);
+    } catch (_) {}
+  }
+  identityPushTimers = [];
+}
+
+/**
+ * Push full identity (stars+geo) at 0/500/1500/3000ms so Android gets it
+ * even when the first DC open was too early or send failed.
+ */
+function scheduleIdentityPushesAfterMatch() {
+  clearIdentityPushTimers();
+  for (const ms of [0, 500, 1500, 3000]) {
+    const t = setTimeout(() => {
+      if (!matched && !inFriendCall) return;
+      try {
+        sendPartnerIdentityP2p({ request: false });
+      } catch (_) {}
+    }, ms);
+    identityPushTimers.push(t);
+  }
+}
 
 /**
  * Location stack: flag → country → city (vertical).
@@ -1489,14 +1561,78 @@ try {
   });
 } catch (_) {}
 
-/** Name only (top-right above stars). */
+/**
+ * Partner tile name: real display only (e.g. "Courtier").
+ * NEVER paint short_id, partner_short, or friend_code (DABC741D) as the name.
+ * Prefer: clean peer name → lastMatchMeta.name → "Partner" until DC/hub name lands.
+ */
+function resolvePartnerPaintName(opts = {}) {
+  const nameCandidates = [
+    opts.name,
+    opts.peerName,
+    opts.metaName,
+    lastMatchMeta?.name,
+  ];
+  for (const c of nameCandidates) {
+    const s = String(c || "").trim();
+    if (!s || isPoisonDisplayName(s)) continue;
+    // Friend codes look like 6–12 hex — never use as conversationalist name
+    if (/^[0-9A-Fa-f]{6,12}$/.test(s)) continue;
+    return s.slice(0, 32);
+  }
+  // Do NOT fall back to friend_code — user wants name, not DABC741D
+  return (
+    _t("trio.partner") ||
+    _t("remote.partner") ||
+    "Partner"
+  );
+}
+
+/** Name only (top-left on partner tile). Rejects poison hex / codes. */
 function setDisplayNameOnTile(el, name) {
   if (!el) return;
-  const n = (name || "anon").trim() || "anon";
+  let n = String(name || "").trim();
+  if (isPoisonDisplayName(n) || /^[0-9A-Fa-f]{6,12}$/.test(n)) {
+    n = el.id === "remote-name" ? resolvePartnerPaintName({}) : "";
+  }
+  if (!n) {
+    el.textContent = "";
+    if (el.id === "remote-name") el.hidden = true;
+    return;
+  }
   el.textContent = n;
   if (el.id === "remote-name") {
-    el.hidden = !n;
+    el.hidden = false;
+    el.removeAttribute("hidden");
   }
+}
+
+/** Clear "Незнакомец · CODE" under partner name (1v1 top-left). */
+function hideRemoteWhoSub() {
+  const subEl = $("remote-who-sub");
+  if (!subEl) return;
+  subEl.hidden = true;
+  subEl.textContent = "";
+  subEl.setAttribute("hidden", "");
+  subEl.style.display = "none";
+}
+
+/** Re-paint partner name; never show who-sub dual-id on main remote 1v1. */
+function paintPartnerIdentityChrome(opts = {}) {
+  const nameEl = $("remote-name");
+  const named = resolvePartnerPaintName({
+    name: opts.name,
+    peerName: opts.peerName,
+    metaName: opts.metaName ?? lastMatchMeta?.name,
+  });
+  if (nameEl) setDisplayNameOnTile(nameEl, named);
+  // Always strip who-sub on main partner tile for solo/1v1 (user 2026-08-11)
+  if (!trioBrowse || peerPcs.size <= 1) {
+    hideRemoteWhoSub();
+  }
+  try {
+    syncRemoteTileTagVisibility();
+  } catch (_) {}
 }
 
 /**
@@ -1613,11 +1749,12 @@ function setTileAvatar(which, dataUrl) {
   if (which === "remote") syncRemoteTileTagVisibility();
 }
 
-/** Show partner location strip when location and/or avatar is present. */
+/** Show partner strip when name, location, and/or avatar is present. */
 function syncRemoteTileTagVisibility() {
   const wrap = $("remote-tile-tag");
   const tag = $("remote-tag");
   const av = $("remote-avatar");
+  const nameEl = $("remote-name");
   if (!wrap) return;
   const hasLoc = !!(
     tag &&
@@ -1627,8 +1764,14 @@ function syncRemoteTileTagVisibility() {
       String(tag.textContent || "").trim())
   );
   const hasAv = !!(av && !av.hidden);
-  wrap.hidden = !(hasLoc || hasAv);
-  if (hasLoc || hasAv) wrap.removeAttribute("hidden");
+  const hasName = !!(
+    nameEl &&
+    !nameEl.hidden &&
+    String(nameEl.textContent || "").trim()
+  );
+  const show = hasLoc || hasAv || hasName;
+  wrap.hidden = !show;
+  if (show) wrap.removeAttribute("hidden");
   else wrap.setAttribute("hidden", "");
 }
 
@@ -1909,10 +2052,22 @@ function matchPrefs() {
 function sendHelloPayload(name) {
   const idn = loadIdentity();
   const prefs = matchPrefs();
+  // Real display name only — never myShortId / peer hex (poisons Android dock).
+  // Prefer explicit arg → getDisplayName (input/saved) → identity.name → "anon".
+  let n = String(name || "").trim().slice(0, 32);
+  if (isPoisonDisplayName(n)) {
+    n = String(getDisplayName() || "").trim().slice(0, 32);
+  }
+  if (isPoisonDisplayName(n)) {
+    n = String(idn.name || "").trim().slice(0, 32);
+  }
+  if (isPoisonDisplayName(n)) {
+    n = "anon";
+  }
   send({
     type: "hello",
     user_id: idn.user_id,
-    name: name || getDisplayName(),
+    name: n,
     gender: prefs.gender,
     looking: prefs.looking,
     // Cosmetic flag only matters when hide_ip; still send so hub stores it
@@ -2498,6 +2653,9 @@ function clearChat() {
 
 /** Keep chat visible after hangup — do not wipe history. */
 function endActiveMatchChat() {
+  try {
+    clearIdentityPushTimers();
+  } catch (_) {}
   if (activeChat.mode === "match" && activeChat.threadKey) {
     activeChat.live = false;
     activeChat.mode = "history";
@@ -5158,10 +5316,11 @@ function triggerGiftImpact(overlay, kind, opts = {}) {
   // Premium fireworks — multi-wave canvas cinematic (TikTok-tier without Lottie)
   if (k === "fireworks") {
     try {
+      // 2–3 wave baseline; mega adds +1 wave for a fuller sky
       playFireworksCanvasBurst(overlay, {
         mega: mega || combo >= 2,
         combo,
-        waves: mega ? 3 : combo >= 2 ? 2 : 1,
+        waves: mega ? 4 : combo >= 2 ? 3 : 2,
       });
     } catch (_) {}
     overlay.classList.remove("fx-fw-combo-pop", "fx-fw-mega-flash");
@@ -5170,7 +5329,7 @@ function triggerGiftImpact(overlay, kind, opts = {}) {
     if (mega || combo >= 3) overlay.classList.add("fx-fw-mega-flash");
     setTimeout(
       () => overlay.classList.remove("fx-fw-combo-pop", "fx-fw-mega-flash"),
-      mega ? 1800 : 1200
+      mega ? 2000 : 1400
     );
   }
   // Confetti also gets a short canvas glitter wave
@@ -5307,25 +5466,27 @@ function ensureFireworks(overlay, level) {
   const layer = overlay?.querySelector?.(".fx-fireworks-layer");
   if (!layer) return;
   const lvl = Math.max(1, Math.min(3, Math.floor(Number(level) || 1)));
-  const tag = `fw-v5-L${lvl}`;
+  const tag = `fw-v6-L${lvl}`;
   if (layer.dataset.ready === tag) return;
   const colors = [
     "#ff5a7a", "#ffd14a", "#5ad48a", "#4db7ff", "#a78bfa",
     "#ff8a3d", "#fff", "#ff6bcb", "#fde68a", "#fbbf24",
   ];
   let html = "";
-  const bursts = 8 + lvl * 6;
+  // Denser ambient CSS shells at L2–3 (rebuild via fw-v6 tag)
+  const bursts = 10 + lvl * 8;
   for (let b = 0; b < bursts; b++) {
     const cx = 6 + ((b * 21 + (b % 4) * 9) % 88);
     const cy = 10 + ((b * 17) % 62);
-    const delay = (b * 0.32).toFixed(2);
-    const scale = (0.9 + (b % 5) * 0.18).toFixed(2);
+    const delay = (b * 0.28).toFixed(2);
+    const scale = (0.95 + (b % 5) * 0.2 + (lvl - 1) * 0.06).toFixed(2);
     html += `<span class="fx-fw-burst" style="--cx:${cx}%;--cy:${cy}%;--delay:${delay}s;--bscale:${scale}" aria-hidden="true">`;
-    const sparks = 22 + (b % 4) * 4;
+    const sparks = 26 + (b % 5) * 5 + lvl * 4;
     for (let p = 0; p < sparks; p++) {
       const ang = (p / sparks) * 360 + (b % 2) * 6;
       const col = colors[(b + p) % colors.length];
-      const dist = 52 + (p % 6) * 11;
+      // Reach ~80–100px at high lvl for a bigger sky fill
+      const dist = 58 + (p % 7) * 6 + (lvl - 1) * 14 + (b % 3) * 4;
       html += `<span class="fx-fw-spark" style="--ang:${ang}deg;--color:${col};--dist:${dist}px"></span>`;
     }
     html += `<span class="fx-fw-core" style="--color:${colors[b % colors.length]}"></span>`;
@@ -5360,14 +5521,16 @@ function playFireworksCanvasBurst(overlay, opts = {}) {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   canvas.width = Math.floor(w * dpr);
   canvas.height = Math.floor(h * dpr);
-  canvas.style.width = "100%";
-  canvas.style.height = "100%";
+  // Full-bleed on tile (CSS also sets position:absolute; inset:0)
+  canvas.style.cssText =
+    "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:4";
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const combo = Math.max(1, Number(opts.combo) || 1);
   const mega = !!opts.mega || combo >= 2;
-  const waves = Math.max(1, Math.min(4, Number(opts.waves) || (mega ? 2 : 1)));
+  // 2–3 baseline; mega often +1 wave (capped)
+  const waves = Math.max(2, Math.min(5, Number(opts.waves) || (mega ? 3 : 2)));
   const colors = [
     "#ff5a7a", "#ffd14a", "#5ad48a", "#4db7ff", "#a78bfa",
     "#ff8a3d", "#ffffff", "#ff6bcb", "#fde68a", "#60a5fa",
@@ -5386,40 +5549,59 @@ function playFireworksCanvasBurst(overlay, opts = {}) {
         vx: Math.cos(ang) * spd,
         vy: Math.sin(ang) * spd,
         life: 1,
-        decay: 0.01 + Math.random() * 0.016,
-        r: 1.1 + Math.random() * 2.6,
+        decay: 0.009 + Math.random() * 0.014,
+        r: 1.15 + Math.random() * 2.8,
         col: Math.random() > 0.82 ? "#fff" : col,
-        trail: Math.random() > 0.4,
+        trail: Math.random() > 0.35,
         kind: "spark",
       });
     }
-    // white core
+    // white core — stronger bloom on mega
     particles.push({
       x: cx,
       y: cy,
       vx: 0,
       vy: 0,
       life: 1,
-      decay: 0.05,
-      r: mega ? 14 : 9,
+      decay: mega ? 0.038 : 0.048,
+      r: mega ? 18 : 11,
       col: "#fff",
       trail: false,
       kind: "core",
     });
-    // gold rain
-    const rain = mega ? 18 : 10;
+    // Longer gold rain (more bits, slower fade)
+    const rain = mega ? 28 : 16;
     for (let i = 0; i < rain; i++) {
       particles.push({
-        x: cx + (Math.random() - 0.5) * 20,
-        y: cy,
-        vx: (Math.random() - 0.5) * 0.8,
-        vy: 0.4 + Math.random() * 1.2,
+        x: cx + (Math.random() - 0.5) * 28,
+        y: cy + (Math.random() - 0.3) * 10,
+        vx: (Math.random() - 0.5) * 0.95,
+        vy: 0.35 + Math.random() * 1.35,
         life: 1,
-        decay: 0.008 + Math.random() * 0.01,
-        r: 0.8 + Math.random() * 1.4,
-        col: Math.random() > 0.5 ? "#fde68a" : "#ffd14a",
+        decay: 0.005 + Math.random() * 0.007,
+        r: 0.75 + Math.random() * 1.55,
+        col: Math.random() > 0.45 ? "#fde68a" : "#ffd14a",
         trail: true,
         kind: "rain",
+      });
+    }
+    // Secondary twinkle sparks — tiny white dots that sparkle after the shell
+    const twinkles = mega ? 22 : 12;
+    for (let i = 0; i < twinkles; i++) {
+      const ta = Math.random() * Math.PI * 2;
+      const td = (mega ? 18 : 12) + Math.random() * (mega ? 42 : 28);
+      particles.push({
+        x: cx + Math.cos(ta) * td * 0.35,
+        y: cy + Math.sin(ta) * td * 0.35,
+        vx: Math.cos(ta) * (0.15 + Math.random() * 0.55),
+        vy: Math.sin(ta) * (0.15 + Math.random() * 0.55) + 0.05,
+        life: 0.85 + Math.random() * 0.35,
+        decay: 0.012 + Math.random() * 0.018,
+        r: 0.45 + Math.random() * 1.1,
+        col: Math.random() > 0.35 ? "#ffffff" : "#fff7cc",
+        trail: false,
+        kind: "twinkle",
+        twinklePhase: Math.random() * Math.PI * 2,
       });
     }
   }
@@ -5431,17 +5613,20 @@ function playFireworksCanvasBurst(overlay, opts = {}) {
       x: x0,
       y: y0,
       vx: (targetX - x0) * 0.012,
-      vy: -(2.8 + Math.random() * 1.4) * (mega ? 1.15 : 1),
+      vy: -(2.9 + Math.random() * 1.45) * (mega ? 1.18 : 1),
       life: 1,
       decay: 0.004,
-      r: 2.2,
+      r: 2.35,
       col: "#fff7cc",
       trail: true,
       kind: "rocket",
-      explodeAt: performance.now() + delayMs + 280 + Math.random() * 180,
+      explodeAt: performance.now() + delayMs + 260 + Math.random() * 200,
       shellCol: col,
-      shellN: mega ? 48 + Math.floor(Math.random() * 16) : 32 + Math.floor(Math.random() * 12),
-      shellPower: mega ? 3.6 : 2.6,
+      // mega 56–72 sparks, normal 40–52
+      shellN: mega
+        ? 56 + Math.floor(Math.random() * 17)
+        : 40 + Math.floor(Math.random() * 13),
+      shellPower: mega ? 3.9 : 2.85,
       tx: targetX,
       ty: targetY,
     });
@@ -5451,32 +5636,33 @@ function playFireworksCanvasBurst(overlay, opts = {}) {
   const shellsPerWave = mega ? 4 : 3;
   for (let wave = 0; wave < waves; wave++) {
     for (let s = 0; s < shellsPerWave; s++) {
-      const cx = w * (0.14 + Math.random() * 0.72);
-      const cy = h * (0.12 + Math.random() * 0.42);
+      const cx = w * (0.12 + Math.random() * 0.76);
+      const cy = h * (0.1 + Math.random() * 0.44);
       const col = colors[(wave * 3 + s * 2) % colors.length];
-      launchRocket(wave * 380 + s * 90, cx, cy, col);
+      launchRocket(wave * 360 + s * 85, cx, cy, col);
     }
   }
 
   let raf = 0;
   const t0 = performance.now();
-  const maxMs = mega ? 2400 + (waves - 1) * 350 : 1600 + (waves - 1) * 280;
-  const flash = { a: mega ? 0.55 : 0.35 };
+  const maxMs = mega ? 2800 + (waves - 1) * 380 : 2000 + (waves - 1) * 300;
+  const flash = { a: mega ? 0.72 : 0.48 };
 
   const tick = (now) => {
     const elapsed = now - t0;
     ctx.clearRect(0, 0, w, h);
 
-    // Ambient warm glow + initial flash
+    // Stronger ambient warm glow + initial flash
     if (flash.a > 0.01) {
       ctx.globalAlpha = flash.a;
-      const fg = ctx.createRadialGradient(w / 2, h * 0.35, 4, w / 2, h * 0.35, w * 0.7);
-      fg.addColorStop(0, "rgba(255,230,160,0.9)");
-      fg.addColorStop(0.45, "rgba(255,120,60,0.25)");
+      const fg = ctx.createRadialGradient(w / 2, h * 0.35, 4, w / 2, h * 0.35, w * 0.78);
+      fg.addColorStop(0, "rgba(255,235,170,0.95)");
+      fg.addColorStop(0.35, "rgba(255,160,70,0.35)");
+      fg.addColorStop(0.65, "rgba(255,90,40,0.12)");
       fg.addColorStop(1, "rgba(0,0,0,0)");
       ctx.fillStyle = fg;
       ctx.fillRect(0, 0, w, h);
-      flash.a *= 0.9;
+      flash.a *= 0.88;
       ctx.globalAlpha = 1;
     }
 
@@ -5487,7 +5673,7 @@ function playFireworksCanvasBurst(overlay, opts = {}) {
       // Rocket reaches apex → explode into shell
       if (p.kind === "rocket" && (now >= p.explodeAt || p.y <= p.ty)) {
         spawnShell(p.x, p.y, p.shellCol, p.shellN, p.shellPower);
-        flash.a = Math.max(flash.a, mega ? 0.4 : 0.22);
+        flash.a = Math.max(flash.a, mega ? 0.55 : 0.32);
         p.life = 0;
         continue;
       }
@@ -5513,34 +5699,64 @@ function playFireworksCanvasBurst(overlay, opts = {}) {
           });
         }
       } else if (p.kind === "rain") {
-        p.vy += 0.06;
-        p.vx *= 0.985;
+        // Softer gravity so gold rain hangs a beat longer
+        p.vy += 0.048;
+        p.vx *= 0.982;
+      } else if (p.kind === "twinkle") {
+        p.vy += 0.018;
+        p.vx *= 0.99;
+        p.twinklePhase = (p.twinklePhase || 0) + 0.45;
       } else if (p.kind !== "core" && p.kind !== "smoke") {
-        p.vy += 0.038;
-        p.vx *= 0.988;
+        // Slight gravity polish on shell sparks
+        p.vy += 0.042;
+        p.vx *= 0.986;
       }
       p.life -= p.decay;
       if (p.life <= 0) continue;
 
+      if (p.kind === "twinkle") {
+        // Flicker sparkle — tiny white dots after shell
+        const tw =
+          0.35 + 0.65 * Math.abs(Math.sin(p.twinklePhase || 0));
+        ctx.globalAlpha = Math.max(0, Math.min(1, p.life * tw));
+        ctx.fillStyle = p.col;
+        ctx.beginPath();
+        const tr = p.r * (0.5 + 0.9 * tw);
+        ctx.arc(p.x, p.y, Math.max(0.3, tr), 0, Math.PI * 2);
+        ctx.fill();
+        // soft halo
+        ctx.globalAlpha *= 0.35;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, Math.max(0.6, tr * 2.2), 0, Math.PI * 2);
+        ctx.fill();
+        continue;
+      }
+
       ctx.globalAlpha = Math.max(0, Math.min(1, p.life));
       if (p.trail) {
         ctx.strokeStyle = p.col;
-        ctx.lineWidth = Math.max(0.5, p.r * (p.kind === "rocket" ? 0.9 : 0.4));
+        ctx.lineWidth = Math.max(
+          0.5,
+          p.r * (p.kind === "rocket" ? 0.95 : p.kind === "rain" ? 0.55 : 0.42)
+        );
         ctx.lineCap = "round";
         ctx.beginPath();
-        const tl = p.kind === "rocket" ? 5 : 2.4;
+        const tl = p.kind === "rocket" ? 5.5 : p.kind === "rain" ? 3.2 : 2.5;
         ctx.moveTo(p.x - p.vx * tl, p.y - p.vy * tl);
         ctx.lineTo(p.x, p.y);
         ctx.stroke();
       }
       ctx.fillStyle = p.col;
       ctx.beginPath();
-      const rr = p.kind === "core" ? p.r * p.life : p.r * (0.6 + 0.4 * p.life);
+      const rr =
+        p.kind === "core"
+          ? p.r * p.life
+          : p.r * (0.6 + 0.4 * p.life);
       ctx.arc(p.x, p.y, Math.max(0.4, rr), 0, Math.PI * 2);
       ctx.fill();
     }
     // prune dead occasionally to keep array small
-    if (particles.length > 900) {
+    if (particles.length > 1200) {
       for (let i = particles.length - 1; i >= 0; i--) {
         if (particles[i].life <= 0) particles.splice(i, 1);
       }
@@ -5583,27 +5799,31 @@ function playConfettiCanvasBurst(overlay, opts = {}) {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   canvas.width = Math.floor(w * dpr);
   canvas.height = Math.floor(h * dpr);
-  canvas.style.cssText = "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5";
+  canvas.style.cssText =
+    "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5";
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const mega = !!opts.mega;
-  const colors = ["#ff5a7a", "#ffd14a", "#5ad48a", "#4db7ff", "#a78bfa", "#fff", "#f472b6"];
+  const colors = [
+    "#ff5a7a", "#ffd14a", "#5ad48a", "#4db7ff", "#a78bfa", "#fff", "#f472b6",
+  ];
   const bits = [];
-  const n = mega ? 110 : 75;
+  const n = mega ? 130 : 90;
   for (let i = 0; i < n; i++) {
     bits.push({
       x: Math.random() * w,
-      y: -10 - Math.random() * h * 0.35,
-      vx: (Math.random() - 0.5) * 4.2,
-      vy: 1.8 + Math.random() * 4.2,
+      y: -10 - Math.random() * h * 0.4,
+      vx: (Math.random() - 0.5) * 4.4,
+      vy: 1.5 + Math.random() * 4.6,
       rot: Math.random() * Math.PI,
-      vr: (Math.random() - 0.5) * 0.32,
+      vr: (Math.random() - 0.5) * 0.34,
       w: 4 + Math.random() * 9,
       h: 3 + Math.random() * 6,
       col: colors[i % colors.length],
       life: 1,
-      decay: 0.006 + Math.random() * 0.009,
+      // Wider fall variety — some hang, some drop fast
+      decay: 0.0045 + Math.random() * 0.01,
     });
   }
   const t0 = performance.now();
@@ -5615,7 +5835,7 @@ function playConfettiCanvasBurst(overlay, opts = {}) {
       alive++;
       b.x += b.vx;
       b.y += b.vy;
-      b.vy += 0.04;
+      b.vy += 0.038;
       b.rot += b.vr;
       b.life -= b.decay;
       ctx.save();
@@ -5626,7 +5846,7 @@ function playConfettiCanvasBurst(overlay, opts = {}) {
       ctx.fillRect(-b.w / 2, -b.h / 2, b.w, b.h);
       ctx.restore();
     }
-    if (alive > 0 && now - t0 < 1400) {
+    if (alive > 0 && now - t0 < 1600) {
       canvas._cfRaf = requestAnimationFrame(tick);
     } else {
       ctx.clearRect(0, 0, w, h);
@@ -5642,7 +5862,7 @@ function ensureConfetti(overlay, level) {
   const layer = overlay?.querySelector?.(".fx-confetti-layer");
   if (!layer) return;
   const lvl = Math.max(1, Math.min(3, Math.floor(Number(level) || 1)));
-  const tag = `confetti-v4-L${lvl}`;
+  const tag = `confetti-v5-L${lvl}`;
   if (layer.dataset.ready === tag) return;
   const colors = [
     "#ff5a7a", "#ffd14a", "#5ad48a", "#4db7ff", "#a78bfa",
@@ -5651,12 +5871,12 @@ function ensureConfetti(overlay, level) {
   ];
   const shapes = ["rect", "rect", "circle", "heart", "rect", "ribbon", "circle"];
   let html = "";
-  // Denser burst — party feel without hiding the face for long
-  const n = 64 + lvl * 32;
+  // Slightly denser + longer fall variety (hold timers unchanged)
+  const n = 72 + lvl * 36;
   for (let i = 0; i < n; i++) {
     const left = 1 + ((i * 11 + (i % 9) * 11) % 97);
-    const delay = ((i * 0.06) % 1.5).toFixed(2);
-    const dur = (1.75 + (i % 5) * 0.32 + (lvl - 1) * 0.12).toFixed(2);
+    const delay = ((i * 0.055) % 1.65).toFixed(2);
+    const dur = (1.9 + (i % 7) * 0.36 + (lvl - 1) * 0.14).toFixed(2);
     const size = (7 + (i % 8) * 2.4 + (lvl - 1) * 1.6).toFixed(0);
     const rot = ((i * 53) % 360).toFixed(0);
     const color = colors[i % colors.length];
@@ -5664,11 +5884,11 @@ function ensureConfetti(overlay, level) {
     const spin = (0.7 + (i % 5) * 0.32).toFixed(2);
     html += `<span class="fx-confetti-bit fx-confetti-${shape}" style="--left:${left}%;--delay:${delay}s;--dur:${dur}s;--size:${size}px;--rot:${rot}deg;--color:${color};--spin:${spin}s" aria-hidden="true"></span>`;
   }
-  const emoN = 10 + lvl * 7;
+  const emoN = 12 + lvl * 8;
   for (let i = 0; i < emoN; i++) {
     const left = 4 + ((i * 17) % 90);
-    const delay = (0.05 + i * 0.12).toFixed(2);
-    const dur = (2.4 + (i % 4) * 0.32).toFixed(2);
+    const delay = (0.05 + i * 0.11).toFixed(2);
+    const dur = (2.5 + (i % 5) * 0.36).toFixed(2);
     const emos = ["💖", "✨", "🎉", "⭐", "💫", "🎊", "🥳"];
     html += `<span class="fx-confetti-emoji" style="--left:${left}%;--delay:${delay}s;--dur:${dur}s" aria-hidden="true">${
       emos[i % emos.length]
@@ -8345,6 +8565,94 @@ function sendLiveChat(body, opts = {}) {
  * Tell partner we muted/unmuted their audio (local playout).
  * They show the same mute veil/badge on their self tile.
  */
+/**
+ * Announce real display name (+ stars/trust/geo) over P2P so Android dock never
+ * sticks on "Partner" / ★0 / no location when hub MatchPeer is empty/poison
+ * (old hub without resolve_match_peer_name / hello race).
+ * @param {{ request?: boolean }} [opts]
+ */
+function sendPartnerIdentityP2p(opts = {}) {
+  // Prefer hub geo; fall back to last hello/geo if race left myGeo empty
+  try {
+    ensureMyGeoForIdentity();
+  } catch (_) {}
+  // Real name only — never myShortId / hex (same as hello)
+  let n = String(getDisplayName() || "").trim().slice(0, 32);
+  if (isPoisonDisplayName(n)) n = "";
+  // Stars/trust from hub hello ledger (self badge). 0 is valid empty ledger.
+  const starsN = Math.max(0, Math.floor(Number(myStars) || 0));
+  const trustN = Math.max(
+    0,
+    Math.floor(
+      Number(
+        mySocialHealth > 0
+          ? mySocialHealth
+          : myTrustEffective || myTrust || 0
+      ) || 0
+    )
+  );
+  // Public geo for partner chrome. When hide_ip: cosmetic flag only (no city/country).
+  const hideIp =
+    !!loadPrefs().hideIpRelayOnly ||
+    (typeof hideIpRelayOnlyEnabled === "function" &&
+      hideIpRelayOnlyEnabled());
+  const flagRaw = hideIp
+    ? normalizeFlagCode(getFlag() || myGeo.flag || lastHubGeo.flag || "")
+    : normalizeFlagCode(myGeo.flag || lastHubGeo.flag || getFlag() || "");
+  const country = hideIp
+    ? ""
+    : String(myGeo.country || lastHubGeo.country || "")
+        .trim()
+        .slice(0, 48);
+  const city = hideIp
+    ? ""
+    : String(myGeo.city || lastHubGeo.city || "")
+        .trim()
+        .slice(0, 48);
+  const payload = {
+    v: 1,
+    type: "partner_identity",
+    user_id: myUserId || "",
+    name: n,
+    friend_code: String(myFriendCode || "").trim().toUpperCase(),
+    stars: starsN,
+    trust: trustN,
+    flag: flagRaw || "",
+    country,
+    city,
+    hide_ip: !!hideIp,
+    ts: Date.now(),
+  };
+  let ok = false;
+  try {
+    for (const pc of chatPeerPcs()) {
+      if (pc?.sendChatMessage?.(payload)) ok = true;
+    }
+    if (!ok && rtc?.sendChatMessage?.(payload)) ok = true;
+  } catch (_) {}
+  // Always log full identity fields (stars+geo) so we can verify Android dock path
+  try {
+    log(
+      `[match] identity→ name=${n || "-"} ★${starsN} trust=${trustN} flag=${flagRaw || "-"} country=${country || "-"} city=${city || "-"} hide=${hideIp ? 1 : 0} ok=${ok ? 1 : 0}`
+    );
+  } catch (_) {}
+  if (opts.request) {
+    const req = {
+      v: 1,
+      type: "name_req",
+      user_id: myUserId || "",
+      ts: Date.now(),
+    };
+    try {
+      for (const pc of chatPeerPcs()) {
+        if (pc?.sendChatMessage?.(req)) ok = true;
+      }
+      if (!ok && rtc?.sendChatMessage?.(req)) ok = true;
+    } catch (_) {}
+  }
+  return ok;
+}
+
 function sendPartnerMuteP2p(muted) {
   const payload = {
     v: 1,
@@ -8378,6 +8686,83 @@ function sendPartnerMuteP2p(muted) {
   return ok;
 }
 
+/**
+ * Tell partner we hid/revealed our camera (self-blur / Hide).
+ * Android shows PartnerBlurVeil mosaic instead of pure black outbound frames.
+ * @param {boolean} on true = hidden from partner
+ */
+function sendSelfHideP2p(on) {
+  const payload = {
+    v: 1,
+    type: "self_hide",
+    on: !!on,
+    user_id: myUserId || "",
+    name: getDisplayName() || "anon",
+    ts: Date.now(),
+  };
+  let ok = false;
+  try {
+    for (const pc of chatPeerPcs()) {
+      if (pc?.sendChatMessage?.(payload)) ok = true;
+    }
+    if (!ok && rtc?.sendChatMessage?.(payload)) ok = true;
+  } catch (_) {}
+  try {
+    send({
+      type: "signal",
+      kind: "self_hide",
+      payload: JSON.stringify(payload),
+    });
+    ok = true;
+  } catch (_) {}
+  // Hub chat control fallback (Android + web parse before chat bubble)
+  try {
+    send({ type: "chat", body: "\x01shide:" + (on ? "1" : "0") });
+    ok = true;
+  } catch (_) {}
+  return ok;
+}
+
+/** Partner hid their camera (inbound self_hide) — frost remote tile, not pure black. */
+let partnerSelfHidden = false;
+
+function setPartnerSelfHidden(on, opts = {}) {
+  const next = !!on;
+  if (partnerSelfHidden === next && !opts.force) return;
+  partnerSelfHidden = next;
+  try {
+    $("tile-remote")?.classList.toggle("partner-self-hidden", partnerSelfHidden);
+    const badge = $("partner-self-hide-badge");
+    if (badge) {
+      const show = partnerSelfHidden && !!(matched || inFriendCall);
+      badge.hidden = !show;
+      if (show) badge.removeAttribute("hidden");
+      else badge.setAttribute("hidden", "");
+    }
+  } catch (_) {}
+  if (opts.toast !== false && next) {
+    try {
+      setStatus(
+        _t("live.partnerHidCamera") ||
+          "Partner hid camera — waiting for them to reveal"
+      );
+    } catch (_) {}
+  }
+}
+
+function handleSelfHideP2p(msg) {
+  const uid = String(msg.user_id || "").slice(0, 64);
+  if (uid && myUserId && uid === myUserId) return;
+  const onVal = msg.on;
+  const on =
+    onVal === true ||
+    onVal === 1 ||
+    onVal === "1" ||
+    onVal === "true" ||
+    msg.hidden === true;
+  setPartnerSelfHidden(on, { toast: !!on });
+}
+
 function setTheyMutedMe(on, opts = {}) {
   const next = !!on;
   if (theyMutedMe === next && !opts.force) return;
@@ -8397,14 +8782,12 @@ function setTheyMutedMe(on, opts = {}) {
 
 function syncTheyMutedMeUi() {
   const tile = $("tile-local");
+  // Mid-tile mute icon via .peer-slot-muted::before — no text chip
   tile?.classList.toggle("peer-slot-muted", !!theyMutedMe && !debate.active);
   const badge = $("peer-mute-badge-local-by-them");
   if (badge) {
-    // Debate owns local mute badge while active
-    const show = !!theyMutedMe && !debate.active && !!(matched || inFriendCall);
-    badge.hidden = !show;
-    if (show) badge.removeAttribute("hidden");
-    else badge.setAttribute("hidden", "");
+    badge.hidden = true;
+    badge.setAttribute("hidden", "");
   }
   // If debate active and they muted us, fold into local debate muted badge
   if (debate.active && theyMutedMe) {
@@ -8444,9 +8827,119 @@ function handleP2pDataMessage(msg, fromPc) {
     handleTypingP2pMessage(msg);
     return;
   }
+  // Partner display name + stars/trust/geo announce (hub-weak secondary path)
+  if (t === "partner_identity" || t === "identity") {
+    try {
+      const uid = String(msg.user_id || "").slice(0, 64);
+      if (uid && myUserId && uid === myUserId) return;
+      const n = String(msg.name || "").trim().slice(0, 32);
+      if (n && !isPoisonDisplayName(n) && !/^[0-9A-Fa-f]{6,12}$/.test(n)) {
+        if (lastMatchMeta) {
+          lastMatchMeta = { ...lastMatchMeta, name: n };
+        }
+        if (activeChat && activeChat.live) {
+          activeChat.peerName = n;
+        }
+        // Re-paint tile with real name (e.g. Courtier) — never friend_code
+        try {
+          paintPartnerIdentityChrome({ name: n });
+        } catch (_) {}
+        try {
+          updateChatHeader();
+        } catch (_) {}
+        log(`[match] name=${n} from=dc`);
+      }
+      const fc = String(msg.friend_code || msg.friendCode || "")
+        .trim()
+        .toUpperCase();
+      if (fc && lastMatchMeta && !lastMatchMeta.friend_code) {
+        lastMatchMeta = { ...lastMatchMeta, friend_code: fc };
+      }
+      // Store code only — do not paint code as the name chip
+      try {
+        hideRemoteWhoSub();
+      } catch (_) {}
+      // Stars / trust from peer DC (old hub may omit MatchPeer.stars)
+      const starsRaw = msg.stars ?? msg.star_balance ?? msg.starBalance;
+      if (starsRaw !== undefined && starsRaw !== null && starsRaw !== "") {
+        const sn = Math.max(0, Math.floor(Number(starsRaw) || 0));
+        partnerStars = sn;
+        if (lastMatchMeta) lastMatchMeta = { ...lastMatchMeta, stars: sn };
+        try {
+          setStarsBadge("remote", sn, {
+            trust:
+              msg.trust != null
+                ? Math.max(0, Math.floor(Number(msg.trust) || 0))
+                : partnerTrust,
+          });
+        } catch (_) {}
+      }
+      const trustRaw =
+        msg.trust ?? msg.social_health ?? msg.trust_effective ?? msg.public_trust;
+      if (trustRaw !== undefined && trustRaw !== null && trustRaw !== "") {
+        const tn = Math.max(0, Math.floor(Number(trustRaw) || 0));
+        partnerTrust = tn;
+        if (lastMatchMeta) lastMatchMeta = { ...lastMatchMeta, trust: tn };
+        try {
+          setStarsBadge("remote", partnerStars, { trust: tn });
+        } catch (_) {}
+      }
+      // Geo from peer DC when hub partner_geo / MatchPeer geo is empty
+      const fl = normalizeFlagCode(msg.flag || msg.Flag || "");
+      const co = String(msg.country || msg.Country || "").trim();
+      const ci = String(msg.city || msg.City || "").trim();
+      const hide =
+        msg.hide_ip === true ||
+        msg.hideIp === true ||
+        msg.hide_ip === 1 ||
+        msg.hide_ip === "1";
+      if (fl || co || ci || hide) {
+        if (lastMatchMeta) {
+          lastMatchMeta = {
+            ...lastMatchMeta,
+            flag: fl || lastMatchMeta.flag || "",
+            country: hide ? "" : co || lastMatchMeta.country || "",
+            city: hide ? "" : ci || lastMatchMeta.city || "",
+            hide_ip: hide || !!lastMatchMeta.hide_ip,
+          };
+        }
+        try {
+          // Refresh remote location chip if present
+          const tag = $("remote-tag") || $("partner-loc") || $("remote-loc");
+          if (tag && typeof setLocationOnTile === "function") {
+            setLocationOnTile(tag, {
+              flag: fl || lastMatchMeta?.flag || "",
+              country: hide ? "" : co || lastMatchMeta?.country || "",
+              city: hide ? "" : ci || lastMatchMeta?.city || "",
+              hide_ip: hide,
+            });
+          }
+          try {
+            updateChatHeader();
+          } catch (_) {}
+        } catch (_) {}
+      }
+      log(
+        `[match] identity← name=${n || "-"} ★${partnerStars} trust=${partnerTrust} flag=${fl || "-"} country=${co || "-"} city=${ci || "-"} hide=${hide ? 1 : 0}`
+      );
+    } catch (_) {}
+    return;
+  }
+  if (t === "name_req") {
+    // Android asked for our name — always reply with FULL identity (name+stars+geo), never name-only
+    try {
+      sendPartnerIdentityP2p({ request: false });
+    } catch (_) {}
+    return;
+  }
   // Partner muted our audio on their device — show same mute visuals on self tile
   if (t === "partner_mute") {
     handlePartnerMuteP2p(msg);
+    return;
+  }
+  // Partner hid/revealed their camera (self-blur / Hide)
+  if (t === "self_hide" || t === "cam_hide") {
+    handleSelfHideP2p(msg);
     return;
   }
   if (t !== "chat" && t !== "friend_chat") return;
@@ -9512,7 +10005,19 @@ function clearOfferKickWatch() {
  * @param {object} peer peers[0]
  * @param {number[]} delaysMs
  */
-function armOfferKickWatch(msg, peer, delaysMs = [600, 1400, 3200]) {
+/**
+ * Dense early waves: re-emit stuck localDescription ASAP; re-kick if
+ * createOffer never finishes. Hub MTO ~25s was hard rebuild only because
+ * every wave hit kickSolo concurrent-skip while connect() still awaited.
+ * Hop10: denser early + free locks sooner.
+ * Hop11: free stuck@550; denser first 3s re-kick so recovery beats hardMs belt
+ * (~8.5s hub max was hard rebuild when offerKick waves missed).
+ */
+function armOfferKickWatch(
+  msg,
+  peer,
+  delaysMs = [0, 80, 180, 320, 500, 800, 1200, 1800, 2800]
+) {
   clearOfferKickWatch();
   if (!msg || !peer) return;
   for (const ms of delaysMs) {
@@ -9524,7 +10029,7 @@ function armOfferKickWatch(msg, peer, delaysMs = [600, 1400, 3200]) {
         const existing = peerId ? findPcForPeer(peerId) : null;
         // REAL wire evidence only — must have actually emitted offer or got answer.
         // localDescription alone is NOT enough: setLocal without emit caused
-        // the 35s MTO stall (offerKick returned early every wave).
+        // the 25–35s MTO stall (offerKick returned early every wave).
         const hasRealSdp = (pc) =>
           !!(
             pc &&
@@ -9539,16 +10044,21 @@ function armOfferKickWatch(msg, peer, delaysMs = [600, 1400, 3200]) {
         }
         // Live media already — no need
         if (hasLiveRemoteMedia()) return;
-        // In-flight createOffer <0.9s — give it a moment before tear
+        // Local offer exists but never left the wire → re-emit FIRST (even if
+        // createOffer path still mid-relay-wait). Then grace in-flight before tear.
+        const local = existing?.pc?.localDescription;
+        // In-flight without local yet: hop11 give createOffer/setLocal ~550ms
+        // (was 700). Pure force_relay: slightly longer so first-relay wait can finish.
+        const inflightGrace = msg?.force_relay ? 900 : 550;
         if (
           existing?._offerInFlight &&
-          ms < 900 &&
+          !local &&
+          ms < inflightGrace &&
           !existing._offerEmitOk
         ) {
           return;
         }
-        // Local offer exists but never left the wire → re-emit (no rebuild)
-        const local = existing?.pc?.localDescription;
+        // (local re-emit handled next)
         if (
           existing &&
           local &&
@@ -9559,6 +10069,12 @@ function armOfferKickWatch(msg, peer, delaysMs = [600, 1400, 3200]) {
             log(
               `offerKick re-emit +${ms}ms peer=${String(peerId).slice(0, 8)}`
             );
+            // Clear stale match stamp so _emitSignal does not no-op
+            try {
+              window.__ruletMatchOfferAt = 0;
+              window.__ruletMatchOfferLock = 0;
+              window.__ruletMatchOfferAttemptAt = 0;
+            } catch (_) {}
             let desc = local;
             try {
               if (
@@ -9592,7 +10108,7 @@ function armOfferKickWatch(msg, peer, delaysMs = [600, 1400, 3200]) {
           }
         }
         log(
-          `offerKick re-kick +${ms}ms peer=${String(peerId).slice(0, 8)} emit=${existing?._offerEmitOk ? 1 : 0} lock=${window.__ruletMatchOfferLock ? 1 : 0}`
+          `offerKick re-kick +${ms}ms peer=${String(peerId).slice(0, 8)} emit=${existing?._offerEmitOk ? 1 : 0} lock=${window.__ruletMatchOfferLock ? 1 : 0} inflight=${kickSoloWebRtc._inflight ? 1 : 0}`
         );
         // Only tear if truly stuck with no local SDP / no emit
         if (existing && !existing._offerEmitOk) {
@@ -9600,6 +10116,7 @@ function armOfferKickWatch(msg, peer, delaysMs = [600, 1400, 3200]) {
             existing._offerSentOnce = false;
             existing._offerEmitOk = false;
             existing._offerInFlight = false;
+            existing._lastOfferAt = 0;
             existing.closeCall({ keepLocal: true, sendBye: false });
           } catch (_) {}
           try {
@@ -9613,6 +10130,13 @@ function armOfferKickWatch(msg, peer, delaysMs = [600, 1400, 3200]) {
           window.__ruletMatchOfferLock = 0;
           window.__ruletMatchOfferAttemptAt = 0;
           window.__ruletMatchOfferAt = 0;
+        } catch (_) {}
+        // CRITICAL: hung await pc.connect() held kickSolo._inflight forever —
+        // every wave hit concurrent skip until hardMs ~25s. Free mutex now.
+        try {
+          kickSoloWebRtc._inflight = false;
+          kickSoloWebRtc._inflightPeer = "";
+          kickSoloWebRtc._inflightAt = 0;
         } catch (_) {}
         void kickSoloWebRtc(msg, peer).catch((e) =>
           log(`offerKick fail ${e}`)
@@ -9865,10 +10389,20 @@ function startWebrtcWatch() {
   // Hard rebuild @20s on pure force_relay killed media that was still settling
   // (2026-08-10: offer@1.8s answer@2.8s + re-offer@20s/@40s, peer_usage rising then cut).
   // Pure/TURN: NO iceRestart/rebuild for 45s — keyframes + outbound only.
-  const softMs = relayMode ? 45000 : 12000;
-  const hardMs = relayMode ? 60000 : 25000;
+  // Soft = re-push cam. Hard hybrid was 25s → hop10 8s = hub max MTO ~8.5–9s when
+  // first offer never left. Hop11: hybrid hard ≤5.5s belt; pure still 12s keyframe-only.
+  // Soft Ms aligns with first-path copy grace (pure 10s keyframe / hybrid 5s).
+  const softMs = relayMode ? 10000 : 5000;
+  const hardMs = relayMode ? 12000 : 5500;
   webrtcWatchSoftTimer = setTimeout(() => {
-    if (!matched || hasLiveRemoteMedia()) return;
+    // Frames-not-tracks: live track with videoWidth=0 is still first path
+    if (
+      !matched ||
+      partnerVideoEverFrames ||
+      (typeof partnerVideoHasFrames === "function" && partnerVideoHasFrames())
+    ) {
+      return;
+    }
     if (autoDisablePreferDirectOnFail({ autoNext: false })) return;
     const target = rtc || [...peerPcs.values()][0];
     try {
@@ -9877,9 +10411,15 @@ function startWebrtcWatch() {
     try {
       const ice = target?.pc?.iceConnectionState || "";
       const cs = target?.pc?.connectionState || "";
-      log(`watch soft: no video ice=${ice} cs=${cs} — push tracks only`);
-      // Pure relay first path: never soft-recover (re-offer thrash). Hybrid only.
-      if (!relayMode && target) {
+      log(`watch soft: no frames ice=${ice} cs=${cs} — push tracks only`);
+      // Pure: keyframe/outbound only early (never soft-recover thrash).
+      // Hybrid soft only after first-path grace with frames still 0.
+      if (
+        !relayMode &&
+        target &&
+        matchAgeMs() >= firstPathCopyGraceMs() &&
+        !partnerVideoHasFrames()
+      ) {
         trySoftRecoverAny(target, { reason: "watch_soft" });
       } else {
         try {
@@ -9891,14 +10431,25 @@ function startWebrtcWatch() {
         } catch (_) {}
       }
     } catch (_) {
-      if (!relayMode && target) {
+      if (
+        !relayMode &&
+        target &&
+        matchAgeMs() >= firstPathCopyGraceMs() &&
+        !partnerVideoHasFrames()
+      ) {
         trySoftRecoverAny(target, { reason: "watch_mid" });
       }
     }
   }, softMs);
   // Hard: rebuild only after long grace (pure TURN needs settle, not thrash)
   webrtcWatchTimer = setTimeout(() => {
-    if (!matched || hasLiveRemoteMedia()) return;
+    if (
+      !matched ||
+      partnerVideoEverFrames ||
+      (typeof partnerVideoHasFrames === "function" && partnerVideoHasFrames())
+    ) {
+      return;
+    }
     try {
       if (!selfBlurred && !camOff) void pushOutboundVideoTracks();
     } catch (_) {}
@@ -9925,10 +10476,13 @@ function handleWebrtcConnectionState(s, pcHint) {
   setStatus(_t("status.webrtc", { s }));
   if (s === "connected") {
     // ICE "connected" is NOT enough — same-WiFi hairpin often selects host and
-    // stays black forever while gifts still work over the hub. Only treat as
-    // media-ok when remote video is actually live.
+    // stays black forever while gifts still work over the hub. Live track with
+    // videoWidth=0 is still first-path (not media-ok yet).
     const mediaLive = hasLiveRemoteMedia();
-    webrtcConnectedOk = mediaLive;
+    const hasFrames =
+      partnerVideoEverFrames ||
+      (typeof partnerVideoHasFrames === "function" && partnerVideoHasFrames());
+    webrtcConnectedOk = hasFrames;
     // Grab a local history thumb once media is up (on-device only)
     try {
       startHistoryThumbWatch();
@@ -9939,9 +10493,9 @@ function handleWebrtcConnectionState(s, pcHint) {
       }, 1200);
     } catch (_) {}
     // Allow another soft-ICE cycle after a successful recovery
-    if (pcHint && mediaLive) clearSoftRecoverFlags(pcHint);
-    // Keep video watch until frames — clearing it on ICE-only left black cams
-    if (mediaLive) {
+    if (pcHint && hasFrames) clearSoftRecoverFlags(pcHint);
+    // Keep video watch until frames — clearing on live-track-only left black cams
+    if (hasFrames) {
       clearWebrtcWatch();
     } else if (!webrtcWatchTimer && !webrtcWatchSoftTimer) {
       // Re-arm only if not already watching (avoid resetting soft/hard timers)
@@ -9952,6 +10506,12 @@ function handleWebrtcConnectionState(s, pcHint) {
     hideCallCoach();
     startStats();
     setRemoteEmpty(false);
+    // Paint-first: live track may already exist — drop brand empty immediately
+    if (mediaLive) {
+      try {
+        paintFirstFromLiveTrack("ice-connected");
+      } catch (_) {}
+    }
     // ICE up → push our cam + keyframes so partner paints sooner (TURN lag)
     try {
       if (!selfBlurred && !camOff) void pushOutboundVideoTracks();
@@ -9979,13 +10539,14 @@ function handleWebrtcConnectionState(s, pcHint) {
       watchPartnerVideoFrames();
     } catch (_) {}
     setArchPill("p2p");
+    // Frames (not mere live track) upgrade strip to matched; else Linking
     setConnStrip(
-      mediaLive ? "call" : "warn",
-      mediaLive
+      hasFrames ? "call" : "warn",
+      hasFrames
         ? matchMode === "friend" || inFriendCall
           ? _t("conn.friend") || "Friend call"
           : _t("conn.matched")
-        : _t("remote.connecting") || "Linking cameras…",
+        : linkingCamerasLabel(),
       ""
     );
     updateChatHeader();
@@ -10042,16 +10603,9 @@ function handleWebrtcConnectionState(s, pcHint) {
     // Do NOT show "Connection weak — reconnecting" during first ICE path —
     // that UI + soft-recover thrash was the all-day failure mode.
     webrtcConnectedOk = false;
-    const age = matchMediaGraceAt ? Date.now() - matchMediaGraceAt : 99999;
-    // 20s grace for first path (TURN allocate + permissions + mobile radio)
-    const graceMs = 20000;
-    if (age < graceMs) {
-      setConnStrip(
-        "warn",
-        _t("remote.connecting") || "Connecting…",
-        "",
-        { reconnecting: false }
-      );
+    // First-path copy belt: Linking only until frames once OR pure/hybrid grace
+    if (!canShowReconnectingMediaUx()) {
+      setConnStrip("warn", linkingCamerasLabel(), "", { reconnecting: false });
       return;
     }
     setConnStrip(
@@ -10200,13 +10754,19 @@ function startSoftRecoverPipeline(peerId, pc, opts = {}) {
   const multi = !!opts.multi;
   const label = opts.label || (multi ? "peer" : "solo");
 
-  setStatus(_t("trio.iceRestart") || "Reconnecting…");
-  setConnStrip(
-    "warn",
-    _t("conn.reconnectingMedia") || "Connection weak — reconnecting…",
-    "",
-    { reconnecting: true }
-  );
+  // First-path copy belt: never "Weak reconnecting" until frames or grace
+  if (canShowReconnectingMediaUx()) {
+    setStatus(_t("trio.iceRestart") || "Reconnecting…");
+    setConnStrip(
+      "warn",
+      _t("conn.reconnectingMedia") || "Connection weak — reconnecting…",
+      "",
+      { reconnecting: true }
+    );
+  } else {
+    setStatus(linkingCamerasLabel());
+    setConnStrip("warn", linkingCamerasLabel(), "", { reconnecting: false });
+  }
 
   const resolveCur = () => {
     if (peerId && peerPcs.has(peerId)) return peerPcs.get(peerId);
@@ -10427,7 +10987,8 @@ function tryVpnRelayRecovery() {
 
 function schedulePeerHardReconnect(peerId, oldPc) {
   if (!matched) return;
-  // First 45s of pure force_relay: never hard rebuild (re-offer@20s killed media).
+  // First 45s of pure force_relay: never hard rebuild IF SDP already on wire
+  // (re-offer@20s killed settling media). Exception: never offered — fail-open.
   try {
     const pure =
       (typeof isRelayMediaMode === "function" && isRelayMediaMode()) ||
@@ -10437,7 +10998,18 @@ function schedulePeerHardReconnect(peerId, oldPc) {
       typeof matchMediaGraceAt !== "undefined" && matchMediaGraceAt
         ? Date.now() - matchMediaGraceAt
         : 99999;
-    if (pure && age < 45000) {
+    let pureNeverOffered = false;
+    try {
+      pureNeverOffered = !(
+        oldPc?._offerEmitOk ||
+        [...peerPcs.values()].some((p) => p && p._offerEmitOk) ||
+        oldPc?.pc?.currentRemoteDescription ||
+        oldPc?.pc?.remoteDescription
+      );
+    } catch (_) {
+      pureNeverOffered = true;
+    }
+    if (pure && age < 45000 && !pureNeverOffered) {
       log(`hard reconnect blocked first-path age=${age}`);
       try {
         if (!selfBlurred && !camOff) void pushOutboundVideoTracks();
@@ -10462,14 +11034,36 @@ function schedulePeerHardReconnect(peerId, oldPc) {
     );
   } catch (_) {}
   const noVideo = !hasLiveRemoteMedia();
-  // First path must settle. Hard rebuild before 30s was thrash (black forever).
-  const grace = noVideo
-    ? hasRemoteSdp
-      ? 30000
-      : 20000
-    : hasRemoteSdp
-      ? 45000
-      : 25000;
+  // Never offered on the wire → short grace (offerKick primary; hard = belt).
+  // Was 20s + hardMs 25s → exact hub MTO ~25s when first offer never left.
+  let neverOffered = false;
+  try {
+    neverOffered = !(
+      oldPc?._offerEmitOk ||
+      [...peerPcs.values()].some((p) => p && p._offerEmitOk) ||
+      hasRemoteSdp
+    );
+  } catch (_) {
+    neverOffered = !hasRemoteSdp;
+  }
+  const pureNow =
+    (typeof isRelayMediaMode === "function" && isRelayMediaMode()) ||
+    (typeof sessionForceRelayEnabled === "function" &&
+      sessionForceRelayEnabled());
+  // First path must settle when SDP already exchanged. Never-offered is different.
+  // Hop11: hybrid never-offered grace 4s (was 6) so hardMs 5.5s belt can fire;
+  // pure stays 10s (first-relay + offerKick primary; no thrash).
+  const grace = neverOffered
+    ? pureNow
+      ? 10000
+      : 4000
+    : noVideo
+      ? hasRemoteSdp
+        ? 30000
+        : 20000
+      : hasRemoteSdp
+        ? 45000
+        : 25000;
   if (age < grace) {
     console.info("[hard reconnect] skipped — match grace", age, grace);
     return;
@@ -10490,17 +11084,23 @@ function schedulePeerHardReconnect(peerId, oldPc) {
   // Generation token — Stop/Next bumps media generation; ignore stale rebuilds
   const gen = (schedulePeerHardReconnect._gen =
     (schedulePeerHardReconnect._gen || 0) + 1);
-  setStatus(
-    _t("conn.reconnectingMedia") ||
-      _t("trio.peerRetry") ||
-      "Reconnecting media…"
-  );
-  setConnStrip(
-    "warn",
-    _t("conn.reconnectingMedia") || "Reconnecting media…",
-    "",
-    { reconnecting: true }
-  );
+  // First-path copy belt: Linking until frames once or pure/hybrid grace
+  if (canShowReconnectingMediaUx()) {
+    setStatus(
+      _t("conn.reconnectingMedia") ||
+        _t("trio.peerRetry") ||
+        "Reconnecting media…"
+    );
+    setConnStrip(
+      "warn",
+      _t("conn.reconnectingMedia") || "Reconnecting media…",
+      "",
+      { reconnecting: true }
+    );
+  } else {
+    setStatus(linkingCamerasLabel());
+    setConnStrip("warn", linkingCamerasLabel(), "", { reconnecting: false });
+  }
   trackEvent("peer_soft_reconnect", {
     mode: matchMode || "",
     peer: String(peerId || "").slice(0, 12),
@@ -11273,17 +11873,14 @@ function formatWhoSub(role, shortId, friendCode, opts = {}) {
 function setWhoLabel(slot, name, sub) {
   // slot: "remote" | "remote2" | "remote-third"
   if (slot === "remote") {
-    const subEl = $("remote-who-sub");
-    if (subEl) {
-      if (sub) {
-        subEl.hidden = false;
-        subEl.removeAttribute("hidden");
-        subEl.textContent = sub;
-      } else {
-        subEl.hidden = true;
-        subEl.textContent = "";
-      }
+    // Main partner tile: never show "Незнакомец · CODE" under name (1v1 product)
+    hideRemoteWhoSub();
+    // Name is painted by paintPartnerIdentityChrome / setDisplayNameOnTile
+    if (name && !isPoisonDisplayName(name) && !/^[0-9A-Fa-f]{6,12}$/.test(name)) {
+      const nameEl = $("remote-name");
+      if (nameEl) setDisplayNameOnTile(nameEl, name);
     }
+    void sub; // multi-peer who-sub not used on main remote
     return;
   }
   if (slot === "remote2") {
@@ -11377,7 +11974,7 @@ function setPeerMuteUi(slot, muted) {
   const tileId = PEER_SLOT_TILE[slot];
   const tile = tileId ? $(tileId) : null;
   tile?.classList.toggle("peer-slot-muted", !!muted);
-  // Badge on their window when YOU muted them (outside debate ownership)
+  // Text mute chips removed (PC: mid-tile 🔇 icon only). Always keep badges hidden.
   const badgeId =
     slot === "remote"
       ? "peer-mute-badge-remote"
@@ -11388,12 +11985,8 @@ function setPeerMuteUi(slot, muted) {
           : "";
   const badge = badgeId ? $(badgeId) : null;
   if (badge) {
-    // Main remote: debate badges own the slot while debate is active
-    const debateCovers = slot === "remote" && !!debate.active;
-    const show = !!muted && live && !debateCovers;
-    badge.hidden = !show;
-    if (show) badge.removeAttribute("hidden");
-    else badge.setAttribute("hidden", "");
+    badge.hidden = true;
+    badge.setAttribute("hidden", "");
   }
 }
 
@@ -11624,10 +12217,14 @@ function shouldDefaultBlurExtraPeer(peerMeta, elId) {
 
 function registerPeerUi(peerMeta, elId) {
   if (!peerMeta?.peer_id || !elId) return;
+  const cleanName = isPoisonDisplayName(peerMeta.name)
+    ? ""
+    : String(peerMeta.name || "").trim();
   peerUiMeta.set(peerMeta.peer_id, {
     elId,
     role: peerMeta.role || "",
-    name: peerMeta.name || peerMeta.short_id || "",
+    // Never store short_id as display name (dual-id bug on partner tile)
+    name: cleanName,
     short: peerMeta.short_id || "",
     code: peerMeta.friend_code || "",
   });
@@ -11642,13 +12239,35 @@ function registerPeerUi(peerMeta, elId) {
     const idx = opps.findIndex((p) => p.peer_id === peerMeta.peer_id);
     if (idx >= 0 && opponentTotal > 1) opponentIndex = idx + 1;
   }
-  const sub = formatWhoSub(
-    peerMeta.role,
-    peerMeta.short_id,
-    peerMeta.friend_code,
-    { opponentIndex, opponentTotal }
+  // Main remote 1v1: real name only; never "Незнакомец · friend_code"
+  if (elId === "remote") {
+    paintPartnerIdentityChrome({ name: cleanName });
+  }
+  // Solo/1v1: no who-sub at all. Multi-opponent only for trio/1v2 numbering.
+  const sub =
+    elId === "remote" && opponentTotal <= 1
+      ? ""
+      : opponentTotal > 1
+        ? formatWhoSub(peerMeta.role, peerMeta.short_id, peerMeta.friend_code, {
+            opponentIndex,
+            opponentTotal,
+          })
+        : elId === "remote"
+          ? ""
+          : formatWhoSub(
+              peerMeta.role,
+              peerMeta.short_id,
+              peerMeta.friend_code,
+              { opponentIndex, opponentTotal }
+            );
+  setWhoLabel(
+    elId === "remote-third" ? "remote-third" : elId,
+    cleanName || resolvePartnerPaintName({ name: cleanName }),
+    sub
   );
-  setWhoLabel(elId === "remote-third" ? "remote-third" : elId, peerMeta.name, sub);
+  if (elId === "remote" && opponentTotal <= 1) {
+    hideRemoteWhoSub();
+  }
   if (elId === "remote" || elId === "remote2" || elId === "remote-third") {
     setPeerMuteUi(elId, !!peerMutedByEl[elId]);
     if (shouldDefaultBlurExtraPeer(peerMeta, elId)) {
@@ -11961,16 +12580,35 @@ function paintRemoteFromPc(pc, stream) {
     el.style.setProperty("visibility", "visible", "important");
     el.style.setProperty("z-index", "5", "important");
   } catch (_) {}
-  // Always rebind srcObject when any video track present (audio-first black)
+  // Soft bind by default — null→srcObject every paint flickers PC while linking.
+  // Hard null only when stream changes or audio-first upgrade needs a new decoder attach.
   try {
     const hasV = (next.getVideoTracks?.() || []).length > 0;
-    if (hasV || el.srcObject !== next) {
-      if (el.srcObject !== next) {
+    const same = el.srcObject === next;
+    let painting = false;
+    try {
+      painting = same && el.videoWidth > 0 && el.readyState >= 2;
+    } catch (_) {}
+    if (painting) {
+      // already showing partner — do not thrash
+    } else if (same && hasV) {
+      // same stream, not painting yet: one hard rebind max per element
+      const n = Number(el._ruletHardBindN || 0);
+      if (n < 1) {
         try {
           el.srcObject = null;
         } catch (_) {}
         el.srcObject = next;
+        el._ruletHardBindN = n + 1;
       }
+    } else if (!same) {
+      try {
+        if (el.srcObject) el.srcObject = null;
+      } catch (_) {}
+      el.srcObject = next;
+      el._ruletHardBindN = 0;
+    } else if (!el.srcObject) {
+      el.srcObject = next;
     }
   } catch (_) {
     try {
@@ -11990,6 +12628,13 @@ function paintRemoteFromPc(pc, stream) {
       $("remote-empty")?.classList.add("hidden");
       $("tile-remote")?.classList.add("has-remote-feed");
     } catch (_) {}
+    // Paint-first: live track → drop brand loop; arm first-frame watcher
+    try {
+      const liveV = (next.getVideoTracks?.() || []).some(
+        (t) => t.readyState === "live"
+      );
+      if (liveV) paintFirstFromLiveTrack("paint");
+    } catch (_) {}
     applyRemoteVolume();
     applySpeaker();
   }
@@ -12005,33 +12650,55 @@ function ensurePartnerVideoVisible() {
     const live = (el.srcObject.getTracks?.() || []).some(
       (t) => t.kind === "video" && t.readyState === "live"
     );
-    if (!hasVid && !live) continue;
+    // Also force-play when only audio is bound (late video will rebind; keep element alive)
+    const hasAudio = (el.srcObject.getAudioTracks?.() || []).length > 0;
+    if (!hasVid && !live && !hasAudio) continue;
     try {
       el.hidden = false;
       el.removeAttribute("hidden");
       el.style.setProperty("display", "block", "important");
       el.style.setProperty("opacity", "1", "important");
+      el.style.setProperty("visibility", "visible", "important");
       el.style.setProperty("z-index", "5", "important");
     } catch (_) {}
-    setRemoteEmpty(false);
-    try {
-      $("remote-empty")?.classList.add("hidden");
-      $("tile-remote")?.classList.add("has-remote-feed");
-    } catch (_) {}
+    if (hasVid || live) {
+      setRemoteEmpty(false);
+      try {
+        $("remote-empty")?.classList.add("hidden");
+        $("tile-remote")?.classList.add("has-remote-feed");
+      } catch (_) {}
+      // Paint-first: don't leave brand empty while track is already live
+      if (id === "remote" && live) {
+        try {
+          paintFirstFromLiveTrack("ensure");
+        } catch (_) {}
+      }
+    }
     playVideoEl(el);
   }
-  // Also re-paint from peer map (srcObject may be set but overlay still up)
+  // Soft re-paint only when not already painting (avoid null-rebind flicker)
   for (const pc of peerPcs.values()) {
     if (!pc?.remoteStream) continue;
     const hasVid = (pc.remoteStream.getVideoTracks?.() || []).length > 0;
-    if (hasVid) {
-      if (!pc._videoEl) {
-        try {
-          pc._videoEl = $("remote");
-        } catch (_) {}
-      }
-      paintRemoteFromPc(pc, pc.remoteStream);
+    if (!hasVid) continue;
+    if (!pc._videoEl) {
+      try {
+        pc._videoEl = $("remote");
+      } catch (_) {}
     }
+    const el = pc._videoEl || $("remote");
+    try {
+      if (
+        el &&
+        el.srcObject === pc.remoteStream &&
+        el.videoWidth > 0 &&
+        el.readyState >= 2
+      ) {
+        playVideoEl(el);
+        continue;
+      }
+    } catch (_) {}
+    paintRemoteFromPc(pc, pc.remoteStream);
   }
 }
 
@@ -12119,12 +12786,10 @@ function bindFirstPartnerToMain(meta) {
       hide_ip: !!(meta?.hide_ip ?? lastMatchMeta?.hide_ip),
     });
   }
-  if (nameEl) {
-    setDisplayNameOnTile(
-      nameEl,
-      meta?.name || lastMatchMeta?.name || _t("trio.partner") || "Partner"
-    );
-  }
+  paintPartnerIdentityChrome({
+    name: meta?.name || lastMatchMeta?.name,
+    friendCode: meta?.friend_code || lastMatchMeta?.friend_code,
+  });
   syncRemoteTileTagVisibility();
   return pc;
 }
@@ -13194,6 +13859,271 @@ function partnerVideoHasFrames() {
   return false;
 }
 
+/** Once true this match, partner painted at least one decoded frame. */
+let partnerVideoEverFrames = false;
+let firstFrameWatchTimer = 0;
+let firstFrameRafHandle = 0;
+let firstFrameRafEl = null;
+
+function matchAgeMs() {
+  return matchMediaGraceAt ? Date.now() - matchMediaGraceAt : 99999;
+}
+
+/** Pure/TURN-preferred first path (longer Linking belt). */
+function isPureRelayFirstPath() {
+  try {
+    if (typeof isTurnPreferredPath === "function" && isTurnPreferredPath()) {
+      return true;
+    }
+  } catch (_) {}
+  try {
+    if (typeof isRelayMediaMode === "function" && isRelayMediaMode()) {
+      return true;
+    }
+  } catch (_) {}
+  try {
+    if (
+      typeof sessionForceRelayEnabled === "function" &&
+      sessionForceRelayEnabled()
+    ) {
+      return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
+/**
+ * First-path copy grace: pure ~12s Linking-only; hybrid ~5s.
+ * Unifies soft-recover / weak / reconnectingMedia belts so first path
+ * never shows "Weak reconnecting" while still linking.
+ */
+function firstPathCopyGraceMs() {
+  return isPureRelayFirstPath() ? 12000 : 5000;
+}
+
+function linkingCamerasLabel() {
+  return _t("remote.connecting") || "Linking cameras…";
+}
+
+/**
+ * Gate for conn.reconnectingMedia / soft-recover hard UX.
+ * Require frames once this match OR match age past pure/hybrid grace.
+ */
+function canShowReconnectingMediaUx() {
+  if (partnerVideoEverFrames) return true;
+  try {
+    if (partnerVideoHasFrames()) return true;
+  } catch (_) {}
+  return matchAgeMs() >= firstPathCopyGraceMs();
+}
+
+function stopFirstFrameWatcher() {
+  if (firstFrameWatchTimer) {
+    try {
+      clearInterval(firstFrameWatchTimer);
+    } catch (_) {}
+    firstFrameWatchTimer = 0;
+  }
+  if (firstFrameRafHandle && firstFrameRafEl) {
+    try {
+      if (typeof firstFrameRafEl.cancelVideoFrameCallback === "function") {
+        firstFrameRafEl.cancelVideoFrameCallback(firstFrameRafHandle);
+      }
+    } catch (_) {}
+  }
+  firstFrameRafHandle = 0;
+  firstFrameRafEl = null;
+}
+
+function resetPartnerVideoFrameState() {
+  partnerVideoEverFrames = false;
+  stopFirstFrameWatcher();
+}
+
+/**
+ * First decoded frame this match: timing, strip Linking→matched, stop remount spam.
+ */
+function markPartnerVideoFramesSeen(reason) {
+  if (partnerVideoEverFrames) return;
+  partnerVideoEverFrames = true;
+  stopFirstFrameWatcher();
+  // Stop blank remount / blank-status watch — paint is real
+  try {
+    if (blankVideoWatchTimer) {
+      clearInterval(blankVideoWatchTimer);
+      blankVideoWatchTimer = 0;
+    }
+  } catch (_) {}
+  try {
+    webrtcConnectedOk = true;
+    clearWebrtcWatch();
+  } catch (_) {}
+  // CONNECT stopwatch: frameMs (console only — no toast)
+  try {
+    if (typeof window !== "undefined" && window.__ruletConnectT0) {
+      window.__ruletConnect = window.__ruletConnect || {};
+      if (window.__ruletConnect.frameMs == null) {
+        window.__ruletConnect.frameMs =
+          Date.now() - window.__ruletConnectT0;
+        const c = window.__ruletConnect;
+        console.info(
+          "[live] first frame +" +
+            c.frameMs +
+            "ms" +
+            (reason ? " (" + reason + ")" : "")
+        );
+        try {
+          localStorage.setItem(
+            "ruletka-last-connect-v1",
+            JSON.stringify({
+              offerMs: c.offerMs ?? null,
+              answerMs: c.answerMs ?? null,
+              iceMs: c.iceMs ?? null,
+              trackMs: c.trackMs ?? null,
+              frameMs: c.frameMs ?? null,
+              at: Date.now(),
+            })
+          );
+        } catch (_) {}
+      }
+    }
+  } catch (_) {}
+  // Upgrade conn strip from Linking → matched / friend
+  try {
+    setConnStrip(
+      "call",
+      matchMode === "friend" || inFriendCall
+        ? _t("conn.friend") || "Friend call"
+        : _t("conn.matched"),
+      ""
+    );
+  } catch (_) {}
+  try {
+    setRemoteEmpty(false);
+    $("remote-empty")?.classList.add("hidden");
+    $("tile-remote")?.classList.add("has-remote-feed");
+  } catch (_) {}
+}
+
+/**
+ * Light first-frame watcher: rVFC if available, else ~100ms poll for videoWidth.
+ * One arm per match until frames (no multi-remount ladder).
+ */
+function armFirstFrameWatcher() {
+  if (partnerVideoEverFrames) return;
+  if (firstFrameWatchTimer || firstFrameRafHandle) return;
+  const el = $("remote");
+  if (!el) return;
+
+  const check = (why) => {
+    try {
+      if (
+        partnerVideoHasFrames() ||
+        (el.videoWidth > 8 || el.videoHeight > 8)
+      ) {
+        markPartnerVideoFramesSeen(why);
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  };
+
+  if (check("immediate")) return;
+
+  // requestVideoFrameCallback — fires on actual paint when supported
+  if (typeof el.requestVideoFrameCallback === "function") {
+    firstFrameRafEl = el;
+    const loop = () => {
+      firstFrameRafHandle = 0;
+      if (partnerVideoEverFrames || (!matched && !inFriendCall)) return;
+      if (check("rvfc")) return;
+      try {
+        firstFrameRafHandle = el.requestVideoFrameCallback(() => loop());
+      } catch (_) {
+        firstFrameRafHandle = 0;
+      }
+    };
+    try {
+      firstFrameRafHandle = el.requestVideoFrameCallback(() => loop());
+    } catch (_) {
+      firstFrameRafHandle = 0;
+      firstFrameRafEl = null;
+    }
+  }
+
+  // ~100ms poll belt (also covers browsers without rVFC)
+  let ticks = 0;
+  firstFrameWatchTimer = setInterval(() => {
+    ticks++;
+    if (partnerVideoEverFrames || (!matched && !inFriendCall)) {
+      stopFirstFrameWatcher();
+      return;
+    }
+    if (check("poll")) {
+      stopFirstFrameWatcher();
+      return;
+    }
+    // ~20s — blank-watch owns messaging after that
+    if (ticks > 200) stopFirstFrameWatcher();
+  }, 100);
+}
+
+/**
+ * Paint-first: live remote video track → drop brand empty + has-remote-feed,
+ * arm first-frame watcher. Call from paint/ensure/ontrack paths.
+ * @returns {boolean} true if a live video track was present
+ */
+function paintFirstFromLiveTrack(reason) {
+  let hasLive = false;
+  try {
+    hasLive = typeof partnerHasLiveVideo === "function" && partnerHasLiveVideo();
+  } catch (_) {}
+  if (!hasLive) {
+    try {
+      const el = $("remote");
+      const s = el?.srcObject;
+      if (
+        s &&
+        (s.getVideoTracks?.() || []).some((t) => t.readyState === "live")
+      ) {
+        hasLive = true;
+      }
+    } catch (_) {}
+  }
+  if (!hasLive) {
+    try {
+      for (const pc of peerPcs.values()) {
+        if (
+          (pc?.remoteStream?.getVideoTracks?.() || []).some(
+            (t) => t.readyState === "live"
+          )
+        ) {
+          hasLive = true;
+          break;
+        }
+      }
+    } catch (_) {}
+  }
+  if (!hasLive) return false;
+  try {
+    setRemoteEmpty(false);
+    $("remote-empty")?.classList.add("hidden");
+    $("tile-remote")?.classList.add("has-remote-feed");
+  } catch (_) {}
+  try {
+    if (partnerVideoHasFrames()) {
+      markPartnerVideoFramesSeen(reason || "frames");
+    } else {
+      armFirstFrameWatcher();
+    }
+  } catch (_) {
+    try {
+      armFirstFrameWatcher();
+    } catch (_) {}
+  }
+  return true;
+}
+
 /**
  * Nuclear remount of #remote when tracks are live but videoWidth stays 0.
  * Some Chrome builds keep a paused/detached decoder after audio-first ontrack;
@@ -13204,6 +14134,23 @@ function remountRemoteVideoEl(reason) {
     const old = $("remote");
     const stack = $("remote-stack") || $("tile-remote");
     if (!old || !stack) return null;
+    // Skip nuclear remount if partner is already painting — remount = hard flicker
+    try {
+      if (old.videoWidth > 0 && old.readyState >= 2) {
+        log(`remount #remote skip painting (${reason || "?"})`);
+        return old;
+      }
+    } catch (_) {}
+    // Rate-limit remounts (blank-watch + ice thrash used to flash every few seconds)
+    const now = Date.now();
+    if (
+      remountRemoteVideoEl._lastAt &&
+      now - remountRemoteVideoEl._lastAt < 8000
+    ) {
+      log(`remount #remote skip rate (${reason || "?"})`);
+      return old;
+    }
+    remountRemoteVideoEl._lastAt = now;
     const stream =
       old.srcObject ||
       rtc?.remoteStream ||
@@ -13257,25 +14204,138 @@ function remountRemoteVideoEl(reason) {
 
 /** Read inbound video framesDecoded from the active PC (decode vs paint). */
 async function peekInboundVideoStats() {
-  const pc = rtc?.pc || [...peerPcs.values()][0]?.pc;
-  if (!pc?.getStats) return { frames: 0, bytes: 0 };
+  const s = await peekInboundAvStats();
+  return { frames: s.frames, bytes: s.bytes };
+}
+
+/**
+ * Inbound A/V getStats for paint watchdog:
+ * audio without frames_in while ICE connected → re-keyframe + re-paint waves.
+ */
+async function peekInboundAvStats() {
+  const pcObj = rtc || [...peerPcs.values()][0];
+  const pc = pcObj?.pc;
+  if (!pc?.getStats) {
+    return { frames: 0, bytes: 0, audioIn: 0, ice: "", cs: "" };
+  }
   try {
     const report = await pc.getStats();
     let frames = 0;
     let bytes = 0;
+    let audioIn = 0;
     report.forEach((r) => {
       if (
         r.type === "inbound-rtp" &&
         (r.kind === "video" || r.mediaType === "video")
       ) {
-        if (typeof r.framesDecoded === "number") frames += r.framesDecoded;
-        else if (typeof r.framesReceived === "number") frames += r.framesReceived;
+        // Prefer framesReceived (RTP) for "did any video arrive?"
+        if (typeof r.framesReceived === "number") frames += r.framesReceived;
+        else if (typeof r.framesDecoded === "number") frames += r.framesDecoded;
         if (typeof r.bytesReceived === "number") bytes += r.bytesReceived;
       }
+      if (
+        r.type === "inbound-rtp" &&
+        (r.kind === "audio" || r.mediaType === "audio")
+      ) {
+        if (typeof r.bytesReceived === "number") audioIn += r.bytesReceived;
+      }
     });
-    return { frames, bytes };
+    return {
+      frames,
+      bytes,
+      audioIn,
+      ice: String(pc.iceConnectionState || ""),
+      cs: String(pc.connectionState || ""),
+    };
   } catch (_) {
-    return { frames: 0, bytes: 0 };
+    return { frames: 0, bytes: 0, audioIn: 0, ice: "", cs: "" };
+  }
+}
+
+/**
+ * When ICE is up and we hear partner audio but framesReceived stays 0 >3s:
+ * log + requestOutboundKeyframes + ensurePartnerVideoVisible waves.
+ * Rate-limited; no PC rebuild / force_relay thrash.
+ */
+let inboundAudioNoVideoSince = 0;
+let inboundAudioNoVideoFired = 0;
+function resetInboundAudioNoVideoWatch() {
+  inboundAudioNoVideoSince = 0;
+  inboundAudioNoVideoFired = 0;
+}
+async function tickInboundAudioNoVideoWatch() {
+  if (!matched && !inFriendCall) {
+    resetInboundAudioNoVideoWatch();
+    return;
+  }
+  if (partnerVideoHasFrames()) {
+    resetInboundAudioNoVideoWatch();
+    return;
+  }
+  let s;
+  try {
+    s = await peekInboundAvStats();
+  } catch (_) {
+    return;
+  }
+  const iceUp =
+    s.ice === "connected" ||
+    s.ice === "completed" ||
+    s.cs === "connected";
+  if (!iceUp) {
+    inboundAudioNoVideoSince = 0;
+    return;
+  }
+  // Inbound audio present, video frames still zero
+  if (s.audioIn > 0 && s.frames === 0) {
+    if (!inboundAudioNoVideoSince) inboundAudioNoVideoSince = Date.now();
+    const held = Date.now() - inboundAudioNoVideoSince;
+    if (held < 3000) return;
+    // Fire at ~3s, then again at ~8s, ~15s max 3 times per match
+    const wave = inboundAudioNoVideoFired;
+    if (wave >= 3) return;
+    const needMs = wave === 0 ? 3000 : wave === 1 ? 8000 : 15000;
+    if (held < needMs) return;
+    inboundAudioNoVideoFired = wave + 1;
+    log(
+      `inbound audio but framesReceived=0 for ${Math.round(held / 1000)}s ice=${s.ice} audio_in=${s.audioIn} — keyframe + re-paint wave#${inboundAudioNoVideoFired}`
+    );
+    try {
+      trackEvent("inbound_audio_no_video", {
+        t: Math.round(held / 1000),
+        wave: inboundAudioNoVideoFired,
+        audio_in: s.audioIn,
+      });
+    } catch (_) {}
+    try {
+      const pc = rtc || [...peerPcs.values()][0];
+      if (pc?.pc) {
+        try {
+          requestOutboundKeyframes?.(pc.pc);
+        } catch (_) {}
+        try {
+          kickMediaAfterIce?.(pc.pc);
+        } catch (_) {}
+      }
+      if (pc?.remoteStream) paintRemoteFromPc(pc, pc.remoteStream);
+    } catch (_) {}
+    // ensurePartnerVideoVisible waves (do not rebuild PC)
+    const delays = [0, 80, 200, 500, 1000, 2000];
+    for (const ms of delays) {
+      setTimeout(() => {
+        try {
+          ensurePartnerVideoVisible();
+          const pc = rtc || [...peerPcs.values()][0];
+          if (pc?.remoteStream) paintRemoteFromPc(pc, pc.remoteStream);
+          if (pc?.pc) requestOutboundKeyframes?.(pc.pc);
+        } catch (_) {}
+      }, ms);
+    }
+  } else if (s.frames > 0) {
+    resetInboundAudioNoVideoWatch();
+  } else if (s.audioIn <= 0) {
+    // No audio yet — don't start the clock
+    inboundAudioNoVideoSince = 0;
   }
 }
 
@@ -13288,20 +14348,34 @@ function watchPartnerVideoFrames() {
     blankVideoWatchTimer = 0;
   }
   blankVideoRemounted = false;
+  resetInboundAudioNoVideoWatch();
   if (!matched && !inFriendCall) return;
+  // Light first-frame path (rVFC / 100ms) runs in parallel — blank watch is last resort
+  try {
+    armFirstFrameWatcher();
+  } catch (_) {}
   let ticks = 0;
   blankVideoWatchTimer = setInterval(() => {
     ticks++;
     if (!matched && !inFriendCall) {
       clearInterval(blankVideoWatchTimer);
       blankVideoWatchTimer = 0;
+      resetInboundAudioNoVideoWatch();
       return;
     }
-    if (partnerVideoHasFrames()) {
+    if (partnerVideoHasFrames() || partnerVideoEverFrames) {
+      try {
+        markPartnerVideoFramesSeen("blank-watch");
+      } catch (_) {}
       clearInterval(blankVideoWatchTimer);
       blankVideoWatchTimer = 0;
+      resetInboundAudioNoVideoWatch();
       return;
     }
+    // ICE connected + inbound audio + framesReceived=0 >3s → keyframe + paint waves
+    try {
+      void tickInboundAudioNoVideoWatch();
+    } catch (_) {}
     // After ~2s: force hide empty + play (cover was common with HOT RTP)
     if (ticks === 4) {
       try {
@@ -13325,15 +14399,18 @@ function watchPartnerVideoFrames() {
         const pc = rtc || [...peerPcs.values()][0];
         if (pc?.remoteStream) paintRemoteFromPc(pc, pc.remoteStream);
       } catch (_) {}
-      // Log decode path
-      void peekInboundVideoStats().then((s) => {
-        log(`blank@3s inbound frames=${s.frames} bytes=${s.bytes}`);
+      // Log decode path + audio (audio-but-no-video is the one-way black signature)
+      void peekInboundAvStats().then((s) => {
+        log(
+          `blank@3s inbound frames=${s.frames} bytes=${s.bytes} audio_in=${s.audioIn} ice=${s.ice}`
+        );
       });
     }
-    // At ~4s: remount <video> once if track live but still no paint
+    // At ~4s: single blank remount only (track live && !frames). No multi-remount ladder.
     if (
       ticks === 8 &&
       !blankVideoRemounted &&
+      !partnerVideoEverFrames &&
       partnerHasLiveVideo() &&
       !partnerVideoHasFrames()
     ) {
@@ -13342,6 +14419,9 @@ function watchPartnerVideoFrames() {
       try {
         const pc = rtc || [...peerPcs.values()][0];
         if (pc?.remoteStream) paintRemoteFromPc(pc, pc.remoteStream);
+      } catch (_) {}
+      try {
+        armFirstFrameWatcher();
       } catch (_) {}
       trackEvent("partner_video_remount", { t: 4 });
     }
@@ -13395,6 +14475,14 @@ function setRemoteEmpty(show, opts) {
     show = false;
   }
   $("remote-empty")?.classList.toggle("hidden", !show);
+  // When hiding empty over a live track, force has-remote-feed (paint-first)
+  if (!show) {
+    try {
+      if (matched && partnerHasLiveVideo()) {
+        $("tile-remote")?.classList.add("has-remote-feed");
+      }
+    } catch (_) {}
+  }
   // Hide partner name chip when no one is connected
   if (show) {
     // CRITICAL: has-remote-feed CSS forces #remote-empty { display:none !important }
@@ -14145,6 +15233,11 @@ function syncMatchChrome() {
       if (!matched) {
         partnerMuted = false;
         theyMutedMe = false;
+        try {
+          setPartnerSelfHidden(false, { toast: false, force: true });
+        } catch (_) {
+          partnerSelfHidden = false;
+        }
         peerMutedByEl.remote = false;
       }
     } catch (_) {}
@@ -16271,6 +17364,10 @@ function updateSideIcons() {
       tr.enabled = true;
     });
     pushOutboundVideoTracks().catch(() => {});
+    try {
+      // Re-sync hide state after legacy camOff forced off
+      sendSelfHideP2p(!!selfBlurred);
+    } catch (_) {}
   }
   $("btn-mute-mic")?.classList.toggle("muted-on", micMuted);
   $("btn-mute-remote")?.classList.toggle("muted-on", partnerMuted);
@@ -16860,6 +17957,11 @@ function setSelfBlur(on, opts = {}) {
   updateSideIcons();
   if (selfBlurred) startSelfBlurCanvas();
   else stopSelfBlurCanvas();
+  // Notify peers so Android can show mosaic veil instead of pure black frames
+  try {
+    const hideOut = !!(selfBlurred || camOff);
+    sendSelfHideP2p(hideOut);
+  } catch (_) {}
 }
 
 function toggleSelfBlur() {
@@ -18980,6 +20082,11 @@ function resetPartnerVolumeForNewMatch(msg) {
   lastVolumeResetKey = key;
   partnerMuted = false;
   theyMutedMe = false;
+  try {
+    setPartnerSelfHidden(false, { toast: false, force: true });
+  } catch (_) {
+    partnerSelfHidden = false;
+  }
   peerMutedByEl.remote = false;
   peerMutedByEl.remote2 = false;
   peerMutedByEl["remote-third"] = false;
@@ -22367,11 +23474,7 @@ function handleServer(msg) {
       }
       // Hub geo for local location chip (flag → country → city)
       if (msg.flag || msg.country || msg.city) {
-        myGeo = {
-          flag: normalizeFlagCode(msg.flag || ""),
-          country: String(msg.country || "").trim(),
-          city: String(msg.city || "").trim(),
-        };
+        rememberHubGeo(msg.flag, msg.country, msg.city);
       }
       refreshLocalNameChip();
       setStatus(_t("status.connected"));
@@ -22415,12 +23518,14 @@ function handleServer(msg) {
       break;
     case "geo":
       // Async hub IP→location finished after connect
-      myGeo = {
-        flag: normalizeFlagCode(msg.flag || ""),
-        country: String(msg.country || "").trim(),
-        city: String(msg.city || "").trim(),
-      };
+      rememberHubGeo(msg.flag, msg.country, msg.city);
       refreshLocalLocationChip();
+      // If already matched, re-push so Android dock gets city/flag that arrived late
+      if (matched || inFriendCall) {
+        try {
+          sendPartnerIdentityP2p({ request: false });
+        } catch (_) {}
+      }
       break;
     case "partner_geo":
       // Partner IP→geo finished after match (race fix — was "Location unknown")
@@ -23310,6 +24415,27 @@ function handleServer(msg) {
         }
         break;
       }
+      // Partner self-hide control — never show as chat
+      if (
+        bodyRaw.startsWith("\x01shide:") ||
+        bodyRaw.startsWith("__shide:") ||
+        bodyRaw.startsWith("\x01camhide:")
+      ) {
+        const mineCtrl =
+          msg.from_user_id === myUserId ||
+          msg.author === myShortId;
+        if (!mineCtrl) {
+          const on =
+            bodyRaw.indexOf(":1") >= 0 || bodyRaw.indexOf(":true") >= 0;
+          try {
+            handleSelfHideP2p({
+              on,
+              user_id: msg.from_user_id || "",
+            });
+          } catch (_) {}
+        }
+        break;
+      }
       const myName = getDisplayName();
       const mine =
         msg.from_user_id === myUserId ||
@@ -23451,6 +24577,10 @@ function handleMatched(msg) {
       try {
         updatePartyRoleStrip(msg);
       } catch (_) {}
+      // Still re-push identity (stars+geo) — Android dock may have missed first open
+      try {
+        scheduleIdentityPushesAfterMatch();
+      } catch (_) {}
       return;
     }
   } catch (_) {}
@@ -23478,12 +24608,16 @@ function handleMatched(msg) {
   matched = true;
   inQueue = false;
   matchMediaGraceAt = Date.now();
+  // Fresh match — paint/frame state + first-frame watcher
+  try {
+    resetPartnerVideoFrameState();
+  } catch (_) {}
   // Fresh match — allow one hard reconnect later if needed
   try {
     schedulePeerHardReconnect._done = false;
     schedulePeerHardReconnect._busy = false;
   } catch (_) {}
-  // Connect stopwatch (smoke: log CONNECT offer/answer/frame)
+  // Connect stopwatch (smoke: log CONNECT offer/answer/frame — no toast)
   try {
     window.__ruletConnectT0 = Date.now();
     window.__ruletConnect = {
@@ -23492,6 +24626,7 @@ function handleMatched(msg) {
       answerMs: null,
       iceMs: null,
       trackMs: null,
+      frameMs: null,
     };
   } catch (_) {}
   // Fresh match → allow one first offer (blocks dual-PC thrash)
@@ -23588,8 +24723,11 @@ function handleMatched(msg) {
             applyIceDirectPreference?.();
           } catch (_) {}
         }
-        // force_relay: ensure TURN ALLOCATE finished during search before SDP.
-        // If user hit Start instantly, prime briefly (max 800ms) then kick.
+        // force_relay pure: never block kick on hybrid "primed" (policy=all) —
+        // that burned 1.2s timeout then cold pure gather (mto~1.8s, 2026-08-10).
+        // Ensure pure-relay warm PC exists for promote; kick immediately.
+        // In-flight pure ALLOCATE: promote ASAP (takeWarmPc aborts warm async);
+        // real createOffer does the single media ALLOCATE (pool=0).
         try {
           const needRelay = !!(
             msg.force_relay ||
@@ -23597,14 +24735,22 @@ function handleMatched(msg) {
               sessionForceRelayEnabled())
           );
           if (needRelay && typeof warmIcePool === "function") {
+            const policy =
+              typeof warmPcPolicy === "function" ? warmPcPolicy() : "";
             const primed =
               typeof isIceWarmPrimed === "function" && isIceWarmPrimed();
-            if (!primed) {
+            if (policy === "relay") {
+              // Keep in-flight pure warm (no force) — connect() promotes
+              warmIcePool({ preferRelay: true });
+              log(
+                primed
+                  ? "warm TURN pure primed — kick now"
+                  : "warm TURN pure in-flight — kick now"
+              );
+            } else {
+              // Hybrid/none → pure PC for promote; do NOT waitIceWarmPrimed
               warmIcePool({ preferRelay: true, force: true });
-              if (typeof waitIceWarmPrimed === "function") {
-                const ok = await waitIceWarmPrimed(1200);
-                log(`warm TURN prime ${ok ? "ok" : "timeout"} before kick`);
-              }
+              log("warm TURN pure start async (no block)");
             }
           }
         } catch (_) {}
@@ -23633,13 +24779,17 @@ function handleMatched(msg) {
         } catch (_) {}
       })
       .catch((e) => log(`kickSolo fail ${e}`));
-    // Offerer silent → re-kick (tighter — 35s MTO was offer never left wire)
+    // Offerer silent → re-kick. Hub MTO ~25s was hardMs rebuild only —
+    // dense waves re-emit stuck localDescription / free hung kickSolo mutex.
+    // Hop11: denser first 3s (re-emit/re-kick); force_relay last wave 4.5s
+    // (not 8s). Pure safety floors (mid-offer young 1.5s / offer-ok keep) stay.
     if (isOfferer) {
       armOfferKickWatch(
         msg,
         peersFast[0],
-        // Fast re-kick: host path must not sit silent (18:01 match had ice only, no offer)
-        msg.force_relay ? [800, 2000, 4000] : [400, 1200, 2500]
+        msg.force_relay
+          ? [0, 100, 250, 450, 700, 1100, 1800, 2800, 4500]
+          : [0, 80, 180, 320, 500, 800, 1200, 1800, 2800]
       );
     } else {
       clearOfferKickWatch();
@@ -23813,7 +24963,10 @@ function handleMatched(msg) {
     ? {
         peer_id: primary.peer_id || "",
         user_id: primary.user_id || "",
-        name: primary.name || msg.partner_short || "",
+        // Never store partner_short/hex as display name (tile painted 6664acc4).
+        name: isPoisonDisplayName(primary.name)
+          ? ""
+          : String(primary.name || "").trim(),
         short_id: primary.short_id || msg.partner_short || "",
         friend_code: primary.friend_code || "",
         flag: normalizeFlagCode(primary.flag || ""),
@@ -23833,7 +24986,7 @@ function handleMatched(msg) {
     : {
         peer_id: "",
         user_id: "",
-        name: msg.partner_short || "",
+        name: "",
         short_id: msg.partner_short || "",
         friend_code: "",
         flag: "",
@@ -23858,6 +25011,18 @@ function handleMatched(msg) {
   setStarsBadge("local", myStars, { trust: myTrust }); // balance + trust tier
   try {
     syncPartnerPraiseChip();
+  } catch (_) {}
+  // Hub-weak harden: push full identity (stars+geo) at 0/500/1500/3000ms so
+  // Android gets it even when first DC open was too early. onDataChannel also
+  // announces; this covers rematch + late-open DC. Request peer name once if hub poison.
+  try {
+    scheduleIdentityPushesAfterMatch();
+    const hubName = String(lastMatchMeta?.name || "").trim();
+    const needName = !hubName || isPoisonDisplayName(hubName);
+    if (needName) {
+      // name_req only (identity already scheduled with request:false)
+      sendPartnerIdentityP2p({ request: true });
+    }
   } catch (_) {}
   // Partner may already be behind bars from a prior gift
   {
@@ -23932,16 +25097,11 @@ function handleMatched(msg) {
         }
         setTileAvatar("remote", "");
       } else {
-        // Location stack (flag→country→city) + name top-right
+        // Location stack (flag→country→city) + real name (never short_id hex)
         const peer =
           opponents[0] ||
           peers.find((p) => isTeammateRole(p.role)) ||
           peers[0];
-        const named =
-          peer?.name ||
-          lastMatchMeta?.name ||
-          msg.partner_short ||
-          "";
         const locMeta = {
           flag:
             normalizeFlagCode(peer?.flag) ||
@@ -23952,7 +25112,10 @@ function handleMatched(msg) {
           hide_ip: !!(peer?.hide_ip ?? lastMatchMeta?.hide_ip),
         };
         setLocationOnTile(tag, locMeta);
-        if (nameEl) setDisplayNameOnTile(nameEl, named);
+        paintPartnerIdentityChrome({
+          name: peer?.name,
+          friendCode: peer?.friend_code || lastMatchMeta?.friend_code,
+        });
         const av =
           (isValidAvatarDataUrl(peer?.avatar) && peer.avatar) ||
           lastMatchMeta?.avatar ||
@@ -24018,6 +25181,24 @@ function handleIncomingSignal(msg) {
     }
     return;
   }
+  if (kind === "self_hide" || kind === "cam_hide") {
+    try {
+      const body =
+        typeof msg.payload === "string" && msg.payload
+          ? JSON.parse(msg.payload)
+          : msg.payload && typeof msg.payload === "object"
+            ? msg.payload
+            : {};
+      handleSelfHideP2p(body || {});
+    } catch (e) {
+      try {
+        log("self_hide hub parse " + e);
+      } catch (_) {}
+    }
+    return;
+  }
+  // Hub forensics beacon (av-verify) — logged server-side; never apply to RTC
+  if (kind === "av_path") return;
   const from = msg.from_peer || "";
   let pc = from ? findPcForPeer(from) : null;
   // Legacy 1v1 only: signals without from_peer when a single PC exists.
@@ -24054,6 +25235,9 @@ function resetClientMediaSession({ clearLastPeers = true } = {}) {
     }
   } catch (_) {}
   try {
+    resetPartnerVideoFrameState();
+  } catch (_) {}
+  try {
     window.__ruletMatchOfferAt = 0;
     window.__ruletMatchOfferAttemptAt = 0;
     window.__ruletMatchOfferLock = 0;
@@ -24061,6 +25245,7 @@ function resetClientMediaSession({ clearLastPeers = true } = {}) {
   try {
     kickSoloWebRtc._inflight = false;
     kickSoloWebRtc._inflightPeer = "";
+    kickSoloWebRtc._inflightAt = 0;
     kickSoloWebRtc._retryArm = 0;
   } catch (_) {}
   try {
@@ -24440,19 +25625,40 @@ async function kickSoloWebRtc(msg, p) {
   const iOffer = !!(msg && msg.is_offerer);
   isOfferer = iOffer;
 
-  // Re-arm force_relay only when hub said so (same-IP / hide_ip).
+  // Re-arm force_relay when hub said so (hide_ip / untrusted / same public IP).
   try {
     if (msg?.force_relay && typeof setSessionForceRelay === "function") {
       setSessionForceRelay(true);
     }
   } catch (_) {}
 
-  // Mutex: concurrent kickSolo (matched race / retry) was dual-PC → 2nd offer@800ms
+  // Mutex: concurrent kickSolo (matched race / retry) was dual-PC → 2nd offer@800ms.
+  // But hung await connect() held _inflight forever → offerKick concurrent-skip
+  // every wave until hardMs ~25s. Hop10: re-entry if stuck >800ms without emit.
+  // Hop11: free at 550ms (was 800) so denser offerKick can re-enter before hard belt.
   if (kickSoloWebRtc._inflight && kickSoloWebRtc._inflightPeer === peerId) {
-    log(`kickSolo skip concurrent peer=${String(peerId).slice(0, 8)}`);
-    return;
+    const stuckSince = kickSoloWebRtc._inflightAt || 0;
+    const stuckMs = stuckSince ? Date.now() - stuckSince : 99999;
+    let emitOk = false;
+    try {
+      const cur = findPcForPeer(peerId);
+      emitOk = !!(cur && (cur._offerEmitOk || cur._gotRemoteAnswerAt));
+    } catch (_) {}
+    if (emitOk || stuckMs < 550) {
+      log(
+        `kickSolo skip concurrent peer=${String(peerId).slice(0, 8)} stuck=${stuckMs}ms`
+      );
+      return;
+    }
+    log(
+      `kickSolo free stuck inflight +${stuckMs}ms peer=${String(peerId).slice(0, 8)}`
+    );
+    kickSoloWebRtc._inflight = false;
+    kickSoloWebRtc._inflightPeer = "";
   }
-  // Match already offered — never spawn a second PeerConnection
+  // Match already offered ON THE WIRE — never spawn a second PeerConnection.
+  // Must require _offerEmitOk (or remote answer). Stamp alone blocked recovery
+  // for 12s while hub waited ~25s for first real offer.
   try {
     if (
       iOffer &&
@@ -24462,14 +25668,23 @@ async function kickSoloWebRtc(msg, p) {
       const any = [...peerPcs.values()].find(
         (pc) => pc && (pc._offerEmitOk || pc._gotRemoteAnswerAt)
       );
-      if (any) {
+      if (any && any._offerEmitOk) {
         log(`kickSolo skip match-offered peer=${String(peerId).slice(0, 8)}`);
         return;
+      }
+      // Stale stamp without emit — free locks so re-kick can emit
+      if (!any || !any._offerEmitOk) {
+        try {
+          window.__ruletMatchOfferAt = 0;
+          window.__ruletMatchOfferLock = 0;
+          window.__ruletMatchOfferAttemptAt = 0;
+        } catch (_) {}
       }
     }
   } catch (_) {}
   kickSoloWebRtc._inflight = true;
   kickSoloWebRtc._inflightPeer = peerId;
+  kickSoloWebRtc._inflightAt = Date.now();
   try {
   // Stream: prefer existing preview; only GUM if empty (fast constraints)
   // SPEED: cap cold GUM at 400ms for offerer — SDP must leave even without cam.
@@ -24570,16 +25785,66 @@ async function kickSoloWebRtc(msg, p) {
       log(
         `kickSolo keep peer=${String(peerId).slice(0, 8)} live=${hasLive ? 1 : 0} iceOk=${iceOk ? 1 : 0} sdp=${hasSdp ? 1 : 0}`
       );
+      // Critical: local offer SDP without emit = hub MTO ~25s (ICE trickles,
+      // offer never leaves wire). Re-emit immediately; do not wait offerKick.
+      try {
+        const local = existing.pc?.localDescription;
+        if (
+          iOffer &&
+          local &&
+          String(local.type || "") === "offer" &&
+          !existing._offerEmitOk &&
+          !existing._gotRemoteAnswerAt
+        ) {
+          log(
+            `kickSolo re-emit stuck local offer peer=${String(peerId).slice(0, 8)}`
+          );
+          try {
+            window.__ruletMatchOfferAt = 0;
+            window.__ruletMatchOfferLock = 0;
+          } catch (_) {}
+          let desc = local;
+          try {
+            if (
+              typeof shouldFilterToRelayCandidates === "function" &&
+              shouldFilterToRelayCandidates() &&
+              desc.sdp &&
+              typeof stripNonRelayCandidatesFromSdp === "function"
+            ) {
+              desc = {
+                type: desc.type,
+                sdp: stripNonRelayCandidatesFromSdp(String(desc.sdp)),
+              };
+            }
+          } catch (_) {}
+          if (typeof existing._emitSignal === "function") {
+            existing._emitSignal("offer", JSON.stringify(desc));
+          } else if (typeof existing.hooks?.onSignal === "function") {
+            existing.hooks.onSignal("offer", JSON.stringify(desc));
+          }
+          existing._offerEmitOk = true;
+          existing._offerSentOnce = true;
+          existing._lastOfferAt = Date.now();
+          try {
+            window.__ruletMatchOfferAt = Date.now();
+            window.__ruletMatchOfferLock = 1;
+          } catch (_) {}
+          return;
+        }
+      } catch (_) {}
       // Still ensure offer if we are offerer but never sent SDP (warm PC trap)
       try {
         if (
           iOffer &&
           existing._createAndSendOffer &&
-          !existing._offerSentOnce &&
+          !existing._offerEmitOk &&
           !existing._offerInFlight &&
-          !existing.pc?.localDescription &&
-          !window.__ruletMatchOfferLock
+          !existing.pc?.localDescription
         ) {
+          try {
+            window.__ruletMatchOfferLock = 0;
+            window.__ruletMatchOfferAt = 0;
+          } catch (_) {}
           void existing._createAndSendOffer({ iceRestart: false });
           log(`kickSolo force offer on live PC`);
         }
@@ -24615,7 +25880,7 @@ async function kickSoloWebRtc(msg, p) {
         return;
       }
     } catch (_) {}
-    // Young mid-offer only (<2s): keep so we don't thrash a good first SDP.
+    // Young mid-offer only (<1.1s hop11, was 1.5s): keep so we don't thrash a good first SDP.
     // Older mid-offer with no remote = stuck (hub drop / glare) → tear down.
     // Was: keep forever → silence until soft-recover ~18–24s.
     try {
@@ -24626,7 +25891,7 @@ async function kickSoloWebRtc(msg, p) {
         existing._offerInFlight ||
         existing._offerSentOnce ||
         existing.pc?.signalingState === "have-local-offer";
-      if (mid && pcAge < 2000 && !existing.pc?.currentRemoteDescription) {
+      if (mid && pcAge < 1100 && !existing.pc?.currentRemoteDescription) {
         log(
           `kickSolo keep mid-offer young peer=${String(peerId).slice(0, 8)} age=${pcAge}`
         );
@@ -24738,9 +26003,21 @@ async function kickSoloWebRtc(msg, p) {
         updateChatHeader();
         if (open) {
           setStatus(_t("chat.p2pReady") || "Chat is peer-to-peer");
+          // Always push real name+stars+geo; request peer name if hub was empty/poison
+          try {
+            const hubName = String(
+              lastMatchMeta?.name || activeChat?.peerName || ""
+            ).trim();
+            const needName = !hubName || isPoisonDisplayName(hubName);
+            sendPartnerIdentityP2p({ request: needName });
+          } catch (_) {}
           // Re-announce mute so partner sees veil if we muted before DC opened
           try {
             if (partnerMuted) sendPartnerMuteP2p(true);
+          } catch (_) {}
+          // Re-announce self-hide so Android shows mosaic (not pure black)
+          try {
+            if (selfBlurred || camOff) sendSelfHideP2p(true);
           } catch (_) {}
         }
       },
@@ -24772,17 +26049,55 @@ async function kickSoloWebRtc(msg, p) {
   try {
     registerPeerUi(p || { peer_id: peerId }, "remote");
   } catch (_) {}
-  await pc.connect();
+  // Bound connect so hung createOffer cannot hold kickSolo mutex forever.
+  // offerKick frees inflight too; this is belt for first path.
+  // Hop11: offerer budget 1000ms (was 1200) — pure first-relay still early-exits;
+  // connect continues in background; offerKick re-kick if still no emit.
+  try {
+    await Promise.race([
+      pc.connect(),
+      new Promise((resolve) =>
+        setTimeout(() => {
+          try {
+            if (!pc._offerEmitOk && iOffer) {
+              log(
+                `kickSolo connect budget — free path peer=${String(peerId).slice(0, 8)}`
+              );
+              // Free webrtc locks so a follow-up offerKick can emit/re-kick
+              try {
+                pc._offerInFlight = false;
+                if (!pc._offerEmitOk) {
+                  pc._offerSentOnce = false;
+                  pc._lastOfferAt = 0;
+                }
+              } catch (_) {}
+              try {
+                if (!pc._offerEmitOk) {
+                  window.__ruletMatchOfferLock = 0;
+                  window.__ruletMatchOfferAttemptAt = 0;
+                  window.__ruletMatchOfferAt = 0;
+                }
+              } catch (_) {}
+            }
+          } catch (_) {}
+          resolve();
+        }, iOffer ? 1000 : 2000)
+      ),
+    ]);
+  } catch (e) {
+    log(`kickSolo connect err ${e}`);
+  }
   // After connect: re-push real video (handles late preview / accidental hide)
   try {
     if (!selfBlurred) void pushOutboundVideoTracks();
   } catch (_) {}
   log(
-    `kickSolo connect +${Date.now() - t0}ms offerer=${iOffer ? 1 : 0} peer=${String(peerId).slice(0, 8)} hide=${selfBlurred ? 1 : 0}`
+    `kickSolo connect +${Date.now() - t0}ms offerer=${iOffer ? 1 : 0} peer=${String(peerId).slice(0, 8)} hide=${selfBlurred ? 1 : 0} emit=${pc._offerEmitOk ? 1 : 0}`
   );
   } finally {
     kickSoloWebRtc._inflight = false;
     kickSoloWebRtc._inflightPeer = "";
+    kickSoloWebRtc._inflightAt = 0;
   }
 }
 
@@ -25205,7 +26520,17 @@ async function joinPeers(peers) {
           if (open && (pc === rtc || !isTeammateRole(p.role))) {
             setStatus(_t("chat.p2pReady") || "Chat is peer-to-peer");
             try {
+              const hubName = String(
+                lastMatchMeta?.name || p?.name || ""
+              ).trim();
+              const needName = !hubName || isPoisonDisplayName(hubName);
+              sendPartnerIdentityP2p({ request: needName });
+            } catch (_) {}
+            try {
               if (partnerMuted) sendPartnerMuteP2p(true);
+            } catch (_) {}
+            try {
+              if (selfBlurred || camOff) sendSelfHideP2p(true);
             } catch (_) {}
           }
         },
@@ -25506,6 +26831,18 @@ function maybeShowWeakConnTip(grade, iceKind) {
     weakConnSince = 0;
     return;
   }
+  // Require frames once this match, OR match age ≥15s with pathReady,
+  // before starting the 8s weak clock. RTT on empty path is noisy.
+  // Never force_relay / hard rebuild from weak grade (tip only).
+  const pathReady = iceKind === "direct" || iceKind === "relay";
+  const everFrames =
+    partnerVideoEverFrames ||
+    (typeof partnerVideoHasFrames === "function" && partnerVideoHasFrames());
+  const ageOk = pathReady && matchAgeMs() >= 15000;
+  if (!everFrames && !ageOk) {
+    weakConnSince = 0;
+    return;
+  }
   if (!weakConnSince) weakConnSince = Date.now();
   if (weakConnTipShownForMatch) return;
   if (Date.now() - weakConnSince < 8000) return;
@@ -25531,9 +26868,15 @@ function updateConnChip(rtt, loss, iceKind) {
     return;
   }
   const pathReady = iceKind === "direct" || iceKind === "relay";
+  const everFrames =
+    partnerVideoEverFrames ||
+    (typeof partnerVideoHasFrames === "function" && partnerVideoHasFrames());
   let grade = "ok";
-  // Don't claim "Good" while ICE path is still unknown — that reads as "Good · Connecting…"
+  // !pathReady → Linking (not Good/Weak). pathReady && !everFrames → still Linking/OK
+  // (RTT on empty decoder is noisy; do not show Weak before paint).
   if (!pathReady) {
+    grade = "ok";
+  } else if (!everFrames) {
     grade = "ok";
   } else if (
     (rtt != null && rtt > 450) ||
@@ -25559,27 +26902,30 @@ function updateConnChip(rtt, loss, iceKind) {
       : iceKind === "relay"
         ? _t("conn.chipRelay") || "Relay"
         : _t("conn.chipConnecting") || "Connecting…";
-  const label = !pathReady
-    ? _t("conn.chipLinking") || "Linking"
-    : grade === "good"
-      ? _t("conn.chipGood") || "Good"
-      : grade === "weak"
-        ? _t("conn.chipWeak") || "Weak"
-        : _t("conn.chipOk") || "OK";
+  // !pathReady → Linking; pathReady && !everFrames → Linking (not Weak/Good)
+  const label =
+    !pathReady || !everFrames
+      ? _t("conn.chipLinking") || "Linking"
+      : grade === "good"
+        ? _t("conn.chipGood") || "Good"
+        : grade === "weak"
+          ? _t("conn.chipWeak") || "Weak"
+          : _t("conn.chipOk") || "OK";
 
   const prevGrade = lastConnGrade;
   lastConnGrade = grade;
+  const chipGrade = !pathReady || !everFrames ? "ok" : grade;
   chip.className =
     "conn-chip grade-" +
-    (pathReady ? grade : "ok") +
+    chipGrade +
     (iceKind === "relay" ? " path-relay" : "") +
-    (!pathReady ? " path-unknown" : "");
+    (!pathReady || !everFrames ? " path-unknown" : "");
   chip.textContent = label + " · " + path;
-  // Partner tile live frame grade (visual border)
+  // Partner tile live frame grade (visual border) — no weak border pre-paint
   const remoteTile = $("tile-remote");
   if (remoteTile) {
     remoteTile.classList.remove("conn-grade-good", "conn-grade-ok", "conn-grade-weak");
-    remoteTile.classList.add("conn-grade-" + grade);
+    remoteTile.classList.add("conn-grade-" + chipGrade);
   }
   const detail = [];
   if (rtt != null) detail.push(Math.round(rtt) + " ms");
@@ -27262,90 +28608,54 @@ function startMatchTimer() {
   }, 1000);
 }
 
-/** Center + both-tile wordmarks visibility during live call */
+/** Partner-tile wordmark visibility during live call (has-brand-live). */
 function setStageBrandLive(on) {
   try {
     document.querySelector("main.stage")?.classList.toggle("has-brand-live", !!on);
   } catch (_) {}
-  // Host brand short form on stage wordmarks only (not header logo area)
+  // Full domain wordmark (never strip to "ruletka" — was clipping as "rule")
   try {
-    let name = "";
-    try {
-      if (typeof RuletBrand !== "undefined" && typeof RuletBrand.name === "function") {
-        name = RuletBrand.name();
-      }
-    } catch (_) {}
-    if (!name) {
-      try {
-        const h = (location.hostname || "").toLowerCase();
-        if (h.includes("ruletka.me")) name = "ruletka.me";
-        else name = "ruletka.vip";
-      } catch (_) {
-        name = "ruletka";
-      }
-    }
-    const short = String(name).replace(/\.(vip|me)$/i, "") || "ruletka";
+    const label = "ruletka.me";
     document
       .querySelectorAll(".stage-brand-wordmark, .stage-wm-text")
       .forEach((el) => {
         try {
-          el.textContent = short;
+          el.textContent = label;
         } catch (_) {}
       });
   } catch (_) {}
 }
 
+/**
+ * PC watermark spin is pure CSS on .stage.has-brand-live
+ * (see live-brand.css: stage-wm-spin-360-loop on partner .stage-wm-text).
+ * Soft 360° ~1.2s every 15s upright hold (16.2s cycle). Center seam off on match.
+ * These hooks remain so match start/stop still wires brand visibility only.
+ */
 let stageBrandSpinTimer = 0;
 function stopStageBrandSpinLoop() {
   if (stageBrandSpinTimer) {
     clearTimeout(stageBrandSpinTimer);
     stageBrandSpinTimer = 0;
   }
+  // Drop any legacy spin class from older deploys
+  try {
+    document
+      .querySelectorAll(".stage-brand-spin.is-spinning, .stage-wm-text.is-spinning, .stage-wm-spin-el.is-spinning")
+      .forEach((el) => el.classList.remove("is-spinning"));
+  } catch (_) {}
 }
 /**
- * Spin wordmarks: center pill + both tile texts. No logo.
+ * No-op JS spin: continuous 360° is CSS while has-brand-live.
+ * Kept so call sites (match entrance) do not break.
  * @param {{ force?: boolean }} [opts]
  */
-function spinStageBrand(opts = {}) {
-  try {
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) {
-      return;
-    }
-  } catch (_) {}
-  const spinOnce = (el, cls = "is-spinning") => {
-    if (!el) return;
-    el.classList.remove(cls);
-    void el.offsetWidth;
-    el.classList.add(cls);
-    setTimeout(() => {
-      try {
-        el.classList.remove(cls);
-      } catch (_) {}
-    }, 1300);
-  };
-  // Center pill spins its wordmark via parent .is-spinning
-  spinOnce($("stage-brand-spin"));
-  // Both tile watermarks spin the text itself
-  document.querySelectorAll(".stage-wm-spin-el").forEach((el) => {
-    spinOnce(el);
-  });
-  if (opts.force) {
-    /* match entrance spin */
-  }
+function spinStageBrand(_opts = {}) {
+  /* CSS animation handles mid-match partner-tile 360° loop */
 }
 function startStageBrandSpinLoop() {
   stopStageBrandSpinLoop();
-  const schedule = () => {
-    // Random interval ~35–75s between idle spins
-    const ms = 35000 + Math.floor(Math.random() * 40000);
-    stageBrandSpinTimer = setTimeout(() => {
-      if (matched || inFriendCall) {
-        spinStageBrand();
-        schedule();
-      }
-    }, ms);
-  };
-  schedule();
+  /* CSS animation starts when setStageBrandLive(true) adds .has-brand-live */
 }
 
 function stopMatchTimer() {
@@ -27677,9 +28987,10 @@ function wireKeysHelp() {
 }
 
 /**
- * Tile chrome: show on move/enter, always autohide after 3s idle.
+ * Tile chrome: show on move/enter, always autohide after 3s idle on ALL sides
+ * (partner left rail + floor, local right rail + floor).
  * JS-driven (not pure CSS :hover) so chrome doesn't stick while the mouse sits still.
- * Touch / coarse pointers: CSS keeps controls always visible.
+ * Touch / coarse pointers: CSS keeps controls always visible (.chrome-always).
  */
 const CHROME_AUTOHIDE_MS = 3000;
 
@@ -27688,26 +28999,157 @@ function wireTileChromeAutohide() {
   const local = $("tile-local");
   if (!remote && !local) return;
 
-  // Always show tile chrome (Flip/Mic/Hide/Blur/Settings/name/stars) fixed in-tile.
-  // Autohide made controls vanish over black local preview.
-  document.documentElement.classList.add("chrome-always");
-  document.documentElement.classList.remove("chrome-autohide");
+  const coarse =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(hover: none), (pointer: coarse)").matches;
+  if (coarse) {
+    // Always-on via CSS media query / .chrome-always
+    document.documentElement.classList.remove("chrome-autohide");
+    document.documentElement.classList.add("chrome-always");
+    return;
+  }
+
+  document.documentElement.classList.remove("chrome-always");
   document.documentElement.classList.remove("chrome-touch-autohide");
-  try {
-    remote?.classList.add("is-chrome-open");
-    local?.classList.add("is-chrome-open");
-  } catch (_) {}
-  // Keep both tiles' chrome permanently open (no 3s hide timer)
-  const pin = () => {
-    try {
-      remote?.classList.add("is-chrome-open");
-      local?.classList.add("is-chrome-open");
-      document.documentElement.classList.add("chrome-always");
-      document.documentElement.classList.remove("chrome-autohide");
-    } catch (_) {}
+  document.documentElement.classList.add("chrome-autohide");
+
+  /** @type {WeakMap<Element, number>} */
+  const hideTimers = new WeakMap();
+
+  const flyoutOpenOn = (tile) => {
+    if (!tile) return false;
+    if (tile.querySelector?.(".is-flyout-open")) return true;
+    if (tile.querySelector?.("#match-more-menu:not([hidden])")) return true;
+    // Settings flyout is portaled in body but triggered from local rail
+    if (
+      tile.id === "tile-local" &&
+      $("settings-sheet") &&
+      !$("settings-sheet").hidden &&
+      $("settings-sheet").classList.contains("is-open")
+    ) {
+      return true;
+    }
+    if (
+      tile.id === "tile-remote" &&
+      (($("friends-sheet") &&
+        !$("friends-sheet").hidden &&
+        $("friends-sheet").classList.contains("is-open")) ||
+        ($("messages-sheet") &&
+          !$("messages-sheet").hidden &&
+          $("messages-sheet").classList.contains("is-open")))
+    ) {
+      return true;
+    }
+    return false;
   };
-  pin();
-  setInterval(pin, 2000);
+
+  const clearHide = (tile) => {
+    const t = hideTimers.get(tile);
+    if (t) {
+      clearTimeout(t);
+      hideTimers.delete(tile);
+    }
+  };
+
+  const scheduleHide = (tile) => {
+    if (!tile) return;
+    clearHide(tile);
+    const id = setTimeout(() => {
+      hideTimers.delete(tile);
+      if (flyoutOpenOn(tile)) {
+        // Keep open while flyout is up; re-check soon
+        scheduleHide(tile);
+        return;
+      }
+      tile.classList.remove("is-chrome-open");
+    }, CHROME_AUTOHIDE_MS);
+    hideTimers.set(tile, id);
+  };
+
+  const showChrome = (tile) => {
+    if (!tile) return;
+    // Only one tile chrome at a time
+    if (remote && remote !== tile) {
+      remote.classList.remove("is-chrome-open");
+      clearHide(remote);
+    }
+    if (local && local !== tile) {
+      local.classList.remove("is-chrome-open");
+      clearHide(local);
+    }
+    tile.classList.add("is-chrome-open");
+    scheduleHide(tile);
+  };
+
+  const hideChromeSoon = (tile) => {
+    if (!tile) return;
+    // Short delay so moving between rail buttons doesn't flicker
+    clearHide(tile);
+    const id = setTimeout(() => {
+      hideTimers.delete(tile);
+      if (flyoutOpenOn(tile)) {
+        scheduleHide(tile);
+        return;
+      }
+      // Still inside tile? keep until full autohide timer from last move
+      if (tile.matches?.(":hover")) {
+        scheduleHide(tile);
+        return;
+      }
+      tile.classList.remove("is-chrome-open");
+    }, 200);
+    hideTimers.set(tile, id);
+  };
+
+  [remote, local].forEach((tile) => {
+    if (!tile) return;
+    tile.addEventListener(
+      "pointerenter",
+      () => {
+        showChrome(tile);
+      },
+      { passive: true }
+    );
+    tile.addEventListener(
+      "pointermove",
+      () => {
+        // Any movement restarts the 3s clock
+        if (!tile.classList.contains("is-chrome-open")) showChrome(tile);
+        else scheduleHide(tile);
+      },
+      { passive: true }
+    );
+    tile.addEventListener(
+      "pointerdown",
+      () => {
+        showChrome(tile);
+      },
+      { passive: true }
+    );
+    tile.addEventListener(
+      "pointerleave",
+      () => {
+        hideChromeSoon(tile);
+      },
+      { passive: true }
+    );
+  });
+
+  // Activity on controls also resets timer
+  document.addEventListener(
+    "pointerdown",
+    (e) => {
+      const tile = e.target?.closest?.(".tile-remote, .tile-local");
+      if (tile) showChrome(tile);
+    },
+    { passive: true }
+  );
+
+  // Brief peek on first paint so users discover rails, then 3s hide
+  try {
+    if (remote) showChrome(remote);
+    else if (local) showChrome(local);
+  } catch (_) {}
 }
 
 function showFriendRequestToast(msg) {

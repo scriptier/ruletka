@@ -55,7 +55,8 @@ export const liveStyles = StyleSheet.create({
     overflow: "hidden",
     borderRadius: 12,
   },
-  /** Edge watermark on partner video — bottom-left, not top chrome */
+  /** Legacy static edge styles (unused — BrandWatermark owns layout + settle).
+   * Live mark parks bottom-center of partner video after center hold. */
   brandWm: {
     position: "absolute",
     left: 8,
@@ -63,13 +64,18 @@ export const liveStyles = StyleSheet.create({
     zIndex: 5,
     justifyContent: "center",
     alignItems: "flex-start",
+    // Do not constrain width — full wordmark must stay readable in portrait shots
+    maxWidth: undefined,
+    overflow: "visible",
   },
   brandWmText: {
-    color: "rgba(255,255,255,0.32)",
-    fontSize: 10,
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 12.5,
     fontWeight: "700",
-    letterSpacing: 0.6,
-    textShadowColor: "rgba(0,0,0,0.75)",
+    letterSpacing: 0.4,
+    // Horizontal only — never vertical writing / mid-word clip
+    flexShrink: 0,
+    textShadowColor: "rgba(0,0,0,0.8)",
     textShadowRadius: 4,
     textShadowOffset: { width: 0, height: 1 },
   },
@@ -80,84 +86,39 @@ export const liveStyles = StyleSheet.create({
     backgroundColor: "transparent",
   },
   /** Soft veil + badge when you mute the partner (debate-style). */
+  /** Soft mute scrim + centered icon only (no text chips). */
   partnerMuteOverlay: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 24,
     elevation: 12,
-    justifyContent: "flex-end",
-    alignItems: "center",
-    paddingBottom: 14,
-    backgroundColor: "rgba(18, 6, 4, 0.28)",
-    borderWidth: 2,
-    borderColor: "rgba(255, 100, 70, 0.4)",
-  },
-  /**
-   * When partner muted us — stronger scrim so conversationalist clearly sees
-   * they are not being heard (Android: needs zOrder 0 on self RTCView).
-   */
-  theyMutedMeOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 24,
-    elevation: 14,
     justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: 6,
-    backgroundColor: "rgba(22, 8, 6, 0.55)",
+    backgroundColor: "rgba(18, 6, 4, 0.22)",
     borderWidth: 2,
-    borderColor: "rgba(255, 110, 80, 0.55)",
+    borderColor: "rgba(255, 100, 70, 0.35)",
   },
   partnerMuteWatermark: {
-    position: "absolute",
-    top: "38%",
-    fontSize: 52,
-    opacity: 0.42,
+    fontSize: 56,
+    opacity: 0.55,
     textShadowColor: "rgba(0,0,0,0.55)",
     textShadowRadius: 12,
   },
   partnerMuteWatermarkPip: {
     fontSize: 28,
     opacity: 0.55,
-    marginBottom: 4,
     textShadowColor: "rgba(0,0,0,0.55)",
     textShadowRadius: 8,
   },
-  partnerMuteBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    maxWidth: "92%",
-    paddingVertical: 7,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    backgroundColor: "rgba(40, 12, 10, 0.92)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 120, 90, 0.65)",
-  },
-  partnerMuteBadgePip: {
-    maxWidth: "94%",
-    paddingVertical: 5,
-    paddingHorizontal: 8,
-    borderRadius: 10,
-    backgroundColor: "rgba(40, 12, 10, 0.94)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 120, 90, 0.7)",
-  },
-  partnerMuteBadgeText: {
-    color: "#ffe8e0",
-    fontSize: 13,
-    fontWeight: "700",
-    letterSpacing: 0.2,
-  },
-  partnerMuteBadgeTextPip: {
-    color: "#ffe8e0",
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.15,
-    textAlign: "center",
-  },
-  /** Full-stage underlay while partner RTCView is unmounted (never pure black) */
+  // Legacy badge styles (text chips removed — icon only)
+  partnerMuteBadge: {},
+  partnerMuteBadgePip: {},
+  partnerMuteBadgeText: {},
+  partnerMuteBadgeTextPip: {},
+  /** Full-stage underlay under PartnerBlurVeil (never pure black / never transparent) */
   blurUnderlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "#45536c",
+    opacity: 1,
   },
   /** No solid black wall — transparent so RTCView / local cam can show through */
   videoPlaceholder: {
@@ -165,6 +126,14 @@ export const liveStyles = StyleSheet.create({
     backgroundColor: "transparent",
     alignItems: "center",
     justifyContent: "center",
+  },
+  /** Full-stage brand loop under idle/search (PC remote-empty parity). */
+  brandLoadingLoop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#050608",
+    zIndex: 0,
+    width: "100%",
+    height: "100%",
   },
   /** Centered connecting card on empty remote stage (never pure black) */
   connectCard: {
@@ -249,10 +218,343 @@ export const liveStyles = StyleSheet.create({
     left: 12,
     top: 0,
     right: 12,
-    // Above SurfaceView gesture plane; mute/they-muted chrome must stay readable
-    zIndex: 40,
-    elevation: 20,
+    // In-stage only (search/idle labels, peer strip). Matched PartnerChrome is
+    // chromeTopOverlay — sibling of stage so Android SurfaceView cannot cover it.
+    // Partner RTCView must be zOrder 0; elevation cannot beat zOrder ≥ 1.
+    zIndex: 100,
+    elevation: 28,
     gap: 4,
+  },
+  /**
+   * Matched partner name / stars / mute banners — root-level sibling of stage
+   * (NOT under RTCView). Android SurfaceView eats in-stage RN elevation.
+   * top/padding applied at runtime via safe-area insets.
+   * Below privacy fullscreen (100000); above video and normal stage chrome.
+   */
+  /** Android Modal root — full screen, pass-through outside chrome card */
+  chromeModalRoot: {
+    flex: 1,
+    backgroundColor: "transparent",
+  },
+  chromeTopOverlay: {
+    position: "absolute",
+    // Slim top-right only — leave left/center face clear (no full-width bar)
+    right: 8,
+    maxWidth: "55%",
+    alignItems: "flex-end",
+    zIndex: 99999,
+    elevation: 99999,
+    gap: 0,
+    backgroundColor: "transparent",
+  },
+  /**
+   * Partner flag chip — top-left of remote video, below identity name strip.
+   * Partner RTCView is zOrder 0 so elevation ≥16 paints above SurfaceView.
+   * top offset is applied at runtime (insets + dock height) from live.tsx.
+   */
+  partnerFlagChip: {
+    position: "absolute",
+    left: 10,
+    top: 12,
+    zIndex: 280,
+    elevation: 20,
+    minWidth: 40,
+    minHeight: 40,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "rgba(4, 8, 16, 0.88)",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.28)",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.45,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  partnerFlagChipEmoji: {
+    fontSize: 26,
+    lineHeight: 30,
+    includeFontPadding: false,
+    textAlign: "center",
+    textShadowColor: "rgba(0,0,0,0.55)",
+    textShadowRadius: 3,
+    textShadowOffset: { width: 0, height: 1 },
+  },
+  /** Two-letter ISO fallback when emoji unavailable */
+  partnerFlagChipCode: {
+    color: "#e8eef7",
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    includeFontPadding: false,
+    textAlign: "center",
+  },
+  /** Compact flag chip when partner is in PiP (swapped views) */
+  partnerFlagChipPip: {
+    position: "absolute",
+    left: 6,
+    top: 6,
+    zIndex: 24,
+    elevation: 16,
+    minWidth: 28,
+    minHeight: 28,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: "rgba(4, 8, 16, 0.88)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  partnerFlagChipEmojiPip: {
+    fontSize: 16,
+    lineHeight: 18,
+    includeFontPadding: false,
+    textAlign: "center",
+  },
+  partnerFlagChipCodePip: {
+    color: "#e8eef7",
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+    includeFontPadding: false,
+  },
+  /**
+   * Match elapsed timer — bottom-left of partner conversationalist window
+   * (replaces "Say hi in chat…" empty hint + bottom chrome timer chip).
+   */
+  partnerCallTimerChip: {
+    position: "absolute",
+    left: 10,
+    bottom: 12,
+    // Same SurfaceView stack pattern as partnerFlagChip (RTCView zOrder 0).
+    zIndex: 280,
+    elevation: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: "rgba(6, 10, 18, 0.72)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.18)",
+    shadowColor: "#000",
+    shadowOpacity: 0.4,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+  },
+  partnerCallTimerText: {
+    color: "#e8eef7",
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+    fontVariant: ["tabular-nums"],
+    includeFontPadding: false,
+    textShadowColor: "rgba(0,0,0,0.85)",
+    textShadowRadius: 4,
+    textShadowOffset: { width: 0, height: 1 },
+  },
+  /** Compact call timer when partner is in PiP (swapped views). */
+  partnerCallTimerChipPip: {
+    position: "absolute",
+    left: 6,
+    bottom: 6,
+    zIndex: 24,
+    elevation: 16,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: "rgba(6, 10, 18, 0.78)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.18)",
+  },
+  partnerCallTimerTextPip: {
+    color: "#e8eef7",
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+    fontVariant: ["tabular-nums"],
+    includeFontPadding: false,
+  },
+  /**
+   * Primary matched identity belt (name / ★ / loc). Compact top-right.
+   * elevation must beat nuclear veil coverMain (elev 28) + PartnerBlurVeil
+   * (elev 24). Partner RTCView stays zOrder 0 so this RN card wins.
+   */
+  stagePartnerHud: {
+    position: "absolute",
+    top: 12,
+    right: 10,
+    maxWidth: "55%",
+    zIndex: 300,
+    elevation: 120,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: "rgba(4, 8, 16, 0.94)",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.35)",
+    gap: 2,
+    alignItems: "flex-end",
+  },
+  stagePartnerHudName: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "800",
+    letterSpacing: 0.15,
+    lineHeight: 18,
+    includeFontPadding: false,
+    textAlign: "right",
+    textShadowColor: "rgba(0,0,0,1)",
+    textShadowRadius: 6,
+    textShadowOffset: { width: 0, height: 1 },
+  },
+  stagePartnerHudStars: {
+    color: "#ffe566",
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 0.15,
+    includeFontPadding: false,
+    textAlign: "right",
+    textShadowColor: "rgba(0,0,0,0.95)",
+    textShadowRadius: 4,
+    textShadowOffset: { width: 0, height: 1 },
+  },
+  stagePartnerHudLoc: {
+    color: "#d4e4f8",
+    fontSize: 11,
+    fontWeight: "600",
+    textAlign: "right",
+    textShadowColor: "rgba(0,0,0,0.85)",
+    textShadowRadius: 3,
+  },
+  stagePartnerHudLocDim: {
+    color: "rgba(190, 205, 225, 0.65)",
+    fontSize: 11,
+    fontWeight: "500",
+    textAlign: "right",
+  },
+  /**
+   * @deprecated bottom-of-stage dock — do not remount mid-match.
+   * Identity lives in partnerIdentityTopStrip (root absolute under status bar).
+   */
+  partnerIdentityDock: {
+    flexShrink: 0,
+    width: "100%",
+    minHeight: 48,
+    paddingHorizontal: 14,
+    paddingTop: 8,
+    paddingBottom: 8,
+    gap: 3,
+    justifyContent: "center",
+    backgroundColor: "rgba(6, 10, 18, 0.97)",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(255,255,255,0.16)",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(255,255,255,0.1)",
+    zIndex: 80,
+    elevation: 40,
+  },
+  /**
+   * ONLY matched identity belt: root-level absolute sibling of stage
+   * (not nested under RTCView). top/paddingTop applied at runtime via
+   * safe-area insets so strip sits just under system status bar.
+   *
+   * Transparent glass over video — no solid black header (screenshot
+   * 2026-08-11 15:01). Max frost rgba(0,0,0,0.25); name/★/loc use
+   * strong textShadow for readability over partner video.
+   */
+  partnerIdentityTopStrip: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    width: "100%",
+    // Content-sized — no tall minHeight pushing name/★ down from status bar
+    minHeight: 0,
+    paddingHorizontal: 12,
+    paddingBottom: 4,
+    gap: 0,
+    justifyContent: "flex-start",
+    // Transparent / light frost only — video must show through (never solid panel)
+    backgroundColor: "transparent",
+    borderWidth: 0,
+    borderBottomWidth: 0,
+    borderColor: "transparent",
+    zIndex: 60,
+    elevation: 28,
+  },
+  /** Horizontal identity row: name · ★ (loc is second full-width line) */
+  partnerIdentityDockRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "nowrap",
+    gap: 8,
+    width: "100%",
+  },
+  partnerIdentityDockStars: {
+    color: "#ffe566",
+    fontSize: 16,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+    includeFontPadding: false,
+    // Strong shadow — strip is transparent over live video
+    textShadowColor: "rgba(0,0,0,1)",
+    textShadowRadius: 10,
+    textShadowOffset: { width: 0, height: 1 },
+  },
+  /** ★0 still painted large gold — dimmed, never hidden */
+  partnerIdentityDockStarsZero: {
+    color: "rgba(255, 210, 80, 0.78)",
+    fontSize: 16,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+    includeFontPadding: false,
+    textShadowColor: "rgba(0,0,0,1)",
+    textShadowRadius: 10,
+    textShadowOffset: { width: 0, height: 1 },
+  },
+  partnerIdentityDockName: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "800",
+    letterSpacing: 0.15,
+    lineHeight: 20,
+    includeFontPadding: false,
+    flexShrink: 1,
+    textShadowColor: "rgba(0,0,0,1)",
+    textShadowRadius: 10,
+    textShadowOffset: { width: 0, height: 1 },
+  },
+  partnerIdentityDockCode: {
+    color: "#a8c4e8",
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+    includeFontPadding: false,
+  },
+  partnerIdentityDockLoc: {
+    color: "#e0eaf8",
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 15,
+    includeFontPadding: false,
+    flexShrink: 1,
+    textShadowColor: "rgba(0,0,0,1)",
+    textShadowRadius: 8,
+    textShadowOffset: { width: 0, height: 1 },
+  },
+  partnerIdentityDockLocDim: {
+    color: "rgba(200, 210, 225, 0.88)",
+    fontSize: 12,
+    fontWeight: "500",
+    lineHeight: 15,
+    textShadowColor: "rgba(0,0,0,1)",
+    textShadowRadius: 8,
+    textShadowOffset: { width: 0, height: 1 },
+    includeFontPadding: false,
+    flexShrink: 1,
   },
   /** Timer-only when connected (no full conn pill stack) */
   connPillCompact: {
@@ -438,7 +740,10 @@ export const liveStyles = StyleSheet.create({
     fontWeight: "800",
     textAlign: "center",
   },
-  /** Floating Report — slim chip; top offset set with safe-area in live.tsx */
+  /**
+   * @deprecated Top-right Report FAB removed — Report lives in bottom bar.
+   * Styles kept unused so old references fail softly; do not re-attach on stage.
+   */
   stageReportFab: {
     position: "absolute",
     top: 0,
@@ -459,6 +764,7 @@ export const liveStyles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 4,
   },
+  /** @deprecated with stageReportFab */
   stageReportFabText: {
     color: "#fff",
     fontSize: 11,
@@ -820,6 +1126,32 @@ export const liveStyles = StyleSheet.create({
     paddingBottom: 2,
     gap: 4,
   },
+  /** Less vertical chrome → taller partner stage (more head/face). */
+  giftSectionCompact: {
+    paddingTop: 0,
+    paddingBottom: 0,
+    gap: 2,
+  },
+  giftUnlockBarCompact: {
+    paddingBottom: 0,
+    gap: 0,
+  },
+  giftsScrollCompact: {
+    maxHeight: 52,
+  },
+  giftsRowCompact: {
+    paddingBottom: 2,
+    paddingTop: 0,
+    gap: 6,
+  },
+  giftChipCompact: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    minWidth: 44,
+    borderRadius: 12,
+  },
+  giftEmojiCompact: { fontSize: 18 },
+  giftCostCompact: { fontSize: 10, marginTop: 0 },
   giftSectionHead: {
     flexDirection: "row",
     alignItems: "center",
@@ -1117,8 +1449,20 @@ export const liveStyles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  /** Next is the primary matched action — slightly wider / stronger than Stop. */
+  btnNext: {
+    flex: 1.35,
+    backgroundColor: "#3d7eff",
+    paddingVertical: 14,
+    minHeight: 48,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(160, 200, 255, 0.45)",
+  },
   btnGhost: {
-    flex: 1,
+    flex: 0.9,
     backgroundColor: "rgba(255,255,255,0.08)",
     paddingVertical: 14,
     minHeight: 48,
@@ -1154,7 +1498,7 @@ export const liveStyles = StyleSheet.create({
     borderColor: "rgba(120, 180, 255, 0.65)",
   },
   btnDanger: {
-    flex: 1,
+    flex: 0.95,
     backgroundColor: "rgba(255,80,90,0.38)",
     paddingVertical: 14,
     minHeight: 48,

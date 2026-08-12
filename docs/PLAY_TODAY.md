@@ -25,7 +25,7 @@ adb install -r mobile/artifacts/ruletka-0.1.283-vc291.apk
 # Hide IP off · Start once · no Next spam 15s
 # Pass: both cams ≥ 30s
 # Eye / privacy: frosted mosaic (not pure black) · Show video restores face
-# Same Wi‑Fi: hub force_relay=true · 1 web offer + 1 android answer · peer_usage rising
+# Same Wi‑Fi: hub force_relay=false · 1 web offer + 1 android answer · host path OK
 ```
 
 ## Build AAB + status

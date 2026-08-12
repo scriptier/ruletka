@@ -1,19 +1,31 @@
 /**
- * Android-safe partner privacy veil.
+ * Partner privacy veil (opaque cover over mounted RTCView).
  *
- * RTCView is a SurfaceView — RN views only cover it when zOrder is 0.
- * Never rely on unmounting video (that left a pure black hole). Keep partner
- * video mounted at zOrder 0 and paint this fully opaque mosaic on top.
+ * LiveStageVideo keeps partner RTCView mounted while remoteBlurred (unmount
+ * mid-call crashes WebRTC). This component is the solid fill on the partner
+ * tile: #45536c + mosaic + Show video CTA. live.tsx also hosts an opaque
+ * Android Modal while veiled so SurfaceView cannot punch through. Palette is
+ * mid-tone frosted — never pure #000 (OLED "broken").
+ *
+ * Layout: absoluteFill parents often give % children 0 size on Android.
+ * Measure via onLayout and paint pixel cells; solid BLUR_VEIL_BASE always wins
+ * over any transparent `style` prop so a failed grid is still not black.
+ * When onLayout is still 0, seed mosaic from window size so cover is never empty.
  */
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import {
+  Dimensions,
   Pressable,
   StyleSheet,
   Text,
   View,
+  type LayoutChangeEvent,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
+
+/** Solid mid-tone — never pure #000 (OLED "broken camera"). */
+export const BLUR_VEIL_BASE = "#45536c";
 
 export type PartnerBlurVeilProps = {
   style?: StyleProp<ViewStyle>;
@@ -56,6 +68,26 @@ function cellColor(seed: number, i: number): string {
   return palette[(seed + i * 17) % palette.length]!;
 }
 
+type Cell =
+  | {
+      key: string;
+      color: string;
+      left: number;
+      top: number;
+      width: number;
+      height: number;
+      unit: "px";
+    }
+  | {
+      key: string;
+      color: string;
+      left: `${number}%`;
+      top: `${number}%`;
+      width: `${number}%`;
+      height: `${number}%`;
+      unit: "pct";
+    };
+
 export const PartnerBlurVeil = memo(function PartnerBlurVeil(
   props: PartnerBlurVeilProps
 ) {
@@ -71,62 +103,100 @@ export const PartnerBlurVeil = memo(function PartnerBlurVeil(
     onPress,
   } = props;
 
-  // Percentage-positioned cells (flex rows often collapsed to 0 height on some
-  // Android absoluteFill parents → pure black stage).
-  const cells = useMemo(() => {
+  // Pixel layout — % width/height of absolute children often resolve to 0 on
+  // Android when the parent is only flex-sized / absoluteFill.
+  // Seed from window so first paint is never empty (onLayout may lag a frame).
+  const [box, setBox] = useState(() => {
+    try {
+      const { width, height } = Dimensions.get("window");
+      return {
+        w: Math.max(1, Math.round(width)),
+        h: Math.max(1, Math.round(height * (compact ? 0.22 : 0.7))),
+      };
+    } catch {
+      return { w: 360, h: compact ? 120 : 480 };
+    }
+  });
+  const onRootLayout = (e: LayoutChangeEvent) => {
+    const { width, height } = e.nativeEvent.layout;
+    if (width < 1 || height < 1) return;
+    setBox((prev) =>
+      prev.w === Math.round(width) && prev.h === Math.round(height)
+        ? prev
+        : { w: Math.round(width), h: Math.round(height) }
+    );
+  };
+
+  // Smoke: one line on veil mount / unmount (adb logcat | grep blur)
+  useEffect(() => {
+    const kind = compact ? "compact" : "full";
+    console.log(`[blur] show why=veil_${kind}`);
+    return () => {
+      console.log(`[blur] hide why=veil_${kind}`);
+    };
+  }, [compact]);
+
+  const cells = useMemo((): Cell[] => {
     const seed = hashSeed(partnerLabel || title || "veil");
-    const cols = compact ? 5 : 8;
-    const rows = compact ? 7 : 12;
-    const out: {
-      key: string;
-      color: string;
-      left: `${number}%`;
-      top: `${number}%`;
-      width: `${number}%`;
-      height: `${number}%`;
-    }[] = [];
-    const cw = 100 / cols;
-    const rh = 100 / rows;
+    // Fewer cells = less JS/native view thrash on match (crash/ANR risk at 8×12).
+    const cols = compact ? 4 : 5;
+    const rows = compact ? 5 : 7;
+    const out: Cell[] = [];
+    // Prefer measured px; never fall back to % (pct cells often stay 0 on Android)
+    const usePx = box.w > 1 && box.h > 1;
+    const cw = usePx ? box.w / cols : 100 / cols;
+    const rh = usePx ? box.h / rows : 100 / rows;
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const i = r * cols + c;
         // Slight jitter so it reads as blur, not a perfect grid
-        const jx = ((seed >> (i % 8)) & 3) * 0.15;
-        const jy = ((seed >> ((i + 3) % 8)) & 3) * 0.12;
-        out.push({
-          key: `${r}-${c}`,
-          color: cellColor(seed, i),
-          left: `${c * cw - jx}%` as `${number}%`,
-          top: `${r * rh - jy}%` as `${number}%`,
-          width: `${cw + 0.8}%` as `${number}%`,
-          height: `${rh + 0.8}%` as `${number}%`,
-        });
+        const jx = ((seed >> (i % 8)) & 3) * (usePx ? 1.2 : 0.15);
+        const jy = ((seed >> ((i + 3) % 8)) & 3) * (usePx ? 1.0 : 0.12);
+        if (usePx) {
+          out.push({
+            key: `${r}-${c}`,
+            color: cellColor(seed, i),
+            left: c * cw - jx,
+            top: r * rh - jy,
+            width: cw + 2,
+            height: rh + 2,
+            unit: "px",
+          });
+        } else {
+          out.push({
+            key: `${r}-${c}`,
+            color: cellColor(seed, i),
+            left: `${c * cw - jx}%` as `${number}%`,
+            top: `${r * rh - jy}%` as `${number}%`,
+            width: `${cw + 0.8}%` as `${number}%`,
+            height: `${rh + 0.8}%` as `${number}%`,
+            unit: "pct",
+          });
+        }
       }
     }
     return out;
-  }, [partnerLabel, title, compact]);
+  }, [partnerLabel, title, compact, box.w, box.h]);
 
   const a11yLabel = [title, partnerLabel, buttonLabel || "Show video"]
     .filter(Boolean)
     .join(". ");
 
-  const content = (
-    <View
-      style={[
-        styles.root,
-        styles.rootFill,
-        compact && styles.rootCompact,
-        style,
-      ]}
-      collapsable={false}
-      pointerEvents={onPress ? "box-none" : "auto"}
-      accessible={!onPress}
-      accessibilityRole={onPress ? undefined : "image"}
-      accessibilityLabel={onPress ? undefined : a11yLabel}
-    >
+  const mosaic = (
+    <>
       {/* Opaque base — never transparent (transparent = black hole over stage) */}
-      <View style={styles.base} pointerEvents="none" collapsable={false} />
-      <View style={styles.grid} pointerEvents="none" collapsable={false}>
+      <View
+        style={styles.base}
+        pointerEvents="none"
+        collapsable={false}
+        removeClippedSubviews={false}
+      />
+      <View
+        style={styles.grid}
+        pointerEvents="none"
+        collapsable={false}
+        removeClippedSubviews={false}
+      >
         {cells.map((cell) => (
           <View
             key={cell.key}
@@ -173,77 +243,126 @@ export const PartnerBlurVeil = memo(function PartnerBlurVeil(
           </Text>
         </View>
       )}
-    </View>
+    </>
   );
+
+  // Shared fill: caller style (remoteFill / pipVideo) often sets transparent bg —
+  // apply it first, then forceOpaque so we never inherit a black hole.
+  const fillStyle = [
+    styles.root,
+    styles.rootFill,
+    compact && styles.rootCompact,
+    style,
+    styles.forceOpaque,
+  ];
 
   if (onPress) {
     return (
       <Pressable
-        style={[
-          styles.press,
-          styles.rootFill,
-          compact && styles.pressCompact,
-        ]}
+        style={fillStyle}
         onPress={onPress}
+        onLayout={onRootLayout}
         accessibilityRole="button"
         accessibilityLabel={a11yLabel}
         accessibilityHint={hint}
         collapsable={false}
+        // Android: mosaic cells must not be culled before first layout
+        removeClippedSubviews={false}
+        // Whole veil is the hit target (card uses pointerEvents none)
+        hitSlop={4}
       >
-        {content}
+        {mosaic}
       </Pressable>
     );
   }
-  return content;
+  return (
+    <View
+      style={fillStyle}
+      collapsable={false}
+      removeClippedSubviews={false}
+      pointerEvents="auto"
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel={a11yLabel}
+      onLayout={onRootLayout}
+    >
+      {mosaic}
+    </View>
+  );
 });
 
 const styles = StyleSheet.create({
-  press: {
-    flex: 1,
-    width: "100%",
-    height: "100%",
-  },
-  pressCompact: {
-    ...StyleSheet.absoluteFillObject,
-  },
   root: {
-    ...StyleSheet.absoluteFillObject,
-    // Modal parent uses flex:1 — also fill with flex when not absolute-sized
+    // Flex fill for Modal / flex parents first; absoluteFill for stage overlays
     flex: 1,
+    alignSelf: "stretch",
     width: "100%",
     height: "100%",
+    minWidth: 1,
+    minHeight: 120,
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 28,
     // Solid mid-tone — never #000 (OLED reads that as "broken camera")
-    backgroundColor: "#5a6a88",
+    backgroundColor: BLUR_VEIL_BASE,
+    opacity: 1,
     // Above residual SurfaceView holes on some Android OEMs
     zIndex: 40,
-    elevation: 24,
+    elevation: 28,
   },
-  // absoluteFill without flex can collapse inside Modal on some devices
+  // absoluteFill so stage overlays cover RTCView; keep flex for Modal hosts
   rootFill: {
+    ...StyleSheet.absoluteFillObject,
     flex: 1,
+    alignSelf: "stretch",
     width: "100%",
     height: "100%",
+    minWidth: 1,
+    minHeight: 120,
+    backgroundColor: BLUR_VEIL_BASE,
+    opacity: 1,
     zIndex: 40,
-    elevation: 24,
+    elevation: 28,
+  },
+  /** Applied last so caller transparent styles cannot punch a black hole. */
+  forceOpaque: {
+    backgroundColor: BLUR_VEIL_BASE,
+    // Never inherit opacity/transparent from parent remoteFill styles
+    opacity: 1,
   },
   rootCompact: {
     paddingHorizontal: 0,
+    minHeight: 48,
   },
   base: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "#45536c",
+    // Solid opaque base — if grid cells fail to layout, still not pure black
+    backgroundColor: BLUR_VEIL_BASE,
+    opacity: 1,
+    flex: 1,
+    width: "100%",
+    height: "100%",
+    minWidth: 1,
+    minHeight: 1,
+    zIndex: 0,
   },
   grid: {
+    // Percentage cells need parent with explicit flex:1 / height
     ...StyleSheet.absoluteFillObject,
+    flex: 1,
+    width: "100%",
+    height: "100%",
+    minWidth: 1,
+    minHeight: 1,
+    overflow: "hidden",
   },
   gridCell: {
     position: "absolute",
     borderRadius: 4,
-    opacity: 0.95,
+    // Full opacity — semi-transparent cells can look like a black hole over
+    // SurfaceView when the base layer fails to composite on some OEMs.
+    opacity: 1,
   },
   blob: {
     position: "absolute",

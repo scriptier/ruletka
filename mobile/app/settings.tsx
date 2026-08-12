@@ -565,6 +565,10 @@ function SettingsBody() {
                       profile.prefs.historySnaps === undefined
                         ? true
                         : !!profile.prefs.historySnaps,
+                    swipeSkip:
+                      profile.prefs.swipeSkip === undefined
+                        ? true
+                        : !!profile.prefs.swipeSkip,
                   });
                 }
                 const next = await replaceIdentity(String(uid), newName);

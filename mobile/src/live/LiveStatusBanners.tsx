@@ -1,10 +1,7 @@
 /**
- * Mute / blur status rows that sit in the bottom chrome (below the stage).
- * Never painted over the partner SurfaceView tile.
- *
- * When full-screen privacy Modal is open, pass showBlurBanner=false (Modal owns
- * unblur) — this only suppresses the blur row. Mute banners are independent of
- * Modal state and always show whenever theyMutedMe/partnerMuted are true.
+ * Privacy blur banner only (top strip under identity dock).
+ * Mute text banners ("They muted you" / "You muted · no sound") removed —
+ * mute state is the mid-stage icon only (user 2026-08-11 Android screenshot).
  */
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -14,6 +11,12 @@ export function LiveStatusBanners(props: {
   remoteBlurred?: boolean;
   /** Hide blur row when a full-screen Modal already covers privacy (default true when remoteBlurred). */
   showBlurBanner?: boolean;
+  /**
+   * top = under PartnerIdentityDock top strip (default for match UI).
+   * bottom = compact chips above control dock (legacy).
+   * default = slightly larger banners without strip chrome.
+   */
+  placement?: "default" | "bottom" | "top";
   theyMutedLabel: string;
   partnerMutedLabel: string;
   blurredLabel?: string;
@@ -21,58 +24,45 @@ export function LiveStatusBanners(props: {
   unblurLabel?: string;
 }) {
   const {
-    theyMutedMe,
-    partnerMuted,
     remoteBlurred,
     showBlurBanner = true,
-    theyMutedLabel,
-    partnerMutedLabel,
+    placement = "default",
     blurredLabel,
     onUnblur,
     unblurLabel,
   } = props;
 
+  // Mute text rows intentionally not rendered (theyMutedMe / partnerMuted).
+  void props.theyMutedMe;
+  void props.partnerMuted;
+  void props.theyMutedLabel;
+  void props.partnerMutedLabel;
+
   const blurRow = !!(remoteBlurred && showBlurBanner);
-  if (!theyMutedMe && !partnerMuted && !blurRow) return null;
+  if (!blurRow) return null;
+
+  const bottom = placement === "bottom";
+  const top = placement === "top";
 
   return (
     <View
-      style={styles.wrap}
+      style={[
+        styles.wrap,
+        bottom && styles.wrapBottom,
+        top && styles.wrapTop,
+      ]}
       accessibilityLiveRegion="polite"
       pointerEvents="box-none"
       collapsable={false}
     >
-      {theyMutedMe ? (
-        <View
-          style={[styles.banner, styles.theyMuted]}
-          accessibilityRole="alert"
-          collapsable={false}
-        >
-          <Text style={styles.bannerText}>
-            <Text importantForAccessibility="no" accessibilityElementsHidden>
-              🔇{" "}
-            </Text>
-            {theyMutedLabel}
-          </Text>
-        </View>
-      ) : null}
-      {partnerMuted ? (
-        <View
-          style={[styles.banner, styles.youMuted]}
-          accessibilityRole="alert"
-          collapsable={false}
-        >
-          <Text style={styles.bannerText}>
-            <Text importantForAccessibility="no" accessibilityElementsHidden>
-              🔇{" "}
-            </Text>
-            {partnerMutedLabel}
-          </Text>
-        </View>
-      ) : null}
       {blurRow ? (
         <Pressable
-          style={[styles.banner, styles.blurred]}
+          style={[
+            styles.banner,
+            bottom && styles.bannerBottom,
+            top && styles.bannerTop,
+            styles.blurred,
+          ]}
           onPress={onUnblur}
           accessibilityRole="button"
           accessibilityLabel={`${blurredLabel || "Privacy veil on"}${
@@ -80,7 +70,13 @@ export function LiveStatusBanners(props: {
           }`}
           collapsable={false}
         >
-          <Text style={styles.bannerText}>
+          <Text
+            style={[
+              styles.bannerText,
+              bottom && styles.bannerTextBottom,
+              top && styles.bannerTextTop,
+            ]}
+          >
             <Text importantForAccessibility="no" accessibilityElementsHidden>
               👁{" "}
             </Text>
@@ -105,6 +101,35 @@ const styles = StyleSheet.create({
       default: {},
     }),
   },
+  /** Tighter stack above bottom control rows (legacy) */
+  wrapBottom: {
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: 2,
+    gap: 4,
+  },
+  /**
+   * Full-width strip under PartnerIdentityDock top strip.
+   * High elevation so Android SurfaceView does not cover mute text.
+   */
+  wrapTop: {
+    paddingHorizontal: 10,
+    paddingTop: 6,
+    paddingBottom: 4,
+    gap: 5,
+    zIndex: 62,
+    ...Platform.select({
+      android: { elevation: 32 },
+      ios: {
+        // Keep readable over video when not using elevation
+        shadowColor: "#000",
+        shadowOpacity: 0.4,
+        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 2 },
+      },
+      default: {},
+    }),
+  },
   banner: {
     paddingVertical: 11,
     paddingHorizontal: 14,
@@ -116,6 +141,30 @@ const styles = StyleSheet.create({
         shadowColor: "#000",
         shadowOpacity: 0.35,
         shadowRadius: 6,
+        shadowOffset: { width: 0, height: 2 },
+      },
+      default: {},
+    }),
+  },
+  bannerBottom: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1.5,
+  },
+  /** Top strip: full-width readable alert, not a tiny bottom chip */
+  bannerTop: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 11,
+    borderWidth: 2,
+    width: "100%",
+    ...Platform.select({
+      android: { elevation: 12 },
+      ios: {
+        shadowColor: "#000",
+        shadowOpacity: 0.4,
+        shadowRadius: 8,
         shadowOffset: { width: 0, height: 2 },
       },
       default: {},
@@ -139,5 +188,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: "center",
     letterSpacing: 0.1,
+  },
+  bannerTextBottom: {
+    fontSize: 13,
+  },
+  bannerTextTop: {
+    fontSize: 14,
+    letterSpacing: 0.15,
   },
 });

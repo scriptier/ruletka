@@ -46,7 +46,7 @@ In-memory since hub process start — pair once after deploy to fill.
 | Color | Cause | What you do |
 |-------|--------|-------------|
 | **RED** | `relay_candidates=0` on offer or answer | Hard-refresh browser + install latest APK (`0.1.209+`) |
-| **YELLOW** | TURN allocates but `peer_usage HOT=0` | Media not through coturn — often **CREATE_PERMISSION 403 Forbidden IP** when peer is our own external-ip (relay-to-relay). Fix: `allowed-peer-ip=<PUBLIC>` + `external-ip=PUBLIC/PRIVATE` in coturn (see `scripts/deploy/coturn.conf`). |
+| **YELLOW** | TURN allocates but `peer_usage HOT=0` | Media not through coturn. Often: (1) CREATE_PERM **403** if `external-ip=PUBLIC` alone; (2) PERM ok but **peer_usage=0** if `external-ip=PUBLIC/VPC_PRIVATE` (peer rewritten to VPC, sockets on public). Fix: `external-ip=PUBLIC/PUBLIC` (see `scripts/deploy/coturn.conf`). |
 | **YELLOW** | answerer grace drops / offer thrash | Phone re-offering after answer — install latest APK |
 | **OK** | SDP healthy | If UI still black → client paint / SurfaceView |
 | **IDLE** | no matches | Start once on phone + PC |

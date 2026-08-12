@@ -1,5 +1,9 @@
 /**
- * Live bottom control rows: Start/Next/Stop + icon mic/cam/flip/friends/more.
+ * Live bottom control rows: Start/Next/Stop/Report + icon mic/cam/flip/friends/more.
+ *
+ * Primary bar (matched stranger / search):
+ *   Stop (left) · Report (middle, danger, matched stranger only) · Next (right)
+ * Friend call: Hangup alone. Idle: Start alone.
  *
  * Start → Next/Stop flips optimistically on press so the bar never
  * stays on "Start" while parent media/hub work is still starting.
@@ -39,14 +43,16 @@ export type LiveBottomBarProps = {
   labels: {
     start: string;
     next: string;
+    /** a11y: swipe or tap Next */
+    nextHint?: string;
     stayNext: (s: number) => string;
     stayLock: (s: number) => string;
     /** Next locked for grace: "Next · 2s" */
     nextGrace?: (s: number) => string;
     stop: string;
     hangup: string;
-    /** Combined safety: report + block + Next */
-    blockReport: string;
+    /** Report / block (matched stranger). */
+    report?: string;
     micOn: string;
     micOff: string;
     camOn: string;
@@ -70,7 +76,9 @@ export type LiveBottomBarProps = {
   onStart: () => void;
   onNext: () => void;
   onStop: () => void;
-  /** Opens report sheet (which also blocks). Only used when matched + stranger. */
+  /** Opens report sheet (matched stranger). Alias: onBlockReport. */
+  onReport?: () => void;
+  /** @deprecated use onReport */
   onBlockReport?: () => void;
   onToggleMic: () => void;
   onToggleCam: () => void;
@@ -103,6 +111,7 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
     onStart,
     onNext,
     onStop,
+    onReport,
     onBlockReport,
     onToggleMic,
     onToggleCam,
@@ -114,6 +123,8 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
     onOpenFriends,
     style,
   } = props;
+
+  const reportHandler = onReport ?? onBlockReport;
 
   // Immediate Start → Next/Stop; clear once parent phase catches up
   const [pendingSearch, setPendingSearch] = useState(false);
@@ -132,6 +143,11 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
     (barPhase === "idle" || barPhase === "error") && !friendsOnly;
   const showSearchControls =
     barPhase === "search" || barPhase === "matched";
+  /** Report only when live with a stranger (sheet also blocks). */
+  const showReport =
+    barPhase === "matched" &&
+    !isFriendCall &&
+    typeof reportHandler === "function";
 
   const micForcedOff = debateActive && !debateISpeak;
   const micLabel = micForcedOff
@@ -176,55 +192,7 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
         ) : null}
         {showSearchControls ? (
           <>
-            {!isFriendCall && !friendsOnly ? (
-              <Pressable
-                style={[
-                  styles.btnSecondary,
-                  (stayRemSecs > 0 || nextGraceRemSecs > 0) &&
-                    styles.btnStayLocked,
-                ]}
-                onPress={onNext}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  stayRemSecs > 0
-                    ? L.stayLock(stayRemSecs)
-                    : nextGraceRemSecs > 0 && L.nextGrace
-                      ? L.nextGrace(nextGraceRemSecs)
-                      : L.next
-                }
-                accessibilityState={{
-                  disabled: stayRemSecs > 0 || nextGraceRemSecs > 0,
-                }}
-                testID="live-next-btn"
-                hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-              >
-                <Text style={styles.btnText} importantForAccessibility="no">
-                  {stayRemSecs > 0
-                    ? L.stayNext(stayRemSecs)
-                    : nextGraceRemSecs > 0 && L.nextGrace
-                      ? L.nextGrace(nextGraceRemSecs)
-                      : L.next}
-                </Text>
-              </Pressable>
-            ) : null}
-            {/* Matched stranger: one safety control (report + block + Next) */}
-            {barPhase === "matched" &&
-            !isFriendCall &&
-            typeof onBlockReport === "function" ? (
-              <Pressable
-                style={styles.btnDanger}
-                onPress={onBlockReport}
-                accessibilityRole="button"
-                accessibilityLabel={L.blockReport}
-                testID="live-block-report-btn"
-                hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-                android_ripple={{ color: "rgba(255,255,255,0.12)" }}
-              >
-                <Text style={styles.btnText} importantForAccessibility="no">
-                  {L.blockReport}
-                </Text>
-              </Pressable>
-            ) : null}
+            {/* Order: Stop · Report · Next (friend call: Hangup only) */}
             <Pressable
               style={styles.btnGhost}
               onPress={() => {
@@ -240,6 +208,56 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
                 {isFriendCall ? L.hangup : L.stop}
               </Text>
             </Pressable>
+            {showReport ? (
+              <Pressable
+                style={styles.btnDanger}
+                onPress={() => reportHandler?.()}
+                accessibilityRole="button"
+                accessibilityLabel={L.report || "Report"}
+                testID="live-report-btn"
+                hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                android_ripple={{ color: "rgba(255,120,90,0.25)" }}
+              >
+                <Text style={styles.btnText} importantForAccessibility="no">
+                  {L.report || "⚑ Report"}
+                </Text>
+              </Pressable>
+            ) : null}
+            {!isFriendCall && !friendsOnly ? (
+              <Pressable
+                style={[
+                  styles.btnNext,
+                  (stayRemSecs > 0 || nextGraceRemSecs > 0) &&
+                    styles.btnStayLocked,
+                ]}
+                onPress={onNext}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  stayRemSecs > 0
+                    ? L.stayLock(stayRemSecs)
+                    : nextGraceRemSecs > 0 && L.nextGrace
+                      ? L.nextGrace(nextGraceRemSecs)
+                      : L.next
+                }
+                accessibilityState={{
+                  disabled: stayRemSecs > 0 || nextGraceRemSecs > 0,
+                }}
+                accessibilityHint={
+                  L.nextHint || "Skip to next person · or swipe partner video"
+                }
+                testID="live-next-btn"
+                hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                android_ripple={{ color: "rgba(255,255,255,0.2)" }}
+              >
+                <Text style={styles.btnText} importantForAccessibility="no">
+                  {stayRemSecs > 0
+                    ? L.stayNext(stayRemSecs)
+                    : nextGraceRemSecs > 0 && L.nextGrace
+                      ? L.nextGrace(nextGraceRemSecs)
+                      : L.next}
+                </Text>
+              </Pressable>
+            ) : null}
           </>
         ) : null}
       </View>

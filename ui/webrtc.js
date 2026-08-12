@@ -10,11 +10,13 @@
  * - Prefer direct P2P; self-hosted TURN is fallback via /config.json.
  */
 
-/** Pre-gather candidates before createOffer (faster first match). */
-// Pool=8 caused ALLOCATE storms + peer_usage=0 on force_relay pairs.
-const ICE_CANDIDATE_POOL_SIZE = 4;
-/** Pure relay (force_relay / Hide IP): tiny pool, UDP TURN only. */
-const ICE_RELAY_POOL_SIZE = 2;
+/** Pre-gather candidates before createOffer.
+ * LOCK 2026-08-10: ALWAYS 0. Pool≥2 caused ALLOCATE storms + 437
+ * mismatched-allocation + peer_usage≈0 (offer/answer OK, cams black forever).
+ */
+const ICE_CANDIDATE_POOL_SIZE = 0;
+/** Pure relay (force_relay / Hide IP): never pre-pool TURN. */
+const ICE_RELAY_POOL_SIZE = 0;
 
 const DEFAULT_ICE = {
   iceServers: [
@@ -114,8 +116,8 @@ function setSessionForceRelay(on) {
     } catch (_) {}
   }
   applyIceDirectPreference();
-  // force_relay = pure iceTransportPolicy=relay (same-IP hairpin). Hybrid
-  // policy=all left host preferred → peer_usage≈0 / both cams black (2026-08-10).
+  // force_relay = pure iceTransportPolicy=relay (hide_ip / untrusted / same public IP).
+  // pool=0 — never pre-ALLOCATE pool (437 storms).
   if (was !== next && typeof warmIcePool === "function") {
     try {
       const want = next ? "relay" : "all";
@@ -125,6 +127,7 @@ function setSessionForceRelay(on) {
         );
       } else {
         clearIceWarm();
+        // preferRelay only when arming pure; do not warm empty pool
         warmIcePool({ force: true, preferRelay: !!next });
       }
     } catch (_) {}
@@ -241,24 +244,24 @@ function udpTurnOnly(servers) {
 }
 
 /**
- * Strip to typ relay only — Hide IP privacy (true pure).
- * Hub force_relay uses stripHostCandidates (host only) so srflx+relay remain.
+ * Strip to typ relay only — pure modes only:
+ * Hide IP privacy + hub force_relay (hide_ip / untrusted / same public IP).
+ * Normal (force_relay=false): NEVER pure-filter — keep private hosts.
  * @returns {boolean}
  */
 function shouldFilterToRelayCandidates() {
-  return hideIpRelayOnlyEnabled();
+  return hideIpRelayOnlyEnabled() || sessionForceRelayEnabled();
 }
 
 /**
- * Drop typ host (incl. mDNS) under hub force_relay — keep srflx+relay.
- * Pure hide_ip uses shouldFilterToRelayCandidates instead.
+ * Drop typ host under pure-relay modes only. Normal path keeps private
+ * host candidates (Android 192.168.x → Chrome prflx). mDNS still stripped.
  * @returns {boolean}
  */
 function shouldStripHostCandidates() {
-  return (
-    sessionForceRelayEnabled() ||
-    hideIpRelayOnlyEnabled()
-  );
+  // Pure modes already strip non-relay via shouldFilterToRelayCandidates.
+  // Host-only strip is unused when pure; keep for belt if called alone.
+  return hideIpRelayOnlyEnabled() || sessionForceRelayEnabled();
 }
 
 /**
@@ -284,9 +287,10 @@ function stripHostCandidatesFromSdp(sdp) {
 }
 
 /**
- * Wait for typ relay in first SDP when pure-relay (hide/force) OR when TURN
- * is available (hybrid fallback). Same-WiFi host/mDNS often fails Chrome↔Android
- * with relay_candidates=0 → both black (2026-08-10). Short wait only for hybrid.
+ * Wait for typ relay before first SDP emit when TURN is available.
+ * Same-LAN web↔android (2026-08-10 20:19): offer relay_candidates=0, answer=1,
+ * force_relay=false → host/srflx hairpin dead, media max_rb STUN-only.
+ * Chrome has no private host (mDNS stripped); without relay in offer both black.
  * @returns {boolean}
  */
 function shouldWaitForFirstRelay() {
@@ -294,6 +298,7 @@ function shouldWaitForFirstRelay() {
     if (preferDirectOnlyEnabled()) return false;
   } catch (_) {}
   if (hideIpRelayOnlyEnabled() || sessionForceRelayEnabled()) return true;
+  // Hybrid: still wait briefly so first SDP carries typ relay for NAT/hairpin fail
   try {
     const raw = lastRawIceServers || iceConfig?.iceServers || [];
     return (raw || []).some((s) => {
@@ -305,10 +310,14 @@ function shouldWaitForFirstRelay() {
   }
 }
 
-/** Max ms to wait for first typ relay before emit (hybrid short, pure longer). */
+/** Max ms to wait for first typ relay before emit. */
 function relayWaitBudgetMs() {
-  if (hideIpRelayOnlyEnabled() || sessionForceRelayEnabled()) return 1200;
-  return 550;
+  // Pure same-IP: first relay often lands ~0.8–1.5s; cap so mto isn't stuck at 1.7s+.
+  // waitForIceGatherRelayOrDone exits early on first typ relay (does not always burn full budget).
+  // Hop3: 1100→850; hop7: 850→700; hop8: 700→600 — rebuild-if-n=0 belt still on pure offer.
+  if (hideIpRelayOnlyEnabled() || sessionForceRelayEnabled()) return 600;
+  // Hop7 hybrid: first-pass 400. Hop8: 350 — still wait when TURN present.
+  return 350;
 }
 
 /**
@@ -523,25 +532,32 @@ function applyIceDirectPreference() {
       console.warn("[webrtc] hide_ip wanted TURN empty — fail-open all");
     }
   } else if (forceRelay) {
-    // Same-IP force_relay: NOT pure policy=relay (CREATE_PERM to 10.x only +
-    // peer_usage=0 / both black). Use policy=all + UDP TURN + STUN, strip
-    // host/mDNS in SDP/trickle so ICE prefers srflx then relay hairpin.
+    // Hub force_relay (hide_ip / untrusted / same public IP):
+    // pure policy=relay + ONE UDP TURN + pool=0. Pool≥2 caused 437 storms.
     const turnOnly = filterIceServersByMode(raw, "turn");
-    const stun = filterIceServersByMode(raw, "stun");
     let turn = udpTurnOnly(preferFastTurnFirst(turnOnly));
     if (!turn.length) turn = preferFastTurnFirst(turnOnly);
     if (turn.length > 1) turn = turn.slice(0, 1);
-    servers = preferFastTurnFirst([...turn, ...stun]);
-    iceTransportPolicy = "all";
+    if (turn.length) {
+      servers = turn;
+      iceTransportPolicy = "relay";
+    } else {
+      // Fail-open: keep hosts/STUN if TURN missing (never black forever)
+      servers = preferFastTurnFirst(raw);
+      iceTransportPolicy = "all";
+      console.warn("[webrtc] force_relay no TURN — fail-open all");
+    }
     poolSize = 0;
   } else if (directOnly) {
     servers = filterIceServersByMode(raw, "stun");
     if (!servers.length) servers = DEFAULT_ICE.iceServers;
     iceTransportPolicy = "all";
   } else {
+    // Normal (force_relay=false): policy=all, STUN+TURN, keep private hosts.
+    // TURN is fail-open (trickle); do not strip hosts.
     servers = preferFastTurnFirst(raw);
     iceTransportPolicy = "all";
-    poolSize = 2;
+    poolSize = 0;
   }
 
   iceConfig = {
@@ -647,8 +663,11 @@ function getIceConfig() {
 
 /**
  * Pre-gather ICE + TURN allocate while user is in the queue.
- * PreferRelay: build relay-policy PC even before match force_relay so Play↔browser
- * promote-to-call reuses a warm ALLOCATE (biggest first-frame win).
+ * PreferRelay: build relay-policy PC when pure is active (hide / session force).
+ * Pure: one createOffer+setLocal on warm PC (pool=0), mark primed on first typ
+ * relay, then rollback. takeWarmPc never promotes pure (clean rebuild) — avoids
+ * dirty datachannel SDP / setLocal race; pendingWarmRelayPrimed trims offer wait.
+ * Hybrid: promote empty PC object only (no pre-ALLOCATE; pool=0 forever).
  * @param {{ force?: boolean, preferRelay?: boolean }} [opts]
  * @returns {void}
  */
@@ -657,6 +676,11 @@ let iceWarmPc = null;
 let iceWarmPolicy = "";
 /** True once warm PC has completed at least one TURN ALLOCATE / relay candidate. */
 let iceWarmPrimed = false;
+/**
+ * When takeWarmPc closes a dirty pure-warm offer, preserve primed for the fresh
+ * real PC so offer/answer can use a slightly tighter first-relay wait.
+ */
+let pendingWarmRelayPrimed = false;
 function warmIcePool(opts = {}) {
   try {
     applyIceDirectPreference();
@@ -669,10 +693,15 @@ function warmIcePool(opts = {}) {
       const urls = Array.isArray(s.urls) ? s.urls : s.urls ? [s.urls] : [];
       return urls.some((u) => /^turns?:/i.test(String(u || "")));
     });
-    // Pure-relay warm ONLY for Hide IP (or explicit preferRelay + hide).
-    // Hub force_relay warms hybrid (policy=all, UDP TURN) — strip host at emit.
-    const wantPureRelay = hideIpRelayOnlyEnabled() || !!opts.preferRelay;
-    if (wantPureRelay && hasTurn && hideIpRelayOnlyEnabled()) {
+    // Pure-relay warm only when pure mode is actually active (hide / hub force).
+    // preferRelay at match (after setSessionForceRelay) arms pure; never sticky
+    // pure on Spin/Next when preferRelay alone without hide/force.
+    const pureNow =
+      hideIpRelayOnlyEnabled() ||
+      sessionForceRelayEnabled() ||
+      (!!opts.preferRelay &&
+        (hideIpRelayOnlyEnabled() || sessionForceRelayEnabled()));
+    if (pureNow && hasTurn) {
       const turnOnly = filterIceServersByMode(raw, "turn");
       if (turnOnly.length) {
         let udp = udpTurnOnly(preferFastTurnFirst(turnOnly));
@@ -686,7 +715,7 @@ function warmIcePool(opts = {}) {
         };
       }
     } else if (hasTurn) {
-      // Normal + force_relay hybrid: TURN first + STUN, policy all
+      // Normal / same-LAN: TURN + STUN, policy all — keep host path
       const turnOnly = filterIceServersByMode(raw, "turn");
       const stun = filterIceServersByMode(raw, "stun");
       let turn = udpTurnOnly(preferFastTurnFirst(turnOnly));
@@ -701,7 +730,8 @@ function warmIcePool(opts = {}) {
     }
     const policy =
       cfg.iceTransportPolicy === "relay" ? "relay" : "all";
-    if (iceWarmPc && iceWarmPolicy === policy && iceWarmPrimed && !opts.force) {
+    // Keep same-policy warm whether primed or still allocating (no multi-ALLOCATE).
+    if (iceWarmPc && iceWarmPolicy === policy && !opts.force) {
       return;
     }
     clearIceWarm();
@@ -711,12 +741,57 @@ function warmIcePool(opts = {}) {
     try {
       iceWarmPc.createDataChannel("ruletka-warm");
     } catch (_) {}
-    // Pure-relay warm: do NOT createOffer (ALLOCATE storm + dirty SDP).
-    // Match path gathers one fresh relay on the real PC (pool=0).
-    iceWarmPrimed = policy !== "relay";
-    console.info(
-      "[webrtc] warmIcePool start policy=" + policy + " prime=skip"
-    );
+    if (policy === "relay") {
+      // Real pure ALLOCATE once (pool=0). Mark primed on first typ relay, then
+      // rollback (clean). takeWarmPc still clean-rebuilds pure — prime is for
+      // path-hot + __ruletWarmPrimed budget trim, not dirty SDP promote.
+      void (async () => {
+        const pc = iceWarmPc;
+        if (!pc) return;
+        /** Abort if takeWarmPc/clearIceWarm stole or closed this warm PC. */
+        const stillWarm = () =>
+          iceWarmPc === pc && !pc.__ruletWarmTaken;
+        try {
+          const offer = await pc.createOffer();
+          if (!stillWarm()) return;
+          await pc.setLocalDescription(offer);
+          if (!stillWarm()) return;
+          const n = await waitForIceGatherRelayOrDone(pc, 2000);
+          if (!stillWarm()) return;
+          if (n > 0) {
+            iceWarmPrimed = true;
+            console.info(
+              "[webrtc] warmIcePool pure prime ok relays=" + n
+            );
+          } else {
+            console.info("[webrtc] warmIcePool pure prime no-relay");
+          }
+          // Clean for promote: stable signaling, no dirty local offer
+          try {
+            if (stillWarm() && pc.signalingState === "have-local-offer") {
+              await pc.setLocalDescription({ type: "rollback" });
+            }
+          } catch (rbErr) {
+            if (stillWarm()) {
+              console.warn("[webrtc] warmIcePool pure rollback", rbErr);
+            }
+          }
+        } catch (e) {
+          if (stillWarm()) {
+            console.warn("[webrtc] warmIcePool pure prime", e);
+          }
+        }
+      })();
+      console.info(
+        "[webrtc] warmIcePool start policy=relay prime=allocate"
+      );
+    } else {
+      // Hybrid: PC object only (no pre-ALLOCATE; pool=0 forever)
+      iceWarmPrimed = true;
+      console.info(
+        "[webrtc] warmIcePool start policy=" + policy + " prime=skip"
+      );
+    }
   } catch (e) {
     console.warn("[webrtc] warmIcePool", e);
     iceWarmPc = null;
@@ -727,6 +802,9 @@ function warmIcePool(opts = {}) {
 
 function clearIceWarm() {
   try {
+    if (iceWarmPc) iceWarmPc.__ruletWarmTaken = true;
+  } catch (_) {}
+  try {
     iceWarmPc?.close();
   } catch (_) {}
   iceWarmPc = null;
@@ -735,13 +813,22 @@ function clearIceWarm() {
 }
 
 /**
- * Steal the queue warm PC for the real call (TURN already allocated).
+ * Steal the queue warm PC for the real call.
+ * Hybrid (policy=all): promote empty PC (no setLocal — safe).
+ * Pure (policy=relay): always clean-rebuild — warm ALLOCATE may leave
+ * have-local-offer or race setLocal onto a promoted media PC. Close warm,
+ * hand primed via pendingWarmRelayPrimed (VIDEO_PATH_LOCK clean rebuild).
  * @returns {RTCPeerConnection | null}
  */
 function takeWarmPc() {
   if (!iceWarmPc) return null;
   const pc = iceWarmPc;
   const wasPrimed = iceWarmPrimed;
+  const policy = iceWarmPolicy;
+  // Stop pure-warm async (setLocal must not land on a media PC)
+  try {
+    pc.__ruletWarmTaken = true;
+  } catch (_) {}
   iceWarmPc = null;
   iceWarmPolicy = "";
   iceWarmPrimed = false;
@@ -752,11 +839,47 @@ function takeWarmPc() {
     pc.oniceconnectionstatechange = null;
     pc.ondatachannel = null;
   } catch (_) {}
-  // Mark for connect() — skip long first-relay wait when TURN already allocated
+  // Pure: never promote (dirty SDP / in-flight setLocal race)
+  if (policy === "relay") {
+    try {
+      pc.close();
+    } catch (_) {}
+    pendingWarmRelayPrimed = wasPrimed;
+    return null;
+  }
+  // Hybrid or unexpected non-stable — close rather than ship dirty
+  try {
+    const st = pc.signalingState || "";
+    if (st && st !== "stable") {
+      try {
+        pc.close();
+      } catch (_) {}
+      pendingWarmRelayPrimed = wasPrimed;
+      return null;
+    }
+  } catch (_) {
+    try {
+      pc.close();
+    } catch (_) {}
+    pendingWarmRelayPrimed = wasPrimed;
+    return null;
+  }
   try {
     pc.__ruletWarmPrimed = wasPrimed;
   } catch (_) {}
   return pc;
+}
+
+/**
+ * Apply pending warm-prime flag onto a fresh PC after dirty warm was closed.
+ * @param {RTCPeerConnection | null | undefined} pc
+ */
+function applyPendingWarmPrimed(pc) {
+  if (!pc || !pendingWarmRelayPrimed) return;
+  try {
+    pc.__ruletWarmPrimed = true;
+  } catch (_) {}
+  pendingWarmRelayPrimed = false;
 }
 
 function warmPcPolicy() {
@@ -965,7 +1088,7 @@ function clampQualityTier(tier, ceiling) {
 
 /**
  * @typedef {object} WebRtcHooks
- * @property {(kind: 'offer'|'answer'|'ice'|'bye', payload: string, toPeerId?: string) => void} onSignal
+ * @property {(kind: 'offer'|'answer'|'ice'|'bye'|'av_path', payload: string, toPeerId?: string) => void} onSignal
  * @property {(stream: MediaStream) => void} [onRemoteStream]
  * @property {(state: string) => void} [onConnectionState]
  * @property {(ice: string) => void} [onIceConnectionState]
@@ -1157,12 +1280,14 @@ function lowLatencyAudioConstraints(extra = {}) {
 }
 
 /**
- * Pure iceTransportPolicy=relay — Hide IP privacy ONLY.
- * Hub force_relay is host-stripped hybrid (policy=all, no typ host) so TURN
- * hairpin can complete without pure-relay CREATE_PERM-to-10.x death.
+ * Pure iceTransportPolicy=relay — Hide IP privacy OR hub force_relay
+ * (hide_ip / untrusted / same public IP). pool=0 + single UDP TURN.
  */
 function isRelayMediaMode() {
   try {
+    if (typeof sessionForceRelayEnabled === "function" && sessionForceRelayEnabled()) {
+      return true;
+    }
     if (typeof hideIpRelayOnlyEnabled === "function" && hideIpRelayOnlyEnabled()) {
       return true;
     }
@@ -1229,6 +1354,9 @@ class RouletteWebRtc {
     this.sigSeq = 0;
     /** @type {HTMLVideoElement | null} */
     this._videoEl = null;
+    /** Remote audio/video ontrack order (audio-first black recovery). */
+    this._gotRemoteAudio = false;
+    this._gotRemoteVideo = false;
     this._qualityTier = "high";
     /** Max tier allowed (multi-party secondary links use "mid"/"low"). */
     this._qualityCeiling = "high";
@@ -1259,20 +1387,26 @@ class RouletteWebRtc {
   _emitSignal(kind, payload) {
     // Last line of defense: never put a second non-restart offer on the wire
     // for this match (hub debounce drop @~800ms → 18–20s black video).
+    // Only block if a prior offer actually emitted (_offerEmitOk / real stamp).
     if (kind === "offer") {
       try {
         const now = Date.now();
         const hard = window.__ruletMatchOfferAt || 0;
-        // Prefer explicit flag set by iceRestart path
         const iceRestart = !!this._emittingIceRestart;
-        if (!iceRestart && hard && now - hard < 20000) {
+        // 12s is enough to block thrash; 20s left no recovery until ~25s MTO
+        if (!iceRestart && hard && now - hard < 12000 && this._offerEmitOk) {
           console.info("[webrtc] blocked second offer emit", now - hard);
           return;
         }
-        if (!iceRestart) {
-          window.__ruletMatchOfferAt = now;
-          window.__ruletMatchOfferLock = 1;
-          window.__ruletMatchOfferAttemptAt = now;
+        // Stale stamp without emit (setLocal without wire) — clear fast
+        if (
+          !iceRestart &&
+          hard &&
+          !this._offerEmitOk &&
+          now - hard > 800
+        ) {
+          window.__ruletMatchOfferAt = 0;
+          window.__ruletMatchOfferLock = 0;
         }
       } catch (_) {}
     }
@@ -1843,6 +1977,10 @@ class RouletteWebRtc {
     if (!this.pc) {
       this.pc = new RTCPeerConnection(iceConfig);
     }
+    // Dirty pure-warm was closed in takeWarmPc — still mark path primed
+    try {
+      applyPendingWarmPrimed(this.pc);
+    } catch (_) {}
     this._pcBornAt = Date.now();
     this._relayPc =
       iceConfig.iceTransportPolicy === "relay" || wantPure;
@@ -1913,6 +2051,8 @@ class RouletteWebRtc {
         try {
           if (this.remoteStream) this.hooks.onRemoteStream?.(this.remoteStream);
         } catch (_) {}
+        void this.reportAvPath("connected");
+        this._armAvPathBeacons();
       }
       if (
         this.pc.connectionState === "failed" ||
@@ -1950,6 +2090,8 @@ class RouletteWebRtc {
         this._iceRestartCount = 0;
         this._startAdaptiveQuality();
         kickMediaAfterIce(this.pc);
+        void this.reportAvPath("ice_" + ice);
+        this._armAvPathBeacons();
         try {
           if (
             typeof window !== "undefined" &&
@@ -1958,11 +2100,21 @@ class RouletteWebRtc {
             void window.pushOutboundVideoTracks();
           }
         } catch (_) {}
-        // Force paint if track already present but element black
+        // Soft paint if track already present (hard rebind on ICE thrash = flicker)
         try {
           if (this._videoEl && this.remoteStream) {
-            this._videoEl.srcObject = this.remoteStream;
-            const p = this._videoEl.play?.();
+            const el = this._videoEl;
+            let painting = false;
+            try {
+              painting =
+                el.srcObject === this.remoteStream &&
+                el.videoWidth > 0 &&
+                el.readyState >= 2;
+            } catch (_) {}
+            if (!painting && el.srcObject !== this.remoteStream) {
+              el.srcObject = this.remoteStream;
+            }
+            const p = el.play?.();
             if (p && typeof p.catch === "function") p.catch(() => {});
           }
           if (this.remoteStream) this.hooks.onRemoteStream?.(this.remoteStream);
@@ -1980,6 +2132,23 @@ class RouletteWebRtc {
       } catch (_) {
         if (!this.remoteStream) this.remoteStream = new MediaStream();
       }
+      // Detect audio-first → video-later (PC often blacks if #remote bound audio-only)
+      let audioFirstVideoLater = false;
+      try {
+        if (ev.track?.kind === "video") {
+          const priorV = (this.remoteStream.getVideoTracks?.() || []).length;
+          const priorA = (this.remoteStream.getAudioTracks?.() || []).length;
+          audioFirstVideoLater =
+            !!this._gotRemoteAudio && !this._gotRemoteVideo && priorA > 0;
+          // also when stream already had audio and this is first video track add
+          if (!audioFirstVideoLater && priorA > 0 && priorV === 0) {
+            audioFirstVideoLater = true;
+          }
+          this._gotRemoteVideo = true;
+        } else if (ev.track?.kind === "audio") {
+          this._gotRemoteAudio = true;
+        }
+      } catch (_) {}
       try {
         const exists = this.remoteStream
           .getTracks()
@@ -1995,6 +2164,13 @@ class RouletteWebRtc {
         try {
           requestOutboundKeyframes(this.pc);
         } catch (_) {}
+        if (audioFirstVideoLater) {
+          try {
+            console.info(
+              "[webrtc] late video after audio — hard re-paint #remote + force play"
+            );
+          } catch (_) {}
+        }
       }
       // Ensure main remote element is bound (kickSolo may race)
       if (!this._videoEl && typeof document !== "undefined") {
@@ -2002,8 +2178,13 @@ class RouletteWebRtc {
           this._videoEl = document.getElementById("remote");
         } catch (_) {}
       }
-      const paint = () => {
+      // First video after audio needs one hard rebind; later paint waves must NOT
+      // null→srcObject thrash (PC browser flicker while linking).
+      let needHardVideoBind =
+        ev.track?.kind === "video" && audioFirstVideoLater;
+      const paint = (opts) => {
         if (!this.remoteStream) return;
+        const hard = !!(opts && opts.hard) || needHardVideoBind;
         // Prefer live #remote (may have been remounted by blank-watch)
         if (typeof document !== "undefined") {
           try {
@@ -2024,17 +2205,35 @@ class RouletteWebRtc {
             el.style.setProperty("visibility", "visible", "important");
             el.style.setProperty("z-index", "5", "important");
           } catch (_) {}
-          // Always rebind on video track so audio-first doesn't leave black
-          if (
-            el.srcObject !== this.remoteStream ||
-            ev.track?.kind === "video"
-          ) {
+          const same = el.srcObject === this.remoteStream;
+          let painting = false;
+          try {
+            painting = same && el.videoWidth > 0 && el.readyState >= 2;
+          } catch (_) {}
+          if (painting) {
+            // Already showing frames — never null-rebind (was PC flicker while linking)
+          } else if (same && !hard) {
+            // Same stream soft-attach: assign only if missing; never null thrash
             try {
-              if (el.srcObject && el.srcObject !== this.remoteStream) {
-                el.srcObject = null;
-              }
+              if (!el.srcObject) el.srcObject = this.remoteStream;
+            } catch (_) {
+              try {
+                el.srcObject = this.remoteStream;
+              } catch (_) {}
+            }
+          } else {
+            // Stream changed, or one-shot hard rebind after audio-first video
+            try {
+              if (hard && same) el.srcObject = null;
             } catch (_) {}
-            el.srcObject = this.remoteStream;
+            try {
+              el.srcObject = this.remoteStream;
+            } catch (_) {
+              try {
+                el.srcObject = this.remoteStream;
+              } catch (_) {}
+            }
+            if (hard) needHardVideoBind = false; // only once per late-video track
           }
           el.playsInline = true;
           // Autoplay: try unmuted; if blocked, mute then play (frames still show)
@@ -2058,8 +2257,13 @@ class RouletteWebRtc {
           } catch (_) {}
         } catch (_) {}
       };
-      paint();
+      // Hard only for audio→video upgrade; first pure video bind is soft assign
+      paint({
+        hard: needHardVideoBind,
+      });
       if (ev.track?.kind === "video") {
+        // Subsequent waves soft only
+        needHardVideoBind = false;
         try {
           if (
             typeof window !== "undefined" &&
@@ -2077,7 +2281,8 @@ class RouletteWebRtc {
                 (c.answerMs ?? "?") +
                 " track=" +
                 c.trackMs +
-                "ms kind=video"
+                "ms kind=video" +
+                (audioFirstVideoLater ? " late_after_audio" : "")
             );
             try {
               localStorage.setItem(
@@ -2093,14 +2298,15 @@ class RouletteWebRtc {
             } catch (_) {}
           }
         } catch (_) {}
-        setTimeout(paint, 40);
-        setTimeout(paint, 120);
-        setTimeout(paint, 350);
-        setTimeout(paint, 900);
-        setTimeout(paint, 2000);
+        // Fewer soft waves — old dense null→rebind waves flickered PC while linking
+        const waves = audioFirstVideoLater
+          ? [80, 250, 800, 2000]
+          : [120, 500, 1500];
+        for (const ms of waves) setTimeout(() => paint({ hard: false }), ms);
         try {
           if (typeof ev.track.addEventListener === "function") {
-            ev.track.addEventListener("unmute", paint);
+            const onUnmute = () => paint({ hard: false });
+            ev.track.addEventListener("unmute", onUnmute);
             ev.track.addEventListener("mute", () => {
               /* repaint on unmute */
             });
@@ -2108,6 +2314,17 @@ class RouletteWebRtc {
         } catch (_) {}
       }
       this.hooks.onRemoteStream?.(this.remoteStream);
+      // Late video: re-fire hook so live.js updates overlays (soft paint only)
+      if (audioFirstVideoLater) {
+        for (const ms of [200, 1000]) {
+          setTimeout(() => {
+            try {
+              paint({ hard: false });
+              this.hooks.onRemoteStream?.(this.remoteStream);
+            } catch (_) {}
+          }, ms);
+        }
+      }
     };
     // Answerer: remote offerer creates the chat channel
     this.pc.ondatachannel = (ev) => {
@@ -2239,14 +2456,39 @@ class RouletteWebRtc {
     // Already building an offer
     if (this._offerInFlight) return false;
     // Match-level gate: ONE offer per match for all PCs.
-    // Use a synchronous lock bit (not check-then-set) so two concurrent
-    // createOffer calls cannot both pass → hub drop ~800ms → 18s black video.
+    // Early returns MUST run before taking the lock — prior order set
+    // __ruletMatchOfferLock then returned on debounce/answered → lock stuck
+    // forever (hangTimer never armed) → offerKick no-op → hub MTO ~25s.
     try {
       if (typeof window !== "undefined") {
         const hard = window.__ruletMatchOfferAt || 0;
-        if (!iceRestart && hard && now - hard < 20000) {
+        // Only block if a prior offer actually left the wire.
+        if (!iceRestart && hard && now - hard < 12000 && this._offerEmitOk) {
           console.info("[webrtc] skip offer — match already offered", now - hard);
           return false;
+        }
+        // Stale stamp without emit — free so recovery can proceed (hop10: 500ms)
+        if (
+          !iceRestart &&
+          hard &&
+          !this._offerEmitOk &&
+          now - hard > 500
+        ) {
+          try {
+            window.__ruletMatchOfferAt = 0;
+            window.__ruletMatchOfferLock = 0;
+          } catch (_) {}
+        }
+        // Stale lock without emit (attempt >500ms, no _offerEmitOk) — free
+        if (!iceRestart && window.__ruletMatchOfferLock && !this._offerEmitOk) {
+          const att = window.__ruletMatchOfferAttemptAt || 0;
+          if (!att || now - att > 500) {
+            try {
+              window.__ruletMatchOfferLock = 0;
+              window.__ruletMatchOfferAttemptAt = 0;
+              if (!this._offerEmitOk) window.__ruletMatchOfferAt = 0;
+            } catch (_) {}
+          }
         }
         // iceRestart blocked 45s after first offer once answer exists.
         // Re-offer@20s on pure force_relay killed settling media (2026-08-10).
@@ -2262,15 +2504,6 @@ class RouletteWebRtc {
             earlyBlack ? "earlyBlack" : ""
           );
           return false;
-        }
-        if (!iceRestart) {
-          if (window.__ruletMatchOfferLock) {
-            console.info("[webrtc] skip offer — match offer lock held");
-            return false;
-          }
-          // Set lock BEFORE any await (atomic for single-threaded JS)
-          window.__ruletMatchOfferLock = 1;
-          window.__ruletMatchOfferAttemptAt = now;
         }
       }
     } catch (_) {}
@@ -2300,9 +2533,13 @@ class RouletteWebRtc {
       return false;
     }
     // One non-restart offer per PC lifetime (phone double-offer thrash)
-    if (!iceRestart && this._offerSentOnce) {
+    if (!iceRestart && this._offerSentOnce && this._offerEmitOk) {
       console.info("[webrtc] skip offer — already sent this PC");
       return false;
+    }
+    // Latch without wire — allow recovery createOffer
+    if (!iceRestart && this._offerSentOnce && !this._offerEmitOk) {
+      this._offerSentOnce = false;
     }
     // iceRestart grace. earlyBlack was 3.5s → offer thrash@4s (hub 20:27) and
     // peer_usage one-way STUN only. First path needs ≥15s before renego.
@@ -2364,10 +2601,11 @@ class RouletteWebRtc {
       );
       return false;
     }
-    // Block duplicate offers hard — phone promote + startCall glare thrash
-    // was 4 offer/answer pairs per match and killed media.
+    // Debounce only after a real wire emit (setLocal-without-emit used to
+    // stamp _lastOfferAt and block recovery for 8s → cascaded to 25s MTO).
     if (
       !iceRestart &&
+      this._offerEmitOk &&
       this._lastOfferAt &&
       now - this._lastOfferAt < 8000
     ) {
@@ -2397,9 +2635,32 @@ class RouletteWebRtc {
       console.info("[webrtc] skip offer — already have remote + ICE active");
       return false;
     }
+    // Take match lock ONLY after all early returns (atomic for single-thread JS).
+    try {
+      if (typeof window !== "undefined" && !iceRestart) {
+        if (window.__ruletMatchOfferLock && this._offerEmitOk) {
+          console.info("[webrtc] skip offer — match offer lock held (emit ok)");
+          return false;
+        }
+        // Concurrent first-offer race: if another call holds lock <500ms, skip
+        // (hop10: free faster so offerKick can re-emit; still blocks dual thrash)
+        if (window.__ruletMatchOfferLock) {
+          const att = window.__ruletMatchOfferAttemptAt || 0;
+          if (att && now - att < 500) {
+            console.info("[webrtc] skip offer — match offer lock held (racing)");
+            return false;
+          }
+          window.__ruletMatchOfferLock = 0;
+        }
+        window.__ruletMatchOfferLock = 1;
+        window.__ruletMatchOfferAttemptAt = now;
+      }
+    } catch (_) {}
     this._offerInFlight = true;
-    if (!iceRestart) this._offerSentOnce = true;
-    // Fail-open: hung createOffer must not hold match lock forever (24s MTO).
+    // Do NOT set _offerSentOnce until emit succeeds — early set blocked
+    // re-emit when localDescription existed but never hit the hub (MTO ~25s).
+    // Fail-open: hung createOffer must not hold match lock forever.
+    // Hop10: hang free @1000ms (was 1500) so denser offerKick can recover.
     const offerGen = (this._offerGen = (this._offerGen || 0) + 1);
     const hangTimer = setTimeout(() => {
       try {
@@ -2407,14 +2668,18 @@ class RouletteWebRtc {
         if (this._offerEmitOk) return;
         console.warn("[webrtc] createOffer hang — free locks for offerKick");
         this._offerInFlight = false;
-        if (!iceRestart) this._offerSentOnce = false;
+        if (!iceRestart) {
+          this._offerSentOnce = false;
+          // Allow retry: do not keep debounce stamp without wire
+          this._lastOfferAt = 0;
+        }
         if (typeof window !== "undefined" && !iceRestart) {
           window.__ruletMatchOfferAttemptAt = 0;
           window.__ruletMatchOfferLock = 0;
-          // Do not stamp __ruletMatchOfferAt — nothing left the wire
+          if (!this._offerEmitOk) window.__ruletMatchOfferAt = 0;
         }
       } catch (_) {}
-    }, 2500);
+    }, 1000);
     try {
       const offer = await this.pc.createOffer(
         iceRestart
@@ -2432,9 +2697,14 @@ class RouletteWebRtc {
       await this.pc.setLocalDescription(offer);
       if (this._offerGen !== offerGen) return false;
       // Include typ relay when possible (same-WiFi host/mDNS often fails).
+      // Always wait for real typ relay on THIS pc (never ship 0-relay pure).
+      // Early-exit on first relay; warmOk trims first-pass hard (search ALLOCATE hot).
       if (shouldWaitForFirstRelay()) {
         const warmOk = !!(this.pc && this.pc.__ruletWarmPrimed);
         const budget = relayWaitBudgetMs();
+        // Hop8: pure warm first-pass min(budget,400); pure cold = budget (600).
+        // Hybrid budget already 350. Early-exit on first typ relay.
+        const wait1 = warmOk ? Math.min(budget, 400) : budget;
         let n = 0;
         try {
           n = (
@@ -2444,10 +2714,19 @@ class RouletteWebRtc {
           ).length;
         } catch (_) {}
         if (n === 0) {
-          n = await waitForIceGatherRelayOrDone(this.pc, budget);
+          n = await waitForIceGatherRelayOrDone(this.pc, wait1);
         }
-        if (n === 0 && isRelayMediaMode()) {
-          n = await waitForIceGatherRelayOrDone(this.pc, budget + 800);
+        // Second short wait — pure cold 400 flat (was 500); warm/hybrid 300.
+        // rebuild-if-n=0 still belts product.ok; wait exits early on first relay.
+        if (n === 0) {
+          n = await waitForIceGatherRelayOrDone(
+            this.pc,
+            isRelayMediaMode()
+              ? warmOk
+                ? 300
+                : 400
+              : 300
+          );
         }
         console.info(
           "[webrtc] offer first-relay count=" +
@@ -2455,7 +2734,7 @@ class RouletteWebRtc {
             " warm=" +
             (warmOk ? 1 : 0) +
             " budget=" +
-            budget
+            wait1
         );
         // Pure relay only: rebuild once if still no relay.
         if (n === 0 && !opts._relayRetry && isRelayMediaMode()) {
@@ -2494,7 +2773,6 @@ class RouletteWebRtc {
         }
       }
       if (this._offerGen !== offerGen) return false;
-      this._lastOfferAt = Date.now();
       // Prefer localDescription (may include first relay after wait)
       let desc = this.pc.localDescription || offer;
       if (desc && desc.sdp) {
@@ -2518,7 +2796,10 @@ class RouletteWebRtc {
         }
       }
       this._emitSignal("offer", JSON.stringify(desc));
+      // Stamp only AFTER emit left the wire (was before → 8s debounce with no SDP)
+      this._lastOfferAt = Date.now();
       this._offerEmitOk = true;
+      if (!iceRestart) this._offerSentOnce = true;
       this._armStuckIceWatch();
       this._clearOfferWatchdog();
       try {
@@ -2550,6 +2831,18 @@ class RouletteWebRtc {
     } finally {
       clearTimeout(hangTimer);
       this._offerInFlight = false;
+      // offerGen abort / mid-return without emit must not leave lock stuck
+      try {
+        if (
+          typeof window !== "undefined" &&
+          !iceRestart &&
+          !this._offerEmitOk
+        ) {
+          window.__ruletMatchOfferLock = 0;
+          window.__ruletMatchOfferAttemptAt = 0;
+          if (!this._offerEmitOk) window.__ruletMatchOfferAt = 0;
+        }
+      } catch (_) {}
     }
   }
 
@@ -2738,13 +3031,27 @@ class RouletteWebRtc {
     try {
       if (!this._videoEl || !this.remoteStream) return;
       const el = this._videoEl;
+      // Soft if already painting — null rebind causes visible flicker mid-link
+      let painting = false;
       try {
-        el.srcObject = null;
+        painting =
+          el.srcObject === this.remoteStream &&
+          el.videoWidth > 0 &&
+          el.readyState >= 2;
       } catch (_) {}
-      try {
-        el.srcObject = this.remoteStream;
-      } catch (_) {
-        el.srcObject = this.remoteStream;
+      if (!painting) {
+        const same = el.srcObject === this.remoteStream;
+        try {
+          // Only hard-null when stuck black (not every black_watch tick)
+          if (same && !(el.videoWidth > 0)) el.srcObject = null;
+        } catch (_) {}
+        try {
+          el.srcObject = this.remoteStream;
+        } catch (_) {
+          try {
+            el.srcObject = this.remoteStream;
+          } catch (_) {}
+        }
       }
       const play = el.play?.();
       if (play && typeof play.catch === "function") play.catch(() => {});
@@ -2874,6 +3181,8 @@ class RouletteWebRtc {
   }
 
   async handleRemoteSignal(kind, payload) {
+    // Peer echo of hub forensics beacon — never apply / never create a PC for it.
+    if (kind === "av_path") return;
     if (kind === "offer") this._pendingRemoteOfferSince = Date.now();
     if (!this.pc) await this.connect();
     if (kind === "offer") {
@@ -3008,9 +3317,13 @@ class RouletteWebRtc {
       } catch (e) {
         console.warn("[webrtc] setLocal answer failed", e);
       }
-      // Pure-relay / TURN path: wait briefly for typ relay in answer SDP.
+      // Pure-relay / hybrid-with-TURN: wait for typ relay in answer SDP.
+      // Hop8: same schedule as offer (cold pure 600 / warm first 400 / hybrid 350).
+      // Early-exit on first typ relay; fail-open strip belts unchanged.
       if (shouldWaitForFirstRelay()) {
         const warmOk = !!(this.pc && this.pc.__ruletWarmPrimed);
+        const budget = relayWaitBudgetMs();
+        const wait1 = warmOk ? Math.min(budget, 400) : budget;
         let n = 0;
         try {
           n = (
@@ -3020,30 +3333,48 @@ class RouletteWebRtc {
           ).length;
         } catch (_) {}
         if (n === 0) {
-          n = await waitForIceGatherRelayOrDone(this.pc, warmOk ? 500 : 800);
+          n = await waitForIceGatherRelayOrDone(this.pc, wait1);
         }
+        // Second wait: pure cold 400; warm/hybrid 300 (hop8).
         if (n === 0) {
-          n = await waitForIceGatherRelayOrDone(this.pc, 1500);
+          n = await waitForIceGatherRelayOrDone(
+            this.pc,
+            isRelayMediaMode()
+              ? warmOk
+                ? 300
+                : 400
+              : 300
+          );
         }
         console.info(
           "[webrtc] answer first-relay count=" +
             n +
             " warm=" +
-            (warmOk ? 1 : 0)
+            (warmOk ? 1 : 0) +
+            " budget=" +
+            wait1
         );
       }
       let ansDesc = this.pc.localDescription || answer;
-      if (ansDesc && shouldFilterToRelayCandidates() && ansDesc.sdp) {
-        ansDesc = {
-          type: ansDesc.type,
-          sdp: stripNonRelayCandidatesFromSdp(String(ansDesc.sdp)),
-        };
+      if (ansDesc && ansDesc.sdp) {
+        let sdp = String(ansDesc.sdp);
+        // Always drop Chrome mDNS host; keep private hosts on normal path.
+        sdp = stripMdnsHostCandidatesFromSdp(sdp);
+        if (shouldFilterToRelayCandidates()) {
+          sdp = stripNonRelayCandidatesFromSdp(sdp);
+        } else if (shouldStripHostCandidates()) {
+          sdp = stripHostCandidatesFromSdp(sdp);
+        }
+        ansDesc = { type: ansDesc.type, sdp };
       }
       this._emitSignal("answer", JSON.stringify(ansDesc));
       this._answeredAt = Date.now();
       this._clearOfferWatchdog();
       this._offerSentOnce = true;
       this._armStuckIceWatch();
+      // av-verify: beacon even if ICE never leaves checking (black path)
+      void this.reportAvPath("answer_sent");
+      this._armAvPathBeacons();
       try {
         if (typeof window !== "undefined" && window.__ruletConnectT0) {
           window.__ruletConnect = window.__ruletConnect || {};
@@ -3058,9 +3389,34 @@ class RouletteWebRtc {
       void this.applyQualityTier("low");
       this._armQualityRampAfterFrame();
       void iceFlush;
+      // After answer: re-bind outbound + keyframes so partner paints ASAP
+      try {
+        this.syncLocalTracksToPc();
+      } catch (_) {}
       try {
         kickMediaAfterIce(this.pc);
       } catch (_) {}
+      try {
+        if (
+          typeof window !== "undefined" &&
+          typeof window.pushOutboundVideoTracks === "function"
+        ) {
+          void window.pushOutboundVideoTracks();
+        }
+      } catch (_) {}
+      [120, 400, 1200].forEach((ms) => {
+        setTimeout(() => {
+          try {
+            kickMediaAfterIce(this.pc);
+            if (
+              typeof window !== "undefined" &&
+              typeof window.pushOutboundVideoTracks === "function"
+            ) {
+              void window.pushOutboundVideoTracks();
+            }
+          } catch (_) {}
+        }, ms);
+      });
     } else if (kind === "answer") {
       const raw = JSON.parse(payload);
       const desc = sanitizeRemoteDescription(raw);
@@ -3084,6 +3440,9 @@ class RouletteWebRtc {
         this._gotRemoteAnswerAt = Date.now();
         this._offerSentOnce = true;
         this._clearOfferWatchdog();
+        // av-verify: beacon while linking (ice=checking frames=0 still useful)
+        void this.reportAvPath("answer_applied");
+        this._armAvPathBeacons();
         try {
           if (typeof window !== "undefined") {
             window.__ruletMatchOfferAt =
@@ -3164,13 +3523,27 @@ class RouletteWebRtc {
     } else if (kind === "ice") {
       try {
         const c = JSON.parse(payload);
-        // Drop non-relay under force-relay — avoids coturn CREATE_PERMISSION 403
-        // on private host candidates from the peer.
+        // Drop non-relay under pure-relay (hide / hub force only).
         if (
           shouldFilterToRelayCandidates() &&
           c &&
           c.candidate &&
           !isRelayIceCandidate(c)
+        ) {
+          return;
+        }
+        // Drop Chrome mDNS host — Android cannot resolve *.local.
+        // Keep private host / srflx / relay for same-LAN prflx.
+        if (c && c.candidate && isMdnsHostIceCandidate(c)) {
+          return;
+        }
+        // Pure modes only: drop typ host if strip-host is armed (belt).
+        if (
+          shouldStripHostCandidates() &&
+          shouldFilterToRelayCandidates() &&
+          c &&
+          c.candidate &&
+          isHostIceCandidate(c)
         ) {
           return;
         }
@@ -3194,6 +3567,11 @@ class RouletteWebRtc {
     if (shouldFilterToRelayCandidates()) {
       batch = batch.filter(
         (c) => !c?.candidate || isRelayIceCandidate(c)
+      );
+    } else {
+      // Normal / same-LAN: drop mDNS only — keep private host for prflx
+      batch = batch.filter(
+        (c) => !c?.candidate || !isMdnsHostIceCandidate(c)
       );
     }
     if (!batch.length) return;
@@ -3231,9 +3609,16 @@ class RouletteWebRtc {
     } catch (_) {}
     this._chatDc = null;
     this._chatDcOpen = false;
+    try {
+      if (this._avPathTimer) clearInterval(this._avPathTimer);
+    } catch (_) {}
+    this._avPathTimer = 0;
+    this._avPathArmed = false;
     this.pc?.close();
     this.pc = null;
     this.remoteStream = null;
+    this._gotRemoteAudio = false;
+    this._gotRemoteVideo = false;
     if (!keepLocal) {
       this.localStream?.getTracks().forEach((t) => t.stop());
       this.localStream = null;
@@ -3243,6 +3628,68 @@ class RouletteWebRtc {
   /** @deprecated use closeCall */
   close() {
     this.closeCall({ keepLocal: false, sendBye: true });
+  }
+
+  /**
+   * Emit av_path signal for scripts/av-verify.sh (ICE pair + frames).
+   * @param {string} [why]
+   */
+  async reportAvPath(why = "tick") {
+    try {
+      if (!this.pc) return;
+      const snap = await collectAvPathSnapshot(this.pc, {
+        why: String(why || "tick").slice(0, 32),
+        platform: "web",
+        offerer: this.isOfferer ? 1 : 0,
+      });
+      this._emitSignal("av_path", JSON.stringify(snap));
+      try {
+        console.info(
+          "[av_path]",
+          snap.ice,
+          snap.local_type + "→" + snap.remote_type,
+          "fin=" + snap.frames_in,
+          "fout=" + snap.frames_out,
+          "ok=" + (snap.ok ? 1 : 0),
+          why
+        );
+      } catch (_) {}
+    } catch (_) {}
+  }
+
+  /**
+   * Periodic beacons while call alive (2s, 5s, 8s, 12s once + 8s interval).
+   * Armed after answer so black/checking paths still report ice+frames.
+   */
+  _armAvPathBeacons() {
+    if (this._avPathArmed) return;
+    this._avPathArmed = true;
+    // 8s wave: explicit "still linking" snapshot for av-verify black paths
+    const waves = [2000, 5000, 8000, 12000];
+    for (const ms of waves) {
+      setTimeout(() => {
+        if (!this.pc) return;
+        const why =
+          ms === 8000 &&
+          this.pc.iceConnectionState !== "connected" &&
+          this.pc.iceConnectionState !== "completed" &&
+          this.pc.connectionState !== "connected"
+            ? "linking_8s"
+            : "wave_" + ms;
+        void this.reportAvPath(why);
+      }, ms);
+    }
+    this._avPathTimer = setInterval(() => {
+      if (!this.pc) {
+        try {
+          clearInterval(this._avPathTimer);
+        } catch (_) {}
+        this._avPathTimer = 0;
+        this._avPathArmed = false;
+        return;
+      }
+      void this.reportAvPath("interval");
+    }, 8000);
   }
 }
 
@@ -3275,9 +3722,110 @@ async function listMediaDevices() {
   };
 }
 
+/**
+ * Compact getStats dump for av-verify (hub logs kind=av_path).
+ * @param {RTCPeerConnection | null | undefined} pc
+ * @param {Record<string, unknown>} [extra]
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function collectAvPathSnapshot(pc, extra = {}) {
+  /** @type {Record<string, unknown>} */
+  const out = {
+    v: 1,
+    t: Date.now(),
+    force_relay: !!(typeof sessionForceRelayEnabled === "function" && sessionForceRelayEnabled()),
+    hide_ip: !!(typeof hideIpRelayOnlyEnabled === "function" && hideIpRelayOnlyEnabled()),
+    policy: iceConfig?.iceTransportPolicy || "?",
+    ice: pc ? String(pc.iceConnectionState || "") : "no_pc",
+    cs: pc ? String(pc.connectionState || "") : "no_pc",
+    sig: pc ? String(pc.signalingState || "") : "no_pc",
+    ...extra,
+  };
+  if (!pc || typeof pc.getStats !== "function") return out;
+  try {
+    const report = await pc.getStats();
+    let framesIn = 0;
+    let framesOut = 0;
+    let bytesIn = 0;
+    let bytesOut = 0;
+    let audioIn = 0;
+    let audioOut = 0;
+    /** @type {string} */
+    let localType = "";
+    /** @type {string} */
+    let remoteType = "";
+    /** @type {string} */
+    let pairState = "";
+    /** @type {Record<string, { candidateType?: string, protocol?: string, address?: string }>} */
+    const cands = {};
+    report.forEach((r) => {
+      if (r.type === "local-candidate" || r.type === "remote-candidate") {
+        cands[r.id] = {
+          candidateType: r.candidateType,
+          protocol: r.protocol,
+          address: r.address || r.ip,
+        };
+      }
+    });
+    report.forEach((r) => {
+      if (r.type === "inbound-rtp" && (r.kind === "video" || r.mediaType === "video")) {
+        if (typeof r.framesReceived === "number") framesIn += r.framesReceived;
+        if (typeof r.bytesReceived === "number") bytesIn += r.bytesReceived;
+      }
+      if (r.type === "outbound-rtp" && (r.kind === "video" || r.mediaType === "video")) {
+        if (typeof r.framesEncoded === "number") framesOut += r.framesEncoded;
+        if (typeof r.bytesSent === "number") bytesOut += r.bytesSent;
+      }
+      if (r.type === "inbound-rtp" && (r.kind === "audio" || r.mediaType === "audio")) {
+        if (typeof r.bytesReceived === "number") audioIn += r.bytesReceived;
+      }
+      if (r.type === "outbound-rtp" && (r.kind === "audio" || r.mediaType === "audio")) {
+        if (typeof r.bytesSent === "number") audioOut += r.bytesSent;
+      }
+      if (r.type === "candidate-pair" && (r.nominated || r.selected)) {
+        pairState = String(r.state || "");
+        const loc = cands[r.localCandidateId];
+        const rem = cands[r.remoteCandidateId];
+        if (loc?.candidateType) localType = String(loc.candidateType);
+        if (rem?.candidateType) remoteType = String(rem.candidateType);
+        out.pair_proto = loc?.protocol || rem?.protocol || "";
+      }
+    });
+    // Fallback: best succeeded pair
+    if (!localType) {
+      report.forEach((r) => {
+        if (r.type === "candidate-pair" && r.state === "succeeded") {
+          const loc = cands[r.localCandidateId];
+          const rem = cands[r.remoteCandidateId];
+          if (loc?.candidateType) localType = String(loc.candidateType);
+          if (rem?.candidateType) remoteType = String(rem.candidateType);
+          pairState = pairState || "succeeded";
+        }
+      });
+    }
+    out.frames_in = framesIn;
+    out.frames_out = framesOut;
+    out.bytes_in = bytesIn;
+    out.bytes_out = bytesOut;
+    out.audio_in = audioIn;
+    out.audio_out = audioOut;
+    out.local_type = localType || "?";
+    out.remote_type = remoteType || "?";
+    out.pair = pairState || "?";
+    out.ok =
+      (framesIn > 2 || bytesIn > 8000) &&
+      (framesOut > 2 || bytesOut > 8000) &&
+      (out.ice === "connected" || out.ice === "completed");
+  } catch (e) {
+    out.stats_err = e instanceof Error ? e.message : String(e);
+  }
+  return out;
+}
+
 if (typeof window !== "undefined") {
   window.getIcePathKind = getIcePathKind;
   window.getIceMeta = getIceMeta;
+  window.collectAvPathSnapshot = collectAvPathSnapshot;
   window.RouletteWebRtc = RouletteWebRtc;
   window.listMediaDevices = listMediaDevices;
   window.loadRtcConfig = loadRtcConfig;

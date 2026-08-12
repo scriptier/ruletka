@@ -73,6 +73,8 @@ export async function applySenderEncoding(
     maxFramerate?: number;
     scaleResolutionDownBy?: number;
     degradationPreference?: string;
+    /** Default true — inactive encodings → framesEncoded=0 forever (RN). */
+    active?: boolean;
   }
 ): Promise<void> {
   if (!sender || typeof sender.getParameters !== "function") return;
@@ -81,7 +83,13 @@ export async function applySenderEncoding(
     if (!params.encodings || !params.encodings.length) {
       params.encodings = [{}];
     }
+    // Ensure every encoding is active (simulcast rows can default inactive)
+    for (const row of params.encodings) {
+      const enc = row as Record<string, unknown>;
+      if (opts.active !== false) enc.active = true;
+    }
     const enc = params.encodings[0] as Record<string, unknown>;
+    if (opts.active !== false) enc.active = true;
     if (opts.maxBitrate != null) enc.maxBitrate = opts.maxBitrate;
     if (opts.maxFramerate != null) enc.maxFramerate = opts.maxFramerate;
     if (opts.scaleResolutionDownBy != null) {

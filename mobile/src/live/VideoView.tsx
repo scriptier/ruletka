@@ -1,12 +1,15 @@
 /**
  * Stable RTCView wrapper.
  *
- * Working baseline (cameras linked): zOrder **≥ 1** so remote video paints
- * above the RN window. zOrder **0** sits behind opaque RN overlays (privacy
- * veil, bars, mute) — pair with a fully opaque cover, never leave bare.
+ * Android SurfaceView: zOrder ≥ 1 composites ABOVE the entire RN window
+ * (PartnerChrome cannot win with elevation). Partner remote stays **0** so RN
+ * chrome paints above; self PiP may use **2** when uncovered. zOrder **0** also
+ * sits behind opaque RN covers (bars, mute, partner-hide) — pair with a fully
+ * opaque cover, never leave bare over a transparent stage.
  *
- * Privacy blur: keep stream mounted at zOrder 0 + PartnerBlurVeil on top.
- * Do not remount on every layout tick (local cam blink).
+ * Privacy blur: parent keeps this view mounted while remoteBlurred and covers
+ * with PartnerBlurVeil (+ Android Modal). Unmount mid-call crashes WebRTC on
+ * some devices. Do not remount on every layout tick (local cam blink).
  */
 import { memo, useMemo } from "react";
 import {
@@ -41,6 +44,7 @@ export const VideoView = memo(function VideoView(props: {
   }, [stream, streamEpoch]);
 
   if (!stream || !url) {
+    // Mid-tone placeholder — never pure black (reads as broken camera on OLED)
     return <View style={[styles.videoPlaceholder, style]} />;
   }
   try {
@@ -50,7 +54,8 @@ export const VideoView = memo(function VideoView(props: {
     let zo = zOrder == null ? 1 : zOrder;
     if (zo > 2) zo = 2;
     if (zo < 0) zo = 0;
-    // If caller asks for 0 (mute/bars overlay path), keep 0; otherwise prefer ≥1.
+    // Key includes epoch + zOrder so unblur (0→1 + epoch bump) rebinds cleanly.
+    // Do not churn key on layout-only updates.
     return (
       <RTCView
         key={`rtc-${url}-e${streamEpoch ?? 0}-z${zo}`}
@@ -73,11 +78,13 @@ export const VideoView = memo(function VideoView(props: {
 const styles = StyleSheet.create({
   videoPlaceholder: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "#12151c",
+    // Not #000 — empty stage should not look like a privacy black hole
+    backgroundColor: "#1a2230",
     alignItems: "center",
     justifyContent: "center",
   },
   rtc: {
+    // Transparent so parent blurUnderlay / mosaic shows when zOrder 0
     backgroundColor: "transparent",
   },
   stageHint: { color: "#6b7a90", fontSize: 12, fontWeight: "600" },

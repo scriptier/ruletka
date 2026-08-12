@@ -98,6 +98,7 @@ Host: `ui/download/ruletka-android-latest.apk` and `ui/download/android.html`.
 | 11 | Mid-chat gift chips (afford → spend; can't-afford tap ≠ silent); report + block → toast + Next | |
 | 11b | Gift FX: **bars** lock, **balloons** rise, **confetti** fall | |
 | 11c | Soft toasts: cam on/off, partner muted-you, pass-mic, queue-joined, call-ended — auto-dismiss, no dialog | |
+| 11d | **Mute single-source:** mid-match "They muted you" appears **once** only (LiveStatusBanners) — not stage + banner + bottom stack | |
 | 12 | Rate sheet after long chat (no double prompt) | |
 | 13 | PiP: drag, snap to corner, double-tap swap | |
 | 14 | Data saver mid-call via More | |

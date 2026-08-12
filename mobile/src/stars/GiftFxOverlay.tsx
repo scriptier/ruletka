@@ -1,11 +1,13 @@
 /**
- * Gift FX overlays for Live — animated bars / balloons / confetti
- * (RN Animated only, no extra deps).
+ * Gift FX overlays for Live — closer to web live-stage.css particle FX.
+ * RN Animated only (no Lottie/extra deps). Keep RTC/SurfaceView usable:
+ * soft edge tint (not full mud), elevation above zOrder-0 RTCView.
  */
 import { memo, useEffect, useMemo, useRef } from "react";
 import {
   Animated,
   Easing,
+  Platform,
   StyleSheet,
   Text,
   View,
@@ -19,11 +21,12 @@ export const GIFT_FX_HOLD_MS: Record<string, number> = {
   // Hub bars duration 15s — keep full jail visual for sender + target
   bars: 15500,
   flowers: 2800,
-  balloons: 3600,
-  confetti: 3400,
+  balloons: 3800,
+  confetti: 4000,
   // Matches hub 5s duration (keep UI a beat longer for the handoff)
   pass_mic: 5200,
-  fireworks: 4000,
+  // Longer hold so multi-burst fireworks + spark trails finish on screen
+  fireworks: 5200,
   please_stay: 3500,
 };
 
@@ -58,6 +61,19 @@ const CONFETTI_COLORS = [
   "#ffffff",
   "#34d399",
   "#fbbf24",
+  "#ff6bcb",
+  "#22d3ee",
+];
+
+const FW_COLORS = [
+  "#ffd14a",
+  "#ff5a7a",
+  "#4db7ff",
+  "#a78bfa",
+  "#5ad48a",
+  "#ff8a3d",
+  "#ffffff",
+  "#f472b6",
 ];
 
 type BalloonSpec = {
@@ -81,43 +97,454 @@ type ConfettiSpec = {
   rot: number;
 };
 
-type Bit = {
+type FloatSpec = {
   key: string;
   emoji: string;
   left: number;
-  top: number;
   size: number;
+  delay: number;
+  dur: number;
+  sway: number;
+};
+
+type SparkSpec = {
+  key: string;
+  ang: number;
+  color: string;
+  dist: number;
+  size: number;
+};
+
+type BurstSpec = {
+  key: string;
+  cx: number;
+  cy: number;
+  delay: number;
+  scale: number;
+  sparks: SparkSpec[];
+  color: string;
 };
 
 function seedN(seed: number, i: number): number {
   return ((seed * 17 + i * 31) % 1000) / 10;
 }
 
-function staticBits(effect: string, seed: number): Bit[] {
-  const scatter = (emoji: string, count: number, sizeBase: number): Bit[] =>
-    Array.from({ length: count }, (_, i) => ({
-      key: `${effect}-${emoji}-${i}`,
-      emoji,
-      left: 4 + (seedN(seed, i) % 90),
-      top: 6 + ((seedN(seed, i + 3) * 1.3) % 82),
-      size: sizeBase + (i % 5) * 3,
+function floatSpecs(
+  emojis: string[],
+  count: number,
+  seed: number,
+  sizeBase: number
+): FloatSpec[] {
+  return Array.from({ length: count }, (_, i) => ({
+    key: `f-${i}`,
+    emoji: emojis[i % emojis.length],
+    left: 4 + ((seedN(seed, i) * 1.15) % 90),
+    size: sizeBase + (i % 6) * 2.5,
+    delay: (i % 10) * 110 + (i % 3) * 40,
+    dur: 2400 + (i % 7) * 320,
+    sway: ((i * 13) % 36) - 18,
+  }));
+}
+
+function confettiSpecs(seed: number): ConfettiSpec[] {
+  // Mix of ribbon / rect / circle for denser, less uniform fall
+  const shapes: ConfettiSpec["shape"][] = [
+    "rect",
+    "ribbon",
+    "circle",
+    "rect",
+    "ribbon",
+    "rect",
+    "circle",
+    "ribbon",
+  ];
+  const n = 72;
+  return Array.from({ length: n }, (_, i) => ({
+    key: `c-${i}`,
+    left: 1 + ((seedN(seed, i + 1) * 1.25) % 96),
+    size: 5 + (i % 9) * 1.55,
+    color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+    delay: (i % 16) * 65,
+    // Slightly longer fall so denser field stays visible
+    dur: 2300 + (i % 9) * 280,
+    shape: shapes[i % shapes.length],
+    rot: (i * 47) % 360,
+  }));
+}
+
+function balloonSpecs(seed: number): BalloonSpec[] {
+  const n = 20;
+  return Array.from({ length: n }, (_, i) => ({
+    key: `b-${i}`,
+    left: 2 + ((seedN(seed, i) * 1.1) % 94),
+    size: 24 + (i % 7) * 4,
+    color: BALLOON_COLORS[i % BALLOON_COLORS.length],
+    delay: (i % 10) * 150,
+    dur: 2700 + (i % 6) * 380,
+    drift: ((i * 17) % 44) - 22,
+  }));
+}
+
+function fireworkBursts(seed: number): BurstSpec[] {
+  // 5 staggered bursts across the stage (web-canvas density, RN Animated only)
+  const centers = [
+    { cx: 50, cy: 38 },
+    { cx: 28, cy: 48 },
+    { cx: 72, cy: 42 },
+    { cx: 42, cy: 28 },
+    { cx: 62, cy: 55 },
+  ];
+  return centers.map((c, bi) => {
+    // 20–28 sparks per burst for richer radial fans
+    const nSparks = 20 + (bi % 5) * 2;
+    const color = FW_COLORS[bi % FW_COLORS.length];
+    const sparks: SparkSpec[] = Array.from({ length: nSparks }, (_, si) => ({
+      key: `s-${bi}-${si}`,
+      ang: (360 / nSparks) * si + (seedN(seed, bi * 10 + si) % 12),
+      color: FW_COLORS[(bi + si) % FW_COLORS.length],
+      dist: 52 + (si % 6) * 11 + (bi % 2) * 10,
+      size: 3.5 + (si % 4) * 0.9,
     }));
-  switch (effect) {
-    case "heart":
-      return scatter("💖", 14, 18).concat(scatter("💗", 8, 14));
-    case "flowers":
-      return scatter("🌸", 12, 16)
-        .concat(scatter("🌺", 8, 14))
-        .concat(scatter("🌼", 6, 12));
-    case "fireworks":
-      return scatter("🎆", 8, 22)
-        .concat(scatter("🎇", 8, 18))
-        .concat(scatter("✨", 12, 12));
-    case "please_stay":
-      return scatter("🙏", 8, 18).concat(scatter("💛", 10, 14));
-    default:
-      return scatter("★", 10, 14);
-  }
+    return {
+      key: `burst-${bi}`,
+      cx: c.cx + ((seedN(seed, bi) % 10) - 5) * 0.4,
+      cy: c.cy + ((seedN(seed, bi + 2) % 8) - 4) * 0.35,
+      delay: bi * 420,
+      scale: 0.88 + (bi % 3) * 0.12,
+      sparks,
+      color,
+    };
+  });
+}
+
+/** Rising / floating emoji — matches web fx-heart-float spirit. */
+function FloatingEmoji(props: { spec: FloatSpec; mode?: "rise" | "drift" }) {
+  const { spec, mode = "rise" } = props;
+  const t = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    t.setValue(0);
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(spec.delay),
+        Animated.timing(t, {
+          toValue: 1,
+          duration: spec.dur,
+          easing: Easing.bezier(0.25, 0.4, 0.4, 1),
+          useNativeDriver: true,
+        }),
+        Animated.timing(t, { toValue: 0, duration: 1, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [spec.delay, spec.dur, spec.key, t]);
+
+  const translateY = t.interpolate({
+    inputRange: [0, 1],
+    outputRange: mode === "rise" ? [36, -420] : [20, -200],
+  });
+  const translateX = t.interpolate({
+    inputRange: [0, 0.35, 0.7, 1],
+    outputRange: [0, spec.sway * 0.35, spec.sway, spec.sway * 0.4],
+  });
+  const scale = t.interpolate({
+    inputRange: [0, 0.12, 0.55, 1],
+    outputRange: [0.55, 1.05, 1.12, 0.9],
+  });
+  const rotate = t.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: ["-8deg", "6deg", "-4deg"],
+  });
+  const opacity = t.interpolate({
+    inputRange: [0, 0.08, 0.82, 1],
+    outputRange: [0, 1, 0.92, 0],
+  });
+
+  return (
+    <Animated.Text
+      style={[
+        styles.floatEmoji,
+        {
+          left: `${spec.left}%`,
+          fontSize: spec.size,
+          opacity,
+          transform: [{ translateY }, { translateX }, { scale }, { rotate }],
+        },
+      ]}
+      importantForAccessibility="no"
+    >
+      {spec.emoji}
+    </Animated.Text>
+  );
+}
+
+function HeroPulse(props: { emoji: string; size?: number }) {
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 800,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 0,
+          duration: 800,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+  const scale = pulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.92, 1.14],
+  });
+  const opacity = pulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.78, 1],
+  });
+  return (
+    <Animated.Text
+      style={[
+        styles.heroEmoji,
+        {
+          fontSize: props.size ?? 56,
+          opacity,
+          transform: [{ scale }],
+        },
+      ]}
+      importantForAccessibility="no"
+    >
+      {props.emoji}
+    </Animated.Text>
+  );
+}
+
+/** Spark flight + core flash duration (ms) — long enough to read as trails. */
+const FW_SPARK_MS = 2500;
+const FW_GAP_MS = 280;
+
+function FireworkSpark(props: {
+  spec: SparkSpec;
+  delay: number;
+  burstScale: number;
+}) {
+  const { spec, delay, burstScale } = props;
+  const t = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    t.setValue(0);
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(delay),
+        Animated.timing(t, {
+          toValue: 1,
+          duration: FW_SPARK_MS,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.delay(FW_GAP_MS),
+        Animated.timing(t, { toValue: 0, duration: 1, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [delay, spec.key, t]);
+
+  const rad = (spec.ang * Math.PI) / 180;
+  const dist = spec.dist * burstScale;
+  const tx = Math.sin(rad) * dist;
+  const ty = -Math.cos(rad) * dist;
+  const translateX = t.interpolate({
+    inputRange: [0, 0.08, 1],
+    outputRange: [0, tx * 0.12, tx],
+  });
+  const translateY = t.interpolate({
+    inputRange: [0, 0.08, 1],
+    outputRange: [0, ty * 0.12, ty],
+  });
+  const scale = t.interpolate({
+    inputRange: [0, 0.1, 0.55, 1],
+    outputRange: [0.3, 1.25, 1, 0.28],
+  });
+  const opacity = t.interpolate({
+    inputRange: [0, 0.05, 0.48, 1],
+    outputRange: [0, 1, 0.92, 0],
+  });
+
+  return (
+    <Animated.View
+      style={[
+        styles.fwSpark,
+        {
+          width: spec.size,
+          height: spec.size,
+          borderRadius: spec.size,
+          backgroundColor: spec.color,
+          opacity,
+          transform: [{ translateX }, { translateY }, { scale }],
+          shadowColor: spec.color,
+        },
+      ]}
+    />
+  );
+}
+
+function FireworkBurst(props: { burst: BurstSpec }) {
+  const { burst } = props;
+  const core = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    core.setValue(0);
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(burst.delay),
+        Animated.timing(core, {
+          toValue: 1,
+          duration: FW_SPARK_MS,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.delay(FW_GAP_MS),
+        Animated.timing(core, { toValue: 0, duration: 1, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [burst.delay, burst.key, core]);
+
+  const coreScale = core.interpolate({
+    inputRange: [0, 0.08, 0.35, 1],
+    outputRange: [0.15, 1.65, 1.1, 0.25],
+  });
+  const bloomScale = core.interpolate({
+    inputRange: [0, 0.08, 0.35, 1],
+    outputRange: [0.3, 2.4, 1.6, 0.4],
+  });
+  const coreOp = core.interpolate({
+    inputRange: [0, 0.06, 0.4, 1],
+    outputRange: [0, 1, 0.9, 0],
+  });
+  const bloomOp = core.interpolate({
+    inputRange: [0, 0.06, 0.35, 1],
+    outputRange: [0, 0.42, 0.28, 0],
+  });
+
+  return (
+    <View
+      style={[
+        styles.fwBurst,
+        { left: `${burst.cx}%`, top: `${burst.cy}%` },
+      ]}
+      pointerEvents="none"
+    >
+      {/* Outer soft bloom for stronger flash */}
+      <Animated.View
+        style={[
+          styles.fwCoreBloom,
+          {
+            backgroundColor: burst.color,
+            opacity: bloomOp,
+            transform: [{ scale: bloomScale }],
+            shadowColor: burst.color,
+          },
+        ]}
+      />
+      <Animated.View
+        style={[
+          styles.fwCore,
+          {
+            backgroundColor: burst.color,
+            opacity: coreOp,
+            transform: [{ scale: coreScale }],
+            shadowColor: burst.color,
+          },
+        ]}
+      />
+      {burst.sparks.map((s) => (
+        <FireworkSpark
+          key={s.key}
+          spec={s}
+          delay={burst.delay}
+          burstScale={burst.scale}
+        />
+      ))}
+    </View>
+  );
+}
+
+function FireworksLayer({ seed }: { seed: number }) {
+  const bursts = useMemo(() => fireworkBursts(seed), [seed]);
+  const emojis = useMemo(
+    () => floatSpecs(["✨", "✦", "★", "💫"], 14, seed + 3, 12),
+    [seed]
+  );
+  return (
+    <View style={styles.layer} pointerEvents="none">
+      {bursts.map((b) => (
+        <FireworkBurst key={b.key} burst={b} />
+      ))}
+      {emojis.map((s) => (
+        <FloatingEmoji key={s.key} spec={s} mode="drift" />
+      ))}
+      <View style={styles.fwEdge} />
+    </View>
+  );
+}
+
+function HeartLayer({ seed }: { seed: number }) {
+  const specs = useMemo(
+    () => floatSpecs(["💖", "💗", "❤️", "💕", "💓"], 22, seed, 16),
+    [seed]
+  );
+  return (
+    <View style={styles.layer} pointerEvents="none">
+      {specs.map((s) => (
+        <FloatingEmoji key={s.key} spec={s} />
+      ))}
+      <HeroPulse emoji="💖" size={58} />
+      <View style={styles.heartEdge} />
+    </View>
+  );
+}
+
+function FlowersLayer({ seed }: { seed: number }) {
+  const specs = useMemo(
+    () => floatSpecs(["🌸", "🌺", "🌼", "🌷", "💮", "🏵️"], 20, seed, 15),
+    [seed]
+  );
+  return (
+    <View style={styles.layer} pointerEvents="none">
+      {specs.map((s) => (
+        <FloatingEmoji key={s.key} spec={s} />
+      ))}
+      <HeroPulse emoji="🌸" size={48} />
+      <View style={styles.flowerEdge} />
+    </View>
+  );
+}
+
+function PleaseStayLayer({ seed }: { seed: number }) {
+  const specs = useMemo(
+    () => floatSpecs(["🙏", "💛", "✨", "🤝"], 14, seed, 16),
+    [seed]
+  );
+  return (
+    <View style={styles.layer} pointerEvents="none">
+      {specs.map((s) => (
+        <FloatingEmoji key={s.key} spec={s} mode="drift" />
+      ))}
+      <HeroPulse emoji="🙏" size={52} />
+      <View style={styles.stayLabelWrap} pointerEvents="none">
+        <Text style={styles.stayLabel}>Please stay</Text>
+      </View>
+      <View style={styles.stayEdge} />
+    </View>
+  );
 }
 
 /** Pass the mic — handoff motion (mic flies out, hand catches, label holds). */
@@ -246,12 +673,18 @@ function PassMicLayer(props: { caption?: string }) {
   return (
     <View style={styles.passMicRoot} pointerEvents="none">
       <Animated.Text
-        style={[styles.passMicBubble, { opacity: bubbleOp, left: "16%", top: "26%" }]}
+        style={[
+          styles.passMicBubble,
+          { opacity: bubbleOp, left: "16%", top: "26%" },
+        ]}
       >
         …
       </Animated.Text>
       <Animated.Text
-        style={[styles.passMicBubble, { opacity: bubbleOp, left: "28%", top: "38%" }]}
+        style={[
+          styles.passMicBubble,
+          { opacity: bubbleOp, left: "28%", top: "38%" },
+        ]}
       >
         💬
       </Animated.Text>
@@ -289,40 +722,6 @@ function PassMicLayer(props: { caption?: string }) {
       </Animated.View>
     </View>
   );
-}
-
-function balloonSpecs(seed: number): BalloonSpec[] {
-  const n = 16;
-  return Array.from({ length: n }, (_, i) => ({
-    key: `b-${i}`,
-    left: 3 + ((seedN(seed, i) * 1.1) % 92),
-    size: 22 + (i % 6) * 4,
-    color: BALLOON_COLORS[i % BALLOON_COLORS.length],
-    delay: (i % 8) * 180,
-    dur: 2800 + (i % 5) * 400,
-    drift: ((i * 17) % 40) - 20,
-  }));
-}
-
-function confettiSpecs(seed: number): ConfettiSpec[] {
-  const shapes: ConfettiSpec["shape"][] = [
-    "rect",
-    "rect",
-    "circle",
-    "ribbon",
-    "rect",
-  ];
-  const n = 42;
-  return Array.from({ length: n }, (_, i) => ({
-    key: `c-${i}`,
-    left: 2 + ((seedN(seed, i + 1) * 1.2) % 94),
-    size: 6 + (i % 7) * 1.8,
-    color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
-    delay: (i % 12) * 90,
-    dur: 2200 + (i % 6) * 280,
-    shape: shapes[i % shapes.length],
-    rot: (i * 47) % 360,
-  }));
 }
 
 function RisingBalloon(props: { spec: BalloonSpec }) {
@@ -378,14 +777,14 @@ function RisingBalloon(props: { spec: BalloonSpec }) {
 
   const translateY = y.interpolate({
     inputRange: [0, 1],
-    outputRange: [40, -420],
+    outputRange: [40, -460],
   });
   const translateX = x.interpolate({
     inputRange: [0, 1],
     outputRange: [0, spec.drift],
   });
 
-  const bodyH = spec.size * 1.15;
+  const bodyH = spec.size * 1.2;
   const bodyW = spec.size;
 
   return (
@@ -406,15 +805,13 @@ function RisingBalloon(props: { spec: BalloonSpec }) {
             width: bodyW,
             height: bodyH,
             backgroundColor: spec.color,
-            borderColor: "rgba(255,255,255,0.35)",
+            borderColor: "rgba(255,255,255,0.4)",
           },
         ]}
       >
         <View style={styles.balloonShine} />
       </View>
-      <View
-        style={[styles.balloonKnot, { backgroundColor: spec.color }]}
-      />
+      <View style={[styles.balloonKnot, { backgroundColor: spec.color }]} />
       <View style={styles.balloonString} />
     </Animated.View>
   );
@@ -453,19 +850,28 @@ function FallingConfetti(props: { spec: ConfettiSpec }) {
 
   const translateY = t.interpolate({
     inputRange: [0, 1],
-    outputRange: [-30, 480],
+    outputRange: [-40, 520],
   });
   const translateX = t.interpolate({
-    inputRange: [0, 0.5, 1],
-    outputRange: [0, (spec.left % 2 === 0 ? 14 : -12), (spec.left % 2 === 0 ? 22 : -18)],
+    inputRange: [0, 0.35, 0.7, 1],
+    outputRange: [
+      0,
+      spec.left % 2 === 0 ? 16 : -14,
+      spec.left % 2 === 0 ? -10 : 12,
+      spec.left % 2 === 0 ? 24 : -20,
+    ],
   });
   const rotate = rot.interpolate({
     inputRange: [0, 1],
-    outputRange: [`${spec.rot}deg`, `${spec.rot + 420}deg`],
+    outputRange: [`${spec.rot}deg`, `${spec.rot + 520}deg`],
   });
   const opacity = t.interpolate({
-    inputRange: [0, 0.08, 0.85, 1],
+    inputRange: [0, 0.05, 0.88, 1],
     outputRange: [0, 1, 0.95, 0],
+  });
+  const scale = t.interpolate({
+    inputRange: [0, 0.08, 1],
+    outputRange: [0.55, 1.08, 0.75],
   });
 
   const shapeStyle: ViewStyle =
@@ -477,7 +883,7 @@ function FallingConfetti(props: { spec: ConfettiSpec }) {
         }
       : spec.shape === "ribbon"
         ? {
-            width: spec.size * 1.4,
+            width: spec.size * 1.45,
             height: Math.max(3, spec.size * 0.28),
             borderRadius: 2,
           }
@@ -496,7 +902,7 @@ function FallingConfetti(props: { spec: ConfettiSpec }) {
           left: `${spec.left}%`,
           backgroundColor: spec.color,
           opacity,
-          transform: [{ translateY }, { translateX }, { rotate }],
+          transform: [{ translateY }, { translateX }, { rotate }, { scale }],
         },
       ]}
     />
@@ -542,11 +948,8 @@ export function BarsOverlay() {
 
   const barCount = 9;
   return (
-    <Animated.View
-      style={[styles.barsRoot, { transform: [{ scale: slam }] }]}
-    >
+    <Animated.View style={[styles.barsRoot, { transform: [{ scale: slam }] }]}>
       <View style={styles.barsShade} />
-      {/* Vertical steel bars */}
       <View style={styles.barsRow}>
         {Array.from({ length: barCount }).map((_, i) => (
           <View key={`v-${i}`} style={styles.barsCol}>
@@ -555,7 +958,6 @@ export function BarsOverlay() {
           </View>
         ))}
       </View>
-      {/* Horizontal rails */}
       <View style={[styles.barMetalH, { top: "18%" }]} />
       <View style={[styles.barMetalH, { top: "52%" }]} />
       <View style={[styles.barMetalH, { top: "82%" }]} />
@@ -589,12 +991,12 @@ function ConfettiLayer({ seed }: { seed: number }) {
       {specs.map((s) => (
         <FallingConfetti key={s.key} spec={s} />
       ))}
-      {["🎊", "🎉", "✨", "★", "💫", "💖"].map((em, i) => (
+      {["🎊", "🎉", "✨", "★", "💫", "💖", "✦"].map((em, i) => (
         <ConfettiEmoji
           key={em + i}
           emoji={em}
-          left={8 + i * 15}
-          delay={i * 140}
+          left={5 + i * 13}
+          delay={i * 120}
         />
       ))}
       <View style={styles.confettiEdge} />
@@ -614,7 +1016,7 @@ function ConfettiEmoji(props: {
         Animated.delay(props.delay),
         Animated.timing(t, {
           toValue: 1,
-          duration: 2800,
+          duration: 3200,
           easing: Easing.linear,
           useNativeDriver: true,
         }),
@@ -626,10 +1028,14 @@ function ConfettiEmoji(props: {
   }, [props.delay, t]);
   const translateY = t.interpolate({
     inputRange: [0, 1],
-    outputRange: [-20, 460],
+    outputRange: [-24, 520],
+  });
+  const rotate = t.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "360deg"],
   });
   const opacity = t.interpolate({
-    inputRange: [0, 0.1, 0.9, 1],
+    inputRange: [0, 0.08, 0.9, 1],
     outputRange: [0, 1, 1, 0],
   });
   return (
@@ -639,12 +1045,39 @@ function ConfettiEmoji(props: {
         {
           left: `${props.left}%`,
           opacity,
-          transform: [{ translateY }],
+          transform: [{ translateY }, { rotate }],
         },
       ]}
     >
       {props.emoji}
     </Animated.Text>
+  );
+}
+
+/** Soft edge vignette — web uses radial transparent center so faces stay clear. */
+function SoftTint(props: { kind: string }) {
+  const edge =
+    props.kind === "heart"
+      ? "rgba(255,80,140,0.22)"
+      : props.kind === "flowers"
+        ? "rgba(200,120,220,0.2)"
+        : props.kind === "fireworks"
+          ? "rgba(100,80,220,0.18)"
+          : props.kind === "please_stay"
+            ? "rgba(80,160,100,0.2)"
+            : props.kind === "balloons"
+              ? "rgba(255,120,200,0.14)"
+              : props.kind === "confetti"
+                ? "rgba(255,200,80,0.12)"
+                : props.kind === "pass_mic"
+                  ? "rgba(255,180,60,0.16)"
+                  : props.kind === "bars"
+                    ? "rgba(0,0,0,0.2)"
+                    : "rgba(0,0,0,0.12)";
+  return (
+    <View style={styles.softTintRoot} pointerEvents="none">
+      <View style={[styles.softTintEdge, { borderColor: edge }]} />
+    </View>
   );
 }
 
@@ -662,40 +1095,15 @@ export const GiftFxOverlay = memo(function GiftFxOverlay(props: {
   );
   if (!effect && !label) return null;
   const kind = (effect || "") as GiftKind | string;
-  const centerEmoji =
-    label?.match(/^\S+/)?.[0] ||
-    GIFTS.find((g) => g.id === kind)?.emoji ||
-    "★";
 
   const isBars = kind === "bars";
   const isBalloons = kind === "balloons";
   const isConfetti = kind === "confetti";
   const isPassMic = kind === "pass_mic";
-  const isAnimatedSpecial = isBars || isBalloons || isConfetti || isPassMic;
-
-  const bits = useMemo(
-    () => (isAnimatedSpecial ? [] : staticBits(kind || "heart", seed)),
-    [isAnimatedSpecial, kind, seed]
-  );
-
-  const tint =
-    kind === "bars"
-      ? { backgroundColor: "rgba(6,8,12,0.55)" }
-      : kind === "balloons"
-        ? { backgroundColor: "rgba(30,12,40,0.28)" }
-        : kind === "confetti"
-          ? { backgroundColor: "rgba(20,16,8,0.22)" }
-          : kind === "heart"
-            ? { backgroundColor: "rgba(120,20,50,0.42)" }
-            : kind === "flowers"
-              ? { backgroundColor: "rgba(80,40,90,0.4)" }
-              : kind === "fireworks"
-                ? { backgroundColor: "rgba(30,20,80,0.48)" }
-                : kind === "please_stay"
-                  ? { backgroundColor: "rgba(40,80,60,0.48)" }
-                  : kind === "pass_mic"
-                    ? { backgroundColor: "rgba(50,36,8,0.38)" }
-                    : { backgroundColor: "rgba(0,0,0,0.35)" };
+  const isHeart = kind === "heart";
+  const isFlowers = kind === "flowers";
+  const isFireworks = kind === "fireworks";
+  const isStay = kind === "please_stay";
 
   const a11y =
     label ||
@@ -704,57 +1112,57 @@ export const GiftFxOverlay = memo(function GiftFxOverlay(props: {
 
   return (
     <View
-      style={[styles.root, tint]}
+      style={[
+        styles.root,
+        Platform.OS === "android" ? styles.rootAndroid : null,
+      ]}
       pointerEvents="none"
       accessible
       accessibilityRole="image"
       accessibilityLiveRegion="polite"
       accessibilityLabel={a11y}
     >
+      {/* Soft edge only — avoid full-screen mud that made Android FX feel cheap */}
+      {!isBars ? <SoftTint kind={kind || "heart"} /> : null}
+
       {isBars ? <BarsOverlay /> : null}
       {isBalloons ? <BalloonsLayer seed={seed} /> : null}
       {isConfetti ? <ConfettiLayer seed={seed} /> : null}
       {isPassMic ? (
         <PassMicLayer caption={barsCaption || undefined} />
       ) : null}
+      {isHeart ? <HeartLayer seed={seed} /> : null}
+      {isFlowers ? <FlowersLayer seed={seed} /> : null}
+      {isFireworks ? <FireworksLayer seed={seed} /> : null}
+      {isStay ? <PleaseStayLayer seed={seed} /> : null}
 
-      {bits.map((b) => (
-        <Text
-          key={b.key}
-          style={[
-            styles.bit,
-            {
-              left: `${b.left}%`,
-              top: `${b.top}%`,
-              fontSize: b.size,
-            },
-          ]}
-          importantForAccessibility="no"
-        >
-          {b.emoji}
-        </Text>
-      ))}
-
-      {!isBars && !isPassMic ? (
-        <Text
-          style={[
-            styles.center,
-            isBalloons || isConfetti ? styles.centerSoft : null,
-          ]}
-          importantForAccessibility="no"
-        >
-          {centerEmoji}
-        </Text>
+      {/* Unknown effect fallback — still animate stars */}
+      {!isBars &&
+      !isBalloons &&
+      !isConfetti &&
+      !isPassMic &&
+      !isHeart &&
+      !isFlowers &&
+      !isFireworks &&
+      !isStay ? (
+        <View style={styles.layer} pointerEvents="none">
+          {floatSpecs(["★", "✨", "💫"], 16, seed, 14).map((s) => (
+            <FloatingEmoji key={s.key} spec={s} />
+          ))}
+          <HeroPulse
+            emoji={
+              label?.match(/^\S+/)?.[0] ||
+              GIFTS.find((g) => g.id === kind)?.emoji ||
+              "★"
+            }
+            size={48}
+          />
+        </View>
       ) : null}
 
       {isBars && barsCaption ? (
         <Text style={styles.sub} importantForAccessibility="no">
           {barsCaption}
-        </Text>
-      ) : null}
-      {kind === "please_stay" ? (
-        <Text style={styles.sub} importantForAccessibility="no">
-          🙏
         </Text>
       ) : null}
     </View>
@@ -766,30 +1174,60 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",
     justifyContent: "center",
-    zIndex: 12,
+    zIndex: 40,
     overflow: "hidden",
+  },
+  rootAndroid: {
+    elevation: 32,
   },
   layer: {
     ...StyleSheet.absoluteFillObject,
     overflow: "hidden",
   },
-  bit: {
+  softTintRoot: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  softTintEdge: {
+    ...StyleSheet.absoluteFillObject,
+    borderWidth: 3,
+    borderRadius: 4,
+    backgroundColor: "transparent",
+  },
+  floatEmoji: {
     position: "absolute",
-    opacity: 0.92,
-    textShadowColor: "#000",
-    textShadowRadius: 4,
+    bottom: 0,
+    marginLeft: -12,
+    textShadowColor: "rgba(0,0,0,0.55)",
+    textShadowRadius: 6,
+    textShadowOffset: { width: 0, height: 2 },
+    zIndex: 2,
   },
-  center: {
-    color: "#fff",
-    fontSize: 52,
+  heroEmoji: {
+    position: "absolute",
+    alignSelf: "center",
+    top: "38%",
+    textShadowColor: "rgba(255,80,140,0.55)",
+    textShadowRadius: 18,
+    textShadowOffset: { width: 0, height: 4 },
+    zIndex: 5,
+  },
+  stayLabelWrap: {
+    position: "absolute",
+    bottom: "16%",
+    alignSelf: "center",
+    zIndex: 6,
+  },
+  stayLabel: {
+    color: "#e8ffe8",
+    fontSize: 15,
     fontWeight: "800",
-    textShadowColor: "#000",
-    textShadowRadius: 14,
-    zIndex: 4,
-  },
-  centerSoft: {
-    fontSize: 40,
-    opacity: 0.92,
+    backgroundColor: "rgba(20,40,28,0.88)",
+    borderColor: "rgba(120,220,140,0.5)",
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 999,
+    overflow: "hidden",
   },
   passMicRoot: {
     ...StyleSheet.absoluteFillObject,
@@ -849,10 +1287,11 @@ const styles = StyleSheet.create({
     textShadowRadius: 4,
   },
   sub: {
+    position: "absolute",
+    bottom: "14%",
     color: "#e8eef7",
     fontSize: 15,
     fontWeight: "700",
-    marginTop: 10,
     textShadowColor: "#000",
     textShadowRadius: 6,
     zIndex: 5,
@@ -861,6 +1300,70 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 999,
     overflow: "hidden",
+  },
+  /* ── Fireworks ── */
+  fwBurst: {
+    position: "absolute",
+    width: 0,
+    height: 0,
+    zIndex: 3,
+  },
+  fwCoreBloom: {
+    position: "absolute",
+    width: 28,
+    height: 28,
+    marginLeft: -14,
+    marginTop: -14,
+    borderRadius: 999,
+    shadowOpacity: 1,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 0 },
+    // Android glow proxy (shadow* is iOS-only) — cores only, not every spark
+    elevation: 10,
+  },
+  fwCore: {
+    position: "absolute",
+    width: 14,
+    height: 14,
+    marginLeft: -7,
+    marginTop: -7,
+    borderRadius: 999,
+    shadowOpacity: 1,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 12,
+  },
+  fwSpark: {
+    position: "absolute",
+    marginLeft: -2,
+    marginTop: -2,
+    shadowOpacity: 0.95,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  fwEdge: {
+    ...StyleSheet.absoluteFillObject,
+    borderWidth: 2,
+    borderColor: "rgba(180,140,255,0.2)",
+    borderRadius: 4,
+  },
+  heartEdge: {
+    ...StyleSheet.absoluteFillObject,
+    borderWidth: 2,
+    borderColor: "rgba(255,120,170,0.28)",
+    borderRadius: 4,
+  },
+  flowerEdge: {
+    ...StyleSheet.absoluteFillObject,
+    borderWidth: 2,
+    borderColor: "rgba(220,140,255,0.24)",
+    borderRadius: 4,
+  },
+  stayEdge: {
+    ...StyleSheet.absoluteFillObject,
+    borderWidth: 2,
+    borderColor: "rgba(120,220,140,0.28)",
+    borderRadius: 4,
   },
   /* ── Bars ── */
   barsRoot: {
@@ -888,7 +1391,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#3a424c",
     borderWidth: 1,
     borderColor: "rgba(10,12,14,0.9)",
-    // Fake metal gradient via layered borders
     shadowColor: "#000",
     shadowOpacity: 0.55,
     shadowRadius: 3,
@@ -1004,7 +1506,7 @@ const styles = StyleSheet.create({
   confettiEmoji: {
     position: "absolute",
     top: 0,
-    fontSize: 16,
+    fontSize: 18,
     zIndex: 3,
     textShadowColor: "#000",
     textShadowRadius: 3,

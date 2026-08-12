@@ -1,9 +1,24 @@
 export type { LivePhase } from "./phase";
-export type { PeerPick } from "./matchPeers";
+export type { PeerPick, PartnerGeoApplyDecision } from "./matchPeers";
 export {
   normalizePeer,
   pickPeer,
   extraPeersFromMatch,
+  readNonNegInt,
+  readPeerStars,
+  readPeerTrust,
+  readPeerGeo,
+  shouldApplyPartnerGeo,
+  partnerGeoHasSignal,
+  displayPartnerStars,
+  mergePartnerStars,
+  mergePartnerTrust,
+  cleanPartnerLabel,
+  isHexIdLike,
+  isPlaceholderPartnerName,
+  isBetterPartnerDisplayName,
+  resolvePartnerDisplayName,
+  resolvePartnerDisplayNameWithSource,
 } from "./matchPeers";
 export {
   formatCallTimer,
@@ -25,11 +40,14 @@ export { LiveDebateChrome } from "./LiveDebateChrome";
 export { LiveMoreSheet } from "./LiveMoreSheet";
 export { LiveChatOverlay } from "./LiveChatOverlay";
 export { LiveGiftBar } from "./LiveGiftBar";
+export { PartnerIdentityDock } from "./PartnerIdentityDock";
 export { LiveQueueHints } from "./LiveQueueHints";
 export { LiveBottomBar } from "./LiveBottomBar";
 export { LiveMetaStrip } from "./LiveMetaStrip";
 export { LiveStageVideo } from "./LiveStageVideo";
-export { PartnerBlurVeil } from "./PartnerBlurVeil";
+export { BrandLoadingLoop } from "./BrandLoadingLoop";
+export { SwipeSkipOverlay } from "./SwipeSkipOverlay";
+export { PartnerBlurVeil, BLUR_VEIL_BASE } from "./PartnerBlurVeil";
 export { LiveStatusBanners } from "./LiveStatusBanners";
 export { LiveConnectSteps } from "./LiveConnectSteps";
 export { computeConnectSteps } from "./connectSteps";

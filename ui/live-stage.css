@@ -11797,50 +11797,45 @@ html.alone-searching .empty-alone-actions:not([hidden]) {
 
 /* ═══════════════════════════════════════════════════════════
    Chrome autohide (JS: .is-chrome-open + 3s idle timer)
-   Partner tile → partner mute / volume / blur (+ floor tray)
-   Local tile   → reverse / mic / hide / settings — ALWAYS on
-     (Settings was “gone” when rail autohid over a black preview)
+   ALL sides hide after idle:
+     Partner → left rail + floor tray + layout btn
+     Local   → right rail (Flip/Mic/Hide/Settings) + floor
+   Move/enter tile → show; 3s still → hide. Flyouts keep open.
    Touch: always show (.chrome-always / coarse media)
+   Use #tile-* IDs so we beat any residual layout !important pins.
    ═══════════════════════════════════════════════════════════ */
-html.chrome-autohide .tile-remote .side-rail-left,
-html.chrome-autohide .tile-remote .tile-floor-partner,
-/* Layout toggle may soft-hide; fullscreen is pinned below (never gone) */
-html.chrome-autohide .tile-remote .tile-layout-btn {
-  opacity: 0;
-  visibility: hidden;
+html.chrome-autohide #tile-remote.tile-remote > .side-rail.side-rail-left,
+html.chrome-autohide #tile-remote.tile-remote .side-rail-left,
+html.chrome-autohide #tile-remote.tile-remote .tile-floor-partner,
+html.chrome-autohide #tile-remote.tile-remote .tile-layout-btn,
+html.chrome-autohide #tile-local.tile-local > .side-rail.side-rail-right,
+html.chrome-autohide #tile-local.tile-local .side-rail-right,
+html.chrome-autohide #tile-local.tile-local .tile-floor-local {
+  opacity: 0 !important;
+  visibility: hidden !important;
   transition:
     opacity 0.22s ease,
     visibility 0.22s ease,
     transform 0.22s ease;
   pointer-events: none !important;
 }
-/* Local invite floor may still hide when empty; rail itself stays up */
-html.chrome-autohide .tile-local .tile-floor-local {
-  opacity: 0;
-  visibility: hidden;
-  transition:
-    opacity 0.22s ease,
-    visibility 0.22s ease,
-    transform 0.22s ease;
+/* Descendants must not re-enable hit targets while chrome is hidden */
+html.chrome-autohide #tile-remote.tile-remote:not(.is-chrome-open) .side-rail-left *,
+html.chrome-autohide #tile-remote.tile-remote:not(.is-chrome-open) .tile-floor-partner *,
+html.chrome-autohide #tile-local.tile-local:not(.is-chrome-open) .side-rail-right *,
+html.chrome-autohide #tile-local.tile-local:not(.is-chrome-open) .tile-floor-local * {
   pointer-events: none !important;
 }
-html.chrome-autohide .tile-remote .side-rail-left {
+html.chrome-autohide #tile-remote.tile-remote .side-rail-left,
+html.chrome-autohide #tile-local.tile-local .side-rail-right {
   transform: translateY(6px);
 }
-html.chrome-autohide .tile-remote .tile-floor-partner,
-html.chrome-autohide .tile-local .tile-floor-local {
+html.chrome-autohide #tile-remote.tile-remote .tile-floor-partner,
+html.chrome-autohide #tile-local.tile-local .tile-floor-local {
   transform: translateY(8px);
 }
 
-/* YOUR controls (Flip · Mic · Hide · Settings) never autohide */
-html.chrome-autohide .tile-local .side-rail-right,
-html.chrome-autohide .tile-local .side-rail-right > * {
-  opacity: 1 !important;
-  visibility: visible !important;
-  transform: none !important;
-  pointer-events: auto !important;
-}
-/* High-contrast local rail on black camera (dark glass was invisible) */
+/* High-contrast local rail when visible (dark glass was invisible on black cam) */
 .tile-local .side-rail-right .side-btn {
   background: rgba(28, 36, 52, 0.92) !important;
   border: 1px solid rgba(255, 255, 255, 0.28) !important;
@@ -11849,7 +11844,6 @@ html.chrome-autohide .tile-local .side-rail-right > * {
 }
 .tile-local .side-rail-right .side-btn .lbl {
   color: #e8eef7 !important;
-  opacity: 1 !important;
 }
 #btn-settings.side-btn-settings {
   background: linear-gradient(145deg, rgba(50, 70, 110, 0.95), rgba(24, 32, 48, 0.95)) !important;
@@ -11857,13 +11851,16 @@ html.chrome-autohide .tile-local .side-rail-right > * {
 }
 
 /* Shown only while JS marks the tile open (mouse enter/move; hides after 3s) */
-html.chrome-autohide .tile-remote.is-chrome-open .side-rail-left,
-html.chrome-autohide .tile-remote.is-chrome-open .tile-floor-partner,
-html.chrome-autohide .tile-remote.is-chrome-open .tile-layout-btn,
-html.chrome-autohide .tile-local.is-chrome-open .tile-floor-local {
-  opacity: 1;
-  visibility: visible;
-  transform: none;
+html.chrome-autohide #tile-remote.tile-remote.is-chrome-open > .side-rail.side-rail-left,
+html.chrome-autohide #tile-remote.tile-remote.is-chrome-open .side-rail-left,
+html.chrome-autohide #tile-remote.tile-remote.is-chrome-open .tile-floor-partner,
+html.chrome-autohide #tile-remote.tile-remote.is-chrome-open .tile-layout-btn,
+html.chrome-autohide #tile-local.tile-local.is-chrome-open > .side-rail.side-rail-right,
+html.chrome-autohide #tile-local.tile-local.is-chrome-open .side-rail-right,
+html.chrome-autohide #tile-local.tile-local.is-chrome-open .tile-floor-local {
+  opacity: 1 !important;
+  visibility: visible !important;
+  transform: none !important;
   pointer-events: auto !important;
 }
 
@@ -11928,35 +11925,43 @@ html.chrome-autohide .tile-fs-btn,
 .tile-remote #remote-tag.loc-on-tile:empty {
   display: none !important;
 }
-html.chrome-autohide .tile-remote.is-chrome-open .side-rail-left > *,
-html.chrome-autohide .tile-remote.is-chrome-open .tile-floor-partner > *,
-html.chrome-autohide .tile-local.is-chrome-open .tile-floor-local > * {
+html.chrome-autohide #tile-remote.tile-remote.is-chrome-open .side-rail-left > *,
+html.chrome-autohide #tile-remote.tile-remote.is-chrome-open .tile-floor-partner > *,
+html.chrome-autohide #tile-local.tile-local.is-chrome-open .side-rail-right > *,
+html.chrome-autohide #tile-local.tile-local.is-chrome-open .tile-floor-local > * {
   pointer-events: auto !important;
 }
 
-/* Flyouts force chrome visible */
-html.chrome-autohide .tile-remote:has(.tile-dock-messages.is-flyout-open) .tile-floor-partner,
-html.chrome-autohide .tile-remote:has(.tile-dock-friends.is-flyout-open) .tile-floor-partner,
-html.chrome-autohide .tile-remote:has(#match-more-menu:not([hidden])) .tile-floor-partner {
+/* Flyouts force chrome visible on the relevant side */
+html.chrome-autohide #tile-local.tile-local:has(.side-btn-settings.is-flyout-open) .side-rail-right,
+html.chrome-autohide #tile-remote.tile-remote:has(.tile-dock-messages.is-flyout-open) .tile-floor-partner,
+html.chrome-autohide #tile-remote.tile-remote:has(.tile-dock-friends.is-flyout-open) .tile-floor-partner,
+html.chrome-autohide #tile-remote.tile-remote:has(#match-more-menu:not([hidden])) .tile-floor-partner {
   opacity: 1 !important;
   visibility: visible !important;
   transform: none !important;
   pointer-events: auto !important;
 }
-/* Settings button: belt-and-suspenders pin (even if other rules fight) */
-#btn-settings.side-btn-settings {
+/* Settings open (sheet portaled to body): keep local rail up so Close/Settings stay reachable */
+html.chrome-autohide.sheet-settings-open #tile-local.tile-local .side-rail-right,
+html.chrome-autohide:has(#settings-sheet.is-open:not([hidden])) #tile-local.tile-local .side-rail-right {
   opacity: 1 !important;
   visibility: visible !important;
+  transform: none !important;
   pointer-events: auto !important;
-  display: flex !important;
 }
+html.chrome-autohide.sheet-settings-open #tile-local.tile-local .side-rail-right *,
+html.chrome-autohide:has(#settings-sheet.is-open:not([hidden])) #tile-local.tile-local .side-rail-right * {
+  pointer-events: auto !important;
+}
+/* Settings btn itself: visible only with open chrome / open sheet — do not pin forever */
 
 /* Touch / always-on (desktop preference only) */
-html.chrome-always .tile-remote .side-rail-left,
-html.chrome-always .tile-remote .tile-floor-partner,
-html.chrome-always .tile-remote .tile-corner-btn,
-html.chrome-always .tile-local .side-rail-right,
-html.chrome-always .tile-local .tile-floor-local {
+html.chrome-always #tile-remote.tile-remote .side-rail-left,
+html.chrome-always #tile-remote.tile-remote .tile-floor-partner,
+html.chrome-always #tile-remote.tile-remote .tile-corner-btn,
+html.chrome-always #tile-local.tile-local .side-rail-right,
+html.chrome-always #tile-local.tile-local .tile-floor-local {
   opacity: 1 !important;
   visibility: visible !important;
   transform: none !important;
@@ -14716,7 +14721,7 @@ html.no-skip-locked #btn-next {
   z-index: 4;
   mix-blend-mode: screen;
 }
-/* Premium fireworks mega flash on partner tile */
+/* Premium fireworks mega flash on partner tile — stronger, slightly longer */
 .fx-overlay.fx-fw-mega-flash::before {
   content: "";
   position: absolute;
@@ -14725,14 +14730,16 @@ html.no-skip-locked #btn-next {
   pointer-events: none;
   background: radial-gradient(
     circle at 50% 35%,
-    rgba(255, 230, 140, 0.55) 0%,
-    rgba(255, 100, 50, 0.2) 40%,
-    transparent 70%
+    rgba(255, 240, 170, 0.72) 0%,
+    rgba(255, 160, 60, 0.32) 32%,
+    rgba(255, 80, 40, 0.14) 55%,
+    transparent 78%
   );
-  animation: fx-fw-mega-flash 0.85s ease-out both;
+  animation: fx-fw-mega-flash 1.05s ease-out both;
 }
 @keyframes fx-fw-mega-flash {
   0% { opacity: 1; }
+  35% { opacity: 0.85; }
   100% { opacity: 0; }
 }
 /* Receive celebration — mega gift */
@@ -14755,14 +14762,16 @@ html.gift-fw-flash::after {
   pointer-events: none;
   background: radial-gradient(
     ellipse at 50% 40%,
-    rgba(255, 200, 80, 0.28) 0%,
-    rgba(255, 80, 40, 0.08) 45%,
-    transparent 70%
+    rgba(255, 220, 100, 0.38) 0%,
+    rgba(255, 120, 50, 0.14) 42%,
+    rgba(255, 60, 30, 0.05) 62%,
+    transparent 78%
   );
-  animation: gift-fw-page-flash 0.75s ease-out both;
+  animation: gift-fw-page-flash 0.9s ease-out both;
 }
 @keyframes gift-fw-page-flash {
   0% { opacity: 1; }
+  40% { opacity: 0.75; }
   100% { opacity: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -15192,13 +15201,27 @@ html.has-duo-flair .flair-chip {
   background: rgba(255, 90, 60, 0.12);
 }
 
-/* Debate mute / speaking badges on each person's tile */
-.debate-person-badge {
+/*
+ * PC browser: hide "You muted · no sound" / "They muted you · no sound" text chips.
+ * Mute is shown by the center tile icon (.peer-slot-muted::before 🔇) only.
+ * User 2026-08-11: better mid-screen icon — text pills redundant.
+ */
+.peer-user-mute-badge,
+#peer-mute-badge-remote,
+#peer-mute-badge-local-by-them,
+#peer-mute-badge-remote2,
+#peer-mute-badge-remote-third {
+  display: none !important;
+}
+
+/* Debate-only mute / speaking badges (not the peer-user mute text chips) */
+.debate-person-badge:not(.peer-user-mute-badge) {
   position: absolute;
   left: 50%;
-  bottom: 0.7rem;
+  top: 0.75rem !important;
+  bottom: auto !important;
   transform: translateX(-50%);
-  z-index: 30;
+  z-index: 40;
   display: flex;
   align-items: center;
   gap: 0.35rem;
@@ -15253,7 +15276,7 @@ body.debate-active.debate-i-speak #tile-remote::after,
   );
   box-shadow: inset 0 0 0 2px rgba(255, 100, 70, 0.22);
 }
-/* Big crossed-mic watermark on muted tile */
+/* Mid-tile mute icon — kept (replaces text chips) */
 body.debate-active.debate-they-speak #tile-local::before,
 body.debate-active.debate-i-speak #tile-remote::before,
 .tile.peer-slot-muted::before,
@@ -15264,27 +15287,21 @@ body.debate-active.debate-i-speak #tile-remote::before,
   left: 50%;
   z-index: 6;
   transform: translate(-50%, -50%);
-  font-size: clamp(2.2rem, 8vw, 3.4rem);
+  font-size: clamp(2.4rem, 9vw, 3.6rem);
   line-height: 1;
-  opacity: 0.28;
+  opacity: 0.42;
   pointer-events: none;
-  filter: grayscale(0.2);
+  filter: grayscale(0.15);
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
 }
 /* remote2 is a nested wrap — needs position for pseudo */
 .remote-b-wrap {
   position: relative;
 }
-.remote-b-wrap .peer-user-mute-badge {
-  bottom: 0.45rem;
-  z-index: 12;
-}
-.peer-user-mute-badge[hidden] {
-  display: none !important;
-}
 @media (max-width: 720px) {
-  .debate-person-badge {
-    bottom: 0.45rem;
+  .debate-person-badge:not(.peer-user-mute-badge) {
+    top: 0.5rem !important;
+    bottom: auto !important;
     font-size: 0.7rem;
     padding: 0.3rem 0.55rem;
     max-width: min(94%, 240px);
@@ -15293,8 +15310,8 @@ body.debate-active.debate-i-speak #tile-remote::before,
   body.debate-active.debate-i-speak #tile-remote::before,
   .tile.peer-slot-muted::before,
   .remote-b-wrap.peer-slot-muted::before {
-    font-size: 2rem;
-    opacity: 0.22;
+    font-size: 2.2rem;
+    opacity: 0.4;
   }
 }
 
@@ -17105,14 +17122,15 @@ html.match-live #tile-remote.cam-tier-senior.conn-grade-weak {
   position: absolute;
   left: 0;
   top: 0;
-  width: 5px;
-  height: 5px;
-  margin: -2.5px 0 0 -2.5px;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
   border-radius: 50%;
   background: var(--color, #ffd14a);
   box-shadow:
-    0 0 6px var(--color, #ffd14a),
-    0 0 14px color-mix(in srgb, var(--color, #ffd14a) 70%, transparent);
+    0 0 8px var(--color, #ffd14a),
+    0 0 18px color-mix(in srgb, var(--color, #ffd14a) 75%, transparent),
+    0 0 28px color-mix(in srgb, var(--color, #ffd14a) 40%, transparent);
   transform: rotate(var(--ang, 0deg)) translateY(0);
   animation: fx-fw-spark 2.55s cubic-bezier(0.15, 0.6, 0.3, 1) infinite;
   animation-delay: inherit;
@@ -17122,32 +17140,34 @@ html.match-live #tile-remote.cam-tier-senior.conn-grade-weak {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 2px;
-  height: 10px;
-  margin: -5px 0 0 -1px;
+  width: 2.5px;
+  height: 12px;
+  margin: -6px 0 0 -1.25px;
   border-radius: 1px;
   background: linear-gradient(
     180deg,
     var(--color, #ffd14a),
     transparent
   );
-  opacity: 0.75;
+  opacity: 0.82;
 }
 .fx-fw-core {
   position: absolute;
   left: 0;
   top: 0;
-  width: 10px;
-  height: 10px;
-  margin: -5px 0 0 -5px;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
   border-radius: 50%;
   background: radial-gradient(
     circle,
     #fff 0%,
-    var(--color, #ffd14a) 45%,
-    transparent 70%
+    var(--color, #ffd14a) 42%,
+    transparent 72%
   );
-  box-shadow: 0 0 18px var(--color, #ffd14a);
+  box-shadow:
+    0 0 22px var(--color, #ffd14a),
+    0 0 36px color-mix(in srgb, var(--color, #ffd14a) 45%, transparent);
   animation: fx-fw-core 2.55s ease-out infinite;
   animation-delay: inherit;
 }

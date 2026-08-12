@@ -1,7 +1,7 @@
 import Constants from "expo-constants";
 import { Link, Redirect, router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
-import { Linking, Pressable, Share, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { hapticLight } from "../src/feedback/haptics";
 import {
@@ -24,7 +24,6 @@ import { hubBase, isFriendsOnly } from "../src/config";
 import { loadUnreadMap, totalUnread } from "../src/friends/unread";
 import { useHub } from "../src/hub/HubProvider";
 import { useT } from "../src/i18n";
-import { friendInviteShareMessage } from "../src/linking/friendInvite";
 import { maybeOfferNotifOptIn } from "../src/push/notifOptIn";
 import { useApp } from "./_layout";
 
@@ -68,7 +67,6 @@ function HomeBody() {
     trust,
     connected,
     friends,
-    friendCode,
     incomingRequests,
     reconnectHub,
     showToast,
@@ -87,8 +85,7 @@ function HomeBody() {
   const friendsBadge = missed + unreadDmTotal + requestN;
   const onlineFriends = friends.filter((f) => f.online).length;
   const trustN = trustEffective || trust;
-  /** Quiet = nobody else waiting (or empty pool). Busy = 2+ in queue. */
-  const poolQuiet = poolWaiting <= 1;
+  /** Busy = 2+ waiting in queue — soft nudge to Start. */
   const poolBusy = poolWaiting >= 2;
   const appVer =
     Constants.expoConfig?.version ||
@@ -115,25 +112,6 @@ function HomeBody() {
     }, [refreshPool])
   );
 
-  function shareInviteFromHome(via: string) {
-    const share = friendInviteShareMessage(
-      hubBase(),
-      friendCode || "……",
-      "ruletka"
-    );
-    track("funnel_invite_share", { via });
-    track("friend_invite_share", { via });
-    if (via.includes("quiet") || via.includes("empty")) {
-      track("empty_alone_invite_share", { via });
-    }
-    hapticLight();
-    Share.share({
-      message: share.message,
-      title: share.title,
-      url: share.url,
-    }).catch(() => {});
-  }
-
   return (
     <View style={styles.root}>
       <Pressable
@@ -142,7 +120,8 @@ function HomeBody() {
             router.push("/friends");
           } else {
             hapticLight();
-            router.push("/live");
+            // Start chatting → Live already spinning (no second Start tap)
+            router.push({ pathname: "/live", params: { autostart: "1" } });
           }
         }}
         accessibilityRole="button"
@@ -251,7 +230,7 @@ function HomeBody() {
           onPress={() => {
             hapticLight();
             track("funnel_home_pack_live", { via: "pool_busy" });
-            router.push("/live");
+            router.push({ pathname: "/live", params: { autostart: "1" } });
           }}
         >
           <Text style={styles.poolBusyTitle}>
@@ -267,123 +246,36 @@ function HomeBody() {
         </Pressable>
       ) : null}
 
-      {/* Quiet pool: invite dominates when few waiters */}
-      {!friendsOnly &&
-      connected &&
-      poolQuiet &&
-      (poolOnline >= 1 || friends.length === 0) ? (
-        <View style={styles.inviteCta}>
-          <Text style={styles.inviteCtaTitle}>
-            {t("mobile.home.inviteCtaTitle")}
+      {/* Always show self ★ (spendable) + trust tier chips */}
+      <View style={styles.trustRow}>
+        <View
+          style={[
+            styles.trustChip,
+            trustTier(trustN) === "senior" && styles.trustSenior,
+            trustTier(trustN) === "trusted" && styles.trustTrusted,
+            trustTier(trustN) === "known" && styles.trustKnown,
+          ]}
+        >
+          <Text style={styles.trustChipText}>
+            {t(trustTierI18nKey(trustN))}
+            {trustN > 0 ? ` · ${trustN}` : ""}
           </Text>
-          <Text style={styles.inviteCtaBody}>
-            {poolOnline > 1
-              ? t("mobile.home.inviteCtaQuietOnline", { n: poolOnline })
-              : t("mobile.home.inviteCtaBody")}
-          </Text>
-          {friendCode ? (
-            <Text style={styles.inviteCodeLine} selectable>
-              {t("mobile.friends.yourCode")} {friendCode}
-            </Text>
-          ) : null}
-          {/* Others online but not in queue — Start can still pair if they spin too */}
-          {poolOnline >= 2 ? (
-            <Pressable
-              style={styles.inviteStartBtn}
-              onPress={() => {
-                hapticLight();
-                track("funnel_home_pack_live", { via: "home_quiet_online" });
-                router.push("/live");
-              }}
-            >
-              <Text style={styles.inviteStartText}>
-                {t("mobile.home.quietOnlineStart")}
-              </Text>
-            </Pressable>
-          ) : null}
-          <View style={styles.inviteActions}>
-            <Pressable
-              style={styles.inviteSecondaryBtn}
-              onPress={() => {
-                if (!friendCode) return;
-                void Clipboard.setStringAsync(friendCode).then(() => {
-                  track("funnel_home_pack_copy", { via: "home_quiet" });
-                  hapticLight();
-                  showToast(t("mobile.home.codeCopiedShare"));
-                });
-              }}
-            >
-              <Text style={styles.inviteSecondaryText}>
-                {t("mobile.home.copyCode")}
-              </Text>
-            </Pressable>
-            <Pressable
-              style={styles.invitePrimaryBtn}
-              onPress={() =>
-                shareInviteFromHome(
-                  friends.length === 0
-                    ? "home_quiet_empty"
-                    : "home_quiet_pool"
-                )
-              }
-            >
-              <Text style={styles.invitePrimaryText}>
-                {t("mobile.friends.shareInvite")}
-              </Text>
-            </Pressable>
-          </View>
         </View>
-      ) : null}
-      {trustN > 0 || stars > 0 ? (
-        <View style={styles.trustRow}>
-          <View
+        <View
+          style={[styles.starsChip, stars <= 0 && styles.starsChipZero]}
+          accessibilityLabel={`${Math.max(0, stars)} stars`}
+        >
+          <Text
             style={[
-              styles.trustChip,
-              trustTier(trustN) === "senior" && styles.trustSenior,
-              trustTier(trustN) === "trusted" && styles.trustTrusted,
-              trustTier(trustN) === "known" && styles.trustKnown,
+              styles.trustChipText,
+              styles.starsChipText,
+              stars <= 0 && styles.starsChipTextZero,
             ]}
           >
-            <Text style={styles.trustChipText}>
-              {t(trustTierI18nKey(trustN))}
-              {trustN > 0 ? ` · ${trustN}` : ""}
-            </Text>
-          </View>
-          {stars > 0 ? (
-            <View style={styles.starsChip}>
-              <Text style={styles.trustChipText}>★{stars}</Text>
-            </View>
-          ) : null}
+            ★{Math.max(0, Math.floor(Number(stars) || 0))}
+          </Text>
         </View>
-      ) : null}
-
-      {/* Skip code card when quiet invite CTA already shows the code */}
-      {friendCode &&
-      !(
-        !friendsOnly &&
-        connected &&
-        poolQuiet &&
-        (poolOnline >= 1 || friends.length === 0)
-      ) ? (
-        <Pressable
-          style={styles.codeCard}
-          accessibilityRole="button"
-          accessibilityLabel={`${t("mobile.friends.yourCode")} ${friendCode}`}
-          accessibilityHint={t("mobile.home.codeHint")}
-          onPress={() => shareInviteFromHome("home_code_card")}
-          onLongPress={() => {
-            void Clipboard.setStringAsync(friendCode).then(() => {
-              track("funnel_home_pack_copy", { via: "home_code_card" });
-              hapticLight();
-              showToast(t("mobile.friends.codeCopied"));
-            });
-          }}
-        >
-          <Text style={styles.codeLabel}>{t("mobile.friends.yourCode")}</Text>
-          <Text style={styles.codeValue}>{friendCode}</Text>
-          <Text style={styles.codeHint}>{t("mobile.home.codeHint")}</Text>
-        </Pressable>
-      ) : null}
+      </View>
 
       {whatsNew ? (
         <View style={styles.whatsNew}>
@@ -611,7 +503,7 @@ function HomeBody() {
           </Pressable>
         </Link>
       ) : (
-        <Link href="/live" asChild>
+        <Link href={{ pathname: "/live", params: { autostart: "1" } }} asChild>
           <Pressable
             style={styles.cta}
             onPressIn={() => hapticLight()}
@@ -843,13 +735,19 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(50,36,8,0.6)",
   },
   starsChip: {
-    backgroundColor: "rgba(40,32,8,0.65)",
+    backgroundColor: "rgba(48, 34, 4, 0.92)",
     borderRadius: 999,
     paddingVertical: 4,
     paddingHorizontal: 10,
-    borderWidth: 1,
-    borderColor: "rgba(255,200,80,0.4)",
+    borderWidth: 1.5,
+    borderColor: "rgba(255, 210, 70, 0.85)",
   },
+  starsChipZero: {
+    backgroundColor: "rgba(28, 24, 10, 0.85)",
+    borderColor: "rgba(210, 175, 60, 0.45)",
+  },
+  starsChipText: { color: "#ffe566" },
+  starsChipTextZero: { color: "rgba(255, 228, 140, 0.75)" },
   trustChipText: { color: "#e8eef7", fontSize: 11, fontWeight: "800" },
   codeCard: {
     backgroundColor: "rgba(255,45,85,0.12)",
@@ -1013,80 +911,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   ctaText: { color: "#fff", fontWeight: "700", fontSize: 17 },
-  inviteCta: {
-    backgroundColor: "rgba(61,126,255,0.14)",
-    borderWidth: 1,
-    borderColor: "rgba(100,160,255,0.4)",
-    borderRadius: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    gap: 6,
-  },
-  inviteCtaTitle: {
-    color: "#c8dcff",
-    fontWeight: "800",
-    fontSize: 15,
-  },
-  inviteCtaBody: {
-    color: "#9aa8bc",
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  inviteCtaBtn: {
-    color: "#9ec5ff",
-    fontWeight: "800",
-    fontSize: 14,
-    marginTop: 4,
-  },
-  inviteCodeLine: {
-    color: "#ffe9a0",
-    fontWeight: "800",
-    fontSize: 16,
-    letterSpacing: 1,
-    marginTop: 2,
-  },
-  inviteActions: {
-    flexDirection: "row",
-    gap: 8,
-    marginTop: 8,
-  },
-  inviteSecondaryBtn: {
-    flex: 1,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.18)",
-    paddingVertical: 11,
-    alignItems: "center",
-  },
-  inviteSecondaryText: {
-    color: "#c8d4e4",
-    fontWeight: "700",
-    fontSize: 13,
-  },
-  invitePrimaryBtn: {
-    flex: 1.2,
-    borderRadius: 999,
-    backgroundColor: "#3d7eff",
-    paddingVertical: 11,
-    alignItems: "center",
-  },
-  invitePrimaryText: {
-    color: "#fff",
-    fontWeight: "800",
-    fontSize: 13,
-  },
-  inviteStartBtn: {
-    marginTop: 10,
-    borderRadius: 999,
-    backgroundColor: "#ff2d55",
-    paddingVertical: 12,
-    alignItems: "center",
-  },
-  inviteStartText: {
-    color: "#fff",
-    fontWeight: "800",
-    fontSize: 14,
-  },
   onlineStrip: {
     flexDirection: "row",
     alignItems: "center",

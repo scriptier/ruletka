@@ -1,10 +1,14 @@
 /**
  * Stage branding: text wordmarks only (no logo image).
- * Center seam + both tiles. Occasional spin animation.
+ * PC mid-match:
+ *   - Center seam vertical "ruletka.me" between partner | you (original place)
+ *   - Soft 360° spin every 15s (1.2s spin + 15s hold upright = 16.2s cycle)
+ *   - Tile bottom watermarks stay hidden
+ * Full "ruletka.me" — never clip mid-word.
  * Does not block clicks (pointer-events: none).
  */
 
-/* —— Tile watermarks (partner + you) —— */
+/* —— Tile watermarks: always hidden on PC match (center seam owns brand) —— */
 .stage-wm {
   position: absolute;
   left: 50%;
@@ -13,23 +17,26 @@
   transform: translateX(-50%);
   pointer-events: none;
   user-select: none;
-  opacity: 0;
+  opacity: 0 !important;
+  visibility: hidden !important;
   transition: opacity 0.4s ease;
+  max-width: none;
+  width: max-content;
+  overflow: visible;
 }
-/* Show during live call */
-.stage.has-brand-live .stage-wm {
-  opacity: 0.55;
-}
+
+html.match-live .stage-wm,
+.stage.has-brand-live .stage-wm,
 .stage.has-brand-live .tile-remote:hover .stage-wm,
 .stage.has-brand-live .tile-local:hover .stage-wm {
-  opacity: 0.72;
+  opacity: 0 !important;
+  visibility: hidden !important;
 }
-/* Hide on partner while empty / searching */
+
 #remote-empty:not(.hidden) ~ .stage-wm,
 .tile-remote:has(#remote-empty:not(.hidden)) .stage-wm {
   opacity: 0 !important;
 }
-/* Hide on local while cam empty */
 #local-empty:not(.hidden) ~ .stage-wm-local,
 .tile-local:has(#local-empty:not(.hidden)) .stage-wm-local {
   opacity: 0 !important;
@@ -38,19 +45,20 @@
 .stage-wm-text {
   display: inline-block;
   font-family: var(--sans, "Inter", system-ui, sans-serif);
-  font-size: 0.78rem;
+  font-size: 0.82rem;
   font-weight: 800;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.06em;
   text-transform: lowercase;
-  color: rgba(255, 255, 255, 0.88);
+  color: rgba(255, 255, 255, 0.9);
   text-shadow:
     0 1px 3px rgba(0, 0, 0, 0.9),
     0 0 14px rgba(0, 0, 0, 0.5);
   white-space: nowrap;
-  will-change: transform;
-}
-.stage-wm-text.is-spinning {
-  animation: stage-brand-spin-360 1.15s cubic-bezier(0.22, 0.9, 0.28, 1) both;
+  max-width: none;
+  width: max-content;
+  overflow: visible;
+  writing-mode: horizontal-tb;
+  text-orientation: mixed;
 }
 
 @media (max-width: 720px) {
@@ -58,8 +66,7 @@
     bottom: 4.75rem;
   }
   .stage-wm-text {
-    font-size: 0.68rem;
-    letter-spacing: 0.14em;
+    font-size: 0.75rem;
   }
 }
 
@@ -68,72 +75,174 @@
   position: relative;
 }
 .stage-brand-center {
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
   position: absolute;
   left: 50%;
   top: 50%;
-  z-index: 18;
-  transform: translate(-50%, -50%);
+  /* Above video tiles; below interactive chrome (side-rail z:50) */
+  z-index: 30;
+  transform: translate(-50%, -50%) scale(0.94);
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 0;
   pointer-events: none;
   user-select: none;
   opacity: 0;
-  transition: opacity 0.4s ease;
+  visibility: hidden;
+  /* Soft entrance: fade + slight scale-in when has-brand-live turns on */
+  transition:
+    opacity 0.4s cubic-bezier(0.22, 0.9, 0.28, 1),
+    transform 0.4s cubic-bezier(0.22, 0.9, 0.28, 1),
+    visibility 0s linear 0.4s;
+  max-width: none;
+  max-height: none;
+  width: max-content;
+  height: max-content;
+  overflow: visible;
 }
 .stage.has-brand-live .stage-brand-center {
-  opacity: 1;
+  opacity: 0.94;
+  visibility: visible;
+  transform: translate(-50%, -50%) scale(1);
+  transition:
+    opacity 0.4s cubic-bezier(0.22, 0.9, 0.28, 1),
+    transform 0.4s cubic-bezier(0.22, 0.9, 0.28, 1),
+    visibility 0s linear 0s;
 }
 
 .stage-brand-spin {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.45rem 0.85rem;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  overflow: visible;
+  padding: 0.72rem 0.36rem;
   border-radius: 999px;
-  background: radial-gradient(
-    circle at 40% 35%,
-    rgba(36, 40, 52, 0.78),
-    rgba(8, 10, 14, 0.9)
-  );
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  /* Richer glass: readable over both dark & light video */
+  background:
+    linear-gradient(
+      160deg,
+      rgba(255, 255, 255, 0.1) 0%,
+      rgba(255, 255, 255, 0.02) 42%,
+      rgba(0, 0, 0, 0.08) 100%
+    ),
+    radial-gradient(
+      circle at 38% 32%,
+      rgba(52, 58, 74, 0.72),
+      rgba(8, 10, 16, 0.78)
+    );
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  /* Depth: intentional brand chip, not a dark blob */
   box-shadow:
-    0 6px 22px rgba(0, 0, 0, 0.55),
-    0 0 0 1px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    0 0 0 1px rgba(0, 0, 0, 0.28),
+    0 6px 22px rgba(0, 0, 0, 0.48),
+    0 0 28px rgba(120, 150, 255, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.18);
+  -webkit-backdrop-filter: blur(10px) saturate(1.15);
+  backdrop-filter: blur(10px) saturate(1.15);
+  pointer-events: none;
+  will-change: transform, opacity;
+  transform-origin: center center;
 }
 
-/* Text only — no logo image */
+/*
+ * Full "ruletka.me" vertical along the partner|you seam.
+ */
 .stage-brand-wordmark {
   display: inline-block;
   font-family: var(--sans, "Inter", system-ui, sans-serif);
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 800;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.08em;
   text-transform: lowercase;
-  color: rgba(255, 255, 255, 0.9);
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
-  will-change: transform;
-  line-height: 1.2;
-}
-.stage-brand-spin.is-spinning .stage-brand-wordmark {
-  animation: stage-brand-spin-360 1.15s cubic-bezier(0.22, 0.9, 0.28, 1) both;
+  color: rgba(255, 255, 255, 0.96);
+  /* Stronger shadow for contrast over busy video */
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.95),
+    0 2px 8px rgba(0, 0, 0, 0.75),
+    0 0 16px rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+  max-width: none;
+  max-height: none;
+  width: max-content;
+  height: max-content;
+  overflow: visible;
+  transform-origin: center center;
+  line-height: 1.15;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  text-combine-upright: none;
 }
 
-@keyframes stage-brand-spin-360 {
+/*
+ * Soft 360° revolution every 15s (Android-style timing; center-seam place).
+ * Total cycle = 1.2s spin + 15s hold = 16.2s
+ *
+ *   0%        0°   scale 1    opacity 0.88
+ *   3.704%    mid 180° scale 1.06 opacity 1   [0.6s]
+ *   7.407%    360° scale 1    opacity 0.88    [1.2s]
+ *   7.41%     reset 0° (same visual as 360°)
+ *   100%      hold upright
+ *
+ * Easing: smooth cubic-bezier on spin; linear on hold.
+ */
+@keyframes stage-brand-spin-360-loop {
   0% {
     transform: rotate(0deg) scale(1);
+    opacity: 0.88;
+    animation-timing-function: cubic-bezier(0.33, 0.05, 0.25, 1);
   }
-  40% {
-    transform: rotate(200deg) scale(1.08);
+  3.704% {
+    transform: rotate(180deg) scale(1.06);
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.55, 0, 0.45, 1);
+  }
+  7.407% {
+    transform: rotate(360deg) scale(1);
+    opacity: 0.88;
+    animation-timing-function: linear;
+  }
+  7.41% {
+    transform: rotate(0deg) scale(1);
+    opacity: 0.88;
+    animation-timing-function: linear;
   }
   100% {
-    transform: rotate(360deg) scale(1);
+    transform: rotate(0deg) scale(1);
+    opacity: 0.88;
   }
 }
 
-/* Legacy class kept so old CSS rules don't break */
+/* Whole center pill spins (wordmark stays vertical-rl inside) */
+.stage.has-brand-live .stage-brand-spin {
+  animation: stage-brand-spin-360-loop 16.2s infinite;
+}
+
+/* Reduced motion: static upright pill, no spin */
+@media (prefers-reduced-motion: reduce) {
+  .stage-brand-center {
+    transition: opacity 0.25s ease, visibility 0s linear 0.25s;
+  }
+  .stage.has-brand-live .stage-brand-center {
+    transform: translate(-50%, -50%) scale(1);
+    transition: opacity 0.25s ease, visibility 0s linear 0s;
+  }
+  .stage.has-brand-live .stage-brand-spin {
+    animation: none;
+    transform: none;
+    opacity: 0.92;
+  }
+}
+
 .stage-brand-logo {
   display: none !important;
 }
@@ -141,6 +250,7 @@
   display: none !important;
 }
 
+/* Trio: seam sits between partner1 | partner2+you columns */
 .stage.stage-trio .stage-brand-center {
   left: 33.333%;
 }
@@ -148,18 +258,18 @@
 @media (max-width: 720px) {
   .stage-brand-center {
     left: 50%;
-    top: 42%;
+    top: 50%;
   }
   .stage-brand-spin {
-    padding: 0.38rem 0.72rem;
+    padding: 0.6rem 0.32rem;
   }
   .stage-brand-wordmark {
-    font-size: 0.62rem;
-    letter-spacing: 0.16em;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
   }
 }
 
-/* Themes */
+/* Themes — light / pink: glass inverted for pale video */
 html[data-theme="light"] .stage-wm-text,
 html[data-theme="pink"] .stage-wm-text {
   color: rgba(20, 24, 36, 0.75);
@@ -169,16 +279,31 @@ html[data-theme="pink"] .stage-wm-text {
 }
 html[data-theme="light"] .stage-brand-wordmark,
 html[data-theme="pink"] .stage-brand-wordmark {
-  color: rgba(24, 28, 40, 0.88);
-  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.65);
+  color: rgba(18, 22, 34, 0.92);
+  text-shadow:
+    0 1px 2px rgba(255, 255, 255, 0.9),
+    0 0 10px rgba(255, 255, 255, 0.55),
+    0 1px 4px rgba(0, 0, 0, 0.12);
 }
 html[data-theme="light"] .stage-brand-spin,
 html[data-theme="pink"] .stage-brand-spin {
-  background: radial-gradient(
-    circle at 40% 35%,
-    rgba(255, 255, 255, 0.88),
-    rgba(230, 234, 244, 0.92)
-  );
+  background:
+    linear-gradient(
+      160deg,
+      rgba(255, 255, 255, 0.55) 0%,
+      rgba(255, 255, 255, 0.18) 48%,
+      rgba(200, 208, 224, 0.22) 100%
+    ),
+    radial-gradient(
+      circle at 38% 32%,
+      rgba(255, 255, 255, 0.88),
+      rgba(228, 232, 242, 0.86)
+    );
   border-color: rgba(0, 0, 0, 0.08);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.06),
+    0 6px 20px rgba(0, 0, 0, 0.14),
+    0 0 22px rgba(100, 130, 220, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.04);
 }

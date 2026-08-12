@@ -1,9 +1,16 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import Constants from "expo-constants";
-import { Redirect, router, useFocusEffect } from "expo-router";
+import {
+  Redirect,
+  router,
+  useFocusEffect,
+  useLocalSearchParams,
+} from "expo-router";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -12,6 +19,7 @@ import {
   BackHandler,
   KeyboardAvoidingView,
   Linking,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -30,11 +38,11 @@ import {
   type MatchHistoryEntry,
 } from "../src/calls/matchHistory";
 import type { BlurStrangersMode } from "../src/prefs/store";
+import { formatPartnerSummary } from "../src/identity/PartnerChrome";
 import {
-  formatPartnerSummary,
-  PartnerChrome,
-} from "../src/identity/PartnerChrome";
-import { formatLocLine } from "../src/identity/flagTrust";
+  formatLocLine,
+  peerIdsLooseMatch,
+} from "../src/identity/flagTrust";
 import { hubBase, isFriendsOnly } from "../src/config";
 import {
   hapticDebateTurn,
@@ -52,11 +60,12 @@ import {
   LiveChatOverlay,
   LiveConnectSteps,
   LiveConnPill,
-  PartnerBlurVeil,
   LiveDebateChrome,
   LiveGiftBar,
-  LiveMetaStrip,
   LiveMoreSheet,
+  PartnerBlurVeil,
+  BLUR_VEIL_BASE,
+  PartnerIdentityDock,
   LiveQueueHints,
   LiveSearchLabel,
   LiveStageVideo,
@@ -65,14 +74,25 @@ import {
   SPIN_KEEPALIVE_MS,
   computeMatchContinuity,
   elapsedSince,
-  floorQueueCounts,
   formatCallTimer,
   liveStyles as styles,
+  displayPartnerStars,
+  isBetterPartnerDisplayName,
+  isPlaceholderPartnerName,
+  mergePartnerStars,
+  mergePartnerTrust,
   normalizePeer,
+  partnerGeoHasSignal,
   pickPeer,
   pickPrimaryPeerIndex,
+  readPeerGeo,
+  readPeerStars,
+  readPeerTrust,
+  resolvePartnerDisplayName,
+  resolvePartnerDisplayNameWithSource,
   reduceLobbyInfoMsg,
   reduceStatusMsg,
+  shouldApplyPartnerGeo,
   starNeedMinutes,
   starProgress as starProgressOf,
   useBackgroundMediaPause,
@@ -160,6 +180,8 @@ function LiveBody() {
     displayName,
     friendCode,
     stars,
+    trust,
+    trustEffective,
     addMessageListener,
     connected,
     lastError,
@@ -171,9 +193,20 @@ function LiveBody() {
     reconnectHub,
     outboundCall,
   } = useHub();
+  const starsRef = useRef(stars);
+  const trustRef = useRef(trust);
+  const trustEffectiveRef = useRef(trustEffective);
+  starsRef.current = stars;
+  trustRef.current = trust;
+  trustEffectiveRef.current = trustEffective;
   const mediaRef = useRef<MediaSession | null>(null);
   /** Second PC for multi-peer (party / 1v2) — shares primary local stream. */
   const media2Ref = useRef<MediaSession | null>(null);
+  /**
+   * Hub matched.force_relay for this call. Latched on matched; re-applied on
+   * offer + startCall so pure-relay PC matches web (do not clear mid-match).
+   */
+  const forceRelayHubRef = useRef(false);
   const debateRef = useRef<DebateSession | null>(null);
   const stageRef = useRef<View>(null);
   const remotePeerId = useRef<string>("");
@@ -181,6 +214,17 @@ function LiveBody() {
   const partnerUserId = useRef<string>("");
   const partnerFriendCode = useRef<string>("");
   const partnerNameRef = useRef<string>("");
+  /** Source of current dock name (hub/name/friend_code/prev/dc/…) for logs. */
+  const partnerNameFromRef = useRef<string>("");
+  /**
+   * Real display names by hub user_id — survives hangup / rematch so dock
+   * keeps «Драконов» when hub briefly sends empty name again.
+   */
+  const lastGoodNameByUidRef = useRef<Record<string, string>>({});
+  const lastGoodStarsByUidRef = useRef<Record<string, number>>({});
+  const lastGoodGeoByUidRef = useRef<
+    Record<string, { flag: string; country: string; city: string }>
+  >({});
   /** Last known partner ids for report/block (survives thrash rematch empty uid). */
   const lastPartnerIdsRef = useRef<{
     userId: string;
@@ -188,6 +232,41 @@ function LiveBody() {
     friendCode: string;
     shortId: string;
   }>({ userId: "", peerId: "", friendCode: "", shortId: "" });
+  /**
+   * partner_geo that arrived before matched finished (or id-mismatch skip).
+   * Applied on matched when peer ids/user_id line up.
+   */
+  const pendingPartnerGeoRef = useRef<{
+    peer_id: string;
+    user_id: string;
+    flag: string;
+    country: string;
+    city: string;
+    hide_ip: boolean | null;
+  } | null>(null);
+  /** Live partner geo/hide for identity-poll stop condition (refs avoid stale UI). */
+  const partnerFlagRef = useRef("");
+  const partnerCountryRef = useRef("");
+  const partnerCityRef = useRef("");
+  const partnerHideIpRef = useRef(false);
+  /**
+   * True once partner_identity DC delivered an explicit stars field (incl. 0).
+   * Identity poll waits for this so web ★>0 cannot stay unpainted.
+   */
+  const identityStarsKnownRef = useRef(false);
+  /** Hub MatchPeer starsKnown for this partner — do not wipe with unknown 0. */
+  const hubStarsKnownRef = useRef(false);
+  /** Self geo for partner_identity announce (parity with web). */
+  const selfGeoRef = useRef<{ flag: string; country: string; city: string }>({
+    flag: "",
+    country: "",
+    city: "",
+  });
+  const selfHideIpRef = useRef(false);
+  const identityPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(
+    null
+  );
+  const identityPollStartedAtRef = useRef(0);
   const phaseRef = useRef<LivePhase>("idle");
   const searchingRef = useRef(false);
   /** Hub confirmed us in the stranger queue (status phase=waiting). */
@@ -225,6 +304,11 @@ function LiveBody() {
   const [partnerCountry, setPartnerCountry] = useState("");
   const [partnerCity, setPartnerCity] = useState("");
   const [partnerHideIp, setPartnerHideIp] = useState(false);
+  // Keep geo/hide refs in lockstep with state (identity poll + logs).
+  partnerFlagRef.current = partnerFlag;
+  partnerCountryRef.current = partnerCountry;
+  partnerCityRef.current = partnerCity;
+  partnerHideIpRef.current = partnerHideIp;
   /** Local mute of remote audio (you stop hearing them). */
   const [partnerMuted, setPartnerMuted] = useState(false);
   const partnerMutedRef = useRef(false);
@@ -242,6 +326,10 @@ function LiveBody() {
   /** When multi: show secondary peer in the top tile (tap to swap focus). */
   const [focusExtra, setFocusExtra] = useState(false);
   const [dataSaverOn, setDataSaverOn] = useState(false);
+  /** Swipe partner video → Next (default ON, MatchPrefs.swipeSkip). */
+  const [swipeSkipOn, setSwipeSkipOn] = useState(true);
+  /** One-shot swipe coach toast (AsyncStorage key below). */
+  const swipeCoachShownRef = useRef(false);
   /** native = bottom call bar; browser = full-bleed dock over video */
   const [liveLayout, setLiveLayout] = useState<LiveLayoutMode>("native");
   const isBrowserLayout = liveLayout === "browser";
@@ -252,16 +340,32 @@ function LiveBody() {
   const [remoteBlurred, setRemoteBlurred] = useState(false);
   const remoteBlurredRef = useRef(false);
   remoteBlurredRef.current = remoteBlurred;
+  /** More sheet — declared early so togglePartnerBlur can close it without TDZ. */
+  const [moreOpen, setMoreOpen] = useState(false);
+  /**
+   * Partner hid their camera (web setSelfBlur / mobile camOff via self_hide DC).
+   * Stage shows PartnerBlurVeil mosaic — never pure black OLED frames.
+   */
+  const [partnerCamHidden, setPartnerCamHidden] = useState(false);
+  const partnerCamHiddenRef = useRef(false);
+  partnerCamHiddenRef.current = partnerCamHidden;
   /** @deprecated use blurModeRef — kept for any leftover true checks */
   const blurStrangersRef = useRef(true);
-  // Default off until prefs load (media-first). Eye toggles mid-call.
-  const blurModeRef = useRef<BlurStrangersMode>("off");
+  // Until AsyncStorage returns, do not assume off forever — match path uses
+  // intro as optimistic default; prefs_load applies real mode (incl. off).
+  const blurModeRef = useRef<BlurStrangersMode>("intro");
   const blurPrefsReadyRef = useRef(false);
+  /** True when veil was applied by match/prefs auto — not eye toggle. */
+  const blurAutoAppliedRef = useRef(false);
   const introUnblurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
   /** Intro veil: brief soft cover after partner frames, then auto-reveal. */
   const INTRO_UNBLUR_MS = 2800;
+  /** Log without depending on `push` (declared later in this component). */
+  const blurLog = useCallback((line: string) => {
+    setLog((prev) => [line, ...prev].slice(0, 50));
+  }, []);
 
   const clearIntroUnblurTimer = useCallback(() => {
     if (introUnblurTimerRef.current) {
@@ -271,35 +375,35 @@ function LiveBody() {
   }, []);
 
   /**
-   * Drop privacy veil. RTCView stayed mounted at zOrder 0 under the mosaic —
-   * bump epoch once so Android rebinds after zOrder 0→1 flip.
+   * Drop privacy veil (nuclear). Stage remounts partner VideoView with the
+   * existing remoteStream in state — no ICE thrash. Soft forceRepaint if
+   * frames still missing after peel; epoch bump only as last resort.
    */
   const revealPartnerVideo = useCallback(
     (why: string) => {
       clearIntroUnblurTimer();
       setRemoteBlurred(false);
       remoteBlurredRef.current = false;
-      push(`blur off (${why})`);
-      // zOrder 0→1 after veil: one epoch bump so SurfaceView reattaches cleanly.
-      setRemoteEpoch((n) => n + 1);
+      blurAutoAppliedRef.current = false;
+      blurLog(`blur off (${why})`);
+      console.log(`[blur] hide why=${why}`);
+      // Soft repaint after nuclear remount of RTCView (same stream, no ICE).
       try {
         mediaRef.current?.forceRepaintRemote?.(why);
       } catch {
         /* ignore */
       }
-      // Soft second kick if first frame still missing (no remount ladder).
       setTimeout(() => {
         try {
           if (!mediaRef.current?.hasInboundVideoFrames?.()) {
             mediaRef.current?.forceRepaintRemote?.(`${why}_kick`);
-            setRemoteEpoch((n) => n + 1);
           }
         } catch {
           /* ignore */
         }
-      }, 400);
+      }, 500);
     },
-    [clearIntroUnblurTimer, push]
+    [clearIntroUnblurTimer, blurLog]
   );
 
   /** Schedule intro auto-reveal only after partner video is actually painting. */
@@ -318,7 +422,7 @@ function LiveBody() {
           !!remoteVideoSeenRef.current ||
           !!mediaRef.current?.hasInboundVideoFrames?.();
         if (!frames) {
-          push("blur intro wait frames");
+          blurLog("blur intro wait frames");
           tick(1200);
           return;
         }
@@ -331,7 +435,7 @@ function LiveBody() {
       }, delay);
     };
     tick(INTRO_UNBLUR_MS);
-  }, [clearIntroUnblurTimer, revealPartnerVideo, push]);
+  }, [clearIntroUnblurTimer, revealPartnerVideo, blurLog]);
 
   /**
    * Auto privacy veil for stranger matches (prefs intro/hold).
@@ -346,21 +450,28 @@ function LiveBody() {
       const mode = blurModeRef.current || "intro";
       if (mode !== "hold" && mode !== "intro") return;
       if (remoteBlurredRef.current) {
+        // Already veiled: intro re-arms timer; hold cancels auto-reveal
         if (mode === "intro") scheduleIntroUnblur();
+        else clearIntroUnblurTimer();
+        blurAutoAppliedRef.current = true;
         return;
       }
       clearIntroUnblurTimer();
       setRemoteBlurred(true);
       remoteBlurredRef.current = true;
-      push(`blur on (${why}) mode=${mode}`);
+      blurAutoAppliedRef.current = true;
+      blurLog(`blur on (${why}) mode=${mode}`);
+      console.log(`[blur] show why=${why} mode=${mode}`);
       if (mode === "intro") scheduleIntroUnblur();
     },
-    [clearIntroUnblurTimer, scheduleIntroUnblur, push]
+    [clearIntroUnblurTimer, scheduleIntroUnblur, blurLog]
   );
 
-  /** Eye / more-sheet: toggle privacy veil (strangers + friends). */
+  /** Eye / more-sheet / Modal eye: toggle privacy veil (strangers + friends). */
   const togglePartnerBlur = useCallback(() => {
     hapticLight();
+    // Close more sheet so eye path is immediate on stage (Modal + veil)
+    setMoreOpen(false);
     if (remoteBlurredRef.current) {
       revealPartnerVideo("toggle_unblur");
       showToastRef.current(
@@ -368,15 +479,23 @@ function LiveBody() {
       );
       return;
     }
+    // Only mid-match (or matched ui) — never veil idle/search stage
+    if (phaseRef.current !== "matched") {
+      console.log("[blur] toggle ignored phase=" + phaseRef.current);
+      return;
+    }
     clearIntroUnblurTimer();
     setRemoteBlurred(true);
     remoteBlurredRef.current = true;
-    push("blur on (toggle)");
+    // Manual eye — do not auto-clear when prefs later say off
+    blurAutoAppliedRef.current = false;
+    blurLog("blur on (toggle)");
+    console.log("[blur] show why=toggle");
     showToastRef.current(
       t("mobile.live.reblurToast") ||
         "Privacy veil — tap Show video when ready"
     );
-  }, [clearIntroUnblurTimer, revealPartnerVideo, push, t]);
+  }, [clearIntroUnblurTimer, revealPartnerVideo, blurLog, t]);
   const [matchMode, setMatchModeState] = useState("");
   const setMatchMode = useCallback((m: string) => {
     matchModeRef.current = m;
@@ -394,6 +513,9 @@ function LiveBody() {
   );
   const [remoteEpoch, setRemoteEpoch] = useState(0);
   const [remoteEpoch2, setRemoteEpoch2] = useState(0);
+  /** Stable stream URL — skip epoch remount when onRemoteStream re-fires same stream. */
+  const remoteStreamUrlRef = useRef("");
+  const remoteStream2UrlRef = useRef("");
   const [webrtcOk, setWebrtcOk] = useState(false);
   const [mediaBlocked, setMediaBlocked] = useState(false);
   const [giftFlash, setGiftFlash] = useState<string | null>(null);
@@ -440,7 +562,6 @@ function LiveBody() {
   const [debateTurnSecs, setDebateTurnSecs] = useState(30);
   const [dcOpen, setDcOpen] = useState(false);
   const [statusFlash, setStatusFlash] = useState<string | null>(null);
-  const [moreOpen, setMoreOpen] = useState(false);
   const [connSince, setConnSince] = useState(0);
   const [retryBusy, setRetryBusy] = useState(false);
   const [awaitingRemoteVideo, setAwaitingRemoteVideo] = useState(false);
@@ -481,9 +602,223 @@ function LiveBody() {
     return () => clearTimeout(t);
   }, [statusFlash]);
 
-  // Keep phase/partner name in refs for debate callbacks
+  // Keep phase/partner name in refs for debate callbacks.
+  // Do not clobber a better DC-upgraded ref with stale "Partner" state mid-batch.
+  // Never wipe a real name when React state briefly goes "" (hangup race / rematch).
   phaseRef.current = phase;
-  partnerNameRef.current = partner;
+  {
+    const ids = {
+      peerId: remotePeerId.current || lastPartnerIdsRef.current.peerId || "",
+      userId: partnerUserId.current || lastPartnerIdsRef.current.userId || "",
+      shortId: lastPartnerIdsRef.current.shortId || "",
+    };
+    if (!partner) {
+      // Mid-match empty state must not erase "Драконов" before next paint
+      if (phaseRef.current !== "matched") {
+        /* hangup path clears via lastName cache — keep ref until new partner */
+      }
+    } else if (
+      !partnerNameRef.current ||
+      partner === partnerNameRef.current ||
+      isBetterPartnerDisplayName(partner, partnerNameRef.current, ids)
+    ) {
+      partnerNameRef.current = partner;
+    }
+    // else: keep superior ref (e.g. DC name while setPartner still flushing)
+  }
+
+  /** Upgrade dock name when hub omitted it but DC/chat carries a real label. */
+  const applyPartnerNameFrom = useCallback(
+    (raw: unknown, source: string) => {
+      const ids = {
+        peerId: remotePeerId.current || lastPartnerIdsRef.current.peerId || "",
+        userId: partnerUserId.current || lastPartnerIdsRef.current.userId || "",
+        shortId: lastPartnerIdsRef.current.shortId || "",
+      };
+      const cur = partnerNameRef.current || partner || "";
+      if (!isBetterPartnerDisplayName(raw, cur, ids)) return false;
+      const next = String(raw ?? "")
+        .replace(/[\u200B-\u200D\uFEFF]/g, "")
+        .trim()
+        .slice(0, 32);
+      if (!next) return false;
+      partnerNameRef.current = next;
+      partnerNameFromRef.current = source;
+      setPartner(next);
+      const uid = String(
+        partnerUserId.current || lastPartnerIdsRef.current.userId || ""
+      )
+        .trim()
+        .toLowerCase();
+      if (uid && !isPlaceholderPartnerName(next, ids)) {
+        lastGoodNameByUidRef.current[uid] = next;
+      }
+      console.log(`[match] name=${next} from=${source}`);
+      push(`partner_name from=${source} name=${next}`);
+      return true;
+    },
+    [partner, push]
+  );
+  const applyPartnerNameFromRef = useRef(applyPartnerNameFrom);
+  applyPartnerNameFromRef.current = applyPartnerNameFrom;
+
+  /** Announce our display name + stars/trust/geo (+ optional name_req) over P2P DC. */
+  const sendPartnerIdentityP2p = useCallback(
+    (opts?: { request?: boolean }) => {
+      const media = mediaRef.current;
+      if (!media?.isDataChannelOpen?.()) return false;
+      const myName = String(displayNameRef.current || "").trim().slice(0, 32);
+      // Never announce hex/anon poison as our name
+      const safeName =
+        myName &&
+        !isPlaceholderPartnerName(myName, {
+          peerId: "",
+          userId: userIdRef.current || "",
+        })
+          ? myName
+          : "";
+      // Self ledger from hub hello — 0 is valid empty; peer paints max(stars,trust).
+      const starsN = Math.max(0, Math.floor(Number(starsRef.current) || 0));
+      const trustN = Math.max(
+        0,
+        Math.floor(
+          Number(trustEffectiveRef.current || trustRef.current || 0) || 0
+        )
+      );
+      // Public geo for partner chrome (parity with web). hide_ip → cosmetic flag only.
+      const hideIp = !!selfHideIpRef.current;
+      const self = selfGeoRef.current;
+      const flagRaw = hideIp
+        ? String(self.flag || "")
+            .trim()
+            .toUpperCase()
+            .replace(/[^A-Z]/g, "")
+            .slice(0, 2)
+        : String(self.flag || "")
+            .trim()
+            .toUpperCase()
+            .replace(/[^A-Z]/g, "")
+            .slice(0, 2);
+      const country = hideIp
+        ? ""
+        : String(self.country || "").trim().slice(0, 48);
+      const city = hideIp ? "" : String(self.city || "").trim().slice(0, 48);
+      const payload: Record<string, unknown> = {
+        v: 1,
+        type: "partner_identity",
+        user_id: userIdRef.current || "",
+        name: safeName,
+        friend_code: String(friendCode || "").trim().toUpperCase(),
+        stars: starsN,
+        trust: trustN,
+        flag: flagRaw || "",
+        country,
+        city,
+        hide_ip: !!hideIp,
+        ts: Date.now(),
+      };
+      let ok = false;
+      try {
+        ok = !!media.sendDataMessage(payload);
+      } catch {
+        ok = false;
+      }
+      try {
+        console.log(
+          `[match] identity→ name=${safeName || "-"} ★${starsN} trust=${trustN} flag=${flagRaw || "-"} country=${country || "-"} city=${city || "-"} hide=${hideIp ? 1 : 0} ok=${ok ? 1 : 0} req=${opts?.request ? 1 : 0}`
+        );
+      } catch {
+        /* ignore */
+      }
+      if (opts?.request) {
+        try {
+          media.sendDataMessage({
+            v: 1,
+            type: "name_req",
+            user_id: userIdRef.current || "",
+            ts: Date.now(),
+          });
+        } catch {
+          /* ignore */
+        }
+      }
+      return ok;
+    },
+    [friendCode]
+  );
+  const sendPartnerIdentityP2pRef = useRef(sendPartnerIdentityP2p);
+  sendPartnerIdentityP2pRef.current = sendPartnerIdentityP2p;
+
+  const clearIdentityPoll = useCallback(() => {
+    if (identityPollTimerRef.current) {
+      clearInterval(identityPollTimerRef.current);
+      identityPollTimerRef.current = null;
+    }
+    identityPollStartedAtRef.current = 0;
+  }, []);
+
+  /**
+   * After match + DC open: re-request partner_identity every 2s for up to 12s
+   * until (loc non-empty OR hide) AND identity★ received at least once.
+   */
+  const startIdentityPoll = useCallback(() => {
+    clearIdentityPoll();
+    if (phaseRef.current !== "matched") return;
+    const media = mediaRef.current;
+    if (!media?.isDataChannelOpen?.()) return;
+    identityPollStartedAtRef.current = Date.now();
+    const tick = () => {
+      if (phaseRef.current !== "matched") {
+        clearIdentityPoll();
+        return;
+      }
+      if (!mediaRef.current?.isDataChannelOpen?.()) {
+        // DC dropped — keep timer; onDataChannel reopen restarts poll.
+        return;
+      }
+      const locOk =
+        partnerHideIpRef.current ||
+        partnerGeoHasSignal({
+          flag: partnerFlagRef.current,
+          country: partnerCountryRef.current,
+          city: partnerCityRef.current,
+        });
+      // Spec: wait for at least one DC partner_identity with explicit ★
+      // (incl. 0). Hub MatchPeer alone does not stop the poll — web may
+      // still send stars>0 that must paint over empty-ledger hub 0.
+      const starsOk = identityStarsKnownRef.current;
+      if (locOk && starsOk) {
+        console.log(
+          `[match] identity-poll done loc=1 id★=1 hub★=${hubStarsKnownRef.current ? 1 : 0}`
+        );
+        clearIdentityPoll();
+        return;
+      }
+      const elapsed = Date.now() - identityPollStartedAtRef.current;
+      if (elapsed >= 12000) {
+        console.log(
+          `[match] identity-poll timeout loc=${locOk ? 1 : 0} id★=${starsOk ? 1 : 0} hub★=${hubStarsKnownRef.current ? 1 : 0} ms=${elapsed}`
+        );
+        clearIdentityPoll();
+        return;
+      }
+      try {
+        sendPartnerIdentityP2pRef.current({ request: true });
+      } catch {
+        /* ignore */
+      }
+      console.log(
+        `[match] identity-poll req loc=${locOk ? 1 : 0} id★=${starsOk ? 1 : 0} ms=${elapsed}`
+      );
+    };
+    // Immediate request, then every 2s until done/timeout.
+    tick();
+    identityPollTimerRef.current = setInterval(tick, 2000);
+  }, [clearIdentityPoll]);
+  const startIdentityPollRef = useRef(startIdentityPoll);
+  startIdentityPollRef.current = startIdentityPoll;
+  const clearIdentityPollRef = useRef(clearIdentityPoll);
+  clearIdentityPollRef.current = clearIdentityPoll;
   micOnRef.current = micOn;
   camOnRef.current = camOn;
   partnerMutedRef.current = partnerMuted;
@@ -649,10 +984,22 @@ function LiveBody() {
         setMediaBlocked(false);
       },
       onRemoteStream: (s) => {
+        // Only remount RTCView when MediaStream URL changes — every ontrack
+        // used to bump epoch and flash the partner stage while linking.
+        if (!s) return;
+        let urlChanged = true;
+        try {
+          const nextUrl = s?.toURL?.() || "";
+          const prevUrl = remoteStreamUrlRef.current;
+          if (prevUrl && nextUrl && prevUrl === nextUrl) urlChanged = false;
+          if (nextUrl) remoteStreamUrlRef.current = nextUrl;
+        } catch {
+          urlChanged = true;
+        }
         setRemoteStream(s);
-        setRemoteEpoch((n) => n + 1);
-        const vt = s.getVideoTracks?.()?.length ?? 0;
-        const at = s.getAudioTracks?.()?.length ?? 0;
+        if (urlChanged) setRemoteEpoch((n) => n + 1);
+        const vt = s?.getVideoTracks?.()?.length ?? 0;
+        const at = s?.getAudioTracks?.()?.length ?? 0;
         // Live remote media must never leave the user on idle Start controls
         if (
           (vt > 0 || at > 0) &&
@@ -833,14 +1180,9 @@ function LiveBody() {
             /* ignore */
           }
         } else if (s.startsWith("CONNECT ")) {
-          // Visible stopwatch: CONNECT offer=X answer=Y frame=Zms
+          // Product users must not see connect stopwatch toast; Settings
+          // "Last connect" + logcat remain for agents/verify.
           log(s);
-          try {
-            showToastRef.current(s.replace(/^CONNECT\s+/, "Link "));
-          } catch {
-            /* ignore */
-          }
-          // Persist for Settings "Last connect" polish
           try {
             const t = mediaRef.current?.getLastConnectTiming?.();
             if (t) {
@@ -904,6 +1246,23 @@ function LiveBody() {
         log(`datachannel ${open ? "open" : "closed"}`);
         // Re-announce mute state when DC opens (muted before channel ready)
         if (open) {
+          // Always announce our real display name + geo/★ (hub MatchPeer may
+          // be empty/poison). Then poll partner_identity every 2s ≤12s until
+          // loc+identity★ settled (or timeout).
+          try {
+            // Always request partner identity (name/★/geo). Poll continues
+            // every 2s ≤12s until loc+identity★ settle.
+            sendPartnerIdentityP2pRef.current({ request: true });
+          } catch {
+            /* ignore */
+          }
+          try {
+            if (phaseRef.current === "matched") {
+              startIdentityPollRef.current();
+            }
+          } catch {
+            /* ignore */
+          }
           try {
             const payload = {
               v: 1,
@@ -927,6 +1286,31 @@ function LiveBody() {
           } catch {
             /* ignore */
           }
+          // Re-announce local Hide so web can show partner-hide UI
+          try {
+            if (!camOnRef.current) {
+              const hidePayload = {
+                v: 1,
+                type: "self_hide",
+                on: true,
+                user_id: userIdRef.current || "",
+                name: displayNameRef.current || "anon",
+                ts: Date.now(),
+              };
+              media.sendDataMessage(hidePayload);
+              try {
+                hubRefLive.current.signal(
+                  "self_hide",
+                  JSON.stringify(hidePayload),
+                  ""
+                );
+              } catch {
+                /* hub optional */
+              }
+            }
+          } catch {
+            /* ignore */
+          }
         }
       },
       onDataMessage: (msg) => {
@@ -946,6 +1330,113 @@ function LiveBody() {
                 3500
               );
             }
+            // Typing often carries a real display name
+            if (msg.name) applyPartnerNameFromRef.current(msg.name, "dc_typing");
+            return;
+          }
+          if (typ === "partner_identity" || typ === "identity") {
+            const fromUid = String(msg.user_id || msg.from || "").trim();
+            if (
+              fromUid &&
+              userIdRef.current &&
+              fromUid === userIdRef.current
+            ) {
+              return;
+            }
+            if (fromUid) notePartnerUserId(fromUid, "partner_identity");
+            const fc = String(msg.friend_code || msg.friendCode || "")
+              .trim()
+              .toUpperCase();
+            if (fc && !partnerFriendCode.current) {
+              partnerFriendCode.current = fc;
+              setPartnerCode(fc);
+              lastPartnerIdsRef.current = {
+                ...lastPartnerIdsRef.current,
+                friendCode: fc,
+              };
+            }
+            // Name: real display name beats friend_code paint; never stick on Partner.
+            // Poison/empty name falls through to friend_code (never leave dock on Partner).
+            {
+              let named = false;
+              if (msg.name) {
+                named = !!applyPartnerNameFromRef.current(msg.name, "dc");
+              }
+              if (!named && fc) {
+                applyPartnerNameFromRef.current(fc, "dc_code");
+              }
+            }
+            // Stars / trust from peer DC (old hub may omit MatchPeer fields).
+            // Explicit 0 is known (empty ledger / spend-to-zero) — still apply.
+            // stars>0 from web MUST paint (merge nextKnown=true).
+            const anyMsg = msg as Record<string, unknown>;
+            const { stars: s, known: sKnown } = readPeerStars(anyMsg);
+            const { trust: tr, known: tKnown } = readPeerTrust(anyMsg);
+            if (sKnown) {
+              identityStarsKnownRef.current = true;
+              setPartnerStars((prev) =>
+                mergePartnerStars({
+                  samePartner: true,
+                  prev,
+                  next: s,
+                  nextKnown: true,
+                })
+              );
+            }
+            if (tKnown) {
+              setPartnerTrust((prev) =>
+                mergePartnerTrust({
+                  samePartner: true,
+                  prev,
+                  next: tr,
+                  nextKnown: true,
+                })
+              );
+            }
+            // Geo from peer DC when hub partner_geo / MatchPeer geo empty
+            const geo = readPeerGeo(anyMsg);
+            const hasGeoField =
+              !!geo.flag ||
+              !!geo.country ||
+              !!geo.city ||
+              anyMsg.hide_ip != null ||
+              anyMsg.hideIp != null;
+            if (hasGeoField) {
+              if (geo.hideIp) {
+                setPartnerHideIp(true);
+                setPartnerCountry("");
+                setPartnerCity("");
+                if (geo.flag) setPartnerFlag(geo.flag);
+              } else {
+                if (geo.flag) setPartnerFlag(geo.flag);
+                if (geo.country) setPartnerCountry(geo.country);
+                if (geo.city) setPartnerCity(geo.city);
+                // Real geo ⇒ public (clear hide when peer sent country/city/flag)
+                if (geo.flag || geo.country || geo.city) {
+                  setPartnerHideIp(false);
+                }
+              }
+            }
+            const paintName =
+              String(msg.name || "").trim() ||
+              fc ||
+              partnerNameRef.current ||
+              "-";
+            console.log(
+              `[match] identity← name=${paintName} from=dc ★${sKnown ? s : "?"} trust=${tKnown ? tr : "?"} flag=${geo.flag || "-"} country=${geo.country || "-"} city=${geo.city || "-"} hide=${geo.hideIp ? 1 : 0} code=${fc || partnerFriendCode.current || "-"}`
+            );
+            log(
+              `[match] identity← name=${paintName} ★${sKnown ? s : "?"} trust=${tKnown ? tr : "?"} loc=${geo.flag || "-"}/${geo.country || "-"}/${geo.city || "-"}`
+            );
+            return;
+          }
+          if (typ === "name_req") {
+            // Peer wants our display name — reply with identity announce
+            try {
+              sendPartnerIdentityP2pRef.current({ request: false });
+            } catch {
+              /* ignore */
+            }
             return;
           }
           if (typ === "partner_mute" || typ === "partnerMute") {
@@ -958,6 +1449,7 @@ function LiveBody() {
               return;
             }
             if (fromUid) notePartnerUserId(fromUid, "partner_mute");
+            if (msg.name) applyPartnerNameFromRef.current(msg.name, "dc_mute");
             const mutedVal = msg.muted;
             const on =
               mutedVal === true ||
@@ -967,11 +1459,35 @@ function LiveBody() {
             applyTheyMutedMeRef.current(on, "p2p_dc");
             return;
           }
+          if (typ === "self_hide" || typ === "cam_hide") {
+            const fromUid = String(msg.user_id || msg.from || "").trim();
+            if (
+              fromUid &&
+              userIdRef.current &&
+              fromUid === userIdRef.current
+            ) {
+              return;
+            }
+            if (fromUid) notePartnerUserId(fromUid, "self_hide");
+            if (msg.name) applyPartnerNameFromRef.current(msg.name, "dc_hide");
+            const onVal = msg.on ?? msg.hidden ?? msg.muted;
+            const on =
+              onVal === true ||
+              onVal === 1 ||
+              onVal === "1" ||
+              onVal === "true";
+            setPartnerCamHidden(on);
+            partnerCamHiddenRef.current = on;
+            console.log(`[blur] partner_hide on=${on ? 1 : 0}`);
+            log(`partner_hide on=${on ? 1 : 0} via=p2p_dc`);
+            return;
+          }
           if (typ === "chat" || typ === "friend_chat") {
             const body = String(msg.body || "").trim().slice(0, 280);
             if (!body) return;
             const fromUid = String(msg.user_id || "").trim();
             if (fromUid) notePartnerUserId(fromUid, "chat");
+            if (msg.name) applyPartnerNameFromRef.current(msg.name, "dc_chat");
             const from =
               String(msg.name || msg.user_id || "peer").slice(0, 24) || "peer";
             setChat((c) => [...c, { from, body }].slice(-30));
@@ -1003,8 +1519,17 @@ function LiveBody() {
     // Secondary PC: video/audio only (debate/chat stay on primary)
     media2.setHandlers({
       onRemoteStream: (s) => {
+        let urlChanged = true;
+        try {
+          const nextUrl = s?.toURL?.() || "";
+          const prevUrl = remoteStream2UrlRef.current;
+          if (prevUrl && nextUrl && prevUrl === nextUrl) urlChanged = false;
+          if (nextUrl) remoteStream2UrlRef.current = nextUrl;
+        } catch {
+          urlChanged = true;
+        }
         setRemoteStream2(s);
-        setRemoteEpoch2((n) => n + 1);
+        if (urlChanged) setRemoteEpoch2((n) => n + 1);
         try {
           s.getAudioTracks?.().forEach((tr) => {
             tr.enabled = !partnerMutedRef.current;
@@ -1037,22 +1562,32 @@ function LiveBody() {
     });
 
     loadMatchPrefs().then((prefs) => {
+      selfHideIpRef.current = !!prefs.hideIp;
       media.setHideIp(prefs.hideIp);
       media.setDataSaver(!!prefs.dataSaver);
       media2.setHideIp(prefs.hideIp);
       media2.setDataSaver(!!prefs.dataSaver);
       setDataSaverOn(!!prefs.dataSaver);
+      setSwipeSkipOn(prefs.swipeSkip !== false);
       setLiveLayout(
         prefs.liveLayout === "browser" ? "browser" : "native"
       );
-      const mode = prefs.blurStrangersMode || "off";
+      const raw = prefs.blurStrangersMode;
+      const mode: BlurStrangersMode =
+        raw === "off" || raw === "intro" || raw === "hold" ? raw : "intro";
       blurModeRef.current = mode;
       blurStrangersRef.current = mode !== "off";
       blurPrefsReadyRef.current = true;
       log(`blur prefs mode=${mode}`);
-      // Prefs arrived after match: apply veil if still stranger-matched
-      if (phaseRef.current === "matched" && mode !== "off") {
-        applyMatchBlurVeil("prefs_load");
+      console.log(`[blur] prefs_load mode=${mode}`);
+      // Prefs arrived after match (race): apply intro/hold, or drop optimistic intro if off
+      if (phaseRef.current === "matched") {
+        if (mode === "hold" || mode === "intro") {
+          applyMatchBlurVeil("prefs_load");
+        } else if (blurAutoAppliedRef.current && remoteBlurredRef.current) {
+          // User chose off — peel optimistic auto-veil only (not eye-toggle)
+          revealPartnerVideo("prefs_off");
+        }
       }
     });
     loadPipPrefs().then((p) => {
@@ -1108,50 +1643,142 @@ function LiveBody() {
           const m = msg as {
             rate_min_secs?: number;
             early_rates_left?: number;
+            country?: string;
+            city?: string;
+            flag?: string;
+            hide_ip?: boolean;
+            hideIp?: boolean;
           };
           if (m.rate_min_secs != null) {
             const secs = Math.max(60, Math.floor(Number(m.rate_min_secs) || 900));
             setRateMinSecs(secs);
             rateMinSecsRef.current = secs;
           }
+          // Latch self geo for partner_identity P2P (web parity).
+          if (m.flag != null || m.country != null || m.city != null) {
+            selfGeoRef.current = {
+              flag: String(m.flag || "")
+                .trim()
+                .toUpperCase()
+                .replace(/[^A-Z]/g, "")
+                .slice(0, 2),
+              country: String(m.country || "").trim(),
+              city: String(m.city || "").trim(),
+            };
+          }
+          if (m.hide_ip != null || m.hideIp != null) {
+            selfHideIpRef.current = !!(m.hide_ip ?? m.hideIp);
+          }
           break;
         }
         case "partner_geo": {
-          // Late hub geo after match — refresh partner chrome (was "Location unknown")
+          // Late hub geo after match — refresh partner chrome (was stuck empty).
+          // Solo 1v1: ALWAYS apply when primary empty OR loose-match OR single
+          // remote partner — never leave flag=CA unused (see shouldApplyPartnerGeo).
           const g = msg as {
             peer_id?: string;
+            peerId?: string;
             user_id?: string;
+            userId?: string;
             country?: string;
             city?: string;
             flag?: string;
             hide_ip?: boolean;
+            hideIp?: boolean;
           };
-          const pid = String(g.peer_id || "");
-          const primary = remotePeerId.current || "";
-          const uid = String(g.user_id || "");
-          const isPrimary =
-            (pid && primary && pid === primary) ||
-            (uid &&
-              partnerUserId.current &&
-              uid.toLowerCase() === partnerUserId.current.toLowerCase()) ||
-            // 1v1: accept if we only have one partner and ids match short form
-            (pid && primary && pid.slice(0, 8) === primary.slice(0, 8));
-          if (!isPrimary && phaseRef.current === "matched") {
-            // Still apply when no peer_id match but we're 1v1 (legacy)
-            if (primary && primary !== "legacy" && pid && pid !== primary) {
-              log(
-                `partner_geo skip pid=${pid.slice(0, 8)} primary=${primary.slice(0, 8)}`
-              );
-              break;
-            }
+          const pid = String(g.peer_id || g.peerId || "").trim();
+          const primary = String(remotePeerId.current || "").trim();
+          const uid = String(g.user_id || g.userId || "").trim();
+          const lastPid = String(lastPartnerIdsRef.current.peerId || "").trim();
+          const lastUid = String(lastPartnerIdsRef.current.userId || "").trim();
+          const partnerUid = String(
+            partnerUserId.current || lastUid || ""
+          ).trim();
+          const phaseMatched = phaseRef.current === "matched";
+          const decision = shouldApplyPartnerGeo({
+            phaseMatched,
+            msgPeerId: pid,
+            msgUserId: uid,
+            primaryPeerId: primary,
+            partnerUserId: partnerUid,
+            lastPeerId: lastPid,
+            lastUserId: lastUid,
+            hasSecondary: !!String(secondaryPeerId.current || "").trim(),
+            matchMode: matchModeRef.current,
+          });
+          const nextFlag =
+            g.flag != null
+              ? String(g.flag || "")
+                  .trim()
+                  .toUpperCase()
+                  .replace(/[^A-Z]/g, "")
+                  .slice(0, 2)
+              : "";
+          const nextCountry =
+            g.country != null ? String(g.country || "").trim() : "";
+          const nextCity = g.city != null ? String(g.city || "").trim() : "";
+          const hideRaw = g.hide_ip ?? g.hideIp;
+          const nextHide = hideRaw != null ? !!hideRaw : null;
+          const buf = {
+            peer_id: pid,
+            user_id: uid,
+            flag: nextFlag,
+            country: nextCountry,
+            city: nextCity,
+            hide_ip: nextHide,
+          };
+          if (!decision.apply) {
+            // Buffer for matched-merge (pre-match) or multi promote.
+            pendingPartnerGeoRef.current = buf;
+            console.log(
+              `[geo] partner_geo skip reason=${decision.reason} pid=${pid.slice(0, 8) || "-"} primary=${primary.slice(0, 8) || "-"} secondary=${String(secondaryPeerId.current || "").slice(0, 8) || "-"} mode=${matchModeRef.current || "-"} flag=${nextFlag || "-"} country=${nextCountry || "-"} city=${nextCity || "-"}`
+            );
+            log(
+              `partner_geo skip reason=${decision.reason} pid=${pid.slice(0, 8) || "-"} primary=${primary.slice(0, 8) || "-"}`
+            );
+            break;
           }
-          if (g.flag != null) setPartnerFlag(String(g.flag || "").toUpperCase());
-          if (g.country != null) setPartnerCountry(String(g.country || ""));
-          if (g.city != null) setPartnerCity(String(g.city || ""));
-          if (g.hide_ip != null) setPartnerHideIp(!!g.hide_ip);
-          log(
-            `partner_geo ${String(g.flag || "")} ${String(g.country || "")}/${String(g.city || "")} hide=${g.hide_ip ? 1 : 0}`
+          if (nextHide === true) {
+            // Privacy: cosmetic flag only — clear real geo; keep flag on name line.
+            setPartnerHideIp(true);
+            setPartnerCountry("");
+            setPartnerCity("");
+            if (g.flag != null) setPartnerFlag(nextFlag);
+          } else {
+            if (nextHide === false) setPartnerHideIp(false);
+            // Real country/city/flag from hub implies public geo even if hide omitted.
+            if (nextCountry || nextCity || nextFlag) setPartnerHideIp(false);
+            // Never clobber known geo with empty hub fields (async partial / noise).
+            // Flag-only still applies so formatLocLine expands country from ISO.
+            // Empty strings from hub are fine — later PartnerGeo fills them.
+            if (nextFlag) setPartnerFlag(nextFlag);
+            if (nextCountry) setPartnerCountry(nextCountry);
+            if (nextCity) setPartnerCity(nextCity);
+          }
+          pendingPartnerGeoRef.current = null;
+          console.log(
+            `[geo] partner_geo apply reason=${decision.reason} flag=${nextFlag || "-"} country=${nextCountry || "-"} city=${nextCity || "-"} hide=${nextHide === true ? 1 : 0} pid=${pid.slice(0, 8) || "-"} uid=${uid.slice(0, 8) || "-"}`
           );
+          console.log(
+            `[match] geo-late flag=${nextFlag || "-"} country=${nextCountry || "-"} city=${nextCity || "-"} hide=${nextHide === true ? 1 : 0} willPaintLoc=${nextHide === true ? "hidden" : nextFlag || nextCountry || nextCity ? 1 : 0}`
+          );
+          log(
+            `partner_geo apply reason=${decision.reason} flag=${nextFlag || "-"} country=${nextCountry || "-"} city=${nextCity || "-"} hide=${nextHide === true ? 1 : 0}`
+          );
+          break;
+        }
+        case "geo": {
+          // Self IP→geo finished (for partner_identity announce).
+          const g = msg as { country?: string; city?: string; flag?: string };
+          selfGeoRef.current = {
+            flag: String(g.flag || "")
+              .trim()
+              .toUpperCase()
+              .replace(/[^A-Z]/g, "")
+              .slice(0, 2),
+            country: String(g.country || "").trim(),
+            city: String(g.city || "").trim(),
+          };
           break;
         }
         case "status": {
@@ -1198,6 +1825,7 @@ function LiveBody() {
             // Hub already requeues the leaver; only auto-spin the abandoned side
             // when it was a real short chat (not a 0s thrash bounce).
             const requeue = hubRequeue || shortCallAutoNext;
+            forceRelayHubRef.current = false;
             try {
               media2.closeCall({ keepLocal: true, sendBye: false });
               media.closeCall({ keepLocal: true, sendBye: false });
@@ -1213,8 +1841,16 @@ function LiveBody() {
             setPartnerTrust(0);
             setPartnerFlag("");
             setPartnerCountry("");
-      setPartnerCity("");
-      setPartnerHideIp(false);
+            setPartnerCity("");
+            setPartnerHideIp(false);
+            pendingPartnerGeoRef.current = null;
+            clearIdentityPollRef.current();
+            identityStarsKnownRef.current = false;
+            hubStarsKnownRef.current = false;
+            setPartnerCamHidden(false);
+            partnerCamHiddenRef.current = false;
+            setTheyMutedMe(false);
+            setRemoteBlurred(false);
             setAwaitingRemoteVideo(false);
             setMoreOpen(false);
             remotePeerId.current = "";
@@ -1306,7 +1942,50 @@ function LiveBody() {
           break;
         }
         case "matched": {
-          const m = msg as ServerMatched;
+          const m = msg as ServerMatched & {
+            forceRelay?: boolean | number | string;
+          };
+          // FIRST: latch hub force_relay before any startCall / offer handling.
+          // Web pure-relay only works when phone also arms forceRelayOnce.
+          // Read force_relay from top-level + camelCase (defensive).
+          const hubFrRaw =
+            (m as { force_relay?: unknown }).force_relay ??
+            (m as { forceRelay?: unknown }).forceRelay;
+          const hubForceRelay =
+            hubFrRaw === true ||
+            hubFrRaw === 1 ||
+            hubFrRaw === "1" ||
+            hubFrRaw === "true";
+          // Only arm sticky on true; do not clear mid-match on a false re-Matched
+          // while media is live (partner re-announce). Hangup/Next clear the ref.
+          if (hubForceRelay) {
+            forceRelayHubRef.current = true;
+          } else if (phaseRef.current !== "matched") {
+            forceRelayHubRef.current = false;
+          }
+          try {
+            const m1 = mediaRef.current || media;
+            const m2 = media2Ref.current || media2;
+            if (hubForceRelay) {
+              m1.setForceRelay?.(true);
+              m2.setForceRelay?.(true);
+            } else if (phaseRef.current !== "matched") {
+              m1.setForceRelay?.(false);
+              m2.setForceRelay?.(false);
+            }
+            const once =
+              typeof (m1 as { isForceRelay?: () => boolean }).isForceRelay ===
+              "function"
+                ? (m1 as { isForceRelay: () => boolean }).isForceRelay()
+                  ? 1
+                  : 0
+                : -1;
+            log(
+              `force_relay_hub=${hubForceRelay ? 1 : 0} forceRelayOnce=${once} raw=${String(hubFrRaw)} (pre-startCall)`
+            );
+          } catch {
+            /* ignore */
+          }
           const rawPeers = (m.peers || []) as MatchPeer[];
           let allPeers = rawPeers.length
             ? rawPeers.map((p) => normalizePeer(p, m))
@@ -1328,18 +2007,14 @@ function LiveBody() {
             ...peer,
             mode: String(m.mode || peer.mode || "solo"),
           };
-          // Hub force_relay only (same-IP / hide_ip). No belt-arm for every web peer.
           try {
             const plat = String(
               (peer as { platform?: string }).platform ||
                 (rawPeers[0] as { platform?: string } | undefined)?.platform ||
                 ""
             ).toLowerCase();
-            const wantRelay = !!m.force_relay;
-            mediaRef.current?.setForceRelay?.(wantRelay);
-            media2Ref.current?.setForceRelay?.(wantRelay);
             log(
-              `force_relay hub=${m.force_relay ? 1 : 0} peerPlat=${plat || "?"} `
+              `force_relay hub=${hubForceRelay ? 1 : 0} peerPlat=${plat || "?"} `
             );
           } catch {
             /* ignore */
@@ -1397,21 +2072,25 @@ function LiveBody() {
             if (!skipEarly && !promoteSecondary) {
               remotePeerId.current = peer.peerId;
               const sess = mediaRef.current || media;
-              // Always apply hub flag (true or false) — clears sticky pure after Stop.
+              // Re-arm before kick — only arm true (never clear mid-match).
               try {
-                sess.setForceRelay?.(!!m.force_relay);
+                if (hubForceRelay || forceRelayHubRef.current) {
+                  sess.setForceRelay?.(true);
+                }
               } catch {
                 /* ignore */
               }
               const t0 = Date.now();
               log(
-                `startCall EARLY offerer=${peer.isOfferer ? 1 : 0} fr=${m.force_relay ? 1 : 0}`
+                `startCall EARLY offerer=${peer.isOfferer ? 1 : 0} force_relay_hub=${hubForceRelay ? 1 : 0}`
               );
               // FAST: if search already prefetched TURN, do not await HTTP ICE.
               // await fetchIceConfig + warmConnection added 200–800ms every match.
               const kick = async () => {
+                // Re-apply immediately before any await (offer may race in).
+                const fr = !!(forceRelayHubRef.current || hubForceRelay);
                 try {
-                  sess.setForceRelay?.(!!m.force_relay);
+                  if (fr) sess.setForceRelay?.(true);
                 } catch {
                   /* ignore */
                 }
@@ -1441,22 +2120,47 @@ function LiveBody() {
                     })
                     .catch(() => {});
                 }
-                // warmConnection: preferRelay when force_relay so answer reuses TURN PC
+                // After any await: re-arm pure only (never clear sticky here).
                 try {
-                  const p = sess.warmConnection?.({
-                    preferRelay: !!m.force_relay,
-                  });
-                  if (p && !iceWarm) {
-                    await Promise.race([
-                      p,
-                      new Promise((r) => setTimeout(r, 200)),
-                    ]);
+                  if (fr) sess.setForceRelay?.(true);
+                } catch {
+                  /* ignore */
+                }
+                // warmConnection only pre-SDP — never rebuild mid-offer
+                // (closes hybrid PC → ice=new / black “linking” after answer).
+                try {
+                  const iceSnap =
+                    (
+                      sess as {
+                        getIceSnapshot?: () => { ice?: string; cs?: string };
+                      }
+                    ).getIceSnapshot?.() || {};
+                  const iceNow = String(iceSnap.ice || "");
+                  const midLink =
+                    iceNow === "checking" ||
+                    iceNow === "connected" ||
+                    iceNow === "completed" ||
+                    iceSnap.cs === "connecting" ||
+                    iceSnap.cs === "connected";
+                  if (!midLink) {
+                    const p = sess.warmConnection?.({
+                      preferRelay: fr,
+                    });
+                    if (p && !iceWarm) {
+                      await Promise.race([
+                        p,
+                        new Promise((r) => setTimeout(r, 200)),
+                      ]);
+                    } else {
+                      void p;
+                    }
                   } else {
-                    void p;
+                    log(`warm skip mid-link ice=${iceNow || "?"}`);
                   }
-                  // force_relay: wait briefly for TURN ALLOCATE from search warm
+                  // force_relay: short poll only — pure warm never primes (pool=0)
                   if (
-                    m.force_relay &&
+                    fr &&
+                    !midLink &&
                     typeof (sess as { waitWarmTurnPrimed?: (n: number) => Promise<boolean> })
                       .waitWarmTurnPrimed === "function"
                   ) {
@@ -1468,14 +2172,22 @@ function LiveBody() {
                         sess as {
                           waitWarmTurnPrimed: (n: number) => Promise<boolean>;
                         }
-                      ).waitWarmTurnPrimed(1100);
-                      log(`warm TURN prime ${ok ? "ok" : "timeout"} before startCall`);
+                      ).waitWarmTurnPrimed(200);
+                      log(`warm TURN prime ${ok ? "ok" : "skip"} before startCall`);
                     }
                   }
                 } catch {
                   /* ignore */
                 }
-                return sess.startCall({ isOfferer: !!peer.isOfferer });
+                try {
+                  if (fr) sess.setForceRelay?.(true);
+                } catch {
+                  /* ignore */
+                }
+                return sess.startCall({
+                  isOfferer: !!peer.isOfferer,
+                  forceRelay: fr ? true : undefined,
+                });
               };
               void kick()
                 .then(() =>
@@ -1491,7 +2203,18 @@ function LiveBody() {
             const oldPrimary = mediaRef.current;
             const surviving = media2Ref.current;
             try {
-              oldPrimary?.closeCall({ keepLocal: true, sendBye: false });
+              oldPrimary?.closeCall({
+                keepLocal: true,
+                sendBye: false,
+                // keep hub pure sticky across rebuild (see MediaSession.closeCall)
+              });
+              try {
+                if (forceRelayHubRef.current || hubForceRelay) {
+                  (mediaRef.current || media).setForceRelay?.(true);
+                }
+              } catch {
+                /* ignore */
+              }
             } catch {
               /* ignore */
             }
@@ -1617,6 +2340,10 @@ function LiveBody() {
             track("multi_promote", { kept: kept ? 1 : 0 });
           }
 
+          // Capture prior identity before overwriting — used for geo merge.
+          const prevPartnerUid = String(
+            partnerUserId.current || lastPartnerIdsRef.current.userId || ""
+          );
           // Labels / meta always refresh — never wipe a known user_id with empty
           // (thrash re-Matched can briefly omit peers[].user_id → block/report broken)
           remotePeerId.current = peer.peerId || remotePeerId.current;
@@ -1626,26 +2353,339 @@ function LiveBody() {
           if (peer.friendCode) {
             partnerFriendCode.current = peer.friendCode;
           }
-          partnerNameRef.current = peer.name || partnerNameRef.current;
+          // Never blank on Android chrome/HUD: hub may omit name (whitespace /
+          // empty) while still sending stars. Never paint 8-char peer hex —
+          // prefer real name → friend_code → prev real → "Partner".
+          // Keep prev name when same partner re-Matches OR same user_id latched
+          // (hub thrash can flip wasMatched briefly while video stays up).
+          // Use prevPartnerUid (captured before overwrite) — not partnerUserId.current.
+          const sameUidAsPrev =
+            !!peer.userId &&
+            !!prevPartnerUid &&
+            peer.userId.toLowerCase() === prevPartnerUid.toLowerCase();
+          const samePeerAsPrev =
+            !!prevPrimary &&
+            prevPrimary !== "legacy" &&
+            prevPrimary === peer.peerId;
+          const keepPrevName =
+            !promoteSecondary &&
+            (wasMatched || sameUidAsPrev || samePeerAsPrev);
+          // Cache real names by user_id so rematch after hangup still paints
+          // «Драконов» when hub name is empty/poison again.
+          const uidKey = String(peer.userId || prevPartnerUid || "")
+            .trim()
+            .toLowerCase();
+          const cachedName = uidKey
+            ? lastGoodNameByUidRef.current[uidKey] || ""
+            : "";
+          const prevForResolve =
+            (keepPrevName ? partnerNameRef.current : "") ||
+            cachedName ||
+            "";
+          const nameResolved = resolvePartnerDisplayNameWithSource({
+            name: peer.name,
+            shortId: "", // never peer hex slice — friend_code / prev handle secondary
+            friendCode:
+              peer.friendCode ||
+              partnerFriendCode.current ||
+              lastPartnerIdsRef.current.friendCode,
+            peerId: peer.peerId,
+            userId: peer.userId || partnerUserId.current,
+            prev: prevForResolve,
+          });
+          let partnerLabel = nameResolved.name;
+          let nameFrom = nameResolved.from;
+          // Final belt: never stick on Partner if we have a cached real name
+          if (
+            isPlaceholderPartnerName(partnerLabel, {
+              peerId: peer.peerId,
+              userId: peer.userId,
+            }) &&
+            cachedName &&
+            !isPlaceholderPartnerName(cachedName, {
+              peerId: peer.peerId,
+              userId: peer.userId,
+            })
+          ) {
+            partnerLabel = cachedName;
+            nameFrom = "prev";
+          }
+          partnerNameRef.current = partnerLabel;
+          partnerNameFromRef.current = nameFrom;
+          if (
+            uidKey &&
+            !isPlaceholderPartnerName(partnerLabel, {
+              peerId: peer.peerId,
+              userId: peer.userId,
+            })
+          ) {
+            lastGoodNameByUidRef.current[uidKey] = partnerLabel;
+          }
           lastPartnerIdsRef.current = {
             userId: partnerUserId.current || lastPartnerIdsRef.current.userId,
             peerId: remotePeerId.current || lastPartnerIdsRef.current.peerId,
             friendCode:
               partnerFriendCode.current || lastPartnerIdsRef.current.friendCode,
+            // Store peer prefix for id checks only — never use as painted name.
             shortId: String(peer.peerId || "").slice(0, 8) || lastPartnerIdsRef.current.shortId,
           };
           setPartnerCode(partnerFriendCode.current || peer.friendCode);
           if (!keepPrimary) setFriendAdded(false);
-          setPartner(peer.name);
-          setPartnerStars(peer.stars);
-          setPartnerTrust(peer.trust);
-          setPartnerFlag(peer.flag);
-          setPartnerCountry(peer.country || "");
-          setPartnerCity(peer.city || "");
-          setPartnerHideIp(!!peer.hideIp);
+          // Never paint literal "Partner" when friend_code exists
+          {
+            const codeLatch = String(
+              peer.friendCode ||
+                partnerFriendCode.current ||
+                lastPartnerIdsRef.current.friendCode ||
+                ""
+            )
+              .trim()
+              .toUpperCase();
+            if (
+              codeLatch &&
+              isPlaceholderPartnerName(partnerLabel, {
+                peerId: peer.peerId,
+                userId: peer.userId,
+              })
+            ) {
+              partnerNameRef.current = codeLatch;
+              partnerNameFromRef.current = "friend_code";
+              setPartner(codeLatch);
+            } else {
+              setPartner(partnerLabel);
+            }
+          }
+          // Hub weak: announce our identity + request peer name whenever dock
+          // lacks a real display name (default / friend_code / prev / short_id).
+          {
+            // Always request peer identity over DC so stars+geo arrive even when
+            // name is already known (hub name ok, MatchPeer geo empty).
+            const needName =
+              nameFrom === "default" ||
+              nameFrom === "friend_code" ||
+              nameFrom === "prev" ||
+              nameFrom === "short_id" ||
+              isPlaceholderPartnerName(partnerNameRef.current || partnerLabel, {
+                peerId: peer.peerId,
+                userId: peer.userId || partnerUserId.current,
+              });
+            try {
+              sendPartnerIdentityP2pRef.current({ request: true });
+              if (!needName) {
+                // still poll for geo/stars
+              }
+            } catch {
+              /* ignore */
+            }
+          }
+          // Geo: full replace on new partner; same-partner re-Matched must NOT
+          // wipe partner_geo-filled country/city with empty placeholders (hub
+          // often re-sends Matched without re-pushing partner_geo).
+          // Stars/trust: same rule — empty/legacy re-Matched must not wipe a
+          // known badge with placeholder 0 (explicit hub 0 still applies).
+          {
+            // promoteSecondary = previous secondary becomes primary → new person,
+            // so full-replace geo (do not treat as samePartner).
+            // Also treat early-kick / pre-match partner_geo latch as same peer:
+            // hub may send PartnerGeo then Matched with empty geo — full replace
+            // would wipe flag/country and leave chrome on "Looking up…" forever.
+            const idSameAsLatched =
+              (prevPrimary &&
+                prevPrimary !== "legacy" &&
+                peerIdsLooseMatch(prevPrimary, peer.peerId)) ||
+              (!!peer.userId &&
+                !!prevPartnerUid &&
+                peer.userId.toLowerCase() === prevPartnerUid.toLowerCase());
+            const samePartner =
+              !promoteSecondary &&
+              (keepPrimary ||
+                (wasMatched && idSameAsLatched) ||
+                // First Matched after early kick — merge, don't wipe pre-match geo
+                (!wasMatched && idSameAsLatched));
+            // Stars/trust: merge with known-flag so empty re-Matched never
+            // wipes a prior non-zero badge; explicit hub 0 still applies.
+            // Never wipe hub/DC known stars with an empty peer object (known=0).
+            if (peer.starsKnown) hubStarsKnownRef.current = true;
+            else if (!samePartner) hubStarsKnownRef.current = false;
+            if (!samePartner) identityStarsKnownRef.current = false;
+            const cachedStars =
+              uidKey && lastGoodStarsByUidRef.current[uidKey] != null
+                ? lastGoodStarsByUidRef.current[uidKey]
+                : undefined;
+            setPartnerStars((prev) => {
+              const merged = mergePartnerStars({
+                samePartner,
+                prev,
+                next: peer.stars,
+                nextKnown: !!peer.starsKnown,
+              });
+              // Rematch same uid with empty hub stars but we knew ★ earlier
+              if (
+                merged === 0 &&
+                !peer.starsKnown &&
+                cachedStars != null &&
+                cachedStars > 0
+              ) {
+                return cachedStars;
+              }
+              if (uidKey && (peer.starsKnown || merged > 0)) {
+                lastGoodStarsByUidRef.current[uidKey] = merged;
+              }
+              return merged;
+            });
+            setPartnerTrust((prev) =>
+              mergePartnerTrust({
+                samePartner,
+                prev,
+                next: peer.trust,
+                nextKnown: !!peer.trustKnown,
+              })
+            );
+            // Always flush Matched peer geo (incl. flag-only) so formatLocLine
+            // can expand ISO→country. samePartner: merge non-empty only so a
+            // second empty Matched does not wipe partner_geo-filled fields.
+            const cachedGeo = uidKey
+              ? lastGoodGeoByUidRef.current[uidKey]
+              : undefined;
+            let flag = String(peer.flag || "")
+              .trim()
+              .toUpperCase()
+              .replace(/[^A-Z]/g, "")
+              .slice(0, 2);
+            let country = String(peer.country || "").trim();
+            let city = String(peer.city || "").trim();
+            // Restore last geo for this user_id when hub MatchPeer has empty geo
+            if (!flag && !country && !city && cachedGeo) {
+              flag = cachedGeo.flag || "";
+              country = cachedGeo.country || "";
+              city = cachedGeo.city || "";
+              console.log(
+                `[geo] restore-cache uid=${uidKey.slice(0, 8)} flag=${flag || "-"} country=${country || "-"} city=${city || "-"}`
+              );
+            }
+            if (samePartner) {
+              // Flag-only still applies (country may arrive later via partner_geo).
+              if (flag) setPartnerFlag(flag);
+              if (country) setPartnerCountry(country);
+              if (city) setPartnerCity(city);
+              if (peer.hideIp) {
+                // Cosmetic flag on name; loc line = Location hidden.
+                setPartnerHideIp(true);
+                setPartnerCountry("");
+                setPartnerCity("");
+                if (flag) setPartnerFlag(flag);
+              } else if (country || city || flag) {
+                // Only clear hide when matched payload has real/public geo signal
+                setPartnerHideIp(false);
+              }
+            } else {
+              // New partner: full replace; may still restore cache above.
+              setPartnerFlag(flag);
+              setPartnerCountry(country);
+              setPartnerCity(city);
+              setPartnerHideIp(!!peer.hideIp);
+            }
+            if (uidKey && (flag || country || city) && !peer.hideIp) {
+              lastGoodGeoByUidRef.current[uidKey] = {
+                flag,
+                country,
+                city,
+              };
+            }
+            // Diagnosis: raw MatchPeer fields (stars/trust/geo) before buffer merge.
+            // ★0 + known=1 is empty ledger (hub serde u64 always present) — not a wipe bug.
+            // ★0 + known=0 means legacy/omitted — samePartner merge must keep prior.
+            const disp = displayPartnerStars(peer.stars, peer.trust);
+            const raw0 = rawPeers[pi] || rawPeers[0] || ({} as MatchPeer);
+            console.log(
+              `[match] name=${partnerLabel || peer.name || "-"} from=${nameResolved.from} raw=${String(peer.name || "").slice(0, 24) || "-"} stars=${peer.stars} known=${peer.starsKnown ? 1 : 0} trust=${peer.trust} known=${peer.trustKnown ? 1 : 0} display★=${disp} flag=${flag || "-"} country=${country || "-"} city=${city || "-"} hide=${peer.hideIp ? 1 : 0} same=${samePartner ? 1 : 0} peers=${allPeers.length} code=${peer.friendCode || "-"} uid=${(peer.userId || "").slice(0, 8) || "-"} pid=${(peer.peerId || "").slice(0, 8) || "-"}`
+            );
+            console.log(
+              `[geo] matched-apply flag=${flag || "-"} country=${country || "-"} city=${city || "-"} hide=${peer.hideIp ? 1 : 0} same=${samePartner ? 1 : 0} peers=${allPeers.length} rawFlag=${String((raw0 as { flag?: string }).flag || "-")} rawCountry=${String((raw0 as { country?: string }).country || "-")} rawCity=${String((raw0 as { city?: string }).city || "-")} rawHide=${(raw0 as { hide_ip?: boolean }).hide_ip === true ? 1 : 0}`
+            );
+            // Flush buffered partner_geo (arrived before this matched / id race).
+            // Critical race: hub often pushes partner_geo in the same tick as
+            // Matched (or just before phaseRef flips) — buffer must apply even
+            // when peer_id forms differ (fed/ vs hex, short vs full).
+            // Empty MatchPeer geo is OK — PartnerGeo / buffer later fills CA/city.
+            let effFlag = flag;
+            let effCountry = country;
+            let effCity = city;
+            let effHide = !!peer.hideIp;
+            const buf = pendingPartnerGeoRef.current;
+            if (buf) {
+              const bufDecision = shouldApplyPartnerGeo({
+                phaseMatched: true,
+                msgPeerId: buf.peer_id,
+                msgUserId: buf.user_id,
+                primaryPeerId: peer.peerId,
+                partnerUserId: peer.userId || partnerUserId.current,
+                lastPeerId: remotePeerId.current || lastPartnerIdsRef.current.peerId,
+                lastUserId: partnerUserId.current || lastPartnerIdsRef.current.userId,
+                hasSecondary: !!second,
+                matchMode: peer.mode || matchModeRef.current,
+                peerCount: allPeers.length,
+              });
+              if (bufDecision.apply) {
+                if (buf.hide_ip === true) {
+                  setPartnerHideIp(true);
+                  setPartnerCountry("");
+                  setPartnerCity("");
+                  if (buf.flag) setPartnerFlag(buf.flag);
+                  effHide = true;
+                  effCountry = "";
+                  effCity = "";
+                  if (buf.flag) effFlag = buf.flag;
+                } else {
+                  if (buf.hide_ip === false) setPartnerHideIp(false);
+                  // Real geo fields ⇒ public (even if hide_ip was omitted on wire)
+                  if (buf.country || buf.city || buf.flag) {
+                    setPartnerHideIp(false);
+                    effHide = false;
+                  }
+                  if (buf.flag) {
+                    setPartnerFlag(buf.flag);
+                    effFlag = buf.flag;
+                  }
+                  if (buf.country) {
+                    setPartnerCountry(buf.country);
+                    effCountry = buf.country;
+                  }
+                  if (buf.city) {
+                    setPartnerCity(buf.city);
+                    effCity = buf.city;
+                  }
+                }
+                pendingPartnerGeoRef.current = null;
+                console.log(
+                  `[geo] partner_geo apply reason=${bufDecision.reason} flag=${buf.flag || "-"} country=${buf.country || "-"} city=${buf.city || "-"} hide=${buf.hide_ip === true ? 1 : 0} (matched-merge)`
+                );
+                log(
+                  `partner_geo apply reason=${bufDecision.reason} flag=${buf.flag || "-"} country=${buf.country || "-"} city=${buf.city || "-"} hide=${buf.hide_ip === true ? 1 : 0} (matched-merge)`
+                );
+              } else {
+                // Multi-party id mismatch only — keep for promote/rematch.
+                console.log(
+                  `[geo] partner_geo skip reason=${bufDecision.reason} buffer-keep pid=${(buf.peer_id || "").slice(0, 8)} primary=${String(peer.peerId || "").slice(0, 8)} secondary=${second ? String(second.peerId || "").slice(0, 8) : "-"}`
+                );
+                log(
+                  `partner_geo skip reason=${bufDecision.reason} buffer-keep pid=${(buf.peer_id || "").slice(0, 8)}`
+                );
+              }
+            }
+            // Final dock paint intent after Matched + buffer (logcat diagnosis).
+            console.log(
+              `[match] paint name=${partnerLabel || peer.name || "-"} from=${nameResolved.from} display★=${disp} stars=${peer.stars}/${peer.starsKnown ? "k" : "?"} trust=${peer.trust}/${peer.trustKnown ? "k" : "?"} flag=${effFlag || "-"} country=${effCountry || "-"} city=${effCity || "-"} hide=${effHide ? 1 : 0} hasGeo=${effFlag || effCountry || effCity ? 1 : 0}`
+            );
+            console.log(
+              `[geo] paint flag=${effFlag || "-"} country=${effCountry || "-"} city=${effCity || "-"} hide=${effHide ? 1 : 0} locWillShow=${!effHide && !!(effFlag || effCountry || effCity) ? 1 : effHide ? "hidden" : 0}`
+            );
+          }
           if (!keepPrimary) {
             setPartnerMuted(false);
             setTheyMutedMe(false);
+            setPartnerCamHidden(false);
+            partnerCamHiddenRef.current = false;
           }
           setFindThirdPending(false);
           setExtraPeers(extras);
@@ -1655,6 +2695,14 @@ function LiveBody() {
           searchingRef.current = false;
           queueAckedRef.current = false;
           setQueueAcked(false);
+          // Identity poll: re-request partner_identity until loc+★ settle.
+          try {
+            if (mediaRef.current?.isDataChannelOpen?.()) {
+              startIdentityPollRef.current();
+            }
+          } catch {
+            /* ignore */
+          }
           // Brief grace so Match chime + first look aren't skipped by fat-finger Next
           if (!keepPrimary) {
             // ~2s fat-finger guard so first look isn't Next-skipped
@@ -1664,19 +2712,35 @@ function LiveBody() {
           setMoreOpen(false);
           if (extras.length === 0) setFocusExtra(false);
           // Privacy veil when Settings intro/hold (default intro). Eye toggles anytime.
+          // Hard default intro on prefs race: never treat empty/unknown as permanent off.
+          // prefs_load peels optimistic intro if user explicitly chose off.
           const isFriendMatch =
             peer.mode === "friend" || String(m.mode || "") === "friend";
           if (!keepPrimary) {
             clearIntroUnblurTimer();
-            const mode = blurModeRef.current || "off";
+            const raw = blurModeRef.current;
+            const mode: BlurStrangersMode =
+              raw === "off" || raw === "intro" || raw === "hold"
+                ? raw
+                : "intro";
+            // Until AsyncStorage returns, never stay on off (ref starts intro).
+            const effective: BlurStrangersMode =
+              !blurPrefsReadyRef.current && mode === "off" ? "intro" : mode;
             const wantBlur =
-              !isFriendMatch && (mode === "hold" || mode === "intro");
+              !isFriendMatch &&
+              (effective === "hold" || effective === "intro");
             setRemoteBlurred(wantBlur);
             remoteBlurredRef.current = wantBlur;
+            blurAutoAppliedRef.current = wantBlur;
             log(
-              `blur match mode=${mode} veiled=${wantBlur ? 1 : 0} friend=${isFriendMatch ? 1 : 0} prefsReady=${blurPrefsReadyRef.current ? 1 : 0}`
+              `blur match mode=${effective} veiled=${wantBlur ? 1 : 0} friend=${isFriendMatch ? 1 : 0} prefsReady=${blurPrefsReadyRef.current ? 1 : 0}`
             );
-            if (wantBlur && mode === "intro") {
+            if (wantBlur) {
+              console.log(
+                `[blur] show why=match mode=${effective} prefsReady=${blurPrefsReadyRef.current ? 1 : 0}`
+              );
+            }
+            if (wantBlur && effective === "intro") {
               scheduleIntroUnblur();
             }
           }
@@ -1736,9 +2800,16 @@ function LiveBody() {
             }
           }
           void enterCallAudio();
-          log(
-            `matched ${peer.name} mode=${peer.mode} offerer=${peer.isOfferer} uid=${peer.userId.slice(0, 8)} code=${peer.friendCode || "-"} ★${peer.stars} trust=${peer.trust} loc=${peer.flag || "-"}/${peer.country || "-"}/${peer.city || "-"} hideIp=${peer.hideIp ? 1 : 0} peers=${allPeers.length} keepP=${keepPrimary} keepS=${keepSecondary} turn=${iceHasTurnRef.current}`
-          );
+          {
+            const d = displayPartnerStars(peer.stars, peer.trust);
+            log(
+              `[match] name=${partnerLabel || "-"} from=${nameResolved.from} mode=${peer.mode} offerer=${peer.isOfferer} uid=${(peer.userId || "").slice(0, 8) || "-"} code=${peer.friendCode || "-"} ★${peer.stars}${peer.starsKnown ? "" : "?"} trust=${peer.trust}${peer.trustKnown ? "" : "?"} display★=${d} loc=${peer.flag || "-"}/${peer.country || "-"}/${peer.city || "-"} hideIp=${peer.hideIp ? 1 : 0} peers=${allPeers.length} keepP=${keepPrimary} keepS=${keepSecondary} turn=${iceHasTurnRef.current}`
+            );
+            // Dedicated one-liner for ★ diagnosis (hub field present vs omitted)
+            log(
+              `partner_stars stars=${peer.stars} known=${peer.starsKnown ? 1 : 0} trust=${peer.trust} known=${peer.trustKnown ? 1 : 0} display=${d}`
+            );
+          }
 
           const nPeers = allPeers.length;
           const multi =
@@ -1790,8 +2861,17 @@ function LiveBody() {
             const prim = mediaRef.current || media;
             const local = prim.getLocalStream();
             if (local) sess.adoptLocalStream(local);
+            const fr2 = !!forceRelayHubRef.current;
+            try {
+              if (fr2) sess.setForceRelay?.(true);
+            } catch {
+              /* ignore */
+            }
             sess
-              .startCall({ isOfferer: second.isOfferer })
+              .startCall({
+                isOfferer: second.isOfferer,
+                forceRelay: fr2 ? true : undefined,
+              })
               .then(() => log("startCall2 ok"))
               .catch((e) => log(`startCall2 ${e}`));
           };
@@ -1822,12 +2902,21 @@ function LiveBody() {
               return;
             }
             const sess = mediaRef.current || media;
+            const fr = !!forceRelayHubRef.current;
+            try {
+              if (fr) sess.setForceRelay?.(true);
+            } catch {
+              /* ignore */
+            }
             const t0 = Date.now();
             log(
-              `startCall kick offerer=${peer.isOfferer ? 1 : 0} force_relay=${m.force_relay ? 1 : 0} (${why})`
+              `startCall kick offerer=${peer.isOfferer ? 1 : 0} force_relay_hub=${fr ? 1 : 0} (${why})`
             );
             sess
-              .startCall({ isOfferer: !!peer.isOfferer })
+              .startCall({
+                isOfferer: !!peer.isOfferer,
+                forceRelay: fr ? true : undefined,
+              })
               .then(() => {
                 log(`startCall ok (${why}) +${Date.now() - t0}ms`);
                 startSecondary();
@@ -1855,6 +2944,8 @@ function LiveBody() {
           };
           const from = String(m.from_peer || "");
           const kind = String(m.kind || "");
+          // Hub forensics beacon (av-verify) — logged server-side; do not apply to RTC
+          if (kind === "av_path") break;
           // App-level control plane over hub (works when P2P datachannel is down)
           if (kind === "partner_mute" || kind === "partnerMute") {
             try {
@@ -1895,6 +2986,47 @@ function LiveBody() {
             }
             break;
           }
+          if (kind === "self_hide" || kind === "cam_hide") {
+            try {
+              let raw: unknown = m.payload;
+              if (typeof raw === "string" && raw.trim()) {
+                raw = JSON.parse(raw);
+                if (typeof raw === "string") {
+                  try {
+                    raw = JSON.parse(raw);
+                  } catch {
+                    /* keep */
+                  }
+                }
+              }
+              const body =
+                raw && typeof raw === "object"
+                  ? (raw as Record<string, unknown>)
+                  : {};
+              const fromUid = String(body.user_id || body.from || "").trim();
+              if (
+                fromUid &&
+                userIdRef.current &&
+                fromUid === userIdRef.current
+              ) {
+                break; // own echo
+              }
+              if (fromUid) notePartnerUserId(fromUid, "self_hide_hub");
+              const onVal = body.on ?? body.hidden ?? body.muted;
+              const on =
+                onVal === true ||
+                onVal === 1 ||
+                onVal === "1" ||
+                onVal === "true";
+              setPartnerCamHidden(on);
+              partnerCamHiddenRef.current = on;
+              console.log(`[blur] partner_hide on=${on ? 1 : 0}`);
+              log(`partner_hide on=${on ? 1 : 0} via=hub_signal`);
+            } catch (e) {
+              log(`self_hide hub parse ${e}`);
+            }
+            break;
+          }
           // Route multi-peer signals via refs (survives promote swap)
           const primarySess = mediaRef.current || media;
           const secondarySess = media2Ref.current || media2;
@@ -1915,15 +3047,45 @@ function LiveBody() {
           log(
             `signal ← ${kind} from=${(m.from_peer || "").slice(0, 8)} len=${String(m.payload || "").length}`
           );
+          if (kind === "offer" || kind === "answer") {
+            console.log(
+              `[client-ice] signal recv kind=${kind} peer=${from.slice(0, 8)}`
+            );
+          }
           if (kind && m.payload != null) {
+            // Offer before matched-handler finish: re-arm hub force_relay so
+            // answer rebuilds policy=relay (web pure) before setRemote.
+            if (kind === "offer" && forceRelayHubRef.current) {
+              try {
+                primarySess.setForceRelay?.(true);
+                const once =
+                  typeof (primarySess as { isForceRelay?: () => boolean })
+                    .isForceRelay === "function"
+                    ? (primarySess as { isForceRelay: () => boolean }).isForceRelay()
+                      ? 1
+                      : 0
+                    : -1;
+                log(
+                  `force_relay re-arm on offer force_relay_hub=1 forceRelayOnce=${once}`
+                );
+              } catch {
+                /* ignore */
+              }
+            }
             primarySess
               .handleRemoteSignal(kind, m.payload)
               .then(() => {
                 if (kind === "offer" || kind === "answer") {
                   log(`signal ${kind} applied ok`);
+                  console.log(`[client-ice] signal ${kind} applied ok`);
                 }
               })
-              .catch((e) => log(`handle ${e}`));
+              .catch((e) => {
+                if (kind === "offer" || kind === "answer") {
+                  console.log(`[client-ice] signal ${kind} applied fail err=${e}`);
+                }
+                log(`handle ${e}`);
+              });
           }
           break;
         }
@@ -1971,6 +3133,23 @@ function LiveBody() {
             applyTheyMutedMeRef.current(muteCtrl, "hub_chat_ctrl");
             break;
           }
+          // Control plane: partner self-hide — never show as chat bubble
+          const hideCtrl = tryParseSelfHideControl(bodyRaw);
+          if (hideCtrl !== null) {
+            const fromUid = String(m.from_user_id || "").trim();
+            if (
+              fromUid &&
+              userIdRef.current &&
+              fromUid === userIdRef.current
+            ) {
+              break; // own echo
+            }
+            setPartnerCamHidden(hideCtrl);
+            partnerCamHiddenRef.current = hideCtrl;
+            console.log(`[blur] partner_hide on=${hideCtrl ? 1 : 0}`);
+            log(`partner_hide on=${hideCtrl ? 1 : 0} via=hub_chat_ctrl`);
+            break;
+          }
           const body = bodyRaw.trim().slice(0, 280);
           if (body) {
             setChat((c) =>
@@ -1992,6 +3171,7 @@ function LiveBody() {
             effect_until?: number;
             message?: string;
             spender_stars?: number;
+            target_stars?: number;
           };
           if (m.ok === false) {
             // Hub rejected spend — clear optimistic FX + show why
@@ -2003,6 +3183,37 @@ function LiveBody() {
               showToastRef.current(String(m.message).slice(0, 80));
             }
             break;
+          }
+          // Keep partner ★ badge live when hub reports target balance
+          if (m.target_stars != null) {
+            const targetUid = String(m.user_id || "").trim().toLowerCase();
+            const partnerUid = String(
+              partnerUserId.current || lastPartnerIdsRef.current.userId || ""
+            )
+              .trim()
+              .toLowerCase();
+            const me = String(userIdRef.current || "").trim().toLowerCase();
+            const fromUid = String(m.from_user_id || "").trim().toLowerCase();
+            const matched = phaseRef.current === "matched";
+            // Match by partner user_id; also accept peer-identity fallbacks when
+            // thrash cleared partnerUserId or hub omits user_id on the effect.
+            const isPartnerTarget =
+              (!!targetUid && !!partnerUid && targetUid === partnerUid) ||
+              (matched &&
+                !!targetUid &&
+                !!me &&
+                targetUid !== me &&
+                !partnerUid) ||
+              (matched &&
+                !targetUid &&
+                !!me &&
+                !!fromUid &&
+                fromUid === me);
+            if (isPartnerTarget) {
+              setPartnerStars(
+                Math.max(0, Math.floor(Number(m.target_stars) || 0))
+              );
+            }
           }
           if (m.ok && m.effect) {
             const gift = GIFTS.find((g) => g.id === m.effect);
@@ -2124,6 +3335,7 @@ function LiveBody() {
           debate.reset();
           setDebateComposeOpen(false);
           setDcOpen(false);
+          forceRelayHubRef.current = false;
           media2.closeCall({ keepLocal: true, sendBye: false });
           setRemoteStream2(null);
           secondaryPeerId.current = "";
@@ -2132,10 +3344,16 @@ function LiveBody() {
           setPartnerTrust(0);
           setPartnerFlag("");
           setPartnerCountry("");
-      setPartnerCity("");
-      setPartnerHideIp(false);
+          setPartnerCity("");
+          setPartnerHideIp(false);
+          pendingPartnerGeoRef.current = null;
+          clearIdentityPollRef.current();
+          identityStarsKnownRef.current = false;
+          hubStarsKnownRef.current = false;
           setPartnerMuted(false);
           setTheyMutedMe(false);
+          setPartnerCamHidden(false);
+          partnerCamHiddenRef.current = false;
           setFindThirdPending(false);
           setGiftFlash(null);
           setGiftEffect(null);
@@ -2206,6 +3424,11 @@ function LiveBody() {
     return () => {
       clearInterval(iceRefresh);
       unsub();
+      try {
+        clearIdentityPollRef.current();
+      } catch {
+        /* ignore */
+      }
       debate.reset();
       debateRef.current = null;
       // Secondary shares primary local tracks — never stop tracks here
@@ -2243,15 +3466,19 @@ function LiveBody() {
       // Idle Live should never show a leftover hub error from a prior session
       if (phaseRef.current === "idle") clearLastError();
       loadMatchPrefs().then((prefs) => {
+        selfHideIpRef.current = !!prefs.hideIp;
         mediaRef.current?.setHideIp(prefs.hideIp);
         mediaRef.current?.setDataSaver(!!prefs.dataSaver);
         media2Ref.current?.setDataSaver(!!prefs.dataSaver);
         setDataSaverOn(!!prefs.dataSaver);
-        const mode = prefs.blurStrangersMode || "off";
+        const raw = prefs.blurStrangersMode;
+        const mode: BlurStrangersMode =
+          raw === "off" || raw === "intro" || raw === "hold" ? raw : "intro";
         blurModeRef.current = mode;
         blurStrangersRef.current = mode !== "off";
         blurPrefsReadyRef.current = true;
-        // Returning from Settings mid-call: apply new mode
+        // Returning from Settings mid-call: apply intro/hold; do not force-off
+        // eye-toggle veil (blurAutoAppliedRef gates prefs_off only on first load).
         if (phaseRef.current === "matched") {
           if (mode === "hold" || mode === "intro") {
             applyMatchBlurVeil("settings_focus");
@@ -2457,51 +3684,12 @@ function LiveBody() {
     );
   }
 
-  /** After a decent stranger chat, offer to add them by friend code. */
+  /**
+   * Post-match grey "Add friend" Alert removed (user 2026-08-11).
+   * Add-friend remains in More sheet / home last-match card / Friends.
+   */
   function maybeOfferAddFriend() {
-    const code = (
-      partnerFriendCode.current ||
-      partnerCode ||
-      ""
-    )
-      .trim()
-      .toUpperCase();
-    if (!code || code.length < 4) return;
-    if (matchModeRef.current === "friend") return;
-    if (friendAdded) return;
-    const uid = partnerUserId.current;
-    if (uid && friends.some((f) => f.user_id === uid)) return;
-    const started = matchStartedAtRef.current;
-    if (!started) return;
-    const dur = Math.floor((Date.now() - started) / 1000);
-    if (dur < 45) return;
-    const name = partnerNameRef.current || partner || "…";
-    setTimeout(() => {
-      Alert.alert(
-        t("mobile.live.addFriend"),
-        t("mobile.live.addFriendAfter", { name, code }),
-        [
-          { text: t("mobile.common.skip"), style: "cancel" },
-          {
-            text: t("mobile.live.addFriend"),
-            onPress: () => {
-              try {
-                hub.addFriend(code);
-                setFriendAdded(true);
-                showToastRef.current(
-                  t("mobile.friends.requestSent", { code })
-                );
-              } catch (e) {
-                showToastRef.current(
-                  t("mobile.friends.notConnected") +
-                    (e ? `: ${String(e).slice(0, 60)}` : "")
-                );
-              }
-            },
-          },
-        ]
-      );
-    }, 600);
+    return;
   }
 
   function copyPartnerCode() {
@@ -2510,7 +3698,15 @@ function LiveBody() {
 
   /** Copy name · location · ★ · friend code for paste / share. */
   function copyPartnerIdentity() {
-    const name = (partnerNameRef.current || partner || "").trim();
+    // Prefer resolved display name (never hex peer slice when friend_code exists).
+    const name = resolvePartnerDisplayName({
+      name: partnerNameRef.current || partner || "",
+      friendCode:
+        partnerFriendCode.current || partnerCode || lastPartnerIdsRef.current.friendCode,
+      peerId: remotePeerId.current || lastPartnerIdsRef.current.peerId || "",
+      userId: partnerUserId.current || lastPartnerIdsRef.current.userId || "",
+      shortId: lastPartnerIdsRef.current.shortId || "",
+    });
     const code = (
       partnerFriendCode.current ||
       partnerCode ||
@@ -2523,11 +3719,17 @@ function LiveBody() {
       country: partnerCountry,
       city: partnerCity,
       lang: lang || "ru",
+      hideIp: partnerHideIp,
     });
+    // Same as PartnerChrome / dock: max(spendable, trust) so reputation isn't hidden
+    const displayStars = displayPartnerStars(partnerStars, partnerTrust);
     const lines = [
       name || null,
-      loc || null,
-      `★ ${Math.max(0, partnerStars)}`,
+      loc ||
+        (partnerHideIp
+          ? t("mobile.live.locPrivate") || "Location hidden"
+          : null),
+      `★ ${displayStars}`,
       code ? `${t("mobile.live.friendCodeLabel") || "Code"}: ${code}` : null,
     ].filter(Boolean) as string[];
     if (!lines.length) {
@@ -2605,7 +3807,7 @@ function LiveBody() {
     }
   }
 
-  function start() {
+  function start(opts?: { via?: string }) {
     if (friendsOnly) {
       push("friends-only: stranger Start disabled");
       showToastRef.current(t("mobile.live.friendsOnlyHint"));
@@ -2630,8 +3832,14 @@ function LiveBody() {
       setPartnerCountry("");
       setPartnerCity("");
       setPartnerHideIp(false);
+      pendingPartnerGeoRef.current = null;
+      clearIdentityPollRef.current();
+      identityStarsKnownRef.current = false;
+      hubStarsKnownRef.current = false;
       setPartnerMuted(false);
       setTheyMutedMe(false);
+      setPartnerCamHidden(false);
+      partnerCamHiddenRef.current = false;
       setFindThirdPending(false);
       setAwaitingRemoteVideo(false);
       secondaryPeerId.current = "";
@@ -2665,15 +3873,121 @@ function LiveBody() {
         push("→ spin deferred (reconnecting hub)");
         showToastRef.current(t("mobile.settings.hubReconnecting"));
       } else {
-        sendSpin("start");
+        sendSpin(opts?.via === "autostart" ? "autostart" : "start");
       }
-      track("start_match", { via: "start" });
+      track("start_match", { via: opts?.via || "start" });
     } catch (e) {
       push(String(e));
       // Keep search UI so user never stuck on Start after pressing it
       if (phaseRef.current !== "search") enterSearchUi({ toast: false });
     }
   }
+
+  // Home "Start chatting" / match CTAs open /live?autostart=1 — spin immediately
+  // so users do not tap Start again on Live. Nav-only Live (no param) stays idle.
+  //
+  // Race hardens (2026-08-11):
+  // 1) Paint search UI in layout (no idle Start flash).
+  // 2) Fire start() BEFORE setParams clear — clearing first re-ran the effect,
+  //    cleanup cancelled the timer → idle forever (deep-link flake).
+  // 3) Keep param until after the 1200ms last-resort window so cleanup cannot
+  //    kill a pending retry.
+  // 4) Retry if still idle/error @500ms and again @1200ms (last resort),
+  //    then always drop autostart param.
+  // Depend on a stable boolean so array-shaped search params do not retrigger.
+  const { autostart: autostartParam } = useLocalSearchParams<{
+    autostart?: string | string[];
+  }>();
+  const autostartRaw = Array.isArray(autostartParam)
+    ? autostartParam[0]
+    : autostartParam;
+  const wantAutostart =
+    autostartRaw === "1" ||
+    autostartRaw === "true" ||
+    autostartRaw === "yes";
+  // Paint "Looking…" before first frame — avoid idle Start flash on autostart
+  useLayoutEffect(() => {
+    if (!wantAutostart || friendsOnly) return;
+    if (phaseRef.current === "idle" || phaseRef.current === "error") {
+      searchingRef.current = true;
+      queueAckedRef.current = false;
+      setQueueAcked(false);
+      setPhase("search");
+      phaseRef.current = "search";
+      setAlone(true);
+    }
+  }, [wantAutostart, friendsOnly]);
+  useEffect(() => {
+    if (!wantAutostart || friendsOnly) return;
+    let cancelled = false;
+    let paramCleared = false;
+    const clearAutostartParam = () => {
+      if (paramCleared) return;
+      paramCleared = true;
+      try {
+        router.setParams({ autostart: undefined });
+      } catch {
+        /* ignore */
+      }
+    };
+    const tryAutostartSpin = (why: string) => {
+      if (cancelled) return;
+      // Already in a call — do not re-spin
+      if (phaseRef.current === "matched") return;
+      // Only idle / error / search (layout optimistic) may start
+      if (
+        phaseRef.current !== "idle" &&
+        phaseRef.current !== "error" &&
+        phaseRef.current !== "search"
+      ) {
+        return;
+      }
+      push(`autostart → spin (${why})`);
+      start({ via: "autostart" });
+    };
+    // Primary: spin first (never clear before spin — setParams re-render
+    // must not cancel this path).
+    const tId = setTimeout(() => {
+      if (cancelled) return;
+      tryAutostartSpin("from Start chatting");
+    }, 80);
+    // Retry once if still idle after 500ms (start threw / guard / effect thrash).
+    const retryId = setTimeout(() => {
+      if (cancelled) return;
+      if (phaseRef.current === "idle" || phaseRef.current === "error") {
+        searchingRef.current = true;
+        queueAckedRef.current = false;
+        setQueueAcked(false);
+        setPhase("search");
+        phaseRef.current = "search";
+        setAlone(true);
+        tryAutostartSpin("retry still idle @500ms");
+      }
+    }, 500);
+    // Last resort @1200ms if both prior attempts left us idle/error,
+    // then always drop param so Stop → idle cannot re-read autostart=1.
+    const lastId = setTimeout(() => {
+      if (cancelled) return;
+      if (phaseRef.current === "idle" || phaseRef.current === "error") {
+        searchingRef.current = true;
+        queueAckedRef.current = false;
+        setQueueAcked(false);
+        setPhase("search");
+        phaseRef.current = "search";
+        setAlone(true);
+        tryAutostartSpin("last resort still idle @1200ms");
+      }
+      clearAutostartParam();
+    }, 1200);
+    return () => {
+      cancelled = true;
+      clearTimeout(tId);
+      clearTimeout(retryId);
+      clearTimeout(lastId);
+    };
+    // start() closes over hub/connected; only re-run when intent changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantAutostart, friendsOnly]);
 
   function next() {
     if (!guardAction()) return;
@@ -2705,6 +4019,7 @@ function LiveBody() {
       hapticLight();
       stayUntilRef.current = 0;
       setStayRemSecs(0);
+      forceRelayHubRef.current = false;
       try {
         mediaRef.current?.setForceRelay?.(false);
         media2Ref.current?.setForceRelay?.(false);
@@ -2738,8 +4053,14 @@ function LiveBody() {
       setPartnerCountry("");
       setPartnerCity("");
       setPartnerHideIp(false);
+      pendingPartnerGeoRef.current = null;
+      clearIdentityPollRef.current();
+      identityStarsKnownRef.current = false;
+      hubStarsKnownRef.current = false;
       setPartnerMuted(false);
       setTheyMutedMe(false);
+      setPartnerCamHidden(false);
+      partnerCamHiddenRef.current = false;
       setFindThirdPending(false);
       setGiftFlash(null);
       setGiftEffect(null);
@@ -2812,6 +4133,7 @@ function LiveBody() {
       resetDebateUi();
       hapticLight();
       // Clear pure-relay sticky — hub force_relay only (or Hide IP) may re-arm.
+      forceRelayHubRef.current = false;
       try {
         mediaRef.current?.setForceRelay?.(false);
         media2Ref.current?.setForceRelay?.(false);
@@ -2845,8 +4167,14 @@ function LiveBody() {
       setPartnerCountry("");
       setPartnerCity("");
       setPartnerHideIp(false);
+      pendingPartnerGeoRef.current = null;
+      clearIdentityPollRef.current();
+      identityStarsKnownRef.current = false;
+      hubStarsKnownRef.current = false;
       setPartnerMuted(false);
       setTheyMutedMe(false);
+      setPartnerCamHidden(false);
+      partnerCamHiddenRef.current = false;
       setFindThirdPending(false);
       setGiftFlash(null);
       setGiftEffect(null);
@@ -2950,6 +4278,42 @@ function LiveBody() {
     bgPausedCamRef.current = false;
     mediaRef.current?.setCamEnabled(nextOn);
     media2Ref.current?.setCamEnabled(nextOn);
+    // Notify partner (web/Android) so they show mosaic instead of black/off track
+    const hideOn = !nextOn;
+    const hidePayload = {
+      v: 1 as const,
+      type: "self_hide",
+      on: hideOn,
+      user_id: userIdRef.current || "",
+      name: displayNameRef.current || "anon",
+      ts: Date.now(),
+    };
+    try {
+      mediaRef.current?.sendDataMessage(hidePayload);
+    } catch {
+      /* ignore */
+    }
+    try {
+      hubRefLive.current.signal("self_hide", JSON.stringify(hidePayload), "");
+    } catch {
+      /* hub optional */
+    }
+    if (remotePeerId.current) {
+      try {
+        hubRefLive.current.signal(
+          "self_hide",
+          JSON.stringify(hidePayload),
+          remotePeerId.current
+        );
+      } catch {
+        /* ignore */
+      }
+    }
+    try {
+      hubRefLive.current.chat(`\x01shide:${hideOn ? "1" : "0"}`);
+    } catch {
+      /* ignore */
+    }
     hapticLight();
     try {
       showToastRef.current(
@@ -2992,8 +4356,7 @@ function LiveBody() {
       return;
     }
     push(`theyMutedMe=${on ? 1 : 0} (${why})`);
-    // Inline badge only (PartnerChrome / stage pill). No Alert.alert —
-    // the grey system popup was worse than the “They muted you · no sound” chip.
+    // Single UI: LiveStatusBanners only. No Alert, no stage duplicates.
     if (on) {
       hapticLight();
     }
@@ -3008,6 +4371,21 @@ function LiveBody() {
     }
     if (s.startsWith("__pmute:")) {
       return s.charAt(8) === "1" || s.startsWith("__pmute:true");
+    }
+    return null;
+  }
+
+  /** Parse self-hide control: "\x01shide:1" / "__shide:0" / "\x01camhide:1" */
+  function tryParseSelfHideControl(body: string): boolean | null {
+    const s = String(body || "");
+    if (s.startsWith("\x01shide:")) {
+      return s.charAt(8) === "1" || s.slice(8, 9) === "t";
+    }
+    if (s.startsWith("__shide:")) {
+      return s.charAt(8) === "1" || s.startsWith("__shide:true");
+    }
+    if (s.startsWith("\x01camhide:")) {
+      return s.charAt(10) === "1" || s.slice(10, 11) === "t";
     }
     return null;
   }
@@ -3633,6 +5011,36 @@ function LiveBody() {
     (t) => (t as { readyState?: string }).readyState !== "ended"
   );
 
+  // One-shot: teach swipe → Next after first live stranger match with video.
+  useEffect(() => {
+    if (phase !== "matched" || isFriendCall || !swipeSkipOn) return;
+    if (!hasRemoteVideo || swipeCoachShownRef.current) return;
+    let cancelled = false;
+    const SWIPE_COACH_KEY = "ruletka-swipe-coach-v1";
+    const tId = setTimeout(() => {
+      void (async () => {
+        try {
+          const done = await AsyncStorage.getItem(SWIPE_COACH_KEY);
+          if (done === "1" || cancelled || swipeCoachShownRef.current) return;
+          swipeCoachShownRef.current = true;
+          await AsyncStorage.setItem(SWIPE_COACH_KEY, "1");
+          showToastRef.current(
+            t("swipe.coachBody") ||
+              t("swipe.hint") ||
+              "Swipe left or right on their video for Next"
+          );
+          track("swipe_coach_show", { platform: Platform.OS });
+        } catch {
+          /* ignore storage */
+        }
+      })();
+    }, 2200);
+    return () => {
+      cancelled = true;
+      clearTimeout(tId);
+    };
+  }, [phase, isFriendCall, swipeSkipOn, hasRemoteVideo, t]);
+
   // Never keep self as fullscreen main if partner video is gone / not live
   useEffect(() => {
     if (!hasRemoteVideo && swapViews) setSwapViews(false);
@@ -3821,13 +5229,86 @@ function LiveBody() {
   const partnerBlurLine = formatPartnerSummary({
     name: partner,
     stars: partnerStars,
+    trust: partnerTrust,
     flag: partnerFlag,
     country: partnerCountry,
     city: partnerCity,
     lang: lang || "ru",
+    hideIp: partnerHideIp,
   });
+  /**
+   * Stage HUD / connect card loc line.
+   * hide_ip → never "Looking up…" (privacy is settled).
+   * Flag ISO alone → formatLocLine expands to emoji + country (not empty).
+   * Empty only while hub geo is still racing → stage shows pending copy.
+   */
+  const partnerLocDisplay = partnerHideIp
+    ? t("mobile.live.locPrivate") || "Location hidden"
+    : formatLocLine({
+        flag: partnerFlag,
+        country: partnerCountry,
+        city: partnerCity,
+        lang: lang || "ru",
+        hideIp: false,
+      });
   const showPrivacyBlur =
     remoteBlurred && (phase === "matched" || uiPhase === "matched");
+
+  // Single partner identity surface (name · ★ · loc) — dock only.
+  // No stagePartnerHud / PartnerChrome / second dock (human: 3× ★ chips wrong).
+  const partnerIdFriendCode = (
+    partnerCode ||
+    partnerFriendCode.current ||
+    lastPartnerIdsRef.current.friendCode ||
+    ""
+  )
+    .trim()
+    .toUpperCase();
+  // Never paint 8-char hex peer id as the conversationalist's name.
+  // Order: real name → friend_code → prev real → "Partner".
+  // Do NOT pass peer shortId — that is always hex and confused the dock.
+  const partnerIdName = resolvePartnerDisplayName({
+    name: partner || partnerNameRef.current || "",
+    shortId: "",
+    friendCode: partnerIdFriendCode,
+    peerId: remotePeerId.current || lastPartnerIdsRef.current.peerId || "",
+    userId: partnerUserId.current || lastPartnerIdsRef.current.userId || "",
+    prev: partnerNameRef.current || partner || "",
+    fallback: partnerIdFriendCode || undefined,
+  });
+  // Prefer friend_code over literal "Partner" when name resolves empty.
+  const partnerIdNameFallback = partnerIdFriendCode || "Partner";
+  // Pre-compute display ★ once for dock (max spendable, trust)
+  const partnerDisplayStars = displayPartnerStars(partnerStars, partnerTrust);
+
+  // Settled dock state after React applies Matched / partner_geo setStates.
+  // logcat: [match] dock + [geo] dock — full fields for ★0 vs empty-geo diagnosis.
+  useEffect(() => {
+    if (uiPhase !== "matched") return;
+    const loc =
+      partnerHideIp
+        ? "hidden"
+        : partnerLocDisplay ||
+          (partnerFlag || partnerCountry || partnerCity ? "(signal)" : "-");
+    console.log(
+      `[match] dock name=${partnerIdName || "-"} from=${partnerNameFromRef.current || "-"} display★=${partnerDisplayStars} stars=${partnerStars} trust=${partnerTrust} code=${partnerIdFriendCode || "-"}`
+    );
+    console.log(
+      `[geo] dock flag=${partnerFlag || "-"} country=${partnerCountry || "-"} city=${partnerCity || "-"} hide=${partnerHideIp ? 1 : 0} loc=${loc}`
+    );
+  }, [
+    uiPhase,
+    partnerIdName,
+    partnerDisplayStars,
+    partnerStars,
+    partnerTrust,
+    partnerIdFriendCode,
+    partnerFlag,
+    partnerCountry,
+    partnerCity,
+    partnerHideIp,
+    partnerLocDisplay,
+  ]);
 
   return (
     <KeyboardAvoidingView
@@ -3862,17 +5343,26 @@ function LiveBody() {
           extraPeerCount={extraPeers.length}
           swapViews={swapViews}
           focusExtra={focusExtra}
-          partnerName={partner}
+          // Same resolver as PartnerIdentityDock — never raw hex short id.
+          partnerName={partnerIdName}
+          // LiveStageVideo falls back to partnerIdShort when name is empty/
+          // "Partner". Pass friend_code only — never 8-char peer/user hex.
+          partnerIdShort={partnerIdFriendCode || ""}
           partnerStars={partnerStars}
-          partnerLoc={formatLocLine({
-            flag: partnerFlag,
-            country: partnerCountry,
-            city: partnerCity,
-            lang: lang || "ru",
-          })}
+          partnerTrust={partnerTrust}
+          partnerLoc={partnerLocDisplay}
+          partnerFlag={partnerFlag}
+          // Dock is tighter under status bar — flag sits just under name·loc
+          partnerFlagTopInset={Math.max(insets.top, 4) + 44}
+          callTimerText={
+            uiPhase === "matched" && hasRemoteVideo && !awaitingRemoteVideo
+              ? callTimerText
+              : ""
+          }
           secondName={extraPeers[0]?.name || t("mobile.live.peer2")}
           isFriendCall={isFriendCall}
           remoteBlurred={remoteBlurred}
+          partnerCamHidden={partnerCamHidden}
           camOn={camOn}
           partnerMuted={partnerMuted}
           theyMutedMe={theyMutedMe}
@@ -3916,6 +5406,18 @@ function LiveBody() {
               t("mobile.live.selfHiddenBadge") || "Hidden from them",
             unblurShort:
               t("mobile.live.unblurShort") || "Show video",
+            partnerHiddenTitle:
+              t("mobile.live.partnerHiddenTitle") || "Partner hidden",
+            partnerHiddenBody:
+              t("mobile.live.partnerHiddenBody") ||
+              "They hid their camera",
+            partnerHiddenHint:
+              t("mobile.live.partnerHiddenHint") ||
+              "Show when they reveal",
+            partnerHiddenBadge:
+              t("mobile.live.partnerHiddenBadge") || "Hidden",
+            locPending:
+              t("mobile.live.locPending") || "Looking up location…",
           }}
           onToggleFocusExtra={() => setFocusExtra((v) => !v)}
           onRetryConnect={(hard) => void retryConnection({ hard })}
@@ -3926,9 +5428,12 @@ function LiveBody() {
           }}
           onDoubleTapReblur={() => {
             hapticLight();
+            setMoreOpen(false);
             clearIntroUnblurTimer();
             setRemoteBlurred(true);
             remoteBlurredRef.current = true;
+            blurAutoAppliedRef.current = false;
+            console.log("[blur] show why=double_tap");
             showToastRef.current(
               t("mobile.live.reblurToast") || "Partner blurred again"
             );
@@ -3936,6 +5441,11 @@ function LiveBody() {
           onPipHintSeen={() => setPipHint(false)}
           onSwapViews={() => setSwapViews((v) => !v)}
           onHaptic={() => hapticLight()}
+          onSwipeNext={() => next()}
+          swipeSkip={swipeSkipOn}
+          swipeNextLabel={t("swipe.next") || t("btn.next") || "Next"}
+          // ONE identity only: PartnerIdentityDock top strip (no stage ★/name chip).
+          showStagePartnerHud={false}
           blurVeil={
             showPrivacyBlur
               ? {
@@ -3963,59 +5473,21 @@ function LiveBody() {
               : null
           }
         />
-        {/* Report only once video is live — less clutter while linking */}
-        {uiPhase === "matched" && !isFriendCall && hasRemoteVideo ? (
-          <Pressable
-            style={[
-              styles.stageReportFab,
-              { top: Math.max(insets.top, 8) + 2 },
-            ]}
-            onPress={() => {
-              hapticLight();
-              setMoreOpen(false);
-              void openReport();
-            }}
-            accessibilityRole="button"
-            accessibilityLabel={t("mobile.live.reportFab")}
-            testID="live-stage-report-fab"
-            hitSlop={8}
-          >
-            <Text style={styles.stageReportFabText}>
-              ⚑ {t("mobile.live.reportFab")}
-            </Text>
-          </Pressable>
-        ) : null}
+        {/* Report FAB removed from stage top-right — lives in LiveBottomBar */}
         <View
           style={[
             styles.overlay,
             { paddingTop: Math.max(insets.top, 8) + 2 },
           ]}
+          pointerEvents="box-none"
         >
-          <View>
-            {uiPhase === "matched" ? (
-              <PartnerChrome
-                name={partner}
-                stars={partnerStars}
-                trust={partnerTrust}
-                flag={partnerFlag}
-                country={partnerCountry}
-                city={partnerCity}
-                hideIp={partnerHideIp}
-                muted={partnerMuted}
-                theyMutedMe={theyMutedMe}
-                isFriend={isFriendCall}
-                timer={
-                  hasRemoteVideo && !awaitingRemoteVideo && callTimerText
-                    ? callTimerText
-                    : undefined
-                }
-                onLongPress={copyPartnerIdentity}
-                longPressHint={
-                  t("mobile.live.partnerLongPress") ||
-                  "Long-press to copy name · place · ★"
-                }
-              />
-            ) : uiPhase === "search" ? (
+          <View pointerEvents="box-none">
+            {/*
+              Matched PartnerChrome is NOT here — Android SurfaceView composites
+              above in-stage RN elevation. Root chromeTopOverlay (sibling of
+              stage) owns identity/stars for matched. Keep search/idle labels.
+            */}
+            {uiPhase === "matched" ? null : uiPhase === "search" ? (
               <LiveSearchLabel
                 queueAcked={queueAcked}
                 alone={alone}
@@ -4107,8 +5579,8 @@ function LiveBody() {
               ))}
             </View>
           ) : null}
-          {/* Build id for smoke (confirm 0.1.210+ installed) */}
-          {uiPhase === "matched" || uiPhase === "search" ? (
+          {/* Build id for smoke — __DEV__ only; release APK has no version chip */}
+          {__DEV__ && (uiPhase === "matched" || uiPhase === "search") ? (
             <Text
               style={{
                 position: "absolute",
@@ -4328,16 +5800,12 @@ function LiveBody() {
 
         <LiveChatOverlay
           visible={uiPhase === "matched" && (chat.length > 0 || peerTyping)}
-          showEmptyHint={
-            uiPhase === "matched" &&
-            chat.length === 0 &&
-            !peerTyping &&
-            !moreOpen
-          }
+          // No "Say hi in chat…" — that corner is the call timer on partner video
+          showEmptyHint={false}
           chat={chat}
           peerTyping={peerTyping}
           scrollRef={chatScrollRef}
-          sayHiLabel={t("mobile.chat.sayHi")}
+          sayHiLabel=""
           typingLabel={t("mobile.chat.typing")}
           youLabels={[
             t("mobile.chat.you") || "you",
@@ -4412,10 +5880,211 @@ function LiveBody() {
         ) : null}
       </View>
 
+      {/*
+        ONLY partner identity + mute/blur status at top mid-match.
+        Root-level absolute sibling of stage (not nested under RTCView) —
+        sits just under the system status bar. Sound warnings (theyMutedMe /
+        partnerMuted / optional blur) stack under the identity strip — NOT
+        between timer and Stop bar. Single mute surface (no stage duplicates).
+      */}
+      {uiPhase === "matched" ? (
+        <View
+          pointerEvents="box-none"
+          collapsable={false}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 60,
+            // Beat SurfaceView punch-through so mute text stays readable
+            elevation: 30,
+          }}
+        >
+          <PartnerIdentityDock
+            placement="top"
+            style={{
+              // Parent owns the absolute frame; dock is a column child
+              position: "relative",
+              top: 0,
+              left: 0,
+              right: 0,
+              // Snug under status bar clock/battery (was +2 extra gap)
+              paddingTop: Math.max(insets.top, 4),
+            }}
+            name={partnerIdName}
+            nameFallback={partnerIdNameFallback}
+            friendCode={partnerIdFriendCode}
+            stars={partnerStars}
+            trust={partnerTrust}
+            displayStars={partnerDisplayStars}
+            flag={partnerFlag}
+            country={partnerCountry}
+            city={partnerCity}
+            hideIp={partnerHideIp}
+            onLongPress={copyPartnerIdentity}
+          />
+          <LiveStatusBanners
+            placement="top"
+            theyMutedMe={theyMutedMe}
+            partnerMuted={partnerMuted}
+            remoteBlurred={remoteBlurred}
+            showBlurBanner={!showPrivacyBlur}
+            theyMutedLabel={
+              t("mobile.live.theyMutedYou") || "They muted you · no sound"
+            }
+            partnerMutedLabel={
+              t("mobile.live.youMutedThem") || "You muted · no sound"
+            }
+            blurredLabel={t("mobile.live.blurTitle") || "Privacy veil on"}
+            unblurLabel={t("mobile.live.unblur") || "Show video"}
+            onUnblur={() => {
+              hapticLight();
+              revealPartnerVideo("banner_unblur");
+              showToastRef.current(
+                t("mobile.live.partnerVideoOn") || "Partner video shown"
+              );
+            }}
+          />
+        </View>
+      ) : null}
+
+      {/*
+        Android privacy: opaque Modal only while veiled (covers SurfaceView punch-
+        through). Not mounted when clear — avoids match-time Modal+WebRTC crash.
+        Also mounts under browser layout (not layout-gated). Eye + Show video live
+        in Modal chrome because full-screen Modal covers LiveBottomBar.
+      */}
+      {showPrivacyBlur && Platform.OS === "android" ? (
+        <Modal
+          visible
+          transparent={false}
+          animationType="none"
+          statusBarTranslucent
+          hardwareAccelerated
+          onRequestClose={() => {
+            hapticLight();
+            revealPartnerVideo("blur_modal_back");
+          }}
+        >
+          <View
+            style={{
+              flex: 1,
+              width: "100%",
+              height: "100%",
+              backgroundColor: BLUR_VEIL_BASE,
+              // Beat residual SurfaceView / system chrome on some OEMs
+              elevation: 48,
+              zIndex: 9999,
+            }}
+            testID="live-blur-fullscreen"
+            collapsable={false}
+            removeClippedSubviews={false}
+          >
+            <PartnerBlurVeil
+              title={t("mobile.live.blurTitle") || "Privacy veil"}
+              partnerLabel={partnerBlurLine}
+              body={
+                t("mobile.live.blurBodyHold") ||
+                "Partner video is hidden. Tap Show video when ready."
+              }
+              buttonLabel={
+                t("mobile.live.unblurReady") ||
+                t("mobile.live.unblur") ||
+                "Show video"
+              }
+              hint={t("mobile.live.blurHint") || undefined}
+              ready={!!remoteVideoReady || !!hasRemoteVideo}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: BLUR_VEIL_BASE,
+                elevation: 48,
+                zIndex: 1,
+              }}
+              onPress={() => {
+                hapticLight();
+                revealPartnerVideo("blur_modal");
+                showToastRef.current(
+                  t("mobile.live.partnerVideoOn") || "Partner video shown"
+                );
+              }}
+            />
+            {/* Controls above veil — eye (toggle unblur) + Show video */}
+            <View
+              pointerEvents="box-none"
+              collapsable={false}
+              style={{
+                flex: 1,
+                justifyContent: "flex-end",
+                paddingTop: Math.max(insets.top, 16),
+                paddingBottom: Math.max(insets.bottom, 20),
+                paddingHorizontal: 16,
+                zIndex: 2,
+                elevation: 60,
+              }}
+            >
+              <Pressable
+                onPress={() => {
+                  togglePartnerBlur();
+                }}
+                style={{
+                  alignSelf: "flex-end",
+                  marginBottom: 12,
+                  backgroundColor: "rgba(20, 28, 44, 0.88)",
+                  borderWidth: 1,
+                  borderColor: "rgba(159, 208, 255, 0.55)",
+                  paddingVertical: 10,
+                  paddingHorizontal: 16,
+                  borderRadius: 999,
+                }}
+                testID="live-blur-eye-modal"
+                accessibilityRole="button"
+                accessibilityLabel={
+                  t("mobile.live.unblurShort") || "Show video"
+                }
+              >
+                <Text style={{ color: "#9fd0ff", fontWeight: "800", fontSize: 14 }}>
+                  👁 {t("mobile.live.unblurShort") || "Show video"}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  hapticLight();
+                  revealPartnerVideo("blur_modal_btn");
+                  showToastRef.current(
+                    t("mobile.live.partnerVideoOn") || "Partner video shown"
+                  );
+                }}
+                style={{
+                  backgroundColor: "#3d7eff",
+                  paddingVertical: 16,
+                  borderRadius: 999,
+                  alignItems: "center",
+                  elevation: 4,
+                }}
+                testID="live-blur-show-video"
+                accessibilityRole="button"
+              >
+                <Text style={{ color: "#fff", fontWeight: "800", fontSize: 16 }}>
+                  {t("mobile.live.unblurReady") ||
+                    t("mobile.live.unblur") ||
+                    "Show video"}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
+      ) : null}
+
       {/* Native layout: gifts + chat under the stage (classic call UI) */}
       {uiPhase === "matched" && !isBrowserLayout ? (
         <>
           <LiveGiftBar
+            compact
             starReady={starReady}
             starProgress={starProgress}
             needMin={needMin}
@@ -4423,28 +6092,6 @@ function LiveBody() {
             stars={stars}
             gifts={GIFTS}
             giftsTitle={t("mobile.live.giftsTitle") || "Gifts"}
-            partnerLine={
-              partner
-                ? t("mobile.live.giftsTo", {
-                    who: formatPartnerSummary({
-                      name: partner,
-                      stars: partnerStars,
-                      flag: partnerFlag,
-                      country: partnerCountry,
-                      city: partnerCity,
-                      lang: lang || "ru",
-                    }),
-                  }) ||
-                  `To ${formatPartnerSummary({
-                    name: partner,
-                    stars: partnerStars,
-                    flag: partnerFlag,
-                    country: partnerCountry,
-                    city: partnerCity,
-                    lang: lang || "ru",
-                  })}`
-                : undefined
-            }
             unlockLabel={
               t("mobile.live.starUnlockReview", {
                 n: needMin,
@@ -4518,6 +6165,7 @@ function LiveBody() {
           <>
             <View style={styles.browserGifts}>
               <LiveGiftBar
+                compact
                 starReady={starReady}
                 starProgress={starProgress}
                 needMin={needMin}
@@ -4525,28 +6173,6 @@ function LiveBody() {
                 stars={stars}
                 gifts={GIFTS}
                 giftsTitle={t("mobile.live.giftsTitle") || "Gifts"}
-                partnerLine={
-                  partner
-                    ? t("mobile.live.giftsTo", {
-                        who: formatPartnerSummary({
-                          name: partner,
-                          stars: partnerStars,
-                          flag: partnerFlag,
-                          country: partnerCountry,
-                          city: partnerCity,
-                          lang: lang || "ru",
-                        }),
-                      }) ||
-                      `To ${formatPartnerSummary({
-                        name: partner,
-                        stars: partnerStars,
-                        flag: partnerFlag,
-                        country: partnerCountry,
-                        city: partnerCity,
-                        lang: lang || "ru",
-                      })}`
-                    : undefined
-                }
                 unlockLabel={
                   t("mobile.live.starUnlockReview", {
                     n: needMin,
@@ -4599,183 +6225,82 @@ function LiveBody() {
             </View>
           </>
         ) : null}
-        {(() => {
-          const q = floorQueueCounts(waiting, online, uiPhase === "search");
-          let meta = t("mobile.live.meta", {
-            stars,
-            online: q.online,
-            wait: q.wait,
-          });
-          if (friendCode) meta += t("mobile.live.metaCode", { code: friendCode });
-          if (connected && iceHasTurnRef.current)
-            meta += ` · ${t("mobile.live.turnBadge")}`;
-          if (uiPhase === "matched" && linkRelay)
-            meta += ` · ${t("mobile.live.pathRelay")}`;
-          else if (uiPhase === "matched" && conn === "connected")
-            meta += ` · ${t("mobile.live.pathDirect")}`;
-          if (uiPhase === "matched" && qualityTier)
-            meta += ` · ${t("mobile.live.qualityShort", { q: qualityTier })}`;
-          if (netPolicy.kind === "cellular")
-            meta += ` · ${t("mobile.live.netCell")}`;
-          if (!connected || !netPolicy.isConnected)
-            meta += ` · ${t("mobile.live.reconnecting").replace(/^ · /, "")}`;
-          const waitLine =
-            uiPhase === "search"
-              ? (queueAcked
-                  ? t("mobile.live.waitLine", {
-                      wait: Math.max(waiting, 1),
-                      online: Math.max(online, 1),
-                    })
-                  : t("mobile.live.queueJoining")) +
-                (!connected
-                  ? ` · ${t("mobile.live.reconnecting").replace(/^ · /, "")}`
-                  : queueAcked
-                    ? ` · ${t("mobile.live.queueLive")}`
-                    : "")
-              : null;
-          return (
-            <>
-              <LiveMetaStrip
-                phase={phase}
-                connected={connected}
-                metaLine={meta}
-                waitLine={waitLine}
-                searchTimerLine={
-                  phase === "search" && searchSecs >= 8
-                    ? t("mobile.live.searchElapsed", { s: searchSecs })
-                    : null
-                }
-                accessibilityLabel={
-                  connected
-                    ? t("mobile.live.meta", {
-                        stars,
-                        online: q.online,
-                        wait: q.wait,
-                      })
-                    : t("mobile.home.hubOfflineTap")
-                }
-                onPress={() => {
-                  if (!connected) {
-                    reconnectHub();
-                    showToastRef.current(t("mobile.settings.hubReconnecting"));
-                    return;
-                  }
-                  if (friendCode) {
-                    void Clipboard.setStringAsync(friendCode).then(() => {
-                      showToastRef.current(t("mobile.friends.codeCopied"));
-                      hapticLight();
-                    });
-                  }
-                }}
-                onLongPress={() => {
-                  setLogUnlocked(true);
-                  setShowLog(true);
-                }}
-              />
-              {uiPhase === "matched" ? (
-                <LiveStatusBanners
-                  theyMutedMe={theyMutedMe}
-                  partnerMuted={partnerMuted}
-                  remoteBlurred={remoteBlurred}
-                  // Full-screen overlay owns privacy UI — avoid duplicate blur row
-                  showBlurBanner={!showPrivacyBlur}
-                  theyMutedLabel={
-                    t("mobile.live.theyMutedYou") ||
-                    "They muted you · no sound"
-                  }
-                  partnerMutedLabel={
-                    t("mobile.live.youMutedThem") || "You muted · no sound"
-                  }
-                  blurredLabel={
-                    t("mobile.live.blurTitle") || "Privacy veil on"
-                  }
-                  unblurLabel={t("mobile.live.unblur") || "Show video"}
-                  onUnblur={() => {
-                    hapticLight();
-                    revealPartnerVideo("banner_unblur");
-                    showToastRef.current(
-                      t("mobile.live.partnerVideoOn") || "Partner video shown"
-                    );
-                  }}
-                />
-              ) : null}
-              <LiveBottomBar
-                phase={uiPhase}
-                friendsOnly={friendsOnly}
-                isFriendCall={isFriendCall}
-                stayRemSecs={stayRemSecs}
-                nextGraceRemSecs={Math.max(
-                  0,
-                  Math.ceil((nextGraceUntilRef.current - nowTick) / 1000)
-                )}
-                micOn={micOn}
-                camOn={camOn}
-                hasLocal={!!localStream}
-                partnerMuted={partnerMuted}
-                remoteBlurred={remoteBlurred}
-                moreOpen={moreOpen}
-                debateActive={debate.active}
-                debateISpeak={debateISpeak}
-                labels={{
-                  start: t("btn.start"),
-                  next: t("btn.next"),
-                  stayNext: (s) => t("mobile.live.stayNext", { s }),
-                  stayLock: (s) => t("mobile.live.stayLock", { s }),
-                  nextGrace: (s) => t("mobile.live.nextGraceBtn", { s }),
-                  stop: t("btn.stop"),
-                  hangup: t("friends.hangup"),
-                  blockReport: t("mobile.live.blockReport"),
-                  micOn: t("mobile.live.micOn"),
-                  micOff: t("mobile.live.micOff"),
-                  camOn: t("mobile.live.camOn"),
-                  camOff: t("mobile.live.camOff"),
-                  camOffHint: t("mobile.live.camOffHint"),
-                  youMutedBadge: t("debate.youMutedBadge"),
-                  flipCam: t("btn.flipCam"),
-                  partnerMuteShort: t("mobile.live.partnerMuteShort"),
-                  partnerUnmuteShort: t("mobile.live.partnerUnmuteShort"),
-                  blurShort:
-                    t("mobile.live.blurShort") || "Blur partner",
-                  unblurShort:
-                    t("mobile.live.unblurShort") || "Show video",
-                  more: t("mobile.live.more"),
-                  cancel: t("mobile.common.cancel"),
-                  invite: t("mobile.live.invite"),
-                  friends: t("mobile.nav.friends"),
-                  friendsMenuTitle: t("mobile.nav.friends"),
-                  friendsOnlyHint: t("mobile.live.friendsOnlyHint"),
-                }}
-                onStart={start}
-                onNext={next}
-                onStop={stop}
-                onBlockReport={() => {
-                  hapticLight();
-                  setMoreOpen(false);
-                  void openReport();
-                }}
-                onToggleMic={toggleMic}
-                onToggleCam={toggleCam}
-                onFlipCam={() => {
-                  hapticLight();
-                  void mediaRef.current?.flipCamera().then(() => {
-                    showToastRef.current(t("mobile.live.camFlipped"));
-                  });
-                }}
-                onTogglePartnerMute={togglePartnerMute}
-                onToggleBlur={togglePartnerBlur}
-                onToggleMore={() => {
-                  hapticLight();
-                  setMoreOpen((v) => !v);
-                }}
-                onInvite={() => shareInvite("live")}
-                onOpenFriends={() => {
-                  hapticLight();
-                  router.push("/friends");
-                }}
-              />
-            </>
-          );
-        })()}
+        {/* Call timer is on partner video (bottom-left), not above Stop bar */}
+        <LiveBottomBar
+          phase={uiPhase}
+          friendsOnly={friendsOnly}
+          isFriendCall={isFriendCall}
+          stayRemSecs={stayRemSecs}
+          nextGraceRemSecs={Math.max(
+            0,
+            Math.ceil((nextGraceUntilRef.current - nowTick) / 1000)
+          )}
+          micOn={micOn}
+          camOn={camOn}
+          hasLocal={!!localStream}
+          partnerMuted={partnerMuted}
+          remoteBlurred={remoteBlurred}
+          moreOpen={moreOpen}
+          debateActive={debate.active}
+          debateISpeak={debateISpeak}
+          labels={{
+            start: t("btn.start"),
+            next: t("btn.next"),
+            nextHint:
+              t("swipe.hint") ||
+              "Skip to next · swipe partner video left or right",
+            stayNext: (s) => t("mobile.live.stayNext", { s }),
+            stayLock: (s) => t("mobile.live.stayLock", { s }),
+            nextGrace: (s) => t("mobile.live.nextGraceBtn", { s }),
+            stop: t("btn.stop"),
+            hangup: t("friends.hangup"),
+            report: `⚑ ${t("mobile.live.reportFab") || t("mobile.live.report") || "Report"}`,
+            micOn: t("mobile.live.micOn"),
+            micOff: t("mobile.live.micOff"),
+            camOn: t("mobile.live.camOn"),
+            camOff: t("mobile.live.camOff"),
+            camOffHint: t("mobile.live.camOffHint"),
+            youMutedBadge: t("debate.youMutedBadge"),
+            flipCam: t("btn.flipCam"),
+            partnerMuteShort: t("mobile.live.partnerMuteShort"),
+            partnerUnmuteShort: t("mobile.live.partnerUnmuteShort"),
+            blurShort: t("mobile.live.blurShort") || "Blur partner",
+            unblurShort: t("mobile.live.unblurShort") || "Show video",
+            more: t("mobile.live.more"),
+            cancel: t("mobile.common.cancel"),
+            invite: t("mobile.live.invite"),
+            friends: t("mobile.nav.friends"),
+            friendsMenuTitle: t("mobile.nav.friends"),
+            friendsOnlyHint: t("mobile.live.friendsOnlyHint"),
+          }}
+          onStart={start}
+          onNext={next}
+          onStop={stop}
+          onReport={() => {
+            hapticLight();
+            setMoreOpen(false);
+            void openReport();
+          }}
+          onToggleMic={toggleMic}
+          onToggleCam={toggleCam}
+          onFlipCam={() => {
+            hapticLight();
+            void mediaRef.current?.flipCamera().then(() => {
+              showToastRef.current(t("mobile.live.camFlipped"));
+            });
+          }}
+          onTogglePartnerMute={togglePartnerMute}
+          onToggleBlur={togglePartnerBlur}
+          onToggleMore={() => {
+            hapticLight();
+            setMoreOpen((v) => !v);
+          }}
+          onInvite={() => shareInvite("live")}
+          onOpenFriends={() => {
+            hapticLight();
+            router.push("/friends");
+          }}
+        />
         {uiPhase === "matched" && moreOpen ? (
           <LiveMoreSheet
             style={isBrowserLayout ? styles.moreSheetBrowser : undefined}
@@ -4937,114 +6462,9 @@ function LiveBody() {
         ) : null}
       </View>
 
-      {/*
-        Privacy veil: full-screen absolute overlay (NOT RN Modal).
-        LiveStageVideo drops all RTCViews to zOrder 0 while veiled so this
-        mosaic paints above SurfaceView. Solid non-black base — never #000.
-      */}
-      {showPrivacyBlur ? (
-        <View
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 9999,
-            elevation: 9999,
-            backgroundColor: "#3a4a66",
-            paddingTop: Math.max(insets.top, 16),
-            paddingBottom: Math.max(insets.bottom, 16),
-            paddingHorizontal: 20,
-          }}
-          testID="live-blur-fullscreen"
-          collapsable={false}
-          pointerEvents="auto"
-        >
-          <View
-            style={{ flex: 1, borderRadius: 20, overflow: "hidden" }}
-            collapsable={false}
-          >
-            <PartnerBlurVeil
-              title={t("mobile.live.blurTitle") || "Privacy veil"}
-              partnerLabel={partnerBlurLine}
-              body={
-                t("mobile.live.blurBodyHold") ||
-                "Partner video is hidden. Tap Show video when ready."
-              }
-              buttonLabel={
-                t("mobile.live.unblurReady") ||
-                t("mobile.live.unblur") ||
-                "Show video"
-              }
-              hint={
-                theyMutedMe
-                  ? t("mobile.live.theyMutedYou") || "They muted you · no sound"
-                  : t("mobile.live.blurHint") || undefined
-              }
-              ready={!!remoteVideoReady || !!hasRemoteVideo}
-              onPress={() => {
-                hapticLight();
-                revealPartnerVideo("blur_overlay");
-                showToastRef.current(
-                  t("mobile.live.partnerVideoOn") || "Partner video shown"
-                );
-              }}
-            />
-          </View>
-          <View
-            style={{
-              flexDirection: "row",
-              gap: 12,
-              marginTop: 12,
-              paddingHorizontal: 8,
-            }}
-          >
-            <Pressable
-              onPress={() => {
-                hapticLight();
-                revealPartnerVideo("blur_overlay_next");
-                next();
-              }}
-              style={{
-                flex: 1,
-                backgroundColor: "rgba(255,255,255,0.14)",
-                paddingVertical: 14,
-                borderRadius: 999,
-                alignItems: "center",
-              }}
-              accessibilityRole="button"
-            >
-              <Text style={{ color: "#fff", fontWeight: "700" }}>
-                {t("btn.next") || "Next"}
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                hapticLight();
-                revealPartnerVideo("blur_overlay_stop");
-                stop();
-              }}
-              style={{
-                flex: 1,
-                backgroundColor: "rgba(255,80,90,0.4)",
-                paddingVertical: 14,
-                borderRadius: 999,
-                alignItems: "center",
-              }}
-              accessibilityRole="button"
-            >
-              <Text style={{ color: "#fff", fontWeight: "700" }}>
-                {t("btn.stop") || "Stop"}
-              </Text>
-            </Pressable>
-          </View>
-        </View>
-      ) : null}
-
       <ReportSheet
         visible={reportOpen}
-        partnerLabel={partner || (partnerUserId.current || "").slice(0, 8) || "…"}
+        partnerLabel={partnerIdName || partnerIdNameFallback || "…"}
         screenshotUri={reportShotUri}
         capturing={reportCapturing}
         busy={reportBusy}

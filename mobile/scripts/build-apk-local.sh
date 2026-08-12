@@ -12,12 +12,34 @@
 #   ./scripts/build-apk-local.sh --bump       # patch +1 versionCode & 0.0.x, then build
 #   ./scripts/build-apk-local.sh --version 0.1.130 --code 138
 #   ./scripts/build-apk-local.sh 138          # pin versionCode only (AAB-style)
+#   ./scripts/build-apk-local.sh --no-push    # skip copy to phone Download/
+#   SKIP_VERIFY=1 ./scripts/build-apk-local.sh --bump   # skip pre-APK verify (emergency)
+#   VERIFY_STRICT_L2=1 ./scripts/build-apk-local.sh --bump  # fail on hub/deploy WARN
+#
+# After a successful build, also copies the APK to the phone's Download folder
+# when a device is on adb (prefers Pixel 9 Pro). Soft-fail if none connected.
+#
+# Pre-APK: scripts/verify-before-apk.sh (L0 static · L1 units · L2 hub soft)
+# unless SKIP_VERIFY=1.
 #
 # Does NOT: production deploy, Play upload, bulk APK on public site.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+
+# ── Fail closed: no assembleRelease until verify ladder green ─────────────
+if [[ "${SKIP_VERIFY:-0}" != "1" ]]; then
+  echo "=== pre-APK verify (set SKIP_VERIFY=1 to skip) ==="
+  if ! bash "$ROOT/scripts/verify-before-apk.sh"; then
+    echo >&2 "Pre-APK verify failed — fix issues above or SKIP_VERIFY=1 to override."
+    exit 1
+  fi
+  echo
+else
+  echo "=== pre-APK verify SKIPPED (SKIP_VERIFY=1) ==="
+  echo
+fi
 
 export ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
 export ANDROID_SDK_ROOT="$ANDROID_HOME"
@@ -27,9 +49,13 @@ export PATH="$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME
 BUMP=0
 PIN_VER=""
 PIN_CODE=""
+PUSH_PHONE=1
+# Prefer this product when several adb devices are online.
+PHONE_MODEL_PREFER="${PHONE_MODEL_PREFER:-Pixel 9 Pro}"
+PHONE_DOWNLOAD_DIR="${PHONE_DOWNLOAD_DIR:-/sdcard/Download}"
 
 usage() {
-  sed -n '2,18p' "$0" | sed 's/^# \?//'
+  sed -n '2,20p' "$0" | sed 's/^# \?//'
   exit "${1:-0}"
 }
 
@@ -37,6 +63,8 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --bump) BUMP=1; shift ;;
     --no-bump) BUMP=0; shift ;;
+    --no-push) PUSH_PHONE=0; shift ;;
+    --push) PUSH_PHONE=1; shift ;;
     --version)
       PIN_VER="${2:-}"
       shift 2
@@ -164,3 +192,67 @@ echo "Latest:  $ROOT/artifacts/ruletka-latest.apk"
 echo "Symlink: artifacts/ruletka-android-latest.apk → ruletka-${VER}-vc${CODE}.apk"
 echo "Install: adb install -r \"$DEST\""
 echo "(Local only — not uploaded to site or Play.)"
+if [[ "$BUMP" -eq 1 || -n "$PIN_VER" ]]; then
+  echo ""
+  echo "REMINDER (SMOKE-NEXT lockstep): update install APK version string in"
+  echo "  knowledge/specs/SMOKE-NEXT.md → ${VER}  (version line only; do not rewrite DONE WHEN)"
+  echo "Smoke gate: one verify + one --bump per session → stop for human smoke paste / FAIL lines."
+fi
+
+# ── Copy to phone Download/ (Pixel 9 Pro preferred) ─────────────────────────
+# Soft-fail: build still succeeds if phone is unplugged / unauthorized.
+push_apk_to_phone() {
+  local apk="$1"
+  local adb_bin="${ANDROID_HOME}/platform-tools/adb"
+  if [[ ! -x "$adb_bin" ]]; then
+    adb_bin="$(command -v adb 2>/dev/null || true)"
+  fi
+  if [[ -z "${adb_bin:-}" || ! -x "$adb_bin" ]]; then
+    echo "Phone push: skipped (adb not found)."
+    return 0
+  fi
+
+  local serials=()
+  mapfile -t serials < <("$adb_bin" devices 2>/dev/null | awk 'NR>1 && $2=="device"{print $1}')
+  if [[ ${#serials[@]} -eq 0 ]]; then
+    echo "Phone push: skipped (no adb device — plug Pixel, enable USB debugging)."
+    return 0
+  fi
+
+  local serial="" model=""
+  local s m
+  for s in "${serials[@]}"; do
+    m="$("$adb_bin" -s "$s" shell getprop ro.product.model 2>/dev/null | tr -d '\r')"
+    if [[ "$m" == *"$PHONE_MODEL_PREFER"* ]]; then
+      serial="$s"
+      model="$m"
+      break
+    fi
+  done
+  if [[ -z "$serial" ]]; then
+    # Fall back to first online device if preferred model not found.
+    serial="${serials[0]}"
+    model="$("$adb_bin" -s "$serial" shell getprop ro.product.model 2>/dev/null | tr -d '\r')"
+    echo "Phone push: no '${PHONE_MODEL_PREFER}' — using first device: ${model:-?} ($serial)"
+  fi
+
+  local base
+  base="$(basename "$apk")"
+  local remote="${PHONE_DOWNLOAD_DIR%/}/${base}"
+  echo "Phone push: $base → ${model:-device} ${PHONE_DOWNLOAD_DIR}/ …"
+  if "$adb_bin" -s "$serial" push "$apk" "$remote" >/dev/null; then
+    # Also refresh a stable "latest" name for easy Files app find.
+    "$adb_bin" -s "$serial" push "$apk" \
+      "${PHONE_DOWNLOAD_DIR%/}/ruletka-latest.apk" >/dev/null 2>&1 || true
+    echo "Phone:    $remote"
+    echo "Phone:    ${PHONE_DOWNLOAD_DIR%/}/ruletka-latest.apk"
+  else
+    echo "Phone push: failed (USB file transfer / authorization?)." >&2
+  fi
+}
+
+if [[ "$PUSH_PHONE" -eq 1 ]]; then
+  push_apk_to_phone "$DEST" || true
+else
+  echo "Phone push: skipped (--no-push)."
+fi
