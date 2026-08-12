@@ -7,10 +7,9 @@ DOMAIN="${DOMAIN:-ruletka.vip}"
 APP_DIR="${APP_DIR:-/opt/ruletka}"
 PUBLIC_IP="${PUBLIC_IP:-$(curl -4 -fsS --max-time 5 ifconfig.me || curl -4 -fsS --max-time 5 icanhazip.com || true)}"
 PUBLIC_IP="${PUBLIC_IP//[$'\t\r\n ']/}"
-# DigitalOcean (and similar): private VPC IP on same NIC as public — needed for
-# external-ip=PUBLIC/PRIVATE mapping so relay hairpin works.
-PRIVATE_IP="${PRIVATE_IP:-$(ip -4 -o addr show scope global 2>/dev/null | awk '!/ docker|br-|veth/ && $4 ~ /^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)/ { split($4,a,"/"); print a[1]; exit }')}"
-PRIVATE_IP="${PRIVATE_IP//[$'\t\r\n ']/}"
+# Map external-ip=PUBLIC/PUBLIC (self). DO on-host public + VPC private must NOT
+# use PUBLIC/VPC: coturn rewrites CreatePermission peers to VPC while sockets
+# bind public → peer_usage=0. Self-map whitelists relay↔relay hairpin.
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "Run as root"
@@ -20,11 +19,6 @@ fi
 if [[ -z "$PUBLIC_IP" ]]; then
   echo "Could not detect PUBLIC_IP"
   exit 1
-fi
-
-if [[ -z "$PRIVATE_IP" ]]; then
-  # Single-homed public-only host: map public to itself (no-op hairpin mapping)
-  PRIVATE_IP="$PUBLIC_IP"
 fi
 
 export DEBIAN_FRONTEND=noninteractive
@@ -61,10 +55,10 @@ TEMPLATE="$APP_DIR/deploy/coturn.conf"
 if [[ -f "$TEMPLATE" ]]; then
   sed -e "s/__TURN_SECRET__/${SECRET//\//\\/}/g" \
       -e "s/__PUBLIC_IP__/${PUBLIC_IP}/g" \
-      -e "s/__PRIVATE_IP__/${PRIVATE_IP}/g" \
+      -e "s/__PRIVATE_IP__/${PUBLIC_IP}/g" \
       "$TEMPLATE" >/etc/turnserver.conf
 else
-  # Must use PUBLIC/PRIVATE mapping on DigitalOcean (self-peer 403 without it)
+  # PUBLIC/PUBLIC: self-peer whitelist without VPC rewrite blackhole
   cat >/etc/turnserver.conf <<EOF
 listening-ip=0.0.0.0
 listening-port=3478
@@ -75,7 +69,7 @@ use-auth-secret
 static-auth-secret=${SECRET}
 realm=${DOMAIN}
 server-name=${DOMAIN}
-external-ip=${PUBLIC_IP}/${PRIVATE_IP}
+external-ip=${PUBLIC_IP}/${PUBLIC_IP}
 no-multicast-peers
 no-cli
 simple-log
@@ -90,11 +84,11 @@ if [[ -f /etc/default/coturn ]]; then
   grep -q '^TURNSERVER_ENABLED=1' /etc/default/coturn || echo 'TURNSERVER_ENABLED=1' >>/etc/default/coturn
 fi
 
-# Firewall
+# Firewall (must cover min-port..max-port from coturn.conf)
 ufw allow 3478/tcp comment 'TURN'
 ufw allow 3478/udp comment 'TURN'
-ufw allow 49160:49300/udp comment 'TURN relay'
-ufw allow 49160:49300/tcp comment 'TURN relay'
+ufw allow 49160:50000/udp comment 'TURN relay'
+ufw allow 49160:50000/tcp comment 'TURN relay'
 yes | ufw enable || true
 ufw status | head -30 || true
 
@@ -119,5 +113,5 @@ echo "=== config.json turn snippet ==="
 curl -sS http://127.0.0.1:8790/config.json | head -c 2000 || true
 echo
 echo "TURN public: turn:${DOMAIN}:3478 (UDP/TCP) on ${PUBLIC_IP}"
-echo "Relay UDP/TCP: 49160-49300"
+echo "Relay UDP/TCP: 49160-50000 (external-ip=${PUBLIC_IP}/${PUBLIC_IP})"
 echo "Done."

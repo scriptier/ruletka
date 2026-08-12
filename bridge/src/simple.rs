@@ -595,8 +595,33 @@ fn hex_short(bytes: &[u8]) -> String {
         })
 }
 
+/// Empty / anon / ellipsis / literal "Partner" / 6–12 hex (peer short id paint).
+fn is_placeholder_display_name(raw: &str) -> bool {
+    let s = raw.trim();
+    if s.is_empty() {
+        return true;
+    }
+    let lower = s.to_ascii_lowercase();
+    if lower == "anon" || lower == "partner" {
+        return true;
+    }
+    if s == "…" || s == "..." || s == "?" || s == "？" {
+        return true;
+    }
+    // Peer/user short ids are 6–12 hex; never treat as a real display name.
+    if (6..=12).contains(&s.len()) && s.chars().all(|c| c.is_ascii_hexdigit()) {
+        return true;
+    }
+    false
+}
+
+fn is_better_display_name(candidate: &str, current: &str) -> bool {
+    !is_placeholder_display_name(candidate)
+        && (is_placeholder_display_name(current) || candidate != current)
+}
+
 fn display_label(c: &Client) -> String {
-    if c.name.is_empty() || c.name == "anon" {
+    if is_placeholder_display_name(&c.name) {
         c.short_id.clone()
     } else {
         c.name.clone()
@@ -4968,7 +4993,9 @@ impl SimpleHub {
             peer_id: to.peer_id.clone(),
             short_id: to.short_id.clone(),
             user_id: to.user_id.clone(),
-            name: to.name.clone(),
+            // Prefer real name; never emit peer short_id as MatchPeer.name.
+            // Web hello can send myShortId (hex) as name — recover from known_names.
+            name: self.resolve_match_peer_name(to),
             is_offerer: i_am_offerer,
             role: role.into(),
             friend_code: to.friend_code.clone(),
@@ -4984,6 +5011,35 @@ impl SimpleHub {
             effect_until,
             effect_level: effect_level.max(1).min(3),
         }
+    }
+
+    /// Display name on MatchPeer: live name if real; else known_names[user_id].
+    /// Never falls back to short_id / peer hex — clients paint friend_code or "Partner".
+    fn resolve_match_peer_name(&self, to: &Client) -> String {
+        let live = to.name.trim();
+        if !is_placeholder_display_name(live) {
+            // Reject live name that is just the peer/user short prefix.
+            let short = to.short_id.trim();
+            let peer8: String = to.peer_id.chars().take(8).collect();
+            let uid8: String = to.user_id.chars().take(8).collect();
+            let ll = live.to_ascii_lowercase();
+            if ll != short.to_ascii_lowercase()
+                && ll != peer8.to_ascii_lowercase()
+                && ll != to.peer_id.to_ascii_lowercase()
+                && (uid8.is_empty() || ll != uid8.to_ascii_lowercase())
+                && ll != to.user_id.to_ascii_lowercase()
+            {
+                return live.to_string();
+            }
+        }
+        if let Some(known) = self.known_names.get(&to.user_id) {
+            let k = known.trim();
+            if is_better_display_name(k, live) {
+                return k.to_string();
+            }
+        }
+        // Empty — do not emit short_id as name (mobile treats hex as placeholder).
+        String::new()
     }
 
     /// Prefer TURN-heavy ICE when direct path is known-broken.
@@ -5006,6 +5062,9 @@ impl SimpleHub {
     }
 
     /// What partners may see: real geo unless hide_ip (then cosmetic flag only).
+    /// When IP geo is known (`geo_code` / country / city), never emit an empty
+    /// triple — Android top strip needs flag or country/city under the name.
+    /// Private IP / lookup pending → all empty (no invented location).
     fn public_location(c: &Client) -> (String, String, String, bool) {
         if c.hide_ip {
             (c.flag.clone(), String::new(), String::new(), true)
@@ -5013,13 +5072,17 @@ impl SimpleHub {
             let flag = if !c.geo_code.is_empty() {
                 c.geo_code.clone()
             } else {
-                // No geo yet / private IP — no fake location
+                // No ISO yet — still pass country/city if lookup filled them.
                 String::new()
             };
+            let country = c.geo_country.clone();
+            let city = c.geo_city.clone();
+            // Defensive: if code known but country blank, clients expand ISO→name.
+            // Never drop a known code (was empty strip while self HelloOk had geo).
             (
                 flag,
-                c.geo_country.clone(),
-                c.geo_city.clone(),
+                country,
+                city,
                 false,
             )
         }
@@ -5489,6 +5552,10 @@ impl SimpleHub {
             platform_b = %plat_b,
             "solo matched"
         );
+        // Belt: re-push PartnerGeo both ways after Matched so Android dock
+        // gets CA/city even when MatchPeer was built before geo settled or
+        // client dropped empty geo fields. (2026-08-11: name OK, loc stuck.)
+        self.push_partner_geo_pair(a, b);
         self.push_recent_match("solo", &ua, &ub, &na, &nb);
         self.push_connect_event(serde_json::json!({
             "kind": "match",
@@ -5501,6 +5568,46 @@ impl SimpleHub {
             "name_b": nb,
         }));
         self.broadcast_lobby_info();
+    }
+
+    /// Send PartnerGeo for `from` → `to` (and optional reverse). Used post-match.
+    fn push_partner_geo_one(&mut self, from: Uuid, to: Uuid) {
+        let Some(c) = self.clients.get(&from) else {
+            return;
+        };
+        let (flag, country, city, hide_ip) = Self::public_location(c);
+        let peer_id = c.peer_id.clone();
+        let user_id = c.user_id.clone();
+        if !self.clients.contains_key(&to) {
+            return;
+        }
+        // Always send (even empty) so client can clear stale geo from prior partner.
+        // Android live.tsx never skips solo 1v1 PartnerGeo (shouldApplyPartnerGeo).
+        tracing::info!(
+            %to,
+            peer = %peer_id.chars().take(8).collect::<String>(),
+            flag = %flag,
+            country = %country,
+            city = %city,
+            hide_ip,
+            "partner_geo push"
+        );
+        self.send(
+            to,
+            ServerMsg::PartnerGeo {
+                peer_id,
+                user_id,
+                country,
+                city,
+                flag,
+                hide_ip,
+            },
+        );
+    }
+
+    fn push_partner_geo_pair(&mut self, a: Uuid, b: Uuid) {
+        self.push_partner_geo_one(a, b);
+        self.push_partner_geo_one(b, a);
     }
 
     fn enqueue_solo(&mut self, id: Uuid) {
@@ -6774,7 +6881,8 @@ impl SimpleHub {
         }
         self.by_user.insert(user_id.clone(), id);
         self.code_index.insert(code.clone(), user_id.clone());
-        if !name.is_empty() && name != "anon" {
+        // Only persist real display names — hex short ids / anon must not overwrite "Драконов".
+        if !is_placeholder_display_name(&name) {
             self.known_names.insert(user_id.clone(), name.clone());
         }
         if !avatar.is_empty() {
@@ -6897,13 +7005,13 @@ impl SimpleHub {
             self.push_friends_list(id);
             return;
         }
-        // remember names
-        if !my_name.is_empty() && my_name != "anon" {
+        // remember names (skip placeholders / hex peer short ids)
+        if !is_placeholder_display_name(&my_name) {
             self.known_names.insert(me.clone(), my_name.clone());
         }
         if let Some(&oid) = self.by_user.get(&other_uid) {
             if let Some(c) = self.clients.get(&oid) {
-                if !c.name.is_empty() {
+                if !is_placeholder_display_name(&c.name) {
                     self.known_names.insert(other_uid.clone(), c.name.clone());
                 }
             }
@@ -9522,6 +9630,26 @@ impl SimpleHub {
                 "signal relay"
             );
         }
+        // Client media forensics beacon (av-verify tool). Logged, still relayed.
+        if kind == "av_path" {
+            let summary: String = payload.chars().take(400).collect();
+            tracing::info!(
+                from = %author,
+                platform = %self
+                    .clients
+                    .get(&id)
+                    .map(|c| c.platform.as_str())
+                    .unwrap_or(""),
+                %summary,
+                "av_path"
+            );
+            self.push_connect_event(serde_json::json!({
+                "kind": "av_path",
+                "from": author,
+                "platform": self.clients.get(&id).map(|c| c.platform.clone()).unwrap_or_default(),
+                "payload": summary,
+            }));
+        }
         for t in targets {
             self.send(
                 t,
@@ -9574,11 +9702,11 @@ pub(crate) fn ip_untrusted_for_direct(ip: &str) -> bool {
 /// **LOCK (2026-08-09):** do **not** force_relay solely because platforms are
 /// web↔android. That caused one-way / black PC partner.
 ///
-/// **Same public IP / same Wi‑Fi (2026-08-10 night LOCK):** do **not**
-/// force_relay. Prod coturn hairpin has peer_usage≈0 and turnutils shows
-/// 100% loss to PUBLIC and 10.19 peers — forcing TURN + stripping host leaves
-/// both cams black (“linking cameras”). Same-LAN needs host/srflx (clients
-/// already drop Chrome mDNS host; Android private host + prflx recover LAN).
+/// **Same public IP / same Wi‑Fi (2026-08-10 evening, re-proven):** force pure
+/// TURN. Host path is one-sided (Chrome mDNS stripped; no private host for
+/// Android). Smoke 20:19: force_relay=false, web `relay_candidates=0`, answer
+/// OK, media max_rb STUN-only / black both ways. Coturn dual-relay media lock
+/// PASSes with pool=0 clients. Require pure policy=relay + wait for relay SDP.
 ///
 /// Platforms are intentionally **not** parameters — if you re-add web↔android
 /// here, `pair_force_relay_web_android_must_not_force` fails.
@@ -9594,9 +9722,34 @@ pub(crate) fn pair_force_relay_decision(
     if ip_untrusted_for_direct(ip_a) || ip_untrusted_for_direct(ip_b) {
         return true;
     }
-    // Same public IP: allow direct host/srflx (NOT force_relay). See LOCK above.
-    let _ = (ip_a, ip_b);
+    let ia = ip_a.trim();
+    let ib = ip_b.trim();
+    if !ia.is_empty() && ia == ib {
+        return true;
+    }
     false
+}
+
+#[cfg(test)]
+mod display_name_tests {
+    use super::is_placeholder_display_name;
+
+    #[test]
+    fn placeholders_and_hex_short_ids() {
+        assert!(is_placeholder_display_name(""));
+        assert!(is_placeholder_display_name("  "));
+        assert!(is_placeholder_display_name("anon"));
+        assert!(is_placeholder_display_name("ANON"));
+        assert!(is_placeholder_display_name("Partner"));
+        assert!(is_placeholder_display_name("…"));
+        assert!(is_placeholder_display_name("3dc02a71"));
+        assert!(is_placeholder_display_name("deadbeef"));
+        assert!(is_placeholder_display_name("aabbcc"));
+        assert!(!is_placeholder_display_name("Драконов"));
+        assert!(!is_placeholder_display_name("Alex"));
+        // 4-char labels are not peer short-id paint
+        assert!(!is_placeholder_display_name("ab12"));
+    }
 }
 
 #[cfg(test)]
@@ -9629,11 +9782,11 @@ mod connectivity_lock_tests {
     }
 
     #[test]
-    fn same_public_ip_does_not_force() {
-        // Same LAN / same Wi‑Fi: host/srflx path (TURN hairpin dead on prod).
+    fn same_public_ip_forces() {
+        // Same LAN: pure TURN (Chrome no private host; host path black 20:19).
         assert!(
-            !pair_force_relay_decision(false, false, "203.0.113.10", "203.0.113.10"),
-            "same public IP must NOT force_relay — LAN video"
+            pair_force_relay_decision(false, false, "203.0.113.10", "203.0.113.10"),
+            "same public IP must force_relay — pure TURN + pool=0"
         );
     }
 
