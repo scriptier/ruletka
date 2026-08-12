@@ -143,3 +143,43 @@ Kept: early-exit first `typ relay`, fail-open, pool=0, pure rebuild-if-n=0, no s
 
 **Gate:** UI deploy + APK + `av-verify product.ok` before GOAL_MET.
 
+### Hop10 recommendations (2026-08-12, task 450-connect-android-answer-recommend)
+
+Read-only pass over `MediaSession.ts` answer path + `live.tsx` matched/kick, against
+`artifacts/connect-loop/baseline-av-verify.md` (android fin/fout=0/0, **zero** android
+`av_path` rows in a 10-min / 16-sample window while web was HOT) and the live hop9 scorecard
+WARN (`force_relay mismatch hub=true android fr=1 policy=all` vs web `policy=relay`). Full
+detail + DONE WHEN per item in
+`tasks/admin-queue/done/450-connect-android-answer-recommend-RESULT.md`. Ranked by
+impact/risk, no code changed (scorecard-gate required before any ICE-policy edit):
+
+1. **No retry on ICE/TURN fetch failure** — `live.tsx:1763-1779` (mount `loadIce()`) and
+   `live.tsx:3277-3287` (matched-immediate fetch) both swallow fetch errors with only a
+   30-min `setInterval` retry. Any transient hub HTTP blip strands `hasTurn()=false` for
+   up to 30 min, which fails `pcConfig()`/`desiredRelayPolicy()` open to `policy=all` on
+   every force_relay=true match in that window — a direct one-way/no-media candidate.
+2. **Confirm baseline APK includes hop10 before chasing "android one-way" further** —
+   commit `ec89c5b` (2026-08-11 18:05 local) added the `arm_0` immediate av_path beacon
+   (`MediaSession.ts:3677`, "missing av_path was misread as one-way") specifically because
+   the scorecard couldn't tell "no beacon" from "no media." Baseline shows literally zero
+   android av_path rows (not just fin/fout=0), which is the exact symptom hop10 targeted.
+   Rebuild/bump the local APK past `ec89c5b` and re-run `av-verify` before trusting the
+   current one-way reading as a live media bug.
+3. **Pure-relay policy decision is `hasTurn()`-gated at PC-build time and never revisited
+   after remote SDP applies** — `pcConfig():1731-1776`, `desiredRelayPolicy():1840-1845`,
+   `ensureRelayPolicyPc():1787-1834` (`remoteApplied` gate at `1791-1794` blocks any later
+   fix). If TURN lands after the offer is applied while hub wanted pure, the PC is
+   permanently stuck `fr=1`/`policy=all` for that call — this is the literal hop9 WARN
+   already called out in the file's own comments (`1781-1785`, `5093-5094`).
+4. **`forceRelayRebuild()` is dead code** — `MediaSession.ts:1957-1979` is a fully-built
+   TURN-only recovery path for "first path never gets media," documented for exactly this
+   symptom, but has zero call sites. Wiring a gated trigger (only past the CONNECTIVITY_LOCK
+   ~15s floor, one-shot, no dual-offer) would give force_relay matches an actual recovery
+   path instead of silently sitting one-way for 10 minutes.
+5. **`camReady` check in `startCall` doesn't match the RN-safe `trackUsable()` helper** —
+   `startCall:2628-2630` uses strict `readyState === "live"`, while the newer answer-path
+   check (`handleRemoteSignalInner:5048-5053`) already switched to `trackUsable()`
+   (`3072-3080`) to handle RN's empty-string `readyState`. The stale strict check in
+   `startCall` can spuriously skip the warm/fast path and take an avoidable GUM-wait detour
+   on every RN answer. Small, safe, single-predicate fix.
+
