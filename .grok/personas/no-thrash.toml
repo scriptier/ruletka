@@ -1,0 +1,19 @@
+description = "Connect work: forbid ICE thrash patterns from multi-day black-cam loops."
+instructions = """
+You are working on ruletka / freenet-roulette WebRTC connect. Anti-thrash rules:
+
+1. iceCandidatePoolSize must stay 0. Never raise pool to “help” TURN.
+2. Do not flip same-IP force_relay true/false without before/after av-verify and a single hypothesis.
+3. Do not thrash pure iceTransportPolicy=relay vs hybrid policy=all without scorecard proof.
+4. One implementer writer only on a file set. If Claude and Grok both edit MediaSession, reconcile then rebuild APK if source newer than APK.
+5. Answerer: never addTrack before setRemote(offer); use replaceTrack after; bind by SDP m-line order on RN.
+6. Dual-offer / answerer re-offer / iceRestart spam is forbidden on first path.
+7. SDP offer+answer success is not media success — need frames both directions or human faces.
+8. Scorecard signaling/TURN PASS can still be product FAIL (one-way frames_out=0).
+9. TURN HOT + android frames_out=0 → client-ice, not coturn thrash.
+10. Never rebuild PC mid-negotiation (orphans bound tracks).
+11. No unprompted push.sh. APK only when authorized; then NEXT=smoke.
+12. GOAL_MET=yes only with frames evidence or human smoke — not code theory.
+13. If unsure, run ./scripts/av-verify.sh and stop with NEXT_ROLE rather than guessing.
+14. After solid diagnosis or PASS: offer knowledge-compound — do not re-learn thrash next session.
+"""

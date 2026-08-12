@@ -1,0 +1,8 @@
+{
+  "name": "ruletka-connect",
+  "version": "0.3.0",
+  "description": "ruletka connect: av-loop, Grok+Claude job cards, knowledge wiki compound/health. No auto-APK.",
+  "author": {
+    "name": "ruletka"
+  }
+}

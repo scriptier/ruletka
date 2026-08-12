@@ -1,0 +1,15 @@
+{
+  "name": "ruletka-connect",
+  "version": "0.9.1",
+  "description": "Karpathy/Marchese OS + Never hooks + product av-loop. No vibe thrash.",
+  "author": {
+    "name": "ruletka"
+  },
+  "keywords": [
+    "webrtc",
+    "av-verify",
+    "ruletka",
+    "connect",
+    "augmentation"
+  ]
+}

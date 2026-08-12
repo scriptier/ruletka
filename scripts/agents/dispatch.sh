@@ -82,9 +82,16 @@ echo "WORKTREE=$WT"
 echo "LOG=$LOG"
 echo "PROMPT=$PROMPT_FILE"
 
-# unbuffered-ish: stdbuf if present
-RUNNER=( "$CLAUDE_BIN" -p "$(cat "$PROMPT_FILE")" --output-format text
-  --allowedTools "Read,Edit,Write,Bash,Glob,Grep" )
+# Non-interactive factory: --print + bypassPermissions so Claude is not
+# stuck on TTY permission prompts with empty log (0-byte hang).
+RUNNER=(
+  "$CLAUDE_BIN"
+  -p "$(cat "$PROMPT_FILE")"
+  --print
+  --output-format text
+  --allowedTools "Read,Edit,Write,Bash,Glob,Grep"
+  --permission-mode bypassPermissions
+)
 if command -v stdbuf >/dev/null 2>&1; then
   RUNNER=( stdbuf -oL -eL "${RUNNER[@]}" )
 fi

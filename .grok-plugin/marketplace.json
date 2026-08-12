@@ -1,0 +1,14 @@
+{
+  "name": "ruletka-local",
+  "description": "Local freenet-roulette / ruletka Grok plugins (augmentation)",
+  "owner": { "name": "ruletka" },
+  "plugins": [
+    {
+      "name": "ruletka-connect",
+      "description": "av-verify + av-fix-loop + diagnose/verify agents. No auto-APK.",
+      "category": "engineering",
+      "source": { "type": "local", "path": "./.grok/plugins/ruletka-connect" },
+      "keywords": ["webrtc", "av-verify", "connect"]
+    }
+  ]
+}
