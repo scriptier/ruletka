@@ -47,6 +47,40 @@ function pickStageStreams(opts) {
   };
 }
 
+// Mirrors stageStreams.ts pickMultiTiles — split-screen tile assignment for
+// the 2-remote layout (partner + second peer tiles; self stays in a separate
+// PiP, never one of the two split tiles).
+function pickMultiTiles(opts) {
+  const {
+    focusExtra,
+    mainStream,
+    remoteStream2,
+    remoteEpoch,
+    remoteEpoch2,
+    swapViews,
+    mainMirror,
+    partnerName,
+    secondName,
+  } = opts;
+  const tileA = {
+    stream: focusExtra ? remoteStream2 : mainStream,
+    epoch: focusExtra ? remoteEpoch2 : swapViews ? 0 : remoteEpoch,
+    mirror: focusExtra ? false : mainMirror,
+    name: focusExtra ? secondName : partnerName || "…",
+    placeholder: focusExtra ? !remoteStream2 : !mainStream,
+    isExtra: focusExtra,
+  };
+  const tileB = {
+    stream: focusExtra ? mainStream : remoteStream2,
+    epoch: focusExtra ? (swapViews ? 0 : remoteEpoch) : remoteEpoch2,
+    mirror: focusExtra ? mainMirror : false,
+    name: focusExtra ? partnerName || "…" : secondName,
+    placeholder: focusExtra ? !mainStream : !remoteStream2,
+    isExtra: !focusExtra,
+  };
+  return { tileA, tileB };
+}
+
 const local = { getVideoTracks: () => [{ readyState: "live" }] };
 const remote = { getVideoTracks: () => [{ readyState: "live" }] };
 const remoteNoVid = { getVideoTracks: () => [] };
@@ -229,6 +263,50 @@ const remoteAudioOnly = {
   assert.equal(p.mainStream, null);
   assert.equal(p.pipStream, local);
   assert.equal(p.waitingPeer, true);
+}
+
+// 2 remotes => split tiles are partner + second peer; self is never one of
+// the two split tiles (self rides a separate PiP — see LiveStageVideo's
+// `multiRemote && localStream` PiP block, which is independent of tileA/tileB).
+{
+  const remote2 = { getVideoTracks: () => [{ readyState: "live" }] };
+  const { tileA, tileB } = pickMultiTiles({
+    focusExtra: false,
+    mainStream: remote,
+    remoteStream2: remote2,
+    remoteEpoch: 1,
+    remoteEpoch2: 2,
+    swapViews: false,
+    mainMirror: false,
+    partnerName: "Partner",
+    secondName: "Second",
+  });
+  assert.equal(tileA.stream, remote);
+  assert.equal(tileA.name, "Partner");
+  assert.equal(tileB.stream, remote2);
+  assert.equal(tileB.name, "Second");
+  assert.notEqual(tileA.stream, local);
+  assert.notEqual(tileB.stream, local);
+}
+
+// focusExtra flips which remote leads the split (tap second peer to focus it)
+{
+  const remote2 = { getVideoTracks: () => [{ readyState: "live" }] };
+  const { tileA, tileB } = pickMultiTiles({
+    focusExtra: true,
+    mainStream: remote,
+    remoteStream2: remote2,
+    remoteEpoch: 1,
+    remoteEpoch2: 2,
+    swapViews: false,
+    mainMirror: false,
+    partnerName: "Partner",
+    secondName: "Second",
+  });
+  assert.equal(tileA.stream, remote2);
+  assert.equal(tileA.name, "Second");
+  assert.equal(tileB.stream, remote);
+  assert.equal(tileB.name, "Partner");
 }
 
 console.log("stageStreams.test.mjs: ok");
