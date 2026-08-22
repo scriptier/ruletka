@@ -42,7 +42,7 @@ Prod coturn listens on **`turn:ruletka.vip:3478`** (UDP/TCP) with time-limited c
 | Default WebRTC | STUN + TURN candidates (P2P preferred) |
 | **Hide my IP** | Client `iceTransportPolicy: "relay"` — media only via TURN |
 
-**TURNS (`turns:` over TLS/443)** is **not** enabled. Caddy already owns **443** for HTTPS; putting coturn TLS on the same port needs either a second IP, `stream` multiplexing, or moving HTTPS. UDP/TCP 3478 covers most networks; if a carrier blocks 3478, document workarounds rather than fighting Caddy for 443 unless we add a dedicated IP.
+**TURNS** is TLS TURN. Coturn still listens on **5349**. Public **TCP 443** is **sslh**: HTTP ALPN (`h2` / `http/1.1`) → Caddy on **8443** (site + WSS); other TLS → coturn 5349. ICE lists **`turns:ruletka.vip:443?transport=tcp`** first, then **5349**. **RU/BY/IR/CN** `/config.json` lists TURNS before UDP (geo, 400ms cap). TCP 3478 is still advertised but dropped on the force_relay path. Certs: `ruletka-turns-certs.timer`. Mux: `scripts/deploy/setup-turns-443.sh` + `/etc/sslh.cfg`. Rollback: `systemctl stop sslh`; restore Caddyfile `https_port 8443` block; `systemctl reload caddy`. See `knowledge/specs/2026-08-21-ru-turns.md`.
 
 Client A/V on relay uses matched higher jitter targets (see `webrtc.js` hide-IP path).
 

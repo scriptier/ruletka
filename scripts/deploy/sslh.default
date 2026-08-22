@@ -1,0 +1,6 @@
+# sslh standalone — public TCP 443 mux for ruletka
+# HTTPS/WSS (ALPN h2/http/1.1) → Caddy 8443
+# TURNS (no HTTP ALPN)        → coturn 5349
+# On-timeout → Caddy so browsers never land on coturn.
+DAEMON=/usr/sbin/sslh
+DAEMON_OPTS="--user sslh --config /etc/sslh.cfg"

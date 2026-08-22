@@ -27,6 +27,12 @@ export const liveStyles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
+  /** Video inside a split tile — not absoluteFill of the whole stage. */
+  splitTileFill: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "transparent",
+  },
   /** Bars jail over partner main tile (RTCView zOrder 0 while active). */
   barsOnTile: {
     ...StyleSheet.absoluteFillObject,
@@ -109,6 +115,11 @@ export const liveStyles = StyleSheet.create({
     textShadowColor: "rgba(0,0,0,0.55)",
     textShadowRadius: 8,
   },
+  /** Extra-tile mute scrim under name/★/volume chrome. */
+  extraMuteOverlay: {
+    zIndex: 6,
+    elevation: 8,
+  },
   // Legacy badge styles (text chips removed — icon only)
   partnerMuteBadge: {},
   partnerMuteBadgePip: {},
@@ -119,6 +130,47 @@ export const liveStyles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "#45536c",
     opacity: 1,
+  },
+  /**
+   * Elevated opaque shell over partner RTCView (zOrder 0) for privacy / hide.
+   * Android SurfaceView: elevation on this sibling (not zIndex alone) is what
+   * beats zOrder 0. Shared by 1v1 main, multi tiles, and partner PiP — bare
+   * PartnerBlurVeil elev 28 is not enough on some multi-tile OEMs.
+   */
+  blurCoverElevated: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#45536c",
+    opacity: 1,
+    zIndex: 50,
+    elevation: 32,
+  },
+  /**
+   * SoftBlur overlay while privacy is on. Transparent — SoftBlur ImageView
+   * paints the live blur. Opaque #45536c here is the 3–4s “face then gone”
+   * bug: intro peel hid SoftBlur and left this slab over RTCView.
+   */
+  softBlurCover: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "transparent",
+    opacity: 1,
+    zIndex: 50,
+    elevation: 32,
+  },
+  /**
+   * SoftBlur stays mounted (second VideoSink) after peel so we do not
+   * removeSink. Collapse + elevation 0 so RTCView is visible.
+   */
+  softBlurIdle: {
+    position: "absolute",
+    width: 1,
+    height: 1,
+    left: 0,
+    top: 0,
+    opacity: 0,
+    elevation: 0,
+    zIndex: 0,
+    overflow: "hidden",
+    backgroundColor: "transparent",
   },
   /** No solid black wall — transparent so RTCView / local cam can show through */
   videoPlaceholder: {
@@ -167,6 +219,17 @@ export const liveStyles = StyleSheet.create({
     height: 36,
     borderRadius: 18,
     backgroundColor: "rgba(90, 150, 255, 0.35)",
+  },
+  connectName: {
+    color: "#f4f7ff",
+    fontSize: 22,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+    textAlign: "center",
+    maxWidth: 280,
+    textShadowColor: "rgba(0,0,0,0.55)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
   },
   pipVideo: {
     width: "100%",
@@ -379,8 +442,8 @@ export const liveStyles = StyleSheet.create({
   },
   /**
    * Primary matched identity belt (name / ★ / loc). Compact top-right.
-   * elevation must beat nuclear veil coverMain (elev 28) + PartnerBlurVeil
-   * (elev 24). Partner RTCView stays zOrder 0 so this RN card wins.
+   * elevation must beat nuclear veil coverMain / blurCoverElevated (elev 32)
+   * + PartnerBlurVeil (elev 28). Partner RTCView stays zOrder 0 so this RN card wins.
    */
   stagePartnerHud: {
     position: "absolute",
@@ -474,7 +537,7 @@ export const liveStyles = StyleSheet.create({
     // Content-sized — no tall minHeight pushing name/★ down from status bar
     minHeight: 0,
     paddingHorizontal: 12,
-    paddingBottom: 4,
+    paddingBottom: 2,
     gap: 0,
     justifyContent: "flex-start",
     // Transparent / light frost only — video must show through (never solid panel)
@@ -485,13 +548,39 @@ export const liveStyles = StyleSheet.create({
     zIndex: 60,
     elevation: 28,
   },
-  /** Horizontal identity row: name · ★ (loc is second full-width line) */
+  /** Horizontal identity row: photo · name · ★ (loc is second full-width line) */
   partnerIdentityDockRow: {
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "nowrap",
     gap: 8,
     width: "100%",
+  },
+  /** 32px identity circle (photo or letter) next to dock name — not a flag. */
+  partnerIdentityDockAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.22)",
+  },
+  partnerIdentityDockAvatarImg: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+  },
+  partnerIdentityDockAvatarLetter: {
+    color: "#e8eef7",
+    fontWeight: "800",
+    fontSize: 13,
+    includeFontPadding: false,
+    textShadowColor: "rgba(0,0,0,0.45)",
+    textShadowRadius: 2,
+    textShadowOffset: { width: 0, height: 1 },
   },
   partnerIdentityDockStars: {
     color: "#ffe566",
@@ -528,11 +617,14 @@ export const liveStyles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
   },
   partnerIdentityDockCode: {
-    color: "#a8c4e8",
-    fontSize: 13,
+    color: "rgba(180, 205, 230, 0.92)",
+    fontSize: 12,
     fontWeight: "700",
-    letterSpacing: 0.2,
+    letterSpacing: 0.8,
     includeFontPadding: false,
+    textShadowColor: "rgba(0,0,0,1)",
+    textShadowRadius: 8,
+    textShadowOffset: { width: 0, height: 1 },
   },
   partnerIdentityDockLoc: {
     color: "#e0eaf8",
@@ -662,21 +754,278 @@ export const liveStyles = StyleSheet.create({
     backgroundColor: "rgba(40,70,120,0.55)",
   },
   peerChipText: { color: "#c8d4e4", fontSize: 11, fontWeight: "600" },
-  /* 3-way / multi: horizontal side-by-side columns (not vertical bands) */
+  /**
+   * Phone multi: **vertical stack** in portrait and landscape (top → bottom).
+   * Not PC browser side-by-side columns. splitRemoteWide is unused (kept).
+   *
+   * overflow must stay visible: hidden clips Android SurfaceView (RTCView)
+   * and paints a black main while PiP still shows local cam.
+   */
   splitRemote: {
     ...StyleSheet.absoluteFillObject,
-    flexDirection: "row",
+    flexDirection: "column",
+    width: "100%",
+    height: "100%",
+    backgroundColor: "transparent",
+    // Rotate flips column↔row only — overflow:hidden tears SurfaceView.
+    overflow: "visible",
   },
+  /** Wide / landscape only — PC-like side-by-side. Wrap-only (no RTC remount). */
+  splitRemoteWide: {
+    ...StyleSheet.absoluteFillObject,
+    flexDirection: "row",
+    width: "100%",
+    height: "100%",
+    backgroundColor: "transparent",
+    overflow: "visible",
+  },
+  /** True multi remote tile — flex 1/1 column. height% left SurfaceView at 0×0. */
   splitTile: {
+    position: "relative",
     flex: 1,
+    width: "100%",
+    overflow: "visible",
+    minHeight: 0,
+    minWidth: 0,
+    backgroundColor: "transparent",
+    /* Portrait midline between top / bottom conversationalists */
+    borderBottomWidth: 2,
+    borderBottomColor: "rgba(255,255,255,0.28)",
+    borderRightWidth: 0,
+    borderRightColor: "transparent",
+  },
+  splitTileLast: {
+    borderBottomWidth: 0,
+  },
+  splitTileWide: {
+    flex: 1,
+    flexBasis: 0,
+    overflow: "visible",
+    minHeight: 0,
+    minWidth: 0,
+    height: "100%",
+    backgroundColor: "transparent",
+    borderBottomWidth: 0,
+    borderRightWidth: 2,
+    borderRightColor: "rgba(255,255,255,0.22)",
+  },
+  splitTileWideLast: {
+    borderRightWidth: 0,
+  },
+  /** Focus highlight only — keep flex 1/1 (do not grow the focused half). */
+  splitTileFocus: {
+    flex: 1,
+    flexBasis: 0,
+    borderBottomColor: "rgba(100,160,255,0.55)",
+  },
+  splitTileFocusWide: {
+    flex: 1,
+    flexBasis: 0,
+    borderRightColor: "rgba(100,160,255,0.45)",
+  },
+  /**
+   * 4-person optional 2×2 (same four people, one per cell).
+   * Never used for 1v1 or 3-way.
+   */
+  splitRemoteGrid2x2: {
+    ...StyleSheet.absoluteFillObject,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    width: "100%",
+    height: "100%",
+    backgroundColor: "transparent",
+  },
+  splitTileGrid2x2: {
+    width: "50%",
+    height: "50%",
+    flexGrow: 0,
+    flexShrink: 0,
+    overflow: "visible",
+    minHeight: 0,
+    minWidth: 0,
+    backgroundColor: "transparent",
+    borderRightWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: "rgba(255,255,255,0.22)",
+  },
+  grid2x2Toggle: {
+    position: "absolute",
+    right: 10,
+    bottom: 18,
+    zIndex: 40,
+    elevation: 20,
+    backgroundColor: "rgba(6, 10, 18, 0.82)",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.22)",
+  },
+  grid2x2ToggleText: {
+    color: "#e8eef7",
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+  },
+  /** Per-remote name / ★ / loc on split tiles (3-way + 4-way). Compact so it does not cover faces. */
+  splitTileChrome: {
+    position: "absolute",
+    left: 4,
+    top: 4,
+    right: 36,
+    zIndex: 8,
+    elevation: 12,
+    gap: 0,
+  },
+  splitTileChromeName: {
+    color: "#ffffff",
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.1,
+    lineHeight: 13,
+    includeFontPadding: false,
+    textShadowColor: "rgba(0,0,0,0.95)",
+    textShadowRadius: 4,
+    textShadowOffset: { width: 0, height: 1 },
+  },
+  splitTileChromeStars: {
+    color: "#ffe566",
+    fontSize: 10,
+    fontWeight: "800",
+    lineHeight: 12,
+    includeFontPadding: false,
+    textShadowColor: "rgba(0,0,0,0.95)",
+    textShadowRadius: 4,
+    textShadowOffset: { width: 0, height: 1 },
+  },
+  splitTileChromeLoc: {
+    color: "#d4e4f8",
+    fontSize: 10,
+    fontWeight: "600",
+    lineHeight: 12,
+    includeFontPadding: false,
+    textShadowColor: "rgba(0,0,0,0.85)",
+    textShadowRadius: 3,
+  },
+  splitTileChromeLocDim: {
+    color: "rgba(190, 205, 225, 0.7)",
+    fontSize: 10,
+    fontWeight: "500",
+    lineHeight: 12,
+    includeFontPadding: false,
+    textShadowColor: "rgba(0,0,0,0.85)",
+    textShadowRadius: 3,
+  },
+  splitTileVolume: {
+    position: "absolute",
+    right: 8,
+    bottom: 8,
+    zIndex: 8,
+    elevation: 12,
+    minWidth: 28,
+    minHeight: 28,
+    borderRadius: 999,
+    backgroundColor: "rgba(6, 10, 18, 0.72)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+  },
+  splitTileVolumeText: {
+    fontSize: 14,
+    textShadowColor: "rgba(0,0,0,0.8)",
+    textShadowRadius: 4,
+  },
+  /**
+   * Find-3rd hunt tiles: ~50/50 split, but floors are asymmetric —
+   * partner (top/left) never shrinks below 45%, looking (bottom/right)
+   * never below 35% — so the live conversationalist always dominates
+   * and the brand-search pane never collapses to nothing.
+   */
+  /** Hunt: one child fills the wrap so partner stays full-screen (no looking half). */
+  splitHuntTileFill: {
+    flex: 1,
+    minHeight: 0,
+    minWidth: 0,
+    overflow: "hidden",
+  },
+  splitHuntTile: {
+    flex: 1,
+    flexBasis: "50%",
+    minHeight: "45%",
+    overflow: "hidden",
+    minWidth: 0,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(255,255,255,0.14)",
+    borderRightWidth: 0,
+    borderRightColor: "transparent",
+  },
+  splitHuntTileLast: {
+    borderBottomWidth: 0,
+  },
+  /** Looking (bottom) pane floor — lower than partner's 45% but never 0. */
+  splitHuntTileLookingMin: {
+    minHeight: "35%",
+  },
+  /** Landscape hunt: side-by-side halves with min width floor */
+  splitHuntTileWide: {
+    flex: 1,
+    flexBasis: "50%",
+    minWidth: "45%",
+    minHeight: 0,
     overflow: "hidden",
     borderBottomWidth: 0,
     borderRightWidth: StyleSheet.hairlineWidth,
     borderRightColor: "rgba(255,255,255,0.12)",
   },
-  splitTileFocus: {
-    flex: 1.15,
-    borderRightColor: "rgba(100,160,255,0.35)",
+  splitHuntTileWideLast: {
+    borderRightWidth: 0,
+  },
+  /** Looking (right, landscape) pane floor — lower than partner's 45%. */
+  splitHuntTileWideLookingMin: {
+    minWidth: "35%",
+  },
+  /** Find-3rd empty half: brand loop + caption */
+  splitLookingFill: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#050608",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  /**
+   * Looking caption — always above BrandLoadingLoop (expo-av may use a
+   * surface that paints over plain zIndex). elevation + pill so copy stays
+   * readable on every Android OEM while hunting.
+   */
+  splitLookingCaption: {
+    position: "absolute",
+    left: 12,
+    right: 12,
+    bottom: 16,
+    zIndex: 20,
+    elevation: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  /** Centered pill text for “Looking for a 3rd…” */
+  splitLookingCaptionText: {
+    color: "#e8eef7",
+    fontSize: 15,
+    fontWeight: "800",
+    textAlign: "center",
+    letterSpacing: 0.2,
+    lineHeight: 20,
+    textShadowColor: "rgba(0,0,0,0.95)",
+    textShadowRadius: 8,
+    textShadowOffset: { width: 0, height: 1 },
+    backgroundColor: "rgba(6, 10, 18, 0.78)",
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 999,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+    maxWidth: "96%",
   },
   splitLabel: {
     position: "absolute",
@@ -885,6 +1234,7 @@ export const liveStyles = StyleSheet.create({
     paddingHorizontal: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "rgba(255,255,255,0.08)",
+    overflow: "hidden",
   },
   moreRowDanger: {
     backgroundColor: "rgba(255,60,80,0.12)",
@@ -1439,6 +1789,7 @@ export const liveStyles = StyleSheet.create({
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
   },
   btnSecondary: {
     flex: 1,
@@ -1460,6 +1811,7 @@ export const liveStyles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 1,
     borderColor: "rgba(160, 200, 255, 0.45)",
+    overflow: "hidden",
   },
   btnGhost: {
     flex: 0.9,
@@ -1469,6 +1821,7 @@ export const liveStyles = StyleSheet.create({
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
   },
   /** Icon-only control (mic / cam / flip / friends / more). */
   btnIcon: {
@@ -1479,6 +1832,7 @@ export const liveStyles = StyleSheet.create({
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
   },
   btnOff: {
     backgroundColor: "rgba(255,70,90,0.28)",
@@ -1587,18 +1941,85 @@ export const liveStyles = StyleSheet.create({
     fontWeight: "600",
     marginTop: 2,
   },
-  debateInviteCard: {
+  starGiftedScreenCover: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 82,
+    elevation: 50,
+    backgroundColor: "rgba(4,6,12,0.35)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  starGiftedBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(4,6,12,0.28)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  starGiftedCard: {
+    minWidth: 200,
+    maxWidth: 320,
+    paddingVertical: 18,
+    paddingHorizontal: 22,
+    borderRadius: 18,
+    backgroundColor: "rgba(12,14,22,0.94)",
+    borderWidth: 1,
+    borderColor: "rgba(255,210,90,0.5)",
+    alignItems: "center",
+    gap: 4,
+    elevation: 24,
+  },
+  starGiftedBurst: {
+    fontSize: 42,
+    color: "#ffe28a",
+    textShadowColor: "rgba(255,190,50,0.9)",
+    textShadowRadius: 16,
+  },
+  starGiftedTitle: {
+    color: "#ffe9a8",
+    fontSize: 17,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  starGiftedSub: {
+    color: "#c8d0dc",
+    fontSize: 13,
+    textAlign: "center",
+  },
+  debateScreenCover: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 80,
+    elevation: 48,
+    backgroundColor: "rgba(4,6,12,0.58)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  debateModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(4,6,12,0.58)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  debateModalDismiss: {
     position: "absolute",
-    left: 12,
-    right: 12,
-    bottom: 16,
-    padding: 14,
-    borderRadius: 14,
-    backgroundColor: "rgba(16,20,36,0.96)",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+  },
+  /* Centered modal card — never absolute bottom (Stop/Next/PiP ate Accept). */
+  debateInviteCard: {
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: "rgba(16,20,36,0.98)",
     borderWidth: 1,
     borderColor: "rgba(100,140,255,0.45)",
-    gap: 6,
-    zIndex: 30,
+    gap: 10,
+    elevation: 24,
+    zIndex: 100,
   },
   debateInviteTitle: {
     color: "#c8dcff",
@@ -1608,14 +2029,14 @@ export const liveStyles = StyleSheet.create({
   debateInviteBody: { color: "#c8d4e4", fontSize: 13, lineHeight: 18 },
   debateInviteMeta: { color: "#9aa8bc", fontSize: 12 },
   debateCompose: {
-    marginHorizontal: 12,
-    marginBottom: 6,
-    padding: 14,
-    borderRadius: 14,
+    padding: 16,
+    borderRadius: 16,
     backgroundColor: "rgba(16,20,36,0.98)",
     borderWidth: 1,
     borderColor: "rgba(100,140,255,0.4)",
     gap: 8,
+    elevation: 24,
+    zIndex: 100,
   },
   debateComposeLabel: {
     color: "#9aa8bc",

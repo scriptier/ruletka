@@ -1,15 +1,23 @@
-# improve-system run log (append-only)
+## [2026-08-20] PROPOSED | 2026-08-20-browser-deploy-fx.md
+REVIEWED: LAST_RUN 08-16, gotchas 66–68, this session balloons/avatar-gift/deploy loop
+PROPOSALS: P1–P5 pending (chat)
+NEXT: human approve/deny each P#
 
-## [2026-08-11] improve-apply | UX + linking session skills (P1–P4)
-REVIEWED: human approved P1–P4 from 2026-08-11 UX + linking session
-PROPOSALS: P1 mobile-match-identity extend | P2 brand-stage skill | P3 gotchas 17–19 | P4 av-fix-loop linking-speed note
+## [2026-08-14] learn | android-partner-paint
+REVIEWED: Android first-paint win (SoftBlur then face stays); gotchas 45–47; av-fix-loop ICE vs peel
+PROPOSALS: human “learn skill from this” = approved
 APPLIED:
-  - .grok/skills/mobile-match-identity/SKILL.md (PC+Android, poison names, paint, dock, no CONNECT toast)
-  - .grok/skills/brand-stage/SKILL.md (new)
-  - knowledge/wiki/gotchas.md (17–19) + index one-liner + log.md
-  - .grok/skills/av-fix-loop/SKILL.md (Linking speed bullet)
-NEXT: human smoke still open; no APK; no MediaSession thrash; live.js connect logic owned elsewhere
-PROPOSED: session task (skill/wiki only; not a formal improve-system proposal file)
+  - .grok/skills/android-partner-paint/SKILL.md
+  - av-fix-loop decision row → hand off peel to that skill
+  - knowledge/wiki/index.md pointer
+NEXT: do not ICE-thrash “face then gone ~3s”; Hide/Blur them still need rsync
+
+## [2026-08-14 12:00] improve-system
+REVIEWED: LAST_RUN 08-11, SessionStart stale, memory on but no ruletka MEMORY.md, ShopOps card pattern, hooks docs, wiki/now gap, two explore agents (popular setups + cold-start)
+PROPOSALS: P1–P5 approved (human proceed recommended) | P6 SMOKE-NEXT slim deferred
+APPLIED: session-card hook+PostCompact · wiki/now.md · AGENTS/CLAUDE ritual · ruletka MEMORY.md pointers · two_pass_compaction
+NEXT: human /new smoke; confirm /memory lists ruletka; slim SMOKE-NEXT later
+PROPOSED: knowledge/logs/improve-system/proposals/2026-08-14-grok-familiarity.md
 
 ## [2026-08-11 06:30] improve-apply
 REVIEWED: proposals 2026-08-11-0601-ux-thrash-process (human: proceed with improvements → P1 P2 P4 P5 P6; not P3)
@@ -51,3 +59,9 @@ APPLIED:
   - .grok/skills/agentic-engineering/SKILL.md (P5 preflight list specs)
   - proposals + LAST_RUN updated
 NEXT: human smoke UX APK; deploy UI + APK for linking speed; av-verify product.ok before speed GOAL_MET
+
+## [2026-08-22 02:05] improve-system
+REVIEWED: LAST_RUN 2026-08-16; multi-party-stage SKILL; av-fix GOTCHAS (no TURNS/sslh); party-shapes spec; RU reach spec; OPS TURNS mux
+PROPOSALS: pending P1–P5 → knowledge/logs/improve-system/proposals/2026-08-22-2v2-turns-mux.md
+APPLIED: none (waiting approve/deny)
+NEXT: human P1–P5 approve or deny

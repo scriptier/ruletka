@@ -416,7 +416,7 @@ let previewStream = null;
  * Outbound mic boost (Web Audio): mild default gain so partners hear quiet laptop/phone
  * mics a bit better. Unity (100%) bypasses the graph for best AEC.
  */
-const MIC_BOOST_DEFAULT = 125;
+const MIC_BOOST_DEFAULT = 100;
 const MIC_BOOST_MIN = 50;
 const MIC_BOOST_MAX = 200;
 /** @type {AudioContext | null} */
@@ -448,6 +448,8 @@ let pingTimer = 0;
 let statsTimer = 0;
 let micMuted = false;
 let camOff = false;
+/** True when this client has mic but no camera (broken/missing webcam). */
+let noLocalCamera = false;
 let partnerMuted = false;
 /** Peer muted us via P2P partner_mute (their local playout off — we still send audio). */
 let theyMutedMe = false;
@@ -456,15 +458,95 @@ let partnerBlurred = false;
 /** Hide your camera from partners until you reveal (disables outbound video track) */
 let selfBlurred = false;
 /**
+ * User tapped Hide/Reveal. Mid-call applySelfBlurPolicyForSession must not
+ * undo that. Stays set until Reveal — Next / new stranger keeps Hide
+ * (outbound is a live soft-blur track, not a black canvas).
+ */
+let selfBlurUserLocked = false;
+const HIDE_UNTIL_REVEAL_KEY = "ruletka.hideUntilReveal";
+function readHideUntilReveal() {
+  try {
+    return localStorage.getItem(HIDE_UNTIL_REVEAL_KEY) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+function writeHideUntilReveal(on) {
+  try {
+    if (on) localStorage.setItem(HIDE_UNTIL_REVEAL_KEY, "1");
+    else localStorage.removeItem(HIDE_UNTIL_REVEAL_KEY);
+  } catch (_) {}
+}
+/** True until the user taps Reveal. Survives Next / rematch / reload. */
+let selfBlurStickyUntilReveal = readHideUntilReveal();
+/**
  * Sticky preference: user chose Hide for stranger matching.
  * Cleared only by user Reveal; auto-off during friend calls, restored after.
  */
-let selfBlurPreferForStrangers = false;
+let selfBlurPreferForStrangers = selfBlurStickyUntilReveal;
 /** NSFWJS model + scan timer */
 let nsfwModel = null;
 let nsfwLoadPromise = null;
 let nsfwTimer = 0;
 let nsfwHitCooldown = false;
+/** Cached: weak GPU / Safari Iris — skip canvas FX + NSFW WebGL. */
+let _fxLite = null;
+
+/**
+ * Intel Iris / UHD / software GL + Safari-with-no-renderer.
+ * Do not treat navigator.platform MacIntel as Intel (M-series lies).
+ */
+function isFxLite() {
+  if (_fxLite != null) return _fxLite;
+  let reduceMotion = false;
+  try {
+    reduceMotion = !!window.matchMedia?.("(prefers-reduced-motion: reduce)")
+      ?.matches;
+  } catch (_) {}
+  let renderer = "";
+  try {
+    const c = document.createElement("canvas");
+    const gl =
+      c.getContext("webgl", { failIfMajorPerformanceCaveat: true }) ||
+      c.getContext("webgl") ||
+      c.getContext("experimental-webgl");
+    if (gl) {
+      const ext = gl.getExtension("WEBGL_debug_renderer_info");
+      if (ext) {
+        renderer = String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || "");
+      }
+      try {
+        gl.getExtension("WEBGL_lose_context")?.loseContext();
+      } catch (_) {}
+    }
+  } catch (_) {
+    renderer = "";
+  }
+  const ua = String(navigator.userAgent || "");
+  const safari =
+    /Safari/i.test(ua) && !/Chrome|Chromium|Edg|OPR|Firefox/i.test(ua);
+  const discrete =
+    /NVIDIA|GeForce|Radeon|AMD|Apple GPU|Apple M\d|Mali|Adreno/i.test(
+      renderer
+    );
+  const weakChip =
+    !discrete &&
+    /Intel Iris|Intel\(R\) Iris|UHD Graphics|HD Graphics|SwiftShader|llvmpipe|Software Adapter/i.test(
+      renderer
+    );
+  const safariBlind = safari && /Macintosh/i.test(ua) && !renderer;
+  // Discrete GPU wins over Windows "Animation effects off" (reduce-motion).
+  _fxLite = discrete ? false : !!(weakChip || safariBlind || reduceMotion);
+  try {
+    document.documentElement.classList.toggle("fx-lite", _fxLite);
+    console.info(
+      "[webrtc] fxLite",
+      _fxLite ? "on" : "off",
+      renderer || "no-renderer"
+    );
+  } catch (_) {}
+  return _fxLite;
+}
 /** Formal debate: alternating speaking turns (P2P-synced). */
 const DEBATE_TURN_MS = 30_000;
 const DEBATE_TURN_CHOICES_S = [15, 30, 45, 60];
@@ -502,9 +584,11 @@ let debate = {
   inviteTimer: 0,
   topic: "",
   urgentBeeped: false,
+  tickTockPlayed: false,
   lastUrgentHapticSec: -1,
   lastChimeSpeaker: "",
   composeTurnSecs: 30,
+  speakers: [],
 };
 
 /** Prefer staying in queue across reconnects (Next / Spin / waiting). */
@@ -515,11 +599,15 @@ let myUserId = "";
 let myFriendCode = "";
 let myPeerId = "";
 let inFriendCall = false;
+/** Accept/place friend call — ignore leftover "partner stopped" auto-Spin. */
+let friendCallAcceptGuardUntil = 0;
 let incomingCallFrom = null;
 /** Outbound friend ring until answer/decline/timeout */
 let callTimeoutTimer = 0;
 /** @type {Array} */
 let friendsCache = [];
+/** Skip identify-chime on the first friends[] hydrate. */
+let friendsListSeenOnce = false;
 /** @type {string[]} */
 let blockedCache = [];
 /** @type {Array} */
@@ -583,12 +671,15 @@ try {
 const STAR_MIN_SECS = 15 * 60;
 /** First unique partners use a shorter window (must match bridge STAR_FIRST_RATE_SECS). */
 const STAR_FIRST_RATE_SECS = 5 * 60;
-/** Partner left before this → auto keep searching (mobile parity). */
-const SHORT_CALL_AUTO_NEXT_SECS = 5 * 60;
-/** Skip auto-next on pure thrash bounces (0–2s) so media can settle next match. */
-const SHORT_CALL_AUTO_NEXT_MIN_SECS = 3;
+/** Partner skip / leave (stranger 1v1) → always keep searching. No duration gate. */
 /** Fat-finger / Space-spam grace after Matched (mobile parity). */
 let nextGraceUntil = 0;
+/** Must match hub MATCH_SETTLE_SECS — client used to allow Next at 2.5s then
+ *  tear PCs while hub still refused Spin/Next for 12s (dead roll). */
+const HUB_MATCH_SETTLE_MS = 12000;
+/** Next sent; wait for hub “searching again” before closeAllPeers. */
+let pendingNextTear = false;
+let pendingNextKeepFriend = false;
 /** How many unique partners get the short window (must match STAR_FIRST_RATE_SLOTS). */
 const STAR_FIRST_RATE_SLOTS = 3;
 /** Current rate threshold from hub (5m early ramp or 15m). Optimistic until hello_ok. */
@@ -604,24 +695,36 @@ const STAR_EFFECT_COST = 5;
 const STAR_EFFECT_SECS = 15;
 /** Per-kind gift pricing (must match bridge effect_cost_duration). */
 const STAR_GIFT_COSTS = {
-  heart: 1,
+  heart: 5,
   bars: 5,
+  fence: 5,
   flowers: 5,
   balloons: 5,
   confetti: 5,
   pass_mic: 5,
   fireworks: 15,
   please_stay: 30,
+  shooting_star: 3,
+  snow: 5,
+  spotlight: 5,
+  crown: 5,
+  disco: 5,
 };
 const STAR_GIFT_SECS = {
-  heart: 8,
+  heart: 3,
   bars: 15,
+  fence: 15,
   flowers: 15,
   balloons: 15,
   confetti: 15,
   pass_mic: 5,
   fireworks: 20,
   please_stay: 15,
+  shooting_star: 8,
+  snow: 15,
+  spotlight: 10,
+  crown: 12,
+  disco: 12,
 };
 /** When > unix now, local user cannot press Next (server also enforces). */
 let selfNoSkipUntil = 0;
@@ -630,6 +733,11 @@ function giftCost(kind) {
 }
 function giftSecs(kind) {
   return STAR_GIFT_SECS[String(kind || "").toLowerCase()] ?? STAR_EFFECT_SECS;
+}
+/** Nice gifts mint ★1 wallet to them. Bars / fence do not. */
+function giftGrantsWalletStar(kind) {
+  const k = String(kind || "").toLowerCase();
+  return k !== "bars" && k !== "fence";
 }
 /** localStorage keys for one-shot “almost tier” nudges */
 const STARS_NUDGE_90_KEY = "ruletka-stars-nudge-90-v1";
@@ -701,6 +809,8 @@ let chimeCtx = null;
 let meterAnalyser = null;
 /** @type {MediaStreamAudioSourceNode | null} */
 let meterSource = null;
+/** Cloned mic track for the analyser on iOS — never the live send track. */
+let meterTapTrack = null;
 let meterRaf = 0;
 /** @type {Array<{from_peer?: string, kind: string, payload: string}>} */
 const pendingSignals = [];
@@ -924,15 +1034,48 @@ function maybeShowUnblurCoach() {
   } catch (_) {}
 }
 
-/** Timed safety blur on new stranger matches (then auto-clear unless blur-first). */
-const INTRO_BLUR_MS = 3000;
+/** Timed safety blur on new stranger matches (then auto-clear unless blur-first).
+ * Cap only — peelIntroBlurOnFrames() clears sooner when partner video paints.
+ * 4000ms sat on a live face after laptop↔phone product.ok (felt like linking). */
+const INTRO_BLUR_MS = 1800;
 let introBlurTimer = 0;
 let introBlurGen = 0;
+/** True only during timed intro blur — user Blur them clears this. */
+let introBlurPending = false;
 
 function clearIntroBlurTimer() {
   if (introBlurTimer) {
     clearTimeout(introBlurTimer);
     introBlurTimer = 0;
+  }
+}
+
+/**
+ * Hop A2: drop timed intro blur as soon as inbound frames exist.
+ * Keep always-blur / starter / low-rep until Unblur.
+ * Never peel a user tap on Blur them (678 ate that click).
+ */
+function peelIntroBlurOnFrames() {
+  try {
+    if (!introBlurPending) return false;
+    if (!matched || !partnerBlurred) return false;
+    if (strangerKeepsBlurUntilUnblur()) return false;
+    let frames = false;
+    try {
+      frames = !!(
+        partnerVideoEverFrames ||
+        (typeof partnerVideoHasFrames === "function" && partnerVideoHasFrames())
+      );
+    } catch (_) {}
+    if (!frames) return false;
+    clearIntroBlurTimer();
+    introBlurGen++;
+    introBlurPending = false;
+    setPartnerBlur(false);
+    log(_t("log.blurIntroDone") || "partner unblurred");
+    return true;
+  } catch (_) {
+    return false;
   }
 }
 
@@ -943,10 +1086,12 @@ function clearIntroBlurTimer() {
  */
 function applyStrangerIntroBlur() {
   clearIntroBlurTimer();
+  introBlurPending = true;
   setPartnerBlur(true);
   const score = partnerRepScoreForBlur();
   const keepBlurred = strangerKeepsBlurUntilUnblur();
   if (keepBlurred) {
+    introBlurPending = false;
     // Starter path: burn one of the first-N matches
     const wasStarter = !blurFirstPrefEnabled() && blurStarterLeft() > 0;
     if (wasStarter) {
@@ -1001,6 +1146,7 @@ function applyStrangerIntroBlur() {
     if (!matched) return;
     if (strangerKeepsBlurUntilUnblur()) return;
     if (!partnerBlurred) return; // user already unblurred
+    introBlurPending = false;
     setPartnerBlur(false);
     log(_t("log.blurIntroDone") || "partner unblurred");
   }, INTRO_BLUR_MS);
@@ -1477,11 +1623,25 @@ function scheduleIdentityPushesAfterMatch() {
     const t = setTimeout(() => {
       if (!matched && !inFriendCall) return;
       try {
-        sendPartnerIdentityP2p({ request: false });
+        // Request peer name when still on generic Partner / empty hub name
+        const hubName = String(lastMatchMeta?.name || "").trim();
+        const painted = resolvePartnerPaintName({});
+        const needName =
+          !isRealPartnerDisplayName(hubName) &&
+          !isRealPartnerDisplayName(painted);
+        sendPartnerIdentityP2p({ request: needName || ms === 0 });
+      } catch (_) {}
+      // Preview-time no_cam is dropped (not matched yet). Re-send so Android
+      // shows the cylinder instead of "Linking cameras…".
+      try {
+        if (noLocalCamera) syncNoCamOutbound();
       } catch (_) {}
     }, ms);
     identityPushTimers.push(t);
   }
+  try {
+    schedulePartnerNameRecovery();
+  } catch (_) {}
 }
 
 /**
@@ -1521,9 +1681,24 @@ function setLocationOnTile(el, meta) {
     };
   } catch (_) {}
   if (!em && !countryLine && !cityLine) {
-    el.innerHTML = "";
-    el.hidden = true;
+    const hiddenLbl =
+      (typeof _t === "function" && (_t("geo.hidden") || _t("loc.hidden"))) ||
+      "Location hidden";
+    // Empty geo ≠ hide-IP. Only then say Location hidden (laptop 3-way Android).
+    if (hideIp) {
+      el.textContent = hiddenLbl;
+      el.hidden = false;
+      el.removeAttribute("hidden");
+    } else {
+      el.textContent = "";
+      el.hidden = true;
+    }
     return;
+  }
+  if (hideIp && !countryLine && !cityLine) {
+    countryLine =
+      (typeof _t === "function" && (_t("geo.hidden") || _t("loc.hidden"))) ||
+      "Location hidden";
   }
   el.hidden = false;
   let html = "";
@@ -1562,25 +1737,829 @@ try {
 } catch (_) {}
 
 /**
+ * Last good conversationalist name (e.g. "Courtier") for this match / user_id.
+ * Survives empty hub re-Matched and find-third layout rebinds that would paint "Partner".
+ */
+let lastGoodPartnerName = "";
+let lastGoodPartnerUserId = "";
+
+function isRealPartnerDisplayName(raw) {
+  const s = String(raw || "").trim();
+  if (!s || isPoisonDisplayName(s)) return false;
+  if (/^[0-9A-Fa-f]{6,12}$/.test(s)) return false;
+  // Generic i18n "Partner" / "Собеседник" is not a real display name
+  if (/^partner$/i.test(s)) return false;
+  try {
+    const t1 = String(_t("trio.partner") || "").trim();
+    const t2 = String(_t("remote.partner") || "").trim();
+    if (t1 && s.toLowerCase() === t1.toLowerCase()) return false;
+    if (t2 && s.toLowerCase() === t2.toLowerCase()) return false;
+  } catch (_) {}
+  return true;
+}
+
+function latchGoodPartnerName(raw, userId) {
+  const s = String(raw || "").trim().slice(0, 32);
+  if (!isRealPartnerDisplayName(s)) return false;
+  const uid = String(userId || "").trim();
+  // Never steal Courtier for the 3rd (Laptop) while the first partner is still here.
+  // Allow recovery if latch was already stolen and incoming is the teammate.
+  if (
+    lastGoodPartnerUserId &&
+    uid &&
+    String(uid) !== String(lastGoodPartnerUserId) &&
+    isRealPartnerDisplayName(lastGoodPartnerName)
+  ) {
+    const oldStillHere = (lastMatchedPeers || []).some(
+      (p) =>
+        p?.user_id && String(p.user_id) === String(lastGoodPartnerUserId)
+    );
+    const newIsTeammate = (lastMatchedPeers || []).some(
+      (p) =>
+        p?.user_id &&
+        String(p.user_id) === uid &&
+        isTeammateRole(p.role)
+    );
+    if (oldStillHere && !newIsTeammate) return false;
+  }
+  lastGoodPartnerName = s;
+  if (uid) lastGoodPartnerUserId = uid;
+  return true;
+}
+
+/** Hub listed peer or PC meta matches latched 1v1 (Courtier), not a new stranger. */
+function peerMatchesLatchedPartner(p) {
+  if (!p) return false;
+  const uid = String(p.user_id || p.userId || "").trim();
+  if (
+    uid &&
+    lastGoodPartnerUserId &&
+    String(uid) === String(lastGoodPartnerUserId)
+  ) {
+    return true;
+  }
+  const name = String(p.name || p._displayName || "").trim();
+  if (
+    isRealPartnerDisplayName(lastGoodPartnerName) &&
+    isRealPartnerDisplayName(name) &&
+    name.toLowerCase() === String(lastGoodPartnerName).toLowerCase()
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * First conversationalist: teammate/friend OR lastGoodPartner latch.
+ * Never hub peers[0] stranger (Laptop 3rd).
+ */
+function pickFirstPartnerPeer(list) {
+  const people =
+    Array.isArray(list) && list.length
+      ? list
+      : Array.isArray(lastMatchedPeers)
+        ? lastMatchedPeers
+        : [];
+  const mate = people.find((p) => p && isTeammateRole(p.role));
+  if (mate) return mate;
+  // Occupancy before latch: a stolen Laptop latch must not beat live #remote Courtier.
+  try {
+    const occ = typeof liveMainRemotePc === "function" ? liveMainRemotePc() : null;
+    if (occ) {
+      const hit = people.find((p) => {
+        if (!p?.peer_id || p.peer_id === "legacy") return false;
+        return findPcForPeer(p.peer_id) === occ;
+      });
+      if (hit) return hit;
+    }
+  } catch (_) {}
+  const latched = people.find((p) => p && peerMatchesLatchedPartner(p));
+  if (latched) return latched;
+  const liveListed = people.find((p) => {
+    if (!p?.peer_id || p.peer_id === "legacy") return false;
+    const pc = findPcForPeer(p.peer_id);
+    if (!pc?.pc) return false;
+    const st = pc.pc.iceConnectionState || pc.pc.connectionState || "";
+    if (st === "closed") return false;
+    return (
+      streamHasLiveAv(pc.remoteStream) ||
+      st === "connected" ||
+      st === "completed"
+    );
+  });
+  return liveListed || null;
+}
+
+/** The 3rd (not the first conversationalist). Never hub peers[0] if that is Courtier. */
+function pickExtraRemotePeer(list) {
+  const people =
+    Array.isArray(list) && list.length
+      ? list
+      : Array.isArray(lastMatchedPeers)
+        ? lastMatchedPeers
+        : [];
+  const remotes = people.filter(
+    (p) => p && p.peer_id && p.peer_id !== "legacy"
+  );
+  if (remotes.length < 2) return null;
+  const first = pickFirstPartnerPeer(people);
+  return (
+    remotes.find((p) => !first || p.peer_id !== first.peer_id) ||
+    remotes.find((p) => !peerMatchesLatchedPartner(p)) ||
+    null
+  );
+}
+
+/**
+ * Listed peer whose PC owns this MediaStream. Laptop 3rd: name follows
+ * occupancy, not lastGoodPartner latch (Courtier on Dragonov cam).
+ */
+function listedPeerForStream(stream, list) {
+  if (!stream) return null;
+  const people =
+    Array.isArray(list) && list.length
+      ? list
+      : Array.isArray(lastMatchedPeers)
+        ? lastMatchedPeers
+        : [];
+  for (const p of people) {
+    if (!p?.peer_id || p.peer_id === "legacy") continue;
+    const pc = findPcForPeer(p.peer_id);
+    if (!pc) continue;
+    if (pc.remoteStream === stream) return p;
+    try {
+      if (pc._videoEl && pc._videoEl.srcObject === stream) return p;
+    } catch (_) {}
+  }
+  return null;
+}
+
+/** yourRole=solo: paint #remote / #remote-third from who owns each srcObject. */
+function paintSoloTilesFromStreams(list) {
+  if (yourRole !== "solo") return false;
+  const rem = $("remote");
+  const r3 = $("remote-third");
+  const ownerMain = listedPeerForStream(rem?.srcObject, list);
+  const ownerMid = listedPeerForStream(r3?.srcObject, list);
+  let painted = false;
+  try {
+    if (ownerMain) {
+      registerPeerUi(ownerMain, "remote");
+      paintPartnerIdentityChrome({
+        name: ownerMain.name,
+        userId: ownerMain.user_id,
+      });
+      painted = true;
+    } else {
+      // Left empty (no stream yet) — still a person, never leftover "Party of 2".
+      const first =
+        pickFirstPartnerPeer(list) ||
+        (list || []).find(
+          (p) => p && p.peer_id && p.peer_id !== "legacy"
+        ) ||
+        null;
+      if (first && isRealPartnerDisplayName(first.name)) {
+        registerPeerUi(first, "remote");
+        paintPartnerIdentityChrome({
+          name: first.name,
+          userId: first.user_id,
+        });
+        painted = true;
+      }
+    }
+  } catch (_) {}
+  try {
+    if (ownerMid && (!ownerMain || ownerMid.peer_id !== ownerMain.peer_id)) {
+      registerPeerUi(ownerMid, "remote-third");
+      paintExtraSlotName("remote-third", ownerMid.name);
+      painted = true;
+    }
+  } catch (_) {}
+  return painted;
+}
+
+/**
+ * Left = first conversationalist (Courtier). Mid = 3rd (Laptop).
+ * Never paint the 3rd's name onto #remote or latch it as Courtier.
+ */
+function paintTrioTileNames(peers) {
+  const list = Array.isArray(peers) && peers.length ? peers : lastMatchedPeers;
+  if (yourRole === "solo" && paintSoloTilesFromStreams(list)) return;
+  const first = pickFirstPartnerPeer(list);
+  const extra = pickExtraRemotePeer(list);
+  try {
+    if (first) {
+      registerPeerUi(first, "remote");
+      paintPartnerIdentityChrome({
+        name: first.name,
+        userId: first.user_id,
+      });
+    } else if (isRealPartnerDisplayName(lastGoodPartnerName)) {
+      paintPartnerIdentityChrome({
+        name: lastGoodPartnerName,
+        userId: lastGoodPartnerUserId,
+      });
+    }
+  } catch (_) {}
+  try {
+    if (extra && thirdSlotShouldShow()) {
+      registerPeerUi(extra, "remote-third");
+      paintExtraSlotName("remote-third", extra.name);
+    }
+  } catch (_) {}
+}
+
+function pcIsFirstPartner(pid, pc) {
+  if (!pc) return false;
+  if (isTeammateRole(pc._role)) return true;
+  if (
+    peerMatchesLatchedPartner({
+      name: pc._displayName,
+      user_id: pc._userId,
+    })
+  ) {
+    return true;
+  }
+  const listed = (
+    Array.isArray(lastMatchedPeers) ? lastMatchedPeers : []
+  ).find(
+    (p) =>
+      p &&
+      (p.peer_id === pid ||
+        (pc.remotePeerId && p.peer_id === pc.remotePeerId))
+  );
+  const meta = listed || (pid ? peerUiMeta.get(pid) : null);
+  if (
+    meta &&
+    (isTeammateRole(meta.role) || peerMatchesLatchedPartner(meta))
+  ) {
+    return true;
+  }
+  if (
+    pid &&
+    lastMatchMeta?.peer_id &&
+    pid === lastMatchMeta.peer_id &&
+    peerMatchesLatchedPartner(lastMatchMeta)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function clearGoodPartnerNameLatch() {
+  lastGoodPartnerName = "";
+  lastGoodPartnerUserId = "";
+  // Cancel aggressive name_recovery timers so they do not re-paint after hangup
+  try {
+    if (schedulePartnerNameRecovery._timers) {
+      for (const t of schedulePartnerNameRecovery._timers) clearTimeout(t);
+      schedulePartnerNameRecovery._timers = [];
+    }
+  } catch (_) {}
+}
+
+/** 6–12 hex or "Stranger · AC8BEC2F" who-sub — never a tile display name. */
+function isHexOrPoisonLabel(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return true;
+  if (isPoisonDisplayName(s)) return true;
+  if (/^[0-9a-f]{6,12}$/i.test(s)) return true;
+  if (/·\s*[0-9a-f]{6,12}\s*$/i.test(s)) return true;
+  return false;
+}
+
+function extraSlotSoftLabel(opponentIndex) {
+  const n = Number(opponentIndex);
+  if (Number.isFinite(n) && n > 0) {
+    try {
+      return _t("trio.roleOpponentN", { n }) || `Opponent ${n}`;
+    } catch (_) {
+      return `Opponent ${n}`;
+    }
+  }
+  try {
+    return _t("trio.partner") || "Partner";
+  } catch (_) {
+    return "Partner";
+  }
+}
+
+/**
+ * Extra tile (#remote2 / #third) display name.
+ * Never hex / partner_short. Never steal main Courtier / Laptop latch.
+ * Distinct real name of THIS peer is ok; else Opponent N / Partner only.
+ */
+function extraSlotDisplayName(rawName, opts = {}) {
+  const s = String(rawName || "").trim();
+  let remoteLbl = "";
+  try {
+    remoteLbl = String($("remote-name")?.textContent || "").trim();
+  } catch (_) {}
+  const main = String(
+    opts.mainName || remoteLbl || lastGoodPartnerName || ""
+  ).trim();
+  if (s && !isHexOrPoisonLabel(s) && isRealPartnerDisplayName(s)) {
+    if (!main || s.toLowerCase() !== main.toLowerCase()) {
+      return s.slice(0, 32);
+    }
+    // Latch is Dragonov but #remote was painted Courtier — do not hide
+    // the extra as generic Partner (laptop 2026-08-16).
+    if (remoteLbl && remoteLbl.toLowerCase() !== s.toLowerCase()) {
+      return s.slice(0, 32);
+    }
+  }
+  try {
+    const extra = pickExtraRemotePeer();
+    const n =
+      extra && isRealPartnerDisplayName(extra.name)
+        ? String(extra.name).trim()
+        : "";
+    if (n && (!remoteLbl || n.toLowerCase() !== remoteLbl.toLowerCase())) {
+      return n.slice(0, 32);
+    }
+  } catch (_) {}
+  return extraSlotSoftLabel(opts.opponentIndex);
+}
+
+function extraNameEl(slot) {
+  if (slot === "remote2") return $("remote2-tag");
+  if (slot === "remote-third") return $("third-tag");
+  return null;
+}
+
+function extraWhoSubEl(slot) {
+  if (slot === "remote2") return $("remote2-who-sub");
+  if (slot === "remote-third") return $("third-who-sub");
+  return null;
+}
+
+function hideExtraWhoSub(slot) {
+  const el = extraWhoSubEl(slot);
+  if (!el) return;
+  el.hidden = true;
+  el.textContent = "";
+  el.setAttribute("hidden", "");
+}
+
+/** Hub listed a 3rd but their A/V is not on-track yet (showThirdConnecting). */
+let thirdSlotConnecting = false;
+
+/**
+ * 3rd tag/chrome only with live A/V, or connecting-without-hex.
+ * Never leave Laptop / AC8BEC2F on an empty mid tile.
+ */
+function syncThirdTileChrome(opts = {}) {
+  const wrap = $("third-tile-tag");
+  const tag = $("third-tag");
+  const live = thirdSlotHasLiveMedia();
+  const connecting =
+    opts.connecting === true ||
+    (opts.connecting !== false && !!thirdSlotConnecting && !live);
+  const show = live || connecting;
+  if (wrap) {
+    wrap.hidden = !show;
+    if (show) wrap.removeAttribute("hidden");
+    else wrap.setAttribute("hidden", "");
+  }
+  hideExtraWhoSub("remote-third");
+  if (tag) {
+    const cur = String(tag.textContent || "").trim();
+    if (!show) {
+      tag.textContent = "";
+      tag.hidden = true;
+    } else if (
+      !cur ||
+      isHexOrPoisonLabel(cur) ||
+      (lastGoodPartnerName &&
+        cur.toLowerCase() === String(lastGoodPartnerName).toLowerCase())
+    ) {
+      const safe = extraSlotDisplayName(cur, opts);
+      tag.textContent = safe;
+      tag.hidden = !safe;
+      if (safe) tag.removeAttribute("hidden");
+    }
+  }
+}
+
+function paintExtraSlotName(slot, rawName, opts = {}) {
+  if (slot !== "remote2" && slot !== "remote-third") return;
+  const label = extraSlotDisplayName(rawName, opts);
+  const nameEl = extraNameEl(slot);
+  if (nameEl) {
+    nameEl.textContent = label;
+    nameEl.hidden = !label;
+    if (label) nameEl.removeAttribute("hidden");
+    else nameEl.setAttribute("hidden", "");
+  }
+  hideExtraWhoSub(slot);
+  if (slot === "remote-third") {
+    syncThirdTileChrome({
+      connecting: !!(opts.connecting || thirdSlotConnecting),
+      opponentIndex: opts.opponentIndex,
+    });
+  }
+}
+
+/** Dummy / ended / placeholder — not a real camera (hides no-cam if counted). */
+function videoTrackLooksDummyOrDead(t) {
+  if (!t) return true;
+  if (t.readyState !== "live") return true;
+  const label = String(t.label || "").toLowerCase();
+  if (/dummy|black|blank|placeholder|canvas|empty|fake/.test(label)) {
+    return true;
+  }
+  return false;
+}
+
+function videoTrackLooksLiveCamera(t) {
+  if (!t || videoTrackLooksDummyOrDead(t)) return false;
+  // Inbound RTC tracks start muted until the first RTP packet.
+  // muted ≠ dummy / no-cam — treating it as audio-only covers #remote
+  // while frames_in is already growing (214314Z Courtier black).
+  return true;
+}
+
+function streamHasLiveVideoTrack(stream) {
+  if (!stream) return false;
+  try {
+    return (stream.getVideoTracks?.() || []).some((t) =>
+      videoTrackLooksLiveCamera(t)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function streamLooksAudioOnly(stream) {
+  if (!stream) return false;
+  try {
+    if (streamHasLiveVideoTrack(stream)) return false;
+    const liveA = (stream.getAudioTracks?.() || []).some(
+      (t) => t.readyState === "live"
+    );
+    return !!liveA;
+  } catch {
+    return false;
+  }
+}
+
+/** True only for the partner <video id="remote"> — never brand-loop / empty-bg. */
+function isRemotePaintVideoEl(el) {
+  if (!el || el.id !== "remote") return false;
+  try {
+    if (el.classList.contains("empty-bg-video")) return false;
+    if (el.classList.contains("is-brand-loop")) return false;
+  } catch (_) {}
+  return true;
+}
+
+/** Live camera pixels only — leftover videoWidth after tracks ended is black. */
+function videoElHasLivePaintedCamera(el) {
+  if (!el) return false;
+  try {
+    if (!streamHasLiveVideoTrack(el.srcObject)) return false;
+    return el.videoWidth > 2 && el.videoHeight > 2;
+  } catch (_) {
+    return false;
+  }
+}
+
+/** #remote live camera pixels — ended tracks + leftover WxH do not count. */
+function remoteTileHasPaintedVideo() {
+  try {
+    const el = $("remote");
+    if (!isRemotePaintVideoEl(el)) return false;
+    return videoElHasLivePaintedCamera(el);
+  } catch (_) {}
+  return false;
+}
+
+function noCamVideoElId(which) {
+  if (which === "remote-third" || which === "remote2" || which === "local") {
+    return which;
+  }
+  return "remote";
+}
+
+/** Painted pixels only — empty/muted/ended inbound video tracks do not count. */
+function tileHasPaintedPixels(which) {
+  if (which === "remote") return remoteTileHasPaintedVideo();
+  try {
+    const el = $(noCamVideoElId(which));
+    return videoElHasLivePaintedCamera(el);
+  } catch (_) {}
+  return false;
+}
+
+/** Extra tiles: once a face painted, no-cam must not cover it again. */
+const extraTileEverFrames = Object.create(null);
+
+function markTileEverFrames(which) {
+  if (!which || which === "local") return;
+  extraTileEverFrames[which] = true;
+  if (which === "remote") {
+    try {
+      partnerVideoEverFrames = true;
+    } catch (_) {}
+  }
+}
+
+function tileEverHadCamera(which) {
+  if (which === "remote") {
+    try {
+      if (partnerVideoEverFrames) return true;
+    } catch (_) {}
+  }
+  return !!extraTileEverFrames[which];
+}
+
+/** After bind/paint: if this tile has pictures or is playing, never keep no-cam. */
+function peelNoCamIfTilePainting(which) {
+  if (!which || which === "local") return;
+  if (which !== "remote" && which !== "remote-third" && which !== "remote2") {
+    return;
+  }
+  let el = null;
+  try {
+    el = $(noCamVideoElId(which));
+  } catch (_) {}
+  let painting = false;
+  try {
+    painting = videoElHasLivePaintedCamera(el);
+  } catch (_) {}
+  if (!painting) return;
+  markTileEverFrames(which);
+  try {
+    setNoCamPortrait(which, false);
+  } catch (_) {}
+  try {
+    const tile =
+      which === "remote-third"
+        ? $("tile-third")
+        : which === "remote2"
+          ? $("remote2-wrap")
+          : $("tile-remote");
+    tile?.classList.remove("has-no-cam-portrait");
+  } catch (_) {}
+}
+
+function noCamPortraitAvatar(which) {
+  if (which === "local") {
+    try {
+      return getAvatar() || "";
+    } catch (_) {
+      return "";
+    }
+  }
+  if (which === "remote") {
+    try {
+      return lastMatchMeta?.avatar || "";
+    } catch (_) {
+      return "";
+    }
+  }
+  try {
+    if (typeof peerUiMeta !== "undefined" && peerUiMeta) {
+      for (const meta of peerUiMeta.values()) {
+        if (meta && meta.elId === which && meta.avatar) return meta.avatar;
+      }
+    }
+  } catch (_) {}
+  return "";
+}
+
+/** Per-tile wait: show cylinder if videoWidth stays 0 after ~1.5s. */
+const noCamPaintWaitByTile = Object.create(null);
+
+function clearNoCamPaintWait(which) {
+  const id = noCamPaintWaitByTile[which];
+  if (id) {
+    try {
+      clearTimeout(id);
+    } catch (_) {}
+    noCamPaintWaitByTile[which] = 0;
+  }
+}
+
+function clearAllNoCamPaintWait() {
+  for (const k of Object.keys(noCamPaintWaitByTile)) {
+    clearNoCamPaintWait(k);
+  }
+}
+
+function armNoCamPaintWait(which) {
+  if (noCamPaintWaitByTile[which]) return;
+  noCamPaintWaitByTile[which] = setTimeout(() => {
+    noCamPaintWaitByTile[which] = 0;
+    try {
+      if (
+        which === "remote" &&
+        typeof partnerVideoEverFrames !== "undefined" &&
+        partnerVideoEverFrames
+      ) {
+        return;
+      }
+      if (!tileHasPaintedPixels(which)) {
+        setNoCamPortrait(which, true, noCamPortraitAvatar(which));
+      }
+    } catch (_) {}
+  }, 1500);
+}
+
+/** Preview has no live camera track (zero / dummy / ended — not “frames not yet”). */
+function previewHasNoLiveCam() {
+  const stream = previewStream || $("local")?.srcObject || null;
+  if (!stream) return false;
+  try {
+    if (streamHasLiveVideoTrack(stream)) return false;
+    const v = stream.getVideoTracks?.() || [];
+    if (v.length === 0) return true;
+    return v.every((t) => videoTrackLooksDummyOrDead(t));
+  } catch (_) {
+    return !!noLocalCamera;
+  }
+}
+
+/** Local tile cylinder when preview has no live cam; own avatar, not partner’s. */
+function syncLocalNoCamPortrait() {
+  try {
+    setNoCamPortrait("local", previewHasNoLiveCam(), getAvatar() || "");
+  } catch (_) {}
+}
+
+/** No-cam cylinder: hide only when that tile's video element has pixels. */
+function hookNoCamPortraitFromStream(which, stream) {
+  const reeval = () => {
+    try {
+      const vel = $(which);
+      hookNoCamPortraitFromStream(which, vel?.srcObject || stream);
+    } catch (_) {}
+  };
+  if (stream && !stream._ruletNoCamHook) {
+    try {
+      stream._ruletNoCamHook = true;
+      for (const t of stream.getVideoTracks?.() || []) {
+        try {
+          t.addEventListener("unmute", reeval);
+          t.addEventListener("mute", reeval);
+          t.addEventListener("ended", reeval);
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+  if (
+    stream &&
+    (which === "remote" ||
+      which === "local" ||
+      which === "remote-third" ||
+      which === "remote2")
+  ) {
+    try {
+      const vel = $(which);
+      if (vel && !vel._ruletNoCamVidHook) {
+        vel._ruletNoCamVidHook = true;
+        vel.addEventListener("playing", reeval);
+        vel.addEventListener("loadeddata", reeval);
+        vel.addEventListener("resize", reeval);
+      }
+    } catch (_) {}
+  }
+  if (which === "local") {
+    try {
+      syncLocalNoCamPortrait();
+    } catch (_) {}
+    return;
+  }
+  try {
+    peelNoCamIfTilePainting(which);
+    if (tileEverHadCamera(which)) {
+      clearNoCamPaintWait(which);
+      setNoCamPortrait(which, false);
+      return;
+    }
+    // 214314Z: never re-cover a tile that already painted (mute flaps).
+    // Do not hide just because streamHasLiveVideoTrack — empty inbound
+    // transceivers are live+muted with videoWidth=0 (223218Z Laptop black).
+    if (tileHasPaintedPixels(which)) {
+      markTileEverFrames(which);
+      clearNoCamPaintWait(which);
+      setNoCamPortrait(which, false);
+      return;
+    }
+    // 010423Z: first face then "picture" — mute flap after paint must not
+    // cover #remote with the no-cam cylinder while the match is still up.
+    if (which === "remote") {
+      try {
+        if (
+          typeof partnerVideoEverFrames !== "undefined" &&
+          partnerVideoEverFrames
+        ) {
+          clearNoCamPaintWait(which);
+          setNoCamPortrait(which, false);
+          return;
+        }
+      } catch (_) {}
+    }
+    // Ended inbound tracks + leftover WxH: drop dummy feed so the tile is not black.
+    try {
+      const vel = $(noCamVideoElId(which));
+      const tracks = vel?.srcObject?.getVideoTracks?.() || [];
+      const allDead =
+        !!vel?.srcObject &&
+        tracks.length > 0 &&
+        tracks.every((t) => !t || t.readyState !== "live");
+      if (allDead) {
+        clearNoCamPaintWait(which);
+        if (which === "remote") {
+          $("tile-remote")?.classList.remove("has-remote-feed");
+        } else if (which === "remote-third") {
+          $("tile-third")?.classList.remove("has-remote-feed");
+        } else if (which === "remote2") {
+          $("remote2-wrap")?.classList.remove("has-remote-feed");
+        }
+        setNoCamPortrait(which, true, noCamPortraitAvatar(which));
+        return;
+      }
+    } catch (_) {}
+    if (!stream) {
+      clearNoCamPaintWait(which);
+      // 233311Z: 3-col mid tile empty — hook(null) used to hide the cylinder.
+      const extraShown =
+        (which === "remote-third" &&
+          $("tile-third") &&
+          !$("tile-third").hidden) ||
+        (which === "remote2" &&
+          $("remote2-wrap") &&
+          !$("remote2-wrap").hidden);
+      setNoCamPortrait(which, !!extraShown, noCamPortraitAvatar(which));
+      return;
+    }
+    if (streamLooksAudioOnly(stream)) {
+      clearNoCamPaintWait(which);
+      // Zero video tracks + live audio = honest no-cam (laptop GUM).
+      // Never infer no-cam from muted / audio-first on a tile that already
+      // painted (201649Z PC cam then cylinder).
+      if (which === "remote" && remoteTileHasPictures()) {
+        setNoCamPortrait(which, false);
+        return;
+      }
+      // Extra no_cam from laptop self must never cover #remote in a 2-remote.
+      if (
+        which === "remote" &&
+        typeof uniqueRemotePcCount === "function" &&
+        uniqueRemotePcCount() >= 2
+      ) {
+        const occ =
+          typeof liveMainRemotePc === "function" ? liveMainRemotePc() : null;
+        if (!occ || occ.remoteStream !== stream) {
+          setNoCamPortrait("remote", false);
+          return;
+        }
+      }
+      setNoCamPortrait(which, true, noCamPortraitAvatar(which));
+      return;
+    }
+    if (streamHasLiveVideoTrack(stream)) {
+      // muted inbound ≠ no-cam (gotcha 48). Do not arm a 1.5s cover.
+      return;
+    }
+    armNoCamPaintWait(which);
+  } catch (_) {}
+}
+
+/**
  * Partner tile name: real display only (e.g. "Courtier").
  * NEVER paint short_id, partner_short, or friend_code (DABC741D) as the name.
- * Prefer: clean peer name → lastMatchMeta.name → "Partner" until DC/hub name lands.
+ * Prefer: clean peer name → lastMatchMeta.name → latched good name → soft "Partner".
  */
 function resolvePartnerPaintName(opts = {}) {
+  const uid = String(opts.userId || "").trim();
+  const allowLatch = opts.allowLatch !== false;
+  const sameLatchUid =
+    !!(
+      allowLatch &&
+      uid &&
+      lastGoodPartnerUserId &&
+      String(uid) === String(lastGoodPartnerUserId)
+    );
+  const sameMetaUid =
+    !uid ||
+    !lastMatchMeta?.user_id ||
+    String(lastMatchMeta.user_id) === uid;
   const nameCandidates = [
     opts.name,
     opts.peerName,
     opts.metaName,
-    lastMatchMeta?.name,
+    sameMetaUid ? lastMatchMeta?.name : "",
+    sameLatchUid ? lastGoodPartnerName : "",
+    opts.slot && opts.slot !== "remote" ? "" : activeChat?.peerName,
   ];
   for (const c of nameCandidates) {
     const s = String(c || "").trim();
-    if (!s || isPoisonDisplayName(s)) continue;
-    // Friend codes look like 6–12 hex — never use as conversationalist name
-    if (/^[0-9A-Fa-f]{6,12}$/.test(s)) continue;
+    if (!isRealPartnerDisplayName(s)) continue;
     return s.slice(0, 32);
   }
-  // Do NOT fall back to friend_code — user wants name, not DABC741D
+  // Anon / empty / poison → generic Partner. Never previous Courtier.
   return (
     _t("trio.partner") ||
     _t("remote.partner") ||
@@ -1591,14 +2570,54 @@ function resolvePartnerPaintName(opts = {}) {
 /** Name only (top-left on partner tile). Rejects poison hex / codes. */
 function setDisplayNameOnTile(el, name) {
   if (!el) return;
-  let n = String(name || "").trim();
-  if (isPoisonDisplayName(n) || /^[0-9A-Fa-f]{6,12}$/.test(n)) {
-    n = el.id === "remote-name" ? resolvePartnerPaintName({}) : "";
+  // Extra tiles never inherit main Courtier / Laptop / hex
+  if (el.id === "third-tag" || el.id === "remote2-tag") {
+    paintExtraSlotName(
+      el.id === "third-tag" ? "remote-third" : "remote2",
+      name
+    );
+    return;
   }
+  let n = String(name || "").trim();
+  if (!isRealPartnerDisplayName(n)) {
+    // Latch only for THIS partner (same user_id). Anon must not inherit
+    // the previous conversationalist's Courtier.
+    const sameUid =
+      lastGoodPartnerUserId &&
+      lastMatchMeta?.user_id &&
+      String(lastGoodPartnerUserId) === String(lastMatchMeta.user_id);
+    if (
+      el.id === "remote-name" &&
+      sameUid &&
+      isRealPartnerDisplayName(lastGoodPartnerName)
+    ) {
+      n = lastGoodPartnerName;
+    } else if (el.id === "remote-name") {
+      n = resolvePartnerPaintName({
+        userId: lastMatchMeta?.user_id,
+        allowLatch: !!sameUid,
+        slot: "remote",
+      });
+    } else {
+      n = "";
+    }
+  }
+  // Still generic? keep empty rather than flashing wrong hex; show soft Partner
   if (!n) {
     el.textContent = "";
     if (el.id === "remote-name") el.hidden = true;
     return;
+  }
+  if (el.id === "remote-name") {
+    const uidForLatch =
+      lastGoodPartnerUserId ||
+      (n &&
+      lastGoodPartnerName &&
+      n.toLowerCase() === String(lastGoodPartnerName).toLowerCase()
+        ? lastGoodPartnerUserId
+        : "") ||
+      "";
+    latchGoodPartnerName(n, uidForLatch);
   }
   el.textContent = n;
   if (el.id === "remote-name") {
@@ -1617,13 +2636,156 @@ function hideRemoteWhoSub() {
   subEl.style.display = "none";
 }
 
+/** First real display name from this match list (never hex / Partner). */
+function firstRealMatchName(peers) {
+  for (const p of peers || []) {
+    const n = String(p?.name || "").trim();
+    if (isRealPartnerDisplayName(n)) {
+      return { name: n, userId: String(p.user_id || "") };
+    }
+  }
+  if (isRealPartnerDisplayName(lastGoodPartnerName)) {
+    return {
+      name: lastGoodPartnerName,
+      userId: String(lastGoodPartnerUserId || ""),
+    };
+  }
+  return { name: "", userId: "" };
+}
+
+/**
+ * Show who they are *while* cameras are still linking.
+ * Name first (chip + empty title); Linking copy is secondary.
+ */
+function paintConnectingIdentity(peers) {
+  const { name, userId } = firstRealMatchName(peers);
+  if (name) {
+    latchGoodPartnerName(name, userId);
+    try {
+      paintPartnerIdentityChrome({ name, userId });
+    } catch (_) {}
+  }
+  const titleEl = $("remote-empty")?.querySelector(".empty-title");
+  const subEl =
+    $("remote-empty")?.querySelector(".empty-sub") || $("remote-empty-sub");
+  const linking = _t("remote.connecting") || "Linking cameras…";
+  if (titleEl) titleEl.textContent = name || linking;
+  if (subEl) {
+    if (name) {
+      subEl.hidden = false;
+      subEl.removeAttribute("hidden");
+      subEl.classList.add("is-linking");
+      subEl.textContent = linking;
+    } else {
+      subEl.classList.remove("is-linking");
+      subEl.hidden = true;
+      subEl.textContent = "";
+    }
+  }
+}
+
+/** Conversationalist friend code — identity cluster, autohides with chrome. */
+function paintPartnerFriendCode(code) {
+  const el = $("remote-friend-code");
+  if (!el) return;
+  const c = String(
+    code || lastMatchMeta?.friend_code || ""
+  )
+    .trim()
+    .toUpperCase();
+  const nameTxt = String($("remote-name")?.textContent || "")
+    .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, "")
+    .trim()
+    .toUpperCase();
+  if (!c || c.length < 4 || c === nameTxt) {
+    el.hidden = true;
+    el.textContent = "";
+    el.setAttribute("hidden", "");
+    return;
+  }
+  el.textContent = c;
+  el.hidden = false;
+  el.removeAttribute("hidden");
+}
+
 /** Re-paint partner name; never show who-sub dual-id on main remote 1v1. */
 function paintPartnerIdentityChrome(opts = {}) {
+  const slot = String(opts.slot || opts.elId || "remote");
+  // Extra tiles: never latch this peer as main Courtier / steal #remote name.
+  if (slot === "remote2" || slot === "remote-third") {
+    try {
+      setDisplayNameOnTile(
+        extraNameEl(slot),
+        extraSlotDisplayName(opts.name || "")
+      );
+    } catch (_) {}
+    try {
+      const meta =
+        [...peerUiMeta.values()].find((m) => m && m.elId === slot) || {
+          flag: opts.flag || "",
+          country: opts.country || "",
+          city: opts.city || "",
+          hide_ip: !!opts.hide_ip,
+          stars: opts.stars,
+          trust: opts.trust,
+        };
+      paintPeerSlotIdentity(slot, meta);
+    } catch (_) {}
+    return;
+  }
+  const codeForPaint =
+    opts.friendCode ||
+    lastMatchMeta?.friend_code ||
+    "";
   const nameEl = $("remote-name");
+  // Trio: name #remote from the PC actually bound there. Hub stranger-first
+  // (Courtier) must not label Dragonov's camera (laptop 2026-08-16).
+  try {
+    const trio =
+      (typeof uniqueRemotePcCount === "function" &&
+        uniqueRemotePcCount() >= 2) ||
+      (Array.isArray(lastMatchedPeers) && lastMatchedPeers.length >= 2);
+    if (trio) {
+      const occ =
+        typeof liveMainRemotePc === "function" ? liveMainRemotePc() : null;
+      const occPeer = (lastMatchedPeers || []).find(
+        (p) => p?.peer_id && findPcForPeer(p.peer_id) === occ
+      );
+      const occName =
+        occPeer && isRealPartnerDisplayName(occPeer.name)
+          ? String(occPeer.name).trim()
+          : "";
+      if (occName) {
+        latchGoodPartnerName(occName, occPeer.user_id || "");
+        if (nameEl) setDisplayNameOnTile(nameEl, occName);
+        try {
+          syncRemoteTileTagVisibility();
+        } catch (_) {}
+        try {
+          paintPartnerFriendCode(
+            occPeer.friend_code || codeForPaint
+          );
+        } catch (_) {}
+        return;
+      }
+    }
+  } catch (_) {}
+  if (opts.name) {
+    latchGoodPartnerName(opts.name, opts.userId || lastGoodPartnerUserId);
+  }
+  const metaIsExtra =
+    lastGoodPartnerUserId &&
+    lastMatchMeta?.user_id &&
+    String(lastMatchMeta.user_id) !== String(lastGoodPartnerUserId);
   const named = resolvePartnerPaintName({
     name: opts.name,
     peerName: opts.peerName,
-    metaName: opts.metaName ?? lastMatchMeta?.name,
+    metaName:
+      opts.metaName ??
+      (metaIsExtra ? lastGoodPartnerName : lastMatchMeta?.name),
+    userId: opts.userId || lastGoodPartnerUserId,
+    allowLatch: true,
+    slot: "remote",
   });
   if (nameEl) setDisplayNameOnTile(nameEl, named);
   // Always strip who-sub on main partner tile for solo/1v1 (user 2026-08-11)
@@ -1633,6 +2795,86 @@ function paintPartnerIdentityChrome(opts = {}) {
   try {
     syncRemoteTileTagVisibility();
   } catch (_) {}
+  try {
+    paintPartnerFriendCode(codeForPaint);
+  } catch (_) {}
+  if (opts.all) {
+    try {
+      paintAllRemoteIdentityChrome({ skipMain: true });
+    } catch (_) {}
+  }
+}
+
+/** Name · loc · ★ on every remote tile (never hex; loc or Location hidden). */
+function paintAllRemoteIdentityChrome(opts = {}) {
+  if (!opts.skipMain) {
+    try {
+      paintPartnerIdentityChrome({
+        slot: "remote",
+        name: lastGoodPartnerName,
+        userId: lastGoodPartnerUserId,
+      });
+    } catch (_) {}
+    try {
+      if (lastMatchMeta) {
+        paintPeerSlotIdentity("remote", {
+          flag: lastMatchMeta.flag,
+          country: lastMatchMeta.country,
+          city: lastMatchMeta.city,
+          hide_ip: !!lastMatchMeta.hide_ip,
+          stars: lastMatchMeta.stars,
+          trust: lastMatchMeta.trust,
+        });
+      }
+    } catch (_) {}
+  }
+  try {
+    for (const meta of peerUiMeta.values()) {
+      if (!meta?.elId) continue;
+      if (meta.elId === "remote2" || meta.elId === "remote-third") {
+        try {
+          setDisplayNameOnTile(extraNameEl(meta.elId), meta.name || "");
+        } catch (_) {}
+        try {
+          paintPeerSlotIdentity(meta.elId, meta);
+        } catch (_) {}
+      } else if (meta.elId === "remote" && !opts.skipMain) {
+        try {
+          paintPeerSlotIdentity("remote", meta);
+        } catch (_) {}
+      }
+    }
+  } catch (_) {}
+}
+
+/**
+ * When hub name is empty/poison, aggressively request partner_identity over DC
+ * so Courtier lands instead of sticky "Partner".
+ */
+function schedulePartnerNameRecovery() {
+  try {
+    if (schedulePartnerNameRecovery._timers) {
+      for (const t of schedulePartnerNameRecovery._timers) clearTimeout(t);
+    }
+  } catch (_) {}
+  schedulePartnerNameRecovery._timers = [];
+  const delays = [300, 900, 2000, 4000, 7000];
+  for (const ms of delays) {
+    const t = setTimeout(() => {
+      try {
+        if (!matched && !inFriendCall) return;
+        const cur = resolvePartnerPaintName({});
+        if (isRealPartnerDisplayName(cur) && !/^partner$/i.test(cur)) {
+          // Already have Courtier — re-paint in case DOM was wiped by layout
+          paintPartnerIdentityChrome({ name: cur });
+          return;
+        }
+        sendPartnerIdentityP2p({ request: true });
+        log(`[match] name_recovery +${ms}ms (still Partner — req identity)`);
+      } catch (_) {}
+    }, ms);
+    schedulePartnerNameRecovery._timers.push(t);
+  }
 }
 
 /**
@@ -1646,7 +2888,12 @@ function setNameOnTile(el, name, flag) {
     setLocationOnTile(el, { flag, country: countryNameForCode(flag), city: "" });
     return;
   }
-  const n = (name || "anon").trim() || "anon";
+  const n =
+    el.id === "third-tag" || el.id === "remote2-tag"
+      ? extraSlotDisplayName(name)
+      : isRealPartnerDisplayName(name)
+        ? String(name).trim()
+        : _t("trio.partner") || "Partner";
   const em = flagEmoji(flag);
   if (em && (el.id === "partner-menu-name" || el.id === "third-tag")) {
     el.innerHTML = `<span class="name-flag" aria-hidden="true">${em}</span><span class="name-text"></span>`;
@@ -1735,18 +2982,118 @@ function isValidAvatarDataUrl(s) {
   return /^data:image\/(jpeg|jpg|png|webp);base64,/i.test(s);
 }
 
+/** First Latin/Cyrillic letter or digit; "?" if the name has none. */
+function avatarLetterFromName(name) {
+  const m = String(name || "").match(/[A-Za-z0-9\u0400-\u04FF]/);
+  return m ? m[0].toUpperCase() : "?";
+}
+
+/** Call-card photo: strict data-URL, any data:image, or https. */
+function isCallAvatarUrl(s) {
+  if (!s || typeof s !== "string") return false;
+  const t = s.trim();
+  if (!t) return false;
+  if (isValidAvatarDataUrl(t)) return true;
+  if (/^https:\/\//i.test(t)) return true;
+  if (/^data:image\//i.test(t)) return true;
+  return false;
+}
+
+function resolveCallAvatarUrl(hints, userId) {
+  const list = Array.isArray(hints) ? hints.slice() : hints ? [hints] : [];
+  if (userId) {
+    try {
+      const f = (friendsCache || []).find((x) => x && x.user_id === userId);
+      if (f) list.push(f.avatar);
+    } catch (_) {}
+  }
+  for (const c of list) {
+    const t = String(c || "").trim();
+    if (isCallAvatarUrl(t)) return t;
+  }
+  return "";
+}
+
+function ensureTileAvatarLetter(which) {
+  const id = which === "remote" ? "remote-avatar-letter" : "local-avatar-letter";
+  let el = $(id);
+  if (el) return el;
+  const wrap = $(which === "remote" ? "remote-avatar" : "local-avatar");
+  if (!wrap) return null;
+  el = document.createElement("span");
+  el.id = id;
+  el.className = "tile-avatar-letter";
+  el.setAttribute("aria-hidden", "true");
+  wrap.appendChild(el);
+  return el;
+}
+
 function setTileAvatar(which, dataUrl) {
   const wrap = $(which === "remote" ? "remote-avatar" : "local-avatar");
   const img = $(which === "remote" ? "remote-avatar-img" : "local-avatar-img");
   if (!wrap || !img) return;
-  if (dataUrl && isValidAvatarDataUrl(dataUrl)) {
+  const letterEl = ensureTileAvatarLetter(which);
+  const hasPhoto = !!(dataUrl && isValidAvatarDataUrl(dataUrl));
+  const remoteLive = which === "remote" && !!(matched || inFriendCall);
+  let letterName = "";
+  if (which === "remote") {
+    letterName =
+      String($("remote-name")?.textContent || "").trim() ||
+      String(lastMatchMeta?.name || "").trim();
+  } else {
+    try {
+      letterName = String(getDisplayName() || "").trim();
+    } catch (_) {
+      letterName = "";
+    }
+  }
+  const letter = avatarLetterFromName(letterName);
+  if (letterEl) letterEl.textContent = letter;
+
+  if (hasPhoto) {
     img.src = dataUrl;
-    wrap.hidden = false;
+    img.hidden = false;
+    img.removeAttribute("hidden");
+    if (letterEl) {
+      letterEl.hidden = true;
+      letterEl.setAttribute("hidden", "");
+    }
+    wrap.classList.add("has-photo");
+    wrap.classList.remove("has-letter");
   } else {
     img.removeAttribute("src");
+    img.hidden = true;
+    img.setAttribute("hidden", "");
+    if (letterEl) {
+      letterEl.hidden = false;
+      letterEl.removeAttribute("hidden");
+    }
+    wrap.classList.remove("has-photo");
+    wrap.classList.add("has-letter");
+  }
+
+  // Remote mid-match / friend-call: never hide wrap (letter is the tap-★ target).
+  // Local tile always shows photo or letter. Idle remote with no photo may hide.
+  if (which === "remote" && !remoteLive && !hasPhoto) {
     wrap.hidden = true;
+    wrap.setAttribute("hidden", "");
+  } else {
+    wrap.hidden = false;
+    wrap.removeAttribute("hidden");
   }
   if (which === "remote") syncRemoteTileTagVisibility();
+}
+
+function callToastAvatarHtml(name, avatarUrl) {
+  const letter = avatarLetterFromName(name);
+  if (avatarUrl) {
+    return `<span class="call-toast-av" id="call-toast-av"><img src="${escapeAttr(
+      avatarUrl
+    )}" alt=""></span>`;
+  }
+  return `<span class="call-toast-av" id="call-toast-av" aria-hidden="true">${escapeHtml(
+    letter
+  )}</span>`;
 }
 
 /** Show partner strip when name, location, and/or avatar is present. */
@@ -2551,6 +3898,48 @@ function matchThreadKey(userId, friendCode, shortId) {
   return `match:${id}`;
 }
 
+function partnerIsFriend(userId) {
+  const uid = String(userId || "").trim();
+  if (!uid) return false;
+  return (friendsCache || []).some((f) => f && f.user_id === uid);
+}
+
+/** Copy live match lines into the friend DM thread so one conversation holds both. */
+function mergeMatchMsgsIntoFriendThread(userId, title) {
+  const uid = String(userId || "").trim();
+  if (!uid) return;
+  const mKey = matchThreadKey(uid);
+  const fKey = friendThreadKey(uid);
+  const map = loadChatThreads();
+  const matchThr = map[mKey];
+  if (!matchThr?.msgs?.length) return;
+  const friendThr = map[fKey] || {
+    title: title || matchThr.title || "friend",
+    peerUserId: uid,
+    kind: "friend",
+    msgs: [],
+    updated: matchThr.updated || Date.now(),
+  };
+  const byId = new Map(
+    (friendThr.msgs || []).map((m) => [m.id || `${m.ts}-${m.body}`, m])
+  );
+  for (const m of matchThr.msgs) {
+    if (!m || !m.body) continue;
+    const id = m.id || `${m.ts}-${m.body}`;
+    if (byId.has(id)) continue;
+    byId.set(id, { ...m, id });
+  }
+  friendThr.msgs = Array.from(byId.values()).sort(
+    (a, b) => (a.ts || 0) - (b.ts || 0)
+  );
+  while (friendThr.msgs.length > MAX_THREAD_MSGS) friendThr.msgs.shift();
+  friendThr.updated = Math.max(friendThr.updated || 0, matchThr.updated || 0);
+  if (title) friendThr.title = title;
+  friendThr.peerUserId = uid;
+  map[fKey] = friendThr;
+  saveChatThreads(map);
+}
+
 function updateChatHeader() {
   const title = $("chat-panel-title");
   const sub = $("chat-panel-sub");
@@ -2795,8 +4184,16 @@ function showStarFeedbackToast(kind, extra = {}) {
     }
     const line = body ? `${title} · ${body}` : title;
     setStatus(line);
-    // Corner toast for live gifts (stronger than status line alone)
-    if (kind === "gift" && (extra.corner || extra.level >= 2 || extra.received)) {
+    if (kind === "earned" || extra.received) {
+      showStarGiftedPopup({
+        amount: extra.n || extra.amount || 1,
+        from: extra.name || extra.from || "",
+        total: extra.total != null ? extra.total : extra.n,
+      });
+    }
+    // Corner toast for stacked *send* FX only — receive/admin already have
+    // the center shooting-star card (user: two windows, drop the one by avatar).
+    if (kind === "gift" && !extra.received && (extra.corner || extra.level >= 2)) {
       showGiftCornerToast(title, body, {
         accent: extra.accent || "",
         level: extra.level || 1,
@@ -2836,6 +4233,83 @@ function showGiftCornerToast(title, body, opts = {}) {
   } catch (_) {}
 }
 
+const STAR_GIFTED_POP_MS = 2600;
+
+/**
+ * Centered 2s popup when this user is gifted ★. Click SFX at 10%.
+ * Body-level so Stop/Next cannot cover it.
+ */
+function showStarGiftedPopup(opts = {}) {
+  try {
+    $("star-gifted-pop")?.remove?.();
+    const amount = Math.max(1, Math.min(99, Number(opts.amount) || 1));
+    try {
+      playGiftFile(amount > 3 ? "legendary-drop.mp3" : "star-click.mp3");
+    } catch (_) {}
+    const from = String(opts.from || "").trim().slice(0, 28);
+    const total = Math.max(0, Number(opts.total) || 0);
+    const el = document.createElement("div");
+    el.id = "star-gifted-pop";
+    el.className = "star-gifted-pop";
+    el.setAttribute("role", "status");
+    const sent = !!opts.sent;
+    const to = String(opts.to || "").trim().slice(0, 28);
+    const title = sent
+      ? _t("stars.givenTitle") || "Star sent ★"
+      : amount > 1
+        ? _t("stars.receivedN", { n: amount }) || `You received ★ ${amount}`
+        : _t("stars.received") || "You received a star ★";
+    const sub = sent
+      ? (to
+          ? (_t("stars.givenBody", { name: to }) || `★1 to ${to} · spent 3`)
+          : (_t("stars.giftShootingStarHint") || "They get ★1 · you spend 3★"))
+      : from
+        ? from + (total ? ` · ★ ${total}` : "")
+        : total
+          ? `★ ${total}`
+          : "";
+    el.innerHTML =
+      `<span class="star-gifted-comet" aria-hidden="true">` +
+      `<span class="star-gifted-tail"></span>` +
+      `<span class="star-gifted-spark s1"></span>` +
+      `<span class="star-gifted-spark s2"></span>` +
+      `<span class="star-gifted-spark s3"></span>` +
+      `<span class="star-gifted-body">` +
+      `<span class="star-gifted-shadow"></span>` +
+      `<span class="star-gifted-back">★</span>` +
+      `<span class="star-gifted-mid">★</span>` +
+      `<span class="star-gifted-head">★</span>` +
+      `<span class="star-gifted-spec"></span>` +
+      `<span class="star-gifted-shine"></span>` +
+      `</span>` +
+      `</span>` +
+      `<div class="star-gifted-card">` +
+      `<strong class="star-gifted-title">${escapeHtml(title)}</strong>` +
+      (sub
+        ? `<span class="star-gifted-sub">${escapeHtml(sub)}</span>`
+        : "") +
+      `</div>`;
+    document.body.appendChild(el);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        try {
+          el.classList.add("is-go");
+        } catch (_) {}
+      });
+    });
+    setTimeout(() => {
+      try {
+        el.classList.add("is-out");
+      } catch (_) {}
+    }, STAR_GIFTED_POP_MS - 280);
+    setTimeout(() => {
+      try {
+        el.remove();
+      } catch (_) {}
+    }, STAR_GIFTED_POP_MS);
+  } catch (_) {}
+}
+
 function giftKindMeta(kind) {
   const k = String(kind || "").toLowerCase();
   const map = {
@@ -2845,8 +4319,14 @@ function giftKindMeta(kind) {
     confetti: { ico: "🎊", name: "Confetti", accent: "#ffd14a" },
     fireworks: { ico: "🎆", name: "Fireworks", accent: "#ffb020" },
     bars: { ico: "🔒", name: "Behind bars", accent: "#a0b0c8" },
+    fence: { ico: "⛓️", name: "Fence", accent: "#8a9a88" },
     pass_mic: { ico: "🎤", name: "Pass the mic", accent: "#ffc24a" },
     please_stay: { ico: "🙏", name: "Please stay", accent: "#ff8fab" },
+    shooting_star: { ico: "★", name: "Shooting star", accent: "#ffd54a" },
+    snow: { ico: "❄", name: "Snow", accent: "#d8eefe" },
+    spotlight: { ico: "💡", name: "Spotlight", accent: "#ffe08a" },
+    crown: { ico: "👑", name: "Crown", accent: "#ffd54a" },
+    disco: { ico: "🪩", name: "Disco", accent: "#c084fc" },
   };
   return map[k] || { ico: "★", name: "Gift", accent: "#ffd54a" };
 }
@@ -3117,9 +4597,32 @@ function maybeStarsMilestones(opts = {}) {
  */
 function setStarsBadge(which, count, opts = {}) {
   const n = Math.max(0, Math.floor(Number(count) || 0));
-  const badge = $(which === "local" ? "local-stars-badge" : "remote-stars-badge");
-  const el = $(which === "local" ? "local-stars-count" : "remote-stars-count");
-  if (el) el.textContent = String(n);
+  // Partner chips = reputation (trust). Wallet is only on you.
+  const shown =
+    which !== "local"
+      ? displaySlotStars(n, opts.trust)
+      : n;
+  const extraSlot =
+    which === "remote2" || which === "third" || which === "remote-third";
+  const badgeId =
+    which === "local"
+      ? "local-stars-badge"
+      : which === "remote2"
+        ? "remote2-stars-badge"
+        : extraSlot
+          ? "third-stars-badge"
+          : "remote-stars-badge";
+  const countId =
+    which === "local"
+      ? "local-stars-count"
+      : which === "remote2"
+        ? "remote2-stars-count"
+        : extraSlot
+          ? "third-stars-count"
+          : "remote-stars-count";
+  const badge = $(badgeId);
+  const el = $(countId);
+  if (el) el.textContent = String(shown);
   const prevLocalBal = which === "local" ? myStars : partnerStars;
   const prevLocalTrust = myTrust;
   if (which === "local") myStars = n;
@@ -3138,10 +4641,10 @@ function setStarsBadge(which, count, opts = {}) {
     )
   );
   if (badge) {
-    const live = !!(matched || inFriendCall);
+    const live = !!(matched || inFriendCall || trioBrowse || peerPcs.size > 0);
     // Your ★ always visible (even 0) so you can open the guide anytime.
-    // Partner ★ when they have trust, or during live chat (shows 0).
-    const show = which === "local" ? true : n > 0 || live;
+    // Partner ★: never hide the chip mid-match (0 dimmed is a valid ledger).
+    const show = which === "local" ? true : n > 0 || live || extraSlot;
     badge.hidden = !show;
     if (show) {
       badge.removeAttribute("hidden");
@@ -3167,11 +4670,13 @@ function setStarsBadge(which, count, opts = {}) {
       "wealth-1",
       "wealth-2",
       "wealth-3",
-      "wealth-4"
+      "wealth-4",
+      "wealth-5"
     );
     badge.classList.add(
       w >= 3 ? "tier-senior" : w >= 2 ? "tier-trusted" : "tier-normal"
     );
+    badge.classList.toggle("is-goat", isGoatStars(n));
     if (wealth >= 1) badge.classList.add(`wealth-${wealth}`);
     badge.dataset.tier = String(w);
     badge.dataset.stars = String(n);
@@ -3861,6 +5366,8 @@ function closeStarGiftPop() {
 /** Status goals (peer ★ / social health). Soft rank + gift caps — not ban multipliers. */
 const STARS_TRUSTED_GOAL = 100; // Trusted: soft rank + gift up to 2★
 const STARS_SENIOR_GOAL = 250; // Senior: soft rank + gift up to 3★
+/** Wallet (or painted ★) ≥ 2500 → GOAT chrome */
+const STARS_GOAT_GOAL = 2500;
 
 /**
  * Tier ladder from a status score (trust / social health).
@@ -3903,6 +5410,17 @@ function setTrustTierChip(which, trust, opts = {}) {
   const id = which === "local" ? "local-trust-chip" : "remote-trust-chip";
   const el = $(id);
   if (!el) return;
+  if (which === "local") {
+    el.hidden = true;
+    el.setAttribute("hidden", "");
+    el.textContent = "";
+    if (typeof syncLocalSoftRankChip === "function") {
+      try {
+        syncLocalSoftRankChip(trust);
+      } catch (_) {}
+    }
+    return;
+  }
   const n = Math.max(0, Math.floor(Number(trust) || 0));
   const key = trustTierKey(n);
   const live = !!(matched || inFriendCall);
@@ -3937,8 +5455,18 @@ function setTrustTierChip(which, trust, opts = {}) {
   el.hidden = !show;
   if (show) el.removeAttribute("hidden");
   else el.setAttribute("hidden", "");
-  if (which === "local") syncLocalSoftRankChip(n);
-  if (which === "remote") syncRemoteMutualChip();
+  if (which === "local") {
+    syncLocalSoftRankChip(n);
+    syncGoatChip("local", myStars);
+  }
+  if (which === "remote") {
+    syncRemoteMutualChip();
+    syncRemoteSoftRankChip(n);
+    syncGoatChip(
+      "remote",
+      Math.max(Number(n) || 0, Number(partnerStars) || 0, Number(partnerTrust) || 0)
+    );
+  }
 }
 
 /** Local cam: show soft-rank when Trusted/Senior (matchmaking boost). */
@@ -3959,42 +5487,65 @@ function syncLocalSoftRankChip(trust) {
   el.setAttribute("aria-label", el.title);
 }
 
-/** Remote: mutual-friend bond chip (graph signal, not stars). */
-function syncRemoteMutualChip() {
-  const el = $("remote-mutual-chip");
+/** Partner tile: same gold rank sparkle as You, under their ★. */
+function syncRemoteSoftRankChip(trust) {
+  const el = $("remote-soft-rank-chip");
   if (!el) return;
-  const uid = String(primaryPartnerUserId || lastMatchMeta?.user_id || "").trim();
+  const n = Math.max(
+    0,
+    Math.floor(Number(trust != null ? trust : partnerTrust) || 0)
+  );
+  const on = n >= STARS_TRUSTED_GOAL;
   const live = !!(matched || inFriendCall);
-  let mutual = false;
-  try {
-    mutual = !!(uid && typeof isMutualFriend === "function" && isMutualFriend(uid));
-  } catch (_) {
-    mutual = false;
-  }
-  // Prefer stronger ★ mutual bond if friends list says so
-  let mutualStar = false;
-  try {
-    const fr = (friendsCache || []).find((f) => f && f.user_id === uid);
-    mutualStar = !!(fr && fr.mutual_star);
-  } catch (_) {}
-  const show = live && (mutual || mutualStar);
+  const show = on && live;
   el.hidden = !show;
   if (show) el.removeAttribute("hidden");
   else el.setAttribute("hidden", "");
-  if (show) {
-    if (mutualStar) {
-      el.textContent = _t("stars.mutualStarChip") || "★↔";
-      el.title =
-        _t("stars.mutualStarTip") || "You both gifted each other ★";
-      el.classList.add("is-star-bond");
-    } else {
-      el.textContent = _t("stars.mutualChip") || "↔ friend";
-      el.title =
-        _t("stars.mutualChipTip") || "Mutual friend — real social bond";
-      el.classList.remove("is-star-bond");
-    }
-    el.setAttribute("aria-label", el.title);
+  el.classList.toggle("is-senior", n >= STARS_SENIOR_GOAL);
+  el.title =
+    _t("stars.softRankTip") ||
+    "Soft match rank on — better mix when the lobby is busy";
+  el.setAttribute("aria-label", el.title);
+}
+
+/** GOAT chip — 2500★ wallet (You) or painted ★ (partner). */
+function syncGoatChip(which, stars) {
+  const id = which === "local" ? "local-goat-chip" : "remote-goat-chip";
+  const el = $(id);
+  if (!el) return;
+  const n = Math.max(0, Math.floor(Number(stars) || 0));
+  const live = !!(matched || inFriendCall);
+  const show = isGoatStars(n) && (which === "local" || live);
+  el.hidden = !show;
+  if (show) el.removeAttribute("hidden");
+  else el.setAttribute("hidden", "");
+  el.textContent = _t("stars.goatChip") || "GOAT";
+  el.title =
+    _t("stars.goatTip") || "GOAT — 2500★. The top of the ladder.";
+  el.setAttribute("aria-label", el.title);
+  try {
+    document.documentElement.classList.toggle(
+      which === "local" ? "has-local-goat" : "has-remote-goat",
+      show
+    );
+  } catch (_) {}
+  if (which === "local" && show) {
+    try {
+      const key = "ruletka-goat-toast-v1";
+      if (!sessionStorage.getItem(key)) {
+        sessionStorage.setItem(key, "1");
+        setStatus(_t("stars.goatToast") || "2500★ — you are GOAT");
+      }
+    } catch (_) {}
   }
+}
+
+/** Remote mutual-friend chip retired from the live tile (★↔ sat under praised-by). */
+function syncRemoteMutualChip() {
+  const el = $("remote-mutual-chip");
+  if (!el) return;
+  el.hidden = true;
+  el.setAttribute("hidden", "");
 }
 
 /** Partner social proof: “praised by N”. */
@@ -4048,6 +5599,11 @@ function clearTrustTierChips() {
     mutual.hidden = true;
     mutual.setAttribute("hidden", "");
   }
+  const rSoft = $("remote-soft-rank-chip");
+  if (rSoft) {
+    rSoft.hidden = true;
+    rSoft.setAttribute("hidden", "");
+  }
   setTrustTierChip("local", myTrust);
   syncLocalSoftRankChip(myTrustEffective || myTrust);
 }
@@ -4055,11 +5611,16 @@ function clearTrustTierChips() {
 /** Spendable-balance “wealth” level for chrome (independent of trust tier). */
 function starsWealthLevel(balance) {
   const b = Math.max(0, Number(balance) || 0);
+  if (b >= STARS_GOAT_GOAL) return 5;
   if (b >= 250) return 4;
   if (b >= 100) return 3;
   if (b >= 50) return 2;
   if (b >= 10) return 1;
   return 0;
+}
+
+function isGoatStars(n) {
+  return Math.max(0, Number(n) || 0) >= STARS_GOAT_GOAL;
 }
 
 function syncStarsSheetUi() {
@@ -4079,6 +5640,7 @@ function syncStarsSheetUi() {
   const isSenior = n >= STARS_SENIOR_GOAL;
   const isTrusted = n >= STARS_TRUSTED_GOAL;
   const wealth = starsWealthLevel(balN);
+  syncGoatChip("local", balN);
   const live = !!(matched || inFriendCall);
   const hasPartner = !!(primaryPartnerUserId || lastMatchMeta?.user_id);
 
@@ -4179,7 +5741,11 @@ function syncStarsSheetUi() {
   // Hero: social status chip + wealth chrome (balance can look premium even if trust is low)
   const chip = $("stars-tier-chip");
   if (chip) {
-    if (isSenior) {
+    if (isGoatStars(balN)) {
+      chip.textContent = _t("stars.goatChip") || "GOAT";
+      chip.title =
+        _t("stars.goatTip") || "GOAT — 2500★. The top of the ladder.";
+    } else if (isSenior) {
       chip.textContent = _t("stars.chipSenior") || "Senior";
       chip.title =
         _t("stars.chipSeniorTip") ||
@@ -4220,7 +5786,8 @@ function syncStarsSheetUi() {
     chip.classList.toggle("is-trusted", w === 2);
     chip.classList.toggle("is-senior", w >= 3);
     chip.classList.toggle("is-wealth", wealth >= 2 && w < 2);
-    chip.classList.toggle("is-wealth-legend", wealth >= 4 && w < 3);
+    chip.classList.toggle("is-wealth-legend", wealth >= 4 && wealth < 5 && w < 3);
+    chip.classList.toggle("is-goat", isGoatStars(balN));
   }
   const tierName = $("stars-tier-name");
   if (tierName) {
@@ -4228,7 +5795,9 @@ function syncStarsSheetUi() {
     try {
       tierName.removeAttribute("data-i18n");
     } catch (_) {}
-    if (isSenior) {
+    if (isGoatStars(balN)) {
+      tierName.textContent = _t("stars.goatChip") || "GOAT";
+    } else if (isSenior) {
       tierName.textContent =
         _t("stars.tierSenior") || "Senior";
     } else if (isTrusted) {
@@ -4680,6 +6249,9 @@ function openStarsSheet(_anchor) {
     bd.removeAttribute("hidden");
     bd.classList.add("is-open");
   }
+  try {
+    document.documentElement.classList.add("stars-sheet-open");
+  } catch (_) {}
   bindSheetFocusTrap?.(sheet);
   trackEvent("stars_sheet_open", {
     stars: myStars || 0,
@@ -4693,6 +6265,9 @@ function closeStarsSheet() {
   const bd = $("sheet-backdrop");
   releaseSheetFocusTrap?.(sheet);
   sheet?.classList.remove("is-open");
+  try {
+    document.documentElement.classList.remove("stars-sheet-open");
+  } catch (_) {}
   // Only hide backdrop if no other sheets open
   const otherOpen =
     settingsIsOpen() ||
@@ -4716,14 +6291,88 @@ function openStarGiftPop(_anchor) {
   openStarsSheet(_anchor);
 }
 
+let pendingAvatarStar = null;
+
+function toastAvatarGift(title, body) {
+  const t = String(title || "").trim();
+  const b = String(body || "").trim();
+  try {
+    setStatus(b || t);
+  } catch (_) {}
+  try {
+    showStarFeedbackToast("gift", {
+      title: t || "★",
+      body: b,
+      corner: true,
+      ico: "★",
+    });
+  } catch (_) {}
+}
+
+function giftStarToConversationalist() {
+  if (!matched && !inFriendCall) {
+    toastAvatarGift(
+      _t("stars.needLive") || "Only during a live chat",
+      ""
+    );
+    return;
+  }
+  const uid = String(
+    primaryPartnerUserId ||
+      lastMatchMeta?.user_id ||
+      lastGoodPartnerUserId ||
+      partnerMenuTargetUserId() ||
+      activeChat?.peerUserId ||
+      ""
+  ).trim();
+  if (!uid || uid === "third-slot") {
+    toastAvatarGift(
+      _t("stars.noPartner") || "No partner to gift",
+      "Need a live conversationalist id"
+    );
+    return;
+  }
+  toastAvatarGift(
+    _t("stars.giftShootingStarName") || "Shooting star",
+    _t("stars.giftShootingStarHint") || "They get ★1 · you spend 3★"
+  );
+  spendEffectOnPartner("shooting_star", {
+    toUserId: uid,
+    skipRateLimit: true,
+    fromAvatar: true,
+  });
+}
+
 function wireStarBadgeInteractions() {
   const onBadgeActivate = (which, e) => {
     e?.preventDefault?.();
     e?.stopPropagation?.();
+    if (which === "remote") {
+      giftStarToConversationalist();
+      return;
+    }
     const badge = $(which === "local" ? "local-stars-badge" : "remote-stars-badge");
     if (!badge || badge.hidden) return;
     openStarsSheet(badge);
   };
+  const bindRemoteGiftTap = (el) => {
+    if (!el || el.dataset.starGiftWired) return;
+    el.dataset.starGiftWired = "1";
+    el.addEventListener(
+      "click",
+      (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        giftStarToConversationalist();
+      },
+      true
+    );
+  };
+  bindRemoteGiftTap($("remote-avatar"));
+  bindRemoteGiftTap($("remote-avatar-stars"));
+  bindRemoteGiftTap($("remote-stars-badge"));
+  bindRemoteGiftTap($("remote-avatar-letter"));
+  bindRemoteGiftTap($("remote-avatar-img"));
   ["local", "remote"].forEach((which) => {
     const badge = $(which === "local" ? "local-stars-badge" : "remote-stars-badge");
     if (!badge || badge.dataset.starWired) return;
@@ -4747,6 +6396,22 @@ function wireStarBadgeInteractions() {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && starsSheetIsOpen()) closeStarsSheet();
   });
+  if (!document.documentElement.dataset.starsOutsideWired) {
+    document.documentElement.dataset.starsOutsideWired = "1";
+    document.addEventListener(
+      "pointerdown",
+      (e) => {
+        if (!starsSheetIsOpen()) return;
+        const t = e.target;
+        if (!(t instanceof Node)) return;
+        if ($("stars-sheet")?.contains(t)) return;
+        if (t.closest?.("#local-stars-badge, #remote-stars-badge, .stars-sheet"))
+          return;
+        closeStarsSheet();
+      },
+      true
+    );
+  }
 }
 
 function clearPartnerStarsBadge() {
@@ -4868,6 +6533,65 @@ const _giftImpactKey = { local: "", remote: "" };
  * @param {number} until unix seconds
  * @param {number} [level] intensity 1–3
  */
+/** Clone remote FX hosts into #tile-third so mid-tile gifts paint there. */
+function ensureThirdFxHosts() {
+  const tile = $("tile-third");
+  if (!tile || $("third-fx-heart")) return;
+  const kinds = [
+    "bars",
+    "fence",
+    "flowers",
+    "balloons",
+    "confetti",
+    "heart",
+    "fireworks",
+    "please_stay",
+    "pass_mic",
+    "shooting_star",
+    "snow",
+    "spotlight",
+    "crown",
+    "disco",
+  ];
+  for (const k of kinds) {
+    const src = $(`remote-fx-${k}`);
+    if (!src) continue;
+    const clone = src.cloneNode(true);
+    clone.id = `third-fx-${k}`;
+    clone.hidden = true;
+    clone.setAttribute("hidden", "");
+    clone.querySelectorAll("[id]").forEach((n) => {
+      n.id = String(n.id || "").replace(/remote-fx-/g, "third-fx-");
+    });
+    tile.appendChild(clone);
+  }
+}
+
+/** Which FX layer a user_id should paint: local | remote | third. */
+function fxWhichForUserId(uid) {
+  const u = String(uid || "").trim();
+  if (!u || u === "third-slot") return "";
+  const eq = (a, b) =>
+    !!a &&
+    !!b &&
+    String(a).toLowerCase() === String(b).toLowerCase();
+  if (eq(u, myUserId)) return "local";
+  try {
+    for (const meta of peerUiMeta.values()) {
+      if (!meta?.userId || !eq(meta.userId, u)) continue;
+      if (meta.elId === "remote-third" || meta.elId === "remote2") {
+        return "third";
+      }
+      if (meta.elId === "remote") return "remote";
+    }
+  } catch (_) {}
+  if (eq(u, primaryPartnerUserId) || eq(u, lastMatchMeta?.user_id)) {
+    return "remote";
+  }
+  if (partnerMenuTarget?.slot === "remote-third") return "third";
+  return "";
+}
+
 function setFxOverlay(which, kind, until, level) {
   const k = String(kind || "").toLowerCase();
   const u = Math.max(0, Number(until) || 0);
@@ -4876,20 +6600,30 @@ function setFxOverlay(which, kind, until, level) {
   const isStay = k === "please_stay" || k === "stay" || k === "dont_skip";
   const cosmeticKinds = [
     "bars",
+    "fence",
     "flowers",
     "balloons",
     "confetti",
     "heart",
     "fireworks",
     "pass_mic",
+    "snow",
+    "spotlight",
+    "crown",
+    "disco",
   ];
   const active =
     !!k && u > now && (cosmeticKinds.includes(k) || isStay);
 
-  const pick = (base) =>
-    $(which === "local" ? `local-fx-${base}` : `remote-fx-${base}`);
-  const pickT = (base) =>
-    $(which === "local" ? `local-fx-${base}-timer` : `remote-fx-${base}-timer`);
+  if (which === "third") {
+    try {
+      ensureThirdFxHosts();
+    } catch (_) {}
+  }
+  const prefix =
+    which === "local" ? "local" : which === "third" ? "third" : "remote";
+  const pick = (base) => $(`${prefix}-fx-${base}`);
+  const pickT = (base) => $(`${prefix}-fx-${base}-timer`);
 
   // Please stay is independent of cosmetic gifts (can layer).
   if (isStay) {
@@ -4916,6 +6650,9 @@ function setFxOverlay(which, kind, until, level) {
         _giftImpactKey[which + "_stay"] = stayKey;
         triggerGiftImpact(el, "please_stay", { combo: 1 });
       }
+      try {
+        ensurePleaseStayFx(el, 1);
+      } catch (_) {}
       ensureFxTicker();
     } else {
       if (el) {
@@ -4953,6 +6690,7 @@ function setFxOverlay(which, kind, until, level) {
       el.classList.remove("fx-lvl-1", "fx-lvl-2", "fx-lvl-3");
       delete el.dataset.level;
       delete el.dataset.until;
+      delete el.dataset.heartPlay;
     }
     if (timerEl) timerEl.textContent = "";
   };
@@ -4967,21 +6705,67 @@ function setFxOverlay(which, kind, until, level) {
     // Force particle rebuild when level changes so density tracks stack
     const layer =
       el.querySelector(".fx-balloons-layer") ||
-      el.querySelector(".fx-heart-layer") ||
+      el.querySelector(".fx-heart-dust") ||
       el.querySelector(".fx-flowers-ring") ||
       el.querySelector(".fx-confetti-layer") ||
-      el.querySelector(".fx-fireworks-layer");
+      el.querySelector(".fx-fireworks-layer") ||
+      el.querySelector(".fx-shooting-star-layer") ||
+      el.querySelector(".fx-snow-layer") ||
+      el.querySelector(".fx-spotlight-dust") ||
+      el.querySelector(".fx-crown-dust") ||
+      el.querySelector(".fx-disco-floor");
     if (layer && layer.dataset.fxLvl !== String(lvl)) {
       delete layer.dataset.ready;
       layer.dataset.fxLvl = String(lvl);
     }
-    if (el.classList.contains("fx-flowers")) ensureFlowerPetals(el, lvl);
-    if (el.classList.contains("fx-balloons")) ensureBalloons(el, lvl);
-    if (el.classList.contains("fx-confetti")) ensureConfetti(el, lvl);
+    if (el.classList.contains("fx-flowers")) {
+      ensureFlowerPetals(el, lvl);
+      try {
+        playFlowersCanvasDrift(el);
+      } catch (_) {}
+    }
+    if (el.classList.contains("fx-balloons")) {
+      ensureBalloons(el, lvl);
+      try {
+        playBalloonsCanvasRise(el);
+      } catch (_) {}
+    }
+    if (el.classList.contains("fx-confetti")) {
+      ensureConfetti(el, lvl);
+      try {
+        playConfettiCanvasBurst(el, { mega: false, combo: Math.max(1, lvl) });
+      } catch (_) {}
+      try {
+        playConfettiCanvasFall(el);
+      } catch (_) {}
+    }
     if (el.classList.contains("fx-heart")) ensureHeartsFx(el, lvl);
     if (el.classList.contains("fx-fireworks")) ensureFireworks(el, lvl);
+    if (el.classList.contains("fx-shooting-star")) ensureShootingStarFx(el, lvl);
+    if (el.classList.contains("fx-snow")) {
+      ensureSnowFlakes(el, lvl);
+      try {
+        playSnowCanvasFall(el);
+      } catch (_) {}
+    }
+    if (el.classList.contains("fx-spotlight")) {
+      ensureSpotlightFx(el, lvl);
+      try {
+        playSpotlightCanvasSweep(el);
+      } catch (_) {}
+    }
+    if (el.classList.contains("fx-crown")) ensureCrownFx(el, lvl);
+    if (el.classList.contains("fx-disco")) {
+      ensureDiscoFx(el, lvl);
+      try {
+        playDiscoCanvasClub(el);
+      } catch (_) {}
+    }
     // Pass the mic is CSS-keyframed once — re-trigger on every show/stack
-    if (el.classList.contains("fx-pass-mic")) restartPassMicAnim(el);
+    if (el.classList.contains("fx-pass-mic")) {
+      ensurePassMicFx(el);
+      restartPassMicAnim(el);
+    }
     if (timerEl) {
       const cost = giftCost(k);
       const secs = giftSecs(k);
@@ -5002,24 +6786,39 @@ function setFxOverlay(which, kind, until, level) {
   const left = Math.max(0, u - now);
   const timerKey = {
     bars: "stars.barsTimer",
+    fence: "stars.fenceTimer",
     flowers: "stars.flowersTimer",
     balloons: "stars.balloonsTimer",
     confetti: "stars.confettiTimer",
     heart: "stars.heartTimer",
     fireworks: "stars.fireworksTimer",
     pass_mic: "stars.passMicTimer",
+    shooting_star: "stars.shootingStarTimer",
+    snow: "stars.snowTimer",
+    spotlight: "stars.spotlightTimer",
+    crown: "stars.crownTimer",
+    disco: "stars.discoTimer",
   };
   const timerFb = {
     bars: `🔒 ${left}s`,
+    fence: `⛓️ ${left}s`,
     flowers: `🌸 ${left}s`,
     balloons: `🎈 ${left}s`,
     confetti: `🎊 ${left}s`,
     heart: `💖 ${left}s`,
     fireworks: `🎆 ${left}s`,
     pass_mic: `🎤 ${left}s`,
+    shooting_star: `★ ${left}s`,
+    snow: `❄ ${left}s`,
+    spotlight: `💡 ${left}s`,
+    crown: `👑 ${left}s`,
+    disco: `🪩 ${left}s`,
   };
 
-  hideAll();
+  kinds.forEach((x) => {
+    if (active && x === k) return;
+    hide(els[x], timers[x]);
+  });
   if (active && els[k]) {
     show(els[k], timers[k], _t(timerKey[k], { s: left }) || timerFb[k]);
     applyFxTileFlavor(which, k, lvl);
@@ -5048,6 +6847,39 @@ function setFxOverlay(which, kind, until, level) {
  * Restart CSS keyframes on pass-mic bits (show/hide alone does not re-fire).
  * @param {HTMLElement} overlay
  */
+function ensurePassMicFx(overlay) {
+  if (!overlay) return;
+  if (overlay.dataset.passReady === "svg-v1") return;
+  const oid = overlay.id || "x";
+  const mic = overlay.querySelector(".fx-pass-mic-mic");
+  const hand = overlay.querySelector(".fx-pass-mic-hand");
+  if (mic) {
+    const g = `fx-mic-g-${oid}`;
+    mic.innerHTML =
+      `<svg class="fx-pass-mic-svg" viewBox="0 0 64 88" aria-hidden="true">` +
+      `<defs><radialGradient id="${g}" cx="34%" cy="28%" r="72%">` +
+      `<stop offset="0%" stop-color="#fff8ee"/><stop offset="45%" stop-color="#d8dee8"/>` +
+      `<stop offset="100%" stop-color="#5a6270"/>` +
+      `</radialGradient></defs>` +
+      `<ellipse cx="32" cy="26" rx="16" ry="20" fill="url(#${g})" stroke="#2a3038" stroke-width="1.2"/>` +
+      `<path d="M18 26 v6 a14 14 0 0 0 28 0 v-6" fill="none" stroke="#2a3038" stroke-width="2.4" stroke-linecap="round"/>` +
+      `<rect x="29" y="46" width="6" height="18" rx="2" fill="#c8c0b0"/>` +
+      `<path d="M20 62 h24" stroke="#c8c0b0" stroke-width="4" stroke-linecap="round"/>` +
+      `<ellipse cx="32" cy="22" rx="6" ry="5" fill="#fff" opacity="0.35"/>` +
+      `</svg>`;
+  }
+  if (hand) {
+    hand.innerHTML =
+      `<svg class="fx-pass-hand-svg" viewBox="0 0 72 72" aria-hidden="true">` +
+      `<path d="M22 44 V22 a5 5 0 0 1 10 0 V38 M32 40 V16 a5 5 0 0 1 10 0 V38 M42 40 V20 a5 5 0 0 1 10 0 V40 M52 42 V28 a5 5 0 0 1 9 3 V46 C61 58 52 64 36 64 C22 64 14 56 14 46 V38 a6 6 0 0 1 10 0 V44 Z" fill="#f3c49a" stroke="#8a5a38" stroke-width="1.4" stroke-linejoin="round"/>` +
+      `</svg>`;
+  }
+  overlay.querySelectorAll(".fx-pass-mic-bubble").forEach((b) => {
+    b.textContent = "";
+  });
+  overlay.dataset.passReady = "svg-v1";
+}
+
 function restartPassMicAnim(overlay) {
   if (!overlay) return;
   const bits = overlay.querySelectorAll(
@@ -5106,12 +6938,18 @@ function applyFxTileFlavor(which, kind, level) {
   if (!tile) return;
   tile.classList.remove(
     "fx-flavor-bars",
+    "fx-flavor-fence",
     "fx-flavor-flowers",
     "fx-flavor-balloons",
     "fx-flavor-confetti",
     "fx-flavor-heart",
     "fx-flavor-fireworks",
     "fx-flavor-pass_mic",
+    "fx-flavor-shooting_star",
+    "fx-flavor-snow",
+    "fx-flavor-spotlight",
+    "fx-flavor-crown",
+    "fx-flavor-disco",
     "fx-flavor-l2",
     "fx-flavor-l3"
   );
@@ -5229,17 +7067,10 @@ function nextGiftCombo(which, kind) {
 function triggerGiftImpact(overlay, kind, opts = {}) {
   if (!overlay || !kind) return;
   const k = String(kind).toLowerCase();
+  // Crown lives on the head for the full timer — skip the center pop that vanishes.
+  if (k === "crown") return;
   const combo = Math.max(1, Math.min(99, Number(opts.combo) || 1));
-  const meta = {
-    heart: { ico: "💖", name: "Heart", accent: "#ff5a8a" },
-    flowers: { ico: "🌸", name: "Flowers", accent: "#ff6bb5" },
-    balloons: { ico: "🎈", name: "Balloons", accent: "#5ad4ff" },
-    confetti: { ico: "🎊", name: "Confetti", accent: "#ffd14a" },
-    fireworks: { ico: "🎆", name: "Fireworks", accent: "#ffb020" },
-    bars: { ico: "🔒", name: "Behind bars", accent: "#a0b0c8" },
-    pass_mic: { ico: "🎤", name: "Pass the mic", accent: "#ffc24a" },
-    please_stay: { ico: "🙏", name: "Please stay", accent: "#ff8fab" },
-  }[k] || { ico: "★", name: "Gift", accent: "#ffd54a" };
+  const meta = giftKindMeta(k);
 
   const mega = combo >= 3 || (k === "fireworks" && combo >= 2);
   const big = combo >= 2 || k === "fireworks";
@@ -5265,11 +7096,8 @@ function triggerGiftImpact(overlay, kind, opts = {}) {
     hero.setAttribute("aria-hidden", "true");
     overlay.appendChild(hero);
   }
-  hero.textContent = combo >= 2 ? `${meta.ico}`.repeat(Math.min(3, combo)).slice(0, 6) || meta.ico : meta.ico;
-  if (combo >= 2) {
-    // Prefer single icon + scale rather than broken multi-emoji for some fonts
-    hero.textContent = meta.ico;
-  }
+  hero.innerHTML = `<span class="fx-impact-mark is-${k}" aria-hidden="true"></span>`;
+  hero.style.setProperty("--fx-accent", meta.accent);
   hero.classList.toggle("is-combo", combo >= 2);
   hero.classList.toggle("is-mega", mega);
   hero.classList.remove("is-on");
@@ -5286,7 +7114,7 @@ function triggerGiftImpact(overlay, kind, opts = {}) {
   }
   const comboLabel =
     combo >= 5 ? "MAX" : combo >= 2 ? `×${combo}` : "×1";
-  banner.innerHTML = `<span class="fx-combo-ico">${meta.ico}</span><span class="fx-combo-name">${meta.name}</span><span class="fx-combo-x${
+  banner.innerHTML = `<span class="fx-combo-ico"><span class="fx-impact-mark is-${k}"></span></span><span class="fx-combo-name">${meta.name}</span><span class="fx-combo-x${
     combo >= 2 ? " is-hot" : ""
   }${mega ? " is-mega" : ""}">${comboLabel}</span>`;
   banner.style.setProperty("--fx-accent", meta.accent);
@@ -5300,17 +7128,17 @@ function triggerGiftImpact(overlay, kind, opts = {}) {
     mega ? 2800 : 2200
   );
 
-  // Tile shake — stronger for fireworks / high combos
+  // Shake the overlay only — transform on .tile blacks Chrome WebRTC video
+  // (human: fireworks "broke the connection").
   if (big || k === "confetti" || k === "please_stay") {
-    const tile = overlay.closest(".tile");
-    if (tile) {
-      tile.classList.remove("fx-tile-shake", "fx-tile-shake-hard");
-      void tile.offsetWidth;
-      tile.classList.add(mega || k === "fireworks" ? "fx-tile-shake-hard" : "fx-tile-shake");
-      setTimeout(() => {
-        tile.classList.remove("fx-tile-shake", "fx-tile-shake-hard");
-      }, mega ? 720 : 520);
-    }
+    overlay.classList.remove("fx-tile-shake", "fx-tile-shake-hard");
+    void overlay.offsetWidth;
+    overlay.classList.add(
+      mega || k === "fireworks" ? "fx-tile-shake-hard" : "fx-tile-shake"
+    );
+    setTimeout(() => {
+      overlay.classList.remove("fx-tile-shake", "fx-tile-shake-hard");
+    }, mega ? 720 : 520);
   }
 
   // Premium fireworks — multi-wave canvas cinematic (TikTok-tier without Lottie)
@@ -5320,7 +7148,7 @@ function triggerGiftImpact(overlay, kind, opts = {}) {
       playFireworksCanvasBurst(overlay, {
         mega: mega || combo >= 2,
         combo,
-        waves: mega ? 4 : combo >= 2 ? 3 : 2,
+        waves: 4,
       });
     } catch (_) {}
     overlay.classList.remove("fx-fw-combo-pop", "fx-fw-mega-flash");
@@ -5340,125 +7168,1245 @@ function triggerGiftImpact(overlay, kind, opts = {}) {
   }
 }
 
-/** Populate petals along a heart outline. @param {number} [level] denser at L2+ */
+/** Frame wreath of 3D blooms around the tile. @param {number} [level] denser at L2+ */
 function ensureFlowerPetals(overlay, level) {
   const ring = overlay?.querySelector?.(".fx-flowers-ring");
   if (!ring) return;
   const lvl = Math.max(1, Math.min(3, Math.floor(Number(level) || 1)));
-  const tag = `flowers-v6-L${lvl}`;
+  const tag = `flowers-v11-L${lvl}`;
   if (ring.dataset.ready === tag) return;
-  const glyphs = [
-    "🌸", "💗", "🌺", "💕", "🌹", "🌷", "💮", "💖", "🌼", "💞",
-    "🩷", "❤️", "💐", "❣️", "🎀", "💗", "🌸", "❤️‍🔥",
-  ];
-  const outerN = 36 + lvl * 10;
-  const midN = 28 + lvl * 8;
-  const innerN = 18 + lvl * 6;
-  const outer = heartCurvePoints(outerN);
-  const mid = heartCurvePoints(midN).map((p) => ({
-    x: 0.5 + (p.x - 0.5) * 0.88,
-    y: 0.5 + (p.y - 0.5) * 0.88,
-  }));
-  const inner = heartCurvePoints(innerN).map((p) => ({
-    x: 0.5 + (p.x - 0.5) * 0.74,
-    y: 0.5 + (p.y - 0.5) * 0.74,
-  }));
+  const hues = ["#ff8ab8", "#ff5a9a", "#ffc2d4", "#e85a8a", "#ffb3c8", "#ff6b9d"];
+  const shadeHex = (hex, amt) => {
+    const n = parseInt(String(hex).replace("#", ""), 16);
+    const ch = (s) => Math.max(0, Math.min(255, ((n >> s) & 255) + amt));
+    return `#${[ch(16), ch(8), ch(0)]
+      .map((v) => v.toString(16).padStart(2, "0"))
+      .join("")}`;
+  };
+  const petalPath =
+    "M0,3 C5.2,-1 6.4,-9 0,-15 C-6.4,-9 -5.2,-1 0,3 Z";
+  const bloomSvg = (fill, uid) => {
+    const dark = shadeHex(fill, -62);
+    const g = `fx-fl-g-${uid}`;
+    const angles = [0, 51, 103, 154, 206, 257, 309];
+    const petals = angles
+      .map(
+        (a) =>
+          `<path d="${petalPath}" fill="url(#${g})" transform="rotate(${a})"/>`
+      )
+      .join("");
+    const under = angles
+      .map(
+        (a) =>
+          `<path d="${petalPath}" fill="${dark}" opacity="0.55" transform="rotate(${a}) translate(1.4 1.2)"/>`
+      )
+      .join("");
+    return (
+      `<svg class="fx-bloom-svg" viewBox="0 0 44 46" aria-hidden="true">` +
+      `<defs><radialGradient id="${g}" cx="32%" cy="18%" r="80%">` +
+      `<stop offset="0%" stop-color="#fff8fa"/>` +
+      `<stop offset="24%" stop-color="${fill}"/>` +
+      `<stop offset="100%" stop-color="${dark}"/>` +
+      `</radialGradient></defs>` +
+      `<g transform="translate(22 26)">` +
+      under +
+      petals +
+      `<circle r="5.2" fill="#c49210"/>` +
+      `<circle r="4.4" fill="#ffe08a"/>` +
+      `<ellipse cx="-1.3" cy="-1.5" rx="2" ry="1.5" fill="#fff8d0" opacity="0.58"/>` +
+      `</g></svg>`
+    );
+  };
+  const leafSvg = () =>
+    `<svg class="fx-bloom-svg" viewBox="0 0 28 36" aria-hidden="true">` +
+    `<path d="M14 34 C 22 22 24 10 14 2 C 4 10 6 22 14 34 Z" fill="#2f7a3e"/>` +
+    `<path d="M14 34 C 20 22 21 12 14 4 C 10 14 11 24 14 34 Z" fill="#4caf5a" opacity="0.85"/>` +
+    `<path d="M14 32 L14 6" stroke="#1e4d28" stroke-width="0.8" fill="none"/>` +
+    `</svg>`;
+  // Double garland: outer + inner ellipse. Face hole stays open.
   let html = "";
   let i = 0;
-  const place = (pts, sizeClass) => {
-    for (const p of pts) {
-      const g = glyphs[i % glyphs.length];
-      const rot = ((i * 41) % 56) - 28;
-      const scale =
-        sizeClass === "lg"
-          ? 1.12 + (i % 4) * 0.1 + (lvl - 1) * 0.06
-          : sizeClass === "md"
-            ? 0.95 + (i % 3) * 0.08
-            : 0.72 + (i % 3) * 0.07;
-      html += `<span class="fx-petal fx-petal-${sizeClass}" style="--x:${(
-        p.x * 100
-      ).toFixed(2)}%;--y:${(p.y * 100).toFixed(2)}%;--i:${i};--rot:${rot}deg;--s:${scale.toFixed(
+  const placeRing = (count, rx, ry, s0) => {
+    for (let k = 0; k < count; k++) {
+      const t = (k / count) * Math.PI * 2 + (s0 ? 0.2 : 0);
+      const x = 0.5 + Math.cos(t) * rx;
+      const y = 0.5 + Math.sin(t) * ry;
+      const rot = ((i * 31) % 56) - 28;
+      const scale = (s0 ? 1.08 : 0.82) + (i % 4) * 0.12 + (lvl - 1) * 0.05;
+      const fill = hues[i % hues.length];
+      const tilt = (Math.sin(t) * -14).toFixed(1);
+      html += `<span class="fx-bloom fx-bloom-wreath" style="--x:${(x * 100).toFixed(
+        1
+      )}%;--y:${(y * 100).toFixed(1)}%;--i:${i};--rot:${rot}deg;--s:${scale.toFixed(
         2
-      )}" aria-hidden="true">${g}</span>`;
+      )};--tilt:${tilt}deg;--z:${Math.round(y * 24)}" aria-hidden="true">${bloomSvg(
+        fill,
+        `${overlay.id || "x"}-w${i}`
+      )}</span>`;
+      if (k % 3 === 1) {
+        const lx = 0.5 + Math.cos(t + 0.12) * (rx - 0.03);
+        const ly = 0.5 + Math.sin(t + 0.12) * (ry - 0.03);
+        html += `<span class="fx-bloom fx-bloom-leaf" style="--x:${(lx * 100).toFixed(
+          1
+        )}%;--y:${(ly * 100).toFixed(1)}%;--rot:${(rot + 40).toFixed(
+          0
+        )}deg;--s:${(scale * 0.72).toFixed(2)}" aria-hidden="true">${leafSvg()}</span>`;
+      }
       i++;
     }
   };
-  place(outer, "lg");
-  place(mid, "md");
-  place(inner, "sm");
-  const sparkN = 12 + lvl * 6;
-  for (let s = 0; s < sparkN; s++) {
-    const hp = heartCurvePoints(sparkN)[s];
-    if (!hp) continue;
-    const jx = (Math.sin(s * 2.3) * 0.05).toFixed(3);
-    const jy = (Math.cos(s * 1.9) * 0.05).toFixed(3);
-    html += `<span class="fx-sparkle" style="--x:${((hp.x + Number(jx)) * 100).toFixed(
-      2
-    )}%;--y:${((hp.y + Number(jy)) * 100).toFixed(2)}%;--i:${s}" aria-hidden="true">✨</span>`;
+  placeRing(16 + lvl * 2, 0.46, 0.44, true);
+  placeRing(12 + lvl * 2, 0.36, 0.34, false);
+  const fallN = 8 + lvl * 2;
+  for (let f = 0; f < fallN; f++) {
+    const left = 10 + ((f * 11) % 80);
+    const delay = ((f * 0.38) % 3.4).toFixed(2);
+    const dur = (6.4 + (f % 5) * 0.7).toFixed(2);
+    const fill = hues[(f + 2) % hues.length];
+    const rot = ((f * 29) % 50) - 25;
+    html += `<span class="fx-bloom fx-bloom-fall" style="--left:${left}%;--delay:${delay}s;--dur:${dur}s;--rot:${rot}deg;--s:${(
+      0.85 +
+      (f % 3) * 0.14
+    ).toFixed(2)}" aria-hidden="true">${bloomSvg(
+      fill,
+      `${overlay.id || "x"}-f${f}`
+    )}</span>`;
   }
   ring.innerHTML = html;
   ring.dataset.ready = tag;
   ring.dataset.fxLvl = String(lvl);
 }
 
-/** Rising balloons across the partner window. @param {number} [level] 1–3 density */
+/**
+ * Canvas balloons that always rise (Android-style). CSS/WAAPI on DOM
+ * balloons is extra; this loop is the motion you actually see.
+ */
+function playBalloonsCanvasRise(overlay) {
+  if (!overlay) return;
+  if (overlay._blRaf) return;
+  try {
+    cancelAnimationFrame(overlay._blRaf || 0);
+  } catch (_) {}
+  let canvas = overlay.querySelector(".fx-balloons-canvas");
+  if (!canvas) {
+    canvas = document.createElement("canvas");
+    canvas.className = "fx-balloons-canvas";
+    canvas.setAttribute("aria-hidden", "true");
+    overlay.appendChild(canvas);
+  }
+  const rect = overlay.getBoundingClientRect();
+  const w = Math.max(80, Math.floor(rect.width) || 280);
+  const h = Math.max(80, Math.floor(rect.height) || 360);
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = Math.floor(w * dpr);
+  canvas.height = Math.floor(h * dpr);
+  canvas.style.cssText =
+    "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2";
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const colors = [
+    "#ff5a7a", "#ff8a3d", "#ffd14a", "#5ad48a", "#4db7ff", "#a78bfa", "#ff6bcb",
+  ];
+  const bits = [];
+  const n = 22;
+  for (let i = 0; i < n; i++) {
+    const wave = i % 4 !== 3;
+    const far = i % 5 === 0;
+    bits.push({
+      x:
+        (i % 2 === 0 ? 0.06 : 0.74) * w +
+        Math.random() * w * 0.18,
+      y: h + 20 + (i % 9) * 20,
+      vy: -(0.48 + Math.random() * 0.9) * (far ? 0.72 : 1),
+      ph: Math.random() * Math.PI * 2,
+      amp: wave ? 12 + (i % 5) * 6 : 0,
+      hz: 0.26 + (i % 6) * 0.06,
+      r: (far ? 8 : 12) + (i % 6) * 2.8,
+      col: colors[i % colors.length],
+      a: far ? 0.72 : 1,
+    });
+  }
+  const t0 = performance.now();
+  const tick = (now) => {
+    if (overlay.hidden || !overlay.classList.contains("fx-balloons")) {
+      try {
+        ctx.clearRect(0, 0, w, h);
+      } catch (_) {}
+      overlay._blRaf = 0;
+      return;
+    }
+    ctx.clearRect(0, 0, w, h);
+    const t = (now - t0) / 1000;
+    for (const b of bits) {
+      b.y += b.vy;
+      const sway = Math.sin(t * Math.PI * 2 * b.hz + b.ph);
+      const sx = b.x + sway * b.amp;
+      if (b.y < -50) b.y = h + 28;
+      const nx = (sx - w * 0.5) / (w * 0.3);
+      const ny = (b.y - h * 0.48) / (h * 0.32);
+      if (nx * nx + ny * ny < 0.85) continue;
+      ctx.save();
+      ctx.globalAlpha = b.a;
+      ctx.translate(sx, b.y);
+      ctx.rotate(sway * 0.22);
+      const rx = b.r * 0.78;
+      const ry = b.r * 1.08;
+      ctx.beginPath();
+      ctx.moveTo(0, ry);
+      ctx.quadraticCurveTo(-sway * 10, ry + b.r * 0.85, sway * 4, ry + b.r * 1.45);
+      ctx.strokeStyle = "rgba(50,36,24,0.4)";
+      ctx.lineWidth = 1.15;
+      ctx.stroke();
+      const body = ctx.createRadialGradient(
+        -rx * 0.28,
+        -ry * 0.35,
+        2,
+        0,
+        4,
+        b.r * 1.15
+      );
+      body.addColorStop(0, "#fff");
+      body.addColorStop(0.18, b.col);
+      body.addColorStop(0.72, b.col);
+      body.addColorStop(1, "rgba(40,10,20,0.45)");
+      ctx.beginPath();
+      ctx.ellipse(0, 2, rx, ry, 0, 0, Math.PI * 2);
+      ctx.fillStyle = body;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(-rx * 0.28, -ry * 0.28, rx * 0.28, ry * 0.18, -0.45, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255,255,255,0.42)";
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(-3.2, ry - 1);
+      ctx.lineTo(3.2, ry - 1);
+      ctx.lineTo(0, ry + 5);
+      ctx.closePath();
+      ctx.fillStyle = b.col;
+      ctx.fill();
+      ctx.restore();
+    }
+    overlay._blRaf = requestAnimationFrame(tick);
+  };
+  overlay._blRaf = requestAnimationFrame(tick);
+}
+
+/**
+ * 3D rose petals + small rose heads. Canvas rAF — CSS petals freeze.
+ * scaleX = |cos(spin)| flips the petal in 3D. Never filter video.
+ */
+function playFlowersCanvasDrift(overlay) {
+  if (!overlay) return;
+  if (overlay._flRaf && overlay.classList.contains("fx-flowers-canvas-on")) {
+    return;
+  }
+  try {
+    cancelAnimationFrame(overlay._flRaf || 0);
+  } catch (_) {}
+  overlay.classList.add("fx-flowers-canvas-on");
+  let canvas = overlay.querySelector(".fx-flowers-canvas");
+  if (!canvas) {
+    canvas = document.createElement("canvas");
+    canvas.className = "fx-flowers-canvas";
+    canvas.setAttribute("aria-hidden", "true");
+    overlay.appendChild(canvas);
+  }
+  const rect = overlay.getBoundingClientRect();
+  const w = Math.max(80, Math.floor(rect.width) || 280);
+  const h = Math.max(80, Math.floor(rect.height) || 360);
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = Math.floor(w * dpr);
+  canvas.height = Math.floor(h * dpr);
+  canvas.style.cssText =
+    "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2";
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const palettes = [
+    { col: "#d42d5a", dark: "#6b1028", hi: "#ffd0de" },
+    { col: "#c41e5c", dark: "#5a0c24", hi: "#ffc2d4" },
+    { col: "#e85a8a", dark: "#7a1838", hi: "#ffe4ef" },
+    { col: "#b01030", dark: "#4a0818", hi: "#ffb3c8" },
+    { col: "#ff6b9d", dark: "#8b1538", hi: "#fff0f5" },
+  ];
+  const drawRosePetal = (len, spin, pal) => {
+    const c = Math.cos(spin);
+    const sx = Math.max(0.12, Math.abs(c));
+    const back = c < 0;
+    ctx.save();
+    ctx.scale(sx * (back ? -1 : 1), 1);
+    ctx.beginPath();
+    ctx.moveTo(0, len * 0.14);
+    ctx.bezierCurveTo(
+      -len * 0.68,
+      -len * 0.02,
+      -len * 0.58,
+      -len * 0.88,
+      0,
+      -len
+    );
+    ctx.bezierCurveTo(
+      len * 0.58,
+      -len * 0.88,
+      len * 0.68,
+      -len * 0.02,
+      0,
+      len * 0.14
+    );
+    ctx.closePath();
+    const g = ctx.createLinearGradient(
+      -len * 0.45,
+      -len * 0.15,
+      len * 0.4,
+      -len * 0.75
+    );
+    if (back) {
+      g.addColorStop(0, pal.dark);
+      g.addColorStop(0.55, pal.col);
+      g.addColorStop(1, pal.dark);
+    } else {
+      g.addColorStop(0, pal.dark);
+      g.addColorStop(0.38, pal.col);
+      g.addColorStop(0.78, pal.hi);
+      g.addColorStop(1, "#fff8fa");
+    }
+    ctx.fillStyle = g;
+    ctx.shadowColor = "rgba(40,0,12,0.28)";
+    ctx.shadowBlur = 6;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.beginPath();
+    ctx.moveTo(0, len * 0.06);
+    ctx.quadraticCurveTo(-len * 0.1, -len * 0.42, 0, -len * 0.9);
+    ctx.strokeStyle = "rgba(60,0,18,0.28)";
+    ctx.lineWidth = Math.max(0.6, len * 0.04);
+    ctx.stroke();
+    ctx.restore();
+  };
+  const laneX = (i) => {
+    if (i % 3 === 0) return 0.18 * w + Math.random() * w * 0.64;
+    if (i % 2 === 0) return (0.04 + Math.random() * 0.24) * w;
+    return (0.72 + Math.random() * 0.24) * w;
+  };
+  const bits = [];
+  for (let i = 0; i < 56; i++) {
+    bits.push({
+      kind: "petal",
+      x: laneX(i),
+      y: -30 - Math.random() * h,
+      vy: 0.38 + Math.random() * 0.95,
+      ph: Math.random() * Math.PI * 2,
+      rot: Math.random() * Math.PI * 2,
+      vr: (Math.random() - 0.5) * 0.07,
+      spin: Math.random() * Math.PI * 2,
+      vs: 0.05 + Math.random() * 0.08,
+      amp: 14 + (i % 6) * 8,
+      hz: 0.22 + (i % 7) * 0.05,
+      r: 13 + (i % 9) * 2.4,
+      pal: palettes[i % palettes.length],
+    });
+  }
+  for (let i = 0; i < 5; i++) {
+    bits.push({
+      kind: "rose",
+      x: laneX(i + 1),
+      y: -40 - Math.random() * h * 0.8,
+      vy: 0.28 + Math.random() * 0.55,
+      amp: 8 + (i % 4) * 4,
+      hz: 0.18 + (i % 4) * 0.04,
+      ph: Math.random() * Math.PI * 2,
+      rot: Math.random() * Math.PI * 2,
+      vr: (Math.random() - 0.5) * 0.03,
+      spin: Math.random() * Math.PI,
+      vs: 0.02 + Math.random() * 0.03,
+      r: 16 + (i % 4) * 3.2,
+      pal: palettes[i % palettes.length],
+      n: 7 + (i % 3),
+    });
+  }
+  for (let i = 0; i < 4; i++) {
+    const heads = [];
+    const nH = 2 + (i % 2);
+    for (let k = 0; k < nH; k++) {
+      heads.push({
+        dx: (k - (nH - 1) / 2) * 14,
+        dy: (k % 2 ? 8 : -6),
+        rot: (Math.random() - 0.5) * 0.7,
+        n: 6 + (k % 3),
+        r: 11 + (k % 3) * 2.5,
+        pal: palettes[(i + k) % palettes.length],
+      });
+    }
+    bits.push({
+      kind: "cluster",
+      x: laneX(i + 3),
+      y: -50 - Math.random() * h * 0.7,
+      vy: 0.24 + Math.random() * 0.42,
+      amp: 6 + (i % 3) * 3,
+      hz: 0.16 + (i % 3) * 0.04,
+      ph: Math.random() * Math.PI * 2,
+      rot: Math.random() * Math.PI * 2,
+      vr: (Math.random() - 0.5) * 0.02,
+      spin: Math.random() * Math.PI,
+      vs: 0.015 + Math.random() * 0.02,
+      heads,
+      pal: palettes[i % palettes.length],
+    });
+  }
+  const t0 = performance.now();
+  const tick = (now) => {
+    if (overlay.hidden || !overlay.classList.contains("fx-flowers")) {
+      try {
+        ctx.clearRect(0, 0, w, h);
+      } catch (_) {}
+      overlay._flRaf = 0;
+      overlay.classList.remove("fx-flowers-canvas-on");
+      return;
+    }
+    ctx.clearRect(0, 0, w, h);
+    const t = ((now || performance.now()) - t0) / 1000;
+    for (const b of bits) {
+      const edge = Math.abs(Math.cos(b.spin));
+      b.y += b.vy * (0.62 + 0.5 * edge);
+      b.rot += b.vr + Math.sin(t * b.hz + b.ph) * 0.012;
+      b.spin += b.vs;
+      const flutter =
+        Math.sin(t * Math.PI * 2 * b.hz + b.ph) * (b.amp || 12) +
+        Math.sin(t * Math.PI * 2 * b.hz * 2.4 + b.ph * 1.3) *
+          (b.amp || 12) *
+          0.32;
+      const sx = b.x + flutter;
+      if (b.y > h + 36) {
+        b.y = -36;
+        b.x = laneX(Math.floor(Math.random() * 9));
+      }
+      if (b.kind !== "petal") {
+        const nx = (sx - w * 0.5) / (w * 0.22);
+        const ny = (b.y - h * 0.48) / (h * 0.24);
+        if (nx * nx + ny * ny < 1) continue;
+      }
+      ctx.save();
+      ctx.translate(sx, b.y);
+      ctx.rotate(b.rot);
+      const drawHead = (n, r, pal, spin) => {
+        for (let p = 0; p < n; p++) {
+          ctx.save();
+          ctx.rotate((p / n) * Math.PI * 2);
+          ctx.translate(0, r * 0.12);
+          drawRosePetal(r * 0.92, spin + p * 0.35, pal);
+          ctx.restore();
+        }
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 0.16, 0, Math.PI * 2);
+        ctx.fillStyle = "#6b1028";
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 0.08, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffd14a";
+        ctx.fill();
+      };
+      if (b.kind === "rose") {
+        drawHead(b.n, b.r, b.pal, b.spin);
+      } else if (b.kind === "cluster") {
+        ctx.save();
+        ctx.rotate(-0.4);
+        ctx.beginPath();
+        ctx.moveTo(0, 18);
+        ctx.quadraticCurveTo(-10, 4, 0, -8);
+        ctx.quadraticCurveTo(10, 4, 0, 18);
+        ctx.fillStyle = "rgba(40,90,36,0.55)";
+        ctx.fill();
+        ctx.restore();
+        for (const hd of b.heads) {
+          ctx.save();
+          ctx.translate(hd.dx, hd.dy);
+          ctx.rotate(hd.rot);
+          drawHead(hd.n, hd.r, hd.pal, b.spin);
+          ctx.restore();
+        }
+      } else {
+        drawRosePetal(b.r, b.spin, b.pal);
+      }
+      ctx.restore();
+    }
+    overlay._flRaf = requestAnimationFrame(tick);
+  };
+  overlay._flRaf = requestAnimationFrame(tick);
+}
+
+/**
+ * Stage spotlight: sweeping cone + dust. Face hole. Canvas rAF.
+ */
+function playSpotlightCanvasSweep(overlay) {
+  if (!overlay) return;
+  if (overlay._spRaf) return;
+  overlay.classList.add("fx-spotlight-canvas-on");
+  let canvas = overlay.querySelector(".fx-spotlight-canvas");
+  if (!canvas) {
+    canvas = document.createElement("canvas");
+    canvas.className = "fx-spotlight-canvas";
+    canvas.setAttribute("aria-hidden", "true");
+    overlay.appendChild(canvas);
+  }
+  const rect = overlay.getBoundingClientRect();
+  const w = Math.max(80, Math.floor(rect.width) || 280);
+  const h = Math.max(80, Math.floor(rect.height) || 360);
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = Math.floor(w * dpr);
+  canvas.height = Math.floor(h * dpr);
+  canvas.style.cssText =
+    "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:8";
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const dust = [];
+  for (let i = 0; i < 36; i++) {
+    dust.push({
+      x: w * 0.28 + Math.random() * w * 0.44,
+      y: h * 0.08 + Math.random() * h * 0.55,
+      r: 1.2 + (i % 4) * 0.7,
+      ph: Math.random() * Math.PI * 2,
+    });
+  }
+  const t0 = performance.now();
+  const tick = (now) => {
+    if (overlay.hidden || !overlay.classList.contains("fx-spotlight")) {
+      try {
+        ctx.clearRect(0, 0, w, h);
+      } catch (_) {}
+      overlay._spRaf = 0;
+      overlay.classList.remove("fx-spotlight-canvas-on");
+      return;
+    }
+    const t = (now - t0) / 1000;
+    ctx.clearRect(0, 0, w, h);
+    const sway = Math.sin(t * 0.9) * 0.22;
+    const ax = w * (0.5 + sway);
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.beginPath();
+    ctx.moveTo(w * 0.5, -8);
+    ctx.lineTo(ax - w * 0.22, h * 0.92);
+    ctx.lineTo(ax + w * 0.22, h * 0.92);
+    ctx.closePath();
+    const grd = ctx.createLinearGradient(w * 0.5, 0, ax, h);
+    grd.addColorStop(0, "rgba(255,248,220,0.55)");
+    grd.addColorStop(0.45, "rgba(255,230,140,0.16)");
+    grd.addColorStop(1, "rgba(255,220,100,0)");
+    ctx.fillStyle = grd;
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,252,230,0.55)";
+    for (const d of dust) {
+      const dx = d.x + Math.sin(t * 1.4 + d.ph) * 8;
+      const dy = d.y + Math.cos(t * 0.8 + d.ph) * 5;
+      ctx.beginPath();
+      ctx.arc(dx, dy, d.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    ctx.save();
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.beginPath();
+    ctx.ellipse(w * 0.5, h * 0.48, w * 0.28, h * 0.32, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    overlay._spRaf = requestAnimationFrame(tick);
+  };
+  overlay._spRaf = requestAnimationFrame(tick);
+}
+
+/**
+ * Club disco (12s): hanging mirror ball + rotating beams + sparkles.
+ * Canvas rAF like balloons. Face is a destination-out hole. Never filter video.
+ */
+function playDiscoCanvasClub(overlay) {
+  if (!overlay) return;
+  // 1s FX ticker re-calls this; don't reset t0 / fade (looks like twitch).
+  if (overlay._discoRaf && overlay.classList.contains("fx-disco-canvas-on")) {
+    return;
+  }
+  try {
+    cancelAnimationFrame(overlay._discoRaf || 0);
+  } catch (_) {}
+  overlay.classList.add("fx-disco-canvas-on");
+  let canvas = overlay.querySelector(".fx-disco-canvas");
+  if (!canvas) {
+    canvas = document.createElement("canvas");
+    canvas.className = "fx-disco-canvas";
+    canvas.setAttribute("aria-hidden", "true");
+    overlay.appendChild(canvas);
+  }
+  const rect = overlay.getBoundingClientRect();
+  const w = Math.max(80, Math.floor(rect.width) || 280);
+  const h = Math.max(80, Math.floor(rect.height) || 360);
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = Math.floor(w * dpr);
+  canvas.height = Math.floor(h * dpr);
+  canvas.style.cssText =
+    "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:8";
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const hues = [
+    "#FF2EA6",
+    "#C026D3",
+    "#22D3EE",
+    "#7CFF4A",
+    "#FFD14A",
+    "#FF6B1A",
+    "#FF4D6A",
+    "#A78BFA",
+  ];
+  const R = Math.max(28, Math.min(w * 0.16, 58));
+  const bx = w * 0.5;
+  const by = 8 + R;
+  const spark = [];
+  for (let i = 0; i < 36; i++) {
+    spark.push({
+      a: (i / 36) * Math.PI * 2,
+      r: R + 18 + (i % 7) * 16,
+      s: 3.2 + (i % 4) * 1.1,
+      tint: hues[i % hues.length],
+      ph: i * 0.41,
+    });
+  }
+  const floors = [0, 1, 2].map((i) => ({
+    hue: hues[i * 2 + 1],
+    ph: i * 2.1,
+  }));
+  const orbs = [0, 2, 4, 3, 5].map((hi, i) => ({
+    hue: hues[hi],
+    x0: i % 2 === 0 ? w * 0.1 : w * 0.88,
+    y0: h * (0.18 + (i % 3) * 0.22),
+    ax: w * (0.12 + (i % 3) * 0.02) * (i % 2 ? -1 : 1),
+    ay: h * (0.08 + (i % 2) * 0.03) * (i % 2 ? 1 : -1),
+    T: 5.5 + i * 0.4,
+    r: 30 + (i % 3) * 6,
+    ph: i * 1.1,
+  }));
+  const t0 = performance.now();
+  const hexRgb = (hex) => {
+    const n = hex.replace("#", "");
+    return [
+      parseInt(n.slice(0, 2), 16),
+      parseInt(n.slice(2, 4), 16),
+      parseInt(n.slice(4, 6), 16),
+    ];
+  };
+  const tick = (now) => {
+    if (overlay.hidden || !overlay.classList.contains("fx-disco")) {
+      try {
+        ctx.clearRect(0, 0, w, h);
+      } catch (_) {}
+      overlay._discoRaf = 0;
+      overlay.classList.remove("fx-disco-canvas-on");
+      return;
+    }
+    const t = (now - t0) / 1000;
+    ctx.clearRect(0, 0, w, h);
+    const fade =
+      t < 0.35 ? t / 0.35 : t > 11.2 ? Math.max(0, (12 - t) / 0.8) : 1;
+    ctx.globalAlpha = fade;
+    // Dark club room — punched later so the face stays bright
+    ctx.globalCompositeOperation = "source-over";
+    {
+      const dim = ctx.createRadialGradient(
+        w * 0.5,
+        h * 0.48,
+        Math.min(w, h) * 0.22,
+        w * 0.5,
+        h * 0.48,
+        Math.max(w, h) * 0.78
+      );
+      dim.addColorStop(0, "rgba(6,4,16,0.08)");
+      dim.addColorStop(0.45, "rgba(6,4,16,0.38)");
+      dim.addColorStop(1, "rgba(4,2,12,0.55)");
+      ctx.fillStyle = dim;
+      ctx.fillRect(0, 0, w, h);
+    }
+    // PAR corners (soft, stay in the dim room)
+    const pars = [
+      [0, 0, hues[0]],
+      [w, 0, hues[2]],
+      [0, h, hues[4]],
+      [w, h, hues[5]],
+    ];
+    for (const [px, py, col] of pars) {
+      const [r, g, b] = hexRgb(col);
+      const grd = ctx.createRadialGradient(px, py, 4, px, py, Math.max(w, h) * 0.3);
+      grd.addColorStop(0, `rgba(${r},${g},${b},0.1)`);
+      grd.addColorStop(1, `rgba(${r},${g},${b},0)`);
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, 0, w, h);
+    }
+    // Beams from ball (fat + thin, pulse like a club)
+    const beamAng = t * ((Math.PI * 2) / 7);
+    const pulse = 0.92 + 0.08 * Math.sin(t * Math.PI * 0.35);
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const nBeams = 8;
+    for (let i = 0; i < nBeams; i++) {
+      const ang = beamAng + (i / nBeams) * Math.PI * 2;
+      const [r, g, b] = hexRgb(hues[i % hues.length]);
+      const len = h * (0.88 + (i % 3) * 0.04);
+      const fat = i % 2 === 0 ? 1.55 : 0.72;
+      const half = w * (0.028 + (i % 4) * 0.006) * fat * pulse;
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.lineTo(
+        bx + Math.cos(ang) * len - Math.sin(ang) * half,
+        by + Math.sin(ang) * len + Math.cos(ang) * half
+      );
+      ctx.lineTo(
+        bx + Math.cos(ang) * len + Math.sin(ang) * half,
+        by + Math.sin(ang) * len - Math.cos(ang) * half
+      );
+      ctx.closePath();
+      const grd = ctx.createLinearGradient(
+        bx,
+        by,
+        bx + Math.cos(ang) * len,
+        by + Math.sin(ang) * len
+      );
+      grd.addColorStop(0, `rgba(${r},${g},${b},${0.2 * pulse})`);
+      grd.addColorStop(0.42, `rgba(${r},${g},${b},0.1)`);
+      grd.addColorStop(1, `rgba(${r},${g},${b},0)`);
+      ctx.fillStyle = grd;
+      ctx.fill();
+    }
+    ctx.restore();
+    // Floor spots (club floor — stay off the face hole)
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (const f of floors) {
+      const [r, g, b] = hexRgb(f.hue);
+      const fx = w * 0.5 + Math.sin(t * 0.45 + f.ph) * w * 0.28;
+      const fy = h * 0.9 + Math.cos(t * 0.35 + f.ph) * h * 0.02;
+      const fr = w * (0.1 + 0.015 * Math.sin(t * 0.5 + f.ph));
+      const grd = ctx.createRadialGradient(fx, fy, 2, fx, fy, fr);
+      grd.addColorStop(0, `rgba(${r},${g},${b},0.22)`);
+      grd.addColorStop(0.45, `rgba(${r},${g},${b},0.14)`);
+      grd.addColorStop(1, `rgba(${r},${g},${b},0)`);
+      ctx.fillStyle = grd;
+      ctx.beginPath();
+      ctx.ellipse(fx, fy, fr * 1.4, fr * 0.42, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    // Big slow glowing orbs (rim lanes — skip face hole)
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (const o of orbs) {
+      const u = Math.sin((t / o.T) * Math.PI * 2 + o.ph);
+      const x = o.x0 + o.ax * u;
+      const y = o.y0 + o.ay * u;
+      const nx = (x - w * 0.5) / (w * 0.32);
+      const ny = (y - h * 0.48) / (h * 0.34);
+      if (nx * nx + ny * ny < 1) continue;
+      const [r, g, b] = hexRgb(o.hue);
+      const halo = ctx.createRadialGradient(x, y, 2, x, y, o.r);
+      halo.addColorStop(0, `rgba(${r},${g},${b},0.85)`);
+      halo.addColorStop(0.35, `rgba(${r},${g},${b},0.35)`);
+      halo.addColorStop(1, `rgba(${r},${g},${b},0)`);
+      ctx.fillStyle = halo;
+      ctx.beginPath();
+      ctx.arc(x, y, o.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    // Sparkle diamonds around rim (skip face hole)
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const spin = t * ((Math.PI * 2) / 8);
+    for (const s of spark) {
+      const a = s.a + spin * 0.9;
+      const x = bx + Math.cos(a) * s.r * (0.55 + 0.45 * Math.abs(Math.sin(a)));
+      const y = by + 28 + Math.sin(a + s.ph) * (h * 0.38) + (s.r % 13);
+      const nx = (x - w * 0.5) / (w * 0.32);
+      const ny = (y - h * 0.48) / (h * 0.34);
+      if (nx * nx + ny * ny < 1) continue;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(a);
+      ctx.beginPath();
+      const sz = s.s;
+      ctx.moveTo(0, -sz);
+      ctx.lineTo(sz * 0.55, 0);
+      ctx.lineTo(0, sz);
+      ctx.lineTo(-sz * 0.55, 0);
+      ctx.closePath();
+      ctx.fillStyle = s.tint;
+      ctx.globalAlpha = fade * (0.14 + 0.08 * Math.sin(t * 0.9 + s.ph));
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+    ctx.globalAlpha = fade;
+    // Face hole
+    ctx.save();
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.beginPath();
+    ctx.ellipse(w * 0.5, h * 0.48, w * 0.32, h * 0.34, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "#000";
+    ctx.fill();
+    ctx.restore();
+    // Mirror ball
+    ctx.save();
+    ctx.translate(bx, by);
+    ctx.beginPath();
+    ctx.moveTo(0, -R - 12);
+    ctx.lineTo(0, -R);
+    ctx.strokeStyle = "#D0D6E4";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, -R - 13, 3, 0, Math.PI * 2);
+    ctx.fillStyle = "#E8EEF8";
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(0, 0, R, 0, Math.PI * 2);
+    ctx.fillStyle = "#6B7388";
+    ctx.fill();
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(0, 0, R, 0, Math.PI * 2);
+    ctx.clip();
+    const rows = 10;
+    const cols = 16;
+    for (let row = 0; row < rows; row++) {
+      const lat = (row / (rows - 1) - 0.5) * Math.PI * 0.92;
+      const y = Math.sin(lat) * R * 0.92;
+      const rr = Math.cos(lat) * R;
+      for (let col = 0; col < cols; col++) {
+        const lon = (col / cols) * Math.PI * 2 + spin;
+        if (Math.cos(lon) < -0.15) continue;
+        const x = Math.sin(lon) * rr * 0.95;
+        const light = Math.max(0, Math.sin(lon) * 0.55 + Math.cos(lat) * 0.25);
+        ctx.fillStyle =
+          light > 0.55
+            ? "#F4F7FF"
+            : light > 0.28
+              ? "#C5D0E4"
+              : light > 0.08
+                ? hues[(row + col) % hues.length]
+                : "#3a4254";
+        const tw = Math.max(3, (2 * Math.PI * Math.abs(rr)) / cols * 0.32);
+        const th = Math.max(3, (R / rows) * 1.1);
+        ctx.fillRect(x - tw / 2, y - th / 2, tw - 0.8, th - 0.8);
+      }
+    }
+    ctx.restore();
+    const spec = ctx.createRadialGradient(
+      -R * 0.32,
+      -R * 0.28,
+      2,
+      -R * 0.2,
+      -R * 0.18,
+      R * 0.7
+    );
+    spec.addColorStop(0, "rgba(255,255,255,0.85)");
+    spec.addColorStop(0.35, "rgba(255,255,255,0.18)");
+    spec.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.beginPath();
+    ctx.arc(0, 0, R, 0, Math.PI * 2);
+    ctx.fillStyle = spec;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(0, 0, R, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(255,255,255,0.4)";
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+    ctx.restore();
+    overlay._discoRaf = requestAnimationFrame(tick);
+  };
+  overlay._discoRaf = requestAnimationFrame(tick);
+}
+
+/**
+ * Canvas snow that always falls while fx-snow is on. Never filters video.
+ */
+function playSnowCanvasFall(overlay) {
+  if (!overlay) return;
+  if (overlay._snowRaf && overlay.classList.contains("fx-snow-canvas-on")) return;
+  try {
+    cancelAnimationFrame(overlay._snowRaf || 0);
+  } catch (_) {}
+  overlay.classList.add("fx-snow-canvas-on");
+  let canvas = overlay.querySelector(".fx-snow-canvas");
+  if (!canvas) {
+    canvas = document.createElement("canvas");
+    canvas.className = "fx-snow-canvas";
+    canvas.setAttribute("aria-hidden", "true");
+    overlay.appendChild(canvas);
+  }
+  const rect = overlay.getBoundingClientRect();
+  const w = Math.max(80, Math.floor(rect.width) || 280);
+  const h = Math.max(80, Math.floor(rect.height) || 360);
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = Math.floor(w * dpr);
+  canvas.height = Math.floor(h * dpr);
+  canvas.style.cssText =
+    "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:8";
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const bits = [];
+  const n = 50;
+  for (let i = 0; i < n; i++) {
+    const cross = i % 7 === 0;
+    bits.push({
+      x: Math.random() * w,
+      y: Math.random() * h,
+      vy: 0.7 + Math.random() * 1.5,
+      ph: Math.random() * Math.PI * 2,
+      r: cross ? 3.6 + (i % 3) * 0.8 : 1.3 + (i % 4) * 0.7,
+      cross,
+      col: i % 3 === 0 ? "rgba(170,228,255,0.95)" : "rgba(255,255,255,0.96)",
+    });
+  }
+  const t0 = performance.now();
+  const tick = (now) => {
+    if (overlay.hidden || !overlay.classList.contains("fx-snow")) {
+      try {
+        ctx.clearRect(0, 0, w, h);
+      } catch (_) {}
+      overlay._snowRaf = 0;
+      overlay.classList.remove("fx-snow-canvas-on");
+      return;
+    }
+    ctx.clearRect(0, 0, w, h);
+    const t = (now - t0) / 1000;
+    for (const b of bits) {
+      b.y += b.vy;
+      if (b.y > h + 10) b.y = -10;
+      const sx = b.x + Math.sin(t * 1.15 + b.ph) * 9;
+      ctx.save();
+      ctx.translate(sx, b.y);
+      if (b.cross) {
+        ctx.strokeStyle = b.col;
+        ctx.lineWidth = 1.1;
+        ctx.lineCap = "round";
+        for (let a = 0; a < 3; a++) {
+          ctx.rotate(Math.PI / 3);
+          ctx.beginPath();
+          ctx.moveTo(0, -b.r);
+          ctx.lineTo(0, b.r);
+          ctx.stroke();
+        }
+      } else {
+        ctx.beginPath();
+        ctx.arc(0, 0, b.r, 0, Math.PI * 2);
+        ctx.fillStyle = b.col;
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+    overlay._snowRaf = requestAnimationFrame(tick);
+  };
+  overlay._snowRaf = requestAnimationFrame(tick);
+}
+
+/**
+ * Canvas confetti that recycles for the full gift duration (~15s).
+ * Burst glitter stays separate; this loop is the motion you actually see.
+ */
+function playConfettiCanvasFall(overlay) {
+  if (!overlay) return;
+  if (overlay._confettiRaf && overlay.classList.contains("fx-confetti-canvas-on")) {
+    return;
+  }
+  try {
+    cancelAnimationFrame(overlay._confettiRaf || 0);
+  } catch (_) {}
+  overlay.classList.add("fx-confetti-canvas-on");
+  let canvas = overlay.querySelector(":scope > .fx-confetti-canvas");
+  if (!canvas) {
+    canvas = document.createElement("canvas");
+    canvas.className = "fx-confetti-canvas";
+    canvas.setAttribute("aria-hidden", "true");
+    overlay.appendChild(canvas);
+  }
+  const rect = overlay.getBoundingClientRect();
+  const w = Math.max(80, Math.floor(rect.width) || 280);
+  const h = Math.max(80, Math.floor(rect.height) || 360);
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = Math.floor(w * dpr);
+  canvas.height = Math.floor(h * dpr);
+  canvas.style.cssText =
+    "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:8";
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const colors = [
+    "#ff5a7a", "#ffd14a", "#5ad48a", "#4db7ff", "#a78bfa", "#fff", "#f472b6",
+    "#ff8a3d", "#22d3ee",
+  ];
+  const bits = [];
+  const n = 90;
+  for (let i = 0; i < n; i++) {
+    bits.push({
+      x: Math.random() * w,
+      y: Math.random() * h,
+      vx: (Math.random() - 0.5) * 2.4,
+      vy: 1.2 + Math.random() * 3.2,
+      rot: Math.random() * Math.PI,
+      vr: (Math.random() - 0.5) * 0.3,
+      w: 4 + Math.random() * 9,
+      h: 3 + Math.random() * 6,
+      col: colors[i % colors.length],
+      life: 1,
+    });
+  }
+  const tick = () => {
+    if (overlay.hidden || !overlay.classList.contains("fx-confetti")) {
+      try {
+        ctx.clearRect(0, 0, w, h);
+      } catch (_) {}
+      overlay._confettiRaf = 0;
+      overlay.classList.remove("fx-confetti-canvas-on");
+      return;
+    }
+    ctx.clearRect(0, 0, w, h);
+    for (const b of bits) {
+      b.x += b.vx;
+      b.y += b.vy;
+      b.rot += b.vr;
+      if (b.y > h) {
+        b.y = -12;
+        b.x = Math.random() * w;
+        b.life = 1;
+      }
+      if (b.x < -14) b.x = w + 10;
+      if (b.x > w + 14) b.x = -10;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0.4, b.life);
+      ctx.translate(b.x, b.y);
+      ctx.rotate(b.rot);
+      ctx.fillStyle = b.col;
+      ctx.fillRect(-b.w / 2, -b.h / 2, b.w, b.h);
+      ctx.restore();
+    }
+    overlay._confettiRaf = requestAnimationFrame(tick);
+  };
+  overlay._confettiRaf = requestAnimationFrame(tick);
+}
+
+/** Pixel travel like Android — CSS keyframes often fail to interpolate in Chrome. */
+function startFxWaapiTravel(el, opts) {
+  if (!el || typeof el.animate !== "function") return false;
+  const box = el.parentElement;
+  const h = Math.max(180, (box && box.clientHeight) || 320);
+  const from = Number(opts.fromY);
+  const to = Number(opts.toY);
+  const fromY = Number.isFinite(from) ? from : 0;
+  const toY = Number.isFinite(to) ? to : -Math.round(h * 1.4);
+  const dur = Math.max(1200, Number(opts.durMs) || 6400);
+  const delay = Math.max(0, Number(opts.delayMs) || 0);
+  const x = opts.x || "-50%";
+  try {
+    el.getAnimations?.().forEach((a) => a.cancel());
+  } catch (_) {}
+  el.animate(
+    [
+      { transform: `translate3d(${x}, ${fromY}px, 0)`, opacity: 0 },
+      {
+        offset: 0.08,
+        transform: `translate3d(${x}, ${fromY}px, 0)`,
+        opacity: 1,
+      },
+      { transform: `translate3d(${x}, ${toY}px, 0)`, opacity: 0.12 },
+    ],
+    {
+      duration: dur,
+      delay,
+      iterations: Infinity,
+      easing: "linear",
+      fill: "both",
+    }
+  );
+  el.classList.add("fx-waapi");
+  return true;
+}
+
 function ensureBalloons(overlay, level) {
   const layer = overlay?.querySelector?.(".fx-balloons-layer");
   if (!layer) return;
   const lvl = Math.max(1, Math.min(3, Math.floor(Number(level) || 1)));
-  const tag = `balloons-v4-L${lvl}`;
+  const tag = `balloons-v9-L${lvl}`;
   if (layer.dataset.ready === tag) return;
   const colors = [
     "#ff5a7a", "#ff8a3d", "#ffd14a", "#5ad48a", "#4db7ff",
     "#a78bfa", "#ff6bcb", "#f472b6", "#34d399", "#60a5fa",
     "#fb7185", "#fbbf24",
   ];
+  const shadeHex = (hex, amt) => {
+    const n = parseInt(String(hex).replace("#", ""), 16);
+    const ch = (s) => Math.max(0, Math.min(255, ((n >> s) & 255) + amt));
+    return `#${[ch(16), ch(8), ch(0)]
+      .map((v) => v.toString(16).padStart(2, "0"))
+      .join("")}`;
+  };
+  const balloonSvg = (fill, uid) => {
+    const dark = shadeHex(fill, -78);
+    const g = `fx-bl-g-${uid}`;
+    const pear =
+      "M32 8 C18 8 10 22 10 36 C10 52 20 62 32 66 C44 62 54 52 54 36 C54 22 46 8 32 8 Z";
+    return (
+      `<svg class="fx-balloon-svg" viewBox="0 0 64 118" aria-hidden="true">` +
+      `<defs><radialGradient id="${g}" cx="32%" cy="22%" r="78%">` +
+      `<stop offset="0%" stop-color="#fff8fb"/>` +
+      `<stop offset="22%" stop-color="${fill}"/>` +
+      `<stop offset="100%" stop-color="${dark}"/>` +
+      `</radialGradient></defs>` +
+      `<ellipse cx="34" cy="70" rx="16" ry="5" fill="rgba(0,0,0,0.2)"/>` +
+      `<path d="${pear}" fill="${dark}" opacity="0.4" transform="translate(1.8 2.2)"/>` +
+      `<path d="${pear}" fill="url(#${g})"/>` +
+      `<ellipse cx="22" cy="24" rx="8" ry="6" fill="#fff" opacity="0.32"/>` +
+      `<ellipse cx="40" cy="42" rx="5" ry="3" fill="#fff" opacity="0.12"/>` +
+      `<path d="M28 66 L32 72 L36 66 Z" fill="${fill}"/>` +
+      `<ellipse cx="32" cy="73.2" rx="2.2" ry="1.6" fill="${dark}"/>` +
+      `<path d="M32 75 Q26 92 38 102 Q24 112 32 118" fill="none" stroke="rgba(255,255,255,0.42)" stroke-width="1.15" stroke-linecap="round"/>` +
+      `</svg>`
+    );
+  };
   let html = "";
-  const n = 22 + lvl * 14; // denser party cloud L1≈36 L2≈50 L3≈64
+  const n = 12 + lvl * 6;
+  const oid = overlay.id || "x";
   for (let i = 0; i < n; i++) {
-    const left = 1 + ((i * 11 + (i % 7) * 13) % 96);
+    const left = i % 2 === 0 ? 6 + ((i * 5) % 16) : 80 + ((i * 7) % 16);
     const delay = ((i * 0.22) % 4.6).toFixed(2);
     const dur = (5.4 + (i % 7) * 0.5).toFixed(2);
     const size = (1.0 + (i % 7) * 0.22).toFixed(2);
     const drift = (((i * 19) % 56) - 28).toFixed(0);
     const color = colors[i % colors.length];
-    const sway = (1.6 + (i % 5) * 0.32).toFixed(2);
-    html += `<span class="fx-balloon" style="--left:${left}%;--delay:${delay}s;--dur:${dur}s;--size:${size};--drift:${drift}px;--color:${color};--sway:${sway}s" aria-hidden="true">
-      <span class="fx-balloon-body"><span class="fx-balloon-shine"></span></span>
-      <span class="fx-balloon-knot"></span>
-      <span class="fx-balloon-string"></span>
-    </span>`;
+    const yaw = i % 2 === 0 ? -16 : 16;
+    html += `<span class="fx-balloon" style="--left:${left}%;--delay:${delay}s;--dur:${dur}s;--size:${size};--drift:${drift}px;--color:${color};--yaw:${yaw}deg" aria-hidden="true">${balloonSvg(
+      color,
+      `${oid}-b${i}`
+    )}</span>`;
   }
   layer.innerHTML = html;
   layer.dataset.ready = tag;
   layer.dataset.fxLvl = String(lvl);
+  const kickBalloons = () => {
+    const boxH = Math.max(180, layer.clientHeight || overlay.clientHeight || 320);
+    layer.querySelectorAll(".fx-balloon").forEach((el, i) => {
+      const dur = 5400 + (i % 7) * 500;
+      const delay = (i * 220) % 4600;
+      startFxWaapiTravel(el, {
+        fromY: 12,
+        toY: -Math.round(boxH * 1.45),
+        durMs: dur,
+        delayMs: delay,
+        x: "-50%",
+      });
+    });
+  };
+  requestAnimationFrame(kickBalloons);
 }
 
 /** Floating hearts (1★) — denser rise with side sway. @param {number} [level] */
-function ensureHeartsFx(overlay, level) {
-  const layer = overlay?.querySelector?.(".fx-heart-layer");
+function ensurePleaseStayFx(overlay, level) {
+  let layer = overlay?.querySelector?.(".fx-please-stay-layer");
+  if (!layer && overlay) {
+    layer = document.createElement("div");
+    layer.className = "fx-please-stay-layer";
+    layer.setAttribute("aria-hidden", "true");
+    overlay.insertBefore(layer, overlay.firstChild);
+  }
   if (!layer) return;
   const lvl = Math.max(1, Math.min(3, Math.floor(Number(level) || 1)));
-  const tag = `heart-v3-L${lvl}`;
+  const tag = `stay-v2-L${lvl}`;
   if (layer.dataset.ready === tag) return;
-  const icons = ["💖", "💗", "❤️", "💕", "💘", "🩷", "❤️‍🔥", "❣️"];
-  let html = "";
-  // Hero big heart (bigger at L2+)
-  html += `<span class="fx-heart-hero" style="--scale:${1 + (lvl - 1) * 0.25}" aria-hidden="true">💖</span>`;
-  const n = 22 + lvl * 14;
+  const oid = overlay.id || "x";
+  const g = `fx-stay-g-${oid}`;
+  const hero =
+    `<span class="fx-please-stay-hero" aria-hidden="true">` +
+    `<svg class="fx-please-stay-lock" viewBox="0 0 80 88" aria-hidden="true">` +
+    `<defs><radialGradient id="${g}" cx="32%" cy="24%" r="78%">` +
+    `<stop offset="0%" stop-color="#fff4f8"/><stop offset="40%" stop-color="#ff8fb4"/>` +
+    `<stop offset="100%" stop-color="#8a1840"/>` +
+    `</radialGradient></defs>` +
+    `<path d="M24 40 V28 a16 16 0 0 1 32 0 V40" fill="none" stroke="#ffd0de" stroke-width="6" stroke-linecap="round"/>` +
+    `<rect x="16" y="38" width="48" height="36" rx="10" fill="url(#${g})" stroke="#5a1028" stroke-width="1.2"/>` +
+    `<circle cx="40" cy="54" r="5.5" fill="#fff6f8"/>` +
+    `<path d="M40 59 v8" stroke="#fff6f8" stroke-width="3" stroke-linecap="round"/>` +
+    `</svg></span>`;
+  let html = hero;
+  const n = 10 + lvl * 2;
   for (let i = 0; i < n; i++) {
-    const left = 2 + ((i * 11 + (i % 5) * 13) % 94);
-    const delay = ((i * 0.16) % 3.6).toFixed(2);
-    const dur = (2.8 + (i % 5) * 0.5).toFixed(2);
-    const size = (0.75 + (i % 6) * 0.22).toFixed(2);
-    const sway = (((i * 19) % 50) - 25).toFixed(0);
-    html += `<span class="fx-heart-bit" style="--left:${left}%;--delay:${delay}s;--dur:${dur}s;--size:${size};--sway:${sway}px" aria-hidden="true">${
-      icons[i % icons.length]
-    }</span>`;
+    const left = i % 2 === 0 ? 6 + ((i * 5) % 16) : 80 + ((i * 7) % 16);
+    const delay = ((i * 0.22) % 3.4).toFixed(2);
+    const dur = (4.2 + (i % 4) * 0.6).toFixed(2);
+    const size = 4 + (i % 4);
+    html += `<span class="fx-please-stay-bit" style="--left:${left}%;--delay:${delay}s;--dur:${dur}s;--size:${size}px" aria-hidden="true"></span>`;
   }
   layer.innerHTML = html;
   layer.dataset.ready = tag;
-  layer.dataset.fxLvl = String(lvl);
+}
+
+function ensureHeartsFx(overlay, level) {
+  if (!overlay) return;
+  const lvl = Math.max(1, Math.min(3, Math.floor(Number(level) || 1)));
+  const tag = `heart-v8-L${lvl}`;
+  const hero = overlay.querySelector(".fx-heart-hero");
+  if (hero && hero.dataset.ready !== "svg-v3") {
+    const id = overlay.id || "x";
+    const g = `fx-heart-g-${id}`;
+    const gSide = `fx-heart-gs-${id}`;
+    const path =
+      "M50 86 C 20 64 6 46 6 28 C 6 14 16 6 28 6 C 37 6 44 11 50 20 C 56 11 63 6 72 6 C 84 6 94 14 94 28 C 94 46 80 64 50 86 Z";
+    hero.innerHTML =
+      `<svg class="fx-heart-svg" viewBox="0 0 100 96" aria-hidden="true">` +
+      `<defs>` +
+      `<radialGradient id="${g}" cx="32%" cy="28%" r="78%">` +
+      `<stop offset="0%" stop-color="#fff6f8"/>` +
+      `<stop offset="22%" stop-color="#ff8fb4"/>` +
+      `<stop offset="52%" stop-color="#ef2b6a"/>` +
+      `<stop offset="82%" stop-color="#9a143c"/>` +
+      `<stop offset="100%" stop-color="#4a0818"/>` +
+      `</radialGradient>` +
+      `<linearGradient id="${gSide}" x1="0" y1="0" x2="1" y2="1">` +
+      `<stop offset="0%" stop-color="#fff" stop-opacity="0.35"/>` +
+      `<stop offset="40%" stop-color="#fff" stop-opacity="0"/>` +
+      `<stop offset="100%" stop-color="#2a0610" stop-opacity="0.45"/>` +
+      `</linearGradient>` +
+      `</defs>` +
+      `<ellipse class="fx-heart-contact" cx="52" cy="90" rx="28" ry="5.5" fill="rgba(20,4,10,0.45)"/>` +
+      `<g class="fx-heart-body">` +
+      `<path d="${path}" fill="#4a0818" transform="translate(2.4 2.8)"/>` +
+      `<path d="${path}" fill="url(#${g})" stroke="#5a1028" stroke-width="1.05" stroke-linejoin="round"/>` +
+      `<path d="${path}" fill="url(#${gSide})"/>` +
+      `<ellipse cx="30" cy="26" rx="11" ry="8" fill="#fff" opacity="0.38"/>` +
+      `<ellipse cx="68" cy="28" rx="7" ry="5" fill="#fff" opacity="0.16"/>` +
+      `<path d="M50 22 C 48 36 48 54 50 78" stroke="#4a0818" stroke-width="1.4" fill="none" opacity="0.28"/>` +
+      `</g>` +
+      `</svg>`;
+    hero.dataset.ready = "svg-v3";
+  }
+  const layer = overlay.querySelector(".fx-heart-dust");
+  if (layer) {
+    const n = 10 + lvl * 2;
+    let html = "";
+    for (let i = 0; i < n; i++) {
+      const ang = (i / n) * Math.PI * 2;
+      const dx = Math.round(Math.cos(ang) * 28);
+      const dy = Math.round(Math.sin(ang) * 22);
+      const size = 3 + (i % 3);
+      html += `<span class="fx-heart-mote" style="--left:50%;--top:50%;--dx:${dx}px;--dy:${dy}px;--size:${size}px" aria-hidden="true"></span>`;
+    }
+    layer.innerHTML = html;
+    layer.dataset.ready = tag;
+    layer.dataset.fxLvl = String(lvl);
+  }
+  const playKey = `${overlay.dataset.until || ""}-${lvl}`;
+  if (hero && overlay.dataset.heartPlay !== playKey) {
+    overlay.dataset.heartPlay = playKey;
+    hero.style.animation = "none";
+    void hero.offsetWidth;
+    hero.style.animation = "";
+  }
 }
 
 /** Premium fireworks — CSS sparks + canvas cinematic bursts. @param {number} [level] */
@@ -5466,39 +8414,13 @@ function ensureFireworks(overlay, level) {
   const layer = overlay?.querySelector?.(".fx-fireworks-layer");
   if (!layer) return;
   const lvl = Math.max(1, Math.min(3, Math.floor(Number(level) || 1)));
-  const tag = `fw-v6-L${lvl}`;
+  const tag = `fw-v12-L${lvl}`;
   if (layer.dataset.ready === tag) return;
-  const colors = [
-    "#ff5a7a", "#ffd14a", "#5ad48a", "#4db7ff", "#a78bfa",
-    "#ff8a3d", "#fff", "#ff6bcb", "#fde68a", "#fbbf24",
-  ];
-  let html = "";
-  // Denser ambient CSS shells at L2–3 (rebuild via fw-v6 tag)
-  const bursts = 10 + lvl * 8;
-  for (let b = 0; b < bursts; b++) {
-    const cx = 6 + ((b * 21 + (b % 4) * 9) % 88);
-    const cy = 10 + ((b * 17) % 62);
-    const delay = (b * 0.28).toFixed(2);
-    const scale = (0.95 + (b % 5) * 0.2 + (lvl - 1) * 0.06).toFixed(2);
-    html += `<span class="fx-fw-burst" style="--cx:${cx}%;--cy:${cy}%;--delay:${delay}s;--bscale:${scale}" aria-hidden="true">`;
-    const sparks = 26 + (b % 5) * 5 + lvl * 4;
-    for (let p = 0; p < sparks; p++) {
-      const ang = (p / sparks) * 360 + (b % 2) * 6;
-      const col = colors[(b + p) % colors.length];
-      // Reach ~80–100px at high lvl for a bigger sky fill
-      const dist = 58 + (p % 7) * 6 + (lvl - 1) * 14 + (b % 3) * 4;
-      html += `<span class="fx-fw-spark" style="--ang:${ang}deg;--color:${col};--dist:${dist}px"></span>`;
-    }
-    html += `<span class="fx-fw-core" style="--color:${colors[b % colors.length]}"></span>`;
-    html += `</span>`;
-  }
-  html += `<span class="fx-fw-emoji" style="--left:50%;--delay:0.05s" aria-hidden="true">🎆</span>`;
-  html += `<span class="fx-fw-emoji" style="--left:18%;--delay:0.55s" aria-hidden="true">✨</span>`;
-  html += `<span class="fx-fw-emoji" style="--left:82%;--delay:0.95s" aria-hidden="true">🎇</span>`;
-  html += `<span class="fx-fw-emoji" style="--left:36%;--delay:1.35s" aria-hidden="true">💥</span>`;
-  html += `<span class="fx-fw-emoji" style="--left:64%;--delay:1.7s" aria-hidden="true">🌟</span>`;
-  html += `<canvas class="fx-fw-canvas" aria-hidden="true"></canvas>`;
-  layer.innerHTML = html;
+  layer.innerHTML =
+    `<span class="fx-fw-burst" aria-hidden="true"></span>` +
+    `<span class="fx-fw-burst" style="--x:28%;--y:38%" aria-hidden="true"></span>` +
+    `<span class="fx-fw-burst" style="--x:72%;--y:30%" aria-hidden="true"></span>` +
+    `<canvas class="fx-fw-canvas" aria-hidden="true"></canvas>`;
   layer.dataset.ready = tag;
   layer.dataset.fxLvl = String(lvl);
 }
@@ -5510,20 +8432,54 @@ function ensureFireworks(overlay, level) {
  * @param {{ mega?: boolean, combo?: number, waves?: number }} [opts]
  */
 function playFireworksCanvasBurst(overlay, opts = {}) {
+  if (isFxLite()) {
+    try {
+      ensureFireworks(overlay);
+    } catch (_) {}
+    return;
+  }
   if (!overlay) return;
+  if (!opts.laidOut) {
+    overlay.hidden = false;
+    overlay.removeAttribute("hidden");
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        playFireworksCanvasBurst(overlay, { ...opts, laidOut: true });
+      });
+    });
+    return;
+  }
+  try {
+    if (overlay._fwRaf) cancelAnimationFrame(overlay._fwRaf);
+  } catch (_) {}
+  if (!opts.encore) {
+    try {
+      (overlay._fwEncores || []).forEach((id) => clearTimeout(id));
+    } catch (_) {}
+    overlay._fwEncores = [];
+  }
   ensureFireworks(overlay);
   const layer = overlay.querySelector(".fx-fireworks-layer");
   const canvas = layer?.querySelector?.(".fx-fw-canvas");
   if (!canvas || !canvas.getContext) return;
-  const rect = overlay.getBoundingClientRect();
-  const w = Math.max(120, Math.floor(rect.width) || 320);
-  const h = Math.max(120, Math.floor(rect.height) || 320);
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
-  canvas.width = Math.floor(w * dpr);
-  canvas.height = Math.floor(h * dpr);
-  // Full-bleed on tile (CSS also sets position:absolute; inset:0)
-  canvas.style.cssText =
-    "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:4";
+  const sizeCanvas = () => {
+    const tile = overlay.closest(".tile") || overlay;
+    const rect = tile.getBoundingClientRect();
+    const w = Math.min(560, Math.max(240, Math.floor(rect.width) || 480));
+    const h = Math.min(560, Math.max(240, Math.floor(rect.height) || 480));
+    const dpr = Math.min(1.5, window.devicePixelRatio || 1);
+    canvas.width = Math.floor(w * dpr);
+    canvas.height = Math.floor(h * dpr);
+    canvas.style.cssText =
+      "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:9;transform:translateZ(0)";
+    return { w, h, dpr };
+  };
+  let { w, h, dpr } = sizeCanvas();
+  if (w < 80 || h < 80) {
+    requestAnimationFrame(() => {
+      ({ w, h, dpr } = sizeCanvas());
+    });
+  }
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -5539,20 +8495,30 @@ function playFireworksCanvasBurst(overlay, opts = {}) {
   /** @type {Array<object>} */
   const particles = [];
 
-  function spawnShell(cx, cy, col, n, power) {
+  function spawnShell(cx, cy, col, n, power, style) {
+    const willow = style === "willow";
+    const ring = style === "ring";
+    const chrys = style === "chrys";
+    const pal = colors[(colors.indexOf(col) + 3 + (n % 5)) % colors.length];
     for (let i = 0; i < n; i++) {
-      const ang = (Math.PI * 2 * i) / n + Math.random() * 0.25;
-      const spd = power * (0.75 + Math.random() * 0.9);
+      const ang = (Math.PI * 2 * i) / n + Math.random() * (ring ? 0.04 : 0.22);
+      const band = ring ? 0.88 + Math.random() * 0.14 : 0.62 + Math.random() * 0.95;
+      const spd = power * band * (willow ? 0.82 : chrys ? 1.08 : 1);
+      const inner = i % 3 === 0;
       particles.push({
         x: cx,
         y: cy,
         vx: Math.cos(ang) * spd,
         vy: Math.sin(ang) * spd,
         life: 1,
-        decay: 0.009 + Math.random() * 0.014,
-        r: 1.15 + Math.random() * 2.8,
-        col: Math.random() > 0.82 ? "#fff" : col,
-        trail: Math.random() > 0.35,
+        decay: willow
+          ? 0.006 + Math.random() * 0.006
+          : chrys
+            ? 0.008 + Math.random() * 0.007
+            : 0.012 + Math.random() * 0.012,
+        r: (willow ? 1.2 : chrys ? 1.5 : 1.8) + Math.random() * 3.2,
+        col: inner ? "#fff7cc" : Math.random() > 0.72 ? pal : col,
+        trail: willow || chrys || Math.random() > 0.28,
         kind: "spark",
       });
     }
@@ -5564,13 +8530,13 @@ function playFireworksCanvasBurst(overlay, opts = {}) {
       vy: 0,
       life: 1,
       decay: mega ? 0.038 : 0.048,
-      r: mega ? 18 : 11,
+      r: mega ? 22 : 16,
       col: "#fff",
       trail: false,
       kind: "core",
     });
     // Longer gold rain (more bits, slower fade)
-    const rain = mega ? 28 : 16;
+    const rain = mega ? 14 : 8;
     for (let i = 0; i < rain; i++) {
       particles.push({
         x: cx + (Math.random() - 0.5) * 28,
@@ -5586,7 +8552,7 @@ function playFireworksCanvasBurst(overlay, opts = {}) {
       });
     }
     // Secondary twinkle sparks — tiny white dots that sparkle after the shell
-    const twinkles = mega ? 22 : 12;
+    const twinkles = mega ? 10 : 6;
     for (let i = 0; i < twinkles; i++) {
       const ta = Math.random() * Math.PI * 2;
       const td = (mega ? 18 : 12) + Math.random() * (mega ? 42 : 28);
@@ -5622,35 +8588,43 @@ function playFireworksCanvasBurst(overlay, opts = {}) {
       kind: "rocket",
       explodeAt: performance.now() + delayMs + 260 + Math.random() * 200,
       shellCol: col,
-      // mega 56–72 sparks, normal 40–52
+      shellStyle: ["peony", "willow", "ring", "chrys"][
+        Math.floor(Math.random() * 4)
+      ],
       shellN: mega
-        ? 56 + Math.floor(Math.random() * 17)
-        : 40 + Math.floor(Math.random() * 13),
-      shellPower: mega ? 3.9 : 2.85,
+        ? 36 + Math.floor(Math.random() * 10)
+        : 28 + Math.floor(Math.random() * 8),
+      shellPower: mega ? 4.4 : 3.6,
       tx: targetX,
       ty: targetY,
     });
   }
 
   // Schedule waves of rockets
-  const shellsPerWave = mega ? 4 : 3;
+  const shellsPerWave = 4;
   for (let wave = 0; wave < waves; wave++) {
     for (let s = 0; s < shellsPerWave; s++) {
-      const cx = w * (0.12 + Math.random() * 0.76);
-      const cy = h * (0.1 + Math.random() * 0.44);
+      // Face hole: bursts live on the sides / high, not on the nose.
+      const left = s % 2 === 0;
+      const cx = left
+        ? w * (0.08 + Math.random() * 0.2)
+        : w * (0.72 + Math.random() * 0.2);
+      const cy = h * (0.08 + Math.random() * 0.32 + (s === 1 ? 0.06 : 0));
       const col = colors[(wave * 3 + s * 2) % colors.length];
       launchRocket(wave * 360 + s * 85, cx, cy, col);
     }
   }
 
   let raf = 0;
+  overlay._fwRaf = 0;
   const t0 = performance.now();
   const maxMs = mega ? 2800 + (waves - 1) * 380 : 2000 + (waves - 1) * 300;
-  const flash = { a: mega ? 0.72 : 0.48 };
+  const flash = { a: mega ? 0.38 : 0.22 };
 
   const tick = (now) => {
     const elapsed = now - t0;
     ctx.clearRect(0, 0, w, h);
+    ctx.globalCompositeOperation = "source-over";
 
     // Stronger ambient warm glow + initial flash
     if (flash.a > 0.01) {
@@ -5672,8 +8646,8 @@ function playFireworksCanvasBurst(overlay, opts = {}) {
 
       // Rocket reaches apex → explode into shell
       if (p.kind === "rocket" && (now >= p.explodeAt || p.y <= p.ty)) {
-        spawnShell(p.x, p.y, p.shellCol, p.shellN, p.shellPower);
-        flash.a = Math.max(flash.a, mega ? 0.55 : 0.32);
+        spawnShell(p.x, p.y, p.shellCol, p.shellN, p.shellPower, p.shellStyle);
+        flash.a = Math.max(flash.a, mega ? 0.28 : 0.16);
         p.life = 0;
         continue;
       }
@@ -5684,7 +8658,7 @@ function playFireworksCanvasBurst(overlay, opts = {}) {
       if (p.kind === "rocket") {
         p.vy += 0.012;
         // smoke puffs
-        if (Math.random() > 0.55) {
+        if (particles.length < 280 && Math.random() > 0.82) {
           particles.push({
             x: p.x + (Math.random() - 0.5) * 3,
             y: p.y + 4,
@@ -5756,21 +8730,39 @@ function playFireworksCanvasBurst(overlay, opts = {}) {
       ctx.fill();
     }
     // prune dead occasionally to keep array small
-    if (particles.length > 1200) {
+    if (particles.length > 360) {
       for (let i = particles.length - 1; i >= 0; i--) {
         if (particles[i].life <= 0) particles.splice(i, 1);
       }
     }
     ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
     if ((alive > 0 || flash.a > 0.02) && elapsed < maxMs) {
       raf = requestAnimationFrame(tick);
+      overlay._fwRaf = raf;
+      canvas._fwRaf = raf;
     } else {
       ctx.clearRect(0, 0, w, h);
       cancelAnimationFrame(raf);
+      overlay._fwRaf = 0;
     }
   };
   cancelAnimationFrame(canvas._fwRaf || 0);
   canvas._fwRaf = requestAnimationFrame(tick);
+  overlay._fwRaf = canvas._fwRaf;
+  if (!opts.encore && overlay && !overlay.hidden) {
+    overlay._fwEncores = [3800, 7600, 11400, 15200].map((ms, i) =>
+      setTimeout(() => {
+        if (overlay.hidden) return;
+        playFireworksCanvasBurst(overlay, {
+          mega: i === 3 || mega,
+          combo,
+          waves: i === 3 ? 4 : 3,
+          encore: true,
+        });
+      }, ms)
+    );
+  }
   try {
     trackEvent("gift_fx_fireworks", { mega: mega ? 1 : 0, combo, waves });
   } catch (_) {}
@@ -5782,6 +8774,7 @@ function playFireworksCanvasBurst(overlay, opts = {}) {
  * @param {{ mega?: boolean, combo?: number }} [opts]
  */
 function playConfettiCanvasBurst(overlay, opts = {}) {
+  if (isFxLite()) return;
   if (!overlay) return;
   ensureConfetti(overlay);
   const layer = overlay.querySelector(".fx-confetti-layer");
@@ -5858,11 +8851,400 @@ function playConfettiCanvasBurst(overlay, opts = {}) {
 }
 
 /** Falling confetti burst — denser at higher stack levels. @param {number} [level] */
+function ensureShootingStarFx(overlay, level) {
+  const layer = overlay?.querySelector?.(".fx-shooting-star-layer");
+  if (!layer) return;
+  const lvl = Math.max(1, Math.min(3, Math.floor(Number(level) || 1)));
+  const tag = `ss-v7-L${lvl}`;
+  if (layer.dataset.ready === tag) return;
+  const oid = overlay.id || "x";
+  const n = 1 + (lvl > 1 ? 1 : 0);
+  let html = "";
+  for (let i = 0; i < n; i++) {
+    const delay = (i * 3.6).toFixed(2);
+    const dur = (2.45 + i * 0.2).toFixed(2);
+    // High arc — head stays above the face, exits mid-right.
+    const y0 = 2 + i * 10;
+    const y1 = 34 + i * 8;
+    const gid = `fx-ss-g-${oid}-${i}`;
+    const star =
+      `<svg class="fx-ss-star" viewBox="0 0 64 64" aria-hidden="true">` +
+      `<defs><radialGradient id="${gid}" cx="34%" cy="28%" r="72%">` +
+      `<stop offset="0%" stop-color="#fff"/><stop offset="42%" stop-color="#ffe08a"/>` +
+      `<stop offset="100%" stop-color="#ff8a12"/>` +
+      `</radialGradient></defs>` +
+      `<polygon points="32,2 39,24 62,24 43,38 50,60 32,46 14,60 21,38 2,24 25,24" fill="url(#${gid})"/>` +
+      `</svg>`;
+    html +=
+      `<span class="fx-ss-hero${i ? " is-escort" : ""}" style="--delay:${delay}s;--dur:${dur}s;--y0:${y0}%;--y1:${y1}%" aria-hidden="true">` +
+      `<span class="fx-ss-plume is-outer"></span>` +
+      `<span class="fx-ss-plume"></span>` +
+      `<span class="fx-ss-plume is-needle"></span>` +
+      `<span class="fx-ss-plume is-belly"></span>` +
+      `<span class="fx-ss-cross"></span>` +
+      star +
+      `<span class="fx-ss-flare"></span>`;
+    for (let s = 0; s < 7; s++) {
+      html += `<span class="fx-ss-spark" style="--sx:${12 + s * 11}%;--sy:${(s % 3) * 8 - 8}px;--sd:${(s * 0.07).toFixed(2)}s"></span>`;
+    }
+    html += `</span>`;
+  }
+  layer.innerHTML = html;
+  layer.dataset.ready = tag;
+  layer.dataset.fxLvl = String(lvl);
+}
+
+function ensureSnowFlakes(overlay, level) {
+  const layer = overlay?.querySelector?.(".fx-snow-layer");
+  if (!layer) return;
+  const lvl = Math.max(1, Math.min(3, Math.floor(Number(level) || 1)));
+  const tag = `snow-v7-L${lvl}`;
+  if (layer.dataset.ready === tag) return;
+  const oid = overlay.id || "x";
+  const flakeSvg = (kind, uid) => {
+    const g = `fx-sn-g-${uid}`;
+    if (kind === "dot") {
+      return `<span class="fx-snow-dot" aria-hidden="true"></span>`;
+    }
+    if (kind === "needle") {
+      return (
+        `<svg class="fx-snow-svg" viewBox="0 0 16 16" aria-hidden="true">` +
+        `<defs><radialGradient id="${g}" cx="40%" cy="30%" r="70%">` +
+        `<stop offset="0%" stop-color="#fff"/><stop offset="100%" stop-color="#9ec4e8"/>` +
+        `</radialGradient></defs>` +
+        `<path d="M8 1.4 L9.1 7.2 L14.6 8 L9.1 8.8 L8 14.6 L6.9 8.8 L1.4 8 L6.9 7.2 Z" fill="url(#${g})" opacity="0.92"/>` +
+        `<ellipse cx="6.4" cy="5.8" rx="1.2" ry="0.7" fill="#fff" opacity="0.45"/>` +
+        `</svg>`
+      );
+    }
+    if (kind === "plate") {
+      return (
+        `<svg class="fx-snow-svg" viewBox="0 0 16 16" aria-hidden="true">` +
+        `<defs><radialGradient id="${g}" cx="34%" cy="28%" r="78%">` +
+        `<stop offset="0%" stop-color="#fff"/><stop offset="55%" stop-color="#d8eefe"/><stop offset="100%" stop-color="#8eb6d8"/>` +
+        `</radialGradient></defs>` +
+        `<polygon points="8,1.6 13.4,4.6 13.4,11.4 8,14.4 2.6,11.4 2.6,4.6" fill="url(#${g})" stroke="#eef7ff" stroke-width="0.45"/>` +
+        `<polygon points="8,4.4 11,6.2 11,9.8 8,11.6 5,9.8 5,6.2" fill="none" stroke="#fff" stroke-width="0.55" opacity="0.7"/>` +
+        `<path d="M8 2.4v11.2M3.4 5.2l9.2 5.6M12.6 5.2 3.4 10.8" fill="none" stroke="#fff" stroke-width="0.45" opacity="0.55"/>` +
+        `</svg>`
+      );
+    }
+    // dendrite
+    return (
+      `<svg class="fx-snow-svg" viewBox="0 0 16 16" aria-hidden="true">` +
+      `<defs><radialGradient id="${g}" cx="32%" cy="24%" r="80%">` +
+      `<stop offset="0%" stop-color="#fff"/><stop offset="50%" stop-color="#d8eefe"/><stop offset="100%" stop-color="#8eb6d8"/>` +
+      `</radialGradient></defs>` +
+      `<g fill="none" stroke="url(#${g})" stroke-width="1.05" stroke-linecap="round">` +
+      `<path d="M8 1.2v13.6M1.2 8h13.6M3.1 3.1l9.8 9.8M12.9 3.1 3.1 12.9"/>` +
+      `<path d="M8 3.2l1.2 1.1M8 3.2 6.8 4.3M8 12.8l1.2-1.1M8 12.8l-1.2-1.1M3.2 8l1.1-1.2M3.2 8l1.1 1.2M12.8 8l-1.1-1.2M12.8 8l-1.1 1.2"/>` +
+      `</g>` +
+      `<circle cx="8" cy="8" r="1.15" fill="#fff"/>` +
+      `</svg>`
+    );
+  };
+  const n = 16 + lvl * 6;
+  let html = "";
+  for (let i = 0; i < n; i++) {
+    const band = i % 5 === 0 ? "far" : i % 3 === 0 ? "mid" : "near";
+    let left = 1 + ((i * 13 + (i % 7) * 9) % 98);
+    if (band === "near" && left > 22 && left < 78) {
+      left = i % 2 === 0 ? 6 + (i % 16) : 82 + (i % 14);
+    }
+    const delay = ((i * 0.11) % 2.6).toFixed(2);
+    const dur =
+      band === "far" ? 7.0 + (i % 4) * 0.35 : band === "mid" ? 5.2 + (i % 4) * 0.28 : 3.8 + (i % 5) * 0.22;
+    const size =
+      band === "far" ? 8 + (i % 3) : band === "mid" ? 12 + (i % 4) : 17 + (i % 5) + (lvl - 1);
+    const sway = band === "far" ? ((i * 9) % 16) - 8 : ((i * 17) % 36) - 18;
+    const z = band === "far" ? -80 : band === "mid" ? 0 : 40;
+    const shape =
+      band === "far" && i % 4 === 0
+        ? "dot"
+        : band === "far"
+          ? "needle"
+          : i % 2 === 0
+            ? "dendrite"
+            : "plate";
+    html += `<span class="fx-snow-bit fx-snow-${band}" style="--left:${left}%;--delay:${delay}s;--dur:${dur.toFixed(2)}s;--size:${size}px;--sway:${sway}px;--z:${z}px" aria-hidden="true">${flakeSvg(
+      shape,
+      `${oid}-s${i}`
+    )}</span>`;
+  }
+  const dustN = 8 + lvl;
+  for (let d = 0; d < dustN; d++) {
+    const left = 6 + ((d * 17) % 88);
+    const bot = 4 + (d % 4) * 3;
+    const w = 10 + (d % 5) * 4;
+    html += `<span class="fx-snow-dust" style="--left:${left}%;--bot:${bot}%;--w:${w}px;--delay:${(d * 0.35).toFixed(2)}s" aria-hidden="true"></span>`;
+  }
+  layer.innerHTML = html;
+  layer.dataset.ready = tag;
+  layer.dataset.fxLvl = String(lvl);
+  const boxH = Math.max(180, layer.clientHeight || 320);
+  layer.querySelectorAll(".fx-snow-bit").forEach((el, i) => {
+    startFxWaapiTravel(el, {
+      fromY: -24,
+      toY: Math.round(boxH * 1.25),
+      durMs: 3800 + (i % 5) * 400,
+      delayMs: (i * 110) % 2600,
+      x: "-50%",
+    });
+  });
+}
+
+function ensureSpotlightFx(overlay, level) {
+  if (!overlay) return;
+  if (!overlay.querySelector(".fx-spotlight-can")) {
+    const can = document.createElement("div");
+    can.className = "fx-spotlight-can";
+    can.setAttribute("aria-hidden", "true");
+    const beam = overlay.querySelector(".fx-spotlight-beam");
+    overlay.insertBefore(can, beam || overlay.firstChild);
+  }
+  const layer = overlay.querySelector(".fx-spotlight-dust");
+  if (!layer) return;
+  const lvl = Math.max(1, Math.min(3, Math.floor(Number(level) || 1)));
+  const tag = `spot-v3-L${lvl}`;
+  if (layer.dataset.ready === tag) return;
+  const n = 14 + lvl * 5;
+  let html = "";
+  for (let i = 0; i < n; i++) {
+    const left = 36 + ((i * 7) % 28);
+    const top = 6 + ((i * 8) % 48);
+    const delay = ((i * 0.18) % 2.4).toFixed(2);
+    const dur = (2.6 + (i % 5) * 0.35).toFixed(2);
+    const size = 3 + (i % 4);
+    const sway = ((i * 13) % 22) - 11;
+    html += `<span class="fx-spot-mote" style="--left:${left}%;--top:${top}%;--delay:${delay}s;--dur:${dur}s;--size:${size}px;--sway:${sway}px" aria-hidden="true"></span>`;
+  }
+  layer.innerHTML = html;
+  layer.dataset.ready = tag;
+  layer.dataset.fxLvl = String(lvl);
+}
+
+function ensureCrownFx(overlay, level) {
+  if (!overlay) return;
+  const lvl = Math.max(1, Math.min(3, Math.floor(Number(level) || 1)));
+  const tag = `crown-v8-L${lvl}`;
+  const hero = overlay.querySelector(".fx-crown-hero");
+  if (hero && hero.dataset.ready !== "svg-v8") {
+    const id = overlay.id || "x";
+    const g = `fx-crown-g-${id}`;
+    const gSide = `fx-crown-gs-${id}`;
+    const gBand = `fx-crown-gb-${id}`;
+    // Royal silhouette: taller center spike. No traveling sheen.
+    const tips = [26, 50, 74, 98, 122];
+    const peakY = [22, 14, 6, 14, 22];
+    const baseY = 56;
+    const half = 9;
+    let spikes = `M14,78 L14,${baseY}`;
+    tips.forEach((x, i) => {
+      spikes += ` L${x - half},${baseY} L${x},${peakY[i]} L${x + half},${baseY}`;
+    });
+    spikes += ` L134,${baseY} L134,78 Q74,88 14,78 Z`;
+    const orbs = tips
+      .map(
+        (x, i) =>
+          `<circle cx="${x}" cy="${peakY[i]}" r="${i === 2 ? 5.1 : 4.2}" fill="url(#${g})" stroke="#5a3608" stroke-width="1.05"/>` +
+          `<circle cx="${x - 1.1}" cy="${peakY[i] - 1.2}" r="1.25" fill="#fff6c8" opacity="0.62"/>`
+      )
+      .join("");
+    const hiL = tips
+      .map((x, i) => `M${x - 4},${peakY[i] + 8} L${x},${baseY} L${x - 2},${baseY} Z`)
+      .join(" ");
+    const hiR = tips
+      .map((x, i) => `M${x + 4},${peakY[i] + 8} L${x + 2},${baseY} L${x},${baseY} Z`)
+      .join(" ");
+    hero.innerHTML =
+      `<svg class="fx-crown-svg" viewBox="0 0 148 96" aria-hidden="true">` +
+      `<defs>` +
+      `<radialGradient id="${g}" cx="28%" cy="18%" r="85%">` +
+      `<stop offset="0%" stop-color="#fff8d4"/>` +
+      `<stop offset="28%" stop-color="#ffd24a"/>` +
+      `<stop offset="62%" stop-color="#c48a14"/>` +
+      `<stop offset="100%" stop-color="#6a3a08"/>` +
+      `</radialGradient>` +
+      `<linearGradient id="${gSide}" x1="0" y1="0" x2="1" y2="0">` +
+      `<stop offset="0%" stop-color="#fff8d8" stop-opacity="0.55"/>` +
+      `<stop offset="45%" stop-color="#fff8d8" stop-opacity="0"/>` +
+      `<stop offset="100%" stop-color="#4a2808" stop-opacity="0.35"/>` +
+      `</linearGradient>` +
+      `<linearGradient id="${gBand}" x1="0" y1="0" x2="0" y2="1">` +
+      `<stop offset="0%" stop-color="#fff3b0"/>` +
+      `<stop offset="40%" stop-color="#e8b428"/>` +
+      `<stop offset="100%" stop-color="#7a4810"/>` +
+      `</linearGradient>` +
+      `</defs>` +
+      `<ellipse class="fx-crown-contact" cx="74" cy="84" rx="52" ry="6" fill="rgba(30,14,0,0.4)"/>` +
+      `<path d="${spikes}" fill="#4a2808" transform="translate(2.2 2.6)"/>` +
+      `<ellipse cx="74" cy="61" rx="54" ry="9" fill="#6a4210" opacity="0.85"/>` +
+      `<path d="${spikes}" fill="url(#${g})" stroke="#5a3608" stroke-width="1.15" stroke-linejoin="miter"/>` +
+      `<path d="${spikes}" fill="url(#${gSide})"/>` +
+      `<path d="M22,64 Q74,72 126,64 L126,74 Q74,82 22,74 Z" fill="#3a1020" opacity="0.72"/>` +
+      `<path d="M12,60 H136 V78 Q74,86 12,78 Z" fill="url(#${gBand})"/>` +
+      `<path d="M14,62 H134" stroke="#fff6c2" stroke-width="1.5" opacity="0.42"/>` +
+      `<path d="M16,72 H132" stroke="#5a3408" stroke-width="1.1" opacity="0.45"/>` +
+      `<path d="${hiL}" fill="#fff8d0" opacity="0.32"/>` +
+      `<path d="${hiR}" fill="#7a440c" opacity="0.26"/>` +
+      `<ellipse cx="38" cy="66" rx="16" ry="4" fill="#fff" opacity="0.22"/>` +
+      `<ellipse cx="108" cy="68" rx="8" ry="3" fill="#fff" opacity="0.1"/>` +
+      `<g class="fx-crown-orbs">${orbs}</g>` +
+      `</svg>`;
+    hero.dataset.ready = "svg-v8";
+  }
+  const layer = overlay.querySelector(".fx-crown-dust");
+  if (!layer) return;
+  if (layer.dataset.ready === tag) return;
+  const n = 10 + lvl * 4;
+  let html = "";
+  for (let i = 0; i < n; i++) {
+    const left = 28 + ((i * 9) % 44);
+    const top = 4 + ((i * 5) % 12);
+    const delay = ((i * 0.16) % 2.2).toFixed(2);
+    const dur = (2.4 + (i % 4) * 0.3).toFixed(2);
+    const size = 3 + (i % 3);
+    const sway = ((i * 11) % 18) - 9;
+    html += `<span class="fx-crown-mote" style="--left:${left}%;--top:${top}%;--delay:${delay}s;--dur:${dur}s;--size:${size}px;--sway:${sway}px" aria-hidden="true"></span>`;
+  }
+  layer.innerHTML = html;
+  layer.dataset.ready = tag;
+  layer.dataset.fxLvl = String(lvl);
+}
+
+function ensureDiscoFx(overlay, level) {
+  const lvl = Math.max(1, Math.min(3, Math.floor(Number(level) || 1)));
+  const tag = `disco-v6-L${lvl}`;
+  const ball = overlay?.querySelector?.(".fx-disco-ball");
+  if (ball && ball.dataset.ready !== "svg-v2") {
+    const id = overlay.id || "x";
+    const tiles = [];
+    const cols = ["#f6f8ff", "#c8d0e0", "#7a8498", "#eef2fa", "#9aa4b8", "#5e6678"];
+    for (let r = 0; r < 7; r++) {
+      for (let c = 0; c < 8; c++) {
+        const x = 6 + c * 11 + (r % 2) * 5.5;
+        const y = 6 + r * 11;
+        const fill = cols[(r + c) % cols.length];
+        const op = (0.62 + (1 - c / 7) * 0.38).toFixed(2);
+        tiles.push(
+          `<polygon points="${x},${y + 5.5} ${x + 5.5},${y} ${x + 11},${y + 5.5} ${x + 5.5},${y + 11}" fill="${fill}" opacity="${op}"/>`
+        );
+      }
+    }
+    const spark = [
+      [28, 22, 320],
+      [58, 18, 200],
+      [42, 48, 45],
+    ]
+      .map(
+        ([x, y, h]) =>
+          `<polygon points="${x},${y + 5.5} ${x + 5.5},${y} ${x + 11},${y + 5.5} ${x + 5.5},${y + 11}" fill="hsl(${h},100%,72%)" opacity="0.92"/>`
+      )
+      .join("");
+    let slices = "";
+    for (let s = 0; s < 6; s++) {
+      slices += `<span class="fx-disco-slice" style="--ry:${s * 30}deg" aria-hidden="true"></span>`;
+    }
+    ball.innerHTML =
+      `<span class="fx-disco-globe" aria-hidden="true">${slices}</span>` +
+      `<svg class="fx-disco-ball-svg" viewBox="0 0 100 100" aria-hidden="true">` +
+      `<defs>` +
+      `<clipPath id="fx-disco-clip-${id}"><circle cx="50" cy="50" r="48"/></clipPath>` +
+      `<radialGradient id="fx-disco-lit-${id}" cx="32%" cy="28%" r="78%">` +
+      `<stop offset="0%" stop-color="#fff" stop-opacity="0.4"/>` +
+      `<stop offset="42%" stop-color="#fff" stop-opacity="0"/>` +
+      `<stop offset="100%" stop-color="#0a1020" stop-opacity="0.48"/>` +
+      `</radialGradient>` +
+      `</defs>` +
+      `<g class="fx-disco-facets" clip-path="url(#fx-disco-clip-${id})">` +
+      `<circle cx="50" cy="50" r="48" fill="#8a93a8"/>` +
+      tiles.join("") +
+      spark +
+      `<circle cx="50" cy="50" r="48" fill="url(#fx-disco-lit-${id})"/>` +
+      `</g>` +
+      `<circle cx="50" cy="50" r="48" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="1.2"/>` +
+      `</svg>` +
+      `<span class="fx-disco-glint" style="--x:22%;--y:30%;--hue:320;--delay:0s" aria-hidden="true"></span>` +
+      `<span class="fx-disco-glint" style="--x:58%;--y:22%;--hue:200;--delay:0.4s" aria-hidden="true"></span>` +
+      `<span class="fx-disco-glint" style="--x:44%;--y:54%;--hue:45;--delay:0.85s" aria-hidden="true"></span>`;
+    ball.dataset.ready = "svg-v2";
+  }
+  const layer = overlay?.querySelector?.(".fx-disco-floor");
+  if (!layer) return;
+  if (layer.dataset.ready === tag) return;
+  const hues = [320, 280, 200, 165, 45, 8];
+  const beams = 7 + lvl;
+  let html = `<span class="fx-disco-rig" aria-hidden="true">`;
+  for (let i = 0; i < beams; i++) {
+    const ang = -56 + i * (112 / Math.max(1, beams - 1));
+    html += `<span class="fx-disco-beam" style="--ang:${ang.toFixed(1)}deg;--hue:${hues[i % hues.length]}"></span>`;
+  }
+  html += `</span>`;
+  const n = 6 + lvl * 2;
+  for (let i = 0; i < n; i++) {
+    const hue = hues[i % hues.length];
+    const lane = i % 3;
+    let left;
+    let top;
+    let dx;
+    let dy;
+    if (lane === 0) {
+      left = 4 + ((i * 5) % 14);
+      top = 14 + ((i * 17) % 62);
+      dx = 48 + (i % 5) * 14;
+      dy = ((i % 2) * 2 - 1) * (40 + (i % 4) * 16);
+    } else if (lane === 1) {
+      left = 82 + ((i * 7) % 14);
+      top = 12 + ((i * 13) % 64);
+      dx = -(48 + (i % 5) * 14);
+      dy = ((i % 2) * 2 - 1) * (44 + (i % 4) * 14);
+    } else {
+      left = 8 + ((i * 19) % 84);
+      top = 6 + ((i * 3) % 12);
+      dx = ((i % 2) * 2 - 1) * (52 + (i % 4) * 16);
+      dy = 48 + (i % 4) * 18;
+    }
+    const delay = ((i * 0.22) % 1.8).toFixed(2);
+    const dur = (2.4 + (i % 5) * 0.4).toFixed(2);
+    const size = 12 + (i % 4) * 4;
+    html += `<span class="fx-disco-orb" style="--left:${left}%;--top:${top}%;--hue:${hue};--dx:${dx}px;--dy:${dy}px;--delay:${delay}s;--dur:${dur}s;--size:${size}px" aria-hidden="true"></span>`;
+  }
+  layer.innerHTML = html;
+  layer.dataset.ready = tag;
+  layer.dataset.fxLvl = String(lvl);
+  layer.querySelectorAll(".fx-disco-orb").forEach((el, i) => {
+    const st = getComputedStyle(el);
+    const dx = parseFloat(st.getPropertyValue("--dx")) || 48;
+    const dy = parseFloat(st.getPropertyValue("--dy")) || 24;
+    const dur = Math.max(1200, parseFloat(el.style.getPropertyValue("--dur")) * 1000 || 2400);
+    const delay = parseFloat(el.style.getPropertyValue("--delay")) * 1000 || (i * 220) % 1800;
+    try {
+      el.getAnimations?.().forEach((a) => a.cancel());
+    } catch (_) {}
+    if (typeof el.animate === "function") {
+      el.animate(
+        [
+          { transform: "translate3d(0px, 0px, 0)" },
+          { transform: `translate3d(${dx}px, ${dy}px, 0)` },
+        ],
+        {
+          duration: dur,
+          delay,
+          iterations: Infinity,
+          direction: "alternate",
+          easing: "ease-in-out",
+        }
+      );
+      el.classList.add("fx-waapi");
+    }
+  });
+}
+
 function ensureConfetti(overlay, level) {
   const layer = overlay?.querySelector?.(".fx-confetti-layer");
   if (!layer) return;
   const lvl = Math.max(1, Math.min(3, Math.floor(Number(level) || 1)));
-  const tag = `confetti-v5-L${lvl}`;
+  const tag = `confetti-v8-L${lvl}`;
   if (layer.dataset.ready === tag) return;
   const colors = [
     "#ff5a7a", "#ffd14a", "#5ad48a", "#4db7ff", "#a78bfa",
@@ -5871,32 +9253,47 @@ function ensureConfetti(overlay, level) {
   ];
   const shapes = ["rect", "rect", "circle", "heart", "rect", "ribbon", "circle"];
   let html = "";
-  // Slightly denser + longer fall variety (hold timers unchanged)
-  const n = 72 + lvl * 36;
+  // Foil + 3D tumble. Large bits stay off the face (snow-v4 rule).
+  const n = 58 + lvl * 24;
   for (let i = 0; i < n; i++) {
-    const left = 1 + ((i * 11 + (i % 9) * 11) % 97);
+    const band = i % 5 === 0 ? "far" : i % 3 === 0 ? "mid" : "near";
+    let left = 1 + ((i * 11 + (i % 9) * 11) % 97);
+    if (band === "near" && left > 26 && left < 74) {
+      left = i % 2 === 0 ? 4 + (i % 20) : 78 + (i % 18);
+    }
     const delay = ((i * 0.055) % 1.65).toFixed(2);
-    const dur = (1.9 + (i % 7) * 0.36 + (lvl - 1) * 0.14).toFixed(2);
-    const size = (7 + (i % 8) * 2.4 + (lvl - 1) * 1.6).toFixed(0);
+    const dur = (
+      (band === "far" ? 3.2 : band === "mid" ? 2.5 : 1.9) +
+      (i % 7) * 0.28 +
+      (lvl - 1) * 0.1
+    ).toFixed(2);
+    const size = (
+      (band === "far" ? 5 : band === "mid" ? 8 : 11) +
+      (i % 6) * 1.6 +
+      (lvl - 1) * 1.2
+    ).toFixed(0);
     const rot = ((i * 53) % 360).toFixed(0);
     const color = colors[i % colors.length];
     const shape = shapes[i % shapes.length];
     const spin = (0.7 + (i % 5) * 0.32).toFixed(2);
-    html += `<span class="fx-confetti-bit fx-confetti-${shape}" style="--left:${left}%;--delay:${delay}s;--dur:${dur}s;--size:${size}px;--rot:${rot}deg;--color:${color};--spin:${spin}s" aria-hidden="true"></span>`;
+    const z = band === "far" ? -70 : band === "mid" ? 0 : 36;
+    const sway = ((i * 19) % 40) - 20;
+    html += `<span class="fx-confetti-bit fx-confetti-${shape} fx-confetti-${band}" style="--left:${left}%;--delay:${delay}s;--dur:${dur}s;--size:${size}px;--rot:${rot}deg;--color:${color};--spin:${spin}s;--z:${z}px;--sway:${sway}px" aria-hidden="true"></span>`;
   }
-  const emoN = 12 + lvl * 8;
-  for (let i = 0; i < emoN; i++) {
-    const left = 4 + ((i * 17) % 90);
-    const delay = (0.05 + i * 0.11).toFixed(2);
-    const dur = (2.5 + (i % 5) * 0.36).toFixed(2);
-    const emos = ["💖", "✨", "🎉", "⭐", "💫", "🎊", "🥳"];
-    html += `<span class="fx-confetti-emoji" style="--left:${left}%;--delay:${delay}s;--dur:${dur}s" aria-hidden="true">${
-      emos[i % emos.length]
-    }</span>`;
-  }
+
   layer.innerHTML = html;
   layer.dataset.ready = tag;
   layer.dataset.fxLvl = String(lvl);
+  const boxH = Math.max(180, layer.clientHeight || 320);
+  layer.querySelectorAll(".fx-confetti-bit").forEach((el, i) => {
+    startFxWaapiTravel(el, {
+      fromY: -16,
+      toY: Math.round(boxH * 1.2),
+      durMs: 1900 + (i % 7) * 280,
+      delayMs: (i * 55) % 1650,
+      x: "-50%",
+    });
+  });
 }
 
 /** Soft celebration pop + sound when you receive a gift. */
@@ -5904,6 +9301,8 @@ function playGiftCelebrate(kind, combo = 1) {
   try {
     playGiftSound(kind);
   } catch (_) {}
+  // Shooting star is a wallet gift only — no comet / center burst.
+  if (String(kind || "").toLowerCase() === "shooting_star") return;
   const el = $("gift-celebrate");
   if (!el) return;
   const n = Math.max(1, Math.min(99, Number(combo) || 1));
@@ -5925,6 +9324,18 @@ function playGiftCelebrate(kind, combo = 1) {
                   ? "🎤"
                   : kind === "bars"
                     ? "🔒"
+                    : kind === "fence"
+                      ? "⛓️"
+                      : kind === "shooting_star"
+                        ? "★"
+                        : kind === "snow"
+                          ? "❄"
+                          : kind === "spotlight"
+                            ? "💡"
+                            : kind === "crown"
+                              ? "👑"
+                              : kind === "disco"
+                                ? "🪩"
                     : "★";
   const name =
     kind === "flowers"
@@ -5943,6 +9354,18 @@ function playGiftCelebrate(kind, combo = 1) {
                   ? "Pass the mic"
                   : kind === "bars"
                     ? "Behind bars"
+                    : kind === "fence"
+                      ? "Fence"
+                      : kind === "shooting_star"
+                        ? "Shooting star"
+                        : kind === "snow"
+                          ? "Snow"
+                          : kind === "spotlight"
+                            ? "Spotlight"
+                            : kind === "crown"
+                              ? "Crown"
+                              : kind === "disco"
+                                ? "Disco"
                     : "Gift";
   const xLabel = n >= 5 ? "MAX" : `×${n}`;
   el.innerHTML = `<span class="gift-celebrate-ico">${icon}</span><span class="gift-celebrate-name">${name}</span><span class="gift-celebrate-x${
@@ -5972,9 +9395,86 @@ function playGiftCelebrate(kind, combo = 1) {
   }, mega ? 2200 : n >= 2 ? 1850 : 1650);
 }
 
-/** Short WebAudio “whoosh / pop” — no external files. */
+const GIFT_FILE_VOL = 0.1;
+const _giftFileAudio = {};
+
+function giftFileUrl(file) {
+  try {
+    return new URL("sounds/" + file + "?v=2", location.href).href;
+  } catch (_) {
+    return "sounds/" + file + "?v=2";
+  }
+}
+
+function playGiftFile(file) {
+  if (!matchSoundEnabled()) return;
+  try {
+    if (!_giftFileAudio[file]) {
+      const a = new Audio(giftFileUrl(file));
+      a.preload = "auto";
+      a.volume = GIFT_FILE_VOL;
+      _giftFileAudio[file] = a;
+    }
+    const a = _giftFileAudio[file];
+    a.volume = GIFT_FILE_VOL;
+    try {
+      a.pause();
+    } catch (_) {}
+    try {
+      a.currentTime = 0;
+    } catch (_) {}
+    const p = a.play();
+    if (p && typeof p.catch === "function") p.catch(() => {});
+  } catch (_) {}
+}
+
+/** Short WebAudio whoosh — heart/flowers wish, fence oops, all @ 10%. */
 function playGiftSound(kind) {
   try {
+    if (kind === "heart" || kind === "flowers") {
+      playGiftFile("wish.mp3");
+      return;
+    }
+    if (kind === "fence") {
+      playGiftFile("oops.mp3");
+      return;
+    }
+    if (kind === "bars") {
+      playGiftFile("repair.mp3");
+      return;
+    }
+    if (kind === "balloons") {
+      playGiftFile("good-job.mp3");
+      return;
+    }
+    if (kind === "confetti") {
+      playGiftFile("item-used.mp3");
+      return;
+    }
+    if (kind === "shooting_star") {
+      playGiftFile("star-click.mp3");
+      return;
+    }
+    if (kind === "snow") {
+      playGiftFile("portalenter.wav");
+      return;
+    }
+    if (kind === "spotlight") {
+      playGiftFile("riz.mp3");
+      return;
+    }
+    if (kind === "crown") {
+      playGiftFile("royal.mp3");
+      return;
+    }
+    if (kind === "fireworks") {
+      playGiftFile("flame.mp3");
+      return;
+    }
+    if (kind === "disco") {
+      playGiftFile("riz.mp3");
+      return;
+    }
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     if (!playGiftSound._ctx) playGiftSound._ctx = new AC();
@@ -5984,6 +9484,8 @@ function playGiftSound(kind) {
     const freqs =
       kind === "bars"
         ? [180, 140, 110]
+        : kind === "fence"
+          ? [200, 160, 130]
         : kind === "balloons"
           ? [520, 660, 780, 920]
           : kind === "confetti"
@@ -6010,11 +9512,11 @@ function playGiftSound(kind) {
               : "sine";
       o.frequency.value = f;
       const peak =
-        kind === "fireworks"
+        (kind === "fireworks"
           ? 0.1 / (i + 1)
           : kind === "pass_mic"
             ? 0.07 / (i + 1)
-            : 0.09 / (i + 1);
+            : 0.09 / (i + 1)) * 0.25;
       const step = kind === "pass_mic" ? 0.09 : 0.035;
       g.gain.setValueAtTime(0.0001, t0);
       g.gain.exponentialRampToValueAtTime(peak, t0 + 0.015 + i * step);
@@ -6043,7 +9545,7 @@ function playGiftSound(kind) {
         bp.frequency.value = 900;
         bp.Q.value = 0.7;
         ng.gain.setValueAtTime(0.0001, t0);
-        ng.gain.exponentialRampToValueAtTime(0.05, t0 + 0.04);
+        ng.gain.exponentialRampToValueAtTime(0.015, t0 + 0.04);
         ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.22);
         src.connect(bp);
         bp.connect(ng);
@@ -6062,7 +9564,7 @@ function playGiftSound(kind) {
         const src = ctx.createBufferSource();
         src.buffer = buf;
         const ng = ctx.createGain();
-        ng.gain.setValueAtTime(0.04, t0);
+        ng.gain.setValueAtTime(0.012, t0);
         ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.12);
         src.connect(ng);
         ng.connect(ctx.destination);
@@ -6243,6 +9745,8 @@ function resetPartnerSwipeVisual() {
   );
   tile.style.removeProperty("--swipe-x");
   tile.style.removeProperty("--swipe-o");
+  tile.style.removeProperty("--swipe-rot");
+  tile.style.removeProperty("--swipe-scale");
   swipeArmedHapticFired = false;
   const hint = $("swipe-skip-hint");
   if (hint) {
@@ -6265,7 +9769,15 @@ function applyPartnerSwipeVisual(dx, width) {
   tile.classList.toggle("is-swipe-left", clamped < 0);
   tile.classList.toggle("is-swipe-right", clamped > 0);
   tile.style.setProperty("--swipe-x", `${clamped.toFixed(1)}px`);
-  tile.style.setProperty("--swipe-o", String(1 - progress * 0.28));
+  tile.style.setProperty("--swipe-o", String(1 - progress * 0.22));
+  tile.style.setProperty(
+    "--swipe-rot",
+    `${((clamped / max) * 12).toFixed(2)}deg`
+  );
+  tile.style.setProperty(
+    "--swipe-scale",
+    String((1 - progress * 0.05).toFixed(3))
+  );
   // Haptic tick once when crossing the commit threshold
   if (armed && !wasArmed && !swipeArmedHapticFired) {
     swipeArmedHapticFired = true;
@@ -6317,10 +9829,12 @@ function cancelSwipeSkipUndo(reason) {
     tile.classList.add("swipe-snapback");
     tile.style.setProperty("--swipe-x", "0px");
     tile.style.setProperty("--swipe-o", "1");
+    tile.style.setProperty("--swipe-rot", "0deg");
+    tile.style.setProperty("--swipe-scale", "1");
     setTimeout(() => {
       tile.classList.remove("swipe-snapback");
       resetPartnerSwipeVisual();
-    }, 180);
+    }, 340);
   } else {
     resetPartnerSwipeVisual();
   }
@@ -6332,31 +9846,11 @@ function cancelSwipeSkipUndo(reason) {
   } catch (_) {}
 }
 
-function showSwipeUndoTip(dir) {
-  clearSwipeUndo();
-  swipePendingSkip = true;
+function showSwipeUndoTip(_dir) {
+  // Retired: swipe skip has no "Next person…" popup. Next fires after fly-off.
   try {
-    if ($("swipe-undo-tip")) $("swipe-undo-tip").remove();
+    $("swipe-undo-tip")?.remove();
   } catch (_) {}
-  const tip = document.createElement("div");
-  tip.id = "swipe-undo-tip";
-  tip.className = "weak-conn-tip swipe-undo-tip";
-  tip.setAttribute("role", "status");
-  tip.style.pointerEvents = "auto";
-  const label =
-    _t("swipe.undoHint") || "Next person…";
-  tip.innerHTML = `
-    <span>${escapeHtml(label)}</span>
-    <button type="button" class="pill tight accent" id="btn-swipe-undo">${escapeHtml(
-      _t("swipe.undo") || "Undo"
-    )}</button>`;
-  document.body.appendChild(tip);
-  $("btn-swipe-undo")?.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    cancelSwipeSkipUndo("button");
-  });
-  trackEvent("swipe_undo_shown", { dir: dir < 0 ? "left" : "right" });
 }
 
 function commitPartnerSwipeSkip(dir) {
@@ -6387,42 +9881,234 @@ function commitPartnerSwipeSkip(dir) {
   } catch (_) {}
   trackEvent("swipe_skip", {
     dir: dir < 0 ? "left" : "right",
-    undo_ms: 1000,
+    undo_ms: 0,
   });
   const reduceMotion =
     typeof matchMedia === "function" &&
     matchMedia("(prefers-reduced-motion: reduce)").matches;
-  // Brief fly-off, then Undo window before Next
-  const flyMs = reduceMotion ? 40 : 160;
+  // Brief fly-off, then Next — no "Next person…" popup
+  const flyMs = reduceMotion ? 40 : 260;
   setTimeout(() => {
     if (!canSwipeSkipPartner() && !matched) {
-      // Call already ended
       resetPartnerSwipeVisual();
       swipeSkipSuppressClick = false;
       return;
     }
-    showSwipeUndoTip(dir);
-    const undoMs = reduceMotion ? 700 : 1000;
-    swipeUndoTimer = setTimeout(() => {
-      swipeUndoTimer = 0;
-      if (!swipePendingSkip) return;
-      swipePendingSkip = false;
-      try {
-        $("swipe-undo-tip")?.remove();
-      } catch (_) {}
-      resetPartnerSwipeVisual();
-      const next = $("btn-next");
-      if (next && !next.hidden && canSwipeSkipPartner()) {
-        next.click();
-      } else if (next && !next.hidden && matched) {
-        // still fire Next if matched (canSwipe may race)
-        next.click();
-      }
-      setTimeout(() => {
-        swipeSkipSuppressClick = false;
-      }, 320);
-    }, undoMs);
+    clearSwipeUndo();
+    try {
+      $("swipe-undo-tip")?.remove();
+    } catch (_) {}
+    resetPartnerSwipeVisual();
+    const next = $("btn-next");
+    if (next && !next.hidden && (canSwipeSkipPartner() || matched)) {
+      next.click();
+    }
+    setTimeout(() => {
+      swipeSkipSuppressClick = false;
+    }, 320);
   }, flyMs);
+}
+
+function extraPcOnThirdTile() {
+  try {
+    for (const pc of peerPcs.values()) {
+      if (pc?._videoEl && pc._videoEl.id === "remote-third") return pc;
+    }
+  } catch (_) {}
+  try {
+    const extra = pickExtraRemotePeer();
+    if (extra?.peer_id) return findPcForPeer(extra.peer_id);
+  } catch (_) {}
+  return null;
+}
+
+function canSwipeSkipExtra() {
+  if (!swipeSkipEnabled()) return false;
+  if (!matched) return false;
+  if (inFriendCall && matchMode === "friend" && !trioBrowse) return false;
+  try {
+    if (uniqueRemotePcCount() < 2) return false;
+  } catch (_) {
+    return false;
+  }
+  return !!extraPcOnThirdTile();
+}
+
+function commitExtraTileSwipeSkip(dir) {
+  const tile = $("tile-third");
+  const pc = extraPcOnThirdTile();
+  if (tile) {
+    tile.classList.remove("is-swiping", "swipe-armed");
+    tile.classList.add(dir < 0 ? "swipe-exit-left" : "swipe-exit-right");
+  }
+  try {
+    navigator.vibrate?.([10, 30, 22]);
+  } catch (_) {}
+  const flyMs =
+    typeof matchMedia === "function" &&
+    matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? 40
+      : 260;
+  setTimeout(() => {
+    try {
+      dropOnePeerKeepRest(pc, { reason: "swipe-extra" });
+    } catch (_) {}
+    if (tile) {
+      tile.classList.remove(
+        "swipe-exit-left",
+        "swipe-exit-right",
+        "is-swipe-left",
+        "is-swipe-right"
+      );
+      tile.style.removeProperty("--swipe-x");
+      tile.style.removeProperty("--swipe-o");
+      tile.style.removeProperty("--swipe-rot");
+      tile.style.removeProperty("--swipe-scale");
+    }
+  }, flyMs);
+}
+
+function wireExtraTileSwipe() {
+  const tile = $("tile-third");
+  if (!tile || tile.dataset.swipeWired) return;
+  tile.dataset.swipeWired = "1";
+  let st = null;
+  const hint = $("swipe-skip-hint-third");
+  const reset = () => {
+    tile.classList.remove(
+      "is-swiping",
+      "swipe-exit-left",
+      "swipe-exit-right",
+      "swipe-armed",
+      "is-swipe-left",
+      "is-swipe-right",
+      "swipe-snapback"
+    );
+    tile.style.removeProperty("--swipe-x");
+    tile.style.removeProperty("--swipe-o");
+    tile.style.removeProperty("--swipe-rot");
+    tile.style.removeProperty("--swipe-scale");
+    if (hint) {
+      hint.hidden = true;
+      hint.setAttribute("hidden", "");
+      hint.classList.remove("is-left", "is-right", "is-armed");
+    }
+  };
+  const apply = (dx, width) => {
+    const max = Math.max(120, width * 0.45);
+    const clamped = Math.max(-max, Math.min(max, dx));
+    const progress = Math.min(1, Math.abs(clamped) / Math.max(72, width * 0.22));
+    const armed = progress >= 0.92;
+    tile.classList.add("is-swiping");
+    tile.classList.toggle("swipe-armed", armed);
+    tile.classList.toggle("is-swipe-left", clamped < 0);
+    tile.classList.toggle("is-swipe-right", clamped > 0);
+    tile.style.setProperty("--swipe-x", `${clamped.toFixed(1)}px`);
+    tile.style.setProperty("--swipe-o", String(1 - progress * 0.22));
+    tile.style.setProperty("--swipe-rot", `${((clamped / max) * 12).toFixed(2)}deg`);
+    tile.style.setProperty("--swipe-scale", String((1 - progress * 0.05).toFixed(3)));
+    if (hint) {
+      hint.hidden = false;
+      hint.removeAttribute("hidden");
+      hint.classList.toggle("is-left", clamped < 0);
+      hint.classList.toggle("is-right", clamped > 0);
+      hint.classList.toggle("is-armed", armed);
+    }
+  };
+  const endSwipe = (e, cancelled) => {
+    if (!st?.tracking) {
+      st = null;
+      return;
+    }
+    st.tracking = false;
+    try {
+      if (st.id != null) tile.releasePointerCapture?.(st.id);
+    } catch (_) {}
+    const dx = (e?.clientX != null ? e.clientX : st.lastX) - st.x0;
+    const dy = (e?.clientY != null ? e.clientY : st.lastY) - st.y0;
+    const dt = Math.max(1, Date.now() - st.t0);
+    const w = tile.clientWidth || 320;
+    const isMouse = st.pointerType === "mouse";
+    const distMin = isMouse ? Math.max(96, w * 0.26) : Math.max(64, w * 0.18);
+    const distOk = Math.abs(dx) >= distMin;
+    const velocity = Math.abs(dx) / dt;
+    const flickOk = isMouse
+      ? Math.abs(dx) >= 72 && velocity > 0.85
+      : Math.abs(dx) >= 42 && velocity > 0.55;
+    const horizontal = isMouse
+      ? Math.abs(dx) > Math.abs(dy) * 1.45
+      : Math.abs(dx) > Math.abs(dy) * 1.05;
+    const willCommit =
+      !cancelled && st.moved && horizontal && (distOk || flickOk) && canSwipeSkipExtra();
+    if (willCommit) {
+      commitExtraTileSwipeSkip(dx < 0 ? -1 : 1);
+    } else if (st.moved) {
+      tile.classList.add("swipe-snapback");
+      tile.style.setProperty("--swipe-x", "0px");
+      tile.style.setProperty("--swipe-o", "1");
+      tile.style.setProperty("--swipe-rot", "0deg");
+      tile.style.setProperty("--swipe-scale", "1");
+      setTimeout(() => {
+        tile.classList.remove("swipe-snapback");
+        reset();
+      }, 340);
+    } else {
+      reset();
+    }
+    st = null;
+  };
+  tile.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (e.button != null && e.button !== 0) return;
+      if (e.target?.closest?.(partnerSwipeChromeSelector())) return;
+      if (!canSwipeSkipExtra()) return;
+      st = {
+        id: e.pointerId,
+        x0: e.clientX,
+        y0: e.clientY,
+        lastX: e.clientX,
+        lastY: e.clientY,
+        t0: Date.now(),
+        tracking: true,
+        moved: false,
+        pointerType: e.pointerType || "touch",
+      };
+    },
+    { passive: true }
+  );
+  tile.addEventListener(
+    "pointermove",
+    (e) => {
+      if (!st?.tracking) return;
+      if (st.id != null && e.pointerId !== st.id) return;
+      st.lastX = e.clientX;
+      st.lastY = e.clientY;
+      const dx = e.clientX - st.x0;
+      const dy = e.clientY - st.y0;
+      const isMouse = st.pointerType === "mouse";
+      const vertCancel = isMouse
+        ? Math.abs(dy) > 20 && Math.abs(dy) > Math.abs(dx) * 1.15
+        : Math.abs(dy) > 28 && Math.abs(dy) > Math.abs(dx) * 1.2;
+      if (vertCancel) {
+        st.tracking = false;
+        reset();
+        st = null;
+        return;
+      }
+      if (Math.abs(dx) < (isMouse ? 14 : 10)) return;
+      if (!st.moved) {
+        st.moved = true;
+        try {
+          tile.setPointerCapture?.(e.pointerId);
+        } catch (_) {}
+      }
+      apply(dx, tile.clientWidth || 320);
+    },
+    { passive: true }
+  );
+  tile.addEventListener("pointerup", (e) => endSwipe(e, false));
+  tile.addEventListener("pointercancel", (e) => endSwipe(e, true));
 }
 
 function wirePartnerSwipe() {
@@ -6491,10 +10177,12 @@ function wirePartnerSwipe() {
         tile.classList.add("swipe-snapback");
         tile.style.setProperty("--swipe-x", "0px");
         tile.style.setProperty("--swipe-o", "1");
+        tile.style.setProperty("--swipe-rot", "0deg");
+        tile.style.setProperty("--swipe-scale", "1");
         setTimeout(() => {
           tile.classList.remove("swipe-snapback");
           resetPartnerSwipeVisual();
-        }, 180);
+        }, 340);
         // Drop suppress after this gesture so a later tap can open the menu
         setTimeout(() => {
           if (!partnerSwipe && !swipePendingSkip) {
@@ -6648,6 +10336,13 @@ function wireGiftStrip() {
       spendEffectOnPartner(kind);
     });
   });
+  $("gift-strip-debate")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    giftStripClose();
+    try {
+      invitePartnerDebate();
+    } catch (_) {}
+  });
   $("gift-strip-more")?.addEventListener("click", (e) => {
     e.stopPropagation();
     giftStripClose();
@@ -6737,11 +10432,18 @@ function ensureFxTicker() {
 }
 
 /** Spend stars on a partner gift effect. */
-function spendEffectOnPartner(effect) {
+function spendEffectOnPartner(effect, opts = {}) {
   const kind = String(effect || "bars").toLowerCase();
   const cost = giftCost(kind);
-  const uid = primaryPartnerUserId || lastMatchMeta?.user_id || "";
-  if (!uid) {
+  const uid = String(
+    opts.toUserId ||
+      partnerMenuTargetUserId() ||
+      primaryPartnerUserId ||
+      lastMatchMeta?.user_id ||
+      lastGoodPartnerUserId ||
+      ""
+  ).trim();
+  if (!uid || uid === "third-slot") {
     setStatus(_t("stars.noPartner") || "No partner to gift");
     return;
   }
@@ -6757,11 +10459,16 @@ function spendEffectOnPartner(effect) {
     return;
   }
   const nowMs = Date.now();
-  if (lastGiftSpendAt && nowMs - lastGiftSpendAt < GIFT_RATE_LIMIT_MS) {
+  if (
+    !opts.skipRateLimit &&
+    lastGiftSpendAt &&
+    nowMs - lastGiftSpendAt < GIFT_RATE_LIMIT_MS
+  ) {
     const wait = Math.ceil((GIFT_RATE_LIMIT_MS - (nowMs - lastGiftSpendAt)) / 1000);
-    setStatus(
+    toastAvatarGift(
       _t("stars.giftRateLimit", { s: wait }) ||
-        `Easy — wait ${wait}s before another gift`
+        `Easy — wait ${wait}s before another gift`,
+      ""
     );
     return;
   }
@@ -6772,7 +10479,21 @@ function spendEffectOnPartner(effect) {
     typeof crypto !== "undefined" && crypto.randomUUID
       ? crypto.randomUUID()
       : `sp_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  if (opts.fromAvatar || kind === "shooting_star") {
+    pendingAvatarStar = { op_id, uid, kind, at: nowMs };
+  }
   send({ type: "spend_stars", to_user_id: uid, effect: kind, op_id });
+  // Paint the tile we aimed at (3-way mid ≠ left occupancy).
+  try {
+    const until = unixNowSec() + giftSecs(kind);
+    const which =
+      fxWhichForUserId(uid) ||
+      (partnerMenuTarget?.slot === "remote-third" ? "third" : "remote");
+    if (kind !== "shooting_star") {
+      setFxOverlay(which, kind, until, 1);
+    }
+    sendGiftFxP2p({ effect: kind, until, level: 1, targetUserId: uid });
+  } catch (_) {}
   closePartnerMenu();
   giftStripClose();
 }
@@ -7023,12 +10744,60 @@ function maybeAlmostGiftUnlockOnLeave(reason) {
   } catch (_) {}
 }
 
+/** Star unlock countdown is an easter egg (double-click ★ badge) — not default UI. */
+let starUnlockEasterEggUntil = 0;
+let starUnlockEasterEggTimer = 0;
+
 function hideStarUnlockBar() {
   const bar = $("star-unlock-bar");
   if (!bar) return;
   bar.hidden = true;
   bar.setAttribute("hidden", "");
-  bar.classList.remove("is-ready", "is-near");
+  bar.classList.remove("is-ready", "is-near", "is-easter-egg");
+}
+
+function peekStarUnlockEasterEgg(ms = 12000) {
+  starUnlockEasterEggUntil = Date.now() + ms;
+  if (starUnlockEasterEggTimer) clearTimeout(starUnlockEasterEggTimer);
+  starUnlockEasterEggTimer = setTimeout(() => {
+    starUnlockEasterEggTimer = 0;
+    hideStarUnlockBar();
+  }, ms + 50);
+  try {
+    setStatus(
+      _t("stars.unlockEasterEgg") ||
+        "★ unlock timer · easter egg · double-click ★ again to hide"
+    );
+  } catch (_) {}
+}
+
+/** Double-click your or partner ★ badge to peek gift-unlock countdown (easter egg). */
+function wireStarUnlockEasterEgg() {
+  const onDbl = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (Date.now() < starUnlockEasterEggUntil) {
+      starUnlockEasterEggUntil = 0;
+      hideStarUnlockBar();
+      return;
+    }
+    peekStarUnlockEasterEgg(14000);
+    // Nudge progress tick if live
+    try {
+      if (typeof tickStarUnlockUi === "function") tickStarUnlockUi();
+      else if (typeof updateMatchTimer === "function") updateMatchTimer();
+    } catch (_) {}
+  };
+  for (const id of ["local-stars-badge", "remote-stars-badge"]) {
+    const el = $(id);
+    if (!el || el.dataset.starEggWired) continue;
+    el.dataset.starEggWired = "1";
+    el.addEventListener("dblclick", onDbl);
+    el.title =
+      (el.title || "") +
+      (_t("stars.unlockEasterEggTip") ||
+        " · Double-click for unlock timer");
+  }
 }
 
 function syncStarUnlockBar(pct, secs, need, leftStr, early) {
@@ -7037,12 +10806,15 @@ function syncStarUnlockBar(pct, secs, need, leftStr, early) {
   const lbl = $("star-unlock-lbl");
   if (!bar) return;
   const live = !!(matched || inFriendCall);
-  if (!live || secs < 20) {
+  const egg = Date.now() < starUnlockEasterEggUntil;
+  // Default: never show ★ countdown on stage (clean UI). Easter egg only.
+  if (!live || secs < 20 || !egg) {
     hideStarUnlockBar();
     return;
   }
   bar.hidden = false;
   bar.removeAttribute("hidden");
+  bar.classList.add("is-easter-egg");
   const ready = secs >= need;
   bar.classList.toggle("is-ready", ready);
   bar.classList.toggle("is-near", !ready && pct >= 80);
@@ -7157,6 +10929,9 @@ function showStarReviewPrompt(msg) {
                 "First chats unlock earlier — gift a star?"
               : _t("stars.reviewBodyShort") ||
                 "Nice chat — gift a star to raise their reputation?";
+    const teach =
+      _t("stars.reviewTeach") ||
+      "This ★ is their social score. Hearts and fence are just effects.";
 
     const title = theyPraised
       ? _t("stars.reviewTitleReciprocity") || "Gift back?"
@@ -7221,6 +10996,7 @@ function showStarReviewPrompt(msg) {
         </div>
       </div>
       <p class="post-call-body">${escapeHtml(body)}</p>
+      <p class="post-call-teach">${escapeHtml(teach)}</p>
       <div class="export-nudge-actions star-review-actions post-call-actions">
         <div class="post-call-gift-row">${giftBtns}</div>
         <div class="post-call-secondary-row">
@@ -7445,7 +11221,7 @@ function maybeShowPostMatchSafetyNudge(reason) {
       short_id: snap?.short_id || "",
       from: "safety",
     });
-    setTimeout(dismiss, 22000);
+    setTimeout(dismiss, 3000);
   } catch (_) {}
 }
 
@@ -7831,8 +11607,31 @@ function maybeShowPostMatchFriendNudge(reason, opts = {}) {
       unified: 1,
     });
     const dismiss = () => {
+      if (hideIdle) {
+        clearTimeout(hideIdle);
+        hideIdle = 0;
+      }
       if (toast.parentNode) toast.remove();
     };
+    /** Autohide if nobody presses a control (shot 21-14). */
+    const POST_MATCH_FRIEND_IDLE_MS = 5000;
+    let hideIdle = 0;
+    const cancelIdleHide = () => {
+      if (hideIdle) {
+        clearTimeout(hideIdle);
+        hideIdle = 0;
+      }
+    };
+    hideIdle = setTimeout(() => {
+      hideIdle = 0;
+      if (!toast.parentNode) return;
+      trackEvent("friend_nudge_autohide", {
+        reason: reason || snap?.reason || "",
+        sec,
+      });
+      dismiss();
+    }, POST_MATCH_FRIEND_IDLE_MS);
+    toast.addEventListener("pointerdown", cancelIdleHide, { capture: true });
     $("btn-post-friend-no")?.addEventListener("click", () => {
       trackEvent("friend_nudge_dismiss", {
         reason: reason || snap?.reason || "",
@@ -7870,7 +11669,6 @@ function maybeShowPostMatchFriendNudge(reason, opts = {}) {
       sec,
       from: "friend",
     });
-    setTimeout(dismiss, deepChat ? 32000 : longChat ? 28000 : 24000);
   } catch (_) {}
 }
 
@@ -8492,7 +12290,13 @@ function sendLiveChat(body, opts = {}) {
   const id =
     `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
   const ts = Date.now();
-  const asFriend = !!opts.asFriend;
+  const peerUid = String(
+    opts.peerUserId || primaryPartnerUserId || activeChat.peerUserId || ""
+  ).slice(0, 64);
+  const asFriend =
+    !!opts.asFriend ||
+    !!(peerUid && partnerIsFriend(peerUid)) ||
+    !!(inFriendCall && matchMode === "friend");
   const payload = {
     v: 1,
     type: asFriend ? "friend_chat" : "chat",
@@ -8500,7 +12304,7 @@ function sendLiveChat(body, opts = {}) {
     body: text,
     name: getDisplayName() || "anon",
     user_id: myUserId || "",
-    to_user_id: opts.peerUserId || "",
+    to_user_id: peerUid,
     ts,
   };
   let p2p = false;
@@ -8508,16 +12312,19 @@ function sendLiveChat(body, opts = {}) {
     if (pc.sendChatMessage && pc.sendChatMessage(payload)) p2p = true;
   }
   if (p2p) {
-    if (asFriend && opts.peerUserId) {
-      // Keep friend thread context
+    if (asFriend && peerUid) {
+      try {
+        mergeMatchMsgsIntoFriendThread(peerUid, activeChat.peerName);
+      } catch (_) {}
+      // Keep friend thread context so Messages → Chats has the line
       activeChat = {
         mode: "friend",
-        peerUserId: opts.peerUserId,
+        peerUserId: peerUid,
         peerName:
           friendDisplayName(
-            friendsCache.find((f) => f.user_id === opts.peerUserId)
+            friendsCache.find((f) => f.user_id === peerUid)
           ) || activeChat.peerName || "friend",
-        threadKey: friendThreadKey(opts.peerUserId),
+        threadKey: friendThreadKey(peerUid),
         live: true,
       };
     }
@@ -8533,10 +12340,10 @@ function sendLiveChat(body, opts = {}) {
     noteP2pChatId(id, text, ts);
     trackEvent("chat_p2p", { friend: asFriend ? 1 : 0 });
     // Friend offline store: still mirror to hub (receiver skips UI dup if P2P won)
-    if (asFriend && opts.peerUserId && ws && ws.readyState === WebSocket.OPEN) {
+    if (asFriend && peerUid && ws && ws.readyState === WebSocket.OPEN) {
       send({
         type: "friend_chat",
-        to_user_id: opts.peerUserId,
+        to_user_id: peerUid,
         body: text,
         // client-only correlation; server ignores unknown fields
         client_id: id,
@@ -8546,11 +12353,34 @@ function sendLiveChat(body, opts = {}) {
   }
   // Hub relay until data channel is up (server echoes Chat → UI)
   if (ws && ws.readyState === WebSocket.OPEN) {
-    if (asFriend && opts.peerUserId) {
-      send({ type: "friend_chat", to_user_id: opts.peerUserId, body: text });
+    if (asFriend && peerUid) {
+      try {
+        mergeMatchMsgsIntoFriendThread(peerUid, activeChat.peerName);
+      } catch (_) {}
+      activeChat = {
+        mode: "friend",
+        peerUserId: peerUid,
+        peerName:
+          friendDisplayName(
+            friendsCache.find((f) => f.user_id === peerUid)
+          ) || activeChat.peerName || "friend",
+        threadKey: friendThreadKey(peerUid),
+        live: true,
+      };
+      send({ type: "friend_chat", to_user_id: peerUid, body: text, client_id: id });
     } else {
       send({ type: "chat", body: text });
     }
+    recordChatMessage({
+      author: payload.name,
+      body: text,
+      mine: true,
+      id,
+      ts,
+      fromUserId: myUserId || "",
+      via: "hub",
+    });
+    noteP2pChatId(id, text, ts);
     return "hub";
   }
   return false;
@@ -8653,6 +12483,116 @@ function sendPartnerIdentityP2p(opts = {}) {
   return ok;
 }
 
+/**
+ * P2P gift FX — belt-and-suspenders when hub star_effect user_id thrash
+ * drops paint on the partner (Android spend → PC receive).
+ * @param {{ effect: string, until?: number, level?: number, targetUserId?: string }} opts
+ */
+function sendGiftFxP2p(opts = {}) {
+  const effect = String(opts.effect || "").trim().toLowerCase();
+  if (!effect) return false;
+  let until = Math.max(0, Number(opts.until) || 0);
+  if (until > 1e12) until = Math.floor(until / 1000);
+  if (until <= 0) until = unixNowSec() + giftSecs(effect);
+  const level = Math.max(1, Math.min(3, Math.floor(Number(opts.level) || 1)));
+  const targetUserId = String(
+    opts.targetUserId ||
+      primaryPartnerUserId ||
+      lastMatchMeta?.user_id ||
+      lastGoodPartnerUserId ||
+      ""
+  ).trim();
+  const payload = {
+    v: 1,
+    type: "gift_fx",
+    effect,
+    until,
+    level,
+    target_user_id: targetUserId,
+    from_user_id: myUserId || "",
+    from_name: getDisplayName() || "anon",
+    ts: Date.now(),
+  };
+  let ok = false;
+  try {
+    for (const pc of chatPeerPcs()) {
+      if (pc?.sendChatMessage?.(payload)) ok = true;
+    }
+    if (!ok && rtc?.sendChatMessage?.(payload)) ok = true;
+  } catch (_) {}
+  // Hub signal fallback — empty to= broadcasts to session peers
+  try {
+    send({
+      type: "signal",
+      kind: "gift_fx",
+      payload: JSON.stringify(payload),
+    });
+    ok = true;
+  } catch (_) {}
+  try {
+    log(`[gift] gift_fx→ ${effect} until=${until} L${level} ok=${ok ? 1 : 0}`);
+  } catch (_) {}
+  return ok;
+}
+
+/**
+ * Apply inbound gift_fx (P2P or hub signal). Target is usually us when partner spent.
+ * @param {object} msg
+ */
+function applyGiftFxMessage(msg) {
+  if (!msg || typeof msg !== "object") return;
+  const kind = String(msg.effect || msg.kind || "").trim().toLowerCase();
+  if (!kind) return;
+  let until = Math.max(
+    0,
+    Number(msg.until != null ? msg.until : msg.effect_until) || 0
+  );
+  if (until > 1e12) until = Math.floor(until / 1000);
+  {
+    const nowSec = unixNowSec();
+    const priced = nowSec + giftSecs(kind);
+    // Android used to stamp until = now + 2–5s UI hold. Never run shorter
+    // than the priced catalog (heart 8 / bars 15 / fireworks 20 …).
+    if (until <= 0 || until <= nowSec || until + 1 < priced) {
+      until = priced;
+    }
+  }
+  const level = Math.max(1, Math.min(3, Math.floor(Number(msg.level) || 1)));
+  const myUid = String(myUserId || "").trim();
+  const target = String(msg.target_user_id || msg.user_id || "").trim();
+  const fromUid = String(msg.from_user_id || msg.user_id || "").trim();
+  const partnerUid = String(
+    primaryPartnerUserId ||
+      lastMatchMeta?.user_id ||
+      lastGoodPartnerUserId ||
+      ""
+  ).trim();
+  const uidEq = (a, b) =>
+    !!a && !!b && String(a).toLowerCase() === String(b).toLowerCase();
+  const fromMe = uidEq(fromUid, myUid);
+  const which = fxWhichForUserId(target);
+  let paint = which;
+  if (!paint) {
+    if (fromMe) {
+      paint =
+        partnerMenuTarget?.slot === "remote-third" ? "third" : "remote";
+    } else if (uidEq(target, myUid) || !target) {
+      paint = "local";
+    } else {
+      paint = "remote";
+    }
+  }
+  try {
+    log(`[gift] gift_fx← ${kind} which=${paint} until=${until}`);
+  } catch (_) {}
+  setFxOverlay(paint, kind, until, level);
+  if (paint === "local" && !fromMe) {
+    try {
+      playGiftCelebrate(kind, level);
+    } catch (_) {}
+  }
+}
+
 function sendPartnerMuteP2p(muted) {
   const payload = {
     v: 1,
@@ -8723,6 +12663,351 @@ function sendSelfHideP2p(on) {
   return ok;
 }
 
+/** Hide (self-blur) is a live soft-blur track — never self_hide. That signal
+ * makes the partner cover the tile (black / no-cam picture). */
+function shouldAdvertiseCamHidden() {
+  return !!camOff || !!noLocalCamera;
+}
+
+function syncCamHiddenSignal() {
+  try {
+    sendSelfHideP2p(shouldAdvertiseCamHidden());
+  } catch (_) {}
+}
+
+/**
+ * Laptop / audio-only GUM (zero video tracks). Distinct from Hide (self_hide).
+ * Partner shows the cylinder picture only for this — never for a late camera.
+ */
+function sendNoCamP2p(on) {
+  const payload = {
+    v: 1,
+    type: "no_cam",
+    on: !!on,
+    user_id: myUserId || "",
+    name: getDisplayName() || "anon",
+    ts: Date.now(),
+  };
+  try {
+    for (const pc of chatPeerPcs()) {
+      pc?.sendChatMessage?.(payload);
+    }
+    if (rtc?.sendChatMessage) rtc.sendChatMessage(payload);
+  } catch (_) {}
+  try {
+    send({
+      type: "signal",
+      kind: "no_cam",
+      payload: JSON.stringify(payload),
+    });
+  } catch (_) {}
+  try {
+    send({ type: "chat", body: "\x01nocam:" + (on ? "1" : "0") });
+  } catch (_) {}
+}
+
+/** After local GUM: advertise no-cam only when there are zero video tracks. */
+function syncNoCamOutbound() {
+  const tracks = previewStream?.getVideoTracks?.() || [];
+  noLocalCamera = tracks.length === 0;
+  try {
+    sendNoCamP2p(!!noLocalCamera);
+  } catch (_) {}
+  // Hide is a blurred track — never self_hide. Only cam-off / zero tracks.
+  syncCamHiddenSignal();
+}
+
+const NO_CAM_PORTRAIT_SRC = "/brand/logo-hero.jpg?v=1";
+
+function noCamPortraitSrc(avatarUrl) {
+  try {
+    if (
+      typeof isValidAvatarDataUrl === "function" &&
+      isValidAvatarDataUrl(avatarUrl)
+    ) {
+      return String(avatarUrl);
+    }
+  } catch (_) {}
+  return NO_CAM_PORTRAIT_SRC;
+}
+
+function noCamSlotIdMatch(a, b) {
+  const x = String(a || "").trim();
+  const y = String(b || "").trim();
+  if (!x || !y || x === "legacy" || y === "legacy") return false;
+  return x === y;
+}
+
+/**
+ * no_cam / hide from a 3rd must not cover the first conversationalist.
+ * extras≥1 + empty from= is the extra (laptop), not Dragonov.
+ */
+function routeInboundNoCamSlot(opts) {
+  const from = String(opts?.fromUid || "").trim();
+  const extras = Math.max(0, Math.floor(Number(opts?.extrasCount) || 0));
+  const primary = String(opts?.primaryUid || "").trim();
+  const extra0 = String(opts?.extra0Uid || "").trim();
+  const extra1 = String(opts?.extra1Uid || "").trim();
+  if (from && extra0 && noCamSlotIdMatch(from, extra0)) return "extra0";
+  if (from && extra1 && noCamSlotIdMatch(from, extra1)) return "extra1";
+  if (from && primary && noCamSlotIdMatch(from, primary)) return "primary";
+  if (extras >= 1) return "extra0";
+  return "primary";
+}
+
+/**
+ * Laptop no_cam often arrives before extras≥1 and sticks on #remote.
+ * Once a 3rd is listed, move that stale flag onto the extra tile.
+ */
+function shouldRehomePrimaryNoCam(opts) {
+  const extras = Math.max(0, Math.floor(Number(opts?.extrasCount) || 0));
+  return extras >= 1 && (!!opts?.partnerNoCam || !!opts?.partnerCamHidden);
+}
+
+function noCamExtrasCountNow() {
+  try {
+    const n = uniqueRemotePcCount();
+    if (n >= 2) return n - 1;
+  } catch (_) {}
+  try {
+    if (typeof thirdSlotShouldShow === "function" && thirdSlotShouldShow()) {
+      return 1;
+    }
+  } catch (_) {}
+  try {
+    if (typeof pickExtraRemotePeer === "function" && pickExtraRemotePeer()) {
+      return 1;
+    }
+  } catch (_) {}
+  try {
+    const tile = $("tile-third");
+    if (tile && !tile.hidden) return 1;
+  } catch (_) {}
+  return 0;
+}
+
+function uidForPeerTile(elId) {
+  try {
+    if (typeof peerUiMeta !== "undefined" && peerUiMeta) {
+      for (const meta of peerUiMeta.values()) {
+        if (meta && meta.elId === elId) {
+          const u = String(meta.userId || "").trim();
+          if (u) return u;
+        }
+      }
+    }
+  } catch (_) {}
+  if (elId === "remote") {
+    return String(
+      (typeof primaryPartnerUserId !== "undefined" && primaryPartnerUserId) ||
+        lastMatchMeta?.user_id ||
+        ""
+    ).trim();
+  }
+  if (elId === "remote-third") {
+    try {
+      const extra = pickExtraRemotePeer();
+      if (extra?.user_id) return String(extra.user_id).trim();
+    } catch (_) {}
+  }
+  return "";
+}
+
+function whichForNoCamSlot(slot) {
+  if (slot === "extra1") return "remote2";
+  if (slot === "extra0") return "remote-third";
+  return "remote";
+}
+
+/** #remote already painted a face this match (gotcha 48/51). */
+function remoteTileHasPictures() {
+  try {
+    if (remoteTileHasPaintedVideo()) return true;
+  } catch (_) {}
+  try {
+    if (
+      typeof partnerVideoEverFrames !== "undefined" &&
+      partnerVideoEverFrames
+    ) {
+      return true;
+    }
+  } catch (_) {}
+  try {
+    const el = $("remote");
+    if (
+      isRemotePaintVideoEl(el) &&
+      Number(el.videoWidth) > 0 &&
+      streamHasLiveVideoTrack(el.srcObject)
+    ) {
+      return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
+function resolveInboundNoCamWhich(fromUid, fromPc) {
+  try {
+    const fromPcTile =
+      typeof findTileIdForPc === "function" ? findTileIdForPc(fromPc) : "";
+    if (fromPcTile === "remote-third" || fromPcTile === "remote2") {
+      return fromPcTile;
+    }
+    if (fromPcTile === "remote" && !remoteTileHasPictures()) return "remote";
+  } catch (_) {}
+  const from = String(fromUid || "").trim();
+  if (from) {
+    try {
+      if (typeof peerUiMeta !== "undefined" && peerUiMeta) {
+        for (const meta of peerUiMeta.values()) {
+          if (!meta || !noCamSlotIdMatch(meta.userId, from)) continue;
+          if (meta.elId === "remote-third" || meta.elId === "remote2") {
+            return meta.elId;
+          }
+          if (meta.elId === "remote" && !remoteTileHasPictures()) {
+            return "remote";
+          }
+        }
+      }
+    } catch (_) {}
+  }
+  const slot = routeInboundNoCamSlot({
+    fromUid: from,
+    primaryUid:
+      uidForPeerTile("remote") ||
+      (typeof primaryPartnerUserId !== "undefined" ? primaryPartnerUserId : "") ||
+      lastMatchMeta?.user_id ||
+      "",
+    extra0Uid: uidForPeerTile("remote-third"),
+    extra1Uid: uidForPeerTile("remote2"),
+    extrasCount: noCamExtrasCountNow(),
+  });
+  let which = whichForNoCamSlot(slot);
+  if (
+    which === "remote" &&
+    remoteTileHasPictures() &&
+    noCamExtrasCountNow() >= 1
+  ) {
+    which = "remote-third";
+  }
+  return which;
+}
+
+function revealExtraNoCamTile(which) {
+  if (which !== "remote-third") return;
+  try {
+    if (typeof thirdSlotShouldShow === "function" && !thirdSlotShouldShow()) {
+      return;
+    }
+    const tile = $("tile-third");
+    if (tile) {
+      tile.hidden = false;
+      tile.removeAttribute("hidden");
+    }
+    if (typeof enableTrioLayout === "function") {
+      enableTrioLayout(true, { searching: false });
+    }
+  } catch (_) {}
+}
+
+function tryRehomePrimaryNoCam() {
+  try {
+    if (
+      !shouldRehomePrimaryNoCam({
+        extrasCount: noCamExtrasCountNow(),
+        partnerNoCam:
+          typeof tileHasNoCamPortrait === "function" &&
+          tileHasNoCamPortrait("remote"),
+        partnerCamHidden: !!partnerSelfHidden,
+      })
+    ) {
+      return;
+    }
+    if (!remoteTileHasPictures()) return;
+    setNoCamPortrait("remote", false);
+    if (partnerSelfHidden) {
+      setPartnerSelfHidden(false, { toast: false, force: true });
+    }
+    if (
+      typeof tileHasPaintedPixels !== "function" ||
+      !tileHasPaintedPixels("remote-third")
+    ) {
+      revealExtraNoCamTile("remote-third");
+      setNoCamPortrait(
+        "remote-third",
+        true,
+        noCamPortraitAvatar("remote-third")
+      );
+    }
+  } catch (_) {}
+}
+
+/**
+ * Fill partner/self tile with a picture when there is no camera.
+ * Prefers their avatar; else the ruletka cylinder.
+ * which: local | remote | remote-third | remote2
+ */
+function setNoCamPortrait(which, on, avatarUrl) {
+  let el;
+  let img;
+  let tile;
+  if (which === "remote-third") {
+    el = $("third-no-cam");
+    img = $("third-no-cam-img");
+    tile = $("tile-third");
+  } else if (which === "remote2") {
+    el = $("remote2-no-cam");
+    img = $("remote2-no-cam-img");
+    tile = $("remote2-wrap");
+  } else if (which === "local") {
+    el = $("local-no-cam");
+    img = $("local-no-cam-img");
+    tile = $("tile-local");
+  } else {
+    el = $("remote-no-cam");
+    img = $("remote-no-cam-img");
+    tile = $("tile-remote");
+  }
+  if (!el) return;
+  // 214314Z / 201649Z: never cover a tile that already has live camera pixels.
+  // 234930Z: leftover videoWidth after tracks ended is a black slab — show cylinder.
+  if (on && which !== "local") {
+    try {
+      if (tileEverHadCamera(which) && tileHasPaintedPixels(which)) {
+        on = false;
+      } else if (typeof tileHasPaintedPixels === "function" && tileHasPaintedPixels(which)) {
+        on = false;
+      } else if (which === "remote" && remoteTileHasPictures()) {
+        on = false;
+      } else if (which === "remote-third" || which === "remote2") {
+        const vel = $(noCamVideoElId(which));
+        if (
+          vel &&
+          Number(vel.videoWidth) > 0 &&
+          streamHasLiveVideoTrack(vel.srcObject)
+        ) {
+          on = false;
+        }
+      }
+    } catch (_) {}
+  }
+  if (on) {
+    if (img) {
+      const src = noCamPortraitSrc(avatarUrl);
+      if (img.getAttribute("src") !== src) img.src = src;
+    }
+    el.hidden = false;
+    el.removeAttribute("hidden");
+    tile?.classList.add("has-no-cam-portrait");
+    if (which !== "local" && which !== "remote-third" && which !== "remote2") {
+      tile?.classList.remove("has-remote-feed");
+    }
+  } else {
+    el.hidden = true;
+    el.setAttribute("hidden", "");
+    tile?.classList.remove("has-no-cam-portrait");
+  }
+}
+
 /** Partner hid their camera (inbound self_hide) — frost remote tile, not pure black. */
 let partnerSelfHidden = false;
 
@@ -8732,6 +13017,11 @@ function setPartnerSelfHidden(on, opts = {}) {
   partnerSelfHidden = next;
   try {
     $("tile-remote")?.classList.toggle("partner-self-hidden", partnerSelfHidden);
+    setNoCamPortrait(
+      "remote",
+      partnerSelfHidden,
+      lastMatchMeta?.avatar || ""
+    );
     const badge = $("partner-self-hide-badge");
     if (badge) {
       const show = partnerSelfHidden && !!(matched || inFriendCall);
@@ -8750,7 +13040,7 @@ function setPartnerSelfHidden(on, opts = {}) {
   }
 }
 
-function handleSelfHideP2p(msg) {
+function handleNoCamP2p(msg, fromPc) {
   const uid = String(msg.user_id || "").slice(0, 64);
   if (uid && myUserId && uid === myUserId) return;
   const onVal = msg.on;
@@ -8760,6 +13050,71 @@ function handleSelfHideP2p(msg) {
     onVal === "1" ||
     onVal === "true" ||
     msg.hidden === true;
+  try {
+    const which = resolveInboundNoCamWhich(uid, fromPc);
+    const twoRemotes =
+      typeof uniqueRemotePcCount === "function" && uniqueRemotePcCount() >= 2;
+    // Extra no_cam from laptop self must never cover #remote when 2 remotes.
+    if (on && which === "remote" && twoRemotes) {
+      const occUid = uidForPeerTile("remote");
+      const isPrimaryAdvert =
+        uid && occUid && noCamSlotIdMatch(uid, occUid);
+      if (!isPrimaryAdvert) {
+        revealExtraNoCamTile("remote-third");
+        setNoCamPortrait(
+          "remote-third",
+          true,
+          noCamPortraitAvatar("remote-third")
+        );
+        return;
+      }
+    }
+    if (on && which === "remote" && remoteTileHasPictures()) {
+      if (noCamExtrasCountNow() >= 1) {
+        revealExtraNoCamTile("remote-third");
+        setNoCamPortrait(
+          "remote-third",
+          true,
+          noCamPortraitAvatar("remote-third")
+        );
+      }
+      return;
+    }
+    if (on && which !== "remote") revealExtraNoCamTile(which);
+    setNoCamPortrait(which, on, noCamPortraitAvatar(which));
+    if (on && which !== "remote") tryRehomePrimaryNoCam();
+  } catch (_) {}
+}
+
+function handleSelfHideP2p(msg, fromPc) {
+  const uid = String(msg.user_id || "").slice(0, 64);
+  if (uid && myUserId && uid === myUserId) return;
+  const onVal = msg.on;
+  const on =
+    onVal === true ||
+    onVal === 1 ||
+    onVal === "1" ||
+    onVal === "true" ||
+    msg.hidden === true;
+  const which = resolveInboundNoCamWhich(uid, fromPc);
+  if (which !== "remote") {
+    if (on) revealExtraNoCamTile(which);
+    setNoCamPortrait(which, on, noCamPortraitAvatar(which));
+    return;
+  }
+  // Partner Hide sends a live soft-blur track. If we already have their video,
+  // do not cover it with no-cam / black — that was the laptop black-screen bug.
+  let hasVid = false;
+  try {
+    hasVid =
+      remoteTileHasPictures() ||
+      tileHasPaintedPixels("remote") ||
+      remoteTileHasPaintedVideo();
+  } catch (_) {}
+  if (on && hasVid) {
+    setPartnerSelfHidden(false, { toast: false, force: true });
+    return;
+  }
   setPartnerSelfHidden(on, { toast: !!on });
 }
 
@@ -8781,9 +13136,17 @@ function setTheyMutedMe(on, opts = {}) {
 }
 
 function syncTheyMutedMeUi() {
-  const tile = $("tile-local");
-  // Mid-tile mute icon via .peer-slot-muted::before — no text chip
-  tile?.classList.toggle("peer-slot-muted", !!theyMutedMe && !debate.active);
+  const local = $("tile-local");
+  // They muted you → mark on THEM (who muted). Never cover your tile / PiP.
+  local?.classList.remove("peer-slot-muted");
+  const localMark = local?.querySelector?.(":scope > .mute-speaker-mark");
+  if (localMark) {
+    localMark.hidden = true;
+    localMark.setAttribute("hidden", "");
+  }
+  try {
+    setPeerMuteUi("remote", !!peerMutedByEl.remote || partnerMuted);
+  } catch (_) {}
   const badge = $("peer-mute-badge-local-by-them");
   if (badge) {
     badge.hidden = true;
@@ -8804,13 +13167,13 @@ function syncTheyMutedMeUi() {
 function handlePartnerMuteP2p(msg) {
   const uid = String(msg.user_id || "").slice(0, 64);
   if (uid && myUserId && uid === myUserId) return;
-  // Prefer live partner id, but accept during match if ids not fully synced yet
-  const partner = primaryPartnerUserId || "";
+  if (!(matched || inFriendCall)) return;
+  // Only the current conversationalist. Stale mute from a partner who hit
+  // Next used to re-stamp peer-slot-muted on the next face.
+  const partner = String(primaryPartnerUserId || "").slice(0, 64);
   const alt = String(lastMatchMeta?.user_id || "").slice(0, 64);
-  if (partner && uid && uid !== partner && (!alt || uid !== alt)) {
-    // Still accept when matched — uid mismatch was dropping mute on Play↔PC
-    if (!(matched || inFriendCall)) return;
-  }
+  const known = partner || alt;
+  if (uid && known && uid !== partner && uid !== alt) return;
   setTheyMutedMe(!!msg.muted, { toast: !!msg.muted });
 }
 
@@ -8820,6 +13183,11 @@ function handleP2pDataMessage(msg, fromPc) {
   // Formal debate control plane (invite / turns / end)
   if (typeof t === "string" && t.startsWith("debate_")) {
     handleDebateP2pMessage(msg, fromPc);
+    return;
+  }
+  // Gift FX over P2P (Android→PC path when hub user_id thrash)
+  if (t === "gift_fx" || t === "star_gift_fx") {
+    applyGiftFxMessage(msg);
     return;
   }
   // Typing indicators (no body)
@@ -8833,21 +13201,81 @@ function handleP2pDataMessage(msg, fromPc) {
       const uid = String(msg.user_id || "").slice(0, 64);
       if (uid && myUserId && uid === myUserId) return;
       const n = String(msg.name || "").trim().slice(0, 32);
-      if (n && !isPoisonDisplayName(n) && !/^[0-9A-Fa-f]{6,12}$/.test(n)) {
-        if (lastMatchMeta) {
-          lastMatchMeta = { ...lastMatchMeta, name: n };
-        }
-        if (activeChat && activeChat.live) {
-          activeChat.peerName = n;
-        }
-        // Re-paint tile with real name (e.g. Courtier) — never friend_code
+      if (isRealPartnerDisplayName(n)) {
+        const latchedUid = String(lastGoodPartnerUserId || "").trim();
+        // Find-3rd multi: stranger DC identity must not wipe main #remote Courtier
+        const stealMainLatch =
+          trioBrowse &&
+          latchedUid &&
+          uid &&
+          String(uid) !== latchedUid &&
+          isRealPartnerDisplayName(lastGoodPartnerName);
+        let uidOwnsOccupancy = false;
         try {
-          paintPartnerIdentityChrome({ name: n });
+          const occPc =
+            typeof liveMainRemotePc === "function" ? liveMainRemotePc() : null;
+          for (const [pid, meta] of peerUiMeta.entries()) {
+            if (!meta || String(meta.userId || "") !== String(uid)) continue;
+            const pc =
+              typeof findPcForPeer === "function" ? findPcForPeer(pid) : null;
+            if (occPc && pc === occPc) uidOwnsOccupancy = true;
+          }
         } catch (_) {}
+        if (!stealMainLatch || uidOwnsOccupancy) {
+          latchGoodPartnerName(n, uid);
+          if (lastMatchMeta) {
+            lastMatchMeta = {
+              ...lastMatchMeta,
+              name: n,
+              user_id: uid || lastMatchMeta.user_id,
+            };
+          } else {
+            lastMatchMeta = { name: n, user_id: uid || "" };
+          }
+          if (activeChat && activeChat.live) {
+            activeChat.peerName = n;
+          }
+          // Re-paint tile with real name (e.g. Courtier) — never friend_code / partner_short
+          try {
+            paintPartnerIdentityChrome({ name: n, userId: uid });
+          } catch (_) {}
+          try {
+            const empty = $("remote-empty");
+            if (matched && empty && !empty.classList.contains("hidden")) {
+              paintConnectingIdentity([{ name: n, user_id: uid }]);
+            }
+          } catch (_) {}
+          try {
+            updateChatHeader();
+          } catch (_) {}
+          log(`[match] name=${n} from=dc`);
+        } else {
+          // 3rd / other peer: paint THEIR tile, never steal main Courtier
+          try {
+            for (const [pid, meta] of peerUiMeta.entries()) {
+              if (
+                meta?.userId &&
+                uid &&
+                String(meta.userId) === String(uid)
+              ) {
+                meta.name = n;
+                setWhoLabel(
+                  meta.elId === "remote-third" ? "remote-third" : meta.elId,
+                  n,
+                  ""
+                );
+                log(`[match] name=${n} from=dc slot=${meta.elId}`);
+              }
+              void pid;
+            }
+          } catch (_) {}
+          log(
+            `[match] name=${n} from=dc skip-main (keep ${lastGoodPartnerName})`
+          );
+        }
         try {
-          updateChatHeader();
+          syncLaptopTrioTiles();
         } catch (_) {}
-        log(`[match] name=${n} from=dc`);
       }
       const fc = String(msg.friend_code || msg.friendCode || "")
         .trim()
@@ -8855,67 +13283,129 @@ function handleP2pDataMessage(msg, fromPc) {
       if (fc && lastMatchMeta && !lastMatchMeta.friend_code) {
         lastMatchMeta = { ...lastMatchMeta, friend_code: fc };
       }
+      try {
+        if (fc) paintPartnerFriendCode(fc);
+      } catch (_) {}
       // Store code only — do not paint code as the name chip
       try {
         hideRemoteWhoSub();
       } catch (_) {}
+      let identSlot = null;
+      try {
+        for (const meta of peerUiMeta.values()) {
+          if (meta?.userId && uid && String(meta.userId) === String(uid)) {
+            identSlot = meta;
+            break;
+          }
+        }
+      } catch (_) {}
+      if (!identSlot && fromPc) {
+        try {
+          const tileId =
+            (typeof findTileIdForPc === "function" && findTileIdForPc(fromPc)) ||
+            fromPc._videoEl?.id ||
+            "";
+          if (tileId === "remote" || tileId === "remote2" || tileId === "remote-third") {
+            identSlot = { elId: tileId, userId: uid };
+          }
+        } catch (_) {}
+      }
+      // Never default unknown 3rd identity onto left #remote (wrong ★ / name).
+      const identElId = identSlot?.elId || "";
+      const paintMainIdent = identElId === "remote";
       // Stars / trust from peer DC (old hub may omit MatchPeer.stars)
       const starsRaw = msg.stars ?? msg.star_balance ?? msg.starBalance;
       if (starsRaw !== undefined && starsRaw !== null && starsRaw !== "") {
         const sn = Math.max(0, Math.floor(Number(starsRaw) || 0));
-        partnerStars = sn;
-        if (lastMatchMeta) lastMatchMeta = { ...lastMatchMeta, stars: sn };
+        if (identSlot) identSlot.stars = sn;
+        if (paintMainIdent) {
+          partnerStars = sn;
+          if (lastMatchMeta) lastMatchMeta = { ...lastMatchMeta, stars: sn };
+        }
         try {
-          setStarsBadge("remote", sn, {
-            trust:
-              msg.trust != null
-                ? Math.max(0, Math.floor(Number(msg.trust) || 0))
-                : partnerTrust,
-          });
+          if (identElId) {
+            setStarsBadge(starsWhichForSlot(identElId) || "remote", sn, {
+              trust:
+                msg.trust != null
+                  ? Math.max(0, Math.floor(Number(msg.trust) || 0))
+                  : paintMainIdent
+                    ? partnerTrust
+                    : identSlot?.trust || 0,
+            });
+          }
         } catch (_) {}
       }
       const trustRaw =
         msg.trust ?? msg.social_health ?? msg.trust_effective ?? msg.public_trust;
       if (trustRaw !== undefined && trustRaw !== null && trustRaw !== "") {
         const tn = Math.max(0, Math.floor(Number(trustRaw) || 0));
-        partnerTrust = tn;
-        if (lastMatchMeta) lastMatchMeta = { ...lastMatchMeta, trust: tn };
+        if (identSlot) identSlot.trust = tn;
+        if (paintMainIdent) {
+          partnerTrust = tn;
+          if (lastMatchMeta) lastMatchMeta = { ...lastMatchMeta, trust: tn };
+        }
         try {
-          setStarsBadge("remote", partnerStars, { trust: tn });
+          if (identElId) {
+            const starN = displaySlotStars(
+              paintMainIdent ? partnerStars : identSlot?.stars,
+              tn
+            );
+            setStarsBadge(starsWhichForSlot(identElId) || "remote", starN, {
+              trust: tn,
+            });
+          }
         } catch (_) {}
       }
       // Geo from peer DC when hub partner_geo / MatchPeer geo is empty
       const fl = normalizeFlagCode(msg.flag || msg.Flag || "");
       const co = String(msg.country || msg.Country || "").trim();
       const ci = String(msg.city || msg.City || "").trim();
+      const hideSpecified =
+        msg.hide_ip === true ||
+        msg.hideIp === true ||
+        msg.hide_ip === false ||
+        msg.hideIp === false ||
+        msg.hide_ip === 0 ||
+        msg.hide_ip === 1 ||
+        msg.hide_ip === "0" ||
+        msg.hide_ip === "1";
       const hide =
         msg.hide_ip === true ||
         msg.hideIp === true ||
         msg.hide_ip === 1 ||
         msg.hide_ip === "1";
-      if (fl || co || ci || hide) {
-        if (lastMatchMeta) {
+      if (fl || co || ci || hideSpecified) {
+        if (identSlot) {
+          identSlot.flag = fl || identSlot.flag || "";
+          identSlot.country = hide ? "" : co || identSlot.country || "";
+          identSlot.city = hide ? "" : ci || identSlot.city || "";
+          if (hideSpecified) identSlot.hide_ip = hide;
+        }
+        if (paintMainIdent && lastMatchMeta) {
           lastMatchMeta = {
             ...lastMatchMeta,
             flag: fl || lastMatchMeta.flag || "",
             country: hide ? "" : co || lastMatchMeta.country || "",
             city: hide ? "" : ci || lastMatchMeta.city || "",
-            hide_ip: hide || !!lastMatchMeta.hide_ip,
+            hide_ip: hideSpecified ? hide : !!lastMatchMeta.hide_ip,
           };
         }
         try {
-          // Refresh remote location chip if present
-          const tag = $("remote-tag") || $("partner-loc") || $("remote-loc");
+          const tag = locElForSlot(identElId) || $("remote-tag");
           if (tag && typeof setLocationOnTile === "function") {
             setLocationOnTile(tag, {
-              flag: fl || lastMatchMeta?.flag || "",
-              country: hide ? "" : co || lastMatchMeta?.country || "",
-              city: hide ? "" : ci || lastMatchMeta?.city || "",
-              hide_ip: hide,
+              flag: fl || identSlot?.flag || lastMatchMeta?.flag || "",
+              country: hide
+                ? ""
+                : co || identSlot?.country || lastMatchMeta?.country || "",
+              city: hide
+                ? ""
+                : ci || identSlot?.city || lastMatchMeta?.city || "",
+              hide_ip: hideSpecified ? hide : false,
             });
           }
           try {
-            updateChatHeader();
+            if (paintMainIdent) updateChatHeader();
           } catch (_) {}
         } catch (_) {}
       }
@@ -8939,7 +13429,11 @@ function handleP2pDataMessage(msg, fromPc) {
   }
   // Partner hid/revealed their camera (self-blur / Hide)
   if (t === "self_hide" || t === "cam_hide") {
-    handleSelfHideP2p(msg);
+    handleSelfHideP2p(msg, fromPc);
+    return;
+  }
+  if (t === "no_cam") {
+    handleNoCamP2p(msg, fromPc);
     return;
   }
   if (t !== "chat" && t !== "friend_chat") return;
@@ -8959,9 +13453,16 @@ function handleP2pDataMessage(msg, fromPc) {
   const ts = typeof msg.ts === "number" ? msg.ts : Date.now();
   const id = msg.id || `p2p-${ts}`;
 
-  if (msg.type === "friend_chat" || (inFriendCall && matchMode === "friend")) {
+  if (
+    msg.type === "friend_chat" ||
+    (inFriendCall && matchMode === "friend") ||
+    partnerIsFriend(uid)
+  ) {
     const peerId = uid === myUserId ? msg.to_user_id || primaryPartnerUserId : uid;
     if (peerId) {
+      try {
+        mergeMatchMsgsIntoFriendThread(peerId, name);
+      } catch (_) {}
       activeChat = {
         mode: "friend",
         peerUserId: peerId,
@@ -9065,6 +13566,9 @@ function recordChatMessage(msg) {
       try {
         playChatMessageChime();
       } catch (_) {}
+      try {
+        showIncomingChatToast(entry.author, entry.body);
+      } catch (_) {}
     }
   }
   thr.updated = ts;
@@ -9072,6 +13576,38 @@ function recordChatMessage(msg) {
   thr.peerUserId = activeChat.peerUserId || thr.peerUserId;
   map[activeChat.threadKey] = thr;
   saveChatThreads(map);
+
+  // Live match lines with a friend also land in their Chats DM
+  try {
+    const uid = String(
+      activeChat.peerUserId || msg.fromUserId || primaryPartnerUserId || ""
+    ).trim();
+    const fKey = uid ? friendThreadKey(uid) : "";
+    if (
+      !isDup &&
+      uid &&
+      fKey &&
+      fKey !== activeChat.threadKey &&
+      partnerIsFriend(uid) &&
+      entry.cls !== "sys"
+    ) {
+      const fthr = map[fKey] || {
+        title: activeChat.peerName || "friend",
+        peerUserId: uid,
+        kind: "friend",
+        msgs: [],
+        updated: ts,
+      };
+      if (!fthr.msgs.some((m) => m.id === entry.id)) {
+        fthr.msgs.push({ ...entry });
+        while (fthr.msgs.length > MAX_THREAD_MSGS) fthr.msgs.shift();
+      }
+      fthr.updated = ts;
+      fthr.peerUserId = uid;
+      map[fKey] = fthr;
+      saveChatThreads(map);
+    }
+  } catch (_) {}
 
   if (isDup) return;
 
@@ -9090,6 +13626,42 @@ function recordChatMessage(msg) {
   updateMessagesBadge();
 }
 
+/** 4s peek of a partner message when the Messages sheet isn't on that thread. */
+function showIncomingChatToast(author, body) {
+  if (messagesSheetOpen && messagesInThread) return;
+  if (!(matched || inFriendCall || trioBrowse)) return;
+  const text = String(body || "").trim();
+  if (!text) return;
+  const who = String(author || lastMatchMeta?.name || "Partner").slice(0, 32);
+  let toast = $("incoming-chat-toast");
+  if (toast) toast.remove();
+  toast = document.createElement("div");
+  toast.id = "incoming-chat-toast";
+  toast.className = "friend-soft-toast incoming-chat-toast";
+  toast.setAttribute("role", "status");
+  toast.innerHTML =
+    "<strong>" +
+    escapeHtml(who) +
+    "</strong><span>" +
+    escapeHtml(text.slice(0, 160)) +
+    "</span>";
+  toast.addEventListener("click", () => {
+    try {
+      toast.remove();
+    } catch (_) {}
+    try {
+      openMessages("live");
+    } catch (_) {}
+  });
+  document.body.appendChild(toast);
+  clearTimeout(showIncomingChatToast._t);
+  showIncomingChatToast._t = setTimeout(() => {
+    try {
+      toast.remove();
+    } catch (_) {}
+  }, 4000);
+}
+
 function openMatchChatForPartner(peers) {
   const primary =
     (Array.isArray(peers) &&
@@ -9098,11 +13670,49 @@ function openMatchChatForPartner(peers) {
         peers[0])) ||
     null;
   const uid = primary?.user_id || primaryPartnerUserId || "";
+  // Real display only — never short_id / partner_short hex as chat peerName
+  // (resolvePartnerPaintName used to inherit poison via activeChat.peerName).
+  const rawPrimary = String(primary?.name || "").trim();
   const name =
-    (primary?.name && primary.name !== "anon" ? primary.name : "") ||
-    primary?.short_id ||
-    lastMatchMeta?.name ||
+    (isRealPartnerDisplayName(rawPrimary) ? rawPrimary : "") ||
+    (isRealPartnerDisplayName(lastMatchMeta?.name)
+      ? String(lastMatchMeta.name).trim()
+      : "") ||
+    (isRealPartnerDisplayName(lastGoodPartnerName)
+      ? lastGoodPartnerName
+      : "") ||
     "partner";
+  if (uid && partnerIsFriend(uid)) {
+    try {
+      mergeMatchMsgsIntoFriendThread(uid, name);
+    } catch (_) {}
+    const key = friendThreadKey(uid);
+    activeChat = {
+      mode: "friend",
+      peerUserId: uid,
+      peerName: name,
+      threadKey: key,
+      live: true,
+    };
+    const map = loadChatThreads();
+    if (!map[key]) {
+      map[key] = {
+        title: name,
+        peerUserId: uid,
+        kind: "friend",
+        msgs: [],
+        updated: Date.now(),
+      };
+      saveChatThreads(map);
+    } else if (map[key].msgs && map[key].msgs.length) {
+      renderThreadToDom(key);
+    } else {
+      clearChatDom();
+    }
+    showChatPanel(false);
+    updateChatHeader();
+    return;
+  }
   const key = matchThreadKey(uid, primary?.friend_code, primary?.short_id);
   activeChat = {
     mode: "match",
@@ -9134,6 +13744,9 @@ function openMatchChatForPartner(peers) {
 
 function openFriendChat(userId, opts = {}) {
   if (!userId) return;
+  try {
+    mergeMatchMsgsIntoFriendThread(userId, opts.name);
+  } catch (_) {}
   const fr = friendsCache.find((f) => f.user_id === userId);
   const name =
     opts.name ||
@@ -9292,10 +13905,128 @@ function setMessagesTab(tab) {
   renderMessagesList();
 }
 
+function openInboxAddFriend({ code = "", focus = true } = {}) {
+  const box = $("inbox-people-expand");
+  const btn = $("btn-inbox-new");
+  if (box) {
+    box.hidden = false;
+    btn?.setAttribute("aria-expanded", "true");
+    btn?.classList.add("is-open");
+  }
+  const input = $("inbox-add-code");
+  if (input && code) input.value = String(code).slice(0, 16);
+  if (focus) {
+    try {
+      input?.focus();
+    } catch (_) {}
+  }
+}
+
+function renderInboxOnlineStrip() {
+  const wrap = $("inbox-online-strip");
+  const row = $("inbox-online-row");
+  if (!wrap || !row) return;
+  const friendsTab = messagesTab === "friends";
+  const online = (friendsCache || []).filter((f) => f && f.online && f.user_id);
+  if (!friendsTab || !online.length) {
+    wrap.hidden = true;
+    row.innerHTML = "";
+    return;
+  }
+  wrap.hidden = false;
+  wrap.removeAttribute("hidden");
+  row.innerHTML = online
+    .map((f) => {
+      const name =
+        (typeof friendDisplayName === "function" && friendDisplayName(f)) ||
+        f.name ||
+        f.short_id ||
+        "Friend";
+      return `<button type="button" class="inbox-online-chip" data-uid="${escapeAttr(
+        f.user_id
+      )}" title="${escapeAttr(name)}" aria-label="${escapeAttr(
+        (_t("friends.call") || "Call") + " " + name
+      )}">
+        <span class="inbox-online-av" aria-hidden="true">${escapeHtml(
+          initialsFor(name)
+        )}<span class="inbox-online-dot"></span></span>
+        <span class="inbox-online-name">${escapeHtml(name)}</span>
+      </button>`;
+    })
+    .join("");
+  row.querySelectorAll(".inbox-online-chip").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const uid = btn.getAttribute("data-uid");
+      if (uid) placeFriendCall(uid, { closePanel: false });
+    });
+  });
+}
+
+function renderInboxPeopleChrome() {
+  const bar = $("inbox-people-bar");
+  const reqBox = $("inbox-requests");
+  const friendsTab = messagesTab === "friends";
+  if (bar) bar.hidden = !friendsTab;
+  const codeEl = $("inbox-my-code");
+  if (codeEl) codeEl.textContent = myFriendCode || "—";
+  try {
+    renderInboxOnlineStrip();
+  } catch (_) {}
+  if (!reqBox) return;
+  if (!friendsTab || !(incomingRequests || []).length) {
+    reqBox.hidden = true;
+    reqBox.innerHTML = "";
+    return;
+  }
+  reqBox.hidden = false;
+  reqBox.innerHTML =
+    `<div class="inbox-req-title">${escapeHtml(
+      _t("friends.incomingTitle") || "Requests"
+    )}</div>` +
+    incomingRequests
+      .map(
+        (f) => `<div class="msg-thread-row inbox-req-row" data-uid="${escapeAttr(
+          f.user_id
+        )}">
+        <span class="msg-thread-avatar" aria-hidden="true">${escapeHtml(
+          initialsFor(f.name || f.short_id || "?")
+        )}</span>
+        <span class="meta">
+          <strong>${escapeHtml(f.name || f.short_id || "Friend")}</strong>
+          <span class="preview">${escapeHtml(
+            f.friend_code || _t("friends.incomingTitle") || "Request"
+          )}</span>
+        </span>
+        <span class="inbox-req-actions">
+          <button type="button" class="pill tight primary btn-inbox-accept" data-uid="${escapeAttr(
+            f.user_id
+          )}">${escapeHtml(_t("friends.acceptReq") || "Accept")}</button>
+          <button type="button" class="pill tight danger btn-inbox-decline" data-uid="${escapeAttr(
+            f.user_id
+          )}">${escapeHtml(_t("friends.declineReq") || "Decline")}</button>
+        </span>
+      </div>`
+      )
+      .join("");
+  reqBox.querySelectorAll(".btn-inbox-accept").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      send({ type: "accept_friend", user_id: btn.getAttribute("data-uid") });
+      setStatus(_t("friends.requestAccepted"));
+    });
+  });
+  reqBox.querySelectorAll(".btn-inbox-decline").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      send({ type: "decline_friend", user_id: btn.getAttribute("data-uid") });
+    });
+  });
+}
+
 function renderMessagesList() {
   const list = $("msg-thread-list");
   if (!list) return;
-  const entries = buildInboxEntries(messagesTab);
+  let entries = buildInboxEntries(messagesTab);
 
   // Tab counts (unread)
   const fu = buildInboxEntries("friends").filter((e) => e.unread).length;
@@ -9311,6 +14042,17 @@ function renderMessagesList() {
     cm.textContent = String(mu > 99 ? "99+" : mu);
   }
   updateMessagesBadge();
+  try {
+    renderInboxPeopleChrome();
+  } catch (_) {}
+
+  const q = ($("inbox-search")?.value || "").trim().toLowerCase();
+  if (q) {
+    entries = entries.filter((e) => {
+      const blob = `${e.title || ""} ${e.preview || ""}`.toLowerCase();
+      return blob.includes(q);
+    });
+  }
 
   if (!entries.length) {
     const isFriends = messagesTab === "friends";
@@ -9336,8 +14078,7 @@ function renderMessagesList() {
       ${cta}
     </div>`;
     $("msg-empty-cta-friends")?.addEventListener("click", () => {
-      closeMessages();
-      openFriends();
+      $("btn-inbox-new")?.click();
     });
     $("msg-empty-cta-start")?.addEventListener("click", () => {
       closeMessages();
@@ -9359,9 +14100,10 @@ function renderMessagesList() {
             : e.isFriend
               ? ` · ${escapeHtml(_t("friends.kindFriend") || "friend")}`
               : "";
-      return `<button type="button" class="msg-thread-row${e.unread ? " unread" : ""}${
+      return `<div class="msg-thread-row${e.unread ? " unread" : ""}${
         e.online || e.live ? " online" : ""
-      }" data-key="${escapeAttr(e.threadKey)}" data-mode="${escapeAttr(e.mode)}" data-uid="${escapeAttr(
+      }">
+        <button type="button" class="msg-thread-hit" data-key="${escapeAttr(e.threadKey)}" data-mode="${escapeAttr(e.mode)}" data-uid="${escapeAttr(
         e.peerUserId || ""
       )}" data-name="${escapeAttr(e.title)}" data-live="${e.live ? "1" : "0"}">
         ${
@@ -9374,16 +14116,30 @@ function renderMessagesList() {
               )}</span>`
         }
         <span class="meta">
-          <strong>${escapeHtml(e.title)}${liveTag ? `<span style="font-weight:500;color:#8b9bb0;font-size:0.75rem">${liveTag}</span>` : ""}</strong>
+          <span class="msg-row-top">
+            <strong>${escapeHtml(e.title)}${liveTag ? `<span class="row-status">${liveTag}</span>` : ""}</strong>
+            <span class="when">${escapeHtml(formatInboxWhen(e.updated))}</span>
+          </span>
           <span class="preview">${escapeHtml(e.preview)}</span>
         </span>
-        <span class="when">${escapeHtml(formatInboxWhen(e.updated))}</span>
         ${e.unread ? '<span class="unread-dot" aria-hidden="true"></span>' : ""}
-      </button>`;
+        </button>
+        ${
+          e.peerUserId
+            ? `<button type="button" class="row-call" data-uid="${escapeAttr(
+                e.peerUserId
+              )}" aria-label="${escapeAttr(
+                _t("friends.call") || "Call"
+              )}" title="${escapeAttr(
+                _t("friends.call") || "Call"
+              )}"></button>`
+            : ""
+        }
+      </div>`;
     })
     .join("");
 
-  list.querySelectorAll(".msg-thread-row").forEach((btn) => {
+  list.querySelectorAll(".msg-thread-hit").forEach((btn) => {
     btn.addEventListener("click", () => {
       openInboxThread(btn.getAttribute("data-key"), {
         mode: btn.getAttribute("data-mode") || "history",
@@ -9393,6 +14149,21 @@ function renderMessagesList() {
       });
     });
   });
+  list.querySelectorAll(".row-call").forEach((el) => {
+    el.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const uid = el.getAttribute("data-uid");
+      if (uid) placeFriendCall(uid, { closePanel: false });
+    });
+  });
+}
+
+function friendsInboxChrome(showList) {
+  const tabs = document.querySelector("#friends-sheet .friends-tabs");
+  const body = document.querySelector("#friends-sheet .sheet-body");
+  if (tabs) tabs.hidden = !showList;
+  if (body) body.hidden = !showList;
 }
 
 function showMsgListView() {
@@ -9401,6 +14172,8 @@ function showMsgListView() {
   const thr = $("msg-view-thread");
   if (list) list.hidden = false;
   if (thr) thr.hidden = true;
+  $("friends-sheet")?.classList.remove("is-thread");
+  friendsInboxChrome(true);
   renderMessagesList();
 }
 
@@ -9409,7 +14182,12 @@ function showMsgThreadView() {
   const list = $("msg-view-list");
   const thr = $("msg-view-thread");
   if (list) list.hidden = true;
-  if (thr) thr.hidden = false;
+  if (thr) {
+    thr.hidden = false;
+    thr.removeAttribute("hidden");
+  }
+  $("friends-sheet")?.classList.add("is-thread");
+  friendsInboxChrome(false);
 }
 
 function renderInboxThreadBody() {
@@ -9446,6 +14224,12 @@ function updateInboxThreadHeader() {
     } else {
       sub.textContent = _t("chat.ended") || "Call ended · chat saved";
     }
+  }
+  const callBtn = $("msg-thread-call");
+  if (callBtn) {
+    const uid = activeChat.peerUserId || "";
+    callBtn.hidden = !uid;
+    if (uid) callBtn.setAttribute("data-uid", uid);
   }
   if (input) {
     const canSend =
@@ -9523,51 +14307,25 @@ function openInboxThread(threadKey, meta = {}) {
 }
 
 function openMessages(tab) {
-  closeAllDockFlyouts("messages");
   if (tab) setMessagesTab(tab);
   else setMessagesTab(messagesTab || "friends");
   messagesSheetOpen = true;
-  const sheet = $("messages-sheet");
-  const bd = $("messages-backdrop");
-  const btn = $("btn-messages");
-  if (sheet) {
-    sheet.hidden = false;
-    sheet.removeAttribute("hidden");
-    positionDockFlyout(sheet, btn, { align: "start", maxWidth: 400 });
-    void sheet.offsetWidth;
-    sheet.classList.add("is-open");
-  }
-  if (bd) {
-    bd.hidden = false;
-    bd.removeAttribute("hidden");
-    bd.classList.add("is-open");
-  }
-  setDockFlyoutOpen(btn, true);
-  showMsgListView();
-  updateMessagesBadge();
-  bindSheetFocusTrap(sheet);
-  // Soft storage tip when match history is huge
-  setTimeout(() => {
+  if (!friendsIsOpen()) openFriends();
+  else {
+    showMsgListView();
     try {
-      maybeShowChatCleanupTip();
+      renderMessagesList();
+      renderInboxPeopleChrome();
     } catch (_) {}
-  }, 600);
+  }
 }
 
 function closeMessages() {
-  messagesSheetOpen = false;
-  messagesInThread = false;
-  const sheet = $("messages-sheet");
-  const bd = $("messages-backdrop");
-  const btn = $("btn-messages");
-  releaseSheetFocusTrap(sheet);
-  sheet?.classList.remove("is-open");
-  bd?.classList.remove("is-open");
-  setDockFlyoutOpen(btn, false);
-  if (sheet) sheet.hidden = true;
-  if (bd) bd.hidden = true;
-  // Return to list next open
-  showMsgListView();
+  if (messagesInThread) {
+    showMsgListView();
+    return;
+  }
+  closeFriends();
 }
 
 function updateMessagesBadge() {
@@ -9776,12 +14534,18 @@ function countUnreadMissedCalls() {
 }
 
 function updateFriendsUnreadBadge() {
-  // Friends badge = requests + unread missed calls; chats use Messages badge
+  // One badge: requests + missed calls + unread DMs / match threads
   const badge = $("friends-badge");
   if (!badge) return;
   const reqN = (incomingRequests || []).length;
   const missedN = countUnreadMissedCalls();
-  const n = reqN + missedN;
+  let dmN = 0;
+  try {
+    dmN =
+      buildInboxEntries("friends").filter((e) => e.unread).length +
+      buildInboxEntries("matches").filter((e) => e.unread).length;
+  } catch (_) {}
+  const n = reqN + missedN + dmN;
   if (n > 0) {
     badge.hidden = false;
     badge.textContent = String(n > 99 ? "99+" : n);
@@ -10012,11 +14776,13 @@ function clearOfferKickWatch() {
  * Hop10: denser early + free locks sooner.
  * Hop11: free stuck@550; denser first 3s re-kick so recovery beats hardMs belt
  * (~8.5s hub max was hard rebuild when offerKick waves missed).
+ * Hop9 (link-web-kick): first stuck-local re-emit ≤400ms; denser early waves.
  */
 function armOfferKickWatch(
   msg,
   peer,
-  delaysMs = [0, 80, 180, 320, 500, 800, 1200, 1800, 2800]
+  // Hop11: denser first 300ms so stuck-local re-emit beats cold pure wait
+  delaysMs = [0, 40, 90, 160, 280, 450, 700, 1100, 1700, 2600]
 ) {
   clearOfferKickWatch();
   if (!msg || !peer) return;
@@ -10047,9 +14813,11 @@ function armOfferKickWatch(
         // Local offer exists but never left the wire → re-emit FIRST (even if
         // createOffer path still mid-relay-wait). Then grace in-flight before tear.
         const local = existing?.pc?.localDescription;
-        // In-flight without local yet: hop11 give createOffer/setLocal ~550ms
-        // (was 700). Pure force_relay: slightly longer so first-relay wait can finish.
-        const inflightGrace = msg?.force_relay ? 900 : 550;
+        // In-flight without local yet: pure force_relay must cover first-relay
+        // wait (webrtc ~520+350) + offerer connectBudget (~1100). hop10 grace
+        // 1100 (was 700) so offerKick does not tear mid-pure gather. Hybrid 400.
+        // Stuck-local re-emit still fires every wave (below).
+        const inflightGrace = msg?.force_relay ? 1100 : 400;
         if (
           existing?._offerInFlight &&
           !local &&
@@ -10297,10 +15065,43 @@ function autoDisablePreferDirectOnFail({ autoNext = true } = {}) {
 /**
  * True if remote video/audio tracks are live on the stage.
  */
+/** Live audio or video on a MediaStream — no-cam laptop counts. */
+function streamHasLiveAv(stream) {
+  if (!stream) return false;
+  try {
+    return (stream.getTracks?.() || []).some(
+      (t) =>
+        t.readyState === "live" && (t.kind === "audio" || t.kind === "video")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function hasLiveRemoteAudio() {
+  try {
+    const streams = [];
+    const r = $("remote")?.srcObject;
+    if (r) streams.push(r);
+    const t = $("remote-third")?.srcObject;
+    if (t) streams.push(t);
+    const r2 = $("remote2")?.srcObject;
+    if (r2) streams.push(r2);
+    for (const pc of peerPcs.values()) {
+      if (pc?.remoteStream) streams.push(pc.remoteStream);
+    }
+    for (const s of streams) {
+      const a = (s.getAudioTracks?.() || []).some(
+        (tr) => tr.readyState === "live"
+      );
+      if (a) return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
 function hasLiveRemoteMedia() {
   try {
-    // Prefer actual video frames / live video tracks — audio-only kept "Linking"
-    // forever while gifts still worked (hub path).
     if (typeof partnerVideoHasFrames === "function" && partnerVideoHasFrames()) {
       return true;
     }
@@ -10309,6 +15110,8 @@ function hasLiveRemoteMedia() {
     if (r) streams.push(r);
     const t = $("remote-third")?.srcObject;
     if (t) streams.push(t);
+    const r2 = $("remote2")?.srcObject;
+    if (r2) streams.push(r2);
     for (const pc of peerPcs.values()) {
       if (pc?.remoteStream) streams.push(pc.remoteStream);
     }
@@ -10318,8 +15121,108 @@ function hasLiveRemoteMedia() {
       );
       if (v) return true;
     }
+    // No-cam peer: live audio is a finished link (do not sit on Linking).
+    if (hasLiveRemoteAudio()) return true;
   } catch (_) {}
   return false;
+}
+
+/**
+ * Hide “Linking cameras…” once remote audio is live OR video frames paint.
+ * Do not wait for videoWidth if we already hear them (no-cam laptop).
+ * Does not touch relayWait / ICE / offer waits.
+ */
+function dismissLinkingIfMediaLive() {
+  if (partnerStageShouldBeIdle()) return false;
+  let mainFrames = false;
+  let extraFrames = false;
+  let audio = false;
+  try {
+    mainFrames = !!(
+      partnerVideoEverFrames ||
+      (typeof partnerVideoHasFrames === "function" && partnerVideoHasFrames())
+    );
+  } catch (_) {}
+  // Multi extras: frames on #remote2 / #remote-third also count (not only #remote).
+  if (!mainFrames) {
+    try {
+      for (const id of ["remote2", "remote-third"]) {
+        const el = $(id);
+        if (el && el.videoWidth > 8 && el.videoHeight > 8) {
+          extraFrames = true;
+          break;
+        }
+      }
+    } catch (_) {}
+  }
+  try {
+    audio = hasLiveRemoteAudio();
+  } catch (_) {}
+  let peek = false;
+  try {
+    peek = lastInboundPeekFrames > 0;
+  } catch (_) {}
+  // Live audio, painted frames, or inbound decode stats — do not wait on ICE.
+  if (!mainFrames && !extraFrames && !audio && !peek) return false;
+  latchLinkingMediaLive();
+  try {
+    setRemoteEmpty(false);
+    $("remote-empty")?.classList.add("hidden");
+    $("tile-remote")?.classList.add("has-remote-feed");
+  } catch (_) {}
+  // Extra tiles: hide hunt/empty overlays once that slot has live A/V (audio counts).
+  try {
+    for (const id of ["remote2", "remote-third"]) {
+      const el = $(id);
+      if (!streamHasLiveAv(el?.srcObject)) continue;
+      if (id === "remote2") {
+        $("remote2-wrap")?.classList.add("has-remote-feed");
+      } else {
+        $("tile-third")?.classList.add("has-remote-feed");
+        const empty = $("third-empty");
+        if (empty) {
+          empty.hidden = true;
+          empty.setAttribute("hidden", "");
+        }
+        document
+          .querySelector("main.stage")
+          ?.classList.remove("stage-trio-searching");
+      }
+    }
+  } catch (_) {}
+  if (mainFrames) {
+    try {
+      markPartnerVideoFramesSeen("link-av");
+    } catch (_) {}
+    try {
+      setPartnerSelfHidden(false, { toast: false, force: true });
+    } catch (_) {}
+    try {
+      peelIntroBlurOnFrames();
+    } catch (_) {}
+    return true;
+  }
+  try {
+    webrtcConnectedOk = true;
+  } catch (_) {}
+  // Audio without frames is NOT "no camera" — video may still be linking.
+  // Portrait only from inbound no_cam / self_hide (laptop GUM with 0 video tracks).
+  try {
+    setConnStrip(
+      "call",
+      matchMode === "friend" || inFriendCall
+        ? _t("conn.friend") || "Friend call"
+        : _t("conn.matched"),
+      ""
+    );
+  } catch (_) {}
+  // Refresh path chip so it is not stuck on "Linking" until the next stats tick.
+  try {
+    if (typeof updateConnChip === "function" && lastIceKind) {
+      updateConnChip(lastQualityRttMs, lastQualityLossPct, lastIceKind);
+    }
+  } catch (_) {}
+  return true;
 }
 
 function showPreferDirectAutoToast() {
@@ -10466,6 +15369,31 @@ function startWebrtcWatch() {
         } catch (_) {}
         return;
       }
+      // 1v1 005410Z: hard rebuild @5.5s while first answer was in flight
+      // tore the PC → m-line InvalidModification + ICE failed. Offer already
+      // on the wire = wait, do not rebuild.
+      const offered = !!(
+        target?._offerEmitOk ||
+        target?._gotRemoteAnswerAt ||
+        target?.pc?.localDescription
+      );
+      const ice = String(target?.pc?.iceConnectionState || "");
+      if (
+        peerPcs.size <= 1 &&
+        offered &&
+        ice !== "closed" &&
+        (ice === "new" ||
+          ice === "checking" ||
+          ice === "connected" ||
+          ice === "")
+      ) {
+        log("watch hard: skip 1v1 rebuild — first path still up " + ice);
+        try {
+          const p = target?.pc;
+          if (p && typeof kickMediaAfterIce === "function") kickMediaAfterIce(p);
+        } catch (_) {}
+        return;
+      }
       log("watch hard: no video — hybrid rebuild");
       schedulePeerHardReconnect(pid, target || null);
     } catch (_) {}
@@ -10482,7 +15410,25 @@ function handleWebrtcConnectionState(s, pcHint) {
     const hasFrames =
       partnerVideoEverFrames ||
       (typeof partnerVideoHasFrames === "function" && partnerVideoHasFrames());
-    webrtcConnectedOk = hasFrames;
+    const audioOnly = !hasFrames && hasLiveRemoteAudio();
+    webrtcConnectedOk = hasFrames || audioOnly;
+    if (hasFrames) {
+      try {
+        setPartnerSelfHidden(false, { toast: false, force: true });
+      } catch (_) {}
+    }
+    if (audioOnly) {
+      try {
+        setRemoteEmpty(false);
+        setConnStrip(
+          "call",
+          matchMode === "friend" || inFriendCall
+            ? _t("conn.friend") || "Friend call"
+            : _t("conn.matched"),
+          ""
+        );
+      } catch (_) {}
+    }
     // Grab a local history thumb once media is up (on-device only)
     try {
       startHistoryThumbWatch();
@@ -10512,6 +15458,11 @@ function handleWebrtcConnectionState(s, pcHint) {
         paintFirstFromLiveTrack("ice-connected");
       } catch (_) {}
     }
+    if (peerPcs.size >= 2 || thirdSlotHasLiveMedia()) {
+      try {
+        enableTrioLayout(true, { searching: false });
+      } catch (_) {}
+    }
     // ICE up → push our cam + keyframes so partner paints sooner (TURN lag)
     try {
       if (!selfBlurred && !camOff) void pushOutboundVideoTracks();
@@ -10539,16 +15490,26 @@ function handleWebrtcConnectionState(s, pcHint) {
       watchPartnerVideoFrames();
     } catch (_) {}
     setArchPill("p2p");
-    // Frames (not mere live track) upgrade strip to matched; else Linking
-    setConnStrip(
-      hasFrames ? "call" : "warn",
-      hasFrames
-        ? matchMode === "friend" || inFriendCall
-          ? _t("conn.friend") || "Friend call"
-          : _t("conn.matched")
-        : linkingCamerasLabel(),
-      ""
-    );
+    try {
+      armFirstFrameWatcher();
+    } catch (_) {}
+    // Live audio OR frames dismiss Linking (do not wait for video if audio is up)
+    if (hasFrames || audioOnly || hasLiveRemoteAudio()) {
+      try {
+        dismissLinkingIfMediaLive();
+      } catch (_) {}
+      if (hasFrames) {
+        setConnStrip(
+          "call",
+          matchMode === "friend" || inFriendCall
+            ? _t("conn.friend") || "Friend call"
+            : _t("conn.matched"),
+          ""
+        );
+      }
+    } else if (canPaintLinkingCopy()) {
+      setConnStrip("warn", linkingCamerasLabel(), "");
+    }
     updateChatHeader();
     updatePipButton();
     // Soft PWA install after first real media path (not during age-gate)
@@ -10564,8 +15525,19 @@ function handleWebrtcConnectionState(s, pcHint) {
     markInviteFunnelConnected(
       inFriendCall || matchMode === "friend" ? "friend" : "stranger"
     );
-    // Upgrade match toast once media path is live
-    showMatchFoundToast({ connected: true });
+    // Hop9 paint-first: "Connected" toast after frames or live audio (not ICE-only).
+    // ICE connected + black still shows Linking; log CONNECT ice only.
+    if (hasFrames || audioOnly) {
+      showMatchFoundToast({ connected: true });
+    } else {
+      try {
+        const c = window.__ruletConnect;
+        if (c && c.iceMs == null && window.__ruletConnectT0) {
+          c.iceMs = Date.now() - window.__ruletConnectT0;
+          log(`CONNECT ice=${c.iceMs}ms (frames pending — no connected toast)`);
+        }
+      } catch (_) {}
+    }
     flashPartnerTile();
     // One-shot: teach swipe-to-next after first real media path
     try {
@@ -10580,8 +15552,30 @@ function handleWebrtcConnectionState(s, pcHint) {
     if (liveChip && $("ice-path") && !$("ice-path").hidden) {
       liveChip.hidden = true;
     }
-  } else if (s === "failed") {
+  } else if (s === "failed" || s === "closed") {
     webrtcConnectedOk = false;
+    // Extra of a 3-way: close only a never-connected extra. A partner that
+    // already had ICE/frames must recover — drop tore Courtier black (234930Z).
+    if (
+      pcHint &&
+      (peerPcs.size > 1 ||
+        (Array.isArray(lastMeshPeers) && lastMeshPeers.length >= 2))
+    ) {
+      if (reofferFailedMeshExtraOnce(pcHint, s)) return;
+      if (shouldDropFailedExtraPeer(pcHint, s)) {
+        dropOnePeerKeepRest(pcHint, { reason: "ice_" + s });
+        return;
+      }
+      if (trySoftRecoverPeer(pcHint) || trySoftRecoverAny(pcHint, { reason: s })) {
+        return;
+      }
+    }
+    if (s === "closed") return;
+    // Hunt (1 media link): never rebuild the only partner — keep paint only
+    if (isHuntOnePeer()) {
+      scheduleSoftKeepPartnerPaint();
+      return;
+    }
     // Soft-recover find-3rd / multi-peer without killing the first partner
     if (pcHint && trySoftRecoverPeer(pcHint)) {
       return;
@@ -10603,9 +15597,26 @@ function handleWebrtcConnectionState(s, pcHint) {
     // Do NOT show "Connection weak — reconnecting" during first ICE path —
     // that UI + soft-recover thrash was the all-day failure mode.
     webrtcConnectedOk = false;
+    // Hunt (1 media link): no weak-reconnect banner / rebuild — keep partner tile
+    if (isHuntOnePeer()) {
+      scheduleSoftKeepPartnerPaint();
+      return;
+    }
+    // 3-way: one link blipped, another still painting — keep faces, no stage banner.
+    try {
+      if (uniqueRemotePcCount() >= 2 && anyRemoteStillPainting()) {
+        scheduleSoftKeepPartnerPaint();
+        if (pcHint && !isFirstPartnerPc(pcHint)) {
+          trySoftRecoverPeer(pcHint);
+        }
+        return;
+      }
+    } catch (_) {}
     // First-path copy belt: Linking only until frames once OR pure/hybrid grace
     if (!canShowReconnectingMediaUx()) {
-      setConnStrip("warn", linkingCamerasLabel(), "", { reconnecting: false });
+      if (canPaintLinkingCopy()) {
+        setConnStrip("warn", linkingCamerasLabel(), "", { reconnecting: false });
+      }
       return;
     }
     setConnStrip(
@@ -10622,6 +15633,23 @@ function handleWebrtcConnectionState(s, pcHint) {
 
 /** Last Matched.peers list — used for soft ICE reconnect without full rematch. */
 let lastMatchedPeers = [];
+/**
+ * Last 2+ peer listing (1v2 / 3-way). A later solo rematch must not
+ * drop a mobile extra we never opened a PC for (201649Z laptop sees PC,
+ * not Android — laptop never beaconed offerer=1).
+ */
+let lastMeshPeers = [];
+/** Extra peer_ids already given one ice=failed → joinPeers re-offer this match. */
+const meshReofferTried = new Set();
+/** ensureMissingMeshPeers attempts per missing-id key this match (cap 3). */
+const meshEnsureCounts = new Map();
+let meshEnsureTimer = 0;
+/** Solo 3rd may late-offer to a stuck web extra after this (avoid t=0 dual-offer). */
+let meshLateOfferAfter = 0;
+let meshLateOfferKick = 0;
+let meshLateOfferKick2 = 0;
+/** 3-way extra left: stay on remaining 1v1 (no closeAllPeers / kickSolo rematch). */
+let keepRemainingPair = false;
 
 /** Soft ICE attempts before hard PeerConnection rebuild (same match). */
 const SOFT_ICE_MAX_ATTEMPTS = 1;
@@ -10763,7 +15791,7 @@ function startSoftRecoverPipeline(peerId, pc, opts = {}) {
       "",
       { reconnecting: true }
     );
-  } else {
+  } else if (canPaintLinkingCopy()) {
     setStatus(linkingCamerasLabel());
     setConnStrip("warn", linkingCamerasLabel(), "", { reconnecting: false });
   }
@@ -10864,7 +15892,9 @@ function trySoftRecoverPeer(pc) {
   if (!(trioBrowse || matchMode === "party_browse" || peerPcs.size > 1)) {
     return false;
   }
-  // Never soft-kill the only teammate/friend path
+  // Never soft-kill the first conversationalist (1v1 or 3-way teammate).
+  // 022241Z: teammate ice=disconnected after phone crash → recover tore Courtier.
+  if (isFirstPartnerPc(pc)) return false;
   if (isTeammateRole(pc._role) && peerPcs.size <= 1) return false;
 
   const peerId =
@@ -11097,7 +16127,7 @@ function schedulePeerHardReconnect(peerId, oldPc) {
       "",
       { reconnecting: true }
     );
-  } else {
+  } else if (canPaintLinkingCopy()) {
     setStatus(linkingCamerasLabel());
     setConnStrip("warn", linkingCamerasLabel(), "", { reconnecting: false });
   }
@@ -11226,9 +16256,20 @@ function setPhase(p) {
   syncScreenWakeLock();
 }
 
+/** 3 people = trio columns. Stacked remote2 only at 4 people (3 remotes). */
+function shouldStackSplitRemote(opponentCount, trioOn) {
+  if (trioOn) return false;
+  return Number(opponentCount) >= 3;
+}
+
 function setSplitRemote(on) {
   // Classic 1v2 solo view (two party members stacked). Not used in stage-trio.
-  if (trioBrowse) on = false;
+  // Laptop-as-3rd (your_role=solo, 2 party members) must stay person|person|you —
+  // split+Party of 2 left a black left tile and hid debate (2026-08-18).
+  const trioOn =
+    !!trioBrowse ||
+    !!document.querySelector("main.stage")?.classList.contains("stage-trio");
+  if (trioOn) on = false;
   const stack = $("remote-stack");
   const v2 = $("remote2");
   const wrap = $("remote2-wrap");
@@ -11332,32 +16373,364 @@ function countVisibleStagePanes() {
   return Math.min(4, n);
 }
 
-function applyStageLayoutMode() {
+function livePeopleOnStage() {
+  // One person per live remote + you. Audio-only (no-cam) still counts.
+  const remotes = countLiveRemotePanes();
+  const pcs = Math.min(3, peerPcs.size || 0);
+  let listed = 0;
+  try {
+    listed = (lastMatchedPeers || []).filter(
+      (p) => p && p.peer_id && p.peer_id !== "legacy"
+    ).length;
+  } catch (_) {}
+  return Math.max(remotes, pcs, listed) + 1;
+}
+
+/** Open 3-col only when a 2nd unique PC exists. Do not hide while joinPeers is adding it. */
+function openTrioSplitForPeers(peers) {
+  const list = Array.isArray(peers) ? peers : [];
+  if (!thirdSlotShouldShow()) {
+    // 1v1 / hunt (1 PC): leave layout alone. applyStageLayoutMode is the hide lock.
+    // Do NOT enableTrioLayout(false) here — listed=2 before joinPeers would
+    // collapse the mid tile the instant a 3rd is found.
+    return false;
+  }
+  try {
+    enableTrioLayout(true, { searching: false });
+    hideTrioHuntEmpty();
+    const extra = pickExtraRemotePeer(list);
+    if (!thirdSlotHasLiveMedia()) {
+      showThirdConnecting(extraSlotDisplayName(extra?.name || ""));
+    }
+    // Keep first partner on #remote — 3rd belongs on #remote-third only.
+    try {
+      bindFirstPartnerToMain(pickFirstPartnerPeer(list));
+    } catch (_) {}
+    try {
+      paintTrioTileNames(list);
+    } catch (_) {}
+    applyStageLayoutMode();
+    try {
+      syncLocalNoCamPortrait();
+    } catch (_) {}
+  } catch (_) {}
+  return true;
+}
+
+/** Remotes listed on this Matched or lastMatchedPeers (legacy id does not count). */
+function countListedRemotePeers(peers) {
+  const count = (arr) =>
+    (Array.isArray(arr) ? arr : []).filter(
+      (p) => p && p.peer_id && p.peer_id !== "legacy"
+    ).length;
+  return Math.max(count(peers), count(lastMatchedPeers));
+}
+
+/** 3-col when a 3rd was found (2nd PC exists) or already connected. */
+function mustKeepTrioSplit(_peers) {
+  return thirdSlotShouldShow();
+}
+
+/**
+ * HARD 1v1 lock: one (or zero) unique PeerConnection → never a mid tile.
+ * Hunt (looking for 3rd) still has 1 PC → still duo + status text.
+ * 3rd found = a second distinct PC exists (ice=new is enough).
+ * Use unique PCs, not map size — leftover dual-key of the same 1v1 PC
+ * must not open a ghost mid column.
+ */
+function thirdSlotShouldShowFromPeerCount(n) {
+  return Number(n) >= 2;
+}
+
+function thirdSlotShouldShow() {
+  let n = 0;
+  try {
+    n = uniqueRemotePcCount();
+  } catch (_) {
+    try {
+      n = peerPcs.size;
+    } catch (__) {
+      n = 0;
+    }
+  }
+  return thirdSlotShouldShowFromPeerCount(n);
+}
+
+/**
+ * Two remotes with ICE up and live A/V. Listed/hunt/party_browse do not count.
+ * Human: 1v1 never shows a mid tile; 3rd tile only after they connect.
+ */
+function thirdPersonConnected() {
+  let n = 0;
+  try {
+    for (const pc of peerPcs.values()) {
+      if (!pc?.pc) continue;
+      const ice = String(pc.pc.iceConnectionState || "");
+      const cs = String(pc.pc.connectionState || "");
+      if (
+        ice !== "connected" &&
+        ice !== "completed" &&
+        cs !== "connected" &&
+        cs !== "completed"
+      ) {
+        continue;
+      }
+      let has = false;
+      try {
+        has = streamHasLiveAv(pc.remoteStream);
+      } catch (_) {}
+      if (!has) {
+        try {
+          has = (pc.remoteStream?.getTracks?.() || []).some(
+            (t) => t && t.readyState === "live"
+          );
+        } catch (_) {}
+      }
+      if (has) n += 1;
+    }
+  } catch (_) {}
+  return n >= 2;
+}
+
+/** Live / gathering remotes only — leftover failed PCs do not count. */
+function countLiveRemotePeerPcs() {
+  let n = 0;
+  try {
+    for (const pc of peerPcs.values()) {
+      if (!pc?.pc) continue;
+      const st = String(pc.pc.iceConnectionState || pc.pc.connectionState || "");
+      if (st === "closed" || st === "failed" || st === "disconnected") continue;
+      let live = false;
+      try {
+        live = streamHasLiveAv(pc.remoteStream);
+      } catch (_) {}
+      if (live || st === "connected" || st === "completed" || st === "checking") {
+        n += 1;
+      }
+    }
+  } catch (_) {}
+  return n;
+}
+
+/**
+ * 3-col when a 3rd is listed or two remotes are live/gathering.
+ * 010423Z: real PC+laptop+phone 3-way had listed=2 but only 1 PC in the
+ * map yet — requiring 2 live PCs collapsed a real 3-way to duo.
+ * 1v1 leftover mid tile: only collapse when listed < 2 AND live < 2
+ * AND not find-third.
+ */
+function wantTrioColumns() {
+  return thirdSlotShouldShow();
+}
+
+function ensureTrioSplitIfListed(peers) {
+  const list =
+    Array.isArray(peers) && peers.length ? peers : lastMatchedPeers;
+  if (yourRole !== "party" && !mustKeepTrioSplit(list)) return false;
+  try {
+    return openTrioSplitForPeers(list);
+  } catch (_) {
+    return false;
+  }
+}
+
+/** After bind: play Courtier + no-cam portrait if audio-only / dummy video. */
+function playMainRemoteAfterBind() {
+  const remote = $("remote");
+  if (!remote) return;
+  try {
+    playVideoEl(remote);
+  } catch (_) {}
+  try {
+    hookNoCamPortraitFromStream("remote", remote.srcObject);
+  } catch (_) {}
+}
+
+/** Hunt or 3rd-join in flight — never collapse trio / skip the stranger PC. */
+function isPartyJoinOrHunt() {
+  if (matchMode === "party_browse" || yourRole === "party") return true;
+  if (findThirdPending === "out" || findThirdPending === "in") return true;
+  return false;
+}
+
+/**
+ * find-third / party_browse with a live PC: never spin/search rematch.
+ * Hub Spin while still 1v1 → "spun into lobby" + unmatch (tears the pair).
+ */
+function shouldSkipHuntLobbySpin() {
+  try {
+    if (peerPcs.size < 1) return false;
+  } catch (_) {
+    return false;
+  }
+  if (findThirdPending === "out" || findThirdPending === "in") return true;
+  if (trioBrowse) return true;
+  if (matchMode === "party_browse" || yourRole === "party") return true;
+  return false;
+}
+
+/** Friend phone 1v1 — not party hunt. Find 3rd lives in partner actions. */
+function isFriendPair1v1() {
+  if (matchMode === "party_browse" || yourRole === "party") return false;
+  try {
+    if (uniqueRemotePcCount() >= 2) return false;
+  } catch (_) {
+    if (peerPcs.size >= 2) return false;
+  }
+  return (
+    !!inFriendCall || matchMode === "friend" || yourRole === "friend"
+  );
+}
+
+/** Drop leftover hunt chrome so a friend call never looks like Find-3rd. */
+function collapseFriendCallHuntUi() {
+  trioBrowse = false;
+  wantSearch = false;
+  inQueue = false;
+  try {
+    enableTrioLayout(false);
+  } catch (_) {}
+  try {
+    const stage = document.querySelector("main.stage");
+    stage?.classList.remove("stage-trio", "stage-trio-searching");
+  } catch (_) {}
+  try {
+    setFooterSearchStatus(false);
+  } catch (_) {}
+}
+
+/** True 1v1 for Find 3rd / debate. Never true during party hunt / 3rd join. */
+function isPairOnlyForActions() {
+  if (isFriendPair1v1()) return true;
+  if (findThirdPending === "out" || findThirdPending === "in") return false;
+  if (matchMode === "party_browse" || yourRole === "party") return false;
+  if (peerPcs.size >= 2) return false;
+  try {
+    if (livePeopleOnStage() >= 3) return false;
+  } catch (_) {}
+  try {
+    if (
+      document
+        .querySelector("main.stage")
+        ?.classList.contains("stage-trio-searching")
+    ) {
+      return false;
+    }
+  } catch (_) {}
+  return matchMode === "solo" && yourRole === "solo";
+}
+
+/**
+ * Leftover .stage-trio on a *solo* 1v1 only.
+ * MUST NOT run during party_browse / yourRole=party — that tore down 3-way
+ * tiles while the 3rd PC was still connecting (peerPcs.size still 1).
+ */
+function clearStaleTrioOnPair() {
+  if (matchMode === "party_browse" || yourRole === "party") return;
+  if (findThirdPending === "out" || findThirdPending === "in") return;
+  if (peerPcs.size >= 2) return;
+  if (!isPairOnlyForActions()) return;
+  try {
+    if (typeof thirdSlotHasLiveMedia === "function" && thirdSlotHasLiveMedia()) {
+      return;
+    }
+  } catch (_) {}
   const stage = document.querySelector("main.stage");
+  const stale =
+    !!trioBrowse ||
+    !!stage?.classList.contains("stage-trio") ||
+    !!stage?.classList.contains("stage-trio-searching");
+  if (!stale) return;
+  try {
+    enableTrioLayout(false);
+  } catch (_) {
+    trioBrowse = false;
+  }
+}
+
+function applyStageLayoutMode() {
+  const stage = document.querySelector("main.stage") || $("stage");
   if (!stage) return;
-  const multi = isMultiPartyStage() || !!trioBrowse;
+  const showThird = wantTrioColumns();
+  try {
+    const third = $("tile-third");
+    const r3 = $("remote-third");
+    if (!showThird) {
+      // 1v1 / hunt lock — leftover listed/party must not keep a mid column.
+      trioBrowse = false;
+      if (third) {
+        third.hidden = true;
+        third.setAttribute("hidden", "");
+      }
+      if (r3) {
+        r3.hidden = true;
+        r3.setAttribute("hidden", "");
+      }
+      stage.classList.remove(
+        "stage-trio",
+        "stage-trio-searching",
+        "stage-count-3"
+      );
+    } else if (third) {
+      // 3rd PC exists — show mid tile (connecting or live). Do not wait for ICE.
+      third.hidden = false;
+      third.removeAttribute("hidden");
+      stage.classList.add("stage-trio");
+      stage.classList.remove("stage-duo");
+    }
+  } catch (_) {}
+  const multi = showThird;
   // Prefer visible tiles so find-3rd (empty third) still counts as 3-way
   const total = multi ? countVisibleStagePanes() : 1;
+  const people = livePeopleOnStage();
+  // 2×2 only when 4 people AND user opted in. Never in 1v1 or 3-way.
+  const want2x2 = people === 4 && stageLayoutMode === "grid";
   stage.classList.toggle("stage-multi", multi);
   stage.classList.toggle(
     "stage-layout-stack",
-    multi && stageLayoutMode === "stack"
+    multi && !want2x2
   );
-  stage.classList.toggle(
-    "stage-layout-grid",
-    multi && stageLayoutMode === "grid"
-  );
+  stage.classList.toggle("stage-layout-grid", want2x2);
+  stage.classList.toggle("stage-grid-2x2", want2x2);
+  try {
+    document.body?.classList.toggle("stage-grid-2x2", want2x2);
+  } catch (_) {}
   stage.classList.toggle("stage-count-2", multi && total === 2);
   stage.classList.toggle("stage-count-3", multi && total === 3);
-  stage.classList.toggle("stage-count-4", multi && total >= 4);
+  stage.classList.toggle("stage-count-4", multi && people === 4);
+  // Tile count = people. 2×2 chrome only when 4 (see-css #btn-grid-2x2).
+  const hunting = stage.classList.contains("stage-trio-searching");
+  const quad = people === 4;
+  stage.classList.toggle("stage-quad", quad);
+  stage.classList.toggle(
+    "stage-duo",
+    !quad && people <= 2 && !hunting && !stage.classList.contains("stage-trio")
+  );
+  // Brand seam follows live people, not leftover .stage-trio / unhidden
+  // #remote-third (showThirdConnecting opens that node on 1v1 and used
+  // to slide the pill to 33%). duo=50% · trio=33% · quad/2×2=50% cross.
+  let brandSeam = "duo";
+  if (people >= 4 || want2x2) brandSeam = "quad";
+  else if (people >= 3) brandSeam = "trio";
+  try {
+    stage.setAttribute("data-brand-seam", brandSeam);
+  } catch (_) {}
+  const btn2x2 = $("btn-grid-2x2");
+  if (btn2x2) {
+    btn2x2.hidden = !quad;
+    if (quad) btn2x2.removeAttribute("hidden");
+    else btn2x2.setAttribute("hidden", "");
+    btn2x2.setAttribute("aria-pressed", want2x2 ? "true" : "false");
+  }
 
   const btn = $("btn-stage-layout");
   if (btn) {
     const wasHidden = btn.hidden;
-    btn.hidden = !multi;
-    if (multi) btn.removeAttribute("hidden");
+    // 2×2 control exists only for 4 people (spec lock).
+    btn.hidden = people !== 4;
+    if (people === 4) btn.removeAttribute("hidden");
     else btn.setAttribute("hidden", "");
-    const gridOn = stageLayoutMode === "grid";
+    const gridOn = want2x2;
     btn.setAttribute("aria-pressed", gridOn ? "true" : "false");
     const gridIco = btn.querySelector(".layout-ico-grid");
     const stackIco = btn.querySelector(".layout-ico-stack");
@@ -11377,12 +16750,15 @@ function applyStageLayoutMode() {
       : _t("layout.gridTitle") || "Equal 2×2 grid (up to 4 windows)";
     btn.title = title;
     btn.setAttribute("aria-label", title);
-    if (multi && wasHidden) {
+    if (people === 4 && wasHidden) {
       try {
         maybeShowLayoutTip();
       } catch (_) {}
     }
   }
+  try {
+    syncNextButtonCopy();
+  } catch (_) {}
 }
 
 const LAYOUT_TIP_SESSION_KEY = "ruletka-layout-tip-v1";
@@ -11423,6 +16799,12 @@ function maybeShowLayoutTip() {
 }
 
 function toggleStageLayoutMode() {
+  // Only meaningful in 4-way; ignore taps otherwise.
+  if (livePeopleOnStage() !== 4) {
+    stageLayoutMode = "stack";
+    applyStageLayoutMode();
+    return;
+  }
   stageLayoutMode = stageLayoutMode === "grid" ? "stack" : "grid";
   saveStageLayoutPref();
   applyStageLayoutMode();
@@ -11477,9 +16859,7 @@ function collapseMultiPeerToSoloLayout(peers) {
     // Any live remote still in the keep set or sole remaining live stream
     for (const [pid, pc] of peerPcs.entries()) {
       if (keepIds.size && !keepIds.has(pid)) continue;
-      const live = (pc.remoteStream?.getVideoTracks?.() || []).some(
-        (t) => t.readyState === "live"
-      );
+      const live = streamHasLiveAv(pc.remoteStream);
       if (live) {
         keepPc = pc;
         if (!keepPeer) keepPeer = { peer_id: pid, role: "stranger" };
@@ -11535,6 +16915,7 @@ function collapseMultiPeerToSoloLayout(peers) {
   setStatus(
     _t("trio.partnerLeftKeep") || "Partner left — still chatting with the other person"
   );
+  keepRemainingPair = peerPcs.size >= 1;
   updateFriendActionButtons();
   trackEvent("trio_collapse_solo", {
     kept: keepPeer?.peer_id ? 1 : 0,
@@ -11567,11 +16948,313 @@ function thirdSlotHasLiveMedia() {
   }
 }
 
+function tileHasNoCamPortrait(which) {
+  let tile;
+  let el;
+  if (which === "remote-third") {
+    tile = $("tile-third");
+    el = $("third-no-cam");
+  } else if (which === "remote2") {
+    tile = $("remote2-wrap");
+    el = $("remote2-no-cam");
+  } else if (which === "local") {
+    tile = $("tile-local");
+    el = $("local-no-cam");
+  } else {
+    tile = $("tile-remote");
+    el = $("remote-no-cam");
+  }
+  if (tile?.classList.contains("has-no-cam-portrait")) return true;
+  return !!(el && !el.hidden);
+}
+
+function thirdSlotIsNoCam() {
+  if (tileHasNoCamPortrait("remote-third")) return true;
+  return streamLooksAudioOnly($("remote-third")?.srcObject);
+}
+
+/** #remote is the no-cam laptop (cylinder), not a hunt/3rd slot. */
+function mainRemoteIsNoCamLaptop() {
+  if (tileHasNoCamPortrait("remote")) return true;
+  if (streamLooksAudioOnly($("remote")?.srcObject)) return true;
+  try {
+    const seen = new Set();
+    let n = 0;
+    let only = null;
+    for (const pc of peerPcs.values()) {
+      if (!pc || seen.has(pc)) continue;
+      seen.add(pc);
+      n++;
+      only = pc;
+    }
+    if (n === 1 && streamLooksAudioOnly(only.remoteStream)) return true;
+  } catch (_) {}
+  return false;
+}
+
+function liveMainHasCameraTeammate() {
+  const rem = $("remote");
+  const s = rem?.srcObject;
+  try {
+    if (tileHasPaintedPixels("remote") && streamHasLiveVideoTrack(s)) return true;
+  } catch (_) {}
+  if (s && streamHasLiveVideoTrack(s) && !streamLooksAudioOnly(s)) return true;
+  try {
+    const occ = liveMainRemotePc();
+    const os = occ?.remoteStream;
+    if (os && streamHasLiveVideoTrack(os) && !streamLooksAudioOnly(os)) {
+      return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
+/** Audio-only laptop belongs on #remote unless a live camera teammate already owns it. */
+function noCamLaptopBelongsOnMain(stream) {
+  if (!streamLooksAudioOnly(stream)) return false;
+  if (liveMainHasCameraTeammate()) return false;
+  const main = $("remote")?.srcObject;
+  if (
+    main &&
+    main !== stream &&
+    streamHasLiveAv(main) &&
+    !streamLooksAudioOnly(main)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function shouldBailThirdBrandOrConnecting() {
+  return thirdSlotIsNoCam() || mainRemoteIsNoCamLaptop();
+}
+
+function findPcForRemoteStream(stream) {
+  if (!stream) return null;
+  for (const pc of peerPcs.values()) {
+    if (pc && pc.remoteStream === stream) return pc;
+  }
+  return null;
+}
+
+/** 1v1 no-cam laptop: drop leftover trio hunt so mid is not a giant poster. */
+function hideTrioIfOneNoCamLaptop() {
+  try {
+    if (findThirdPending === "out" || findThirdPending === "in") return;
+    if (yourRole === "party") return;
+    if (mustKeepTrioSplit()) return;
+    if (uniqueRemotePcCount() >= 2 || liveRemoteStreamCount() >= 2) return;
+    if (countListedRemotePeers() >= 2) return;
+    hideTrioHuntEmpty();
+    const third = $("tile-third");
+    if (third) {
+      third.hidden = true;
+      third.setAttribute("hidden", "");
+    }
+    const r3 = $("remote-third");
+    if (r3 && !thirdSlotHasLiveMedia() && !streamLooksAudioOnly(r3.srcObject)) {
+      r3.hidden = true;
+    }
+    document
+      .querySelector("main.stage")
+      ?.classList.remove("stage-trio-searching");
+    if (uniqueRemotePcCount() < 2 && liveRemoteStreamCount() < 2) {
+      trioBrowse = false;
+      document.querySelector("main.stage")?.classList.remove("stage-trio");
+      try {
+        applyStageLayoutMode();
+      } catch (_) {}
+    }
+  } catch (_) {}
+}
+
+/** Unique RTC peers in the map (same PC may be keyed twice). */
+function uniqueRemotePcCount() {
+  const seen = new Set();
+  for (const pc of peerPcs.values()) {
+    if (pc) seen.add(pc);
+  }
+  return seen.size;
+}
+
+/** Distinct live remote MediaStreams (tiles + PCs). */
+function liveRemoteStreamCount() {
+  const seen = new Set();
+  for (const id of ["remote", "remote2", "remote-third"]) {
+    const s = $(id)?.srcObject;
+    if (s && streamHasLiveAv(s)) seen.add(s);
+  }
+  for (const pc of peerPcs.values()) {
+    if (pc?.remoteStream && streamHasLiveAv(pc.remoteStream)) {
+      seen.add(pc.remoteStream);
+    }
+  }
+  return seen.size;
+}
+
+function lastMatchedStrangerPeer() {
+  const peers = Array.isArray(lastMatchedPeers) ? lastMatchedPeers : [];
+  return (
+    peers.find(
+      (p) =>
+        p &&
+        !isTeammateRole(p.role) &&
+        (p.role === "stranger" || p.role === "party")
+    ) || null
+  );
+}
+
+/**
+ * lastMatchedPeers lists a stranger/party who already has a PC.
+ * MATCHED 3-way banner with a live 3rd must not keep hunt chrome.
+ */
+function lastMatchedStrangerHasLivePc() {
+  const p = lastMatchedStrangerPeer();
+  if (!p?.peer_id) return false;
+  const pc = findPcForPeer(p.peer_id);
+  if (!pc) return false;
+  if (streamHasLiveAv(pc.remoteStream) || pc.remoteStream) return true;
+  try {
+    const ice = pc.pc?.iceConnectionState || pc.pc?.connectionState || "";
+    if (ice && ice !== "closed" && ice !== "failed") return true;
+  } catch (_) {}
+  return !!pc.pc;
+}
+
+/** Two remotes live, or MATCHED stranger already has a PC — drop Find-3rd hunt. */
+function trioHuntMustDrop() {
+  if (uniqueRemotePcCount() >= 2) return true;
+  if (liveRemoteStreamCount() >= 2) return true;
+  if (thirdSlotHasLiveMedia()) return true;
+  if (thirdSlotIsNoCam()) return true;
+  if (lastMatchedStrangerHasLivePc()) return true;
+  return false;
+}
+
+function hideTrioHuntEmpty() {
+  try {
+    const empty = $("third-empty");
+    if (empty) {
+      empty.hidden = true;
+      empty.setAttribute("hidden", "");
+    }
+    const bv = $("third-empty-video");
+    if (bv) {
+      try {
+        bv.pause?.();
+      } catch (_) {}
+      bv.hidden = true;
+    }
+    const poster = $("third-empty-poster");
+    if (poster) poster.hidden = true;
+    document
+      .querySelector("main.stage")
+      ?.classList.remove("stage-trio-searching");
+    stopHuntSoftKeepPaint();
+    clearThirdBrandLoopTimers();
+    syncThirdEmptyBrand(false);
+  } catch (_) {}
+}
+
+function debateHoldsPartnerListen() {
+  try {
+    return !!(debate.active && iAmDebateSpeaker());
+  } catch (_) {
+    return false;
+  }
+}
+
+function unmuteRemoteTileAudio(el) {
+  if (!el) return;
+  const slot =
+    el.id === "remote" || el.id === "remote2" || el.id === "remote-third"
+      ? el.id
+      : "";
+  const tileMuted =
+    !!slot &&
+    (!!peerMutedByEl[slot] ||
+      (slot === "remote" && partnerMuted) ||
+      debateHoldsPartnerListen());
+  if (!tileMuted) {
+    try {
+      el.muted = false;
+      el.removeAttribute("muted");
+    } catch (_) {}
+  }
+  try {
+    const s = el.srcObject;
+    (s?.getAudioTracks?.() || []).forEach((t) => {
+      try {
+        t.enabled = !tileMuted;
+      } catch (_) {}
+    });
+  } catch (_) {}
+}
+
+function playAllRemoteTiles() {
+  for (const id of ["remote", "remote2", "remote-third"]) {
+    const el = $(id);
+    if (!el?.srcObject) continue;
+    unmuteRemoteTileAudio(el);
+    playVideoEl(el);
+  }
+  try {
+    applyRemoteVolume();
+  } catch (_) {}
+}
+
+/** MATCHED 3-way: mid-split, distinct streams, play + unmute. */
+function settleMatchedTrioLayout() {
+  if (!trioHuntMustDrop()) return false;
+  try {
+    enableTrioLayout(true, { searching: false });
+  } catch (_) {}
+  hideTrioHuntEmpty();
+  try {
+    bindLiveTrioRemoteTiles();
+  } catch (_) {}
+  try {
+    dedupeRemoteTileStreams();
+  } catch (_) {}
+  playAllRemoteTiles();
+  return true;
+}
+
 function enableTrioLayout(on, { searching = false } = {}) {
+  // 1v1: never open a mid tile for hunt / listed-only / leftover party.
+  if (on && !thirdSlotShouldShow()) {
+    on = false;
+    searching = false;
+  }
+  // Two remotes live / MATCHED stranger PC → mid-split, never hunt chrome
+  if (on && trioHuntMustDrop()) {
+    searching = false;
+  }
   trioBrowse = !!on;
   const stage = document.querySelector("main.stage");
   stage?.classList.toggle("stage-trio", !!on);
   stage?.classList.toggle("stage-trio-searching", !!(on && searching));
+  if (!on) {
+    thirdSlotConnecting = false;
+    try {
+      const wrap = $("third-tile-tag");
+      if (wrap) {
+        wrap.hidden = true;
+        wrap.setAttribute("hidden", "");
+      }
+      hideExtraWhoSub("remote-third");
+      const tag = $("third-tag");
+      if (tag) {
+        tag.textContent = "";
+        tag.hidden = true;
+      }
+    } catch (_) {}
+    stopHuntSoftKeepPaint();
+  } else if (searching && peerPcs.size < 2) {
+    startHuntSoftKeepPaint();
+  } else {
+    stopHuntSoftKeepPaint();
+  }
   try {
     applyStageLayoutMode();
   } catch (_) {}
@@ -11593,13 +17276,25 @@ function enableTrioLayout(on, { searching = false } = {}) {
     if (pip) pip.hidden = true;
     return;
   }
-  // Never wipe a live 3rd stream when re-entering layout (rematch / renegotiate)
-  if (thirdSlotHasLiveMedia()) {
+  // Never wipe a live 3rd / MATCHED stranger when re-entering layout
+  if (trioHuntMustDrop()) {
+    stopHuntSoftKeepPaint();
     clearThirdBrandLoopTimers();
-    if (empty) empty.hidden = true;
-    if (r3) r3.hidden = false;
+    hideTrioHuntEmpty();
+    if (empty) {
+      empty.hidden = true;
+      empty.setAttribute("hidden", "");
+    }
+    if (r3 && (thirdSlotHasLiveMedia() || r3.srcObject)) r3.hidden = false;
     stage?.classList.remove("stage-trio-searching");
     bindFirstPartnerToMain(null);
+    try {
+      bindLiveTrioRemoteTiles();
+    } catch (_) {}
+    try {
+      dedupeRemoteTileStreams();
+    } catch (_) {}
+    playAllRemoteTiles();
     syncTrioLayout();
     return;
   }
@@ -11608,7 +17303,7 @@ function enableTrioLayout(on, { searching = false } = {}) {
     empty.removeAttribute("hidden");
     if (!searching) empty.hidden = true;
   }
-  if (r3 && searching) {
+  if (r3 && searching && !thirdSlotIsNoCam() && !thirdSlotHasLiveMedia()) {
     r3.hidden = true;
     try {
       r3.srcObject = null;
@@ -11622,6 +17317,7 @@ function enableTrioLayout(on, { searching = false } = {}) {
       thirdBrandLoopTimers.push(
         setTimeout(() => {
           if (!trioBrowse || thirdSlotHasLiveMedia()) return;
+          if (shouldBailThirdBrandOrConnecting()) return;
           forceThirdBrandLoop();
         }, ms)
       );
@@ -11631,7 +17327,288 @@ function enableTrioLayout(on, { searching = false } = {}) {
   }
   // Always keep first partner painted when entering trio
   bindFirstPartnerToMain(null);
+  if (trioHuntMustDrop()) {
+    try {
+      bindLiveTrioRemoteTiles();
+    } catch (_) {}
+    try {
+      dedupeRemoteTileStreams();
+    } catch (_) {}
+    playAllRemoteTiles();
+  }
   syncTrioLayout();
+}
+
+/**
+ * When 2 remotes exist, pin first partner on #remote and 3rd on #remote-third.
+ * Audio-only (no-cam laptop) still gets a half-pane — do not require videoWidth.
+ * Never srcObject=null a live partner stream.
+ */
+function bindLiveTrioRemoteTiles() {
+  if (bindLiveTrioRemoteTiles._busy) return false;
+  if (!(peerPcs.size >= 2 || thirdSlotHasLiveMedia())) return false;
+  bindLiveTrioRemoteTiles._busy = true;
+  try {
+    const remote = $("remote");
+    const r3 = $("remote-third");
+    const tile3 = $("tile-third");
+    if (tile3) {
+      tile3.hidden = false;
+      tile3.removeAttribute("hidden");
+    }
+    const entries = [...peerPcs.entries()];
+    // Unique PCs by stream (or by object if no stream yet).
+    const unique = [];
+    const seenStream = new Set();
+    const seenPc = new Set();
+    for (const [pid, pc] of entries) {
+      if (!pc || seenPc.has(pc)) continue;
+      const s = pc.remoteStream;
+      if (s && seenStream.has(s)) continue;
+      seenPc.add(pc);
+      if (s) seenStream.add(s);
+      unique.push([pid, pc]);
+    }
+    if (unique.length >= 2) {
+      try {
+        enableTrioLayout(true, { searching: false });
+      } catch (_) {}
+      try {
+        hideTrioHuntEmpty();
+      } catch (_) {}
+    }
+    // First partner = teammate OR latched 1v1 — NEVER unique[0] / hub peers[0] stranger.
+    let firstIdx = unique.findIndex(([pid, pc]) => pcIsFirstPartner(pid, pc));
+    if (firstIdx < 0) {
+      const listed = pickFirstPartnerPeer(lastMatchedPeers);
+      if (listed?.peer_id) {
+        firstIdx = unique.findIndex(([pid]) => pid === listed.peer_id);
+      }
+    }
+    let first = firstIdx >= 0 ? unique[firstIdx] : null;
+    const pcHasLiveVideo = (pc) => {
+      if (!pc) return false;
+      try {
+        const streams = [pc.remoteStream, pc._videoEl?.srcObject];
+        for (const s of streams) {
+          if (s && streamHasLiveVideoTrack(s) && !streamLooksAudioOnly(s)) {
+            return true;
+          }
+        }
+      } catch (_) {}
+      return false;
+    };
+    // First conversationalist with live VIDEO occupies #remote.
+    // Occupancy no-cam extra must not beat a live first-partner camera.
+    if (!first || !pcHasLiveVideo(first[1])) {
+      const camMate = unique.find(
+        ([pid, pc]) => pcIsFirstPartner(pid, pc) && pcHasLiveVideo(pc)
+      );
+      if (camMate) first = camMate;
+    }
+    if (
+      first &&
+      !pcHasLiveVideo(first[1]) &&
+      !pcIsFirstPartner(first[0], first[1])
+    ) {
+      const cam = unique.find(([, pc]) => pcHasLiveVideo(pc));
+      if (cam) first = cam;
+    }
+    const takenTiles = new Set();
+    const assigned = new Map(); // pid → tile id
+    const claim = (pid, tileId) => {
+      if (!pid || !tileId || takenTiles.has(tileId) || assigned.has(pid)) return false;
+      if (!$(tileId)) return false;
+      takenTiles.add(tileId);
+      assigned.set(pid, tileId);
+      return true;
+    };
+    const firstHasCam = !!(first && pcHasLiveVideo(first[1]));
+    // First conversationalist occupies #remote. Live VIDEO evicts a no-cam extra.
+    if (
+      first &&
+      (firstHasCam || pcIsFirstPartner(first[0], first[1]))
+    ) {
+      claim(first[0], "remote");
+    }
+    // Occupancy keep. Evict stranger from #remote when first is a live camera.
+    // No-cam laptop stays on #remote unless a live teammate already owns it.
+    for (const [pid, pc] of unique) {
+      const keep = findTileIdForPc(pc);
+      if (!keep) continue;
+      if (first && pid !== first[0] && keep === "remote") {
+        if (firstHasCam) continue;
+        if (streamLooksAudioOnly(pc.remoteStream) && !firstHasCam) {
+          claim(pid, keep);
+          continue;
+        }
+        continue;
+      }
+      if (first && pid === first[0] && keep !== "remote") continue;
+      claim(pid, keep);
+    }
+    if (!takenTiles.has("remote")) {
+      const noCam = unique.find(([, pc]) => streamLooksAudioOnly(pc.remoteStream));
+      if (
+        noCam &&
+        !liveMainHasCameraTeammate() &&
+        !firstHasCam &&
+        (!first ||
+          noCam[0] === first[0] ||
+          !pcIsFirstPartner(first[0], first[1]))
+      ) {
+        claim(noCam[0], "remote");
+        first = noCam;
+      }
+    }
+    if (first) claim(first[0], "remote");
+    const rest = unique.filter(([pid]) => !first || pid !== first[0]);
+    const extraOrder =
+      rest.length >= 2
+        ? ["remote-third", "remote2"]
+        : ["remote-third", "remote2"];
+    for (const [pid] of rest) {
+      if (assigned.has(pid)) continue;
+      const tid = extraOrder.find((id) => !takenTiles.has(id) && $(id));
+      if (tid) claim(pid, tid);
+    }
+
+    if (first && remote) {
+      const [pid, pc] = first;
+      if (isTeammateRole(pc._role) || pcIsFirstPartner(pid, pc)) {
+        try {
+          bindFirstPartnerToMain({ peer_id: pid });
+        } catch (_) {}
+      }
+      const firstTile = assigned.get(pid) || "remote";
+      const firstEl = $(firstTile) || remote;
+      if (pc.remoteStream) {
+        bindPcVideo(pc, firstEl);
+        if (firstEl.srcObject !== pc.remoteStream) {
+          paintRemoteFromPc(pc, pc.remoteStream);
+        } else {
+          playVideoEl(firstEl);
+          if (firstEl.id === "remote") setRemoteEmpty(false);
+        }
+        try {
+          hookNoCamPortraitFromStream(firstEl.id, pc.remoteStream);
+        } catch (_) {}
+        const liveV = (pc.remoteStream.getVideoTracks?.() || []).some(
+          (t) => t.readyState === "live"
+        );
+        if (liveV && firstEl.id === "remote") {
+          try {
+            setPartnerSelfHidden(false, { toast: false, force: true });
+          } catch (_) {}
+        }
+      }
+      try {
+        firstEl.hidden = false;
+        firstEl.removeAttribute("hidden");
+      } catch (_) {}
+    }
+
+    for (const [pid, pc] of rest) {
+      const tileId = assigned.get(pid);
+      if (!tileId) continue;
+      const el = $(tileId);
+      if (!el) continue;
+      el.hidden = false;
+      el.removeAttribute("hidden");
+      if (tileId === "remote-third") {
+        if (tile3) {
+          tile3.hidden = false;
+          tile3.removeAttribute("hidden");
+        }
+        if (pc.remoteStream) {
+          if (el.srcObject === pc.remoteStream) {
+            playVideoEl(el);
+            const empty = $("third-empty");
+            if (empty) {
+              empty.hidden = true;
+              empty.setAttribute("hidden", "");
+            }
+            document
+              .querySelector("main.stage")
+              ?.classList.remove("stage-trio-searching");
+          } else if (!streamOnAnyOtherTile(pc.remoteStream, "remote-third")) {
+            setThirdSlotStream(
+              pc.remoteStream,
+              extraSlotDisplayName(
+                peerUiMeta.get(pid)?.name || pc._displayName || ""
+              )
+            );
+          }
+          bindPcVideo(pc, el);
+          try {
+            hookNoCamPortraitFromStream(
+              "remote-third",
+              el.srcObject || pc.remoteStream
+            );
+          } catch (_) {}
+        }
+        if (tile3 && streamHasLiveAv(el.srcObject || pc.remoteStream)) {
+          tile3.classList.add("has-remote-feed");
+        }
+      } else if (tileId === "remote2") {
+        const wrap = $("remote2-wrap");
+        if (wrap) {
+          wrap.hidden = false;
+          wrap.removeAttribute("hidden");
+        }
+        if (pc.remoteStream && !streamOnAnyOtherTile(pc.remoteStream, "remote2")) {
+          bindPcVideo(pc, el);
+          if (el.srcObject !== pc.remoteStream) {
+            el.srcObject = pc.remoteStream;
+            playVideoEl(el);
+          }
+        } else if (pc.remoteStream) {
+          bindPcVideo(pc, el);
+        }
+      } else if (pc.remoteStream) {
+        bindPcVideo(pc, el);
+      }
+    }
+    if (!rest.length && thirdSlotHasLiveMedia() && r3) {
+      r3.hidden = false;
+      r3.removeAttribute("hidden");
+      if (tile3) tile3.classList.add("has-remote-feed");
+    }
+    try {
+      dedupeRemoteTileStreams();
+    } catch (_) {}
+    try {
+      hookNoCamPortraitFromStream("remote", remote?.srcObject);
+      hookNoCamPortraitFromStream("remote-third", r3?.srcObject);
+    } catch (_) {}
+    try {
+      tryRehomePrimaryNoCam();
+    } catch (_) {}
+    if (
+      unique.length === 1 &&
+      assigned.get(unique[0][0]) === "remote" &&
+      streamLooksAudioOnly(unique[0][1].remoteStream)
+    ) {
+      try {
+        hideTrioIfOneNoCamLaptop();
+      } catch (_) {}
+    }
+    playAllRemoteTiles();
+    try {
+      paintAllRemoteIdentityChrome();
+    } catch (_) {}
+    try {
+      applyStageLayoutMode();
+    } catch (_) {}
+    try {
+      dismissLinkingIfMediaLive();
+    } catch (_) {}
+    return true;
+  } catch (_) {
+    return false;
+  } finally {
+    bindLiveTrioRemoteTiles._busy = false;
+  }
 }
 
 /**
@@ -11642,7 +17619,29 @@ function enableTrioLayout(on, { searching = false } = {}) {
 function forceThirdBrandLoop() {
   // Critical: delayed timers used to re-run this after the 3rd connected,
   // clearing #remote-third and leaving “Looking for a 3rd…” while audio played.
-  if (thirdSlotHasLiveMedia()) return;
+  // 1v1 / hunt (1 unique PC): never unhide the mid tile (gotcha 54).
+  if (!thirdSlotShouldShow()) {
+    try {
+      const tile = $("tile-third");
+      if (tile) {
+        tile.hidden = true;
+        tile.setAttribute("hidden", "");
+      }
+    } catch (_) {}
+    return;
+  }
+  if (trioHuntMustDrop()) return;
+  if (shouldBailThirdBrandOrConnecting()) {
+    try {
+      hideTrioHuntEmpty();
+    } catch (_) {}
+    if (mainRemoteIsNoCamLaptop()) {
+      try {
+        hideTrioIfOneNoCamLaptop();
+      } catch (_) {}
+    }
+    return;
+  }
   const tile = $("tile-third");
   const empty = $("third-empty");
   const v = $("third-empty-video");
@@ -11698,12 +17697,98 @@ function setThirdSlotStream(stream, label) {
   const empty = $("third-empty");
   const tag = $("third-tag");
   const wrap = $("third-tile-tag");
+  // Never assign the same srcObject to #remote and #remote-third.
+  if (stream && streamOnAnyOtherTile(stream, "remote-third")) {
+    // Same stream already on #remote — do not clone. Paint extra identity
+    // and an honest no-cam if mid is not a live camera (laptop 663 black mid).
+    try {
+      const extra = pickExtraRemotePeer();
+      const nm = extraSlotDisplayName(extra?.name || label);
+      if (tag) {
+        tag.textContent = nm;
+        tag.hidden = !nm;
+        if (nm) tag.removeAttribute("hidden");
+      }
+      hideExtraWhoSub("remote-third");
+    } catch (_) {}
+    try {
+      const r3el = $("remote-third");
+      if (!videoElHasLivePaintedCamera(r3el)) {
+        $("tile-third")?.classList.remove("has-remote-feed");
+        extraTileEverFrames["remote-third"] = false;
+        setNoCamPortrait(
+          "remote-third",
+          true,
+          noCamPortraitAvatar("remote-third")
+        );
+      }
+    } catch (_) {}
+    try {
+      dismissLinkingIfMediaLive();
+    } catch (_) {}
+    return;
+  }
+  if (
+    stream &&
+    noCamLaptopBelongsOnMain(stream) &&
+    !(typeof uniqueRemotePcCount === "function" && uniqueRemotePcCount() >= 2)
+  ) {
+    const remote = $("remote");
+    const pc = findPcForRemoteStream(stream);
+    if (remote) {
+      if (pc) bindPcVideo(pc, remote);
+      prepareVideoEl(remote, { muted: false });
+      if (remote.srcObject !== stream) remote.srcObject = stream;
+      remote.hidden = false;
+      remote.removeAttribute("hidden");
+      playVideoEl(remote);
+      setRemoteEmpty(false);
+      try {
+        hookNoCamPortraitFromStream("remote", stream);
+      } catch (_) {}
+      try {
+        peelNoCamIfTilePainting("remote");
+      } catch (_) {}
+      try {
+        setNoCamPortrait("remote-third", false);
+      } catch (_) {}
+      hideTrioHuntEmpty();
+      try {
+        hideTrioIfOneNoCamLaptop();
+      } catch (_) {}
+      try {
+        dismissLinkingIfMediaLive();
+      } catch (_) {}
+      return;
+    }
+  }
   if (stream && r3) {
+    stopHuntSoftKeepPaint();
     clearThirdBrandLoopTimers();
+    try {
+      const tile3 = $("tile-third");
+      // Bind stream first; only unhide the column when 3rd is connected.
+      if (tile3 && !thirdSlotShouldShow() && !streamHasLiveAv(stream)) {
+        tile3.hidden = true;
+        tile3.setAttribute("hidden", "");
+      } else if (tile3) {
+        tile3.hidden = false;
+        tile3.removeAttribute("hidden");
+        tile3.classList.add("has-remote-feed");
+        try {
+          enableTrioLayout(true, { searching: false });
+        } catch (_) {}
+      }
+    } catch (_) {}
     prepareVideoEl(r3, { muted: false });
-    r3.srcObject = stream;
-    r3.hidden = false;
-    r3.removeAttribute("hidden");
+    if (r3.srcObject !== stream) r3.srcObject = stream;
+    if (thirdSlotShouldShow() || streamHasLiveAv(stream)) {
+      r3.hidden = false;
+      r3.removeAttribute("hidden");
+    } else {
+      r3.hidden = true;
+      r3.setAttribute("hidden", "");
+    }
     playVideoEl(r3);
     // Hide “Looking for a 3rd…” completely (brand loop + empty layer)
     if (empty) {
@@ -11728,7 +17813,51 @@ function setThirdSlotStream(stream, label) {
     applyRemoteVolume();
     setPeerMuteUi("remote-third", !!peerMutedByEl["remote-third"]);
     startThirdSlotWatchdog();
+    const live = streamHasLiveAv(stream);
+    if (live) thirdSlotConnecting = false;
+    const safe = extraSlotDisplayName(label);
+    if (tag) {
+      tag.textContent = safe;
+      tag.hidden = !safe;
+      if (safe) tag.removeAttribute("hidden");
+    }
+    hideExtraWhoSub("remote-third");
+    if (wrap) {
+      const show = live || thirdSlotConnecting;
+      wrap.hidden = !show;
+      if (show) wrap.removeAttribute("hidden");
+      else wrap.setAttribute("hidden", "");
+    }
+    hookNoCamPortraitFromStream("remote-third", stream);
+    try {
+      peelNoCamIfTilePainting("remote-third");
+    } catch (_) {}
+    try {
+      if (r3 && !videoElHasLivePaintedCamera(r3)) {
+        $("tile-third")?.classList.remove("has-remote-feed");
+        extraTileEverFrames["remote-third"] = false;
+        setNoCamPortrait(
+          "remote-third",
+          true,
+          noCamPortraitAvatar("remote-third")
+        );
+      }
+    } catch (_) {}
+    try {
+      dismissLinkingIfMediaLive();
+    } catch (_) {}
   } else {
+    // MATCHED 3-way / two remotes: never reopen hunt Find-3rd middle
+    if (trioHuntMustDrop()) {
+      hideTrioHuntEmpty();
+      if (r3 && r3.srcObject) {
+        r3.hidden = false;
+        r3.removeAttribute("hidden");
+        playVideoEl(r3);
+      }
+      return;
+    }
+    thirdSlotConnecting = false;
     if (r3) {
       r3.hidden = true;
       try {
@@ -11745,9 +17874,82 @@ function setThirdSlotStream(stream, label) {
     // Middle pane: animated brand loop (not static poster)
     if (trioBrowse) forceThirdBrandLoop();
     else syncThirdEmptyBrand(false);
+    if (tag) {
+      tag.textContent = "";
+      tag.hidden = true;
+    }
+    if (wrap) {
+      wrap.hidden = true;
+      wrap.setAttribute("hidden", "");
+    }
+    hideExtraWhoSub("remote-third");
+    hookNoCamPortraitFromStream("remote-third", null);
   }
-  if (tag) tag.textContent = label || "";
-  if (wrap) wrap.hidden = !label;
+}
+
+/**
+ * Stranger is listed (hub already matched a 3rd) but their stream is not
+ * on-track yet. Show the third tile as connecting — do NOT call
+ * setThirdSlotStream(null), which re-opens “Looking for a 3rd…” and
+ * forceThirdBrandLoop nulls #remote-third while ICE is still gathering.
+ */
+function showThirdConnecting(label) {
+  if (thirdSlotHasLiveMedia()) {
+    thirdSlotConnecting = false;
+    try {
+      document
+        .querySelector("main.stage")
+        ?.classList.remove("stage-trio-searching");
+    } catch (_) {}
+    try {
+      dismissLinkingIfMediaLive();
+    } catch (_) {}
+    return;
+  }
+  if (shouldBailThirdBrandOrConnecting()) {
+    thirdSlotConnecting = false;
+    try {
+      hideTrioHuntEmpty();
+    } catch (_) {}
+    if (mainRemoteIsNoCamLaptop()) {
+      try {
+        hideTrioIfOneNoCamLaptop();
+      } catch (_) {}
+    }
+    return;
+  }
+  // Do not open a 3rd column until that person is connected.
+  if (!thirdSlotShouldShow()) {
+    thirdSlotConnecting = false;
+    return;
+  }
+  thirdSlotConnecting = true;
+  enableTrioLayout(true, { searching: false });
+  const r3 = $("remote-third");
+  const empty = $("third-empty");
+  if (r3) {
+    r3.hidden = false;
+    r3.removeAttribute("hidden");
+  }
+  if (empty) {
+    empty.hidden = true;
+    empty.setAttribute("hidden", "");
+  }
+  try {
+    const bv = $("third-empty-video");
+    if (bv) {
+      bv.pause?.();
+      bv.hidden = true;
+    }
+    const poster = $("third-empty-poster");
+    if (poster) poster.hidden = true;
+  } catch (_) {}
+  document.querySelector("main.stage")?.classList.remove("stage-trio-searching");
+  // Connecting chrome: Partner / Opponent N only — never hex / stolen Laptop
+  paintExtraSlotName("remote-third", label, { connecting: true });
+  try {
+    startThirdSlotWatchdog();
+  } catch (_) {}
 }
 
 /** Brand loop behind “Looking for a 3rd…” */
@@ -11797,12 +17999,28 @@ function startThirdSlotWatchdog() {
   stopThirdSlotWatchdog();
   thirdSlotWatchTimer = setInterval(() => {
     try {
-      if (!trioBrowse || yourRole !== "party") return;
-      // Any stranger PC with live media should own the middle tile
+      if (!(trioBrowse || peerPcs.size >= 2 || trioHuntMustDrop())) return;
+      if (trioHuntMustDrop()) {
+        try {
+          enableTrioLayout(true, { searching: false });
+          hideTrioHuntEmpty();
+          bindLiveTrioRemoteTiles();
+          dedupeRemoteTileStreams();
+          playAllRemoteTiles();
+        } catch (_) {}
+      }
+      // Any extra (not main #remote) stranger PC with live media owns the mid tile.
+      // Never copy the teammate / already-on-#remote stream (dual Laptop FAIL).
+      const remoteEl = $("remote");
+      const mainStream = remoteEl?.srcObject || null;
       for (const [pid, pc] of peerPcs.entries()) {
+        if (isTeammateRole(pc._role)) continue;
         if (!(pc._role === "stranger" || pc._role === "party")) continue;
+        const meta = peerUiMeta.get(pid);
+        if (meta?.elId === "remote") continue;
         const stream = pc.remoteStream;
         if (!stream) continue;
+        if (mainStream && stream === mainStream) continue;
         const live = (stream.getTracks?.() || []).some(
           (t) => t.readyState === "live"
         );
@@ -11816,23 +18034,19 @@ function startThirdSlotWatchdog() {
           !r3.hidden &&
           (r3.srcObject.getTracks?.() || []).some((t) => t.readyState === "live");
         if (!r3Ok || emptyOn) {
-          const meta = peerUiMeta.get(pid);
           setThirdSlotStream(
             stream,
-            meta?.name || pc._displayName || _t("trio.partner") || "Partner"
+            extraSlotDisplayName(meta?.name || pc._displayName || "")
           );
-          if (meta) {
-            setWhoLabel(
-              "remote-third",
-              meta.name,
-              formatWhoSub(meta.role, meta.short, meta.code)
-            );
-          }
+          paintExtraSlotName("remote-third", meta?.name || "");
           setPeerConnChip(
             "remote-third",
             pc.pc?.connectionState || pc.pc?.iceConnectionState || "connected"
           );
         }
+        try {
+          dismissLinkingIfMediaLive();
+        } catch (_) {}
       }
     } catch (_) {}
   }, 2000);
@@ -11866,8 +18080,11 @@ function formatWhoSub(role, shortId, friendCode, opts = {}) {
   } else {
     roleLabel = _t("trio.rolePartner") || "Partner";
   }
+  // Extra tiles / identity skill: never append 6–12 hex / partner_short
+  if (opts.noId || opts.extraSlot) return roleLabel;
   const idBit = (friendCode || shortId || "").toString().slice(0, 10);
-  return idBit ? `${roleLabel} · ${idBit}` : roleLabel;
+  if (!idBit || isHexOrPoisonLabel(idBit)) return roleLabel;
+  return `${roleLabel} · ${idBit}`;
 }
 
 function setWhoLabel(slot, name, sub) {
@@ -11875,36 +18092,22 @@ function setWhoLabel(slot, name, sub) {
   if (slot === "remote") {
     // Main partner tile: never show "Незнакомец · CODE" under name (1v1 product)
     hideRemoteWhoSub();
-    // Name is painted by paintPartnerIdentityChrome / setDisplayNameOnTile
-    if (name && !isPoisonDisplayName(name) && !/^[0-9A-Fa-f]{6,12}$/.test(name)) {
+    // Name is painted by paintPartnerIdentityChrome / setDisplayNameOnTile.
+    // Only apply real names — never hex / Partner wipe of latched Courtier.
+    if (name && isRealPartnerDisplayName(name)) {
       const nameEl = $("remote-name");
       if (nameEl) setDisplayNameOnTile(nameEl, name);
     }
     void sub; // multi-peer who-sub not used on main remote
     return;
   }
-  if (slot === "remote2") {
-    const nameEl = $("remote2-tag");
-    const subEl = $("remote2-who-sub");
-    if (nameEl) nameEl.textContent = name || "";
-    if (subEl) {
-      subEl.textContent = sub || "";
-      subEl.hidden = !sub;
-    }
+  if (slot === "remote2" || slot === "remote-third") {
+    // One name per extra tile — Opponent N / Partner (or distinct real). Never hex.
+    void sub;
+    paintExtraSlotName(slot, name, {
+      connecting: slot === "remote-third" && thirdSlotConnecting,
+    });
     return;
-  }
-  if (slot === "remote-third") {
-    const subEl = $("third-who-sub");
-    if (subEl) {
-      if (sub) {
-        subEl.hidden = false;
-        subEl.removeAttribute("hidden");
-        subEl.textContent = sub;
-      } else {
-        subEl.hidden = true;
-        subEl.textContent = "";
-      }
-    }
   }
 }
 
@@ -11970,10 +18173,23 @@ function setPeerMuteUi(slot, muted) {
       ? _t("trio.unmuteThis") || "Unmute this person"
       : _t("trio.muteThis") || "Mute this person";
   }
+  if (slot === "remote-third") {
+    $("btn-mute-remote-third-rail")?.classList.toggle("muted-on", !!muted);
+  }
   // Tile veil + watermark (same visual language as debate mute)
   const tileId = PEER_SLOT_TILE[slot];
   const tile = tileId ? $(tileId) : null;
-  tile?.classList.toggle("peer-slot-muted", !!muted);
+  const volZero = Number(peerVolByEl[slot]) === 0;
+  const theyMuted =
+    slot === "remote" && !!theyMutedMe && !debate.active;
+  const show = !!muted || volZero || theyMuted;
+  tile?.classList.toggle("peer-slot-muted", show);
+  const mark = tile?.querySelector?.(":scope > .mute-speaker-mark");
+  if (mark) {
+    mark.hidden = !show;
+    if (show) mark.removeAttribute("hidden");
+    else mark.setAttribute("hidden", "");
+  }
   // Text mute chips removed (PC: mid-tile 🔇 icon only). Always keep badges hidden.
   const badgeId =
     slot === "remote"
@@ -12008,6 +18224,9 @@ function setPeerBlurUi(slot, blurred) {
     btn.title = blurred
       ? _t("trio.unblurThis") || "Unblur this person"
       : _t("trio.blurThis") || "Blur this person";
+  }
+  if (slot === "remote-third") {
+    $("btn-blur-remote-third-rail")?.classList.toggle("active", !!blurred);
   }
   const tileId = PEER_SLOT_TILE[slot];
   const tile = tileId ? $(tileId) : null;
@@ -12059,6 +18278,22 @@ function setPeerVolUi(slot, vol) {
   if (input && Number(input.value) !== n) input.value = String(n);
   if (pctEl) pctEl.textContent = `${n}%`;
   if (wrap) wrap.style.setProperty("--vol-pct", String(n));
+  if (slot === "remote-third") {
+    const rail = $("remote-third-vol-rail");
+    const railPct = $("remote-third-vol-pct-rail");
+    if (rail && Number(rail.value) !== n) rail.value = String(n);
+    if (railPct) railPct.textContent = `${n}%`;
+    rail?.parentElement?.style.setProperty("--vol-pct", String(n));
+  }
+  try {
+    document
+      .querySelectorAll(
+        `input.tile-vol[data-tile="${slot}"], input[data-tile="${slot}"]`
+      )
+      .forEach((el) => {
+        if (el && Number(el.value) !== n) el.value = String(n);
+      });
+  } catch (_) {}
 }
 
 function togglePeerElMute(slot) {
@@ -12116,10 +18351,157 @@ function setPeerElVolume(slot, vol) {
   peerVolByEl[slot] = v;
   setPeerVolUi(slot, v);
   applyRemoteVolume();
+  setPeerMuteUi(slot, !!peerMutedByEl[slot]);
   // Keep global slider in sync when adjusting main remote
   if (slot === "remote") {
     syncVolumeSliders(v);
     savePrefs({ volume: v });
+  }
+}
+
+function normalizeTileVolSlot(tileId) {
+  const s = String(tileId || "").trim();
+  if (
+    s === "remote" ||
+    s === "tile-remote" ||
+    s === "remote1" ||
+    s === "1"
+  ) {
+    return "remote";
+  }
+  if (s === "remote2" || s === "tile-remote2" || s === "fourth" || s === "2") {
+    return "remote2";
+  }
+  if (
+    s === "remote-third" ||
+    s === "remote3" ||
+    s === "tile-third" ||
+    s === "third" ||
+    s === "3"
+  ) {
+    return "remote-third";
+  }
+  return "";
+}
+
+/**
+ * Per-tile volume for that remote's audio only (video element + its audio tracks).
+ * HTML sibling may add input.tile-vol[data-tile]; guard if missing.
+ */
+function setTileVolume(tileId, n) {
+  const slot = normalizeTileVolSlot(tileId);
+  if (!slot) return;
+  setPeerElVolume(slot, n);
+}
+
+try {
+  window.setTileVolume = setTileVolume;
+} catch (_) {}
+
+function frostCanvasId(slot) {
+  return slot === "local" ? "self-hide-paint" : `frost-paint-${slot}`;
+}
+
+/** Display surface for inbound blur — second <video>, same as Hide / #local-frost. */
+function frostVidId(slot) {
+  if (slot === "local") return "local-frost";
+  if (slot === "remote") return "remote-frost";
+  return `frost-vid-${slot}`;
+}
+
+function frostVidAnchor(slot) {
+  if (slot === "local") {
+    return { host: $("tile-local"), after: $("local") };
+  }
+  if (slot === "remote") {
+    return { host: $("remote-stack") || $("tile-remote"), after: $("remote") };
+  }
+  if (slot === "remote2") {
+    return { host: $("remote2-wrap") || $("remote-stack"), after: $("remote2") };
+  }
+  if (slot === "remote-third") {
+    return { host: $("tile-third"), after: $("remote-third") };
+  }
+  return { host: null, after: null };
+}
+
+function slotFromFrostVidId(frostId) {
+  const id = String(frostId || "");
+  if (id === "local-frost") return "local";
+  if (id === "remote-frost") return "remote";
+  if (id.startsWith("frost-vid-")) return id.slice("frost-vid-".length);
+  return "";
+}
+
+function ensureFrostCanvas(id) {
+  let c = $(id);
+  if (!c) {
+    c = document.createElement("canvas");
+    c.id = id;
+    c.className = "frost-paint";
+    c.setAttribute("aria-hidden", "true");
+    document.body.appendChild(c);
+  } else if (c.parentNode !== document.body) {
+    document.body.appendChild(c);
+  }
+  return c;
+}
+
+function placeFrostOver(canvas, anchor) {
+  if (!canvas || !anchor) return;
+  const r = anchor.getBoundingClientRect();
+  if (r.width < 8 || r.height < 8) return;
+  canvas.style.setProperty("display", "block", "important");
+  canvas.style.setProperty("position", "fixed", "important");
+  canvas.style.setProperty("left", `${Math.round(r.left)}px`, "important");
+  canvas.style.setProperty("top", `${Math.round(r.top)}px`, "important");
+  canvas.style.setProperty("width", `${Math.round(r.width)}px`, "important");
+  canvas.style.setProperty("height", `${Math.round(r.height)}px`, "important");
+  canvas.style.setProperty("z-index", "40", "important");
+  canvas.style.setProperty("pointer-events", "none", "important");
+  canvas.style.setProperty("background", "transparent", "important");
+  canvas.style.setProperty("transform", "translateZ(1px)", "important");
+  canvas.style.setProperty("inset", "auto", "important");
+}
+
+function hideVideoLayer(video, hide) {
+  if (!video) return;
+  if (hide) video.style.setProperty("visibility", "hidden", "important");
+  else video.style.removeProperty("visibility");
+}
+
+function applyPeerBlurCover(slot, on) {
+  const tileId = PEER_SLOT_TILE[slot];
+  const tile = tileId ? $(tileId) : null;
+  const video = $(slot);
+  if (slot === "remote") {
+    tile?.classList.toggle("partner-blurred", !!on);
+  }
+  tile?.classList.toggle("peer-slot-blurred", !!on);
+  if (video) {
+    video.style.removeProperty("filter");
+    video.style.removeProperty("-webkit-filter");
+    video.style.removeProperty("transform");
+    video.style.removeProperty("opacity");
+    video.style.removeProperty("z-index");
+    // Hide source only after frost-vid has a painted frame (else blue slab).
+    const frost = $(frostVidId(slot));
+    const frostOn =
+      !!on &&
+      frost &&
+      frost.classList.contains("is-on") &&
+      frost.videoWidth > 2;
+    // Keep the live <video> visible — Hide/Blur-them share backdrop-filter veil.
+    // Hiding #remote made ::after blur empty (cheap slab). Never hide source.
+    hideVideoLayer(video, false);
+  }
+  if (!on) {
+    const canvas = $(frostCanvasId(slot));
+    if (canvas) {
+      canvas.classList.remove("is-on");
+      canvas.hidden = true;
+      canvas.style.setProperty("display", "none", "important");
+    }
   }
 }
 
@@ -12128,62 +18510,170 @@ function stopPeerBlurCanvas(slot) {
     cancelAnimationFrame(peerBlurRafByEl[slot]);
     peerBlurRafByEl[slot] = 0;
   }
-  const canvasId = PEER_SLOT_CANVAS[slot];
-  const c = canvasId ? $(canvasId) : null;
-  if (c) {
-    c.classList.remove("is-active");
-    c.hidden = true;
+  const st = _peerFrost[slot];
+  if (st?.raf) {
+    cancelAnimationFrame(st.raf);
+    st.raf = 0;
+  }
+  bindFrostVideo(frostVidId(slot), null, false);
+  detachPeerFrostPaint(slot);
+  applyPeerBlurCover(slot, false);
+}
+
+const _peerFrost = {};
+
+function getPeerFrostStream(slot) {
+  const srcVid = $(slot);
+  let st = _peerFrost[slot];
+  if (st?.track && st.track.readyState === "live") {
+    if (!st.raf && peerBlurredByEl[slot] && typeof st.tick === "function") {
+      st.raf = requestAnimationFrame(st.tick);
+    }
+    detachPeerFrostPaint(slot);
+    return st.stream;
+  }
+  const c = document.createElement("canvas");
+  c.width = 320;
+  c.height = 180;
+  // Opaque capture — but do NOT navy-fill + captureStream first.
+  // Those first frames became the frost-vid picture (blue slab) on
+  // new strangers while intro blur hid #remote.
+  const ctx = c.getContext("2d", { alpha: false });
+  if (!ctx) return null;
+  st = { canvas: c, ctx, stream: null, track: null, raf: 0, tick: null, shown: false };
+  const tick = () => {
+    if (!peerBlurredByEl[slot]) {
+      st.raf = 0;
+      return;
+    }
+    const v = $(slot) || srcVid;
+    if (v && v.videoWidth && v.readyState >= 2) {
+      const ok = drawSoftBlurredVideo(ctx, v, c, {
+        mirror: false,
+        // Same frost as Hide (self) — tinyW 40 / blurPx 8 looked sharp/cheap.
+        tinyW: 22,
+        blurPx: 12,
+      });
+      if (ok) {
+        if (!st.stream) {
+          try {
+            st.stream = c.captureStream(15);
+            st.track = st.stream.getVideoTracks()[0] || null;
+          } catch (_) {
+            st.track = null;
+          }
+        }
+        // Bind frost only after a real draw. Hide source in bindFrostVideo
+        // show() once frost-vid has is-on — not here (async gap = blue).
+        if (!st.shown && st.stream) {
+          st.shown = true;
+          bindFrostVideo(frostVidId(slot), st.stream, true);
+        }
+      }
+    }
+    st.raf = requestAnimationFrame(tick);
+  };
+  st.tick = tick;
+  _peerFrost[slot] = st;
+  st.raf = requestAnimationFrame(tick);
+  return st.stream;
+}
+
+/**
+ * 725: never put the sample canvas over #remote. Chrome HW video punches
+ * through a sibling canvas (sharp Courtier while Hide/self frost-vid works).
+ * Capture stays offscreen; bindFrostVideo is the display.
+ */
+function detachPeerFrostPaint(slot) {
+  const st = _peerFrost[slot];
+  const c = st?.canvas || $(frostCanvasId(slot));
+  if (!c) return;
+  c.classList.remove("is-on");
+  c.hidden = true;
+  try {
+    c.style.setProperty("display", "none", "important");
+  } catch (_) {}
+  if (c.parentNode && c.parentNode !== document.body) {
+    try {
+      c.remove();
+    } catch (_) {}
   }
 }
 
-function startPeerBlurCanvas(slot) {
-  if (!needsCanvasVideoBlur()) {
-    // Desktop: CSS filter on .peer-slot-blurred is enough
-    stopPeerBlurCanvas(slot);
+function bindFrostVideo(frostId, stream, on) {
+  let el = $(frostId);
+  if (!el && on) {
+    el = document.createElement("video");
+    el.id = frostId;
+    el.className = "frost-vid";
+    el.muted = true;
+    el.playsInline = true;
+    el.setAttribute("playsinline", "");
+    el.setAttribute("aria-hidden", "true");
+    const slot = slotFromFrostVidId(frostId);
+    const { host, after } = frostVidAnchor(slot);
+    if (after && after.parentNode) after.insertAdjacentElement("afterend", el);
+    else if (host) host.appendChild(el);
+  }
+  if (!el) return;
+  if (!on || !stream) {
+    el.classList.remove("is-on");
+    el.hidden = true;
+    el.style.setProperty("display", "none", "important");
+    try {
+      el.srcObject = null;
+    } catch (_) {}
     return;
   }
-  const tileId = PEER_SLOT_TILE[slot];
-  const canvasId = PEER_SLOT_CANVAS[slot];
-  const video = $(slot);
-  if (!tileId || !canvasId || !video) return;
-  const canvas = ensureVideoBlurCanvas(tileId, canvasId);
-  if (!canvas) return;
-  canvas.hidden = false;
-  canvas.classList.add("is-active");
-  // Soft slate immediately so user never sees a black frame while waiting
   try {
-    const boot = canvas.getContext("2d", { alpha: false });
-    if (boot) {
-      if (!canvas.width || !canvas.height) {
-        canvas.width = 360;
-        canvas.height = 640;
+    if (el.srcObject !== stream) el.srcObject = stream;
+  } catch (_) {}
+  el.muted = true;
+  const show = () => {
+    if (!el.videoWidth) {
+      // 034125Z: first rAF often has width 0; one bail hid frost forever
+      // so you-tile stayed black while Hide still sent dummy frames.
+      if ((el._frostShowTries = (el._frostShowTries || 0) + 1) < 24) {
+        requestAnimationFrame(show);
       }
-      drawSoftBlurredVideo(boot, video, canvas, { mirror: false });
-    }
-  } catch (_) {}
-  const ctx = canvas.getContext("2d", { alpha: false });
-  if (!ctx) return;
-  // Kick again when first frames arrive (canvas was empty slate before)
-  const onReady = () => {
-    if (!peerBlurredByEl[slot]) return;
-    try {
-      drawSoftBlurredVideo(ctx, video, canvas, { mirror: false });
-    } catch (_) {}
-  };
-  try {
-    video.addEventListener("loadeddata", onReady, { once: true });
-    video.addEventListener("playing", onReady, { once: true });
-  } catch (_) {}
-  const tick = () => {
-    if (!peerBlurredByEl[slot]) {
-      stopPeerBlurCanvas(slot);
       return;
     }
-    drawSoftBlurredVideo(ctx, video, canvas, { mirror: false });
-    peerBlurRafByEl[slot] = requestAnimationFrame(tick);
+    el._frostShowTries = 0;
+    el.hidden = false;
+    el.classList.add("is-on");
+    el.style.setProperty("display", "block", "important");
+    el.style.setProperty("position", "absolute", "important");
+    el.style.setProperty("inset", "0", "important");
+    el.style.setProperty("width", "100%", "important");
+    el.style.setProperty("height", "100%", "important");
+    el.style.setProperty("object-fit", "cover", "important");
+    el.style.setProperty("z-index", "40", "important");
+    el.style.setProperty("pointer-events", "none", "important");
+    el.style.setProperty("background", "transparent", "important");
+    // Source hide only after frost is painting (intro blur on a new
+    // stranger used to hide #remote first → navy slab).
+    const srcSlot = slotFromFrostVidId(frostId);
+    if (srcSlot && srcSlot !== "local") hideVideoLayer($(srcSlot), true);
   };
-  if (peerBlurRafByEl[slot]) cancelAnimationFrame(peerBlurRafByEl[slot]);
-  peerBlurRafByEl[slot] = requestAnimationFrame(tick);
+  try {
+    el.addEventListener("loadeddata", show, { once: true });
+    el.addEventListener("playing", show, { once: true });
+  } catch (_) {}
+  try {
+    el.play?.();
+  } catch (_) {}
+  requestAnimationFrame(show);
+}
+
+function startPeerBlurCanvas(slot) {
+  applyPeerBlurCover(slot, true);
+  detachPeerFrostPaint(slot);
+  if (isFxLite()) {
+    // Weak GPU: keep the live video so backdrop-filter has pixels.
+    hideVideoLayer($(slot), false);
+    return;
+  }
+  getPeerFrostStream(slot);
 }
 
 function syncAllPeerMediaChrome() {
@@ -12217,9 +18707,9 @@ function shouldDefaultBlurExtraPeer(peerMeta, elId) {
 
 function registerPeerUi(peerMeta, elId) {
   if (!peerMeta?.peer_id || !elId) return;
-  const cleanName = isPoisonDisplayName(peerMeta.name)
-    ? ""
-    : String(peerMeta.name || "").trim();
+  const rawPeerName = String(peerMeta.name || "").trim();
+  // Real display only — never short_id / hex / generic Partner as stored name
+  const cleanName = isRealPartnerDisplayName(rawPeerName) ? rawPeerName : "";
   peerUiMeta.set(peerMeta.peer_id, {
     elId,
     role: peerMeta.role || "",
@@ -12227,6 +18717,13 @@ function registerPeerUi(peerMeta, elId) {
     name: cleanName,
     short: peerMeta.short_id || "",
     code: peerMeta.friend_code || "",
+    userId: peerMeta.user_id || "",
+    flag: peerMeta.flag || "",
+    country: peerMeta.country || "",
+    city: peerMeta.city || "",
+    hide_ip: !!peerMeta.hide_ip,
+    stars: Math.max(0, Number(peerMeta.stars) || 0),
+    trust: Math.max(0, Number(peerMeta.trust) || 0),
   });
   // Opponent numbering for 1v2 / 2v2 / 3v1 clarity
   let opponentIndex = null;
@@ -12239,32 +18736,45 @@ function registerPeerUi(peerMeta, elId) {
     const idx = opps.findIndex((p) => p.peer_id === peerMeta.peer_id);
     if (idx >= 0 && opponentTotal > 1) opponentIndex = idx + 1;
   }
-  // Main remote 1v1: real name only; never "Незнакомец · friend_code"
+  // Main remote 1v1: real name only; never "Незнакомец · friend_code".
+  // Prefer latched Courtier over empty hub peer name (find-3rd rebind).
   if (elId === "remote") {
-    paintPartnerIdentityChrome({ name: cleanName });
+    paintPartnerIdentityChrome({
+      name: cleanName,
+      userId: peerMeta.user_id || lastMatchMeta?.user_id,
+      friendCode: peerMeta.friend_code || lastMatchMeta?.friend_code,
+    });
   }
-  // Solo/1v1: no who-sub at all. Multi-opponent only for trio/1v2 numbering.
-  const sub =
-    elId === "remote" && opponentTotal <= 1
+  // Solo/1v1: no who-sub at all. Extra tiles: never hex who-sub.
+  const extraSlot = elId === "remote-third" || elId === "remote2";
+  const sub = extraSlot
+    ? ""
+    : elId === "remote" && opponentTotal <= 1
       ? ""
       : opponentTotal > 1
         ? formatWhoSub(peerMeta.role, peerMeta.short_id, peerMeta.friend_code, {
             opponentIndex,
             opponentTotal,
+            noId: true,
           })
-        : elId === "remote"
-          ? ""
-          : formatWhoSub(
-              peerMeta.role,
-              peerMeta.short_id,
-              peerMeta.friend_code,
-              { opponentIndex, opponentTotal }
-            );
+        : "";
+  const paintLabel = extraSlot
+    ? extraSlotDisplayName(cleanName, { opponentIndex })
+    : cleanName ||
+      resolvePartnerPaintName({
+        name: cleanName,
+        userId: peerMeta.user_id,
+        allowLatch: true,
+        slot: "remote",
+      });
   setWhoLabel(
     elId === "remote-third" ? "remote-third" : elId,
-    cleanName || resolvePartnerPaintName({ name: cleanName }),
+    paintLabel,
     sub
   );
+  if (extraSlot) {
+    hideExtraWhoSub(elId === "remote-third" ? "remote-third" : "remote2");
+  }
   if (elId === "remote" && opponentTotal <= 1) {
     hideRemoteWhoSub();
   }
@@ -12276,6 +18786,70 @@ function registerPeerUi(peerMeta, elId) {
       setPeerBlurUi(elId, !!peerBlurredByEl[elId]);
     }
     setPeerVolUi(elId, peerVolByEl[elId] ?? 100);
+  }
+  try {
+    paintPeerSlotIdentity(elId, peerUiMeta.get(peerMeta.peer_id));
+  } catch (_) {}
+}
+
+function locElForSlot(elId) {
+  if (elId === "remote") return $("remote-tag");
+  if (elId === "remote2") return $("remote2-loc");
+  if (elId === "remote-third") return $("third-loc");
+  return null;
+}
+
+function starsWhichForSlot(elId) {
+  if (elId === "remote") return "remote";
+  if (elId === "remote2") return "remote2";
+  if (elId === "remote-third") return "third";
+  return "";
+}
+
+/** Partner chip = public ★: max(wallet, trust). */
+function displaySlotStars(stars, trust) {
+  const sRaw = Number(stars);
+  const tRaw = Number(trust);
+  const sOk = Number.isFinite(sRaw) || sRaw === Infinity;
+  const tOk = Number.isFinite(tRaw) || tRaw === Infinity;
+  if (sRaw === Infinity || tRaw === Infinity) return Infinity;
+  const s = sOk ? Math.max(0, Math.floor(sRaw)) : 0;
+  const t = tOk ? Math.max(0, Math.floor(tRaw)) : 0;
+  return Math.max(s, t);
+}
+
+/** Per-tile name is already set; paint flag/loc/★ without stealing main Courtier. */
+function paintPeerSlotIdentity(elId, meta) {
+  if (!elId || !meta) return;
+  const locEl = locElForSlot(elId);
+  if (locEl && typeof setLocationOnTile === "function") {
+    setLocationOnTile(locEl, {
+      flag: meta.flag || "",
+      country: meta.country || "",
+      city: meta.city || "",
+      hide_ip: !!meta.hide_ip,
+    });
+  }
+  const which = starsWhichForSlot(elId);
+  if (which) {
+    try {
+      setStarsBadge(which, displaySlotStars(meta.stars, meta.trust), {
+        trust: meta.trust,
+      });
+    } catch (_) {}
+  }
+  if (elId === "remote-third") {
+    // 3-way listed 3rd: show name/loc/★/vol even before first frame (not hunt).
+    if (thirdSlotHasLiveMedia() || thirdSlotConnecting || peerPcs.size >= 2) {
+      const wrap = $("third-tile-tag");
+      if (wrap) {
+        wrap.hidden = false;
+        wrap.removeAttribute("hidden");
+      }
+    }
+    syncThirdTileChrome({
+      connecting: thirdSlotConnecting || peerPcs.size >= 2,
+    });
   }
 }
 
@@ -12308,12 +18882,14 @@ function updatePartyRoleStrip(msg) {
       searching = true;
     }
   } else if (matchMode === "party_browse" && yourRole === "solo") {
-    line =
-      nOpp >= 3
-        ? _t("trio.stripSoloVs3") || "You · vs three people"
-        : nOpp >= 2
-          ? _t("trio.stripSoloVsParty") || "You · vs a pair (two videos)"
-          : _t("trio.stripSoloVsOne") || "You · vs one person";
+    // 3-way / 4-way: tiles already show each person. Do not stamp
+    // "You · vs a pair (two videos)" on the left tile.
+    if (nOpp >= 2) {
+      strip.hidden = true;
+      strip.classList.remove("is-searching");
+      return;
+    }
+    line = _t("trio.stripSoloVsOne") || "You · vs one person";
   } else if (
     matchMode === "party_browse" &&
     yourRole === "party" &&
@@ -12369,6 +18945,11 @@ function syncNextButtonCopy() {
       title =
         _t("btn.nextHuntingTitle") ||
         "Search for a stranger — your friend stays";
+    } else if (nOpp >= 2) {
+      text = _t("btn.nextPair") || "Next pair";
+      title =
+        _t("btn.nextPairTitle") ||
+        "Skip the other pair — keep your teammate";
     } else if (nOpp >= 1) {
       text = _t("btn.nextStranger") || "Next stranger";
       title =
@@ -12391,19 +18972,66 @@ function syncNextButtonCopy() {
   if (i18nSpan) i18nSpan.textContent = text;
   next.title = title;
   next.setAttribute("aria-label", title);
-  // Stop: clearer when in party
+  if (
+    !keepParty &&
+    matched &&
+    (trioBrowse || (typeof livePeopleOnStage === "function" && livePeopleOnStage() >= 3))
+  ) {
+    // The 3rd (solo vs a pair): Next leaves and searches alone
+    next.title = _t("btn.nextSoloTitle") || "Leave and search on your own";
+    next.setAttribute("aria-label", next.title);
+  }
+  // Stop: Leave 3rd (party + 3rd live) / Leave call (solo 3rd) / Stop (1v1).
+  // 4-way uses the same contract (people>=3 includes 4). Hunt 1v1 stays Stop.
   const stop = $("btn-stop");
-  if (stop && keepParty && (matchMode === "party_browse" || trioBrowse)) {
-    stop.title =
-      _t("btn.stopPartyTitle") ||
-      "Leave call and stop searching (ends party browse)";
-  } else if (stop) {
-    stop.title = _t("btn.stopTitle") || "Stop searching / leave call";
+  if (stop) {
+    const stopSpan =
+      stop.querySelector("[data-i18n='btn.stop']") ||
+      stop.querySelector("span");
+    const people =
+      typeof livePeopleOnStage === "function" ? livePeopleOnStage() : 2;
+    const thirdLive =
+      people >= 3 ||
+      (typeof peerPcs !== "undefined" && peerPcs.size >= 2);
+    let stopText = _t("btn.stop") || "Stop";
+    let stopTitle = _t("btn.stopTitle") || "Stop searching / leave call";
+    if (people >= 4) {
+      stopText = _t("btn.stopLeavePair") || "Leave";
+      stopTitle =
+        _t("btn.stopLeavePairTitle") ||
+        "Leave this 2v2 — the others stay";
+    } else if (yourRole === "party" && thirdLive) {
+      stopText = _t("btn.stopLeaveThird") || "Leave 3rd";
+      stopTitle =
+        _t("btn.stopLeaveThirdTitle") ||
+        "Leave this 3-way — they stay together as 1v1";
+    } else if (yourRole === "solo" && thirdLive) {
+      stopText = _t("btn.stopLeaveCall") || "Leave call";
+      stopTitle =
+        _t("btn.stopLeaveCallTitle") || "Leave — the others stay in the call";
+    } else if (keepParty && (matchMode === "party_browse" || trioBrowse)) {
+      stopTitle =
+        _t("btn.stopPartyTitle") ||
+        "Leave call and stop searching (ends party browse)";
+    }
+    if (stopSpan) stopSpan.textContent = stopText;
+    stop.title = stopTitle;
+    stop.setAttribute("aria-label", stopTitle);
   }
 }
 
 function clearMultiPartyChrome() {
   stopThirdSlotWatchdog();
+  thirdSlotConnecting = false;
+  hideExtraWhoSub("remote2");
+  hideExtraWhoSub("remote-third");
+  try {
+    const wrap = $("third-tile-tag");
+    if (wrap) {
+      wrap.hidden = true;
+      wrap.setAttribute("hidden", "");
+    }
+  } catch (_) {}
   peerUiMeta.clear();
   for (const slot of ["remote", "remote2", "remote-third"]) {
     peerMutedByEl[slot] = false;
@@ -12454,6 +19082,38 @@ function prepareVideoEl(el, { muted = false } = {}) {
   } catch (_) {}
 }
 
+/** Rebind #local to previewStream when the element is playing with no pixels. */
+function healLocalPreviewPaint(reason = "") {
+  const now = Date.now();
+  if (healLocalPreviewPaint._at && now - healLocalPreviewPaint._at < 2000) {
+    return false;
+  }
+  if (camOff) return false;
+  const local = $("local");
+  const stream = previewStream;
+  if (!local || !stream) return false;
+  const tr = stream.getVideoTracks?.()?.[0] || null;
+  if (!tr || tr.readyState !== "live") return false;
+  const deadEl = !local.videoWidth || local.readyState < 2;
+  const wrongSrc = local.srcObject !== stream;
+  if (!deadEl && !wrongSrc) return false;
+  healLocalPreviewPaint._at = now;
+  try {
+    tr.enabled = true;
+  } catch (_) {}
+  try {
+    local.srcObject = stream;
+  } catch (_) {}
+  try {
+    prepareVideoEl(local, { muted: true });
+  } catch (_) {}
+  playVideoEl(local);
+  log(
+    `local-preview heal reason=${String(reason).slice(0, 28)} w=${local.videoWidth || 0}`
+  );
+  return true;
+}
+
 function playVideoEl(el) {
   if (!el) return;
   const isLocal =
@@ -12469,6 +19129,7 @@ function playVideoEl(el) {
       el.muted = false;
       el.removeAttribute("muted");
     } catch (_) {}
+    unmuteRemoteTileAudio(el);
   }
   try {
     const p = el.play?.();
@@ -12513,20 +19174,291 @@ function isMainRemoteVideoEl(el) {
   );
 }
 
+/** Remote stage tiles — one person / one MediaStream each. */
+const REMOTE_TILE_IDS = ["remote", "remote2", "remote-third"];
+
+function findTileIdForStream(stream) {
+  if (!stream) return "";
+  for (const id of REMOTE_TILE_IDS) {
+    const el = $(id);
+    if (el?.srcObject && el.srcObject === stream) return id;
+  }
+  return "";
+}
+
+function streamOnAnyOtherTile(stream, exceptId) {
+  if (!stream) return false;
+  const id = findTileIdForStream(stream);
+  return !!(id && id !== exceptId);
+}
+
+/** Occupancy #remote wins: pull a live inbound off mid/extra onto left. */
+function releaseStreamFromOtherTiles(stream, keepId) {
+  if (!stream || !keepId) return;
+  for (const id of REMOTE_TILE_IDS) {
+    if (id === keepId) continue;
+    const el = $(id);
+    if (!el || el.srcObject !== stream) continue;
+    try {
+      el.srcObject = null;
+    } catch (_) {}
+    if (id === "remote-third") {
+      try {
+        $("tile-third")?.classList.remove("has-remote-feed");
+      } catch (_) {}
+    }
+  }
+}
+
+function findTileIdForPc(pc) {
+  if (!pc) return "";
+  if (pc.remoteStream) {
+    const bound = findTileIdForStream(pc.remoteStream);
+    if (bound) return bound;
+  }
+  const el = pc._videoEl;
+  if (el && REMOTE_TILE_IDS.includes(el.id)) return el.id;
+  return "";
+}
+
+function tileHasOtherLiveStream(el, stream) {
+  if (!el?.srcObject || el.srcObject === stream) return false;
+  if (!streamHasLiveAv(el.srcObject)) return false;
+  return [...peerPcs.values()].some(
+    (p) => p && p.remoteStream === el.srcObject && p.remoteStream !== stream
+  );
+}
+
+/** First free remote tile for this stream (never a tile already showing someone else). */
+function pickFreeRemoteTile(stream, pc) {
+  const already = findTileIdForStream(stream);
+  if (already) return $(already);
+  const assigned = pc?._videoEl;
+  if (
+    assigned &&
+    isMainRemoteVideoEl(assigned) &&
+    !tileHasOtherLiveStream(assigned, stream)
+  ) {
+    return assigned;
+  }
+  const n = peerPcs.size || 0;
+  const first = pickFirstPartnerPeer(lastMatchedPeers);
+  const pid = pc?.remotePeerId || "";
+  const isFirst =
+    !!pc &&
+    ((first && pid && pid === first.peer_id) || pcIsFirstPartner(pid, pc));
+  const noCamMain = noCamLaptopBelongsOnMain(stream);
+  const order =
+    noCamMain || isFirst
+      ? ["remote", "remote-third", "remote2"]
+      : n >= 3
+        ? ["remote-third", "remote2", "remote"]
+        : ["remote-third", "remote", "remote2"];
+  for (const id of order) {
+    const el = $(id);
+    if (!el) continue;
+    if (!el.srcObject || el.srcObject === stream) return el;
+    if (!streamHasLiveAv(el.srcObject)) return el;
+  }
+  return null;
+}
+
+/** Live occupant of #remote — new 3rd must not steal this tile. */
+function liveMainRemotePc() {
+  const remote = $("remote");
+  const s = remote?.srcObject;
+  if (s && streamHasLiveAv(s)) {
+    for (const pc of peerPcs.values()) {
+      if (pc && pc.remoteStream === s) return pc;
+    }
+  }
+  for (const pc of peerPcs.values()) {
+    if (!pc) continue;
+    if (findTileIdForPc(pc) !== "remote") continue;
+    if (streamHasLiveAv(pc.remoteStream) || isTeammateRole(pc._role)) return pc;
+  }
+  return null;
+}
+
+/** Extra tile for a new 3rd — never occupied #remote. */
+function pickExtraRemoteTileForNewPeer(stream, pc) {
+  const r3 = $("remote-third");
+  if (
+    r3 &&
+    (!r3.srcObject || r3.srcObject === stream || !streamHasLiveAv(r3.srcObject))
+  ) {
+    return r3;
+  }
+  const r2 = $("remote2");
+  if (
+    r2 &&
+    (!r2.srcObject || r2.srcObject === stream || !streamHasLiveAv(r2.srcObject))
+  ) {
+    return r2;
+  }
+  try {
+    const free = pickFreeRemoteTile(stream, pc);
+    if (free && free.id !== "remote") return free;
+    if (free && !liveMainRemotePc()) return free;
+  } catch (_) {}
+  return r3 || r2 || null;
+}
+
+/** Drop a stream that is already painting on another tile (laptop double-PC). */
+function dedupeRemoteTileStreams() {
+  const seen = new Set();
+  for (const id of REMOTE_TILE_IDS) {
+    const el = $(id);
+    const s = el?.srcObject;
+    if (!s) continue;
+    if (seen.has(s)) {
+      try {
+        el.srcObject = null;
+      } catch (_) {}
+    } else {
+      seen.add(s);
+    }
+  }
+}
+
+/**
+ * Laptop 3rd: one person per tile. Occupancy stream + name on #remote.
+ * Never clone that stream onto mid. Mid = the other listed peer (Courtier).
+ */
+function syncLaptopTrioTiles() {
+  if (yourRole !== "solo") return;
+  if (syncLaptopTrioTiles._busy) return;
+  syncLaptopTrioTiles._busy = true;
+  try {
+    syncLaptopTrioTilesBody();
+  } finally {
+    syncLaptopTrioTiles._busy = false;
+  }
+}
+
+function syncLaptopTrioTilesBody() {
+  if (yourRole !== "solo") return;
+  const list =
+    (Array.isArray(lastMatchedPeers) && lastMatchedPeers.length >= 2
+      ? lastMatchedPeers
+      : lastMeshPeers) || [];
+  if (!Array.isArray(list) || list.length < 2) return;
+  const rem = $("remote");
+  const r3 = $("remote-third");
+  const occ =
+    typeof liveMainRemotePc === "function" ? liveMainRemotePc() : null;
+  const first =
+    (occ &&
+      list.find(
+        (p) => p?.peer_id && findPcForPeer(p.peer_id) === occ
+      )) ||
+    pickFirstPartnerPeer(list);
+  const extra = list.find(
+    (p) => p && first && p.peer_id && p.peer_id !== first.peer_id
+  );
+  try {
+    if (!paintSoloTilesFromStreams(list) && first) {
+      registerPeerUi(first, "remote");
+      paintPartnerIdentityChrome({
+        name: first.name,
+        userId: first.user_id,
+      });
+    }
+  } catch (_) {}
+  try {
+    if (extra) {
+      registerPeerUi(extra, "remote-third");
+      paintExtraSlotName("remote-third", extra.name || "");
+      paintPeerSlotIdentity("remote-third", extra);
+    }
+  } catch (_) {}
+  const sMain = rem?.srcObject;
+  const s3 = r3?.srcObject;
+  if (sMain && s3 && sMain === s3) {
+    try {
+      r3.srcObject = null;
+    } catch (_) {}
+    try {
+      $("tile-third")?.classList.remove("has-remote-feed");
+      extraTileEverFrames["remote-third"] = false;
+      setNoCamPortrait(
+        "remote-third",
+        true,
+        noCamPortraitAvatar("remote-third")
+      );
+    } catch (_) {}
+  }
+  try {
+    if (
+      occ?.remoteStream &&
+      r3?.srcObject === occ.remoteStream &&
+      rem &&
+      rem.srcObject !== occ.remoteStream
+    ) {
+      releaseStreamFromOtherTiles(occ.remoteStream, "remote");
+      bindPcVideo(occ, rem);
+    }
+  } catch (_) {}
+  try {
+    dedupeRemoteTileStreams();
+  } catch (_) {}
+  try {
+    paintSoloTilesFromStreams(list);
+  } catch (_) {}
+  try {
+    bindSoloPartyBothRemotes(
+      list.filter((p) => p && (p.role === "stranger" || p.role === "party"))
+    );
+  } catch (_) {}
+  try {
+    if (typeof ensureMeshExtraOfferer === "function") ensureMeshExtraOfferer();
+  } catch (_) {}
+}
+
 /**
  * Bind a peer connection’s remote stream to a video element (or detach).
  * Fixes party-browse: friend used to own #remote and blocked the stranger feed.
  * Always clears the empty/brand overlay when a live stream is shown on main remotes
  * (rematch / rebind used to leave empty covering the partner feed).
+ * Never clones the same MediaStream onto two tiles.
  */
 function bindPcVideo(pc, el) {
   if (!pc) return;
-  pc._videoEl = el || null;
   const stream = pc.remoteStream;
+  // Never assign the same srcObject to #remote and #remote-third.
+  if (el && stream && streamOnAnyOtherTile(stream, el.id)) {
+    // Left occupancy always wins. 664 skip left Dragonov black when
+    // the PC stream was still parked on #remote-third.
+    if (el.id === "remote") {
+      releaseStreamFromOtherTiles(stream, "remote");
+    } else {
+      const keep = findTileIdForStream(stream);
+      if (keep) {
+        pc._videoEl = $(keep);
+        return;
+      }
+    }
+  }
+  if (el && stream && tileHasOtherLiveStream(el, stream)) {
+    const free = pickFreeRemoteTile(stream, pc);
+    if (free && free !== el) {
+      bindPcVideo(pc, free);
+      return;
+    }
+    return;
+  }
+  pc._videoEl = el || null;
   if (el && stream) {
     prepareVideoEl(el, { muted: false });
     if (el.srcObject !== stream) el.srcObject = stream;
+    unmuteRemoteTileAudio(el);
     playVideoEl(el);
+    try {
+      if (isMainRemoteVideoEl(el)) {
+        hookNoCamPortraitFromStream(el.id, stream);
+        peelNoCamIfTilePainting(el.id);
+      }
+    } catch (_) {}
     try {
       if (typeof applyLowLatencyPlayout === "function" && pc.pc) {
         applyLowLatencyPlayout(pc.pc);
@@ -12541,17 +19473,46 @@ function bindPcVideo(pc, el) {
 }
 
 function paintRemoteFromPc(pc, stream) {
-  // Prefer live #remote (may have been remounted)
-  let el = pc?._videoEl || $("remote");
-  try {
-    const live = $("remote");
-    if (live && live !== el) el = live;
-  } catch (_) {}
-  if (!el) return;
-  if (pc) pc._videoEl = el;
-  prepareVideoEl(el, { muted: false });
+  if (partnerStageShouldBeIdle()) {
+    try {
+      paintIdlePartnerStage();
+    } catch (_) {}
+    return;
+  }
   const next = stream || pc?.remoteStream || null;
   if (!next) return;
+  // Occupancy: paint the tile that already has this stream, else assigned slot,
+  // else a free tile. Never force every peer onto #remote (laptop double-PC).
+  let el = null;
+  try {
+    const boundId = findTileIdForStream(next);
+    if (boundId) el = $(boundId);
+  } catch (_) {}
+  if (!el && pc?._videoEl && isMainRemoteVideoEl(pc._videoEl)) {
+    if (!tileHasOtherLiveStream(pc._videoEl, next)) el = pc._videoEl;
+  }
+  if (!el) {
+    try {
+      el = pickFreeRemoteTile(next, pc);
+    } catch (_) {}
+  }
+  if (!el) el = pc?._videoEl || $("remote");
+  if (!el) return;
+  if (tileHasOtherLiveStream(el, next)) {
+    const free = pickFreeRemoteTile(next, pc);
+    if (!free || free === el) return;
+    el = free;
+  }
+  // Never assign the same srcObject to #remote and #remote-third.
+  if (el && streamOnAnyOtherTile(next, el.id)) {
+    const keep = findTileIdForStream(next);
+    if (keep) {
+      if (pc) pc._videoEl = $(keep);
+      return;
+    }
+  }
+  if (pc) pc._videoEl = el;
+  prepareVideoEl(el, { muted: false });
   // Diagnostic: log track state once per bind (helps PC black forensics)
   try {
     if (!paintRemoteFromPc._logged || paintRemoteFromPc._logged !== next.id) {
@@ -12612,10 +19573,13 @@ function paintRemoteFromPc(pc, stream) {
     }
   } catch (_) {
     try {
-      el.srcObject = next;
+      if (!streamOnAnyOtherTile(next, el.id)) el.srcObject = next;
     } catch (_) {}
   }
   playVideoEl(el);
+  try {
+    if (isMainRemoteVideoEl(el)) peelNoCamIfTilePainting(el.id);
+  } catch (_) {}
   try {
     if (typeof applyLowLatencyPlayout === "function" && pc?.pc) {
       applyLowLatencyPlayout(pc.pc);
@@ -12634,6 +19598,7 @@ function paintRemoteFromPc(pc, stream) {
         (t) => t.readyState === "live"
       );
       if (liveV) paintFirstFromLiveTrack("paint");
+      else dismissLinkingIfMediaLive();
     } catch (_) {}
     applyRemoteVolume();
     applySpeaker();
@@ -12642,6 +19607,12 @@ function paintRemoteFromPc(pc, stream) {
 
 /** If any main remote already has a live stream, hide empty overlay + ensure play. */
 function ensurePartnerVideoVisible() {
+  if (partnerStageShouldBeIdle()) {
+    try {
+      paintIdlePartnerStage();
+    } catch (_) {}
+    return;
+  }
   for (const id of ["remote", "remote2", "remote-third"]) {
     const el = $(id);
     if (!el?.srcObject) continue;
@@ -12661,7 +19632,7 @@ function ensurePartnerVideoVisible() {
       el.style.setProperty("visibility", "visible", "important");
       el.style.setProperty("z-index", "5", "important");
     } catch (_) {}
-    if (hasVid || live) {
+    if (hasVid || live || hasAudio) {
       setRemoteEmpty(false);
       try {
         $("remote-empty")?.classList.add("hidden");
@@ -12672,6 +19643,10 @@ function ensurePartnerVideoVisible() {
         try {
           paintFirstFromLiveTrack("ensure");
         } catch (_) {}
+      } else if (hasAudio) {
+        try {
+          dismissLinkingIfMediaLive();
+        } catch (_) {}
       }
     }
     playVideoEl(el);
@@ -12680,25 +19655,33 @@ function ensurePartnerVideoVisible() {
   for (const pc of peerPcs.values()) {
     if (!pc?.remoteStream) continue;
     const hasVid = (pc.remoteStream.getVideoTracks?.() || []).length > 0;
-    if (!hasVid) continue;
-    if (!pc._videoEl) {
+    const hasAv = hasVid || streamHasLiveAv(pc.remoteStream);
+    if (!hasAv) continue;
+    if (!pc._videoEl || !isMainRemoteVideoEl(pc._videoEl)) {
       try {
-        pc._videoEl = $("remote");
+        pc._videoEl = pickFreeRemoteTile(pc.remoteStream, pc);
       } catch (_) {}
     }
-    const el = pc._videoEl || $("remote");
+    const el = pc._videoEl || pickFreeRemoteTile(pc.remoteStream, pc);
     try {
       if (
         el &&
         el.srcObject === pc.remoteStream &&
-        el.videoWidth > 0 &&
-        el.readyState >= 2
+        (el.videoWidth > 0 && el.readyState >= 2 || streamHasLiveAv(el.srcObject))
       ) {
         playVideoEl(el);
         continue;
       }
     } catch (_) {}
     paintRemoteFromPc(pc, pc.remoteStream);
+  }
+  try {
+    dedupeRemoteTileStreams();
+  } catch (_) {}
+  if (trioHuntMustDrop() || peerPcs.size >= 2 || thirdSlotHasLiveMedia()) {
+    try {
+      settleMatchedTrioLayout();
+    } catch (_) {}
   }
 }
 
@@ -12738,9 +19721,18 @@ function bindFirstPartnerToMain(meta) {
   const peerId = meta?.peer_id || "";
   let pc = findPcForPeer(peerId);
   if (!pc) {
-    // Prefer a teammate-marked PC — never grab the 3rd (stranger) stream for main
-    for (const p of peerPcs.values()) {
+    // Prefer teammate-marked PC — never grab the 3rd (stranger) stream for main
+    for (const [pid, p] of peerPcs.entries()) {
       if (isTeammateRole(p._role) && p.remoteStream) {
+        pc = p;
+        break;
+      }
+      if (!pc && pcIsFirstPartner(pid, p) && p.remoteStream) pc = p;
+    }
+  }
+  if (!pc) {
+    for (const [pid, p] of peerPcs.entries()) {
+      if (pcIsFirstPartner(pid, p) && p.remoteStream) {
         pc = p;
         break;
       }
@@ -12749,13 +19741,47 @@ function bindFirstPartnerToMain(meta) {
   if (!pc && peerPcs.size === 1) {
     // Only safe when the sole peer is already a friend/teammate (hunting for 3rd).
     // If the sole peer is the stranger, leave main alone — 3rd belongs on #remote-third.
-    const only = [...peerPcs.values()][0];
-    if (only && isTeammateRole(only._role) && only.remoteStream) pc = only;
+    const onlyEntry = [...peerPcs.entries()][0];
+    const only = onlyEntry?.[1];
+    if (
+      only &&
+      only.remoteStream &&
+      (isTeammateRole(only._role) || pcIsFirstPartner(onlyEntry[0], only))
+    ) {
+      pc = only;
+    }
   }
   if (!pc) return null;
-  // Never promote stranger/party onto the main “friend” tile
+  // Laptop 3rd: never rekey Dragonov's PC under Courtier's peer_id (latch).
+  if (yourRole === "solo" && peerId) {
+    let curKey = "";
+    try {
+      for (const [k, v] of peerPcs.entries()) {
+        if (v === pc) {
+          curKey = k;
+          break;
+        }
+      }
+    } catch (_) {}
+    if (curKey && curKey !== peerId) {
+      const listedOther = (
+        Array.isArray(lastMatchedPeers) ? lastMatchedPeers : []
+      ).some((p) => p && p.peer_id === curKey);
+      if (listedOther) {
+        bindPcVideo(pc, remote);
+        try {
+          paintSoloTilesFromStreams(lastMatchedPeers);
+        } catch (_) {}
+        return pc;
+      }
+    }
+  }
+  // Stranger 3rd never occupies #remote. Latched 1v1 (Courtier) may still be role=party.
+  const latched =
+    pcIsFirstPartner(peerId, pc) || peerMatchesLatchedPartner(meta);
   if (
     !isTeammateRole(pc._role) &&
+    !latched &&
     (pc._role === "stranger" || pc._role === "party")
   ) {
     return null;
@@ -12775,6 +19801,9 @@ function bindFirstPartnerToMain(meta) {
     setRemoteEmpty(false);
     applyRemoteVolume();
     applySpeaker();
+    try {
+      hookNoCamPortraitFromStream("remote", stream);
+    } catch (_) {}
   }
   const tag = $("remote-tag");
   const nameEl = $("remote-name");
@@ -12786,12 +19815,109 @@ function bindFirstPartnerToMain(meta) {
       hide_ip: !!(meta?.hide_ip ?? lastMatchMeta?.hide_ip),
     });
   }
-  paintPartnerIdentityChrome({
-    name: meta?.name || lastMatchMeta?.name,
-    friendCode: meta?.friend_code || lastMatchMeta?.friend_code,
-  });
+  {
+    if (yourRole === "solo") {
+      try {
+        paintSoloTilesFromStreams(lastMatchedPeers);
+      } catch (_) {}
+    } else {
+      const raw = String(meta?.name || "").trim();
+      // Prefer latched Courtier over lastMatchMeta (may be stranger primary for block)
+      const preferred = isRealPartnerDisplayName(raw)
+        ? raw
+        : lastGoodPartnerName || lastMatchMeta?.name || "";
+      paintPartnerIdentityChrome({
+        name: preferred,
+        userId:
+          meta?.user_id || lastGoodPartnerUserId || lastMatchMeta?.user_id,
+        friendCode: meta?.friend_code || lastMatchMeta?.friend_code,
+      });
+    }
+  }
   syncRemoteTileTagVisibility();
   return pc;
+}
+
+/**
+ * Soft re-play partner on #remote after trio reflow — never hard null-rebind.
+ * Layout thrash (find-3rd accept / Android 3rd join / stage-trio) can stall
+ * Chrome decode until play() + optional keyframe. Soft waves only.
+ */
+function softKeepPartnerPaint() {
+  if (partnerStageShouldBeIdle()) return;
+  try {
+    const remote = $("remote");
+    const mate =
+      [...peerPcs.values()].find((p) => isTeammateRole(p._role)) ||
+      (peerPcs.size === 1 ? [...peerPcs.values()][0] : null);
+    const stream = mate?.remoteStream || remote?.srcObject;
+    if (remote && stream) {
+      if (remote.srcObject !== stream) remote.srcObject = stream;
+      prepareVideoEl(remote, { muted: false });
+      playVideoEl(remote);
+      setRemoteEmpty(false);
+      $("tile-remote")?.classList.add("has-remote-feed");
+      $("remote-empty")?.classList.add("hidden");
+      remote.hidden = false;
+      remote.removeAttribute("hidden");
+      remote.style.setProperty("display", "block", "important");
+      remote.style.setProperty("opacity", "1", "important");
+      remote.style.setProperty("visibility", "visible", "important");
+      remote.style.setProperty("z-index", "5", "important");
+    }
+    // Ask for a keyframe if remote video stalled after layout
+    try {
+      const recv = mate?.pc?.getReceivers?.() || [];
+      for (const r of recv) {
+        if (
+          r.track?.kind === "video" &&
+          typeof r.track.requestKeyFrame === "function"
+        ) {
+          r.track.requestKeyFrame();
+        }
+      }
+    } catch (_) {}
+    // stage-trio reflow can blank #remote-name — keep latched Courtier
+    try {
+      if (isRealPartnerDisplayName(lastGoodPartnerName)) {
+        paintPartnerIdentityChrome({ name: lastGoodPartnerName });
+      }
+    } catch (_) {}
+  } catch (_) {}
+}
+
+/** Soft keep waves: 0 / 80 / 250 / 700 / 1500 ms after trio reflow. */
+function scheduleSoftKeepPartnerPaint() {
+  softKeepPartnerPaint();
+  for (const ms of [80, 250, 700, 1500]) {
+    setTimeout(softKeepPartnerPaint, ms);
+  }
+}
+
+/** While find-3rd hunt (searching, 1 media link): keep partner tile painting. */
+let huntSoftKeepPaintTimer = 0;
+
+function stopHuntSoftKeepPaint() {
+  if (!huntSoftKeepPaintTimer) return;
+  try {
+    clearInterval(huntSoftKeepPaintTimer);
+  } catch (_) {}
+  huntSoftKeepPaintTimer = 0;
+}
+
+function startHuntSoftKeepPaint() {
+  if (!(trioBrowse && peerPcs.size < 2)) {
+    stopHuntSoftKeepPaint();
+    return;
+  }
+  if (huntSoftKeepPaintTimer) return;
+  huntSoftKeepPaintTimer = setInterval(() => {
+    if (!trioBrowse || peerPcs.size >= 2) {
+      stopHuntSoftKeepPaint();
+      return;
+    }
+    softKeepPartnerPaint();
+  }, 1500);
 }
 
 /** After stranger leaves, put friend/teammate back on the main remote tile. */
@@ -12805,7 +19931,16 @@ function reattachFriendToMainRemote() {
     // Trio: still try any live PC (role may lag)
     bindFirstPartnerToMain(null);
   }
-  if (trioBrowse) setThirdSlotStream(null);
+  if (trioBrowse) {
+    if (trioHuntMustDrop()) {
+      hideTrioHuntEmpty();
+      try {
+        settleMatchedTrioLayout();
+      } catch (_) {}
+    } else {
+      setThirdSlotStream(null);
+    }
+  }
 }
 
 function closeMatchMoreMenu() {
@@ -12832,43 +19967,24 @@ function toggleMatchMoreMenu() {
 
 function syncMatchMoreVisibility() {
   const wrap = $("match-more-wrap");
-  const menu = $("match-more-menu");
   if (!wrap) return;
-  // Block/Report live as a primary footer button — not inside ⋯
-  const ids = [
-    "btn-browse-together",
-    "btn-hangup-friend",
-    "btn-find-third",
-    "btn-find-third-cancel",
-    "btn-spin",
-  ];
-  let any = false;
-  for (const id of ids) {
-    const el = $(id);
-    if (el && !el.hidden) {
-      any = true;
-      break;
-    }
-  }
-  wrap.hidden = !any;
-  if (!any) closeMatchMoreMenu();
-  // Hide empty hint only if menu has no items
-  if (menu) {
-    const hint = menu.querySelector(".match-more-hint");
-    if (hint) hint.hidden = !any;
-  }
+  // Floor ⋯ removed — extras stay in DOM for JS; Find 3rd is tap-face.
+  wrap.hidden = true;
+  closeMatchMoreMenu();
 }
 
 function updateFriendActionButtons() {
+  try {
+    clearStaleTrioOnPair();
+  } catch (_) {}
   const browse = $("btn-browse-together");
   const hang = $("btn-hangup-friend");
   const block = $("btn-block");
   const findThird = $("btn-find-third");
   const findCancel = $("btn-find-third-cancel");
-  if (browse) browse.hidden = !inFriendCall || matchMode === "party_browse";
+  if (browse) browse.hidden = true;
   if (hang) hang.hidden = !inFriendCall && matchMode !== "friend";
   if (inFriendCall && matchMode === "friend") {
-    if (browse) browse.hidden = false;
     if (hang) hang.hidden = false;
   }
   if (matchMode === "party_browse" && yourRole === "party") {
@@ -12877,58 +19993,50 @@ function updateFriendActionButtons() {
     if (hang) hang.hidden = !inFriendCall || trioBrowse;
   }
   // Multi-party entry:
-  // - Friend 1v1: primary CTA = "Find stranger together" (browse_together, instant)
-  //   secondary = "Find 3rd" (invite confirm, then search)
-  // - Stranger 1v1: only "Find 3rd" (invite)
+  // - Friend 1v1: Find 3rd invite only (stay 1v1 until they accept)
+  // - Stranger 1v1: Find 3rd invite
+  // - Already 3 people: Invite a friend as 4th (no random 3v1 hunt)
   const hasLivePeer =
     peerPcs.size >= 1 ||
     (typeof partnerHasLiveVideo === "function" && partnerHasLiveVideo());
-  const pureFriend1v1 =
-    !!inFriendCall &&
-    (matchMode === "friend" || matchMode === "solo") &&
-    !trioBrowse &&
-    yourRole !== "party";
+  const pairOnly = isPairOnlyForActions();
+  const pureFriend1v1 = isFriendPair1v1();
   const pureStranger1v1 =
     !!matched &&
     !inFriendCall &&
     matchMode === "solo" &&
     yourRole === "solo" &&
-    !trioBrowse;
+    pairOnly;
   const canFindThird =
     TRIO_FIND_ENABLED &&
     (pureStranger1v1 || pureFriend1v1) &&
     hasLivePeer &&
     findThirdPending !== "out" &&
     findThirdPending !== "in";
-  // Browse together:
-  // - Friend 1v1 → party of 2 hunting solo (1v2)
-  // - Already 3 people mesh → party of 3 hunting solo (3v1)
+  // Browse together: 3-way → Invite a friend (4th). Never random 3v1 hunt.
+  // uniqueRemotePcCount: dual-key 1v1 must not look like a 3-mesh.
+  let remotes = peerPcs.size;
+  try {
+    remotes = uniqueRemotePcCount();
+  } catch (_) {}
   const live3mesh =
     !!matched &&
-    peerPcs.size >= 2 &&
+    remotes === 2 &&
     (matchMode === "party_browse" ||
       matchMode === "solo" ||
       matchMode === "friend" ||
       inFriendCall);
   if (browse) {
-    const showBrowse =
-      (pureFriend1v1 && hasLivePeer) || live3mesh;
+    const showBrowse = live3mesh;
     browse.hidden = !showBrowse;
     browse.disabled = !showBrowse;
     if (showBrowse) {
-      if (live3mesh) {
-        browse.textContent =
-          _t("trio.findFourth") || "Find stranger together (3v1)";
-        browse.title =
-          _t("trio.findFourthHint") ||
-          "All three of you search for one more stranger — keeps your group";
-      } else {
-        browse.textContent =
-          _t("trio.findStrangerTogether") || "Find stranger together";
-        browse.title =
-          _t("trio.findStrangerTogetherHint") ||
-          "You both search for a stranger now — no invite step";
-      }
+      browse.removeAttribute("data-i18n");
+      browse.textContent =
+        _t("trio.inviteFourth") || "Invite a friend (4th)";
+      browse.title =
+        _t("trio.inviteFourthHint") ||
+        "Call a friend into this group — no random 4th from the lobby";
     }
   }
   if (findThird) {
@@ -12937,8 +20045,8 @@ function updateFriendActionButtons() {
       canFindThird && (pureStranger1v1 || pureFriend1v1);
     findThird.hidden = !showFind;
     findThird.disabled = !showFind;
-    findThird.classList.toggle("accent", showFind && pureStranger1v1);
-    findThird.classList.toggle("ghost", showFind && pureFriend1v1);
+    findThird.classList.toggle("accent", showFind);
+    findThird.classList.toggle("ghost", false);
     if (showFind) {
       findThird.textContent = pureFriend1v1
         ? _t("trio.inviteThenSearch") || "Ask friend · Find 3rd"
@@ -13000,6 +20108,25 @@ function setStatus(s) {
 /** Last pool online count (for empty-share presence line). */
 let lastOnlineCount = 0;
 
+function tickConnLobbyNum(el, next) {
+  if (!el) return;
+  const s = String(next);
+  if (el.textContent === s) return;
+  el.textContent = s;
+  el.classList.remove("is-tick");
+  try {
+    void el.offsetWidth;
+  } catch (_) {}
+  el.classList.add("is-tick");
+}
+
+function paintConnLobbyTicker() {
+  const online = Math.max(0, lastOnlineCount || 0);
+  const waiting = Math.max(0, lastWaitingCount || 0);
+  tickConnLobbyNum($("conn-stat-online"), online);
+  tickConnLobbyNum($("conn-stat-waiting"), waiting);
+}
+
 function setPool({ online, waiting, offers, room }) {
   if (online != null) {
     lastOnlineCount = online;
@@ -13009,6 +20136,9 @@ function setPool({ online, waiting, offers, room }) {
     lastWaitingCount = waiting;
     if ($("stat-waiting")) $("stat-waiting").textContent = String(waiting);
   }
+  try {
+    paintConnLobbyTicker();
+  } catch (_) {}
   // offers optional in new UI
   const o = $("stat-offers");
   if (offers != null && o) o.textContent = String(offers);
@@ -13216,16 +20346,13 @@ function clearPendingFriendCode() {
 function applyPendingFriendInvite({ forceOpen = true } = {}) {
   const code = getPendingFriendCode();
   if (!code || pendingFriendInviteHandled) return false;
-  const input = $("add-friend-code");
-  if (input) {
-    input.value = code;
-    try {
-      input.classList.add("is-invite-prefill");
-    } catch (_) {}
-  }
+  try {
+    openInboxAddFriend({ code, focus: true });
+  } catch (_) {}
   if (forceOpen) {
     try {
       openFriends();
+      openInboxAddFriend({ code, focus: true });
     } catch (_) {}
   }
   if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -13376,6 +20503,7 @@ function showOutgoingCallToast(peer, opts = {}) {
   const name = peer?.name || peer?.short_id || "Friend";
   const uid = peer?.user_id || "";
   const isJoin = !!opts.join;
+  const avUrl = resolveCallAvatarUrl([peer?.avatar], uid);
   const toast = document.createElement("div");
   toast.id = "outgoing-call-toast";
   toast.className =
@@ -13388,6 +20516,7 @@ function showOutgoingCallToast(peer, opts = {}) {
       "Adding to this call…"
     : _t("status.calling") || "Calling…";
   toast.innerHTML = `
+    ${callToastAvatarHtml(name, avUrl)}
     <div class="call-toast-body">
       <strong>${escapeHtml(name)}</strong>
       <span class="outgoing-call-dots">${escapeHtml(statusLine)}</span>
@@ -13617,12 +20746,15 @@ function showAgeStep() {
 
 function showAgreeSheet() {
   const ov = $("rules-overlay");
+  const step = $("age-gate-step");
   const sheet = $("agree-sheet");
   const scrim = $("agree-sheet-scrim");
   const under = $("age-gate-underage");
   if (under) under.hidden = true;
+  // Same card, next step — do not leave the 18+ sheet dimmed behind a modal.
+  if (step) step.hidden = true;
   if (sheet) sheet.hidden = false;
-  if (scrim) scrim.hidden = false;
+  if (scrim) scrim.hidden = true;
   ov?.classList.add("has-agree-open");
 }
 
@@ -13851,9 +20983,9 @@ function partnerHasLiveVideo() {
  */
 function partnerVideoHasFrames() {
   const el = $("remote");
-  if (!el) return false;
+  if (!isRemotePaintVideoEl(el)) return false;
   try {
-    // videoWidth/Height stay 0 until first frame
+    // videoWidth/Height stay 0 until first frame — never read brand loop
     if (el.videoWidth > 8 && el.videoHeight > 8) return true;
   } catch (_) {}
   return false;
@@ -13861,6 +20993,26 @@ function partnerVideoHasFrames() {
 
 /** Once true this match, partner painted at least one decoded frame. */
 let partnerVideoEverFrames = false;
+/** Hop A: after first live audio/frames, never re-paint “Linking cameras…”. */
+let linkingMediaLatched = false;
+
+function latchLinkingMediaLive() {
+  linkingMediaLatched = true;
+}
+
+function resetLinkingMediaLatch() {
+  linkingMediaLatched = false;
+}
+
+function canPaintLinkingCopy() {
+  return (
+    !linkingMediaLatched &&
+    !partnerVideoEverFrames &&
+    !(lastInboundPeekFrames > 0)
+  );
+}
+/** Last peekInboundAvStats frames_in — remount must not ignore decode. */
+let lastInboundPeekFrames = 0;
 let firstFrameWatchTimer = 0;
 let firstFrameRafHandle = 0;
 let firstFrameRafEl = null;
@@ -13905,16 +21057,93 @@ function linkingCamerasLabel() {
   return _t("remote.connecting") || "Linking cameras…";
 }
 
+/** Find-3rd hunt: trio *searching* layout with only the first partner. */
+function isHuntOnePeer() {
+  if (!trioBrowse || peerPcs.size >= 2) return false;
+  try {
+    return !!document.querySelector("main.stage.stage-trio-searching");
+  } catch (_) {
+    return false;
+  }
+}
+
 /**
  * Gate for conn.reconnectingMedia / soft-recover hard UX.
  * Require frames once this match OR match age past pure/hybrid grace.
+ * Hunt 1-peer: never "Connection weak" — partner tile must stay, no recover tear.
  */
 function canShowReconnectingMediaUx() {
+  if (isHuntOnePeer()) return false;
+  // 3-way: one extra ice=disconnected / ice=new must not paint stage-wide
+  // "Connection weak" while Courtier still has pixels (022241Z same-desk).
+  // Relayed same-LAN is designed FRA TURN — not weak wifi.
+  try {
+    if (uniqueRemotePcCount() >= 2 && anyRemoteStillPainting()) return false;
+  } catch (_) {}
   if (partnerVideoEverFrames) return true;
   try {
     if (partnerVideoHasFrames()) return true;
   } catch (_) {}
+  // Audio-only partner: link is up — not "still linking cameras"
+  try {
+    if (hasLiveRemoteAudio()) return true;
+  } catch (_) {}
   return matchAgeMs() >= firstPathCopyGraceMs();
+}
+
+/** Any remote tile still has live A/V or leftover decoded pixels. */
+function anyRemoteStillPainting() {
+  const iceDead = (pc) => {
+    const st = String(
+      pc?.pc?.iceConnectionState || pc?.pc?.connectionState || ""
+    );
+    return st === "failed" || st === "disconnected" || st === "closed";
+  };
+  try {
+    for (const pc of peerPcs.values()) {
+      if (!pc || iceDead(pc)) continue;
+      if (streamHasLiveAv(pc.remoteStream)) return true;
+      const el = pc._videoEl;
+      if (el && Number(el.videoWidth) > 0) return true;
+    }
+  } catch (_) {}
+  try {
+    for (const id of ["remote", "remote2", "remote-third"]) {
+      const el = $(id);
+      if (!el || Number(el.videoWidth) <= 0) continue;
+      const owner = [...peerPcs.values()].find((pc) => pc && pc._videoEl === el);
+      if (owner && iceDead(owner)) continue;
+      return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
+/** First conversationalist PC — never soft-recover (tears Courtier cam). */
+function isFirstPartnerPc(pc) {
+  if (!pc) return false;
+  try {
+    if (isTeammateRole(pc._role)) return true;
+  } catch (_) {}
+  try {
+    if (pc._videoEl && pc._videoEl.id === "remote") return true;
+  } catch (_) {}
+  // rtc is last-assigned extra in 3-way — do not treat it as occupancy
+  // (laptop skipped late-offer to Android because rtc === that extra).
+  try {
+    const multi = peerPcs && peerPcs.size >= 2;
+    if (
+      !multi &&
+      typeof rtc !== "undefined" &&
+      pc === rtc
+    ) {
+      return true;
+    }
+  } catch (_) {}
+  try {
+    if (pcIsFirstPartner(pc.remotePeerId, pc)) return true;
+  } catch (_) {}
+  return false;
 }
 
 function stopFirstFrameWatcher() {
@@ -13937,15 +21166,36 @@ function stopFirstFrameWatcher() {
 
 function resetPartnerVideoFrameState() {
   partnerVideoEverFrames = false;
+  lastInboundPeekFrames = 0;
+  resetLinkingMediaLatch();
   stopFirstFrameWatcher();
+  try {
+    clearAllNoCamPaintWait();
+  } catch (_) {}
 }
 
 /**
  * First decoded frame this match: timing, strip Linking→matched, stop remount spam.
  */
 function markPartnerVideoFramesSeen(reason) {
+  if (partnerStageShouldBeIdle()) return;
   if (partnerVideoEverFrames) return;
+  try {
+    const el = $("remote");
+    if (!isRemotePaintVideoEl(el)) return;
+    if (!(el.videoWidth > 2 && el.videoHeight > 2)) return;
+  } catch (_) {
+    return;
+  }
   partnerVideoEverFrames = true;
+  try {
+    latchLinkingMediaLive();
+  } catch (_) {}
+  try {
+    setNoCamPortrait("remote", false);
+    setPartnerSelfHidden(false, { toast: false, force: true });
+    unmuteRemoteTileAudio($("remote"));
+  } catch (_) {}
   stopFirstFrameWatcher();
   // Stop blank remount / blank-status watch — paint is real
   try {
@@ -14003,26 +21253,73 @@ function markPartnerVideoFramesSeen(reason) {
     $("remote-empty")?.classList.add("hidden");
     $("tile-remote")?.classList.add("has-remote-feed");
   } catch (_) {}
+  // Hop9: frames-gated Connected toast (ICE path may have skipped it)
+  try {
+    showMatchFoundToast({ connected: true });
+  } catch (_) {}
 }
 
 /**
  * Light first-frame watcher: rVFC if available, else ~100ms poll for videoWidth.
  * One arm per match until frames (no multi-remount ladder).
  */
+/** Extra tiles: drop hunt empty as soon as that slot has A/V (paint-first). */
+function peelExtraTileIfLive(id) {
+  const el = $(id);
+  if (!el) return false;
+  let painted = false;
+  try {
+    painted = el.videoWidth > 2 && el.videoHeight > 2;
+  } catch (_) {}
+  const live = painted || streamHasLiveAv(el.srcObject);
+  if (!live) return false;
+  try {
+    playVideoEl(el);
+  } catch (_) {}
+  if (id === "remote-third") {
+    try {
+      $("tile-third")?.classList.add("has-remote-feed");
+      const empty = $("third-empty");
+      if (empty) {
+        empty.hidden = true;
+        empty.setAttribute("hidden", "");
+      }
+    } catch (_) {}
+  }
+  if (id === "remote2") {
+    try {
+      $("remote2-wrap")?.classList.add("has-remote-feed");
+    } catch (_) {}
+  }
+  try {
+    dismissLinkingIfMediaLive();
+  } catch (_) {}
+  return true;
+}
+
 function armFirstFrameWatcher() {
+  if (partnerStageShouldBeIdle()) return;
   if (partnerVideoEverFrames) return;
   if (firstFrameWatchTimer || firstFrameRafHandle) return;
   const el = $("remote");
-  if (!el) return;
+  if (!isRemotePaintVideoEl(el)) return;
 
   const check = (why) => {
     try {
+      const now = $("remote");
       if (
-        partnerVideoHasFrames() ||
-        (el.videoWidth > 8 || el.videoHeight > 8)
+        isRemotePaintVideoEl(now) &&
+        now.videoWidth > 2 &&
+        now.videoHeight > 2
       ) {
         markPartnerVideoFramesSeen(why);
         return true;
+      }
+    } catch (_) {}
+    // Laptop no-cam: hide Linking on live audio; keep polling for frames.
+    try {
+      if (hasLiveRemoteAudio() || lastInboundPeekFrames > 0) {
+        dismissLinkingIfMediaLive();
       }
     } catch (_) {}
     return false;
@@ -14059,13 +21356,23 @@ function armFirstFrameWatcher() {
       stopFirstFrameWatcher();
       return;
     }
+    try {
+      peelExtraTileIfLive("remote-third");
+      peelExtraTileIfLive("remote2");
+    } catch (_) {}
     if (check("poll")) {
       stopFirstFrameWatcher();
       return;
     }
     // ~20s — blank-watch owns messaging after that
-    if (ticks > 200) stopFirstFrameWatcher();
-  }, 100);
+    void peekInboundAvStats()
+      .then((s) => {
+        lastInboundPeekFrames = Number(s?.frames) || lastInboundPeekFrames;
+        if (lastInboundPeekFrames > 0) dismissLinkingIfMediaLive();
+      })
+      .catch(() => {});
+    if (ticks > 400) stopFirstFrameWatcher();
+  }, 50);
 }
 
 /**
@@ -14074,6 +21381,7 @@ function armFirstFrameWatcher() {
  * @returns {boolean} true if a live video track was present
  */
 function paintFirstFromLiveTrack(reason) {
+  if (partnerStageShouldBeIdle()) return false;
   let hasLive = false;
   try {
     hasLive = typeof partnerHasLiveVideo === "function" && partnerHasLiveVideo();
@@ -14104,14 +21412,35 @@ function paintFirstFromLiveTrack(reason) {
       }
     } catch (_) {}
   }
-  if (!hasLive) return false;
+  if (!hasLive) {
+    try {
+      if (hasLiveRemoteAudio()) {
+        dismissLinkingIfMediaLive();
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+  let unmutedCam = false;
   try {
-    setRemoteEmpty(false);
-    $("remote-empty")?.classList.add("hidden");
-    $("tile-remote")?.classList.add("has-remote-feed");
+    const vel = $("remote");
+    if (isRemotePaintVideoEl(vel)) {
+      unmutedCam = (vel.srcObject?.getVideoTracks?.() || []).some(
+        (t) => videoTrackLooksLiveCamera(t) && t.muted !== true
+      );
+    }
   } catch (_) {}
+  const painted = remoteTileHasPaintedVideo();
+  // live+muted / dummy / videoWidth=0: keep brand loop, do not has-remote-feed
+  if (painted || unmutedCam) {
+    try {
+      setRemoteEmpty(false);
+      $("remote-empty")?.classList.add("hidden");
+      $("tile-remote")?.classList.add("has-remote-feed");
+    } catch (_) {}
+  }
   try {
-    if (partnerVideoHasFrames()) {
+    if (painted || partnerVideoHasFrames()) {
       markPartnerVideoFramesSeen(reason || "frames");
     } else {
       armFirstFrameWatcher();
@@ -14130,6 +21459,7 @@ function paintFirstFromLiveTrack(reason) {
  * recreating the <video> + rebinding srcObject forces a new media element path.
  */
 function remountRemoteVideoEl(reason) {
+  if (partnerStageShouldBeIdle()) return null;
   try {
     const old = $("remote");
     const stack = $("remote-stack") || $("tile-remote");
@@ -14141,6 +21471,13 @@ function remountRemoteVideoEl(reason) {
         return old;
       }
     } catch (_) {}
+    // Laptop 668: blank@3s frames=48 then remount@4s killed Dragonov (videoWidth still 0).
+    if (lastInboundPeekFrames > 2 || partnerVideoEverFrames) {
+      log(
+        `remount #remote skip stats (${reason || "?"}) fin=${lastInboundPeekFrames}`
+      );
+      return old;
+    }
     // Rate-limit remounts (blank-watch + ice thrash used to flash every few seconds)
     const now = Date.now();
     if (
@@ -14195,6 +21532,9 @@ function remountRemoteVideoEl(reason) {
     setRemoteEmpty(false);
     $("tile-remote")?.classList.add("has-remote-feed");
     log(`remount #remote (${reason || "?"}) stream=${stream ? 1 : 0}`);
+    try {
+      syncLaptopTrioTiles();
+    } catch (_) {}
     return neu;
   } catch (e) {
     log(`remount #remote fail ${e}`);
@@ -14324,6 +21664,7 @@ async function tickInboundAudioNoVideoWatch() {
     for (const ms of delays) {
       setTimeout(() => {
         try {
+          if (partnerStageShouldBeIdle()) return;
           ensurePartnerVideoVisible();
           const pc = rtc || [...peerPcs.values()][0];
           if (pc?.remoteStream) paintRemoteFromPc(pc, pc.remoteStream);
@@ -14372,6 +21713,18 @@ function watchPartnerVideoFrames() {
       resetInboundAudioNoVideoWatch();
       return;
     }
+    // Live audio dismisses Linking immediately (no-cam laptop / audio-first)
+    if (hasLiveRemoteAudio()) {
+      try {
+        dismissLinkingIfMediaLive();
+      } catch (_) {}
+      if (!partnerHasLiveVideo()) {
+        clearInterval(blankVideoWatchTimer);
+        blankVideoWatchTimer = 0;
+        resetInboundAudioNoVideoWatch();
+        return;
+      }
+    }
     // ICE connected + inbound audio + framesReceived=0 >3s → keyframe + paint waves
     try {
       void tickInboundAudioNoVideoWatch();
@@ -14401,9 +21754,15 @@ function watchPartnerVideoFrames() {
       } catch (_) {}
       // Log decode path + audio (audio-but-no-video is the one-way black signature)
       void peekInboundAvStats().then((s) => {
+        lastInboundPeekFrames = Number(s?.frames) || 0;
         log(
           `blank@3s inbound frames=${s.frames} bytes=${s.bytes} audio_in=${s.audioIn} ice=${s.ice}`
         );
+        if (lastInboundPeekFrames > 2) {
+          try {
+            markPartnerVideoFramesSeen("blank_stats");
+          } catch (_) {}
+        }
       });
     }
     // At ~4s: single blank remount only (track live && !frames). No multi-remount ladder.
@@ -14411,6 +21770,7 @@ function watchPartnerVideoFrames() {
       ticks === 8 &&
       !blankVideoRemounted &&
       !partnerVideoEverFrames &&
+      lastInboundPeekFrames <= 2 &&
       partnerHasLiveVideo() &&
       !partnerVideoHasFrames()
     ) {
@@ -14470,15 +21830,26 @@ function watchPartnerVideoFrames() {
  * @param {{ force?: boolean }} [opts] force=true allows connecting overlay even if a stream is briefly present
  */
 function setRemoteEmpty(show, opts) {
+  if (partnerStageShouldBeIdle()) show = true;
   // Never cover a live partner feed with the brand empty layer (unless forced connect flash)
-  if (show && !opts?.force && matched && partnerHasLiveVideo()) {
-    show = false;
+  if (
+    show &&
+    matched &&
+    (linkingMediaLatched ||
+      partnerHasLiveVideo() ||
+      hasLiveRemoteAudio() ||
+      lastInboundPeekFrames > 0)
+  ) {
+    // Mid-match force flash still cannot re-arm Linking over live media.
+    if (!opts?.force || linkingMediaLatched || lastInboundPeekFrames > 0) {
+      show = false;
+    }
   }
   $("remote-empty")?.classList.toggle("hidden", !show);
   // When hiding empty over a live track, force has-remote-feed (paint-first)
   if (!show) {
     try {
-      if (matched && partnerHasLiveVideo()) {
+      if (matched && (partnerHasLiveVideo() || hasLiveRemoteAudio())) {
         $("tile-remote")?.classList.add("has-remote-feed");
       }
     } catch (_) {}
@@ -14499,16 +21870,31 @@ function setRemoteEmpty(show, opts) {
     const wrap = $("remote-tile-tag");
     const tag = $("remote-tag");
     const nameEl = $("remote-name");
-    if (wrap) wrap.hidden = true;
-    if (tag) {
+    // Connecting flash mid-match must NOT empty-wipe a latched Courtier.
+    // Hangup paths clear latch first; idle wipe may blank the chip.
+    const keepLatchedName =
+      (matched || inFriendCall) &&
+      isRealPartnerDisplayName(lastGoodPartnerName);
+    if (wrap) wrap.hidden = !keepLatchedName;
+    if (tag && !keepLatchedName) {
       tag.innerHTML = "";
       tag.hidden = true;
     }
     if (nameEl) {
-      nameEl.textContent = "";
-      nameEl.hidden = true;
+      if (keepLatchedName) {
+        nameEl.textContent = lastGoodPartnerName;
+        nameEl.hidden = false;
+        nameEl.removeAttribute("hidden");
+        if (wrap) {
+          wrap.hidden = false;
+          wrap.removeAttribute("hidden");
+        }
+      } else {
+        nameEl.textContent = "";
+        nameEl.hidden = true;
+      }
     }
-    setTileAvatar("remote", "");
+    if (!keepLatchedName) setTileAvatar("remote", "");
     // Never leave bars/flowers over Start / brand empty (skip either side)
     clearRemoteMatchFx();
   }
@@ -14688,11 +22074,120 @@ function isRemoteEmptyVisible() {
   return true;
 }
 
+function partnerStageShouldBeIdle() {
+  return !matched && !inFriendCall && !inQueue && !wantSearch;
+}
+
+function stopPartnerIdleWatchers() {
+  try {
+    stopFirstFrameWatcher();
+  } catch (_) {}
+  try {
+    if (blankVideoWatchTimer) {
+      clearInterval(blankVideoWatchTimer);
+      blankVideoWatchTimer = 0;
+    }
+  } catch (_) {}
+}
+
+/** Strip mid-call inline !important paint so CSS can hide leftover black <video>. */
+function clearMainRemotePaintSurface() {
+  const r = $("remote");
+  if (!r) return;
+  try {
+    r.pause?.();
+  } catch (_) {}
+  try {
+    r.srcObject = null;
+  } catch (_) {}
+  r.hidden = true;
+  r.setAttribute("hidden", "");
+  try {
+    r.style.removeProperty("display");
+    r.style.removeProperty("opacity");
+    r.style.removeProperty("visibility");
+    r.style.removeProperty("z-index");
+    r.style.removeProperty("filter");
+    r.style.removeProperty("-webkit-filter");
+  } catch (_) {}
+}
+
+function paintIdlePartnerStage() {
+  try {
+    stopPartnerIdleWatchers();
+  } catch (_) {}
+  try {
+    linkingMediaLatched = false;
+    lastInboundPeekFrames = 0;
+    partnerVideoEverFrames = false;
+  } catch (_) {}
+  try {
+    document.documentElement.classList.add("start-idle");
+    document.documentElement.classList.remove("match-live", "match-searching");
+  } catch (_) {}
+  try {
+    document.querySelector("main.stage")?.classList.remove(
+      "stage-trio",
+      "stage-trio-searching",
+      "stage-count-4"
+    );
+  } catch (_) {}
+  try {
+    $("tile-remote")?.classList.remove(
+      "has-remote-feed",
+      "peer-slot-muted",
+      "partner-blurred",
+      "peer-slot-blurred",
+      "has-no-cam-portrait",
+      "partner-self-hidden"
+    );
+  } catch (_) {}
+  try {
+    setPartnerSelfHidden(false, { toast: false, force: true });
+  } catch (_) {}
+  try {
+    setNoCamPortrait("remote", false);
+  } catch (_) {}
+  try {
+    clearMainRemotePaintSurface();
+  } catch (_) {}
+  try {
+    const frost = $("remote-frost");
+    if (frost) {
+      frost.classList.remove("is-on");
+      frost.hidden = true;
+      frost.setAttribute("hidden", "");
+    }
+  } catch (_) {}
+  const empty = $("remote-empty");
+  if (empty) {
+    empty.hidden = false;
+    empty.removeAttribute("hidden");
+    empty.classList.remove("hidden", "is-searching");
+  }
+  const start =
+    $("btn-start-match") || empty?.querySelector(".start-match-btn");
+  if (start) {
+    start.hidden = false;
+    start.removeAttribute("hidden");
+  }
+  try {
+    showPartnerEmptyWithBrand({ searching: false });
+  } catch (_) {}
+  try {
+    clearMainRemotePaintSurface();
+  } catch (_) {}
+}
+
 function showPartnerEmptyWithBrand({ searching = false } = {}) {
   try {
     const r = $("remote");
-    if (r && !matched) {
-      if (!peerPcs.size || ![...peerPcs.values()].some((pc) => pc.remoteStream)) {
+    if (r && (partnerStageShouldBeIdle() || !matched)) {
+      if (
+        partnerStageShouldBeIdle() ||
+        !peerPcs.size ||
+        ![...peerPcs.values()].some((pc) => pc.remoteStream)
+      ) {
         r.srcObject = null;
       }
     }
@@ -15171,6 +22666,12 @@ function syncMatchChrome() {
   document.documentElement.classList.toggle("start-idle", isIdle);
   document.documentElement.classList.toggle("match-searching", isSearching);
   document.documentElement.classList.toggle("match-live", isLive);
+  // PC center watermark spin (live-brand.css) requires .stage.has-brand-live.
+  // Keep it in lockstep with match-live so Matched / friend_call / trio never
+  // leave html.match-live without the stage class (timer-only path could miss).
+  try {
+    setStageBrandLive(isLive);
+  } catch (_) {}
   // Quieter header while matched: compact "In a call" instead of Online/Waiting
   const liveChip = $("live-compact-chip");
   if (liveChip) {
@@ -15508,6 +23009,25 @@ function maybeShowCellularDataTip() {
 }
 
 function send(obj) {
+  if (obj && obj.type === "spin") {
+    if (shouldSkipHuntLobbySpin()) {
+      try {
+        log("skip hunt lobby spin — keep live PC incremental");
+      } catch (_) {}
+      return false;
+    }
+    // Accept rematch race: leftover Spin ends a friend call that just started.
+    if (
+      inFriendCall ||
+      matchMode === "friend" ||
+      Date.now() < friendCallAcceptGuardUntil
+    ) {
+      try {
+        log("skip spin — friend call");
+      } catch (_) {}
+      return false;
+    }
+  }
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(obj));
     return true;
@@ -15527,18 +23047,24 @@ function isMutualFriend(userId) {
  * (Not already 3+ people, not hunting party queue alone.)
  */
 function canInviteJoinToCall() {
-  if (trioBrowse && peerPcs.size >= 2) return false;
-  if (peerPcs.size >= 2) return false;
-  // Active friend 1v1 or stranger 1v1
+  // Already 4 people (you + 3 remotes) — party full
+  try {
+    if (uniqueRemotePcCount() >= 3 || peerPcs.size >= 3) return false;
+  } catch (_) {
+    if (peerPcs.size >= 3) return false;
+  }
+  // 3-way (2 remotes): invite 4th via Call. 1v1: invite 3rd.
+  const remotes = (() => {
+    try {
+      return uniqueRemotePcCount();
+    } catch (_) {
+      return peerPcs.size;
+    }
+  })();
+  if (remotes >= 1 && remotes <= 2 && (matched || inFriendCall)) return true;
   if (inFriendCall && matchMode === "friend") return true;
   if (matched && matchMode === "solo" && yourRole === "solo") return true;
-  if (
-    matched &&
-    matchMode === "friend" &&
-    peerPcs.size <= 1
-  ) {
-    return true;
-  }
+  if (matched && matchMode === "friend" && remotes <= 2) return true;
   return false;
 }
 
@@ -15575,14 +23101,29 @@ function placeFriendCall(userId, { closePanel = true, join = null } = {}) {
     friend_code: fr?.friend_code || "",
     short_id: fr?.short_id || "",
   };
-  // Join current 1v1 as 3rd when already talking — never hang up the other person
-  const wantJoin = join === null ? canInviteJoinToCall() : !!join;
+  // Join current 1v1 as 3rd / 3-way as 4th. Never a 5th (max 4 people).
+  let wantJoin = join === null ? canInviteJoinToCall() : !!join;
+  let remotesNow = 0;
+  try {
+    remotesNow = uniqueRemotePcCount();
+  } catch (_) {
+    remotesNow = peerPcs.size;
+  }
+  if (matched && remotesNow >= 3) {
+    wantJoin = false;
+    setStatus(
+      _t("trio.partyFull") || "Party full (max 4) — leave someone before inviting"
+    );
+    log(_t("trio.partyFull") || "party full — max 4");
+    return false;
+  }
   if (!wantJoin && matched && !inFriendCall) {
     // Classic private call: leave stranger match first
     try {
       send({ type: "stop" });
     } catch (_) {}
   }
+  friendCallAcceptGuardUntil = Date.now() + 8000;
   if (
     !send({
       type: "call_friend",
@@ -15815,16 +23356,91 @@ function syncScreenWakeLock() {
   }
 }
 
-/** Short dual-tone chime (no asset files). */
+/** Cached match-link chime (spin.mp3 → ui/sounds/match.mp3). */
+const MATCH_CHIME_VOL = 0.09;
+let matchChimeAudio = null;
+/** Rate-limit so double Matched / re-entry = one spin only. */
+let lastMatchChimeAt = 0;
+const MATCH_CHIME_MIN_GAP_MS = 1500;
+
+function matchChimeUrl() {
+  try {
+    // Absolute under live.html origin; cache-bust so deploys pick up new asset
+    return new URL("sounds/match.mp3?v=1", location.href).href;
+  } catch (_) {
+    return "sounds/match.mp3?v=1";
+  }
+}
+
+function getMatchChimeAudio() {
+  if (matchChimeAudio) return matchChimeAudio;
+  try {
+    const a = new Audio(matchChimeUrl());
+    a.preload = "auto";
+    a.volume = MATCH_CHIME_VOL;
+    matchChimeAudio = a;
+    // Warm decode (may fail without gesture — ok)
+    try {
+      a.load();
+    } catch (_) {}
+    return a;
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Match/link connect chime: spin.mp3 for new conversationalist link.
+ * Rate-limited (~1.5s) so double Matched = one play.
+ * Prefer file only; if asset missing → one soft tone once.
+ * If play() fails after file attempt → silence (never stack mp3 + dual-tone).
+ */
 function playMatchChime() {
   softHaptic([18, 40, 28]);
   if (!matchSoundEnabled()) return;
-  playToneSequence(
-    [
-      { f: 660, t: 0, d: 0.09, type: "sine", gain: 0.12 },
-      { f: 880, t: 0.08, d: 0.12, type: "sine", gain: 0.12 },
-    ]
-  );
+  const now = Date.now();
+  if (now - lastMatchChimeAt < MATCH_CHIME_MIN_GAP_MS) return;
+  lastMatchChimeAt = now;
+  // One soft tone only when HTMLAudio cannot be created — never dual-tone, never after mp3 starts
+  const softOnce = () => {
+    playToneSequence([
+      { f: 740, t: 0, d: 0.1, type: "sine", gain: 0.08 },
+    ]);
+  };
+  try {
+    const a = getMatchChimeAudio();
+    if (!a) {
+      softOnce();
+      return;
+    }
+    a.volume = MATCH_CHIME_VOL;
+    try {
+      a.pause();
+    } catch (_) {}
+    try {
+      a.currentTime = 0;
+    } catch (_) {}
+    const p = a.play();
+    if (p && typeof p.catch === "function") {
+      p.catch(() => {
+        // Retry once with fresh element (stale 404 cache after deploy)
+        try {
+          matchChimeAudio = null;
+          const b = getMatchChimeAudio();
+          if (!b) return; // silence — no dual-tone stack
+          b.volume = MATCH_CHIME_VOL;
+          const p2 = b.play();
+          // Prefer silence over dual-tone if retry also fails; never mp3+tones
+          if (p2 && typeof p2.catch === "function") p2.catch(() => {});
+        } catch (_) {
+          // silence
+        }
+      });
+    }
+  } catch (_) {
+    // Hard fail before file play — one soft tone once
+    softOnce();
+  }
 }
 
 /**
@@ -15888,7 +23504,7 @@ function playToneSequence(tones) {
       const g = ctx.createGain();
       o.type = type || "sine";
       o.frequency.value = f;
-      const peak = Math.max(0.01, Number(gain) || 0.1);
+      const peak = Math.max(0.005, (Number(gain) || 0.1) * 0.25);
       g.gain.setValueAtTime(0.0001, now + t);
       g.gain.exponentialRampToValueAtTime(peak, now + t + 0.015);
       g.gain.exponentialRampToValueAtTime(0.0001, now + t + d);
@@ -16342,7 +23958,9 @@ function flashPartnerTile() {
 
 /**
  * Match landed / connected.
- * Strangers → status only. Friend call → small top-right toast under stars.
+ * Strangers → status/log only (no blocking toast). Friend call → small
+ * top-right toast under stars. Hop9: connected toast is frames-gated by
+ * callers (ICE-only must not paint "Connected" over a black tile).
  */
 function showMatchFoundToast(opts = {}) {
   const friend = matchMode === "friend" || inFriendCall;
@@ -16378,9 +23996,18 @@ function showMatchFoundToast(opts = {}) {
       _t("match.foundBody") ||
       (friend ? "Connecting video…" : "Connecting video…");
   }
+  // Strangers: log only — never block partner paint with status/toast noise
+  if (!friend) {
+    try {
+      log(
+        opts.connected
+          ? `match connected (frames) ${body || title}`
+          : `match found ${body || title}`
+      );
+    } catch (_) {}
+    return;
+  }
   setStatus(body ? `${title} · ${body}` : title);
-  // Friend connect only — corner toast under ★ (not the old bottom popup)
-  if (!friend) return;
   try {
     const id = "friend-connect-toast";
     $(id)?.remove?.();
@@ -16470,12 +24097,16 @@ function recordIcePathStat(kind) {
   } else if (kind === "relay") {
     const prefer =
       typeof preferDirectOnlyEnabled === "function" && preferDirectOnlyEnabled();
-    setStatus(
-      prefer
-        ? _t("conn.pathRelayPreferDirect") ||
-            "Relay path — Prefer Direct is on but network needs TURN"
-        : _t("conn.pathRelayOk") || "Relay (TURN) — higher latency is normal"
-    );
+    if (isSameLanRelayPath()) {
+      setStatus(sameLanRelayLabel());
+    } else {
+      setStatus(
+        prefer
+          ? _t("conn.pathRelayPreferDirect") ||
+              "Relay path — Prefer Direct is on but network needs TURN"
+          : _t("conn.pathRelayOk") || "Relay (TURN) — higher latency is normal"
+      );
+    }
   }
   maybeShowPathStatsTip();
 }
@@ -16585,6 +24216,31 @@ function refreshPathStatsUi() {
     labeled + (s.relay ? ` · ${s.relay} relay` : "");
 }
 
+/** Same-LAN hub force_relay: designed FRA TURN, not “lost P2P”. */
+function isSameLanRelayPath() {
+  try {
+    const hideIp =
+      (typeof hideIpRelayOnlyEnabled === "function" && hideIpRelayOnlyEnabled()) ||
+      !!loadPrefs().hideIpRelayOnly;
+    if (hideIp) return false;
+    return !!(
+      typeof sessionForceRelayEnabled === "function" &&
+      sessionForceRelayEnabled()
+    );
+  } catch (_) {}
+  return false;
+}
+
+function sameLanRelayLabel() {
+  try {
+    const s = _t("conn.relaySameLan");
+    if (s && s !== "conn.relaySameLan" && !String(s).startsWith("conn.")) {
+      return s;
+    }
+  } catch (_) {}
+  return "Relay (same Wi‑Fi TURN)";
+}
+
 function setIcePathBadge(kind) {
   const el = $("ice-path");
   if (!el) return;
@@ -16605,28 +24261,82 @@ function setIcePathBadge(kind) {
     const hideIp =
       (typeof hideIpRelayOnlyEnabled === "function" && hideIpRelayOnlyEnabled()) ||
       !!loadPrefs().hideIpRelayOnly;
+    const sameLan = !hideIp && isSameLanRelayPath();
     el.textContent = hideIp
       ? _t("sec.pathRelayPrivate") || "Relay (private)"
-      : _t("sec.pathRelay") || "Relay (TURN)";
+      : sameLan
+        ? sameLanRelayLabel()
+        : _t("sec.pathRelay") || "Relay (TURN)";
     el.classList.add("path-relay");
     el.title = hideIp
       ? _t("sec.pathRelayPrivateTitle") ||
         "Media via TURN only — partner does not see your IP (higher latency is normal)"
-      : _t("sec.pathRelayTitle") ||
-        "Media via TURN relay — often higher latency; try better network if video freezes";
+      : sameLan
+        ? sameLanRelayLabel()
+        : _t("sec.pathRelayTitle") ||
+          "Media via TURN relay — often higher latency; try better network if video freezes";
     recordIcePathStat("relay");
   } else {
     el.textContent = _t("sec.pathUnknown") || "Connecting…";
     el.classList.add("path-unknown");
     el.title = _t("sec.pathUnknownTitle") || "Media path not ready yet";
   }
+  if (kind === "direct" || kind === "relay") {
+    if (!icePathReadyAt) icePathReadyAt = Date.now();
+  }
   updateQualityStrip();
 }
 
 /** Optional quality hint from adaptive WebRTC tier (high/mid/low/min). */
 let lastQualityTier = "";
+/** Latest startStats samples — weak-link uses real loss, not first-path low. */
+let lastQualityRttMs = null;
+let lastQualityLossPct = null;
+/** When lastQualityTier first became "min" this match (0 = not min). */
+let qualityMinSince = 0;
+/** When ICE path first became direct|relay this match. */
+let icePathReadyAt = 0;
+
+function resetQualityWeakState() {
+  lastQualityTier = "";
+  lastQualityRttMs = null;
+  lastQualityLossPct = null;
+  qualityMinSince = 0;
+  icePathReadyAt = 0;
+}
+
+function noteQualityStats(rtt, loss) {
+  if (rtt != null && isFinite(rtt)) lastQualityRttMs = rtt;
+  if (loss != null && isFinite(loss)) lastQualityLossPct = loss;
+}
+
+/**
+ * True only on high inbound loss. First-path encode is always "low";
+ * same-LAN FRA TURN RTT is not a broken link.
+ */
+function qualityActuallyWeak() {
+  return lastQualityLossPct != null && lastQualityLossPct > 5;
+}
+
+/** Adaptive min after ICE has been connected >8s — not the first-path low hold. */
+function qualityMinSustainedAfterIce() {
+  if (lastQualityTier !== "min") return false;
+  if (!qualityMinSince || !icePathReadyAt) return false;
+  const now = Date.now();
+  return now - icePathReadyAt >= 8000 && now - qualityMinSince >= 8000;
+}
+
+function qualityStripShouldShowWeak() {
+  return qualityActuallyWeak() || qualityMinSustainedAfterIce();
+}
+
 function setQualityTierHint(tier) {
   lastQualityTier = String(tier || "");
+  if (lastQualityTier === "min") {
+    if (!qualityMinSince) qualityMinSince = Date.now();
+  } else {
+    qualityMinSince = 0;
+  }
   updateQualityStrip();
 }
 
@@ -16639,10 +24349,15 @@ function updateQualityStrip() {
   // Recover path label if empty
   if (!base) {
     if (el.classList.contains("path-direct")) base = _t("sec.pathDirect") || "Direct P2P";
-    else if (el.classList.contains("path-relay")) base = _t("sec.pathRelay") || "Relay (TURN)";
-    else base = _t("sec.pathUnknown") || "Connecting…";
+    else if (el.classList.contains("path-relay")) {
+      base = isSameLanRelayPath()
+        ? sameLanRelayLabel()
+        : _t("sec.pathRelay") || "Relay (TURN)";
+    } else base = _t("sec.pathUnknown") || "Connecting…";
   }
-  if (lastQualityTier === "low" || lastQualityTier === "min") {
+  // Do not paint "weak link" / "lost P2P" just because policy=relay.
+  // Same-LAN TURN stays the designed path unless loss is actually high.
+  if (qualityStripShouldShowWeak()) {
     el.classList.add("path-weak");
     el.textContent = base + " · " + (_t("sec.qualityWeak") || "weak link");
     const tip =
@@ -16663,7 +24378,7 @@ function updateQualityStrip() {
 
 function clearIcePathBadge() {
   const el = $("ice-path");
-  lastQualityTier = "";
+  resetQualityWeakState();
   if (el) {
     el.hidden = true;
     el.textContent = "";
@@ -16734,31 +24449,30 @@ function stopConnDetailsLive() {
 
 function maybeStartConnDetailsLive() {
   stopConnDetailsLive();
-  const view = $("settings-view-connection");
-  const open =
-    settingsIsOpen() &&
-    view &&
-    !view.hidden &&
-    view.classList.contains("is-active");
-  if (!open) return;
-  // Always refresh once; poll only while in a live call so path/quality stay current
-  refreshConnectionDetails();
-  if (!matched) return;
+  if (!settingsIsOpen()) return;
+  try {
+    paintConnLobbyTicker();
+  } catch (_) {}
+  const conn = $("settings-view-connection");
+  const connOpen = !!(conn && !conn.hidden && conn.classList.contains("is-active"));
+  if (connOpen) refreshConnectionDetails();
   connDetailsTimer = setInterval(() => {
-    if (!settingsIsOpen() || !matched) {
+    if (!settingsIsOpen()) {
       stopConnDetailsLive();
       return;
     }
+    try {
+      paintConnLobbyTicker();
+    } catch (_) {}
     const v = $("settings-view-connection");
-    if (!v || v.hidden) {
-      stopConnDetailsLive();
-      return;
-    }
-    refreshConnectionDetails();
+    if (v && !v.hidden && matched) refreshConnectionDetails();
   }, 1500);
 }
 
 function refreshConnectionDetails() {
+  try {
+    paintConnLobbyTicker();
+  } catch (_) {}
   const meta =
     (typeof getIceMeta === "function" && getIceMeta()) || window.__iceMeta || null;
   const pathEl = $("conn-detail-path");
@@ -17239,6 +24953,10 @@ function stopMeter() {
   } catch (_) {}
   meterSource = null;
   meterAnalyser = null;
+  try {
+    meterTapTrack?.stop();
+  } catch (_) {}
+  meterTapTrack = null;
   if (meterCtx) {
     meterCtx.close().catch(() => {});
     meterCtx = null;
@@ -17262,8 +24980,25 @@ async function resumeMeterCtx() {
 }
 
 /**
+ * iPhone/iPad/iPod Safari and Chrome-iOS (CriOS) — all WebKit under the hood.
+ * Also iPadOS desktop-UA (MacIntel + multi-touch).
+ */
+function isIosWebKit() {
+  try {
+    const ua = navigator.userAgent || "";
+    if (/iPad|iPhone|iPod/i.test(ua)) return true;
+    // iPadOS 13+ can report as Macintosh
+    if (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1) {
+      return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
+/**
  * Visual mic level from the preview/call audio track.
  * Must resume AudioContext after getUserMedia (gesture often already spent).
+ * On iOS/WebKit, tap a cloned track — never the live send track (resample/AEC).
  */
 async function startMeter(stream) {
   stopMeter();
@@ -17282,6 +25017,18 @@ async function startMeter(stream) {
       log(_t("log.meterNoAc"));
       return;
     }
+    let meterStream = stream;
+    if (isIosWebKit()) {
+      // Never createMediaStreamSource() on the live preview/send track.
+      try {
+        meterTapTrack = track.clone();
+        meterStream = new MediaStream([meterTapTrack]);
+      } catch (e) {
+        console.warn("[mic-meter] iOS clone failed — skip meter graph", e);
+        stopMeter();
+        return;
+      }
+    }
     meterCtx = new AC();
     // Critical: context is often "suspended" until resume() after async media.
     await resumeMeterCtx();
@@ -17289,7 +25036,7 @@ async function startMeter(stream) {
       log(_t("log.meterLocked"));
     }
 
-    meterSource = meterCtx.createMediaStreamSource(stream);
+    meterSource = meterCtx.createMediaStreamSource(meterStream);
     meterAnalyser = meterCtx.createAnalyser();
     meterAnalyser.fftSize = 512;
     meterAnalyser.smoothingTimeConstant = 0.4;
@@ -17365,8 +25112,7 @@ function updateSideIcons() {
     });
     pushOutboundVideoTracks().catch(() => {});
     try {
-      // Re-sync hide state after legacy camOff forced off
-      sendSelfHideP2p(!!selfBlurred);
+      syncCamHiddenSignal();
     } catch (_) {}
   }
   $("btn-mute-mic")?.classList.toggle("muted-on", micMuted);
@@ -17390,7 +25136,7 @@ function updateSideIcons() {
   if (badge) badge.hidden = !selfBlurred;
 }
 
-/** Black silent canvas stream for privacy hide (partner sees black, local keeps preview). */
+/** Last-resort silent canvas if captureStream blur fails. Prefer getBlurredOutboundTrack. */
 let _blackVideoTrack = null;
 function getBlackVideoTrack() {
   if (_blackVideoTrack && _blackVideoTrack.readyState === "live") return _blackVideoTrack;
@@ -17429,7 +25175,17 @@ function isPureFriendCallSession() {
  */
 function getMicBoostPct() {
   try {
-    const p = loadPrefs().micBoost;
+    const prefs = loadPrefs();
+    let p = prefs.micBoost;
+    // Old factory 125 always built Gain+Compressor → snow/rain hiss and
+    // killed browser AEC. One-shot migrate unless the user already moved
+    // the slider away from 125 (micBoostUserSet).
+    if (p === 125 && !prefs.micBoostUserSet) {
+      try {
+        savePrefs({ micBoost: 100, micBoostMigratedV2: true });
+      } catch (_) {}
+      p = 100;
+    }
     if (typeof p === "number" && Number.isFinite(p)) {
       return Math.max(
         MIC_BOOST_MIN,
@@ -17484,8 +25240,28 @@ function stopMicBoost() {
  * @returns {Promise<MediaStreamTrack|null>}
  */
 async function ensureMicBoost() {
+  // iOS/WebKit: never route outbound mic through Gain → Compressor →
+  // MediaStreamDestination. AudioContext is often 44100 while capture is
+  // 48000 → crackle; extra graph also breaks AEC (unity skip exists for
+  // that). Slider prefs persist for desktop but are not applied here.
+  if (isIosWebKit()) {
+    stopMicBoost();
+    return null;
+  }
   const raw = previewStream?.getAudioTracks?.()?.[0] || null;
   if (!raw || raw.readyState === "ended") {
+    stopMicBoost();
+    return null;
+  }
+  // Audio-only / broken webcam: never run Gain+Compressor.
+  // That graph leaves AEC and lifts the noise floor → “snow / pouring rain”
+  // (old laptop mic + same-room phone, 2026-08-14).
+  const audioOnlyPreview =
+    !!noLocalCamera ||
+    !(previewStream?.getVideoTracks?.() || []).some(
+      (t) => t && t.readyState === "live"
+    );
+  if (audioOnlyPreview) {
     stopMicBoost();
     return null;
   }
@@ -17570,20 +25346,59 @@ async function pushOutboundAudioTracks() {
   const enabled = !micMuted && !debateLocked;
   for (const pc of peerPcs.values()) {
     try {
-      pc.setLocalStream?.(stream || previewStream);
+      // Audio-only replace — do NOT setLocalStream(preview) here: that re-binds the
+      // same video track onto every PC and kills Chrome Android mid 3-way.
       if (pc.pc) {
         const senders = pc.pc.getSenders();
-        const aSender = senders.find((s) => s.track && s.track.kind === "audio");
-        if (aSender) {
-          if (aSender.track !== audioTrack) {
-            await aSender.replaceTrack(audioTrack);
-          }
-        } else if (stream) {
+        let audioSender = senders.find(
+          (s) => s.track && s.track.kind === "audio"
+        );
+        if (!audioSender) {
           try {
-            pc.pc.addTrack(audioTrack, stream);
+            for (const x of pc.pc.getTransceivers?.() || []) {
+              const st = x?.sender;
+              if (!st) continue;
+              if (st.track?.kind === "audio") {
+                audioSender = st;
+                break;
+              }
+              if (
+                !st.track &&
+                (x.receiver?.track?.kind === "audio" ||
+                  String(x.mid || "").startsWith("0") ||
+                  x.direction)
+              ) {
+                // Prefer empty audio transceiver over video null slot
+                if (x.receiver?.track?.kind === "audio") {
+                  audioSender = st;
+                  break;
+                }
+                if (!audioSender) audioSender = st;
+              }
+            }
+          } catch (_) {}
+        }
+        if (audioSender) {
+          if (audioSender.track !== audioTrack) {
+            await audioSender.replaceTrack(audioTrack);
+          }
+        } else {
+          try {
+            pc.pc.addTrack(audioTrack, new MediaStream([audioTrack]));
           } catch (_) {}
         }
       }
+      // Keep localStream audio in sync without clobbering per-PC video clones
+      try {
+        if (pc.localStream) {
+          for (const t of [...pc.localStream.getAudioTracks()]) {
+            try {
+              pc.localStream.removeTrack(t);
+            } catch (_) {}
+          }
+          pc.localStream.addTrack(audioTrack);
+        }
+      } catch (_) {}
       pc.setMicEnabled?.(enabled);
     } catch (e) {
       console.warn("[mic-boost] push audio", e);
@@ -17622,8 +25437,8 @@ function localStreamForPeerOutbound() {
 
   const out = new MediaStream();
   if (selfBlurred) {
-    const black = getBlackVideoTrack();
-    if (black) out.addTrack(black);
+    const soft = getBlurredOutboundTrack();
+    if (soft) out.addTrack(soft);
     else {
       for (const t of previewStream.getVideoTracks()) {
         try {
@@ -17655,6 +25470,245 @@ function localStreamForPeerOutbound() {
 }
 
 /**
+ * Multi-PC (3-way / 4-way): browsers freeze / end the camera when the same
+ * MediaStreamTrack is replaceTrack'd onto 2+ RTCPeerConnections (esp. Chrome
+ * Android). Always clone for every non-primary PC when peerPcs.size>=2.
+ * Primary PC keeps the real preview track for #local; secondaries get track.clone().
+ */
+function pickPrimaryPeerPc() {
+  const live = [...peerPcs.entries()];
+  if (!live.length) return null;
+  for (const [, pc] of live) {
+    if (isTeammateRole(pc._role)) return pc;
+  }
+  live.sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+  return live[0][1];
+}
+
+function releasePeerOutboundVideoClone(pc) {
+  if (!pc) return;
+  const t = pc._outboundVidClone;
+  pc._outboundVidClone = null;
+  pc._outboundVidSrcId = "";
+  if (t) {
+    try {
+      t.stop();
+    } catch (_) {}
+  }
+}
+
+/** Expose for webrtc closeCall cleanup. */
+try {
+  window.__ruletReleasePeerOutbound = releasePeerOutboundVideoClone;
+} catch (_) {}
+
+function ensureOutboundVideoClone(pc, real) {
+  if (!pc || !real || real.readyState === "ended") return real;
+  if (
+    pc._outboundVidClone &&
+    pc._outboundVidClone.readyState === "live" &&
+    pc._outboundVidSrcId === real.id
+  ) {
+    try {
+      pc._outboundVidClone.enabled = real.enabled !== false;
+    } catch (_) {}
+    return pc._outboundVidClone;
+  }
+  releasePeerOutboundVideoClone(pc);
+  try {
+    if (typeof real.clone !== "function") return real;
+    const c = real.clone();
+    c.enabled = true;
+    try {
+      if ("contentHint" in c) c.contentHint = real.contentHint || "motion";
+    } catch (_) {}
+    pc._outboundVidClone = c;
+    pc._outboundVidSrcId = real.id;
+    return c;
+  } catch (e) {
+    console.warn("[multi-cam] video clone failed", e);
+    return real;
+  }
+}
+
+/**
+ * Video track for this PC.
+ * Solo (size<=1): real preview track.
+ * Multi (size>=2): primary = real (feeds #local); every other PC = clone (always,
+ * not only Chrome Android).
+ */
+function outboundVideoTrackForPc(pc, real) {
+  if (!real || real.readyState === "ended") return real;
+  if (peerPcs.size <= 1) {
+    releasePeerOutboundVideoClone(pc);
+    return real;
+  }
+  const primary = pickPrimaryPeerPc();
+  if (pc === primary) {
+    releasePeerOutboundVideoClone(pc);
+    return real;
+  }
+  // Always clone non-primary when multi — shared track kills outbound on many UAs
+  return ensureOutboundVideoClone(pc, real);
+}
+
+/**
+ * Bind A/V onto one PC without sharing previewStream on multi extras.
+ * Extra PCs must get a cloned video track (or empty) — never setLocalStream(preview).
+ */
+function bindPcOutboundMedia(pc, videoTrack, audioTrack) {
+  if (!pc) return;
+  if (videoTrack || audioTrack) {
+    const ms = new MediaStream();
+    if (videoTrack) {
+      try {
+        ms.addTrack(videoTrack);
+      } catch (_) {}
+    }
+    if (audioTrack) {
+      try {
+        ms.addTrack(audioTrack);
+      } catch (_) {}
+    }
+    try {
+      pc.setLocalStream(ms);
+    } catch (_) {}
+    return;
+  }
+  if (peerPcs.size <= 1 && previewStream) {
+    try {
+      pc.setLocalStream(previewStream);
+    } catch (_) {}
+  }
+}
+
+/**
+ * Soft heal when local cam dies mid multi (Chrome Android multi-PC).
+ * Prefer re-enable + re-push; one video-only GUM if track ended — never full
+ * startPreview (that stops audio + thrashs all senders).
+ */
+async function healMultiPeerLocalCamera(reason = "") {
+  if (healMultiPeerLocalCamera._busy) return false;
+  if (peerPcs.size < 2 && reason !== "force") return false;
+  healMultiPeerLocalCamera._busy = true;
+  try {
+    let real = previewStream?.getVideoTracks?.()?.[0] || null;
+    if (noLocalCamera || previewHasNoLiveCam()) {
+      log("multi-cam heal skip no-cam");
+      return false;
+    }
+    if (real && real.readyState === "live") {
+      try {
+        real.enabled = !camOff;
+      } catch (_) {}
+      await pushOutboundVideoTracks();
+      log(`multi-cam heal re-enable reason=${String(reason).slice(0, 24)}`);
+      return true;
+    }
+    // Track ended / missing — one video-only GUM; keep existing audio tracks
+    if (camOff || selfBlurred) return false;
+    if (mediaPermissionDenied || mediaPreviewBusy) return false;
+    let videoOnly = null;
+    try {
+      const face =
+        cameraFacing === "environment" ? "environment" : "user";
+      const mobile = typeof isLikelyMobile === "function" && isLikelyMobile();
+      const vConstraints = mobile
+        ? { video: { facingMode: { ideal: face } }, audio: false }
+        : { video: true, audio: false };
+      videoOnly = await navigator.mediaDevices.getUserMedia(vConstraints);
+    } catch (e) {
+      log(`multi-cam heal GUM fail ${e?.name || e}`);
+      return false;
+    }
+    const nv = videoOnly?.getVideoTracks?.()?.[0] || null;
+    if (!nv) {
+      try {
+        videoOnly?.getTracks?.().forEach((t) => t.stop());
+      } catch (_) {}
+      return false;
+    }
+    nv.enabled = true;
+    // Drop ended video from preview; keep audio
+    if (previewStream) {
+      for (const t of [...previewStream.getVideoTracks()]) {
+        try {
+          previewStream.removeTrack(t);
+        } catch (_) {}
+        try {
+          t.stop();
+        } catch (_) {}
+      }
+      try {
+        previewStream.addTrack(nv);
+      } catch (_) {
+        previewStream = new MediaStream([
+          nv,
+          ...(previewStream.getAudioTracks() || []),
+        ]);
+      }
+    } else {
+      previewStream = new MediaStream([nv]);
+    }
+    // Release leftover from GUM (none if video-only)
+    try {
+      videoOnly.getTracks().forEach((t) => {
+        if (t !== nv) {
+          try {
+            t.stop();
+          } catch (_) {}
+        }
+      });
+    } catch (_) {}
+    // Clones are tied to old source id — rebuild
+    for (const pc of peerPcs.values()) {
+      try {
+        releasePeerOutboundVideoClone(pc);
+      } catch (_) {}
+    }
+    const local = $("local");
+    if (local && previewStream) {
+      try {
+        local.srcObject = previewStream;
+        prepareVideoEl(local, { muted: true });
+        playVideoEl(local);
+      } catch (_) {}
+    }
+    try {
+      setLocalEmpty(false);
+    } catch (_) {}
+    await pushOutboundVideoTracks();
+    log(`multi-cam heal new-track reason=${String(reason).slice(0, 24)}`);
+    try {
+      trackEvent("multi_cam_heal", { reason: String(reason).slice(0, 32) });
+    } catch (_) {}
+    return true;
+  } catch (e) {
+    console.warn("[multi-cam] heal", e);
+    return false;
+  } finally {
+    healMultiPeerLocalCamera._busy = false;
+  }
+}
+
+function wirePreviewVideoEndedHeal(stream) {
+  try {
+    const tracks = stream?.getVideoTracks?.() || [];
+    for (const t of tracks) {
+      if (t._ruletEndedHeal) continue;
+      t._ruletEndedHeal = true;
+      t.addEventListener("ended", () => {
+        try {
+          if (peerPcs.size >= 2 && !camOff && !selfBlurred) {
+            void healMultiPeerLocalCamera("track-ended");
+          }
+        } catch (_) {}
+      });
+    }
+  } catch (_) {}
+}
+
+/**
  * Friend calls: force reveal.
  * Stranger / party: always start with REAL camera outbound (P2P needs both cams).
  * Auto sticky-Hide was sending a black canvas track to partners while local
@@ -17670,17 +25724,21 @@ function applySelfBlurPolicyForSession(opts = {}) {
       }
       return;
     }
-    // Stranger / queue / party: force real outbound video for connectivity.
-    // Opt-in sticky hide only if prefs.hideFromStrangersDefault is true.
-    let wantStickyHide = false;
-    try {
-      const prefs = loadPrefs();
-      wantStickyHide = !!prefs.hideFromStrangersDefault;
-    } catch (_) {}
-    if (wantStickyHide && selfBlurPreferForStrangers && !selfBlurred) {
-      setSelfBlur(true, { fromAuto: true, silent: !!opts.silent });
+    // Hide until Reveal — Next / rematch keep the soft-blur outbound track.
+    if (selfBlurStickyUntilReveal || (selfBlurUserLocked && selfBlurred)) {
+      if (!selfBlurred) {
+        setSelfBlur(true, { fromAuto: true, silent: !!opts.silent });
+      } else {
+        try {
+          applyLocalHideCover(true);
+          startSelfBlurCanvas();
+        } catch (_) {}
+        void pushOutboundVideoTracks();
+      }
       return;
     }
+    // Mid-match user Hide/Reveal already handled above. No sticky → real cam.
+    if (!opts.force && selfBlurUserLocked && matched) return;
     if (selfBlurred) {
       setSelfBlur(false, { fromAuto: true, silent: !!opts.silent });
     }
@@ -17697,48 +25755,122 @@ async function pushOutboundVideoTracks() {
       local.srcObject = previewStream;
       prepareVideoEl(local, { muted: true });
       playVideoEl(local);
+    } else {
+      try {
+        healLocalPreviewPaint("push-outbound");
+      } catch (_) {}
     }
   }
+  // Mid multi: if cam source died, heal once (Chrome Android multi-PC freeze)
+  if (
+    peerPcs.size >= 2 &&
+    !camOff &&
+    !selfBlurred &&
+    (!real || real.readyState === "ended")
+  ) {
+    void healMultiPeerLocalCamera("push-missing");
+  }
   const hideOut = !!selfBlurred;
+  const multi = peerPcs.size >= 2;
   for (const pc of peerPcs.values()) {
     try {
       if (camOff) {
+        try {
+          if (pc._outboundVidClone) pc._outboundVidClone.enabled = false;
+        } catch (_) {}
         pc.setCamEnabled?.(false);
         continue;
       }
       if (hideOut) {
-        const black = getBlackVideoTrack();
-        if (black && pc.pc) {
+        // Soft-blur canvas track (not black) — partner still sees a person, not a dead tile
+        releasePeerOutboundVideoClone(pc);
+        const soft = getBlurredOutboundTrack();
+        if (soft && pc.pc) {
           const senders = pc.pc.getSenders();
           const vs =
             senders.find((s) => s.track?.kind === "video") ||
             senders.find((s) => !s.track);
-          if (vs) await vs.replaceTrack(black);
-          else pc.pc.addTrack(black, new MediaStream([black]));
+          if (vs) await vs.replaceTrack(soft);
+          else pc.pc.addTrack(soft, new MediaStream([soft]));
           try {
-            pc.setLocalStream?.(localStreamForPeerOutbound());
+            // Per-PC stream only — never setLocalStream(preview) on extras
+            const a =
+              (typeof getOutboundAudioTrack === "function" &&
+                getOutboundAudioTrack()) ||
+              previewStream?.getAudioTracks?.()?.[0] ||
+              null;
+            const ms = new MediaStream();
+            ms.addTrack(soft);
+            if (a) ms.addTrack(a);
+            pc.localStream = ms;
           } catch (_) {}
-        } else {
-          pc.setCamEnabled?.(false);
         }
-      } else if (real) {
+        // If canvas blur fails, keep the real camera — never disable / black.
+      } else if (real && real.readyState === "live") {
         real.enabled = true;
-        if (pc.pc) {
+        // Multi: secondary PCs get track.clone() — shared track kills Chrome Android cam
+        const useTrack = multi
+          ? outboundVideoTrackForPc(pc, real)
+          : (releasePeerOutboundVideoClone(pc), real);
+        if (useTrack) {
+          try {
+            useTrack.enabled = true;
+          } catch (_) {}
+        }
+        if (pc.pc && useTrack) {
           const senders = pc.pc.getSenders();
           const vSender =
             senders.find((s) => s.track?.kind === "video") ||
             senders.find((s) => !s.track);
-          if (vSender) await vSender.replaceTrack(real);
+          if (vSender) {
+            // Skip replace if already bound (avoids encoder thrash)
+            if (vSender.track !== useTrack) {
+              await vSender.replaceTrack(useTrack);
+            }
+            try {
+              pc._promoteVideoSend?.(vSender);
+            } catch (_) {}
+          } else {
+            try {
+              pc.pc.addTrack(useTrack, new MediaStream([useTrack]));
+            } catch (_) {}
+          }
         }
         try {
-          if (previewStream) pc.setLocalStream?.(previewStream);
-        } catch (_) {}
+          // Per-PC stream so setLocalStream/sync doesn't re-share real on secondaries
+          const ms = new MediaStream();
+          if (useTrack) ms.addTrack(useTrack);
+          const a =
+            (typeof getOutboundAudioTrack === "function" &&
+              getOutboundAudioTrack()) ||
+            previewStream?.getAudioTracks?.()?.[0] ||
+            null;
+          if (a) ms.addTrack(a);
+          pc.localStream = ms;
+          // Direct sender path already done; avoid syncLocalTracksToPc re-binding real
+        } catch (_) {
+          // Never setLocalStream(preview) on multi secondaries — shared track freezes cam
+          try {
+            if (useTrack) {
+              const ms = new MediaStream([useTrack]);
+              const a =
+                (typeof getOutboundAudioTrack === "function" &&
+                  getOutboundAudioTrack()) ||
+                previewStream?.getAudioTracks?.()?.[0] ||
+                null;
+              if (a) ms.addTrack(a);
+              pc.setLocalStream?.(ms);
+            } else if (!multi && previewStream) {
+              pc.setLocalStream?.(previewStream);
+            }
+          } catch (__) {}
+        }
         pc.setCamEnabled?.(true);
       }
     } catch (e) {
       console.warn("[self-blur] push tracks", e);
       try {
-        if (selfBlurred || camOff) pc.setCamEnabled?.(false);
+        if (camOff) pc.setCamEnabled?.(false);
         else pc.setCamEnabled?.(true);
       } catch (_) {}
     }
@@ -17747,6 +25879,7 @@ async function pushOutboundVideoTracks() {
   previewStream?.getVideoTracks().forEach((t) => {
     t.enabled = !camOff;
   });
+  if (!selfBlurred && !camOff) stopBlurredOutbound();
   updateSideIcons();
 }
 
@@ -17755,22 +25888,9 @@ async function pushOutboundVideoTracks() {
  * Use a canvas that samples the video at low res + soft upscale (works everywhere).
  */
 function needsCanvasVideoBlur() {
-  try {
-    // CSS filter:blur() on <video> paints solid black on many Android/iOS builds.
-    // Always use canvas sampling on mobile UA — never rely on media-query alone
-    // (desktop-mode Chrome on phones can report hover:hover + fine pointer).
-    const ua = navigator.userAgent || "";
-    if (/iPhone|iPad|iPod|Android|Mobile|webOS|Silk|Kindle/i.test(ua)) {
-      return true;
-    }
-    if (window.matchMedia?.("(hover: none)").matches) return true;
-    if (window.matchMedia?.("(pointer: coarse)").matches) return true;
-    // Touch-capable laptops still often black out video filter — prefer canvas
-    if (navigator.maxTouchPoints > 0 && /Chrome|CriOS|Edg/i.test(ua)) {
-      return true;
-    }
-  } catch (_) {}
-  return false;
+  // Always canvas. CSS filter:blur() on <video> paints solid black on many
+  // desktop GPUs, touch laptops, iOS Safari, and Android — not just phones.
+  return true;
 }
 
 /** @type {number} */
@@ -17782,13 +25902,18 @@ function ensureVideoBlurCanvas(tileId, canvasId) {
   const tile = $(tileId);
   if (!tile) return null;
   let c = $(canvasId);
+  const host =
+    tileId === "tile-remote" && $("remote-stack")
+      ? $("remote-stack")
+      : tile;
   if (!c) {
     c = document.createElement("canvas");
     c.id = canvasId;
     c.className = "video-blur-canvas";
     c.setAttribute("aria-hidden", "true");
-    // Sit above videos, below chrome (stars/fs are z 7–8)
-    tile.appendChild(c);
+    host.appendChild(c);
+  } else if (c.parentNode !== host) {
+    host.appendChild(c);
   }
   return c;
 }
@@ -17804,15 +25929,7 @@ function drawSoftBlurredVideo(ctx, video, canvas, opts = {}) {
   const vw = video.videoWidth || 0;
   const vh = video.videoHeight || 0;
   if (!vw || !vh || video.readyState < 2) {
-    // Not ready — soft slate (not pure black)
-    const w = canvas.width || 160;
-    const h = canvas.height || 90;
-    const g = ctx.createLinearGradient(0, 0, w, h);
-    g.addColorStop(0, "#1c2230");
-    g.addColorStop(1, "#12161e");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, w, h);
-    return;
+    return false;
   }
   // Target display buffer (modest for CPU on phones)
   const outW = 360;
@@ -17821,8 +25938,8 @@ function drawSoftBlurredVideo(ctx, video, canvas, opts = {}) {
     canvas.width = outW;
     canvas.height = outH;
   }
-  // Tiny intermediate for heavy blur feel
-  const tinyW = 48;
+  // Tiny intermediate for heavy blur feel (outbound Hide uses smaller + more blur)
+  const tinyW = Math.max(16, Number(opts.tinyW) || 48);
   const tinyH = Math.max(1, Math.round((vh / vw) * tinyW));
   if (!drawSoftBlurredVideo._tiny) {
     drawSoftBlurredVideo._tiny = document.createElement("canvas");
@@ -17841,7 +25958,8 @@ function drawSoftBlurredVideo(ctx, video, canvas, opts = {}) {
     ctx.imageSmoothingQuality = "high";
     // Optional extra blur if browser supports canvas filter
     try {
-      ctx.filter = "blur(6px) saturate(0.9)";
+      const px = Math.max(2, Number(opts.blurPx) || 6);
+      ctx.filter = `blur(${px}px) saturate(0.8)`;
     } catch (_) {
       ctx.filter = "none";
     }
@@ -17856,12 +25974,121 @@ function drawSoftBlurredVideo(ctx, video, canvas, opts = {}) {
     }
     ctx.filter = "none";
     // Slight dim so it reads as “privacy blur”
-    ctx.fillStyle = "rgba(10, 12, 18, 0.18)";
+    ctx.fillStyle = "rgba(10, 12, 18, 0.06)";
     ctx.fillRect(0, 0, outW, outH);
+    return true;
   } catch (_) {
-    ctx.fillStyle = "#1a2030";
-    ctx.fillRect(0, 0, outW, outH);
+    return false;
   }
+}
+
+/** Live soft-blurred clone of the local camera for outbound Hide (not a black canvas). */
+const _blurOut = { canvas: null, ctx: null, track: null, stream: null, raf: 0 };
+
+function stopBlurredOutbound() {
+  if (_blurOut.raf) {
+    cancelAnimationFrame(_blurOut.raf);
+    _blurOut.raf = 0;
+  }
+  try {
+    _blurOut.track?.stop();
+  } catch (_) {}
+  _blurOut.track = null;
+  _blurOut.stream = null;
+}
+
+function ensureBlurSampleVideo() {
+  // Sample the real cam on #local (must stay previewStream). Hidden 2px
+  // fallback only if #local is not painting — never swap #local to blur.
+  const v = $("local");
+  if (v && v.srcObject === previewStream && v.videoWidth && v.readyState >= 2) {
+    return v;
+  }
+  if (!_blurOut.sample) {
+    const el = document.createElement("video");
+    el.muted = true;
+    el.playsInline = true;
+    el.setAttribute("playsinline", "");
+    el.setAttribute("aria-hidden", "true");
+    el.style.cssText =
+      "position:fixed;width:2px;height:2px;opacity:0;pointer-events:none;left:-9px;top:-9px";
+    document.body.appendChild(el);
+    _blurOut.sample = el;
+  }
+  const s = _blurOut.sample;
+  if (previewStream && s.srcObject !== previewStream) {
+    s.srcObject = previewStream;
+    try {
+      s.play?.();
+    } catch (_) {}
+  }
+  // 034125Z: readyState>=2 with videoWidth=0 is a playing dummy. Using it
+  // as the sample made Hide send navy fills that still increment frames
+  // (parser product.ok, phone black). Prefer the hidden sample element.
+  return v && v.srcObject === previewStream && v.videoWidth && v.readyState >= 2
+    ? v
+    : s;
+}
+
+function tickBlurredOutbound() {
+  if (!_blurOut.track || _blurOut.track.readyState !== "live") {
+    _blurOut.raf = 0;
+    return;
+  }
+  const c = _blurOut.canvas;
+  const ctx = _blurOut.ctx;
+  if (!c || !ctx) {
+    _blurOut.raf = requestAnimationFrame(tickBlurredOutbound);
+    return;
+  }
+  const video = ensureBlurSampleVideo();
+  if (video && video.videoWidth && video.readyState >= 2) {
+    drawSoftBlurredVideo(ctx, video, c, {
+      mirror: false,
+      tinyW: 22,
+      blurPx: 12,
+    });
+  } else {
+    // Keep the captureStream alive — first raf used to `return` without
+    // scheduling the next tick, so Hide sent 0 video frames (phone black,
+    // 025340Z web fout=0 / android fin=0 while #local still moved).
+    try {
+      ctx.fillStyle = "#3d4a5c";
+      ctx.fillRect(0, 0, c.width, c.height);
+    } catch (_) {}
+    try {
+      healLocalPreviewPaint("hide-sample-empty");
+    } catch (_) {}
+  }
+  _blurOut.raf = requestAnimationFrame(tickBlurredOutbound);
+}
+
+function getBlurredOutboundTrack() {
+  if (_blurOut.track && _blurOut.track.readyState === "live") {
+    if (!_blurOut.raf) _blurOut.raf = requestAnimationFrame(tickBlurredOutbound);
+    return _blurOut.track;
+  }
+  const c = document.createElement("canvas");
+  c.width = 320;
+  c.height = 180;
+  const ctx = c.getContext("2d", { alpha: false });
+  // Never fall back to a black canvas — that is the laptop "Hide = dead tile" bug.
+  if (!ctx || typeof c.captureStream !== "function") return null;
+  _blurOut.canvas = c;
+  _blurOut.ctx = ctx;
+  try {
+    ctx.fillStyle = "#3d4a5c";
+    ctx.fillRect(0, 0, c.width, c.height);
+  } catch (_) {}
+  try {
+    _blurOut.stream = c.captureStream(15);
+    _blurOut.track = _blurOut.stream.getVideoTracks()[0] || null;
+  } catch (_) {
+    _blurOut.track = null;
+  }
+  if (!_blurOut.track) return null;
+  _blurOut.raf = requestAnimationFrame(tickBlurredOutbound);
+  return _blurOut.track;
 }
 
 function stopPartnerBlurCanvas() {
@@ -17874,42 +26101,105 @@ function startPartnerBlurCanvas() {
   partnerBlurRaf = peerBlurRafByEl.remote || 0;
 }
 
+function ensureSelfHideVeil() {
+  let v = $("self-hide-veil");
+  if (v) return v;
+  const tile = $("tile-local");
+  if (!tile) return null;
+  v = document.createElement("div");
+  v.id = "self-hide-veil";
+  v.className = "self-hide-veil";
+  v.setAttribute("aria-hidden", "true");
+  const local = $("local");
+  if (local && local.parentNode === tile) {
+    local.insertAdjacentElement("afterend", v);
+  } else {
+    tile.appendChild(v);
+  }
+  return v;
+}
+
+function placeSelfHidePaint(canvas) {
+  const tile = $("tile-local");
+  if (!canvas || !tile) return;
+  const r = tile.getBoundingClientRect();
+  if (r.width < 8 || r.height < 8) return;
+  canvas.style.setProperty("display", "block", "important");
+  canvas.style.setProperty("position", "fixed", "important");
+  canvas.style.setProperty("left", `${Math.round(r.left)}px`, "important");
+  canvas.style.setProperty("top", `${Math.round(r.top)}px`, "important");
+  canvas.style.setProperty("width", `${Math.round(r.width)}px`, "important");
+  canvas.style.setProperty("height", `${Math.round(r.height)}px`, "important");
+  canvas.style.setProperty("z-index", "40", "important");
+  canvas.style.setProperty("pointer-events", "none", "important");
+  canvas.style.setProperty("background", "transparent", "important");
+  canvas.style.setProperty("transform", "translateZ(1px)", "important");
+  canvas.style.setProperty("inset", "auto", "important");
+}
+
+function ensureSelfHidePaint() {
+  let c = $("self-hide-paint");
+  if (!c) {
+    c = document.createElement("canvas");
+    c.id = "self-hide-paint";
+    c.setAttribute("aria-hidden", "true");
+    document.body.appendChild(c);
+  } else if (c.parentNode !== document.body) {
+    document.body.appendChild(c);
+  }
+  return c;
+}
+
+function applyLocalHideCover(on) {
+  const tile = $("tile-local");
+  tile?.classList.toggle("self-blurred", !!on);
+  const veil = $("self-hide-veil");
+  if (veil) {
+    if (on) {
+      veil.hidden = false;
+      veil.removeAttribute("hidden");
+      veil.style.cssText = "";
+    } else {
+      veil.hidden = true;
+      veil.setAttribute("hidden", "");
+    }
+  }
+  const old = $("self-blur-canvas");
+  if (old) {
+    old.classList.remove("is-active");
+    old.hidden = true;
+  }
+  hideVideoLayer($("local"), false);
+  const localVid = $("local");
+  if (localVid) {
+    localVid.style.removeProperty("filter");
+    localVid.style.removeProperty("-webkit-filter");
+    localVid.style.removeProperty("transform");
+    localVid.style.removeProperty("visibility");
+  }
+  if (!on) {
+    const paint = $("self-hide-paint");
+    if (paint) {
+      paint.classList.remove("is-on");
+      paint.hidden = true;
+      paint.style.setProperty("display", "none", "important");
+    }
+  }
+}
+
 function stopSelfBlurCanvas() {
   if (selfBlurRaf) {
     cancelAnimationFrame(selfBlurRaf);
     selfBlurRaf = 0;
   }
-  const c = $("self-blur-canvas");
-  if (c) {
-    c.classList.remove("is-active");
-    c.hidden = true;
-  }
+  bindFrostVideo("local-frost", null, false);
+  applyLocalHideCover(false);
 }
 
 function startSelfBlurCanvas() {
-  if (!needsCanvasVideoBlur()) {
-    stopSelfBlurCanvas();
-    return;
-  }
-  const canvas = ensureVideoBlurCanvas("tile-local", "self-blur-canvas");
-  const video = $("local");
-  if (!canvas || !video) return;
-  canvas.hidden = false;
-  canvas.classList.add("is-active");
-  const ctx = canvas.getContext("2d", { alpha: false });
-  if (!ctx) return;
-  const tick = () => {
-    if (!selfBlurred) {
-      stopSelfBlurCanvas();
-      return;
-    }
-    // Match selfie mirror (default) unless user flipped to natural
-    const mirror = !video.classList.contains("is-unmirrored");
-    drawSoftBlurredVideo(ctx, video, canvas, { mirror });
-    selfBlurRaf = requestAnimationFrame(tick);
-  };
-  if (selfBlurRaf) cancelAnimationFrame(selfBlurRaf);
-  selfBlurRaf = requestAnimationFrame(tick);
+  applyLocalHideCover(true);
+  getBlurredOutboundTrack();
+  bindFrostVideo("local-frost", _blurOut.stream, true);
 }
 
 function setPartnerBlur(on) {
@@ -17918,9 +26208,10 @@ function setPartnerBlur(on) {
 }
 
 function togglePartnerBlur() {
-  // User took control — cancel pending auto-unblur
+  // User took control — cancel pending auto-unblur (do not re-peel this tap)
   clearIntroBlurTimer();
   introBlurGen++;
+  introBlurPending = false;
   togglePeerElBlur("remote");
   try {
     syncPartnerBlurButtonLabels();
@@ -17940,27 +26231,19 @@ function togglePartnerBlur() {
 function setSelfBlur(on, opts = {}) {
   selfBlurred = !!on;
   if (!opts.fromAuto) {
-    // Remember only if user enabled "hide from strangers by default" in prefs.
-    // Default OFF — sticky hide was the #1 cause of one-way "black" video to Play.
-    try {
-      const prefs = loadPrefs();
-      if (prefs.hideFromStrangersDefault) {
-        selfBlurPreferForStrangers = selfBlurred;
-      } else {
-        selfBlurPreferForStrangers = false;
-      }
-    } catch (_) {
-      selfBlurPreferForStrangers = false;
-    }
+    selfBlurUserLocked = true;
+    selfBlurStickyUntilReveal = !!selfBlurred;
+    selfBlurPreferForStrangers = !!selfBlurred;
+    writeHideUntilReveal(selfBlurStickyUntilReveal);
   }
+  applyLocalHideCover(selfBlurred);
   pushOutboundVideoTracks().catch(() => {});
   updateSideIcons();
   if (selfBlurred) startSelfBlurCanvas();
   else stopSelfBlurCanvas();
-  // Notify peers so Android can show mosaic veil instead of pure black frames
+  // Live soft-blur track — never self_hide (laptop covers the tile → black).
   try {
-    const hideOut = !!(selfBlurred || camOff);
-    sendSelfHideP2p(hideOut);
+    syncCamHiddenSignal();
   } catch (_) {}
 }
 
@@ -17970,9 +26253,31 @@ function toggleSelfBlur() {
   log(
     selfBlurred
       ? _t("log.selfBlurOn") ||
-          "You are hidden — partner sees black (tap Reveal to show camera again)"
+          "You are hidden — partner sees a soft-blurred you (tap Reveal to show camera)"
       : _t("log.selfBlurOff") || "You revealed yourself"
   );
+}
+
+/** Tap the local camera (not a control) to reveal when Hide is on. */
+function wireSelfBlurTapToReveal() {
+  const tile = $("tile-local");
+  if (!tile || tile.dataset.selfUnblurTap === "1") return;
+  tile.dataset.selfUnblurTap = "1";
+  tile.addEventListener("click", (e) => {
+    if (!selfBlurred) return;
+    const hit = e.target;
+    if (!hit || typeof hit.closest !== "function") return;
+    if (
+      hit.closest(
+        "button, a, input, select, textarea, label, .side-rail, .side-btn, .stars-badge, .pill, .sheet, .match-more-menu, #settings-sheet, #friends-sheet"
+      )
+    ) {
+      return;
+    }
+    e.preventDefault();
+    setSelfBlur(false);
+    log(_t("log.selfBlurOff") || "You revealed yourself");
+  });
 }
 
 function nsfwAutoEnabled() {
@@ -18034,6 +26339,7 @@ function stopNsfwWatch() {
 
 function startNsfwWatch() {
   stopNsfwWatch();
+  if (isFxLite()) return;
   if (!nsfwAutoEnabled()) return;
   // Only strangers (not confirmed friend 1:1)
   if (matchMode === "friend") return;
@@ -18111,14 +26417,10 @@ async function handleNsfwDetected(scores) {
     log(_t("nsfw.blocked"));
     primaryPartnerUserId = "";
   }
-  // Skip to next stranger
+  // Skip to next stranger — same as btn-next: hub first, tear after ack.
   wantSearch = true;
-  matched = false;
-  closeAllPeers({ keepFriend: false });
-  setSplitRemote(false);
-  setRemoteEmpty(true);
-  resetRemoteEmptyCopy();
-  updateFriendActionButtons();
+  pendingNextTear = true;
+  pendingNextKeepFriend = false;
   send({ type: "next", room: currentRoom() });
   setPhase("waiting");
   // brief cooldown before scanning next partner
@@ -18722,6 +27024,9 @@ async function hardReleaseLocalCamera(ms = 280) {
     } catch (_) {}
     previewStream = null;
   }
+  try {
+    window.__ruletPreviewStream = null;
+  } catch (_) {}
   const local = $("local");
   if (local) {
     try {
@@ -18919,6 +27224,9 @@ async function attachLocalStream(stream) {
   }
   previewStream = stream;
   try {
+    window.__ruletPreviewStream = stream;
+  } catch (_) {}
+  try {
     await ensureMicBoost();
   } catch (_) {}
   try {
@@ -18978,10 +27286,16 @@ async function attachLocalStream(stream) {
     }
   } catch (_) {}
 
+  // Preview source changed — drop multi clones so secondaries re-clone from new track
   for (const pc of peerPcs.values()) {
-    pc.setLocalStream(localStreamForPeerOutbound() || previewStream);
-    await pc.syncLocalTracksToPc();
+    try {
+      releasePeerOutboundVideoClone(pc);
+    } catch (_) {}
   }
+  try {
+    wirePreviewVideoEndedHeal(previewStream);
+  } catch (_) {}
+  // Per-PC outbound (clones on multi) — never force shared preview track onto all PCs
   await pushOutboundVideoTracks();
   await pushOutboundAudioTracks();
   try {
@@ -18990,6 +27304,9 @@ async function attachLocalStream(stream) {
       if (el.srcObject !== previewStream) el.srcObject = previewStream;
       playVideoEl(el);
     }
+  } catch (_) {}
+  try {
+    hookNoCamPortraitFromStream("local", previewStream);
   } catch (_) {}
 
   await refreshDevices().catch(() => {});
@@ -19506,14 +27823,23 @@ function renderResolutionChoiceList() {
         (_t("settings.resApplied") || "Camera resolution") + ": " + videoResLabel(id)
       );
       try {
-        stopPreview();
-        await startPreview();
-        // Push new tracks into active peer connections
-        for (const pc of peerPcs?.values?.() || []) {
-          try {
-            if (previewStream && pc.setLocalStream) pc.setLocalStream(previewStream);
-            if (pc.syncLocalTracksToPc) await pc.syncLocalTracksToPc();
-          } catch (_) {}
+        // Mid multi: avoid full startPreview thrash if possible — heal is video-only GUM.
+        // User-driven resolution change still restarts cam, then re-binds via clone-aware push.
+        if (peerPcs.size >= 2) {
+          stopPreview();
+          await startPreview();
+          for (const pc of peerPcs.values()) {
+            try {
+              releasePeerOutboundVideoClone(pc);
+            } catch (_) {}
+          }
+          await pushOutboundVideoTracks();
+          await pushOutboundAudioTracks();
+        } else {
+          stopPreview();
+          await startPreview();
+          await pushOutboundVideoTracks();
+          await pushOutboundAudioTracks();
         }
       } catch (e) {
         console.warn("[resolution]", e);
@@ -19732,7 +28058,27 @@ async function startPreview() {
         }
       }
     }
-    if (!stream) throw lastErr || new Error("getUserMedia failed");
+    if (!stream) {
+      // Broken / missing webcam: still connect with mic.
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: false,
+          audio: audioDeviceId
+            ? {
+                deviceId: { ideal: audioDeviceId },
+                echoCancellation: true,
+                noiseSuppression: true,
+              }
+            : {
+                echoCancellation: true,
+                noiseSuppression: true,
+              },
+        });
+        log("preview audio-only — no camera");
+      } catch (e2) {
+        throw lastErr || e2 || new Error("getUserMedia failed");
+      }
+    }
 
     // If user picked Kiyo (or any specific cam) but GUM fell back to another
     // device, re-open with exact deviceId so the LED actually turns on.
@@ -19819,8 +28165,28 @@ async function startPreview() {
     }
 
     mediaPermissionDenied = false;
+    // Only "no camera" when GUM returned zero video tracks (NotFound / audio-only).
+    // A track that is not live yet is still a camera — do NOT self_hide or the
+    // partner (Android) paints the laptop cylinder over a real face.
+    noLocalCamera = (stream.getVideoTracks?.() || []).length === 0;
     showEnableCamButton(false, _t("local.emptySub"));
     await attachLocalStream(stream);
+    syncNoCamOutbound();
+    try {
+      syncLocalNoCamPortrait();
+    } catch (_) {}
+    if (noLocalCamera) {
+      try {
+        stopMicBoost();
+        void pushOutboundAudioTracks();
+      } catch (_) {}
+      try {
+        setStatus(
+          _t("local.audioOnly") || "No camera — connecting with microphone"
+        );
+      } catch (_) {}
+      log("no local camera — audio-only preview");
+    }
     applyLocalMirrorClass();
     // Verify we got the requested facing / device; log soft fallbacks
     {
@@ -19903,9 +28269,18 @@ function stopPreview() {
     stopMicBoost();
   } catch (_) {}
   if (previewStream) {
+    // Multi clones hold separate track clones — release before stopping source
+    try {
+      for (const pc of peerPcs.values()) {
+        releasePeerOutboundVideoClone(pc);
+      }
+    } catch (_) {}
     previewStream.getTracks().forEach((tr) => tr.stop());
     previewStream = null;
   }
+  try {
+    window.__ruletPreviewStream = null;
+  } catch (_) {}
   if ($("local")) $("local").srcObject = null;
   setLocalEmpty(true);
   updateSideIcons();
@@ -20035,12 +28410,23 @@ function applyRemoteVolume() {
     const remote = $(id);
     if (!remote) continue;
     const tileMuted =
-      !!peerMutedByEl[id] || (id === "remote" && partnerMuted);
+      !!peerMutedByEl[id] ||
+      (id === "remote" && partnerMuted) ||
+      debateHoldsPartnerListen();
     const vol = peerVolByEl[id] ?? 100;
     // Main partner duck only — multi-tile secondaries keep full level
     const factor = id === "remote" ? duck : 1;
-    remote.volume = tileMuted ? 0 : (vol / 100) * factor;
+    // Per-tile: HTMLMediaElement volume only affects this tile's audio tracks.
+    const level = tileMuted ? 0 : (vol / 100) * factor;
+    remote.volume = level;
     remote.muted = tileMuted;
+    try {
+      (remote.srcObject?.getAudioTracks?.() || []).forEach((t) => {
+        try {
+          t.enabled = !tileMuted;
+        } catch (_) {}
+      });
+    } catch (_) {}
   }
   // Keep per-peer volume inputs painted
   try {
@@ -20057,6 +28443,45 @@ let lastVolumeResetKey = "";
  * New conversationalist → partner volume max (100) and unmuted, even if the previous
  * call had the slider lowered or mute on.
  */
+/** Drop leftover mute veil (they-muted-you + local mute) on Next / rematch. */
+function clearPartnerMuteChrome() {
+  theyMutedMe = false;
+  partnerMuted = false;
+  peerMutedByEl.remote = false;
+  peerMutedByEl.remote2 = false;
+  peerMutedByEl["remote-third"] = false;
+  try {
+    setTheyMutedMe(false, { force: true, toast: false });
+  } catch (_) {}
+  for (const slot of ["remote", "remote2", "remote-third"]) {
+    try {
+      setPeerMuteUi(slot, false);
+    } catch (_) {}
+  }
+  try {
+    document.querySelectorAll(".mute-speaker-mark").forEach((el) => {
+      el.hidden = true;
+      el.setAttribute("hidden", "");
+    });
+    ["tile-remote", "tile-third", "remote2-wrap"].forEach((id) => {
+      $(id)?.classList.remove("peer-slot-muted");
+    });
+    [
+      "debate-badge-remote-muted",
+      "peer-mute-badge-remote",
+      "peer-mute-badge-local-by-them",
+      "peer-mute-badge-remote2",
+      "peer-mute-badge-remote-third",
+    ].forEach((id) => {
+      const el = $(id);
+      if (el) {
+        el.hidden = true;
+        el.setAttribute("hidden", "");
+      }
+    });
+  } catch (_) {}
+}
+
 function resetPartnerVolumeForNewMatch(msg) {
   const key =
     (msg && (msg.session_id || msg.session_key)) ||
@@ -20080,16 +28505,7 @@ function resetPartnerVolumeForNewMatch(msg) {
     return;
   }
   lastVolumeResetKey = key;
-  partnerMuted = false;
-  theyMutedMe = false;
-  try {
-    setPartnerSelfHidden(false, { toast: false, force: true });
-  } catch (_) {
-    partnerSelfHidden = false;
-  }
-  peerMutedByEl.remote = false;
-  peerMutedByEl.remote2 = false;
-  peerMutedByEl["remote-third"] = false;
+  clearPartnerMuteChrome();
   peerVolByEl.remote = 100;
   peerVolByEl.remote2 = 100;
   peerVolByEl["remote-third"] = 100;
@@ -20232,19 +28648,19 @@ function countRemoteAudioPeers() {
 
 /** True for 1v2, 2v2, or friend+stranger trio (2+ audio paths). */
 function isMultiPeerAudioFromMatch(peers) {
+  // Hard gate: never multi-audio on party_browse / find-3rd hunt with 1 link only
+  if (peerPcs.size < 2 && countRemoteAudioPeers() < 2) return false;
   if (!peers || !peers.length) return countRemoteAudioPeers() >= 2;
   const opponents = peers.filter(
     (p) => p && (p.role === "stranger" || p.role === "party")
   );
   const teammates = peers.filter((p) => p && isTeammateRole(p.role));
-  // Solo sees 2 opponents → 1v2 or 2v2
+  // Solo sees 2 opponents → 1v2 or 2v2 (only when 2+ PCs already up)
   if (opponents.length >= 2) return true;
-  // Party member / trio: teammate + stranger
+  // Party member / trio: teammate + stranger with real multi PCs
   if (teammates.length >= 1 && opponents.length >= 1) return true;
   // Already connected to 2+ PCs
   if (countRemoteAudioPeers() >= 2) return true;
-  // Trio layout with third slot live
-  if (trioBrowse && opponents.length >= 1) return true;
   return false;
 }
 
@@ -20329,9 +28745,11 @@ function maybeShowMultiPeerHeadphonesTip() {
 
 /**
  * Call when match layout has 2+ remotes (1v2, 2v2, trio).
+ * Only when peerPcs.size ≥ 2 — not mere party_browse / find-3rd hunt.
  * @param {object[]} [peers] from matched message
  */
 function enterMultiPeerAudioMode(peers) {
+  if (peerPcs.size < 2) return;
   if (!isMultiPeerAudioFromMatch(peers) && countRemoteAudioPeers() < 2) {
     return;
   }
@@ -20340,6 +28758,9 @@ function enterMultiPeerAudioMode(peers) {
   // applyConstraints only — do NOT restart getUserMedia mid-call (that
   // stops tracks, glitches senders, and often "craps out" partner audio).
   applyFullAudioProcessingToLocal().catch(() => {});
+  // Audio-only replaceTrack — never setLocalStream(preview) on extras
+  // (that re-shares the cam track and freezes Chrome Android mid 3-way).
+  pushOutboundAudioTracks().catch(() => {});
   if (!was && isLowLatencyAudioPref()) {
     try {
       setStatus(
@@ -20703,7 +29124,7 @@ function wireHubSettings() {
 const PROFILE_EXPORT_TS_KEY = "rulet_profile_export_ts";
 const UPDATES_SEEN_KEY = "rulet_updates_seen_v1";
 /** Bump when shipping a new /updates.html generation users should notice */
-const UPDATES_PAGE_STAMP = "2026-08-05";
+const UPDATES_PAGE_STAMP = "2026-08-16";
 
 function syncAccountSettingsSummary() {
   const idEl = $("settings-user-id");
@@ -20987,6 +29408,16 @@ function renderDeviceChoiceList(kind) {
         mediaPreviewBusy = false;
         await hardReleaseLocalCamera(300);
         await startPreview();
+        // Mid multi: release stale clones and re-bind per-PC (never share preview on all)
+        try {
+          for (const pc of peerPcs.values()) {
+            releasePeerOutboundVideoClone(pc);
+          }
+        } catch (_) {}
+        try {
+          await pushOutboundVideoTracks();
+          await pushOutboundAudioTracks();
+        } catch (_) {}
         applyLocalMirrorClass();
         syncSettingsSummary();
         await ensureLocalPreviewVisible("settings-cam");
@@ -21001,6 +29432,9 @@ function renderDeviceChoiceList(kind) {
         savePrefs({ micId: id });
         setStatus(_t("device.switchingMic") || "switching mic…");
         await startPreview();
+        try {
+          await pushOutboundAudioTracks();
+        } catch (_) {}
         syncSettingsSummary();
       } else if (k === "speaker") {
         savePrefs({ speakerId: id });
@@ -21163,8 +29597,9 @@ const PROFILE_FORMAT_ENC = "ruletka-profile/2-enc";
 /** PBKDF2 iterations — high enough for offline password protection in-browser. */
 const PROFILE_KDF_ITERS = 310000;
 const PROFILE_MIN_PASSWORD = 8;
-/** One-shot: no-account backup education on first visit */
+/** One-shot: no-account backup education — only after they have something to keep. */
 const NO_ACCOUNT_TIP_KEY = "ruletka-no-account-tip-v1";
+const NO_ACCOUNT_TIP_MIN_STARS = 25;
 
 /** Keys that must never be written to or read from a profile file (anti star double-spend). */
 const PROFILE_STAR_DENY =
@@ -21726,14 +30161,17 @@ function setFriendNick(userId, nick) {
 
 function friendAvatarHtml(f) {
   const url = (f?.avatar || "").trim();
+  let inner = "";
   if (url && /^data:image\//i.test(url)) {
-    return `<span class="friend-avatar has-img"><img src="${escapeAttr(
+    inner = `<span class="friend-avatar has-img"><img src="${escapeAttr(
       url
     )}" alt="" loading="lazy" /></span>`;
+  } else {
+    const label = friendDisplayName(f);
+    const letter = (label.replace(/[^a-zA-Z0-9\u0400-\u04FF]/g, "")[0] || "?").toUpperCase();
+    inner = `<span class="friend-avatar letter" aria-hidden="true">${escapeHtml(letter)}</span>`;
   }
-  const label = friendDisplayName(f);
-  const letter = (label.replace(/[^a-zA-Z0-9\u0400-\u04FF]/g, "")[0] || "?").toUpperCase();
-  return `<span class="friend-avatar letter" aria-hidden="true">${escapeHtml(letter)}</span>`;
+  return `<span class="friend-av-wrap">${inner}</span>`;
 }
 
 function renameFriendPrompt(userId, currentName) {
@@ -22044,6 +30482,7 @@ function showBackupExportSuccessToast(encrypted, shareCtx) {
 /**
  * First-session education: no registration — export is your account.
  * Once after rules accepted, not during a live call.
+ * New users (0 stars) skip — wait until they have ≥25 stars to keep.
  */
 function maybeShowNoAccountBackupTip() {
   try {
@@ -22055,6 +30494,7 @@ function maybeShowNoAccountBackupTip() {
   } catch {
     return;
   }
+  if (myStars < NO_ACCOUNT_TIP_MIN_STARS) return;
   if (matched || inFriendCall) return;
   if ($("no-account-tip") || $("export-nudge-toast") || $("import-backup-nudge")) {
     return;
@@ -22625,8 +31065,8 @@ function friendsFlyoutMaxHeight() {
 
 function settingsFlyoutMaxHeight() {
   const vh = window.innerHeight || 640;
-  // Tall settings so account section at the bottom is reachable with less scroll
-  return Math.min(vh * 0.9, 780);
+  // Taller main Settings so Lobby + Network sit without a cramped scroll
+  return Math.min(vh * 0.96, 940);
 }
 
 function positionDockFlyout(sheet, anchor, opts = {}) {
@@ -22656,7 +31096,7 @@ function positionDockFlyout(sheet, anchor, opts = {}) {
   // Friends: snug to dock icon (2–4px) so the sheet sits lower / taller into the stage
   const gap = isFriends ? 4 : DOCK_FLYOUT_GAP;
   const maxH = Math.max(
-    isFriends ? 420 : isSettings ? 320 : 160,
+    isFriends ? 420 : isSettings ? 480 : 160,
     Math.min(preferH, placeAbove ? spaceAbove - gap : spaceBelow - gap)
   );
 
@@ -22718,7 +31158,7 @@ function repositionOpenDockFlyouts() {
     });
   }
   if (messagesIsOpen()) {
-    positionDockFlyout($("messages-sheet"), $("btn-messages"), { align: "start", maxWidth: 400 });
+    positionDockFlyout($("messages-sheet"), $("btn-friends") || $("btn-messages"), { align: "start", maxWidth: 400 });
   }
   if (starsSheetIsOpen()) {
     positionStarsSheet($("stars-sheet"));
@@ -22770,6 +31210,10 @@ function openSettings(opts = {}) {
   refreshSecurityPanel();
   refreshAvatarUi();
   syncSettingsSummary();
+  try {
+    paintConnLobbyTicker();
+  } catch (_) {}
+  maybeStartConnDetailsLive();
   bindSheetFocusTrap(sheet);
   (async () => {
     if (!previewStream?.active) await ensurePreview();
@@ -22815,8 +31259,7 @@ function friendsIsOpen() {
 }
 
 function messagesIsOpen() {
-  const sheet = $("messages-sheet");
-  return !!(sheet && !sheet.hidden && messagesSheetOpen);
+  return friendsIsOpen() || messagesSheetOpen;
 }
 
 function toggleSettings() {
@@ -22824,8 +31267,12 @@ function toggleSettings() {
   else openSettings();
 }
 function toggleFriends() {
-  if (friendsIsOpen()) closeFriends();
-  else openFriends();
+  if (friendsIsOpen()) {
+    if (messagesInThread) showMsgListView();
+    else closeFriends();
+  } else {
+    openFriends();
+  }
 }
 function toggleMessages(tab) {
   if (messagesIsOpen() && !tab) closeMessages();
@@ -23442,6 +31889,9 @@ function handleServer(msg) {
       try {
         maybeWelcomeBackOnHello();
       } catch (_) {}
+      try {
+        maybeShowNoAccountBackupTip();
+      } catch (_) {}
       // Re-register Web Push after hello so offline rings work (token per user_id)
       try {
         if (friendOnlineNotifEnabled() && typeof Notification !== "undefined" && Notification.permission === "granted") {
@@ -23536,26 +31986,57 @@ function handleServer(msg) {
         const primaryUid = String(
           primaryPartnerUserId || lastMatchMeta?.user_id || ""
         );
-        const matches =
+        let extraSlotId = "";
+        try {
+          for (const [mapPid, slotMeta] of peerUiMeta.entries()) {
+            if (
+              (pid && mapPid && String(mapPid) === pid) ||
+              (uid && slotMeta?.userId && String(slotMeta.userId) === uid)
+            ) {
+              extraSlotId = slotMeta.elId || "";
+              break;
+            }
+          }
+        } catch (_) {}
+        const matchesPrimary =
           (pid && primaryPid && pid === primaryPid) ||
           (uid && primaryUid && uid === primaryUid) ||
           (pid && primaryPid && pid.slice(0, 8) === primaryPid.slice(0, 8)) ||
           (matched && !primaryPid); // 1v1 fallback when meta lacks peer_id
-        if (!matches) break;
+        if (!matchesPrimary && !extraSlotId) break;
         const meta = {
           flag: normalizeFlagCode(msg.flag || lastMatchMeta?.flag || ""),
           country: String(msg.country || "").trim(),
           city: String(msg.city || "").trim(),
           hide_ip: !!msg.hide_ip,
         };
-        if (lastMatchMeta) {
-          lastMatchMeta = { ...lastMatchMeta, ...meta };
-        } else {
-          lastMatchMeta = { ...meta, peer_id: pid, user_id: uid };
+        if (matchesPrimary) {
+          if (lastMatchMeta) {
+            lastMatchMeta = { ...lastMatchMeta, ...meta };
+          } else {
+            lastMatchMeta = { ...meta, peer_id: pid, user_id: uid };
+          }
         }
-        // Refresh partner tile location chips
+        // Refresh partner tile location chips (main + extra slot for this peer)
         try {
+          let identElId = "remote";
+          try {
+            for (const [mapPid, slotMeta] of peerUiMeta.entries()) {
+              if (
+                (pid && mapPid && String(mapPid) === pid) ||
+                (uid && slotMeta?.userId && String(slotMeta.userId) === uid)
+              ) {
+                identElId = slotMeta.elId || "remote";
+                slotMeta.flag = meta.flag;
+                slotMeta.country = meta.country;
+                slotMeta.city = meta.city;
+                slotMeta.hide_ip = meta.hide_ip;
+                break;
+              }
+            }
+          } catch (_) {}
           const tag =
+            locElForSlot(identElId) ||
             document.getElementById("remote-tag") ||
             document.querySelector(".remote-tag, .partner-tag, #partner-loc");
           if (tag && typeof setLocationOnTile === "function") {
@@ -23565,6 +32046,16 @@ function handleServer(msg) {
               city: meta.city,
               hide_ip: meta.hide_ip,
             });
+          }
+          if (identElId !== "remote") {
+            try {
+              paintPeerSlotIdentity(identElId, peerUiMeta.get(pid) || {
+                flag: meta.flag,
+                country: meta.country,
+                city: meta.city,
+                hide_ip: meta.hide_ip,
+              });
+            } catch (_) {}
           }
           // Stage partner location stack
           document
@@ -23630,19 +32121,17 @@ function handleServer(msg) {
             }
           }
         }
-        // Mutual accept completed: someone we requested (or any new friend) landed
+        // Mutual accept completed: new friends[] row after first snapshot
         let acceptedNew = false;
-        if (prevCount > 0 || prevOutgoingIds.size || prevFriendIds.size) {
+        if (friendsListSeenOnce) {
           for (const f of friendsCache) {
             if (!f.user_id || prevFriendIds.has(f.user_id)) continue;
-            // New friend row — celebrate Accept (skip first full list hydrate when prev was empty)
-            if (prevFriendIds.size || prevOutgoingIds.has(f.user_id)) {
-              showFriendAcceptedToast(f);
-              acceptedNew = true;
-              break; // one toast is enough
-            }
+            showFriendAcceptedToast(f);
+            acceptedNew = true;
+            break;
           }
         }
+        friendsListSeenOnce = true;
         // Export nudge: first friend (0→1) or after a mutual accept
         if (prevCount === 0 && friendsCache.length > 0) {
           maybeShowFirstFriendExportNudge("first_friend");
@@ -23681,10 +32170,7 @@ function handleServer(msg) {
       }
       updateFriendsBadge();
       showFriendRequestToast(msg);
-      // Surface the Accept UI without forcing a full open if sheet already open
-      if ($("friends-sheet") && !$("friends-sheet").hidden) {
-        renderRequestLists();
-      }
+      renderRequestLists();
       break;
     case "call_incoming":
       if (!msg.from_user_id) break;
@@ -23798,6 +32284,13 @@ function handleServer(msg) {
             trust: myTrustEffective || myTrust,
           });
           syncAccountSettingsSummary();
+          if (prev < NO_ACCOUNT_TIP_MIN_STARS && myStars >= NO_ACCOUNT_TIP_MIN_STARS) {
+            setTimeout(() => {
+              try {
+                maybeShowNoAccountBackupTip();
+              } catch (_) {}
+            }, 1600);
+          }
           if (adminGrant) {
             const title =
               _t("stars.adminGrantTitle") || `Balance updated · ★ ${myStars}`;
@@ -23807,6 +32300,10 @@ function handleServer(msg) {
               body:
                 _t("stars.earnedBody", { n: myStars }) ||
                 `Balance: ★ ${myStars}. Tap ★ for the Stars guide.`,
+              received: true,
+              n: amt || 1,
+              total: myStars,
+              name: _t("stars.adminGrantFrom") || "Admin",
             });
             pulseStarsBadge("local");
             trackEvent("star_admin_grant", { n: myStars, amount: amt });
@@ -23867,6 +32364,10 @@ function handleServer(msg) {
               body:
                 _t("stars.earnedBody", { n: myStars }) ||
                 `Balance: ★ ${myStars}. Tap ★ to open the Stars guide.`,
+              received: true,
+              n: amt,
+              total: myStars,
+              name: fromName,
             });
             if (n > prev) trackEvent("star_earned", { n: myStars, amount: amt });
             // Reciprocity: remember who praised us
@@ -23958,66 +32459,154 @@ function handleServer(msg) {
       break;
     case "star_effect":
       {
-        const uid = String(msg.user_id || "");
-        const kind = String(msg.effect || "");
+        const uid = String(msg.user_id || "").trim();
+        const kind = String(msg.effect || "").trim();
         // Hub sends unix seconds; tolerate effect_until alias + accidental ms
         let until = Math.max(
           0,
           Number(msg.until != null ? msg.until : msg.effect_until) || 0
         );
         if (until > 1e12) until = Math.floor(until / 1000); // ms → sec
+        // If hub omitted until, or client clock is ahead of hub (until already
+        // "past"), still show FX for catalog duration (Android→PC thrash).
+        if (msg.ok && kind) {
+          const nowSec = unixNowSec();
+          if (until <= 0 || until <= nowSec) {
+            until = nowSec + giftSecs(kind);
+          }
+        }
         const level = Math.max(1, Math.min(3, Number(msg.level) || 1));
         const cost = Math.max(0, Number(msg.cost) || 0);
         const meta = giftKindMeta(kind);
-        const myUid = String(myUserId || "");
-        const fromMe =
-          String(msg.from_user_id || "").toLowerCase() === myUid.toLowerCase();
-        const onMe =
-          !!uid && !!myUid && uid.toLowerCase() === myUid.toLowerCase();
+        const myUid = String(myUserId || "").trim();
+        const fromUid = String(msg.from_user_id || "").trim();
+        const partnerUid = String(
+          primaryPartnerUserId ||
+            lastMatchMeta?.user_id ||
+            lastGoodPartnerUserId ||
+            ""
+        ).trim();
+        const uidEq = (a, b) =>
+          !!a && !!b && String(a).toLowerCase() === String(b).toLowerCase();
+        const pending =
+          pendingAvatarStar &&
+          Date.now() - pendingAvatarStar.at < 12000 &&
+          (!kind || kind === pendingAvatarStar.kind);
+        const fromMe = uidEq(fromUid, myUid) || !!pending;
+        if (pending && (uidEq(fromUid, myUid) || !fromUid || pending)) {
+          pendingAvatarStar = null;
+        }
+        let onMe = uidEq(uid, myUid);
+        let onPartner = uidEq(uid, partnerUid);
+        const matchedNow = !!(matched || inFriendCall);
+        const fromPartner = uidEq(fromUid, partnerUid);
+        // ID thrash / empty primaryPartnerUserId mid-match must not drop FX.
+        // Android spend → PC receive is the common fail when onMe/onPartner both false.
+        if (msg.ok && kind && matchedNow && !onMe && !onPartner) {
+          if (fromMe) {
+            onPartner = true; // we spent → effect is on partner tile
+          } else if (fromPartner || (!!fromUid && !uidEq(fromUid, myUid))) {
+            onMe = true; // partner (or other peer) spent → effect is on us
+          } else if (!uid && !fromUid) {
+            onMe = true; // bare effect in a live call → show on self
+          }
+        }
+        // Empty target uid + partner spent → still paint local
+        if (msg.ok && kind && !uid && matchedNow && (fromPartner || (!fromMe && fromUid))) {
+          onMe = true;
+        }
+        try {
+          log(
+            `[gift] star_effect ok=${msg.ok ? 1 : 0} kind=${kind || "-"} onMe=${onMe ? 1 : 0} onPartner=${onPartner ? 1 : 0} fromMe=${fromMe ? 1 : 0} until=${until}`
+          );
+        } catch (_) {}
         if (msg.ok) {
           if (fromMe) {
-            myStars = Math.max(0, Number(msg.spender_stars) || 0);
+            if (msg.spender_stars != null) {
+              myStars = Math.max(0, Number(msg.spender_stars) || 0);
+            } else if (cost > 0) {
+              myStars = Math.max(0, (myStars || 0) - cost);
+            }
             setStarsBadge("local", myStars, { trust: myTrustEffective || myTrust });
             syncAccountSettingsSummary();
             pulseStarsBadge("local");
-            const giftTitle =
-              kind === "flowers"
-                ? _t("stars.giftFlowersName") || "Flowers"
-                : kind === "balloons"
-                  ? _t("stars.giftBalloonsName") || "Balloons"
-                  : kind === "confetti"
-                    ? _t("stars.giftConfettiName") || "Confetti"
-                    : kind === "heart"
-                      ? _t("stars.giftHeartName") || "Heart"
-                      : kind === "fireworks"
-                        ? _t("stars.giftFireworksName") || "Fireworks"
-                        : kind === "please_stay"
-                          ? _t("stars.giftPleaseStayName") || "Please stay"
-                          : kind === "pass_mic"
-                            ? _t("stars.giftPassMicName") || "Pass the mic"
-                            : _t("stars.giftBarsName") || "Behind bars";
-            const lvlBit =
-              level >= 2
-                ? _t("stars.giftStack", { n: level }) || ` · ×${level}`
-                : "";
-            const body =
-              (_srv(msg.message) || msg.message || giftTitle) +
-              lvlBit +
-              (_t("stars.giftLeft", { n: myStars }) || ` · ★ ${myStars} left`);
-            showStarFeedbackToast("gift", {
-              title:
-                kind === "please_stay"
-                  ? _t("stars.pleaseStaySentTitle") || "Please stay sent"
-                  : kind === "pass_mic"
-                    ? _t("stars.passMicSentTitle") || "Mic passed"
-                    : _t("stars.giftSentTitle") || "Gift sent",
-              body,
-              corner: level >= 2 || kind === "pass_mic",
-              level,
-              ico: meta.ico,
-              accent: meta.accent,
-            });
-            setStatus(body);
+            {
+              const hubN = Number(msg.target_stars);
+              const prev = Math.max(0, Number(partnerStars) || 0);
+              let next = prev;
+              if (Number.isFinite(hubN) && hubN > 0) next = Math.max(next, hubN);
+              if (kind === "shooting_star") {
+                next = Math.max(next, prev + 1, Number.isFinite(hubN) ? hubN : 0);
+              }
+              if (next > 0) {
+                setStarsBadge("remote", next);
+                pulseStarsBadge("remote");
+              }
+            }
+            // Nested block so minifiers never clobber outer `until` / `cost`
+            {
+              const giftTitle =
+                kind === "flowers"
+                  ? _t("stars.giftFlowersName") || "Flowers"
+                  : kind === "balloons"
+                    ? _t("stars.giftBalloonsName") || "Balloons"
+                    : kind === "confetti"
+                      ? _t("stars.giftConfettiName") || "Confetti"
+                      : kind === "heart"
+                        ? _t("stars.giftHeartName") || "Heart"
+                        : kind === "fireworks"
+                          ? _t("stars.giftFireworksName") || "Fireworks"
+                          : kind === "please_stay"
+                            ? _t("stars.giftPleaseStayName") || "Please stay"
+                            : kind === "pass_mic"
+                              ? _t("stars.giftPassMicName") || "Pass the mic"
+                              : kind === "crown"
+                                ? _t("stars.giftCrownName") || "Crown"
+                              : kind === "shooting_star"
+                                ? _t("stars.giftShootingStarName") || "Shooting star"
+                              : kind === "snow"
+                                ? _t("stars.giftSnowName") || "Snow"
+                              : kind === "spotlight"
+                                ? _t("stars.giftSpotlightName") || "Spotlight"
+                              : kind === "fence"
+                                ? _t("stars.giftFenceName") || "Fence"
+                              : _t("stars.giftBarsName") || "Behind bars";
+              const lvlBit =
+                level >= 2
+                  ? _t("stars.giftStack", { n: level }) || ` · ×${level}`
+                  : "";
+              const giftBody =
+                (_srv(msg.message) || msg.message || giftTitle) +
+                lvlBit +
+                (_t("stars.giftLeft", { n: myStars }) || ` · ★ ${myStars} left`);
+              showStarFeedbackToast("gift", {
+                title:
+                  kind === "please_stay"
+                    ? _t("stars.pleaseStaySentTitle") || "Please stay sent"
+                    : kind === "pass_mic"
+                      ? _t("stars.passMicSentTitle") || "Mic passed"
+                      : _t("stars.giftSentTitle") || "Gift sent",
+                body: giftBody,
+                corner: level >= 2 || kind === "pass_mic",
+                level,
+                ico: meta.ico,
+                accent: meta.accent,
+              });
+              if (kind === "shooting_star") {
+                try {
+                  showStarGiftedPopup({
+                    sent: true,
+                    amount: 1,
+                    to:
+                      lastMatchMeta?.name ||
+                      $("remote-name")?.textContent ||
+                      "",
+                    total: myStars,
+                  });
+                } catch (_) {}
+              }
+              setStatus(giftBody);
+            }
             try {
               playGiftSound(kind);
             } catch (_) {}
@@ -24031,98 +32620,133 @@ function handleServer(msg) {
           if (onMe) {
             // You are the target — paint jail / gift on YOUR tile (not a flash toast only)
             setFxOverlay("local", kind, until, level);
-            if (!fromMe && msg.from_user_id) {
+            if (!fromMe && (fromUid || matchedNow)) {
               const name = msg.from_name || "Someone";
-              let body;
+              let recvBody;
               if (kind === "flowers") {
-                body =
+                recvBody =
                   _t("stars.flowersOnYou", { name }) ||
                   `${name} sent you flowers`;
               } else if (kind === "balloons") {
-                body =
+                recvBody =
                   _t("stars.balloonsOnYou", { name }) ||
                   `${name} sent you balloons`;
               } else if (kind === "confetti") {
-                body =
+                recvBody =
                   _t("stars.confettiOnYou", { name }) ||
                   `${name} sent you confetti`;
               } else if (kind === "heart") {
-                body =
+                recvBody =
                   _t("stars.heartOnYou", { name }) ||
                   `${name} sent you a heart`;
               } else if (kind === "fireworks") {
-                body =
+                recvBody =
                   _t("stars.fireworksOnYou", { name }) ||
                   `${name} sent you fireworks`;
               } else if (kind === "please_stay") {
-                body =
+                recvBody =
                   _t("stars.pleaseStayOnYou", { name }) ||
                   `${name} asked you to stay · Next locked briefly`;
               } else if (kind === "pass_mic") {
-                body =
+                recvBody =
                   _t("stars.passMicOnYou", { name }) ||
                   `${name} passed you the mic — give them a chance`;
+              } else if (kind === "fence") {
+                recvBody =
+                  _t("stars.fenceOnYou", { name }) ||
+                  `${name} put you behind the fence`;
+              } else if (kind === "shooting_star") {
+                recvBody =
+                  _t("stars.shootingStarOnYou", { name }) ||
+                  `${name} sent you a shooting star · ★1`;
+              } else if (kind === "snow") {
+                recvBody =
+                  _t("stars.snowOnYou", { name }) || `${name} sent you snow`;
+              } else if (kind === "spotlight") {
+                recvBody =
+                  _t("stars.spotlightOnYou", { name }) ||
+                  `${name} put you in the spotlight`;
+              } else if (kind === "crown") {
+                recvBody =
+                  _t("stars.crownOnYou", { name }) ||
+                  `${name} crowned you · ★1`;
+              } else if (kind === "disco") {
+                recvBody =
+                  _t("stars.discoOnYou", { name }) ||
+                  `${name} started a disco · ★1`;
               } else {
-                body =
+                recvBody =
                   _t("stars.barsOnYou", { name }) ||
                   `${name} put you behind bars`;
               }
               if (level >= 2) {
-                body +=
+                recvBody +=
                   _t("stars.giftStack", { n: level }) || ` · ×${level}`;
               }
               if (cost > 0) {
-                body +=
+                recvBody +=
                   _t("stars.giftCost", { n: cost }) || ` · ★${cost}`;
               }
-              setStatus(body);
+              if (giftGrantsWalletStar(kind)) {
+                recvBody += _t("stars.theyGotOne") || " · ★1";
+              }
+              setStatus(recvBody);
               showStarFeedbackToast("gift", {
                 title:
-                  kind === "please_stay"
+                  kind === "shooting_star"
+                    ? _t("stars.received") || "You received a star ★"
+                    : kind === "please_stay"
                     ? _t("stars.pleaseStayReceivedTitle") || "Please stay"
                     : kind === "pass_mic"
                       ? _t("stars.passMicReceivedTitle") || "Pass the mic"
                       : _t("stars.giftReceivedTitle") || "Gift received",
-                body,
-                received: true,
+                body: recvBody,
+                received: kind === "shooting_star",
+                n: giftGrantsWalletStar(kind) ? 1 : undefined,
+                name,
                 corner: true,
                 level,
                 ico: meta.ico,
                 accent: meta.accent,
               });
-              const c = Math.max(
+              if (msg.target_stars != null) {
+                myStars = Math.max(0, Number(msg.target_stars) || myStars);
+                setStarsBadge("local", myStars, {
+                  trust: myTrustEffective || myTrust,
+                });
+              }
+              const comboN = Math.max(
                 level,
                 Number(
                   document.querySelector(`#local-fx-${kind}`)?.dataset
                     ?.giftCombo || giftComboState.count || 1
                 )
               );
-              playGiftCelebrate(kind, c);
+              playGiftCelebrate(kind, comboN);
             }
           }
-          {
-            const partnerUid = String(
-              primaryPartnerUserId || lastMatchMeta?.user_id || ""
-            );
-            const onPartner =
-              !!uid &&
-              !!partnerUid &&
-              uid.toLowerCase() === partnerUid.toLowerCase();
-            if (onPartner) {
-              // Partner is target — bars on their (remote) tile for full until
-              setFxOverlay("remote", kind, until, level);
-              if (msg.target_stars != null) {
-                setStarsBadge(
-                  "remote",
-                  Math.max(0, Number(msg.target_stars) || 0)
-                );
-              }
+          if (onPartner || (fromMe && fxWhichForUserId(uid) === "third")) {
+            const which =
+              fxWhichForUserId(uid) === "third"
+                ? "third"
+                : fxWhichForUserId(uid) === "remote"
+                  ? "remote"
+                  : "remote";
+            setFxOverlay(which, kind, until, level);
+            if (msg.target_stars != null) {
+              setStarsBadge(
+                "remote",
+                Math.max(0, Number(msg.target_stars) || 0)
+              );
             }
           }
         } else {
-          setStatus(
-            _srv(msg.message) || msg.message || "Could not spend stars"
-          );
+          const failMsg =
+            _srv(msg.message) || msg.message || "Could not spend stars";
+          setStatus(failMsg);
+          if (fromMe || kind === "shooting_star") {
+            toastAvatarGift("★", failMsg);
+          }
           if (fromMe && msg.spender_stars != null) {
             myStars = Math.max(0, Number(msg.spender_stars) || myStars);
             setStarsBadge("local", myStars, {
@@ -24195,6 +32819,29 @@ function handleServer(msg) {
       });
       const detailRaw = msg.detail || "";
       const detailRu = _srv(detailRaw);
+      if (pendingNextTear) {
+        const refused =
+          /wait .* before Next|media settling|please stay active/i.test(
+            detailRaw
+          );
+        const accepted =
+          msg.phase === "waiting" ||
+          msg.phase === "idle" ||
+          /searching again|next —|spun into lobby|looking for a 3rd/i.test(
+            detailRaw
+          );
+        if (refused) {
+          pendingNextTear = false;
+          log("next refused — keep live PC");
+        } else if (accepted) {
+          pendingNextTear = false;
+          try {
+            applyConfirmedNextTear(pendingNextKeepFriend);
+          } catch (e) {
+            console.warn("[next] tear after hub ack", e);
+          }
+        }
+      }
       if (msg.phase === "friend_call") {
         dismissFriendRingUi();
         clearLastMissedCall();
@@ -24202,6 +32849,7 @@ function handleServer(msg) {
         matched = true;
         matchMode = "friend";
         yourRole = "friend";
+        collapseFriendCallHuntUi();
         showFriendPip(false);
         reattachFriendToMainRemote();
         updateFriendActionButtons();
@@ -24213,7 +32861,66 @@ function handleServer(msg) {
       // Note: "still chatting" = trio collapsed to 1v1 — do NOT tear down (Matched follows)
       const stillChatting =
         /still chatting|still with match|still connected/i.test(detailRaw);
-      if (
+      const partyHuntAgain =
+        (yourRole === "party" || matchMode === "party_browse") &&
+        /looking for a 3rd again|searching again|party moved/i.test(detailRaw);
+      // Hub Spin / find-third enqueue sets phase=waiting + "spun into lobby".
+      // That is hunt, not partner-left — rematch tore the live 1v1.
+      const skipHuntLobbyRematch =
+        peerPcs.size >= 1 &&
+        (shouldSkipHuntLobbySpin() ||
+          /spun into lobby/i.test(detailRaw) ||
+          /find-third/i.test(detailRaw));
+      const keepStrangerPair =
+        matched &&
+        (stillChatting ||
+          shouldKeepRemainingPair() ||
+          skipHuntLobbyRematch) &&
+        !partyHuntAgain;
+      if (keepStrangerPair) {
+        keepRemainingPair = true;
+        try {
+          for (const [, deadPc] of [...peerPcs.entries()]) {
+            if (peerPcs.size <= 1) break;
+            const st =
+              deadPc?.pc?.iceConnectionState ||
+              deadPc?.pc?.connectionState ||
+              "";
+            const gone =
+              !deadPc?.pc || st === "closed" || st === "failed";
+            if (gone && peerPcs.size > 1) {
+              dropOnePeerKeepRest(deadPc, { reason: "status_keep" });
+            }
+          }
+        } catch (_) {}
+        try {
+          if (
+            peerPcs.size === 1 &&
+            (trioBrowse ||
+              document
+                .querySelector("main.stage")
+                ?.classList.contains("stage-trio"))
+          ) {
+            collapseMultiPeerToSoloLayout(
+              Array.isArray(lastMatchedPeers) ? lastMatchedPeers : []
+            );
+          }
+        } catch (_) {}
+        matched = true;
+        wantSearch = false;
+        setStatus(
+          detailRu ||
+            _t("trio.partnerLeftKeep") ||
+            "Partner left — still chatting with the other person"
+        );
+        try {
+          document
+            .querySelector("main.stage")
+            ?.classList.remove("stage-trio-searching");
+        } catch (_) {}
+        updateFriendActionButtons();
+        if (detailRaw) log(detailRu);
+      } else if (
         matched &&
         !stillChatting &&
         (msg.phase === "waiting" ||
@@ -24223,34 +32930,42 @@ function handleServer(msg) {
           ))
       ) {
         // Path summary before tear-down (while duration/ICE still known)
-        const keepParty =
-          yourRole === "party" || matchMode === "party_browse" || trioBrowse;
+        // Only the original pair (your_role=party) keeps the teammate.
+        // party_browse + your_role=solo is the 3rd — they Next/leave alone.
+        const keepParty = yourRole === "party";
         const keepFriend = inFriendCall || keepParty || matchMode === "friend";
-        if (!keepFriend) {
+        const friendCallPending = !!(
+          lastOutgoingCallPeer ||
+          $("call-toast") ||
+          Date.now() < friendCallAcceptGuardUntil
+        );
+        const stopBeforeFriendAccept =
+          friendCallPending &&
+          /partner stopped|stopped — idle|stopped - idle/i.test(detailRaw);
+        if (!keepFriend && !stopBeforeFriendAccept) {
           maybeShowMatchPathSummary("partner_left");
           schedulePostMatchFriendNudge("partner_left");
         }
         // Capture before endActiveMatchChat zeros the timer
         const chatSecsAtLeave = matchDurationSec();
         const shortCallAutoNext =
-          !keepFriend &&
-          !inFriendCall &&
-          chatSecsAtLeave >= SHORT_CALL_AUTO_NEXT_MIN_SECS &&
-          chatSecsAtLeave < SHORT_CALL_AUTO_NEXT_SECS;
+          !keepFriend && !inFriendCall && !stopBeforeFriendAccept;
         // Hub already put leaver in queue; abandoned side must re-spin too.
-        // Was: only shortCallAutoNext spun → thrash matches (0–2s, no media)
-        // left wantSearch=true + "looking for partner" UI with NO hub queue slot
-        // so phone searched alone forever (peak_waiting=1 while both "looking").
         const hubSaysRequeue =
           msg.phase === "waiting" ||
           /searching again|looking for a 3rd again/i.test(detailRaw);
         const shouldRequeue =
           !keepFriend && (hubSaysRequeue || shortCallAutoNext);
+        const hubAlreadyQueued = msg.phase === "waiting";
         matched = msg.phase === "friend_call" || keepFriend;
         wantSearch = shouldRequeue || shortCallAutoNext;
         pendingSignals.length = 0;
         closeAllPeers({ keepFriend });
         if (!keepFriend) {
+          try {
+            lastVolumeResetKey = "";
+            clearPartnerMuteChrome();
+          } catch (_) {}
           setSplitRemote(false);
           clearPartnerStarsBadge();
           clearRemoteMatchFx();
@@ -24267,16 +32982,18 @@ function handleServer(msg) {
             wantSearch = true;
             showStartButton(false);
             showPartnerEmptyWithBrand({ searching: true });
-            try {
-              send(spinPayload());
-            } catch (_) {}
+            // Hub already Waiting (skipped 3rd / Next) — do not double-spin.
+            if (!hubAlreadyQueued) {
+              try {
+                send(spinPayload());
+              } catch (_) {}
+            }
             setPhase("waiting");
             setStatus(
-              shortCallAutoNext
-                ? _t("status.autoNextShort") ||
-                    _t("status.searching") ||
-                    "Short chat — looking for next…"
-                : _t("status.searching") || "Looking for a partner…"
+              _t("status.autoNextSkip") ||
+                _t("status.autoNextShort") ||
+                _t("status.searching") ||
+                "They skipped — looking for next…"
             );
             try {
               log(
@@ -24292,6 +33009,9 @@ function handleServer(msg) {
             resetRemoteEmptyCopy();
             showStartButton(true);
             setPhase("idle");
+            try {
+              maybeShowNoAccountBackupTip();
+            } catch (_) {}
           }
         } else if (keepParty) {
           // Party still together — hunting for (next) stranger
@@ -24317,7 +33037,7 @@ function handleServer(msg) {
         setStatus(
           detailRu || _t("trio.partnerLeftKeep") || "Partner left — still connected"
         );
-        // Soft prep: hide empty third pane chrome; Matched handler does full collapse
+        // Soft prep: hide empty third pane chrome; Matched keep-PC now collapses.
         if (trioBrowse || peerPcs.size > 1) {
           document
             .querySelector("main.stage")
@@ -24331,7 +33051,10 @@ function handleServer(msg) {
         /friend|block|request|already friends|unknown friend|cannot add|calling/i.test(
           detailRaw
         );
-      if (msg.phase === "waiting" || msg.phase === "claiming") {
+      if (
+        (msg.phase === "waiting" || msg.phase === "claiming") &&
+        !keepStrangerPair
+      ) {
         inQueue = true;
         wantSearch = true;
         showStartButton(false);
@@ -24354,7 +33077,7 @@ function handleServer(msg) {
           showStartButton(false);
         } else if (msg.phase === "idle") {
           // Keep hunting after partner left / short-chat auto-next
-          if (wantSearch && !matched) {
+          if (wantSearch && !matched && !shouldSkipHuntLobbySpin()) {
             inQueue = true;
             showStartButton(false);
             // Ensure we actually hold a hub queue slot (not UI-only "looking")
@@ -24436,14 +33159,77 @@ function handleServer(msg) {
         }
         break;
       }
+      {
+        const debateHub = parseDebateHubBody(bodyRaw);
+        if (debateHub) {
+          const mineCtrl =
+            msg.from_user_id === myUserId ||
+            msg.author === myShortId;
+          if (!mineCtrl) {
+            try {
+              if (!debateHub.user_id && msg.from_user_id) {
+                debateHub.user_id = msg.from_user_id;
+              }
+              handleDebateP2pMessage(debateHub, null);
+            } catch (_) {}
+          }
+          break;
+        }
+      }
+      if (
+        bodyRaw.startsWith("\x01nocam:") ||
+        bodyRaw.startsWith("__nocam:")
+      ) {
+        const mineCtrl =
+          msg.from_user_id === myUserId ||
+          msg.author === myShortId;
+        if (!mineCtrl) {
+          const on =
+            bodyRaw.indexOf(":1") >= 0 || bodyRaw.indexOf(":true") >= 0;
+          try {
+            handleNoCamP2p({
+              on,
+              user_id: msg.from_user_id || "",
+            });
+          } catch (_) {}
+        }
+        break;
+      }
       const myName = getDisplayName();
       const mine =
         msg.from_user_id === myUserId ||
         msg.author === myShortId ||
         (myName && msg.author === myName);
-      // Prefer P2P path when open — ignore hub echo of our own optimistic send,
-      // and skip remote hub chat if we already got the same body via datachannel
-      // (rare dual-path). Hub still used as fallback before DC is up.
+      // Prefer P2P / optimistic local record — skip hub echo of the same line
+      if (wasRecentP2pChat(msg.id || "", msg.body || "", Date.now())) {
+        break;
+      }
+      const fromUid = String(msg.from_user_id || "").slice(0, 64);
+      const peerUid = mine
+        ? primaryPartnerUserId || activeChat.peerUserId || ""
+        : fromUid;
+      if (peerUid && partnerIsFriend(peerUid)) {
+        try {
+          mergeMatchMsgsIntoFriendThread(
+            peerUid,
+            mine ? activeChat.peerName : msg.author || ""
+          );
+        } catch (_) {}
+        activeChat = {
+          mode: "friend",
+          peerUserId: peerUid,
+          peerName:
+            mine
+              ? activeChat.peerName || "friend"
+              : msg.author ||
+                friendDisplayName(
+                  friendsCache.find((f) => f.user_id === peerUid)
+                ) ||
+                "friend",
+          threadKey: friendThreadKey(peerUid),
+          live: true,
+        };
+      }
       recordChatMessage({
         author: msg.author || "",
         body: msg.body || "",
@@ -24465,6 +33251,10 @@ function handleServer(msg) {
     case "error":
       {
         const em = String(msg.message || "");
+        if (pendingNextTear && /rate limited|too many spin/i.test(em)) {
+          pendingNextTear = false;
+          log("next rate-limited — keep live PC");
+        }
         // Friend-call failures should cancel the "calling…" toast + timeout UI
         if (
           /friend offline|not friends|only friends can call|friend request|friend is busy|cannot call|caller offline|accept their friend|blocked|notification sent|ring notification|group call|busy in/i.test(
@@ -24534,6 +33324,27 @@ function handleMatched(msg) {
   // (hub double-match / collapse used to thrash phone↔browser + mobile browser).
   try {
     const peersIn = Array.isArray(msg.peers) ? msg.peers : [];
+    const pidEarly =
+      peersIn.find((p) => p && p.peer_id && p.peer_id !== "legacy")?.peer_id ||
+      "";
+    if (matched && pidEarly && peersIn.length <= 1) {
+      const ex = findPcForPeer(pidEarly);
+      const st = ex?.pc?.iceConnectionState || ex?.pc?.connectionState || "";
+      if (
+        ex?.pc &&
+        st !== "closed" &&
+        st !== "failed" &&
+        (st === "connected" ||
+          st === "completed" ||
+          streamHasLiveAv(ex.remoteStream))
+      ) {
+        log(_t("log.matchedKeep") || "still matched · skip duplicate 1v1");
+        return;
+      }
+    }
+    try {
+      rememberMeshPeers(peersIn);
+    } catch (_) {}
     const primaryPid =
       peersIn.find((p) => p && p.peer_id && p.peer_id !== "legacy")?.peer_id ||
       "";
@@ -24554,15 +33365,284 @@ function handleMatched(msg) {
     const iceOk =
       ice === "connected" ||
       ice === "completed";
-    // force_relay rematch with no live video must rebuild (not keep checking PC)
+    // force_relay rematch with no live video must rebuild (not keep checking PC).
+    // Do NOT treat "hub still says force_relay" as a flip — 3rd-join Matched
+    // always sets force_relay on same-LAN, and peers[0] is the NEW stranger
+    // (no PC yet) so !live was always true → full rematch tore the teammate.
+    const alreadyRelay =
+      typeof sessionForceRelayEnabled === "function" &&
+      sessionForceRelayEnabled();
     const forceFlip =
-      !!(msg.force_relay && typeof setSessionForceRelay === "function") && !live;
+      !!msg.force_relay !== !!alreadyRelay &&
+      typeof setSessionForceRelay === "function";
+    // 3rd joined: Matched lists a stranger we have no PC for — must joinPeers.
+    // Early-return here left Chrome on “Looking for a 3rd…” forever.
+    const needNewPeer = peersIn.some(
+      (p) =>
+        p &&
+        p.peer_id &&
+        p.peer_id !== "legacy" &&
+        !meshPeerHasLivePc(p.peer_id)
+    );
+    // Any listed peer that is already connected/live — keep those PCs and only
+    // add the missing one. peers[0] is stranger-first in party 1v2, so the
+    // primaryPid keep-PC below never sees the live teammate.
+    const listedLive = peersIn.some((p) => {
+      if (!p?.peer_id || p.peer_id === "legacy") return false;
+      const pc = findPcForPeer(p.peer_id);
+      if (!pc?.pc) return false;
+      const st = pc.pc.iceConnectionState || pc.pc.connectionState || "";
+      if (st === "closed") return false;
+      return (
+        streamHasLiveAv(pc.remoteStream) ||
+        st === "connected" ||
+        st === "completed"
+      );
+    });
+    // 3rd-join: teammate may still be live under a stale map key.
+    const liveUnlistedTeammate =
+      !!matched &&
+      peersIn.length >= 2 &&
+      [...peerPcs.values()].some(
+        (pc) => isTeammateRole(pc._role) && streamHasLiveAv(pc.remoteStream)
+      );
+    // Browser-duo 1v1: partner is still role=stranger. Any live/connected PC
+    // must keep — rematch-tear dropped iPhone when Android joined as 3rd.
+    const liveExistingPc = [...peerPcs.values()].some((pc) => {
+      if (!pc?.pc) return false;
+      const st = pc.pc.iceConnectionState || pc.pc.connectionState || "";
+      if (st === "closed") return false;
+      return (
+        streamHasLiveAv(pc.remoteStream) ||
+        st === "connected" ||
+        st === "completed"
+      );
+    });
+    const huntKeepPc =
+      peerPcs.size >= 1 &&
+      (String(msg.mode || "") === "party_browse" ||
+        isPartyJoinOrHunt() ||
+        trioBrowse) &&
+      // 004415Z: leftover party_browse + ice=failed PC must not "keep"
+      // a dead relay path into the next 1v1 (Linking + 0/0).
+      [...peerPcs.values()].some((pc) => {
+        if (!pc?.pc) return false;
+        const st = pc.pc.iceConnectionState || pc.pc.connectionState || "";
+        if (st === "closed" || st === "failed") return false;
+        return (
+          streamHasLiveAv(pc.remoteStream) ||
+          st === "connected" ||
+          st === "completed"
+        );
+      });
+    const keepableExisting =
+      listedLive ||
+      liveUnlistedTeammate ||
+      (!!matched && liveExistingPc) ||
+      huntKeepPc;
+    // 1v1 after a 3-way: leftover sessionForceRelay=true vs hub false
+    // keeps a relay-only PC while Android answers host-only → ICE failed.
+    const leftoverRelay1v1 =
+      peersIn.length <= 1 &&
+      !msg.force_relay &&
+      typeof sessionForceRelayEnabled === "function" &&
+      sessionForceRelayEnabled();
+    // Incremental when ANY listed PC is live. Do not forceFlip-tear a teammate
+    // (3rd-join often sets force_relay on same-LAN; peers[0] is the new stranger).
+    // find-third / party_browse rematch with a live PC: joinPeers add only.
+    if ((matched || huntKeepPc) && keepableExisting && !leftoverRelay1v1) {
+      matched = true;
+      inQueue = false;
+      matchMode = msg.mode || matchMode || "solo";
+      yourRole = msg.your_role || yourRole || "solo";
+      if (peersIn.length) lastMatchedPeers = peersIn.slice();
+      if (msg.force_relay && typeof setSessionForceRelay === "function") {
+        try {
+          setSessionForceRelay(true);
+        } catch (_) {}
+      }
+      void forceFlip;
+      const peersJoin = mergeMissingMeshPeers(peersIn);
+      if (peersJoin.length) lastMatchedPeers = peersJoin.slice();
+      const missingJoin = peersJoin.filter(
+        (p) =>
+          p &&
+          p.peer_id &&
+          p.peer_id !== "legacy" &&
+          !meshPeerHasLivePc(p.peer_id)
+      );
+      const needMesh = needNewPeer || missingJoin.length > 0;
+      const addIds = missingJoin.map((p) => String(p.peer_id).slice(0, 8));
+      log(
+        (_t("log.matchedKeep") || "still matched") +
+          (needMesh
+            ? ` · add peer ${addIds.join(",") || "?"} keep live PC(s)`
+            : ` · keep live PC(s) incremental`)
+      );
+      try {
+        armMeshEnsureTimer();
+        if (!needMesh) ensureMissingMeshPeers("keep");
+      } catch (_) {}
+      try {
+        updatePartyRoleStrip(msg);
+      } catch (_) {}
+      try {
+        scheduleIdentityPushesAfterMatch();
+      } catch (_) {}
+      try {
+        setStageBrandLive(true);
+      } catch (_) {}
+      try {
+        updateFriendActionButtons();
+      } catch (_) {}
+      if (needMesh) {
+        const tAdd = Date.now();
+        // Keep 3-col while the stranger PC is still gathering (original pair).
+        // Only open 3-col after the 2nd unique PC exists. listed=2 with
+        // size=1 is "3rd found, joinPeers about to add" — do not hide.
+        if (thirdSlotShouldShow() || peersJoin.length >= 2) {
+          openTrioSplitForPeers(peersJoin);
+        }
+        // Pin live #remote (Android/teammate). New 3rd → #remote-third only.
+        // 806 laptop extra kick must not steal this PC off #remote (PC lost
+        // Android cam while laptop still saw both).
+        let pinOcc = null;
+        try {
+          pinOcc = liveMainRemotePc();
+          if (pinOcc) {
+            try {
+              pinOcc._role = "teammate";
+            } catch (_) {}
+            bindPcVideo(pinOcc, $("remote"));
+          }
+        } catch (_) {}
+        try {
+          playMainRemoteAfterBind();
+        } catch (_) {}
+        try {
+          scheduleSoftKeepPartnerPaint();
+        } catch (_) {}
+        closeDeadListedMeshPcs(peersJoin);
+        armMeshEnsureTimer();
+        void joinPeers(peersJoin)
+          .then(() => {
+            log(`joinPeers add +${Date.now() - tAdd}ms`);
+            try {
+              if (pinOcc && streamHasLiveAv(pinOcc.remoteStream)) {
+                pinOcc._role = "teammate";
+                bindPcVideo(pinOcc, $("remote"));
+                playVideoEl($("remote"));
+              }
+            } catch (_) {}
+            try {
+              if (thirdSlotShouldShow() || peersJoin.length >= 2) {
+                enableTrioLayout(true, { searching: false });
+                const extraPeer = pickExtraRemotePeer(peersJoin);
+                showThirdConnecting(
+                  extraSlotDisplayName(extraPeer?.name || "")
+                );
+                try {
+                  paintTrioTileNames(peersJoin);
+                } catch (_) {}
+              }
+            } catch (_) {}
+            try {
+              ensurePartnerVideoVisible();
+            } catch (_) {}
+            try {
+              bindLiveTrioRemoteTiles();
+            } catch (_) {}
+            try {
+              playMainRemoteAfterBind();
+            } catch (_) {}
+            try {
+              scheduleSoftKeepPartnerPaint();
+            } catch (_) {}
+            try {
+              paintAllRemoteIdentityChrome();
+            } catch (_) {}
+            try {
+              dismissLinkingIfMediaLive();
+            } catch (_) {}
+            try {
+              applyStageLayoutMode();
+            } catch (_) {}
+          })
+          .catch((e) => log(`joinPeers add fail ${e}`));
+        return;
+      }
+      // Same live set — still flip 3-col if hub listed 2 remotes (3rd join).
+      try {
+        if (mustKeepTrioSplit(peersIn)) openTrioSplitForPeers(peersIn);
+      } catch (_) {}
+      try {
+        for (const p of peersIn) {
+          if (!p?.peer_id || p.peer_id === "legacy") continue;
+          const pc = findPcForPeer(p.peer_id);
+          const elId = pc ? findTileIdForPc(pc) : "";
+          if (elId) registerPeerUi(p, elId);
+        }
+        paintAllRemoteIdentityChrome();
+      } catch (_) {}
+      try {
+        bindLiveTrioRemoteTiles();
+      } catch (_) {}
+      try {
+        playMainRemoteAfterBind();
+      } catch (_) {}
+      try {
+        dismissLinkingIfMediaLive();
+      } catch (_) {}
+      try {
+        const listed = peersIn.filter(
+          (p) => p && p.peer_id && p.peer_id !== "legacy"
+        );
+        const modeNow = String(msg.mode || matchMode || "solo");
+        const roleNow = String(msg.your_role || yourRole || "solo");
+        const wasMulti =
+          trioBrowse ||
+          peerPcs.size > 1 ||
+          !!document
+            .querySelector("main.stage")
+            ?.classList.contains("stage-trio");
+        const stayHunt =
+          modeNow === "party_browse" &&
+          roleNow === "party" &&
+          listed.length <= 1;
+        const stayParty =
+          stayHunt ||
+          isPartyJoinOrHunt() ||
+          listed.length >= 2 ||
+          peerPcs.size >= 2 ||
+          mustKeepTrioSplit(listed);
+        if (
+          wasMulti &&
+          listed.length <= 1 &&
+          !stayParty &&
+          !mustKeepTrioSplit(listed)
+        ) {
+          collapseMultiPeerToSoloLayout(listed);
+          log("keep-PC collapse → 1v1 after leave");
+        }
+      } catch (_) {}
+      try {
+        applyStageLayoutMode();
+      } catch (_) {}
+      return;
+    }
     if (
       matched &&
       primaryPid &&
       existing &&
       (live || iceOk) &&
-      !forceFlip
+      !forceFlip &&
+      !needNewPeer &&
+      mergeMissingMeshPeers(peersIn).every(
+        (p) =>
+          !p?.peer_id ||
+          p.peer_id === "legacy" ||
+          meshPeerHasLivePc(p.peer_id)
+      )
     ) {
       matched = true;
       inQueue = false;
@@ -24577,9 +33657,97 @@ function handleMatched(msg) {
       try {
         updatePartyRoleStrip(msg);
       } catch (_) {}
+      // Merge better names from re-Matched peers; re-paint Courtier if hub name lands late
+      try {
+        const p0 =
+          peersIn.find((p) => p && p.peer_id === primaryPid) || peersIn[0];
+        const nm = String(p0?.name || "").trim();
+        const uid = String(p0?.user_id || lastMatchMeta?.user_id || "").trim();
+        if (isRealPartnerDisplayName(nm)) {
+          const latchedUid = String(lastGoodPartnerUserId || "").trim();
+          const sameAsLatch =
+            !uid || !latchedUid || String(uid) === latchedUid;
+          // Find-3rd: a different peer's hub name must not steal Courtier latch
+          if (sameAsLatch || !isRealPartnerDisplayName(lastGoodPartnerName)) {
+            latchGoodPartnerName(nm, uid || p0?.user_id);
+            if (lastMatchMeta) {
+              lastMatchMeta = {
+                ...lastMatchMeta,
+                name: nm,
+                user_id: uid || lastMatchMeta.user_id || "",
+              };
+            } else {
+              lastMatchMeta = { name: nm, user_id: uid || "" };
+            }
+            if (activeChat && activeChat.live) activeChat.peerName = nm;
+          }
+        }
+        // Always re-paint: prefer latched Courtier over a different peer's hub name.
+        paintPartnerIdentityChrome({
+          name:
+            (isRealPartnerDisplayName(lastGoodPartnerName) &&
+              lastGoodPartnerName) ||
+            (isRealPartnerDisplayName(nm) && nm) ||
+            lastMatchMeta?.name ||
+            "",
+          userId: lastGoodPartnerUserId || uid || lastMatchMeta?.user_id,
+        });
+      } catch (_) {}
       // Still re-push identity (stars+geo) — Android dock may have missed first open
       try {
         scheduleIdentityPushesAfterMatch();
+      } catch (_) {}
+      // Keep-PC re-Matched skips startMatchTimer — still ensure brand live class
+      try {
+        setStageBrandLive(true);
+      } catch (_) {}
+      try {
+        updateFriendActionButtons();
+      } catch (_) {}
+      // Keep-PC / same-set: 2 remotes listed or 2 PCs → 3-col (do not stay 2-col).
+      try {
+        if (mustKeepTrioSplit(peersIn)) openTrioSplitForPeers(peersIn);
+      } catch (_) {}
+      try {
+        bindLiveTrioRemoteTiles();
+      } catch (_) {}
+      try {
+        playMainRemoteAfterBind();
+      } catch (_) {}
+      // Live 3-way → one person left: hub sends Matched(solo) with the remaining
+      // peer (their PC already live). Old keep-PC returned here and left
+      // stage-trio + empty #remote-third. Collapse chrome only — do not rebuild ICE.
+      try {
+        const listed = peersIn.filter(
+          (p) => p && p.peer_id && p.peer_id !== "legacy"
+        );
+        const modeNow = String(msg.mode || matchMode || "solo");
+        const roleNow = String(msg.your_role || yourRole || "solo");
+        const wasMulti =
+          trioBrowse ||
+          peerPcs.size > 1 ||
+          !!document
+            .querySelector("main.stage")
+            ?.classList.contains("stage-trio");
+        const stayHunt =
+          modeNow === "party_browse" &&
+          roleNow === "party" &&
+          listed.length <= 1;
+        const stayParty =
+          stayHunt ||
+          isPartyJoinOrHunt() ||
+          listed.length >= 2 ||
+          peerPcs.size >= 2 ||
+          mustKeepTrioSplit(listed);
+        if (
+          wasMulti &&
+          listed.length <= 1 &&
+          !stayParty &&
+          !mustKeepTrioSplit(listed)
+        ) {
+          collapseMultiPeerToSoloLayout(listed);
+          log("keep-PC collapse → 1v1 after leave");
+        }
       } catch (_) {}
       return;
     }
@@ -24604,9 +33772,21 @@ function handleMatched(msg) {
       }
     }
   } catch (_) {}
+  // 1v1 MATCHED: always 2-col when only one remote is live.
+  // Leftover yourRole=party / party_browse used to keep an empty mid tile.
+  try {
+    if (!wantTrioColumns() && (Array.isArray(peersIn) ? peersIn.length : 0) <= 1) {
+      enableTrioLayout(false);
+      trioBrowse = false;
+      if (yourRole === "party" && String(msg.your_role || "") !== "party") {
+        yourRole = "solo";
+      }
+    }
+  } catch (_) {}
 
   matched = true;
   inQueue = false;
+  keepRemainingPair = false;
   matchMediaGraceAt = Date.now();
   // Fresh match — paint/frame state + first-frame watcher
   try {
@@ -24635,22 +33815,42 @@ function handleMatched(msg) {
     window.__ruletMatchOfferAttemptAt = 0;
     window.__ruletMatchOfferLock = 0;
   } catch (_) {}
-  // Block Next/Space for a moment so first SDP/ICE can finish (hub also enforces ~8s).
-  // Longer when hub forces TURN — soft-recover must not race the first path.
-  nextGraceUntil =
-    Date.now() +
-    (msg.force_relay ? 5000 : 2500);
+  // Block Next until hub will accept it (MATCH_SETTLE_SECS = 12).
+  // Old 2.5s/5s grace tore PCs while hub still refused → dead roll.
+  nextGraceUntil = Date.now() + HUB_MATCH_SETTLE_MS;
   pathStatRecordedForMatch = false;
   wantSearch = msg.mode !== "friend";
   isOfferer = !!msg.is_offerer;
   matchMode = msg.mode || "solo";
   yourRole = msg.your_role || "solo";
+  // Friend phone = 1v1 until they tap Find 3rd in partner actions.
+  if (matchMode === "friend" || yourRole === "friend") {
+    inFriendCall = true;
+    collapseFriendCallHuntUi();
+  }
   // Keep peer list for soft ICE reconnect (find-3rd)
   if (Array.isArray(msg.peers) && msg.peers.length) {
     lastMatchedPeers = msg.peers.slice();
+    try {
+      rememberMeshPeers(msg.peers);
+    } catch (_) {}
+    if (msg.peers.length >= 2) {
+      // 3-way: don't sit 1.8s+2s before a stuck extra can offer.
+      try {
+        window.__ruletMultiPeerFast = true;
+      } catch (_) {}
+      try {
+        armMeshLateOfferKicks();
+      } catch (_) {}
+    }
   }
+  // 2 remotes listed or 2 PCs: 3-col before any solo 1v1 layout can collapse it.
+  try {
+    ensureTrioSplitIfListed(msg.peers || lastMatchedPeers);
+  } catch (_) {}
 
   // ── SPEED: minimal WebRTC kick for 1:1 solo (bypass heavy joinPeers) ──
+  // Hop9: fire kick ASAP for solo offerer — before heavy UI below.
   // Hub 09:38: browser offerer=true but zero offer for 12s until phone rematch.
   // joinPeers layout/startPreview was still too slow. kickSoloWebRtc is bare SDP.
   const peersFast =
@@ -24662,21 +33862,36 @@ function handleMatched(msg) {
             short_id: msg.partner_short,
             is_offerer: !!msg.is_offerer,
             role: "stranger",
-            name: msg.partner_short,
+            // Never seed display name from partner_short (hex poison)
+            name: "",
           },
         ];
+  const peersJoinFast = mergeMissingMeshPeers(peersFast);
+  if (peersJoinFast.length > peersFast.length) {
+    lastMatchedPeers = peersJoinFast.slice();
+    log(
+      `mesh-merge 1v1→${peersJoinFast.length} missing=${peersJoinFast
+        .filter((p) => p?.peer_id && !findPcForPeer(p.peer_id))
+        .map((p) => String(p.peer_id).slice(0, 8))
+        .join(",") || "?"}`
+    );
+  }
   const solo1v1 =
     (matchMode === "solo" || !matchMode) &&
-    peersFast.length === 1 &&
-    !isTeammateRole(peersFast[0]?.role);
+    peersJoinFast.length === 1 &&
+    !isTeammateRole(peersJoinFast[0]?.role);
   const tJoin0 = Date.now();
   if (solo1v1) {
     // Do NOT call joinPeers after — it tore down kickSolo's PC mid-offer
     // (existing without live video was closed → 12s silence until rematch).
-    // Stranger: force real cam BEFORE kick (sticky hide black was one-way /
-    // looked "stuck" — not the 24s MTO, but confuses smoke).
+    // Hide until Reveal stays on. Soft-blur track is live video (not black).
     try {
-      if (!isPureFriendCallSession() && selfBlurred) {
+      if (
+        !isPureFriendCallSession() &&
+        selfBlurred &&
+        !selfBlurStickyUntilReveal &&
+        !selfBlurUserLocked
+      ) {
         setSelfBlur(false, { fromAuto: true, silent: true });
       }
     } catch (_) {}
@@ -24708,9 +33923,10 @@ function handleMatched(msg) {
               }
             })();
           if (msg.force_relay && !hasTurnWarm) {
+            // Hop9: cold TURN fetch cap 280ms (was 400) — don't stall first offer
             await Promise.race([
               loadRtcConfig(hubBase(), { force: true }),
-              new Promise((r) => setTimeout(r, 400)),
+              new Promise((r) => setTimeout(r, 280)),
             ]);
             try {
               window.__hasTurn = true;
@@ -24781,33 +33997,48 @@ function handleMatched(msg) {
       .catch((e) => log(`kickSolo fail ${e}`));
     // Offerer silent → re-kick. Hub MTO ~25s was hardMs rebuild only —
     // dense waves re-emit stuck localDescription / free hung kickSolo mutex.
-    // Hop11: denser first 3s (re-emit/re-kick); force_relay last wave 4.5s
-    // (not 8s). Pure safety floors (mid-offer young 1.5s / offer-ok keep) stay.
+    // Hop9: first stuck-local recovery ≤400ms (waves 0/70–80/160–180/300–320);
+    // force_relay last wave 4.5s. Pure safety floors (mid-offer young / offer-ok) stay.
     if (isOfferer) {
       armOfferKickWatch(
         msg,
         peersFast[0],
         msg.force_relay
-          ? [0, 100, 250, 450, 700, 1100, 1800, 2800, 4500]
-          : [0, 80, 180, 320, 500, 800, 1200, 1800, 2800]
+          ? [0, 80, 180, 320, 480, 750, 1200, 2000, 3500, 4500]
+          : [0, 40, 90, 160, 280, 450, 700, 1100, 1700, 2600]
       );
     } else {
       clearOfferKickWatch();
     }
     try {
+      paintConnectingIdentity(peersFast);
       setRemoteEmpty(true, { force: false });
-      enableTrioLayout(false);
+      paintConnectingIdentity(peersFast);
+      if (!isPartyJoinOrHunt() && !mustKeepTrioSplit(peersFast)) {
+        enableTrioLayout(false);
+      }
       setSplitRemote(false);
       registerPeerUi(peersFast[0], "remote");
     } catch (_) {}
   } else {
-    joinPeers(peersFast)
+    joinPeers(peersJoinFast)
       .then(() => {
         log(
           `joinPeers ok +${Date.now() - tJoin0}ms offerer=${isOfferer ? 1 : 0}`
         );
         try {
           ensurePartnerVideoVisible();
+        } catch (_) {}
+        try {
+          if (mustKeepTrioSplit(peersJoinFast)) {
+            openTrioSplitForPeers(peersJoinFast);
+          }
+        } catch (_) {}
+        try {
+          bindLiveTrioRemoteTiles();
+        } catch (_) {}
+        try {
+          playMainRemoteAfterBind();
         } catch (_) {}
       })
       .catch((e) => log(`joinPeers fail ${e}`));
@@ -24840,10 +34071,9 @@ function handleMatched(msg) {
   // New person → full partner volume again (even if previous call was quiet)
   resetPartnerVolumeForNewMatch(msg);
   setPhase(matchMode === "friend" ? "friend_call" : "matched");
-  // Stranger match: force real camera out (see applySelfBlurPolicyForSession).
-  // Friend: always reveal. Do NOT re-hide strangers by sticky default.
+  // Stranger: Hide stays until Reveal. Friend: always reveal.
   try {
-    applySelfBlurPolicyForSession();
+    applySelfBlurPolicyForSession({ force: true });
   } catch (_) {}
   // Belt-and-suspenders: kickSolo / joinPeers must publish real cam tracks
   try {
@@ -24861,16 +34091,15 @@ function handleMatched(msg) {
   );
   updateConnFromState();
   startWebrtcWatch();
+  try {
+    armFirstFrameWatcher();
+  } catch (_) {}
   startHistoryThumbWatch();
   startMatchTimer();
   {
-    const titleEl = $("remote-empty")?.querySelector(".empty-title");
-    const subEl = $("remote-empty")?.querySelector(".empty-sub");
-    if (titleEl) titleEl.textContent = _t("remote.connecting");
-    if (subEl) {
-      subEl.hidden = true;
-      subEl.textContent = "";
-    }
+    try {
+      paintConnectingIdentity(peersFast);
+    } catch (_) {}
   }
   const peers = Array.isArray(msg.peers) && msg.peers.length
     ? msg.peers
@@ -24880,7 +34109,8 @@ function handleMatched(msg) {
           short_id: msg.partner_short,
           is_offerer: !!msg.is_offerer,
           role: "stranger",
-          name: msg.partner_short,
+          // Never seed display name from partner_short (hex poison)
+          name: "",
         },
       ];
 
@@ -24894,7 +34124,8 @@ function handleMatched(msg) {
     (p) => p.role === "stranger" || p.role === "party"
   );
   const partyMember =
-    onlyTeammate || (matchMode === "party_browse" && yourRole === "party");
+    !isFriendPair1v1() &&
+    (onlyTeammate || (matchMode === "party_browse" && yourRole === "party"));
 
   if (partyMember) {
     // Do NOT force empty overlay — 1v1 stream must stay visible as first partner
@@ -24911,12 +34142,66 @@ function handleMatched(msg) {
       if (pc._role === "stranger" || !pc._role) pc._role = "teammate";
     }
     const mateMeta =
-      peers.find((p) => isTeammateRole(p.role)) || peers[0] || null;
-    enableTrioLayout(true, { searching: !hasStranger || onlyTeammate });
+      peers.find((p) => isTeammateRole(p.role)) ||
+      pickFirstPartnerPeer(peers) ||
+      null;
+    enableTrioLayout(true, {
+      searching:
+        (!hasStranger || onlyTeammate) && !trioHuntMustDrop(),
+    });
+    if (hasStranger || trioHuntMustDrop() || mustKeepTrioSplit(peers)) {
+      try {
+        if (mustKeepTrioSplit(peers)) openTrioSplitForPeers(peers);
+        hideTrioHuntEmpty();
+        settleMatchedTrioLayout();
+      } catch (_) {}
+    }
     setRemoteEmpty(false);
-    bindFirstPartnerToMain(mateMeta);
+    try {
+      $("tile-remote")?.classList.add("has-remote-feed");
+      $("remote-empty")?.classList.add("hidden");
+    } catch (_) {}
+    // Never assign peers[0] stranger over a live teammate / live #remote.
+    if (mateMeta) bindFirstPartnerToMain(mateMeta);
+    else if (!streamHasLiveAv($("remote")?.srcObject)) {
+      bindFirstPartnerToMain(null);
+    }
+    try {
+      playMainRemoteAfterBind();
+    } catch (_) {}
     wantSearch = !hasStranger || onlyTeammate;
     if (wantSearch) inQueue = true;
+    // Re-assert first partner after layout (stack/grid reflow can blank #remote)
+    try {
+      const soft = () => {
+        bindFirstPartnerToMain(mateMeta);
+        const remote = $("remote");
+        const matePc =
+          findPcForPeer(mateMeta?.peer_id) ||
+          [...peerPcs.values()].find((p) => isTeammateRole(p._role)) ||
+          null;
+        if (
+          remote &&
+          matePc?.remoteStream &&
+          !streamOnAnyOtherTile(matePc.remoteStream, "remote")
+        ) {
+          if (remote.srcObject !== matePc.remoteStream) {
+            remote.srcObject = matePc.remoteStream;
+          }
+          playVideoEl(remote);
+          try {
+            hookNoCamPortraitFromStream("remote", remote.srcObject);
+          } catch (_) {}
+          setRemoteEmpty(false);
+          $("tile-remote")?.classList.add("has-remote-feed");
+        }
+      };
+      soft();
+      setTimeout(soft, 100);
+      setTimeout(soft, 400);
+      // Keyframe + Courtier waves after party_browse reflow (Android accept / join)
+      scheduleSoftKeepPartnerPaint();
+    } catch (_) {}
   } else {
     // Entering solo 1v1: new match OR collapse from trio / 1v2 after someone left
     const wasMultiLayout =
@@ -24926,22 +34211,47 @@ function handleMatched(msg) {
       !!$("remote-stack")?.classList.contains("split") ||
       matchMode === "party_browse" ||
       yourRole === "party";
-    if (matchMode === "party_browse" && yourRole === "solo" && hasStranger) {
-      // Solo matched a party — classic split, not trio
-      enableTrioLayout(false);
-      setRemoteEmpty(true, { force: true });
-    } else if (matchMode === "solo" && wasMultiLayout) {
+    if (mustKeepTrioSplit(peers)) {
+      try {
+        openTrioSplitForPeers(peers);
+        hideTrioHuntEmpty();
+        settleMatchedTrioLayout();
+        bindLiveTrioRemoteTiles();
+      } catch (_) {}
+      setRemoteEmpty(false);
+    } else if (matchMode === "party_browse" && yourRole === "solo" && hasStranger) {
+      // Laptop/3rd vs a pair: trio mid-split — bind BOTH party members.
+      // enableTrioLayout(false) here nulled #remote-third (only Android painted).
+      enableTrioLayout(true, { searching: false });
+      setRemoteEmpty(false);
+      try {
+        hideTrioHuntEmpty();
+        settleMatchedTrioLayout();
+        bindLiveTrioRemoteTiles();
+      } catch (_) {}
+    } else if (matchMode === "solo" && wasMultiLayout && !isPartyJoinOrHunt()) {
       // Keep the remaining conversationalist (3rd or mate); drop the leaver's window
       collapseMultiPeerToSoloLayout(peers);
-    } else if (matchMode === "solo") {
+    } else if (matchMode === "solo" && !isPartyJoinOrHunt()) {
       enableTrioLayout(false);
       setSplitRemote(false);
       setRemoteEmpty(true, { force: true });
       trioBrowse = false;
       findThirdPending = null;
+    } else if (isPartyJoinOrHunt() || peers.length >= 2) {
+      enableTrioLayout(true, { searching: false });
+      setRemoteEmpty(false);
+      try {
+        hideTrioHuntEmpty();
+        settleMatchedTrioLayout();
+        bindLiveTrioRemoteTiles();
+      } catch (_) {}
     } else {
       setRemoteEmpty(true, { force: true });
     }
+    try {
+      playMainRemoteAfterBind();
+    } catch (_) {}
   }
 
   // Federated match: remote peer_id is fed/{session}/{id} (nextface-fed/1)
@@ -24959,53 +34269,89 @@ function handleMatched(msg) {
     peers.find((p) => p.user_id) ||
     null;
   primaryPartnerUserId = primary?.user_id || "";
-  lastMatchMeta = primary
-    ? {
-        peer_id: primary.peer_id || "",
-        user_id: primary.user_id || "",
-        // Never store partner_short/hex as display name (tile painted 6664acc4).
-        name: isPoisonDisplayName(primary.name)
-          ? ""
-          : String(primary.name || "").trim(),
-        short_id: primary.short_id || msg.partner_short || "",
-        friend_code: primary.friend_code || "",
-        flag: normalizeFlagCode(primary.flag || ""),
-        country: String(primary.country || "").trim(),
-        city: String(primary.city || "").trim(),
-        hide_ip: !!primary.hide_ip,
-        avatar: isValidAvatarDataUrl(primary.avatar) ? primary.avatar : "",
-        // spendable balance (badge number)
-        stars: Math.max(0, Number(primary.stars) || 0),
-        // reputation for tier chrome
-        trust: Math.max(
-          0,
-          Number(primary.trust != null ? primary.trust : primary.stars) || 0
-        ),
-        trust_gifters: Math.max(0, Number(primary.trust_gifters) || 0),
+  {
+    const rawName = isPoisonDisplayName(primary?.name)
+      ? ""
+      : String(primary?.name || "").trim();
+    const sameUid =
+      primary?.user_id &&
+      lastGoodPartnerUserId &&
+      String(primary.user_id) === String(lastGoodPartnerUserId);
+    // Latched Courtier still on this match (e.g. find-3rd mate) — never wipe for a new stranger primary
+    const latchedStillPresent =
+      !!lastGoodPartnerUserId &&
+      peers.some(
+        (p) =>
+          p?.user_id && String(p.user_id) === String(lastGoodPartnerUserId)
+      );
+    // New partner → clear latch only when latched user left the match entirely
+    if (
+      primary?.user_id &&
+      !sameUid &&
+      lastGoodPartnerUserId &&
+      !latchedStillPresent
+    ) {
+      clearGoodPartnerNameLatch();
+    }
+    // Latch real primary name only when it is the main conversationalist.
+    // Find-3rd stranger primary must not steal Courtier latch used by main #remote.
+    if (isRealPartnerDisplayName(rawName)) {
+      if (sameUid || !latchedStillPresent || !lastGoodPartnerName) {
+        latchGoodPartnerName(rawName, primary?.user_id);
       }
-    : {
-        peer_id: "",
-        user_id: "",
-        name: "",
-        short_id: msg.partner_short || "",
-        friend_code: "",
-        flag: "",
-        country: "",
-        city: "",
-        hide_ip: false,
-        avatar: "",
-        stars: 0,
-        trust: 0,
-        trust_gifters: 0,
-      };
+    }
+    // lastMatchMeta tracks block/gift primary (may be stranger); name is primary-only.
+    // Main #remote Courtier paint uses lastGoodPartnerName separately (see below).
+    const paintName =
+      (isRealPartnerDisplayName(rawName) && rawName) ||
+      (sameUid && lastGoodPartnerName) ||
+      "";
+    lastMatchMeta = primary
+      ? {
+          peer_id: primary.peer_id || "",
+          user_id: primary.user_id || "",
+          // Never store partner_short/hex as display name (tile painted 6664acc4).
+          name: paintName,
+          short_id: primary.short_id || msg.partner_short || "",
+          friend_code: primary.friend_code || "",
+          flag: normalizeFlagCode(primary.flag || ""),
+          country: String(primary.country || "").trim(),
+          city: String(primary.city || "").trim(),
+          hide_ip: !!primary.hide_ip,
+          avatar: isValidAvatarDataUrl(primary.avatar) ? primary.avatar : "",
+          // spendable balance (badge number)
+          stars: Math.max(0, Number(primary.stars) || 0),
+          // reputation for tier chrome
+          trust: Math.max(
+            0,
+            Number(primary.trust != null ? primary.trust : primary.stars) || 0
+          ),
+          trust_gifters: Math.max(0, Number(primary.trust_gifters) || 0),
+        }
+      : {
+          peer_id: "",
+          user_id: "",
+          name: "",
+          short_id: msg.partner_short || "",
+          friend_code: "",
+          flag: "",
+          country: "",
+          city: "",
+          hide_ip: false,
+          avatar: "",
+          stars: 0,
+          trust: 0,
+          trust_gifters: 0,
+        };
+  }
   partnerStars = lastMatchMeta.stars || 0;
   partnerTrust = lastMatchMeta.trust || 0;
   partnerTrustGifters = lastMatchMeta.trust_gifters || 0;
   try {
     refreshFlairUi();
   } catch (_) {}
-  // Remote badge: number = spendable ★; tier = trust
-  setStarsBadge("remote", partnerStars, {
+  // Remote chip = reputation (trust). Wallet is only on you.
+  setStarsBadge("remote", displaySlotStars(partnerStars, partnerTrust), {
     trust: lastMatchMeta.trust || 0,
   });
   setStarsBadge("local", myStars, { trust: myTrust }); // balance + trust tier
@@ -25018,9 +34364,11 @@ function handleMatched(msg) {
   try {
     scheduleIdentityPushesAfterMatch();
     const hubName = String(lastMatchMeta?.name || "").trim();
-    const needName = !hubName || isPoisonDisplayName(hubName);
+    const needName =
+      !isRealPartnerDisplayName(hubName) &&
+      !isRealPartnerDisplayName(lastGoodPartnerName);
     if (needName) {
-      // name_req only (identity already scheduled with request:false)
+      // name_req only (identity already scheduled; still request peer Courtier)
       sendPartnerIdentityP2p({ request: true });
     }
   } catch (_) {}
@@ -25077,7 +34425,8 @@ function handleMatched(msg) {
   const opponents = peers
     .filter((p) => p.role === "stranger" || p.role === "party")
     .slice(0, 3);
-  const split = opponents.length >= 2 && !trioBrowse;
+  // 3-way = person | person | you. Stacked remote2 only at 4 people.
+  const split = shouldStackSplitRemote(opponents.length, !!trioBrowse);
   setSplitRemote(split);
   // 1v2 / 2v2 / party+stranger: force full mic processing (NS+AGC)
   try {
@@ -25085,22 +34434,42 @@ function handleMatched(msg) {
   } catch (_) {}
   {
     const tag = $("remote-tag");
-    const nameEl = $("remote-name");
     if (tag) {
       if (split) {
         setLocationOnTile(tag, {});
-        if (nameEl) {
-          setDisplayNameOnTile(
-            nameEl,
-            msg.partner_short || _t("friends.partyTag") || "2"
-          );
+        // 4-way stacked extras only. Never "Party of 2" on a person tile.
+        const splitPeer = pickFirstPartnerPeer(peers) || opponents[0];
+        const splitReal =
+          (isRealPartnerDisplayName(splitPeer?.name) &&
+            String(splitPeer.name).trim()) ||
+          (isRealPartnerDisplayName(lastGoodPartnerName) &&
+            lastGoodPartnerName) ||
+          (isRealPartnerDisplayName(lastMatchMeta?.name) &&
+            String(lastMatchMeta.name).trim()) ||
+          "";
+        if (splitReal) {
+          paintPartnerIdentityChrome({
+            name: splitReal,
+            userId:
+              splitPeer?.user_id ||
+              lastGoodPartnerUserId ||
+              lastMatchMeta?.user_id,
+          });
         }
         setTileAvatar("remote", "");
       } else {
         // Location stack (flag→country→city) + real name (never short_id hex)
-        const peer =
-          opponents[0] ||
+        // Party find-3rd: main #remote is teammate (Courtier); stranger lives on third.
+        // Never paint opponents[0] / partner_short onto #remote-name over latched Courtier.
+        const matePeer =
+          pickFirstPartnerPeer(peers) ||
           peers.find((p) => isTeammateRole(p.role)) ||
+          null;
+        // 3-way: never paint hub stranger (Laptop) onto left #remote.
+        // opponents[0] is often the 3rd — that swapped names (015545Z).
+        const peer =
+          matePeer ||
+          (opponents.length <= 1 ? opponents[0] : null) ||
           peers[0];
         const locMeta = {
           flag:
@@ -25112,8 +34481,19 @@ function handleMatched(msg) {
           hide_ip: !!(peer?.hide_ip ?? lastMatchMeta?.hide_ip),
         };
         setLocationOnTile(tag, locMeta);
+        const rawPeer = String(peer?.name || "").trim();
+        const mainName =
+          (isRealPartnerDisplayName(rawPeer) && rawPeer) ||
+          (trioBrowse && lastGoodPartnerName) ||
+          lastGoodPartnerName ||
+          lastMatchMeta?.name ||
+          "";
         paintPartnerIdentityChrome({
-          name: peer?.name,
+          name: mainName,
+          userId:
+            peer?.user_id ||
+            lastGoodPartnerUserId ||
+            lastMatchMeta?.user_id,
           friendCode: peer?.friend_code || lastMatchMeta?.friend_code,
         });
         const av =
@@ -25125,13 +34505,41 @@ function handleMatched(msg) {
     }
     syncRemoteTileTagVisibility();
   }
-  if (trioBrowse && opponents[0]) {
-    const n = opponents[0].name || msg.partner_short || "";
-    setThirdSlotStream(null); // filled after stream in joinPeers
-    const ttag = $("third-tag");
-    if (ttag) {
-      setNameOnTile(ttag, n, opponents[0].flag);
-    }
+  if (opponents.length >= 2 || (trioBrowse && opponents.length)) {
+    const extra = pickExtraRemotePeer(peers) || opponents.find((p) => {
+      const first = pickFirstPartnerPeer(peers);
+      return first && p.peer_id !== first.peer_id;
+    });
+    const n = extraSlotDisplayName(extra?.name || "");
+    // Never setThirdSlotStream(null) here — that undoes joinPeers and
+    // parks the pair on “Looking for a 3rd…” while the 3rd is linking.
+    if (extra && !thirdSlotHasLiveMedia()) showThirdConnecting(n);
+    try {
+      paintTrioTileNames(peers);
+    } catch (_) {}
+    try {
+      const first = pickFirstPartnerPeer(peers);
+      if (first) {
+        paintPeerSlotIdentity("remote", {
+          flag: first.flag,
+          country: first.country,
+          city: first.city,
+          hide_ip: !!first.hide_ip,
+          stars: first.stars,
+          trust: first.trust,
+        });
+      }
+      if (extra) {
+        paintPeerSlotIdentity("remote-third", {
+          flag: extra.flag,
+          country: extra.country,
+          city: extra.city,
+          hide_ip: !!extra.hide_ip,
+          stars: extra.stars,
+          trust: extra.trust,
+        });
+      }
+    } catch (_) {}
   }
 
   setStatus(
@@ -25141,7 +34549,10 @@ function handleMatched(msg) {
     })
   );
   log(_t("log.matched", { id: msg.partner_short }) + ` · ${matchMode}`);
-  // No chime on match/connect — visual flash + toast only (less interruptive)
+  // New conversationalist link — spin.mp3 match chime (pref-gated)
+  try {
+    playMatchChime();
+  } catch (_) {}
   flashPartnerTile();
   showMatchFoundToast({ connecting: true });
   updateFriendActionButtons();
@@ -25160,6 +34571,9 @@ function handleMatched(msg) {
   try {
     updatePartyRoleStrip(msg);
   } catch (_) {}
+  try {
+    playMainRemoteAfterBind();
+  } catch (_) {}
 }
 
 function handleIncomingSignal(msg) {
@@ -25177,6 +34591,39 @@ function handleIncomingSignal(msg) {
     } catch (e) {
       try {
         log("partner_mute hub parse " + e);
+      } catch (_) {}
+    }
+    return;
+  }
+  // Gift FX control plane (Android spend → PC when DC missing)
+  if (kind === "gift_fx" || kind === "star_gift_fx") {
+    try {
+      const body =
+        typeof msg.payload === "string" && msg.payload
+          ? JSON.parse(msg.payload)
+          : msg.payload && typeof msg.payload === "object"
+            ? msg.payload
+            : {};
+      applyGiftFxMessage(body || {});
+    } catch (e) {
+      try {
+        log("gift_fx hub parse " + e);
+      } catch (_) {}
+    }
+    return;
+  }
+  if (kind === "no_cam") {
+    try {
+      const body =
+        typeof msg.payload === "string" && msg.payload
+          ? JSON.parse(msg.payload)
+          : msg.payload && typeof msg.payload === "object"
+            ? msg.payload
+            : {};
+      handleNoCamP2p(body || {});
+    } catch (e) {
+      try {
+        log("no_cam hub parse " + e);
       } catch (_) {}
     }
     return;
@@ -25200,6 +34647,17 @@ function handleIncomingSignal(msg) {
   // Hub forensics beacon (av-verify) — logged server-side; never apply to RTC
   if (kind === "av_path") return;
   const from = msg.from_peer || "";
+  // Extra bye: close only that PC. Remaining remote keeps A/V; 3→2; no rematch.
+  if (kind === "bye") {
+    let byePc = from ? findPcForPeer(from) : null;
+    if (!byePc && !from && peerPcs.size === 1) {
+      byePc = [...peerPcs.values()][0];
+    }
+    if (byePc && peerPcs.size > 1) {
+      dropOnePeerKeepRest(byePc, { reason: "bye" });
+      return;
+    }
+  }
   let pc = from ? findPcForPeer(from) : null;
   // Legacy 1v1 only: signals without from_peer when a single PC exists.
   // NEVER route a named peer’s signal to “the only PC” — when find-3rd’s third
@@ -25222,6 +34680,9 @@ function handleIncomingSignal(msg) {
  * fire after Stop and poison the next match until a full page refresh.
  */
 function resetClientMediaSession({ clearLastPeers = true } = {}) {
+  try {
+    clearGoodPartnerNameLatch();
+  } catch (_) {}
   try {
     clearWebrtcWatch();
   } catch (_) {}
@@ -25277,9 +34738,39 @@ function resetClientMediaSession({ clearLastPeers = true } = {}) {
   webrtcConnectedOk = false;
   matchMediaGraceAt = 0;
   pendingSignals.length = 0;
+  keepRemainingPair = false;
   if (clearLastPeers) {
     try {
       lastMatchedPeers = [];
+    } catch (_) {}
+    try {
+      lastMeshPeers = [];
+    } catch (_) {}
+    try {
+      meshReofferTried.clear();
+    } catch (_) {}
+    try {
+      meshEnsureCounts.clear();
+    } catch (_) {}
+    meshLateOfferAfter = 0;
+    try {
+      if (meshLateOfferKick) clearTimeout(meshLateOfferKick);
+    } catch (_) {}
+    meshLateOfferKick = 0;
+    try {
+      if (meshLateOfferKick2) clearTimeout(meshLateOfferKick2);
+    } catch (_) {}
+    meshLateOfferKick2 = 0;
+    try {
+      for (const k of Object.keys(extraTileEverFrames)) {
+        delete extraTileEverFrames[k];
+      }
+    } catch (_) {}
+    try {
+      if (meshEnsureTimer) {
+        clearInterval(meshEnsureTimer);
+        meshEnsureTimer = 0;
+      }
     } catch (_) {}
   }
   // Hybrid warm after hangup (policy=all + TURN). Pure only for Hide IP.
@@ -25314,6 +34805,7 @@ function closeAllPeers({ keepFriend = false } = {}) {
   // Leaving call chrome — clear orphan-hub flag and maybe soft-reload UI
   if (!keepFriend) {
     hubSignalOrphanCall = false;
+    keepRemainingPair = false;
   }
   // Last chance on-device snap before video elements are cleared
   try {
@@ -25451,17 +34943,30 @@ function applyMultiPeerOutboundQuality(peers) {
       .sort((a, b) => String(a).localeCompare(String(b)))[0];
   }
   const n = live.length;
-  // 2 links: primary mid, extra low. 3+: primary mid, extras min.
+  // Mobile HW encoders (Chrome Android, iOS WebView, etc.) often freeze on multi
+  // + "min" (scale 2 + 200kbps). Never assign min on mobile — floor extras at low.
+  let mobileFloor = false;
+  try {
+    mobileFloor =
+      (typeof isLikelyMobile === "function" && isLikelyMobile()) ||
+      /Android|iPhone|iPad|iPod|Mobile|webOS|IEMobile/i.test(
+        navigator.userAgent || ""
+      );
+  } catch (_) {}
+  // 3-way: every link low. Desktop "primary mid" dumped ~900kbps onto
+  // whoever sorted first — often the Android 3rd — so their cam looked
+  // laggy (decode + two encodes). Never min (mobile HW freeze).
   for (const [pid, pc] of live) {
     const isPrimary = pid === primaryId;
     let ceiling = "high";
     let start = "high";
-    if (n >= 3) {
-      ceiling = isPrimary ? "mid" : "min";
-      start = isPrimary ? "mid" : "min";
-    } else if (n === 2) {
-      ceiling = isPrimary ? "high" : "low";
-      start = isPrimary ? "mid" : "low";
+    if (n >= 2) {
+      ceiling = "low";
+      start = "low";
+    }
+    if (mobileFloor) {
+      if (ceiling === "min") ceiling = "low";
+      if (start === "min") start = "low";
     }
     // Hide IP / relay: slightly lower ceilings
     try {
@@ -25471,6 +34976,10 @@ function applyMultiPeerOutboundQuality(peers) {
       ) {
         ceiling = clampLocalTier(ceiling, "mid");
         start = clampLocalTier(start, ceiling);
+      }
+      if (mobileFloor) {
+        if (ceiling === "min") ceiling = "low";
+        if (start === "min") start = "low";
       }
     } catch (_) {}
     if (typeof pc.setQualityCeiling === "function") {
@@ -25538,12 +35047,634 @@ function clearOrphanVideoSlots(opts = {}) {
   }
 }
 
+function pruneLastMatchedPeer(peerId) {
+  if (!peerId || !Array.isArray(lastMatchedPeers)) return;
+  lastMatchedPeers = lastMatchedPeers.filter(
+    (p) => p && p.peer_id && p.peer_id !== peerId
+  );
+  pruneMeshPeer(peerId);
+}
+
+/** Stamp the last 1v2 / 3-way listing so a later 1-peer rematch can re-join. */
+function rememberMeshPeers(list) {
+  const arr = Array.isArray(list)
+    ? list.filter((p) => p && p.peer_id && p.peer_id !== "legacy")
+    : [];
+  if (arr.length >= 2) {
+    lastMeshPeers = arr.slice();
+    try {
+      armMeshLateOfferKicks();
+    } catch (_) {}
+  }
+}
+
+/** Laptop 3rd: arm extra late-offer even if MATCHED first listed 1 peer. */
+function armMeshLateOfferKicks() {
+  if (!matched) return;
+  if (meshLateOfferAfter && Date.now() < meshLateOfferAfter + 8000) {
+    try {
+      armMeshEnsureTimer();
+    } catch (_) {}
+    return;
+  }
+  meshLateOfferAfter = Date.now() + 200;
+  try {
+    armMeshEnsureTimer();
+  } catch (_) {}
+  try {
+    if (meshLateOfferKick) clearTimeout(meshLateOfferKick);
+    meshLateOfferKick = setTimeout(() => {
+      meshLateOfferKick = 0;
+      try {
+        ensureMeshExtraOfferer();
+      } catch (_) {}
+    }, 220);
+    if (meshLateOfferKick2) clearTimeout(meshLateOfferKick2);
+    meshLateOfferKick2 = setTimeout(() => {
+      meshLateOfferKick2 = 0;
+      try {
+        ensureMeshExtraOfferer();
+      } catch (_) {}
+    }, 1100);
+  } catch (_) {}
+}
+
+function pruneMeshPeer(peerId) {
+  if (!peerId || !Array.isArray(lastMeshPeers)) return;
+  lastMeshPeers = lastMeshPeers.filter(
+    (p) => p && p.peer_id && p.peer_id !== peerId
+  );
+}
+
+/**
+ * Re-attach a remembered mesh extra that this Matched omitted and that
+ * still has no PeerConnection. Does not invent peers after hangup
+ * (lastMeshPeers is cleared with lastMatchedPeers).
+ */
+function mergeMissingMeshPeers(listed) {
+  const out = [];
+  const seen = new Set();
+  const add = (p) => {
+    const id = String(p?.peer_id || "").trim();
+    if (!id || id === "legacy" || seen.has(id)) return;
+    seen.add(id);
+    out.push(p);
+  };
+  for (const p of listed || []) add(p);
+  const rem = Array.isArray(lastMeshPeers) ? lastMeshPeers : [];
+  if (rem.length < 2) return out;
+  for (const p of rem) {
+    const id = String(p?.peer_id || "").trim();
+    if (!id || id === "legacy" || seen.has(id)) continue;
+    if (meshPeerHasLivePc(id)) continue;
+    add(p);
+  }
+  return out;
+}
+
+/** Failed/closed extras must not count as joined (laptop 657 still 0 videos). */
+function meshPeerHasLivePc(peerId) {
+  if (typeof findPcForPeer !== "function") return false;
+  const pc = findPcForPeer(peerId);
+  if (!pc?.pc) return false;
+  let st = "";
+  try {
+    st = pc.pc.iceConnectionState || pc.pc.connectionState || "";
+  } catch (_) {}
+  if (st === "failed" || st === "closed") return false;
+  if (st === "new" || st === "") {
+    try {
+      if (streamHasLiveAv(pc.remoteStream)) return true;
+    } catch (_) {}
+    try {
+      if (pc._offerEmitOk) return true;
+    } catch (_) {}
+    return false;
+  }
+  return true;
+}
+
+/** Drop failed extras still listed so joinPeers can open a fresh PC. */
+function ensureMissingMeshPeers(reason) {
+  if (!matched) return false;
+  const listed =
+    Array.isArray(lastMeshPeers) && lastMeshPeers.length >= 2
+      ? lastMeshPeers
+      : Array.isArray(lastMatchedPeers) && lastMatchedPeers.length >= 2
+        ? lastMatchedPeers
+        : [];
+  if (listed.length < 2) return false;
+  const missing = listed.filter((p) => {
+    const id = String(p?.peer_id || "").trim();
+    return id && id !== "legacy" && !meshPeerHasLivePc(id);
+  });
+  if (!missing.length) {
+    try {
+      return ensureMeshExtraOfferer();
+    } catch (_) {
+      return false;
+    }
+  }
+  const key = "ensure:" + missing.map((p) => p.peer_id).sort().join(",");
+  const n = meshEnsureCounts.get(key) || 0;
+  if (n >= 3) return false;
+  meshEnsureCounts.set(key, n + 1);
+  try {
+    log(
+      `mesh ensure ${missing.map((p) => String(p.peer_id).slice(0, 8)).join(",")} n=${n + 1} ${reason || ""}`
+    );
+  } catch (_) {}
+  closeDeadListedMeshPcs(listed);
+  void joinPeers(mergeMissingMeshPeers(listed));
+  try {
+    ensureMeshExtraOfferer();
+  } catch (_) {}
+  return true;
+}
+
+/** Extra leftover SDP is not emit-ok. Occupancy #remote must stay. */
+/** ICE/signaling already in flight — do not re-connect (freezes a live face). */
+function peerPcOfferInFlight(pc) {
+  if (!pc) return false;
+  try {
+    const liveAv =
+      typeof streamHasLiveAv === "function" &&
+      (streamHasLiveAv(pc.remoteStream) ||
+        streamHasLiveAv(pc._videoEl?.srcObject));
+    // Live A/V → skip re-offer. Do not freeze a live face.
+    if (liveAv) return true;
+    const ice = String(pc.pc?.iceConnectionState || "");
+    const cs = String(pc.pc?.connectionState || "");
+    const sig = String(pc.pc?.signalingState || "");
+    const age = pc._pcBornAt ? Date.now() - pc._pcBornAt : 99999;
+    // ice=checking with NO AV and pc age >5s → NOT in-flight (allow late-offer).
+    // Leftover have-local-offer must not keep a dead extra blocked.
+    if (ice === "checking" || cs === "connecting") {
+      return age < 5000;
+    }
+    if (sig === "have-local-offer" || sig === "have-remote-offer") {
+      return age < 8000;
+    }
+    if (
+      ice === "connected" ||
+      ice === "completed" ||
+      cs === "connected"
+    ) {
+      return age < 8000;
+    }
+  } catch (_) {}
+  return false;
+}
+
+function extraPeerIceConnected(pc) {
+  // Live A/V only — mere ice=connected / completed does not count.
+  try {
+    if (typeof streamHasLiveAv === "function" && streamHasLiveAv(pc?.remoteStream)) {
+      return true;
+    }
+    const el = pc?._videoEl;
+    if (el?.srcObject && streamHasLiveAv(el.srcObject)) return true;
+  } catch (_) {}
+  return false;
+}
+
+function listedPeerIsOccupancyRemote(p) {
+  const id = String(p?.peer_id || "").trim();
+  if (!id) return false;
+  const pc = typeof findPcForPeer === "function" ? findPcForPeer(id) : null;
+  try {
+    const occ = typeof liveMainRemotePc === "function" ? liveMainRemotePc() : null;
+    if (occ && pc === occ) return true;
+  } catch (_) {}
+  try {
+    if (pc && typeof isFirstPartnerPc === "function" && isFirstPartnerPc(pc)) {
+      return true;
+    }
+  } catch (_) {}
+  try {
+    if (pc?._videoEl && pc._videoEl.id === "remote") return true;
+  } catch (_) {}
+  return false;
+}
+
+/**
+ * Laptop 3rd extra must offer to Android (012303Z offerer=0 / ice=checking).
+ * Leftover localDescription is not an emitted offer — still connect().
+ */
+function ensureMeshExtraOfferer() {
+  if (!matched) return false;
+  const listed =
+    Array.isArray(lastMeshPeers) && lastMeshPeers.length >= 2
+      ? lastMeshPeers
+      : Array.isArray(lastMatchedPeers) && lastMatchedPeers.length >= 2
+        ? lastMatchedPeers
+        : [];
+  if (listed.length < 2) return false;
+  let first = null;
+  try {
+    first =
+      typeof pickFirstPartnerPeer === "function"
+        ? pickFirstPartnerPeer(listed)
+        : null;
+  } catch (_) {}
+  const extras = [];
+  const soloVsPair = yourRole === "solo" && listed.length >= 2;
+  for (const p of listed) {
+    const id = String(p?.peer_id || "").trim();
+    if (!id || id === "legacy") continue;
+    const pc = typeof findPcForPeer === "function" ? findPcForPeer(id) : null;
+    if (extraPeerIceConnected(pc) || peerPcOfferInFlight(pc)) continue;
+    // Stale remoteDescription without live AV must not block late-offer
+    // (4th trio: laptop answered PC, no frames, skip forever).
+    // Hub offerer at t=0. Solo 3rd may late-offer a stuck web extra.
+    const stuckExtra =
+      pc &&
+      !extraPeerIceConnected(pc) &&
+      !peerPcOfferInFlight(pc);
+    const lateSolo =
+      soloVsPair &&
+      ((meshLateOfferAfter && Date.now() >= meshLateOfferAfter) ||
+        !!stuckExtra);
+    if (!p.is_offerer && !lateSolo) continue;
+    // Skip occupancy only when that tile already has live A/V.
+    // Empty left Android must still late-offer (laptop 3-way miss).
+    if (
+      !p.is_offerer &&
+      listedPeerIsOccupancyRemote(p) &&
+      extraPeerIceConnected(pc)
+    ) {
+      continue;
+    }
+    if (!soloVsPair) {
+      if (first && String(first.peer_id) === id) continue;
+      if (listedPeerIsOccupancyRemote(p)) continue;
+    }
+    extras.push(p);
+  }
+  if (!extras.length) return false;
+  const key = "offerer:" + extras.map((p) => p.peer_id).sort().join(",");
+  const n = meshEnsureCounts.get(key) || 0;
+  // Kick2 @1100ms is the 2nd chance. Cap 1 made it a no-op (laptop 3rd miss).
+  if (n >= 2) {
+    const stuck = extras.some((p) => {
+      const pc =
+        typeof findPcForPeer === "function" ? findPcForPeer(p.peer_id) : null;
+      return pc && !extraPeerIceConnected(pc) && !peerPcOfferInFlight(pc);
+    });
+    if (!stuck || n >= 4) return false;
+  }
+  meshEnsureCounts.set(key, n + 1);
+  const extraIds = new Set(extras.map((p) => String(p.peer_id)));
+  const joinList = listed.map((p) =>
+    extraIds.has(String(p?.peer_id || ""))
+      ? Object.assign({}, p, { is_offerer: true })
+      : p
+  );
+  try {
+    log(
+      `mesh extra offerer ${extras
+        .map((p) => String(p.peer_id).slice(0, 8))
+        .join(",")} n=${n + 1}`
+    );
+  } catch (_) {}
+  void joinPeers(joinList).then(() => {
+    for (const p of extras) {
+      const pc =
+        typeof findPcForPeer === "function" ? findPcForPeer(p.peer_id) : null;
+      if (
+        !pc ||
+        pc._offerEmitOk ||
+        extraPeerIceConnected(pc) ||
+        peerPcOfferInFlight(pc)
+      ) {
+        continue;
+      }
+      try {
+        pc.isOfferer = true;
+      } catch (_) {}
+      try {
+        void pc.connect();
+      } catch (_) {}
+    }
+  });
+  return true;
+}
+
+function armMeshEnsureTimer() {
+  if (meshEnsureTimer) return;
+  meshEnsureTimer = setInterval(() => {
+    try {
+      if (!matched) return;
+      ensureMissingMeshPeers("timer");
+      ensureMeshExtraOfferer();
+    } catch (_) {}
+  }, 2000);
+}
+
+function closeDeadListedMeshPcs(list) {
+  for (const p of list || []) {
+    const id = String(p?.peer_id || "").trim();
+    if (!id || id === "legacy") continue;
+    if (meshPeerHasLivePc(id)) continue;
+    const pc = typeof findPcForPeer === "function" ? findPcForPeer(id) : null;
+    if (!pc) continue;
+    try {
+      const occ = liveMainRemotePc();
+      if (occ && pc === occ) continue;
+    } catch (_) {}
+    if (typeof isFirstPartnerPc === "function" && isFirstPartnerPc(pc) && peerPcIsLive(pc)) {
+      continue;
+    }
+    try {
+      pc.closeCall?.({ keepLocal: true, sendBye: false });
+    } catch (_) {}
+    try {
+      peerPcs.delete(id);
+    } catch (_) {}
+    try {
+      if (pc.remotePeerId) peerPcs.delete(pc.remotePeerId);
+    } catch (_) {}
+  }
+}
+
+/**
+ * Extra ice=failed: re-offer once if still listed in the 1v2.
+ * A LIVE first partner / #remote / rtc must stay (234930Z).
+ * A DEAD #remote on the laptop 3rd (black Courtier) may rebuild.
+ */
+function shouldReofferFailedMeshExtra(opts) {
+  const o = opts || {};
+  if (!o.matched) return false;
+  if (o.selfLive && (o.isFirstPartner || o.isRtc || o.tileId === "remote")) {
+    return false;
+  }
+  const id = String(o.peerId || "").trim();
+  if (!id || id === "legacy") return false;
+  if (!o.listed) return false;
+  if (o.alreadyTried) return false;
+  if (!o.otherLive && !(Number(o.meshCount) >= 2)) return false;
+  return true;
+}
+
+function meshPeerRecord(peerId) {
+  const id = String(peerId || "").trim();
+  if (!id) return null;
+  for (const list of [lastMeshPeers, lastMatchedPeers]) {
+    if (!Array.isArray(list)) continue;
+    const hit = list.find((p) => p && String(p.peer_id) === id);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function peerIdOfPc(pc) {
+  if (!pc) return "";
+  if (pc.remotePeerId) return String(pc.remotePeerId);
+  try {
+    const hit = [...peerPcs.entries()].find(([, v]) => v === pc);
+    if (hit) return String(hit[0] || "");
+  } catch (_) {}
+  return "";
+}
+
+/**
+ * Laptop↔Android ice=failed after answer: do not drop-and-forget.
+ * Close only that dead extra (keep lastMeshPeers) and joinPeers the full
+ * mesh once so the web 3rd re-offers. Live first PC stays.
+ */
+function reofferFailedMeshExtraOnce(pc, reason) {
+  if (!pc || !matched) return false;
+  let otherLive = false;
+  try {
+    for (const other of peerPcs.values()) {
+      if (other === pc) continue;
+      if (peerPcIsLive(other) || isPcIceHealthy(other)) otherLive = true;
+    }
+  } catch (_) {}
+  const peerId = peerIdOfPc(pc);
+  const rec = meshPeerRecord(peerId);
+  const tileId = pc._videoEl && pc._videoEl.id;
+  if (
+    !shouldReofferFailedMeshExtra({
+      matched: true,
+      isFirstPartner: typeof isFirstPartnerPc === "function" && isFirstPartnerPc(pc),
+      isRtc: rtc === pc,
+      tileId,
+      peerId,
+      listed: !!rec,
+      alreadyTried: meshReofferTried.has(peerId),
+      otherLive,
+      selfLive: peerPcIsLive(pc) || isPcIceHealthy(pc),
+      meshCount: Array.isArray(lastMeshPeers) ? lastMeshPeers.length : 0,
+    })
+  ) {
+    return false;
+  }
+  meshReofferTried.add(peerId);
+  try {
+    log(
+      `mesh reoffer extra ${String(peerId).slice(0, 8)} reason=${reason || "ice_failed"}`
+    );
+  } catch (_) {}
+  try {
+    pc.closeCall?.({ keepLocal: true, sendBye: false });
+  } catch (_) {}
+  try {
+    peerPcs.delete(peerId);
+  } catch (_) {}
+  try {
+    if (pc.remotePeerId && String(pc.remotePeerId) !== String(peerId)) {
+      peerPcs.delete(pc.remotePeerId);
+    }
+  } catch (_) {}
+  const listed =
+    Array.isArray(lastMeshPeers) && lastMeshPeers.length >= 2
+      ? lastMeshPeers.slice()
+      : Array.isArray(lastMatchedPeers)
+        ? lastMatchedPeers.slice()
+        : [];
+  const joinList = mergeMissingMeshPeers(listed);
+  if (rec && !joinList.some((p) => String(p.peer_id) === String(peerId))) {
+    joinList.push(rec);
+  }
+  setTimeout(() => {
+    try {
+      if (!matched) return;
+      if (findPcForPeer(peerId)) return;
+      void joinPeers(joinList);
+    } catch (_) {}
+  }, 80);
+  return true;
+}
+
+function peerPcIsLive(pc) {
+  if (!pc) return false;
+  try {
+    if (streamHasLiveAv(pc.remoteStream)) return true;
+  } catch (_) {}
+  try {
+    const el = pc._videoEl;
+    if (el?.srcObject && streamHasLiveAv(el.srcObject)) return true;
+  } catch (_) {}
+  try {
+    return isPcIceHealthy(pc);
+  } catch (_) {}
+  return false;
+}
+
+/**
+ * 3-way ice_failed: drop only an extra that never connected.
+ * A PC that already had ICE/frames (or is painted on #remote) must stay —
+ * dropOnePeerKeepRest left ended tracks + has-remote-feed = black Courtier.
+ */
+function shouldDropFailedExtraPeer(pc, state) {
+  if (!pc || peerPcs.size <= 1) return false;
+  try {
+    const pid = peerIdOfPc(pc);
+    if (pid && meshPeerRecord(pid) && lastMeshPeers.length >= 2) {
+      return false;
+    }
+  } catch (_) {}
+  if (state === "closed") {
+    try {
+      if (pc._iceEverOk || streamHasLiveAv(pc.remoteStream)) return false;
+    } catch (_) {}
+    return true;
+  }
+  try {
+    if (pc._iceEverOk) return false;
+  } catch (_) {}
+  try {
+    if (streamHasLiveAv(pc.remoteStream)) return false;
+  } catch (_) {}
+  try {
+    if (pc._videoEl && pc._videoEl.id === "remote") return false;
+  } catch (_) {}
+  try {
+    if (rtc === pc) return false;
+  } catch (_) {}
+  return true;
+}
+
+function rebindLiveRemoteAfterPeerEnd() {
+  try {
+    const rem = $("remote");
+    if (!rem) return;
+    const src = rem.srcObject;
+    const dead =
+      !!src &&
+      !(src.getVideoTracks?.() || []).some((t) => t && t.readyState === "live") &&
+      !(src.getAudioTracks?.() || []).some((t) => t && t.readyState === "live");
+    const noSrc = !src;
+    if (dead || noSrc) {
+      $("tile-remote")?.classList.remove("has-remote-feed");
+      hookNoCamPortraitFromStream("remote", src || null);
+    }
+    const keep = [...peerPcs.values()].find((p) => {
+      try {
+        return p && streamHasLiveAv(p.remoteStream);
+      } catch {
+        return false;
+      }
+    });
+    if (keep && (dead || noSrc || rem.srcObject !== keep.remoteStream)) {
+      bindPcVideo(keep, rem);
+      hookNoCamPortraitFromStream("remote", keep.remoteStream);
+    }
+  } catch (_) {}
+}
+
+/** True when an extra leave should keep the other remote (no rematch). */
+function shouldKeepRemainingPair() {
+  if (peerPcs.size > 1) {
+    for (const pc of peerPcs.values()) {
+      if (peerPcIsLive(pc)) return true;
+    }
+    return false;
+  }
+  if (peerPcs.size !== 1) return false;
+  const only = [...peerPcs.values()][0];
+  if (!peerPcIsLive(only)) return false;
+  if (keepRemainingPair) return true;
+  if (Array.isArray(lastMatchedPeers) && lastMatchedPeers.length >= 2) {
+    return true;
+  }
+  try {
+    if (
+      matchMode !== "party_browse" &&
+      document
+        .querySelector("main.stage")
+        ?.classList.contains("stage-trio")
+    ) {
+      return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
+/**
+ * Close only this PeerConnection; keep remaining remote A/V; 3→2 tiles.
+ * No closeAllPeers, no kickSolo, no new offer for the survivor.
+ * @param {import('./webrtc.js').RouletteWebRtc | object} pc
+ * @param {{ reason?: string }} [opts]
+ * @returns {boolean}
+ */
+function dropOnePeerKeepRest(pc, opts = {}) {
+  if (!pc) return false;
+  let hasOther = false;
+  for (const other of peerPcs.values()) {
+    if (other !== pc) {
+      hasOther = true;
+      break;
+    }
+  }
+  if (!hasOther && peerPcs.size <= 1 && !keepRemainingPair) return false;
+  keepRemainingPair = true;
+  let deadId = null;
+  for (const [pid, p] of peerPcs.entries()) {
+    if (p === pc) {
+      deadId = pid;
+      break;
+    }
+  }
+  const keepMesh =
+    !!opts.keepMesh ||
+    (deadId &&
+      Array.isArray(lastMeshPeers) &&
+      lastMeshPeers.some((p) => p && String(p.peer_id) === String(deadId)));
+  if (deadId) {
+    if (Array.isArray(lastMatchedPeers)) {
+      lastMatchedPeers = lastMatchedPeers.filter(
+        (p) => p && p.peer_id && p.peer_id !== deadId
+      );
+    }
+    if (!keepMesh) pruneMeshPeer(deadId);
+  }
+  if (pc.remotePeerId && String(pc.remotePeerId) !== String(deadId) && !keepMesh) {
+    pruneLastMatchedPeer(pc.remotePeerId);
+  }
+  try {
+    pc.closeCall?.({ keepLocal: true, sendBye: false });
+  } catch (_) {}
+  onPeerPcEnded(pc);
+  try {
+    log(
+      `keep-pair drop ${opts.reason || "leave"} kept=${peerPcs.size} no-rematch`
+    );
+  } catch (_) {}
+  return true;
+}
+
 /**
  * When a peer PC dies (failed/closed), unbind its tile and reflow remaining.
  * @param {import('./webrtc.js').RouletteWebRtc | object} pc
  */
 function onPeerPcEnded(pc) {
   if (!pc) return;
+  const wasMulti =
+    peerPcs.size > 1 ||
+    trioBrowse ||
+    (Array.isArray(lastMatchedPeers) && lastMatchedPeers.length >= 2);
   let deadId = null;
   for (const [pid, p] of peerPcs.entries()) {
     if (p === pc) {
@@ -25552,17 +35683,41 @@ function onPeerPcEnded(pc) {
     }
   }
   if (deadId) {
+    pruneLastMatchedPeer(deadId);
     try {
       pc.closeCall?.({ keepLocal: true, sendBye: false });
     } catch (_) {}
     peerPcs.delete(deadId);
   }
+  if (pc.remotePeerId) pruneLastMatchedPeer(pc.remotePeerId);
   if (rtc === pc) {
     rtc = peerPcs.size ? [...peerPcs.values()][0] : null;
   }
+  if (wasMulti && peerPcs.size >= 1) keepRemainingPair = true;
   clearOrphanVideoSlots({ keepMain: peerPcs.size > 0 });
-  // One remaining peer → solo 2-cam layout
-  if (peerPcs.size === 1 && (trioBrowse || matchMode === "party_browse")) {
+  // Extra left: 3→2 tiles. Do not settleTrio (that keeps empty 3rd pane).
+  if (wasMulti && peerPcs.size === 1) {
+    const [pid, keepPc] = [...peerPcs.entries()][0];
+    const meta =
+      (Array.isArray(lastMatchedPeers)
+        ? lastMatchedPeers.find((p) => p.peer_id === pid)
+        : null) || { peer_id: pid, role: keepPc._role || "stranger" };
+    if (yourRole === "party" && isTeammateRole(keepPc._role)) {
+      try {
+        reattachFriendToMainRemote();
+        setThirdSlotStream(null);
+        enableTrioLayout(true, { searching: true });
+      } catch (_) {}
+    } else {
+      try {
+        collapseMultiPeerToSoloLayout([meta]);
+      } catch (_) {}
+    }
+  } else if (trioHuntMustDrop()) {
+    try {
+      settleMatchedTrioLayout();
+    } catch (_) {}
+  } else if (peerPcs.size === 1 && (trioBrowse || matchMode === "party_browse")) {
     const [pid, keepPc] = [...peerPcs.entries()][0];
     const meta =
       (Array.isArray(lastMatchedPeers)
@@ -25599,6 +35754,9 @@ function onPeerPcEnded(pc) {
   try {
     updatePartyRoleStrip({ peers: lastMatchedPeers });
   } catch (_) {}
+  try {
+    rebindLiveRemoteAfterPeerEnd();
+  } catch (_) {}
 }
 
 /**
@@ -25631,11 +35789,16 @@ async function kickSoloWebRtc(msg, p) {
       setSessionForceRelay(true);
     }
   } catch (_) {}
+  try {
+    enableTrioLayout(false);
+    trioBrowse = false;
+  } catch (_) {}
 
   // Mutex: concurrent kickSolo (matched race / retry) was dual-PC → 2nd offer@800ms.
   // But hung await connect() held _inflight forever → offerKick concurrent-skip
   // every wave until hardMs ~25s. Hop10: re-entry if stuck >800ms without emit.
-  // Hop11: free at 550ms (was 800) so denser offerKick can re-enter before hard belt.
+  // Hop11: free at 550ms. Hop9: free at 400ms so ≤400ms offerKick recovery can re-enter.
+  // If emit already ok, always skip (never dual-offer thrash).
   if (kickSoloWebRtc._inflight && kickSoloWebRtc._inflightPeer === peerId) {
     const stuckSince = kickSoloWebRtc._inflightAt || 0;
     const stuckMs = stuckSince ? Date.now() - stuckSince : 99999;
@@ -25644,9 +35807,9 @@ async function kickSoloWebRtc(msg, p) {
       const cur = findPcForPeer(peerId);
       emitOk = !!(cur && (cur._offerEmitOk || cur._gotRemoteAnswerAt));
     } catch (_) {}
-    if (emitOk || stuckMs < 550) {
+    if (emitOk || stuckMs < 400) {
       log(
-        `kickSolo skip concurrent peer=${String(peerId).slice(0, 8)} stuck=${stuckMs}ms`
+        `kickSolo skip concurrent peer=${String(peerId).slice(0, 8)} stuck=${stuckMs}ms emit=${emitOk ? 1 : 0}`
       );
       return;
     }
@@ -25655,6 +35818,7 @@ async function kickSoloWebRtc(msg, p) {
     );
     kickSoloWebRtc._inflight = false;
     kickSoloWebRtc._inflightPeer = "";
+    kickSoloWebRtc._inflightAt = 0;
   }
   // Match already offered ON THE WIRE — never spawn a second PeerConnection.
   // Must require _offerEmitOk (or remote answer). Stamp alone blocked recovery
@@ -25686,88 +35850,105 @@ async function kickSoloWebRtc(msg, p) {
   kickSoloWebRtc._inflightPeer = peerId;
   kickSoloWebRtc._inflightAt = Date.now();
   try {
-  // Stream: prefer existing preview; only GUM if empty (fast constraints)
-  // SPEED: cap cold GUM at 400ms for offerer — SDP must leave even without cam.
+  // Stream: prefer existing preview; only GUM if empty (fast constraints).
+  // Hop10 offerer: do NOT await cold GUM before connect — SDP-first empty
+  // transceivers; GUM resolves in background and pushOutboundVideoTracks later.
+  // Answerer still races short GUM (needs media sooner for answer).
   let stream = previewStream;
   const live = !!(stream?.getVideoTracks?.() || []).some(
     (t) => t && t.readyState === "live"
   );
-  if (!live) {
-    // Cap GUM hard — hung camera was multi-second match→offer silence.
-    // Prefer tiny/fast constraints; full quality can renegotiate later.
+  const gumConstraints = {
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    },
+    video: {
+      facingMode: "user",
+      width: { ideal: 640, max: 960 },
+      height: { ideal: 480, max: 540 },
+      frameRate: { ideal: 20, max: 24 },
+    },
+  };
+  const attachLocalPreview = (s) => {
+    try {
+      previewStream = s;
+      const local = $("local");
+      if (local && s) {
+        local.srcObject = s;
+        local.muted = true;
+        void local.play?.();
+      }
+    } catch (_) {}
+  };
+  if (!live && iOffer) {
+    // Fire GUM async — never block match→offer on cam
+    try {
+      if (window.isSecureContext) {
+        void navigator.mediaDevices
+          .getUserMedia(gumConstraints)
+          .then((s) => {
+            attachLocalPreview(s);
+            try {
+              if (!selfBlurred) void pushOutboundVideoTracks();
+            } catch (_) {}
+          })
+          .catch(() => {
+            try {
+              void startPreview().then(() => {
+                try {
+                  if (!selfBlurred) void pushOutboundVideoTracks();
+                } catch (_) {}
+              });
+            } catch (_) {}
+          });
+      }
+    } catch (_) {}
+    stream = previewStream || null;
+    try {
+      const local = $("local");
+      if (!stream && local?.srcObject) stream = local.srcObject;
+    } catch (_) {}
+  } else if (!live) {
+    // Answerer: cap GUM hard — hung camera was multi-second silence
     try {
       if (!window.isSecureContext) throw new Error("need HTTPS");
       stream = await Promise.race([
-        navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-          video: {
-            facingMode: "user",
-            width: { ideal: 640, max: 960 },
-            height: { ideal: 480, max: 540 },
-            frameRate: { ideal: 20, max: 24 },
-          },
-        }),
+        navigator.mediaDevices.getUserMedia(gumConstraints),
         new Promise((_, rej) =>
-          setTimeout(
-            () => rej(new Error("gum timeout")),
-            // Answerer must not wait 900ms — hub match_to_answer ~1s target
-            iOffer ? 350 : 250
-          )
+          setTimeout(() => rej(new Error("gum timeout")), 220)
         ),
       ]);
-      previewStream = stream;
-      try {
-        const local = $("local");
-        if (local) {
-          local.srcObject = stream;
-          local.muted = true;
-          void local.play?.();
-        }
-      } catch (_) {}
+      attachLocalPreview(stream);
     } catch (e) {
-      // Fall back to startPreview race (short)
       try {
         await Promise.race([
           startPreview(),
-          new Promise((r) => setTimeout(r, iOffer ? 200 : 500)),
+          new Promise((r) => setTimeout(r, 400)),
         ]);
       } catch (_) {}
       stream = previewStream;
     }
   }
-  // Offerer: proceed even without media (transceivers in connect). Cam attaches later.
-  if (!stream && !iOffer) {
-    log(_t("log.noMedia") || "no media for kickSolo");
-    if (!(kickSoloWebRtc._retryArm > Date.now() - 4000)) {
-      kickSoloWebRtc._retryArm = Date.now();
-      setTimeout(() => {
-        try {
-          if (!matched) return;
-          const cur = peerId ? findPcForPeer(peerId) : null;
-          if (cur?._offerEmitOk || cur?.pc?.remoteDescription) return;
-          void kickSoloWebRtc(msg, p);
-        } catch (_) {}
-      }, 500);
-    }
-    return;
+  // No camera: still connect (audio-only or empty transceivers).
+  // Aborting here left laptop-without-webcam on Linking forever.
+  if (!stream) {
+    stream = previewStream || null;
   }
-  if (!stream && iOffer) {
-    log("kickSolo offerer no-cam — SDP with empty transceivers");
+  if (!stream) {
+    log(
+      iOffer
+        ? "kickSolo offerer no-cam — SDP with empty transceivers"
+        : "kickSolo answerer no-cam — SDP with empty transceivers"
+    );
     stream = null;
   }
 
   // Drop dead PC for this peer so we always get a fresh offer path
   const existing = peerId ? findPcForPeer(peerId) : null;
   if (existing) {
-    const hasLive =
-      existing.remoteStream &&
-      (existing.remoteStream.getVideoTracks?.() || []).some(
-        (t) => t.readyState === "live"
-      );
+    const hasLive = streamHasLiveAv(existing.remoteStream);
     const iceOk =
       existing.pc?.iceConnectionState === "connected" ||
       existing.pc?.iceConnectionState === "completed";
@@ -25946,6 +36127,9 @@ async function kickSoloWebRtc(msg, p) {
         try {
           paintRemoteFromPc(pc, stream);
         } catch (_) {}
+        try {
+          dismissLinkingIfMediaLive();
+        } catch (_) {}
         ensurePartnerVideoVisible();
         // Burst paint — media often arrives before layout; empty layer z-index
         // was covering #remote while peer_usage showed real RTP.
@@ -25965,6 +36149,9 @@ async function kickSoloWebRtc(msg, p) {
         if (s === "connected") {
           dismissFriendRingUi();
           if (pc.remoteStream) paintRemoteFromPc(pc, pc.remoteStream);
+          try {
+            dismissLinkingIfMediaLive();
+          } catch (_) {}
           ensurePartnerVideoVisible();
         }
         handleWebrtcConnectionState(s, pc);
@@ -26008,16 +36195,24 @@ async function kickSoloWebRtc(msg, p) {
             const hubName = String(
               lastMatchMeta?.name || activeChat?.peerName || ""
             ).trim();
-            const needName = !hubName || isPoisonDisplayName(hubName);
+            const needName =
+              !isRealPartnerDisplayName(hubName) &&
+              !isRealPartnerDisplayName(lastGoodPartnerName);
             sendPartnerIdentityP2p({ request: needName });
           } catch (_) {}
           // Re-announce mute so partner sees veil if we muted before DC opened
           try {
             if (partnerMuted) sendPartnerMuteP2p(true);
           } catch (_) {}
-          // Re-announce self-hide so Android shows mosaic (not pure black)
+          // Re-announce only real cam-off / no-cam — never Hide (soft-blur).
           try {
-            if (selfBlurred || camOff) sendSelfHideP2p(true);
+            syncCamHiddenSignal();
+          } catch (_) {}
+          try {
+            if (noLocalCamera) syncNoCamOutbound();
+          } catch (_) {}
+          try {
+            pushDebateOnDcOpen();
           } catch (_) {}
         }
       },
@@ -26031,37 +36226,89 @@ async function kickSoloWebRtc(msg, p) {
   // Prefer REAL preview for first offer — never start stranger P2P on black canvas
   // (sticky Hide / blur canvas was one-way black to phone; not the 24s MTO but
   // feels "stuck connecting").
+  // Register in map first so multi-clone logic sees peerPcs.size correctly.
+  peerPcs.set(peerId, pc);
+  rtc = pc;
   try {
-    if (!isPureFriendCallSession() && selfBlurred) {
+    if (
+      !isPureFriendCallSession() &&
+      selfBlurred &&
+      !selfBlurStickyUntilReveal &&
+      !selfBlurUserLocked
+    ) {
       selfBlurred = false;
       try {
         stopSelfBlurCanvas();
       } catch (_) {}
     }
-    if (previewStream && !selfBlurred) pc.setLocalStream(previewStream);
-    else if (stream && !selfBlurred) pc.setLocalStream(stream);
-    else pc.setLocalStream(localStreamForPeerOutbound() || stream);
+    if (selfBlurred) {
+      const soft =
+        (typeof getBlurredOutboundTrack === "function" &&
+          getBlurredOutboundTrack()) ||
+        null;
+      const a =
+        (typeof getOutboundAudioTrack === "function" &&
+          getOutboundAudioTrack()) ||
+        previewStream?.getAudioTracks?.()?.[0] ||
+        stream?.getAudioTracks?.()?.[0] ||
+        null;
+      bindPcOutboundMedia(pc, soft, a);
+    } else {
+      const real =
+        previewStream?.getVideoTracks?.()?.[0] ||
+        stream?.getVideoTracks?.()?.[0] ||
+        null;
+      const useV =
+        real && real.readyState === "live"
+          ? outboundVideoTrackForPc(pc, real)
+          : null;
+      const a =
+        (typeof getOutboundAudioTrack === "function" &&
+          getOutboundAudioTrack()) ||
+        previewStream?.getAudioTracks?.()?.[0] ||
+        stream?.getAudioTracks?.()?.[0] ||
+        null;
+      if (useV || a) {
+        bindPcOutboundMedia(pc, useV, a);
+      } else if (peerPcs.size <= 1 && stream && !selfBlurred) {
+        try {
+          pc.setLocalStream(stream);
+        } catch (_) {}
+      } else {
+        bindPcOutboundMedia(pc, null, null);
+      }
+      // Multi without tracks: leave empty; pushOutboundVideoTracks after connect
+    }
   } catch (_) {
-    pc.setLocalStream(stream);
+    try {
+      if (peerPcs.size <= 1) {
+        pc.setLocalStream(localStreamForPeerOutbound() || stream || previewStream);
+      }
+    } catch (__) {}
   }
-  peerPcs.set(peerId, pc);
-  rtc = pc;
   try {
     registerPeerUi(p || { peer_id: peerId }, "remote");
   } catch (_) {}
   // Bound connect so hung createOffer cannot hold kickSolo mutex forever.
   // offerKick frees inflight too; this is belt for first path.
-  // Hop11: offerer budget 1000ms (was 1200) — pure first-relay still early-exits;
-  // connect continues in background; offerKick re-kick if still no emit.
+  // Hop10 connect: pure force_relay offerer 1100ms (≥ pure wait ~870 + slack);
+  // hybrid offerer 750; answerer 1800. Free ASAP when emit already ok.
+  // Never leave _inflight stuck — finally always clears.
   try {
+    const purePath = !!(msg && msg.force_relay);
+    const connectBudgetMs = iOffer ? (purePath ? 1100 : 750) : 1800;
     await Promise.race([
       pc.connect(),
-      new Promise((resolve) =>
-        setTimeout(() => {
+      new Promise((resolve) => {
+        const tBudget0 = Date.now();
+        let settled = false;
+        const finish = (why) => {
+          if (settled) return;
+          settled = true;
           try {
-            if (!pc._offerEmitOk && iOffer) {
+            if (!pc._offerEmitOk && iOffer && why === "budget") {
               log(
-                `kickSolo connect budget — free path peer=${String(peerId).slice(0, 8)}`
+                `kickSolo connect budget — free path peer=${String(peerId).slice(0, 8)} +${Date.now() - tBudget0}ms`
               );
               // Free webrtc locks so a follow-up offerKick can emit/re-kick
               try {
@@ -26078,11 +36325,35 @@ async function kickSoloWebRtc(msg, p) {
                   window.__ruletMatchOfferAt = 0;
                 }
               } catch (_) {}
+            } else if (
+              iOffer &&
+              (pc._offerEmitOk || pc._gotRemoteAnswerAt) &&
+              why === "emit"
+            ) {
+              log(
+                `kickSolo emit-ok free +${Date.now() - tBudget0}ms peer=${String(peerId).slice(0, 8)}`
+              );
             }
           } catch (_) {}
           resolve();
-        }, iOffer ? 1000 : 2000)
-      ),
+        };
+        // Poll emitOk so we don't hold _inflight for full connect settle
+        const poll = () => {
+          try {
+            if (pc._offerEmitOk || pc._gotRemoteAnswerAt) {
+              finish("emit");
+              return;
+            }
+          } catch (_) {}
+          const elapsed = Date.now() - tBudget0;
+          if (elapsed >= connectBudgetMs) {
+            finish("budget");
+            return;
+          }
+          setTimeout(poll, 40);
+        };
+        setTimeout(poll, 40);
+      }),
     ]);
   } catch (e) {
     log(`kickSolo connect err ${e}`);
@@ -26104,6 +36375,7 @@ async function kickSoloWebRtc(msg, p) {
 async function joinPeers(peers) {
   // SPEED: never block match on full startPreview when cam already live.
   // startPreview() could hang on enumerateDevices / GUM → 15–25s no offer.
+  const list = Array.isArray(peers) ? peers : [];
   const camLive = !!(previewStream?.getVideoTracks?.() || []).some(
     (t) => t && t.readyState === "live"
   );
@@ -26119,22 +36391,47 @@ async function joinPeers(peers) {
   }
   if (!previewStream) {
     log(_t("log.noMedia"));
-    return;
+    // No-cam 3rd / delayed GUM: still mesh-join (laptop vs pair must create PCs).
+    // 658 FAIL: laptop 1-peer Matched + no webcam returned here → zero PCs,
+    // zero av_path, 0 videos (17-33-58). Any live match must still connect.
+    const mustMesh =
+      list.length >= 1 ||
+      list.length >= 2 ||
+      matchMode === "party_browse" ||
+      yourRole === "party" ||
+      trioBrowse ||
+      matched ||
+      (Array.isArray(lastMeshPeers) && lastMeshPeers.length >= 2);
+    if (!mustMesh) return;
   }
-
-  const list = Array.isArray(peers) ? peers : [];
-  // Cap 3 opponents (solo 3v1). Was slice(0,2) which blocked third party member.
-  const opponents = list
+  // Cap 3 opponents (you + 3 remotes = 4-way). Mesh cost — no remote4 without HTML.
+  const allOpponents = list
     .filter((p) => p.role === "stranger" || p.role === "party")
-    .sort((a, b) => String(a.peer_id).localeCompare(String(b.peer_id)))
-    .slice(0, 3);
+    .sort((a, b) => String(a.peer_id).localeCompare(String(b.peer_id)));
   const friendMeta = list.find((p) => isTeammateRole(p.role));
+  // Mesh cap: at most 3 remotes total (HTML has remote / remote2 / remote-third).
+  // Solo can take 3 strangers; party keeps mate on #remote so max 2 strangers.
+  const maxOpponents =
+    friendMeta && (yourRole === "party" || trioBrowse) ? 2 : 3;
+  if (allOpponents.length > maxOpponents) {
+    log(
+      _t("log.partyCap") ||
+        `max 3 opponents — skipping ${allOpponents.length - maxOpponents} extra peer(s) (mesh cost)`
+    );
+  }
+  const opponents = allOpponents.slice(0, maxOpponents);
+  const opponentIds = new Set(opponents.map((p) => p.peer_id).filter(Boolean));
   const partyBrowsing =
     matchMode === "party_browse" &&
     (yourRole === "party" || opponents.length > 0);
+  const soloVsParty =
+    yourRole === "solo" &&
+    opponents.filter((p) => p.role === "party").length >= 2;
   const useTrio =
     trioBrowse ||
-    (partyBrowsing && yourRole === "party" && (friendMeta || opponents.length));
+    (partyBrowsing && yourRole === "party" && (friendMeta || opponents.length)) ||
+    opponents.length >= 2 ||
+    soloVsParty;
 
   // Drop PCs only when the peer is gone. Never close a peer still in `list`
   // (find-third reclassifies the same stranger peer_id as "teammate" — old code
@@ -26148,102 +36445,243 @@ async function joinPeers(peers) {
       if (still.peer_id && still.peer_id !== pid) rekeyPeerPc(still.peer_id, pc);
       continue;
     }
-    if (isTeammateRole(pc._role) && matchMode !== "solo" && list.some((p) => isTeammateRole(p.role))) {
-      // Durable co-search / friend link while party-browsing — not after trio→solo collapse
-      continue;
-    }
-    // Keep if map key is stale but this PC is still the listed teammate (live media)
-    if (
-      isTeammateRole(pc._role) &&
-      matchMode !== "solo" &&
-      (pc.remoteStream?.getVideoTracks?.() || []).some((t) => t.readyState === "live")
-    ) {
+    // Incremental join: never rematch-tear teammate (3rd join / party rematch)
+    if (isTeammateRole(pc._role) && matchMode !== "solo") {
       const mate = list.find((p) => isTeammateRole(p.role));
-      if (mate && !findPcForPeer(mate.peer_id)) {
-        rekeyPeerPc(mate.peer_id, pc);
-        pc._role = mate.role || "teammate";
+      if (mate) {
+        if (!findPcForPeer(mate.peer_id)) {
+          rekeyPeerPc(mate.peer_id, pc);
+          pc._role = mate.role || "teammate";
+        }
+        continue;
+      }
+      if (streamHasLiveAv(pc.remoteStream) || lastMatchedStrangerHasLivePc()) {
         continue;
       }
     }
     if (listIds.has(pid)) continue;
+    // Never rematch-tear a live/connected PC when adding a 3rd.
+    {
+      const st = pc.pc?.iceConnectionState || pc.pc?.connectionState || "";
+      if (
+        st !== "closed" &&
+        (streamHasLiveAv(pc.remoteStream) ||
+          st === "connected" ||
+          st === "completed")
+      ) {
+        continue;
+      }
+    }
     try {
       pc.closeCall({ keepLocal: true, sendBye: false });
     } catch (_) {}
     peerPcs.delete(pid);
   }
 
-  // Video layout
+  // Video layout — cap 3 remotes: #remote / #remote2 / #remote-third (no remote4)
   if (useTrio && yourRole === "party") {
-    enableTrioLayout(true, { searching: opponents.length === 0 });
-    setSplitRemote(false);
-    // Teammate → main remote (first conversationalist); stranger → third column
+    enableTrioLayout(true, {
+      searching: opponents.length === 0 && !trioHuntMustDrop(),
+    });
+    // Teammate / latched 1v1 on main; stranger 3rd → #remote-third only.
     const mate =
       friendMeta ||
       list.find((p) => isTeammateRole(p.role)) ||
+      pickFirstPartnerPeer(list) ||
       null;
     bindFirstPartnerToMain(mate);
     if (mate) registerPeerUi(mate, "remote");
     setRemoteEmpty(false);
-    if (opponents[0]) {
-      const opc = findPcForPeer(opponents[0].peer_id);
-      videoSlotsTrioBind(opponents[0], opc);
-      registerPeerUi(opponents[0], "remote-third");
+    const extraOpp = opponents.filter(
+      (o) => !mate || o.peer_id !== mate.peer_id
+    );
+    if (extraOpp.length >= 2) {
+      setSplitRemote(true);
+      const wrap = $("remote2-wrap");
+      if (wrap) {
+        wrap.hidden = false;
+        wrap.removeAttribute("hidden");
+      }
+      if ($("remote2")) $("remote2").hidden = false;
+      const opc0 = findPcForPeer(extraOpp[0].peer_id);
+      if (opc0) bindPcVideo(opc0, $("remote2"));
+      registerPeerUi(extraOpp[0], "remote2");
+      const opc1 = findPcForPeer(extraOpp[1].peer_id);
+      videoSlotsTrioBind(extraOpp[1], opc1);
+      registerPeerUi(extraOpp[1], "remote-third");
+      if (opc1?.remoteStream) {
+        setThirdSlotStream(
+          opc1.remoteStream,
+          extraSlotDisplayName(extraOpp[1].name || "", { opponentIndex: 2 })
+        );
+      } else {
+        showThirdConnecting(
+          extraSlotDisplayName(extraOpp[1].name || "", { opponentIndex: 2 })
+        );
+      }
+    } else if (extraOpp[0]) {
+      setSplitRemote(false);
+      const opc = findPcForPeer(extraOpp[0].peer_id);
+      videoSlotsTrioBind(extraOpp[0], opc);
+      registerPeerUi(extraOpp[0], "remote-third");
+      // Do not setThirdSlotStream(null) — that re-shows “Looking for a 3rd”
+      // while the stranger PC is still gathering. Watchdog + ontrack fill it.
       if (opc?.remoteStream) {
-        setThirdSlotStream(opc.remoteStream, opponents[0].name || "");
+        setThirdSlotStream(
+          opc.remoteStream,
+          extraSlotDisplayName(extraOpp[0].name || "")
+        );
+      } else {
+        showThirdConnecting(extraSlotDisplayName(extraOpp[0].name || ""));
       }
     } else {
+      setSplitRemote(false);
       setThirdSlotStream(null);
+    }
+    if (opponents.length > 2) {
+      log(
+        _t("log.partyCap") ||
+          "max 3 opponents — party slot full (mate+2); skipping extra (mesh cost)"
+      );
     }
     startThirdSlotWatchdog();
   } else {
-    // Solo vs party of 2 → split stack; solo vs party of 3 → stack + third tile
-    setSplitRemote(opponents.length >= 2);
-    if (opponents.length >= 3 && yourRole === "solo") {
+    // Solo 3-way → trio mid-split (#remote + #remote-third), not remote2-only
+    if (opponents.length >= 2) {
       enableTrioLayout(true, { searching: false });
-      setThirdSlotStream(null); // filled when stream arrives
+      setSplitRemote(opponents.length >= 3);
+      if (opponents.length >= 3) {
+        showThirdConnecting(
+          extraSlotDisplayName(opponents[2]?.name || "", { opponentIndex: 3 })
+        );
+      }
+      startThirdSlotWatchdog();
     } else if (!useTrio) {
+      setSplitRemote(false);
       stopThirdSlotWatchdog();
     }
   }
 
   const videoSlots = new Map();
+  const firstPartner =
+    friendMeta ||
+    list.find((p) => p && isTeammateRole(p.role)) ||
+    pickFirstPartnerPeer(list);
+  const extraSlots = opponents.filter(
+    (o) => !firstPartner || o.peer_id !== firstPartner.peer_id
+  );
   if (useTrio && yourRole === "party") {
-    if (friendMeta) videoSlots.set(friendMeta.peer_id, $("remote"));
-    if (opponents[0])
-      videoSlots.set(opponents[0].peer_id, $("remote-third") || $("remote2"));
+    if (firstPartner) videoSlots.set(firstPartner.peer_id, $("remote"));
+    // Party 4-way: mate + 2 strangers fill all three tiles
+    if (extraSlots.length >= 2) {
+      videoSlots.set(extraSlots[0].peer_id, $("remote2"));
+      videoSlots.set(
+        extraSlots[1].peer_id,
+        $("remote-third") || $("remote2")
+      );
+    } else if (extraSlots[0]) {
+      videoSlots.set(
+        extraSlots[0].peer_id,
+        $("remote-third") || $("remote2")
+      );
+    }
   } else if (opponents.length >= 3 && yourRole === "solo") {
-    // 3v1: three party members on remote / remote2 / remote-third
-    videoSlots.set(opponents[0].peer_id, $("remote"));
-    videoSlots.set(opponents[1].peer_id, $("remote2"));
-    videoSlots.set(opponents[2].peer_id, $("remote-third") || $("remote2"));
+    // 4-way (you+3): first partner on #remote; extras remote2 + remote-third
+    const main4 = firstPartner || opponents[0];
+    const rest4 = opponents.filter((o) => o.peer_id !== main4.peer_id);
+    videoSlots.set(main4.peer_id, $("remote"));
+    if (rest4[0]) videoSlots.set(rest4[0].peer_id, $("remote2"));
+    if (rest4[1]) {
+      videoSlots.set(rest4[1].peer_id, $("remote-third") || $("remote2"));
+    }
     const wrap = $("remote2-wrap");
     if (wrap) {
       wrap.hidden = false;
       wrap.removeAttribute("hidden");
     }
     if ($("remote2")) $("remote2").hidden = false;
-    registerPeerUi(opponents[0], "remote");
-    registerPeerUi(opponents[1], "remote2");
-    registerPeerUi(opponents[2], "remote-third");
+    registerPeerUi(main4, "remote");
+    if (rest4[0]) registerPeerUi(rest4[0], "remote2");
+    if (rest4[1]) registerPeerUi(rest4[1], "remote-third");
     enableTrioLayout(true, { searching: false });
   } else if (opponents.length >= 2) {
-    videoSlots.set(opponents[0].peer_id, $("remote"));
-    videoSlots.set(opponents[1].peer_id, $("remote2"));
-    const wrap = $("remote2-wrap");
-    if (wrap) {
-      wrap.hidden = false;
-      wrap.removeAttribute("hidden");
+    // Laptop/3rd (your_role=solo, peers both role=party) + any 1v2:
+    // latched first partner on #remote; stranger 3rd → #remote-third only
+    enableTrioLayout(true, { searching: false });
+    const main2 = pickFirstPartnerPeer(opponents) || firstPartner;
+    const rest2 = opponents.filter(
+      (o) => !main2 || o.peer_id !== main2.peer_id
+    );
+    if (main2) {
+      videoSlots.set(main2.peer_id, $("remote"));
+      registerPeerUi(main2, "remote");
+    } else {
+      videoSlots.set(opponents[0].peer_id, $("remote"));
+      registerPeerUi(opponents[0], "remote");
     }
-    if ($("remote2")) $("remote2").hidden = false;
-    registerPeerUi(opponents[0], "remote");
-    registerPeerUi(opponents[1], "remote2");
+    const thirdPeer = rest2[0] || (!main2 ? opponents[1] : null);
+    if (thirdPeer) {
+      videoSlots.set(thirdPeer.peer_id, $("remote-third") || $("remote2"));
+      registerPeerUi(thirdPeer, "remote-third");
+    }
+    bindSoloPartyBothRemotes(opponents);
+    const mainPc = main2 ? findPcForPeer(main2.peer_id) : null;
+    const thirdPc = thirdPeer ? findPcForPeer(thirdPeer.peer_id) : null;
+    if (mainPc) bindPcVideo(mainPc, $("remote"));
+    if (thirdPc && thirdPeer) {
+      videoSlotsTrioBind(thirdPeer, thirdPc);
+    } else if (thirdPeer) {
+      showThirdConnecting(
+        extraSlotDisplayName(thirdPeer.name || "", { opponentIndex: 2 })
+      );
+    }
+    try {
+      bindLiveTrioRemoteTiles();
+    } catch (_) {}
   } else if (opponents.length === 1) {
-    videoSlots.set(opponents[0].peer_id, $("remote"));
-    registerPeerUi(opponents[0], "remote");
+    const extra1 = extraSlots[0];
+    if (
+      firstPartner &&
+      extra1 &&
+      extra1.peer_id &&
+      extra1.peer_id !== firstPartner.peer_id
+    ) {
+      // 1v1 + Android 3rd (yourRole still solo): extra on #remote-third only.
+      videoSlots.set(firstPartner.peer_id, $("remote"));
+      registerPeerUi(firstPartner, "remote");
+      videoSlots.set(extra1.peer_id, $("remote-third") || $("remote2"));
+      registerPeerUi(extra1, "remote-third");
+      enableTrioLayout(true, { searching: false });
+      const extraPc = findPcForPeer(extra1.peer_id);
+      if (extraPc) {
+        videoSlotsTrioBind(extra1, extraPc);
+      } else {
+        showThirdConnecting(extraSlotDisplayName(extra1.name || ""));
+      }
+    } else {
+      const only = firstPartner || opponents[0];
+      videoSlots.set(only.peer_id, $("remote"));
+      registerPeerUi(only, "remote");
+    }
   }
   if (friendMeta && !(useTrio && yourRole === "party")) {
     registerPeerUi(friendMeta, "remote");
   }
+  // Occupancy wins: keep live binds, never map two peers onto one tile.
+  try {
+    const occupied = assignRemoteVideoSlots(list);
+    for (const [pid, el] of occupied) {
+      videoSlots.set(pid, el);
+    }
+    const usedEls = new Set();
+    for (const [pid, el] of [...videoSlots.entries()]) {
+      if (!el || usedEls.has(el)) {
+        videoSlots.delete(pid);
+        continue;
+      }
+      usedEls.add(el);
+    }
+  } catch (_) {}
   try {
     updatePartyRoleStrip({ peers: list, mode: matchMode });
   } catch (_) {}
@@ -26271,8 +36709,25 @@ async function joinPeers(peers) {
     showFriendPip(false);
   }
 
-  /** New PCs to connect — start in parallel so 1v2 doesn’t serialize ICE. */
+  /** New PCs to connect — start in parallel so 1v2 / 3-way doesn’t serialize ICE. */
   const connectJobs = [];
+  // 1v1 offer lock is global. 3rd-join second offer must not skip (laptop 0 videos).
+  try {
+    if (list.length >= 2) {
+      window.__ruletMatchOfferLock = 0;
+      window.__ruletMatchOfferAttemptAt = 0;
+    }
+  } catch (_) {}
+  // Flag for webrtc.js: shorter pure first-relay wait on sibling PCs (3rd person)
+  try {
+    window.__ruletMultiPeerFast = list.length >= 2 || peerPcs.size >= 1;
+  } catch (_) {}
+  try {
+    if (yourRole === "party") {
+      const occ = liveMainRemotePc();
+      if (occ && streamHasLiveAv(occ.remoteStream)) occ._role = "teammate";
+    }
+  } catch (_) {}
 
   for (const p of list) {
     // Teammate / friend: always reuse existing media — never tear down & renegotiate
@@ -26295,9 +36750,7 @@ async function joinPeers(peers) {
       }
       // Prefer any live teammate-marked PC (map key may lag after find-third)
       const liveMate = [...peerPcs.values()].find(
-        (pc) =>
-          isTeammateRole(pc._role) &&
-          (pc.remoteStream?.getVideoTracks?.() || []).some((t) => t.readyState === "live")
+        (pc) => isTeammateRole(pc._role) && streamHasLiveAv(pc.remoteStream)
       );
       if (liveMate) {
         rekeyPeerPc(p.peer_id, liveMate);
@@ -26309,28 +36762,89 @@ async function joinPeers(peers) {
         }
         continue;
       }
+      // Incremental: any teammate PC already open — never rematch-tear / 2nd PC
+      const anyMate = [...peerPcs.values()].find((pc) => isTeammateRole(pc._role));
+      if (anyMate) {
+        rekeyPeerPc(p.peer_id, anyMate);
+        anyMate._role = p.role || "teammate";
+        if (useTrio && yourRole === "party") bindFirstPartnerToMain(p);
+        else {
+          bindPcVideo(anyMate, $("remote"));
+          if (anyMate.remoteStream) paintRemoteFromPc(anyMate, anyMate.remoteStream);
+        }
+        continue;
+      }
       // No PC yet (shouldn't happen mid find-third) — fall through to create
     }
 
     {
       const existing = findPcForPeer(p.peer_id);
+      // Incremental: live listed PC — keep, never recreate, never steal #remote.
+      if (existing?.pc) {
+        const keepSt =
+          existing.pc.iceConnectionState || existing.pc.connectionState || "";
+        const keepLive = streamHasLiveAv(existing.remoteStream);
+        const keepOk = keepSt === "connected" || keepSt === "completed";
+        if (keepSt !== "closed" && (keepLive || keepOk)) {
+          rekeyPeerPc(p.peer_id, existing);
+          if (p.role && !isTeammateRole(existing._role)) existing._role = p.role;
+          const occ = liveMainRemotePc();
+          if (
+            occ === existing ||
+            pcIsFirstPartner(p.peer_id, existing) ||
+            (firstPartner && p.peer_id === firstPartner.peer_id)
+          ) {
+            bindPcVideo(existing, $("remote"));
+            if (existing.remoteStream) {
+              paintRemoteFromPc(existing, existing.remoteStream);
+            }
+          } else {
+            bindPeerStreamToAssignedSlot(
+              p,
+              existing,
+              videoSlots,
+              existing.remoteStream
+            );
+          }
+          continue;
+        }
+      }
       // Only reuse if this PC is really for this peer — never steal teammate for stranger
       if (
         existing &&
         pcBelongsToPeer(existing, p) &&
         !(isTeammateRole(existing._role) && (p.role === "stranger" || p.role === "party"))
       ) {
-        const live =
-          existing.remoteStream &&
-          (existing.remoteStream.getVideoTracks?.() || []).some(
-            (t) => t.readyState === "live"
-          );
-        const iceOk =
-          existing.pc?.iceConnectionState === "connected" ||
-          existing.pc?.iceConnectionState === "completed" ||
-          existing.pc?.connectionState === "connected";
-        // Dead/checking PC reuse = zero new offers (black forever). Tear down.
-        if (!live && !iceOk) {
+        const live = streamHasLiveAv(existing.remoteStream);
+        const iceSt =
+          existing.pc?.iceConnectionState ||
+          existing.pc?.connectionState ||
+          "";
+        const iceOk = iceSt === "connected" || iceSt === "completed";
+        const closed = !existing.pc || iceSt === "closed";
+        const firstKeep =
+          isFirstPartnerPc(existing) ||
+          isTeammateRole(existing._role) ||
+          isTeammateRole(p.role);
+        const offerOnWire = !!(
+          existing._offerEmitOk ||
+          existing._gotRemoteAnswerAt ||
+          existing.pc?.localDescription
+        );
+        const neverStarted =
+          (iceSt === "new" || iceSt === "") && !offerOnWire;
+        // Dead extra shell (ice=new never offered / failed / closed):
+        // recreate + connect. 023400Z stranger ice=new stayed because
+        // we continued without connect(). NEVER tear first 1v1/teammate.
+        if (
+          !live &&
+          !iceOk &&
+          !firstKeep &&
+          (closed ||
+            neverStarted ||
+            iceSt === "failed" ||
+            iceSt === "disconnected")
+        ) {
           try {
             existing.closeCall({ keepLocal: true, sendBye: false });
           } catch (_) {}
@@ -26340,11 +36854,34 @@ async function joinPeers(peers) {
           if (p.role === "stranger" || p.role === "party") {
             rekeyPeerPc(p.peer_id, existing);
             existing._role = p.role;
+            bindPeerStreamToAssignedSlot(
+              p,
+              existing,
+              videoSlots,
+              existing.remoteStream
+            );
             const el = videoSlots.get(p.peer_id) || $("remote");
-            bindPcVideo(existing, el);
-            if (useTrio && yourRole === "party" && (el === $("remote-third") || el?.id === "remote-third")) {
-              setThirdSlotStream(existing.remoteStream || null, p.name || "");
-            }
+            if (!videoSlots.has(p.peer_id)) bindPcVideo(existing, el);
+          }
+          // Extra leftover localDescription is not emit-ok — still connect.
+          // Use hub is_offerer only (do not force solo extras — web-web glare).
+          if (
+            !iceOk &&
+            !existing._offerEmitOk &&
+            p.is_offerer
+          ) {
+            try {
+              existing.isOfferer = true;
+            } catch (_) {}
+            connectJobs.push(
+              (async () => {
+                try {
+                  await existing.connect();
+                } catch (e) {
+                  log(_t("log.callFail", { e: e.message || e }));
+                }
+              })()
+            );
           }
           continue;
         }
@@ -26352,7 +36889,7 @@ async function joinPeers(peers) {
     }
 
     // Never open a second PC for a teammate if we already have live media to them
-    if (isTeammateRole(p.role) && partnerHasLiveVideo()) {
+    if (isTeammateRole(p.role) && (partnerHasLiveVideo() || hasLiveRemoteAudio())) {
       bindFirstPartnerToMain(p);
       continue;
     }
@@ -26360,13 +36897,29 @@ async function joinPeers(peers) {
     const strangerCount = [...peerPcs.values()].filter(
       (pc) => pc._role === "stranger" || pc._role === "party"
     ).length;
-    // Max 3 opponents (3v1). Encode cost handled via quality ceiling, not hard drop at 2.
-    if (
-      (p.role === "stranger" || p.role === "party") &&
-      strangerCount >= 3
-    ) {
-      log(_t("log.partyCap") || "max 3 opponents — skipping extra peer");
-      continue;
+    // Max 3 opponents (you+3). Prefer stable opponentIds from sorted slice; skip 4th+.
+    if (p.role === "stranger" || p.role === "party") {
+      if (p.peer_id && opponentIds.size && !opponentIds.has(p.peer_id)) {
+        // Listed extra with no PC: always mesh (laptop 3rd / 1v2 solo).
+        // Old gate (party || party_browse only) skipped Android on the
+        // solo 3rd — laptop saw PC, never offered to the phone.
+        if (!findPcForPeer(p.peer_id)) {
+          /* fall through — mesh the listed extra */
+        } else {
+          log(
+            _t("log.partyCap") ||
+              "max 3 opponents — skipping extra peer (mesh cost)"
+          );
+          continue;
+        }
+      }
+      if (strangerCount >= 3) {
+        log(
+          _t("log.partyCap") ||
+            "max 3 opponents — skipping extra peer (mesh cost)"
+        );
+        continue;
+      }
     }
 
     let videoEl = null;
@@ -26378,7 +36931,23 @@ async function joinPeers(peers) {
             ? $("friend-pip")
             : $("remote");
     } else {
-      videoEl = videoSlots.get(p.peer_id) || $("remote");
+      videoEl = videoSlots.get(p.peer_id);
+      const occMain = liveMainRemotePc();
+      const isNewExtra =
+        !!(firstPartner && p.peer_id !== firstPartner.peer_id) ||
+        !!(occMain && findPcForPeer(p.peer_id) !== occMain);
+      if (!videoEl) {
+        videoEl = isNewExtra
+          ? pickExtraRemoteTileForNewPeer(null, null) ||
+            $("remote-third") ||
+            $("remote2")
+          : $("remote");
+      } else if (videoEl.id === "remote" && isNewExtra && occMain) {
+        videoEl =
+          pickExtraRemoteTileForNewPeer(null, null) ||
+          $("remote-third") ||
+          $("remote2");
+      }
     }
 
     const pc = new RouletteWebRtc(
@@ -26400,22 +36969,30 @@ async function joinPeers(peers) {
           // Live video = call connected — drop "Calling…" / ring toast
           dismissFriendRingUi();
           paintRemoteFromPc(pc, stream);
-          if (
-            useTrio &&
-            yourRole === "party" &&
-            (p.role === "stranger" || p.role === "party")
-          ) {
-            // Always paint third column + kill “Looking for a 3rd…” overlay
-            setThirdSlotStream(stream, p.name || "");
-            videoSlotsTrioBind(p, pc);
+          try {
+            dismissLinkingIfMediaLive();
+          } catch (_) {}
+          try {
+            peelExtraTileIfLive("remote-third");
+            peelExtraTileIfLive("remote2");
+          } catch (_) {}
+          if (p.role === "stranger" || p.role === "party") {
+            bindPeerStreamToAssignedSlot(p, pc, videoSlots, stream);
           }
-          // Solo matched a party (1v2): keep both party feeds painted
+          // Solo matched a party (1v2 / 1v3): keep party feeds painted
           if (
             yourRole === "solo" &&
-            matchMode === "party_browse" &&
             (p.role === "party" || p.role === "stranger")
           ) {
             ensurePartnerVideoVisible();
+            try {
+              bindLiveTrioRemoteTiles();
+            } catch (_) {}
+          }
+          if (trioHuntMustDrop() || peerPcs.size >= 2 || thirdSlotHasLiveMedia()) {
+            try {
+              settleMatchedTrioLayout();
+            } catch (_) {}
           }
         },
         onConnectionState: (s) => {
@@ -26434,25 +37011,44 @@ async function joinPeers(peers) {
               paintRemoteFromPc(pc, pc.remoteStream);
             }
             ensurePartnerVideoVisible();
+            try {
+              dismissLinkingIfMediaLive();
+            } catch (_) {}
+            if (trioHuntMustDrop() || peerPcs.size >= 2 || thirdSlotHasLiveMedia()) {
+              try {
+                settleMatchedTrioLayout();
+              } catch (_) {}
+            }
             // Re-assert self-hide black track when media path settles
             if (selfBlurred) {
               pushOutboundVideoTracks().catch(() => {});
             }
-            // ICE connected but ontrack may lag — re-paint third if we have stream
+            // ICE connected but ontrack may lag — re-paint assigned slot if we have stream
             if (
-              useTrio &&
-              yourRole === "party" &&
               (p.role === "stranger" || p.role === "party") &&
               pc.remoteStream
             ) {
-              setThirdSlotStream(pc.remoteStream, p.name || "");
-              registerPeerUi(p, "remote-third");
+              bindPeerStreamToAssignedSlot(p, pc, videoSlots, pc.remoteStream);
             }
           }
           if (selfBlurred && s === "connecting") {
             pushOutboundVideoTracks().catch(() => {});
           }
           if (s === "failed" || s === "closed" || s === "disconnected") {
+            // Extra of a 3-way: drop only extras that never got media.
+            // First partner ice_failed during 3rd-join must recover (234930Z).
+            if (
+              (s === "failed" || s === "closed") &&
+              (peerPcs.size > 1 ||
+                (Array.isArray(lastMeshPeers) && lastMeshPeers.length >= 2))
+            ) {
+              if (reofferFailedMeshExtraOnce(pc, s)) return;
+              if (shouldDropFailedExtraPeer(pc, s)) {
+                dropOnePeerKeepRest(pc, { reason: "ice_" + s });
+                return;
+              }
+              if (trySoftRecoverPeer(pc)) return;
+            }
             // Soft recover first; only prune after hard fail (handleWebrtc may recover)
             // NEVER prune during first 20s of match — kills first phone↔browser path
             if (s === "failed" || s === "closed") {
@@ -26491,13 +37087,10 @@ async function joinPeers(peers) {
             }
             ensurePartnerVideoVisible();
             if (
-              useTrio &&
-              yourRole === "party" &&
               (p.role === "stranger" || p.role === "party") &&
               pc.remoteStream
             ) {
-              setThirdSlotStream(pc.remoteStream, p.name || "");
-              registerPeerUi(p, "remote-third");
+              bindPeerStreamToAssignedSlot(p, pc, videoSlots, pc.remoteStream);
             }
             // Stranger in find-3rd connected — clear soft-retry flags
             try {
@@ -26523,14 +37116,22 @@ async function joinPeers(peers) {
               const hubName = String(
                 lastMatchMeta?.name || p?.name || ""
               ).trim();
-              const needName = !hubName || isPoisonDisplayName(hubName);
+              const needName =
+                !isRealPartnerDisplayName(hubName) &&
+                !isRealPartnerDisplayName(lastGoodPartnerName);
               sendPartnerIdentityP2p({ request: needName });
             } catch (_) {}
             try {
               if (partnerMuted) sendPartnerMuteP2p(true);
             } catch (_) {}
             try {
-              if (selfBlurred || camOff) sendSelfHideP2p(true);
+              syncCamHiddenSignal();
+            } catch (_) {}
+            try {
+              if (noLocalCamera) syncNoCamOutbound();
+            } catch (_) {}
+            try {
+              pushDebateOnDcOpen();
             } catch (_) {}
           }
         },
@@ -26538,19 +37139,74 @@ async function joinPeers(peers) {
           handleP2pDataMessage(msg, pc);
         },
       },
+      // Hub per-peer is_offerer (web offers vs mobile; web-web = waiter/peer_id).
+      // Never OR n>=2 — that made laptop AND this PC both offer → black PC cam.
       !!p.is_offerer,
       p.peer_id === "legacy" ? "" : p.peer_id
     );
     pc._role = p.role || "stranger";
+    if (list.length >= 2 || peerPcs.size >= 1) {
+      try {
+        log(
+          `joinPeers extra pc peer=${String(p.peer_id).slice(0, 8)} offerer=${p.is_offerer ? 1 : 0} role=${p.role || "?"}`
+        );
+      } catch (_) {}
+    }
+    if (p.name) pc._displayName = p.name;
+    if (p.user_id) pc._userId = p.user_id;
     pc._videoEl = videoEl;
     pc._softIceTried = false;
     pc._softReconnectScheduled = false;
+    // Multi-party / 3rd link: tighter pure TURN gather (see webrtc first-relay)
+    pc._multiPeerLink = list.length >= 2;
     // Apply self-hide before connect so first SDP/media is already black if preferred
     try {
       applySelfBlurPolicyForSession({ silent: true });
     } catch (_) {}
-    pc.setLocalStream(localStreamForPeerOutbound() || previewStream);
+    // Register in map first so multi-clone logic sees peerPcs.size correctly
     peerPcs.set(p.peer_id, pc);
+    // Per-PC outbound: when multi, every non-primary PC must get a video clone
+    // (shared track freezes cam on Chrome Android + other multi UAs).
+    try {
+      if (selfBlurred) {
+        const soft =
+          (typeof getBlurredOutboundTrack === "function" &&
+            getBlurredOutboundTrack()) ||
+          null;
+        const a =
+          (typeof getOutboundAudioTrack === "function" &&
+            getOutboundAudioTrack()) ||
+          previewStream?.getAudioTracks?.()?.[0] ||
+          null;
+        bindPcOutboundMedia(pc, soft, a);
+      } else {
+        const real = previewStream?.getVideoTracks?.()?.[0] || null;
+        const useV =
+          real && real.readyState === "live"
+            ? outboundVideoTrackForPc(pc, real)
+            : null;
+        const a =
+          (typeof getOutboundAudioTrack === "function" &&
+            getOutboundAudioTrack()) ||
+          previewStream?.getAudioTracks?.()?.[0] ||
+          null;
+        bindPcOutboundMedia(pc, useV, a);
+      }
+    } catch (_) {
+      try {
+        const real = previewStream?.getVideoTracks?.()?.[0] || null;
+        const useV =
+          real && real.readyState === "live"
+            ? outboundVideoTrackForPc(pc, real)
+            : null;
+        const a =
+          (typeof getOutboundAudioTrack === "function" &&
+            getOutboundAudioTrack()) ||
+          previewStream?.getAudioTracks?.()?.[0] ||
+          null;
+        bindPcOutboundMedia(pc, useV, a);
+      } catch (__) {}
+    }
     if (!isTeammateRole(p.role) || !rtc) rtc = pc;
     if (isTeammateRole(p.role) && videoEl === $("friend-pip")) {
       showFriendPip(true);
@@ -26569,9 +37225,29 @@ async function joinPeers(peers) {
     connectJobs.push(
       (async () => {
         try {
-          // If kickSolo already ran connect, skip
+          // Extra offerer: leftover localDescription blocked the Android offer.
+          const extraOffererNeed =
+            list.length >= 2 &&
+            !isTeammateRole(p.role) &&
+            !!p.is_offerer &&
+            !pc._offerEmitOk &&
+            !extraPeerIceConnected(pc) &&
+            !peerPcOfferInFlight(pc);
+          if (extraOffererNeed) {
+            try {
+              pc.isOfferer = true;
+            } catch (_) {}
+            if (!extraPeerIceConnected(pc)) {
+              try {
+                pc._offerEmitOk = false;
+                pc._offerSentOnce = false;
+              } catch (_) {}
+            }
+          }
+          // If kickSolo already ran connect, skip — unless extra still needs offer
           if (
             pc.pc &&
+            !extraOffererNeed &&
             (pc.pc.localDescription ||
               pc.pc.remoteDescription ||
               pc._offerSentOnce)
@@ -26607,6 +37283,28 @@ async function joinPeers(peers) {
   if (connectJobs.length) {
     await Promise.allSettled(connectJobs);
   }
+  try {
+    if (peerPcs.size >= 2) {
+      enableTrioLayout(true, { searching: false });
+      const extra = pickExtraRemotePeer(list);
+      if (extra && !thirdPersonConnected()) {
+        showThirdConnecting(extraSlotDisplayName(extra.name || ""));
+      }
+      try {
+        paintTrioTileNames(list);
+      } catch (_) {}
+    }
+  } catch (_) {}
+  const missingOpp = opponents.filter(
+    (p) => p?.peer_id && p.peer_id !== "legacy" && !findPcForPeer(p.peer_id)
+  );
+  if (missingOpp.length) {
+    log(
+      `joinPeers missing PC ${missingOpp
+        .map((p) => String(p.peer_id).slice(0, 8))
+        .join(",")}`
+    );
+  }
 
   // After PCs are up: force full mic processing for multi-remote audio
   try {
@@ -26624,9 +37322,7 @@ async function joinPeers(peers) {
   if (useTrio && yourRole === "party" && opponents[0]) {
     const oid = opponents[0].peer_id;
     const opc = findPcForPeer(oid);
-    const hasVid =
-      opc?.remoteStream &&
-      (opc.remoteStream.getVideoTracks?.() || []).some((t) => t.readyState === "live");
+    const hasVid = streamHasLiveAv(opc?.remoteStream);
     if (opc && !hasVid && !opc._softTrioWatch) {
       opc._softTrioWatch = true;
       setTimeout(() => {
@@ -26634,11 +37330,7 @@ async function joinPeers(peers) {
           if (!matched || !trioBrowse) return;
           const cur = findPcForPeer(oid);
           if (!cur) return;
-          const live =
-            cur.remoteStream &&
-            (cur.remoteStream.getVideoTracks?.() || []).some(
-              (t) => t.readyState === "live"
-            );
+          const live = streamHasLiveAv(cur.remoteStream);
           const ice = cur.pc?.iceConnectionState || "";
           if (!live && (ice === "failed" || ice === "disconnected" || ice === "checking" || ice === "new" || !ice)) {
             trySoftRecoverPeer(cur);
@@ -26654,15 +37346,22 @@ async function joinPeers(peers) {
       bindPcVideo(fpc, $("remote"));
       showFriendPip(false);
     }
-    // Paint third if already connected
-    if (opponents[0]) {
-      const opc = findPcForPeer(opponents[0].peer_id);
+    // Paint third if already connected — never the latched first partner
+    const thirdListed = extraSlots[0] || null;
+    if (thirdListed) {
+      const opc = findPcForPeer(thirdListed.peer_id);
       if (opc?.remoteStream) {
-        setThirdSlotStream(opc.remoteStream, opponents[0].name || "");
-        videoSlotsTrioBind(opponents[0], opc);
+        setThirdSlotStream(opc.remoteStream, thirdListed.name || "");
+        videoSlotsTrioBind(thirdListed, opc);
       }
     }
     syncLocalPipMirror();
+  } else if (yourRole === "solo" && opponents.length >= 2) {
+    enableTrioLayout(true, { searching: false });
+    bindSoloPartyBothRemotes(opponents);
+    try {
+      bindLiveTrioRemoteTiles();
+    } catch (_) {}
   } else if (partyBrowsing && yourRole === "party" && friendMeta && !useTrio) {
     const fpc = findPcForPeer(friendMeta.peer_id);
     if (fpc?.remoteStream && $("friend-pip")) {
@@ -26670,20 +37369,365 @@ async function joinPeers(peers) {
       showFriendPip(true);
     }
   }
+  if (trioHuntMustDrop()) {
+    try {
+      settleMatchedTrioLayout();
+    } catch (_) {}
+  } else if ((useTrio || trioBrowse) && opponents.length >= 1) {
+    try {
+      enableTrioLayout(true, { searching: false });
+      hideTrioHuntEmpty();
+    } catch (_) {}
+  }
   try {
     applySelfBlurPolicyForSession({ silent: true });
   } catch (_) {}
-  await pushOutboundVideoTracks();
+  // After connectJobs: always re-push outbound (clones) + wire ended heal.
+  // Multi enter: if preview video not live, heal once (video-only GUM — not full startPreview).
+  try {
+    wirePreviewVideoEndedHeal(previewStream);
+  } catch (_) {}
+  try {
+    await pushOutboundVideoTracks();
+  } catch (_) {}
+  if (list.length >= 2 || peerPcs.size >= 2) {
+    try {
+      const liveV = (previewStream?.getVideoTracks?.() || []).some(
+        (t) => t && t.readyState === "live"
+      );
+      if (!liveV && !camOff && !selfBlurred) {
+        await healMultiPeerLocalCamera("joinPeers-enter");
+      } else {
+        // Re-assert clones after quality tiers / ICE settle
+        setTimeout(() => {
+          try {
+            if (!selfBlurred && !camOff) void pushOutboundVideoTracks();
+          } catch (_) {}
+        }, 400);
+        setTimeout(() => {
+          try {
+            if (!selfBlurred && !camOff) void pushOutboundVideoTracks();
+          } catch (_) {}
+        }, 1800);
+      }
+    } catch (_) {}
+  }
   ensurePartnerVideoVisible();
+  // Android peer join / 3rd fill reflows stage-trio — soft-keep first partner paint
+  // (same waves as find-third accept; never hard null-rebind #remote).
+  if (useTrio && yourRole === "party") {
+    try {
+      scheduleSoftKeepPartnerPaint();
+    } catch (_) {}
+  } else if (trioBrowse || peerPcs.size >= 2) {
+    // Solo multi / 1v2 stack reflow: soft re-play main remote if live
+    try {
+      scheduleSoftKeepPartnerPaint();
+    } catch (_) {}
+  }
+  try {
+    dedupeRemoteTileStreams();
+  } catch (_) {}
+  try {
+    paintAllRemoteIdentityChrome();
+  } catch (_) {}
+  try {
+    applyStageLayoutMode();
+  } catch (_) {}
+  try {
+    dismissLinkingIfMediaLive();
+  } catch (_) {}
 }
 
 function videoSlotsTrioBind(peerMeta, pc) {
   if (!peerMeta) return;
+  const stream = pc?.remoteStream;
+  if (
+    stream &&
+    noCamLaptopBelongsOnMain(stream) &&
+    !(typeof uniqueRemotePcCount === "function" && uniqueRemotePcCount() >= 2)
+  ) {
+    const remote = $("remote");
+    if (pc && remote) bindPcVideo(pc, remote);
+    try {
+      hookNoCamPortraitFromStream("remote", stream);
+    } catch (_) {}
+    try {
+      peelNoCamIfTilePainting("remote");
+    } catch (_) {}
+    return;
+  }
+  if (stream && streamOnAnyOtherTile(stream, "remote-third")) {
+    const keep = findTileIdForStream(stream);
+    if (keep && pc) pc._videoEl = $(keep);
+    return;
+  }
   const el = $("remote-third") || $("remote2");
   if (pc && el) {
     bindPcVideo(pc, el);
     if (pc.remoteStream) setThirdSlotStream(pc.remoteStream, peerMeta.name || "");
   }
+}
+
+/**
+ * Laptop/3rd (your_role=solo): pin party[0] on #remote and party[1] on #remote-third.
+ * Never leave the second party member unbound (Android-only FAIL).
+ */
+function bindSoloPartyBothRemotes(opponents) {
+  const ops = Array.isArray(opponents) ? opponents : [];
+  if (ops.length < 2) return;
+  enableTrioLayout(true, { searching: false });
+  // Bind by the peer who owns the PC (findPcForPeer), not hub strangers-first.
+  const occPc = liveMainRemotePc();
+  let a = null;
+  if (occPc) {
+    a =
+      ops.find((o) => o?.peer_id && findPcForPeer(o.peer_id) === occPc) ||
+      null;
+  }
+  if (!a) {
+    const remoteStream = $("remote")?.srcObject;
+    if (remoteStream) {
+      a =
+        ops.find((o) => {
+          const pc = o?.peer_id ? findPcForPeer(o.peer_id) : null;
+          return !!(pc && pc.remoteStream === remoteStream);
+        }) || null;
+    }
+  }
+  if (!a) {
+    a = ops.find((o) => o?.peer_id && findPcForPeer(o.peer_id)) || null;
+  }
+  if (!a) a = pickFirstPartnerPeer(ops);
+  const b = ops.find((o) => o && o.peer_id !== a?.peer_id) || null;
+  const pca = a?.peer_id ? findPcForPeer(a.peer_id) : null;
+  const pcb = b?.peer_id ? findPcForPeer(b.peer_id) : null;
+  if (a) registerPeerUi(a, "remote");
+  if (b) registerPeerUi(b, "remote-third");
+  if (pca) {
+    const rs = pca.remoteStream;
+    if (rs) releaseStreamFromOtherTiles(rs, "remote");
+    bindPcVideo(pca, $("remote"));
+    if (rs) paintRemoteFromPc(pca, rs);
+    try {
+      hookNoCamPortraitFromStream("remote", pca.remoteStream);
+    } catch (_) {}
+    try {
+      peelNoCamIfTilePainting("remote");
+    } catch (_) {}
+  }
+  if (pcb) {
+    const rs = pcb.remoteStream;
+    if (!(rs && streamOnAnyOtherTile(rs, "remote-third"))) {
+      videoSlotsTrioBind(b, pcb);
+      if (rs) {
+        setThirdSlotStream(
+          rs,
+          extraSlotDisplayName(b?.name || "", { opponentIndex: 2 })
+        );
+      } else {
+        showThirdConnecting(
+          extraSlotDisplayName(b?.name || "", { opponentIndex: 2 })
+        );
+      }
+    }
+    try {
+      hookNoCamPortraitFromStream("remote-third", pcb.remoteStream);
+    } catch (_) {}
+    try {
+      peelNoCamIfTilePainting("remote-third");
+    } catch (_) {}
+  } else if (b) {
+    showThirdConnecting(
+      extraSlotDisplayName(b?.name || "", { opponentIndex: 2 })
+    );
+  }
+  try {
+    hideTrioHuntEmpty();
+  } catch (_) {}
+  try {
+    syncLaptopTrioTiles();
+  } catch (_) {}
+}
+
+/** Paint a listed stranger/party onto their assigned tile (party + laptop solo). */
+function bindPeerStreamToAssignedSlot(p, pc, videoSlots, stream) {
+  if (!p) return;
+  // Bind by the peer who owns the PC (findPcForPeer), not hub strangers-first.
+  const owned = p.peer_id ? findPcForPeer(p.peer_id) : null;
+  const usePc = owned || pc;
+  if (!usePc) return;
+  const s = usePc.remoteStream || stream || null;
+  const slotEl = videoSlots?.get?.(p.peer_id);
+  const sid = slotEl?.id || "";
+  if (s && slotEl && streamOnAnyOtherTile(s, sid)) {
+    const keep = findTileIdForStream(s);
+    if (keep) usePc._videoEl = $(keep);
+    return;
+  }
+  if (sid === "remote2") {
+    bindPcVideo(usePc, slotEl);
+    if (s) paintRemoteFromPc(usePc, s);
+    registerPeerUi(p, "remote2");
+    try {
+      peelNoCamIfTilePainting("remote2");
+    } catch (_) {}
+    return;
+  }
+  if (sid === "remote-third") {
+    if (
+      s &&
+      noCamLaptopBelongsOnMain(s) &&
+      !(typeof uniqueRemotePcCount === "function" && uniqueRemotePcCount() >= 2)
+    ) {
+      bindPcVideo(usePc, $("remote"));
+      if (s) paintRemoteFromPc(usePc, s);
+      registerPeerUi(p, "remote");
+      try {
+        hookNoCamPortraitFromStream("remote", s);
+      } catch (_) {}
+      try {
+        peelNoCamIfTilePainting("remote");
+      } catch (_) {}
+      return;
+    }
+    if (s) setThirdSlotStream(s, p.name || "");
+    videoSlotsTrioBind(p, usePc);
+    registerPeerUi(p, "remote-third");
+    try {
+      hookNoCamPortraitFromStream("remote-third", s);
+    } catch (_) {}
+    try {
+      peelNoCamIfTilePainting("remote-third");
+    } catch (_) {}
+    return;
+  }
+  if (sid === "remote") {
+    const occ = liveMainRemotePc();
+    if (occ && occ !== usePc) {
+      const extra = pickExtraRemoteTileForNewPeer(s, usePc);
+      if (extra && extra.id !== "remote") {
+        if (!(s && streamOnAnyOtherTile(s, extra.id))) {
+          bindPcVideo(usePc, extra);
+          if (extra.id === "remote-third") {
+            if (s) setThirdSlotStream(s, p.name || "");
+            registerPeerUi(p, "remote-third");
+          } else {
+            if (s) paintRemoteFromPc(usePc, s);
+            registerPeerUi(p, extra.id);
+          }
+        }
+        return;
+      }
+    }
+    bindPcVideo(usePc, slotEl);
+    if (s) paintRemoteFromPc(usePc, s);
+    registerPeerUi(p, "remote");
+    try {
+      hookNoCamPortraitFromStream("remote", s);
+    } catch (_) {}
+    try {
+      peelNoCamIfTilePainting("remote");
+    } catch (_) {}
+    return;
+  }
+  if (s) {
+    const occ = liveMainRemotePc();
+    if (occ && occ !== usePc) {
+      const extra = pickExtraRemoteTileForNewPeer(s, usePc);
+      if (extra && extra.id !== "remote") {
+        if (!(s && streamOnAnyOtherTile(s, extra.id))) {
+          bindPcVideo(usePc, extra);
+          if (extra.id === "remote-third") setThirdSlotStream(s, p.name || "");
+        }
+        return;
+      }
+    }
+    paintRemoteFromPc(usePc, s);
+  }
+}
+
+/**
+ * One tile per listed peer. Keep live occupancy; fill remote → remote-third → remote2.
+ */
+function assignRemoteVideoSlots(list) {
+  const slots = new Map();
+  const used = new Set();
+  const people = Array.isArray(list)
+    ? list.filter((p) => p && p.peer_id && p.peer_id !== "legacy")
+    : [];
+  const claim = (pid, tileId) => {
+    if (!pid || !tileId || used.has(tileId) || slots.has(pid)) return false;
+    const el = $(tileId);
+    if (!el) return false;
+    used.add(tileId);
+    slots.set(pid, el);
+    return true;
+  };
+  const first = pickFirstPartnerPeer(people);
+  const firstHasCam = (() => {
+    if (!first) return false;
+    const fpc = findPcForPeer(first.peer_id);
+    return (
+      streamHasLiveVideoTrack(fpc?.remoteStream) &&
+      !streamLooksAudioOnly(fpc?.remoteStream)
+    );
+  })();
+  const noCamPeer = people.find((p) =>
+    streamLooksAudioOnly(findPcForPeer(p.peer_id)?.remoteStream)
+  );
+  // Live camera teammate keeps #remote. Otherwise no-cam laptop may occupy it.
+  if (first && (firstHasCam || !noCamPeer || liveMainHasCameraTeammate())) {
+    claim(first.peer_id, "remote");
+  }
+  // Reserve live #remote even if the 1v1 partner's listed id lags.
+  try {
+    const occ = liveMainRemotePc();
+    if (occ && !used.has("remote")) {
+      const occPeer = people.find(
+        (p) => p?.peer_id && findPcForPeer(p.peer_id) === occ
+      );
+      if (occPeer) claim(occPeer.peer_id, "remote");
+      else if (liveMainHasCameraTeammate()) used.add("remote");
+    }
+  } catch (_) {}
+  for (const p of people) {
+    const pc = findPcForPeer(p.peer_id);
+    const keep = pc ? findTileIdForPc(pc) : "";
+    if (!keep) continue;
+    if (first && p.peer_id !== first.peer_id && keep === "remote") {
+      if (streamLooksAudioOnly(pc?.remoteStream) && !firstHasCam) {
+        claim(p.peer_id, keep);
+        continue;
+      }
+      continue;
+    }
+    if (first && p.peer_id === first.peer_id && keep !== "remote") continue;
+    claim(p.peer_id, keep);
+  }
+  if (!used.has("remote")) {
+    const noCamPeer = people.find((p) =>
+      streamLooksAudioOnly(findPcForPeer(p.peer_id)?.remoteStream)
+    );
+    if (noCamPeer && !liveMainHasCameraTeammate() && !firstHasCam) {
+      claim(noCamPeer.peer_id, "remote");
+    }
+  }
+  const n = people.length;
+  const order =
+    n >= 3
+      ? ["remote", "remote2", "remote-third"]
+      : ["remote", "remote-third", "remote2"];
+  for (const p of people) {
+    if (slots.has(p.peer_id)) continue;
+    const preferThird =
+      first && p.peer_id !== first.peer_id
+        ? ["remote-third", "remote2", "remote"]
+        : order;
+    const tid = preferThird.find((id) => !used.has(id) && $(id));
+    if (tid) claim(p.peer_id, tid);
+  }
+  return slots;
 }
 
 /** @type {"good"|"ok"|"weak"|""} */
@@ -26692,11 +37736,12 @@ let lastConnGrade = "";
 let lastIceKind = "";
 
 /**
- * Partner meta chrome (timer · Good/Direct · ms · A/V): show briefly, then autohide.
- * Stays visible while connection is weak or A/V is lagging.
+ * Partner meta chrome (timer · Good/Direct · ms · A/V): brief peek, then autohide.
+ * Clean UI: shorter peek; only sticky for weak/A-V alert. Volume / water / LIVE
+ * are removed from stage chrome separately (CSS + hideStarUnlockBar easter egg).
  */
-const REMOTE_META_PEEK_MS = 4200;
-const REMOTE_META_ALERT_MS = 10000;
+const REMOTE_META_PEEK_MS = 2200;
+const REMOTE_META_ALERT_MS = 8000;
 let remoteMetaHideAt = 0;
 let remoteMetaHideTimer = 0;
 
@@ -26727,10 +37772,7 @@ function remoteMetaAvIsAlert() {
 
 function remoteMetaShouldShow() {
   if (!matched && !inFriendCall) return false;
-  if (Date.now() < remoteMetaHideAt) return true;
-  if (lastConnGrade === "weak") return true;
-  if (remoteMetaAvIsAlert()) return true;
-  return false;
+  return Date.now() < remoteMetaHideAt;
 }
 
 /** Apply show/hide for timer + quality chips on the partner tile. */
@@ -26741,11 +37783,50 @@ function applyRemoteMetaVisibility() {
   const chip = $("conn-chip");
   const quality = $("call-quality");
   const av = $("av-lag-chip");
+  // Quiet tile-inline 💧 / conn chips only.
+  // Per-tile volume stays visible mid-match (spec: each remote has volume).
+  for (const id of [
+    "btn-blur-remote-main",
+    "btn-blur-remote2",
+    "btn-blur-remote-third",
+    "remote-peer-conn-chip",
+  ]) {
+    const el = $(id);
+    if (el) {
+      el.hidden = true;
+      el.setAttribute("hidden", "");
+    }
+  }
+  try {
+    if (live) {
+      setPeerVolUi("remote", peerVolByEl.remote ?? 100);
+      setPeerVolUi("remote2", peerVolByEl.remote2 ?? 100);
+      setPeerVolUi("remote-third", peerVolByEl["remote-third"] ?? 100);
+    }
+  } catch (_) {}
+  // Ensure main partner rail blur/volume are not stuck hidden from older sessions
+  try {
+    const blurRail = $("btn-blur-remote");
+    if (blurRail) {
+      blurRail.hidden = false;
+      blurRail.removeAttribute("hidden");
+    }
+    const volRail = $("remote-vol")?.closest?.(".side-vol");
+    if (volRail) {
+      volRail.hidden = false;
+      volRail.removeAttribute("hidden");
+    }
+  } catch (_) {}
 
   if (timer) {
-    // Keep text updating; only toggle visibility while in a call
-    if (!live) timer.hidden = true;
-    else timer.hidden = !show;
+    // Live: keep in DOM; chrome-autohide CSS shows it bottom-left when rails open.
+    if (!live) {
+      timer.hidden = true;
+      timer.setAttribute("hidden", "");
+    } else {
+      timer.hidden = false;
+      timer.removeAttribute("hidden");
+    }
   }
   if (chip) {
     if (!live || !(chip.textContent || "").trim()) chip.hidden = true;
@@ -26758,8 +37839,6 @@ function applyRemoteMetaVisibility() {
   if (av) {
     if (!live) {
       av.hidden = true;
-    } else if (remoteMetaAvIsAlert()) {
-      av.hidden = false; // keep lag warnings visible
     } else if (!(av.textContent || "").trim() || av.textContent === "A/V") {
       // leave as updateAvLagChip left it when empty
       if (!show) av.hidden = true;
@@ -26838,8 +37917,12 @@ function maybeShowWeakConnTip(grade, iceKind) {
   const everFrames =
     partnerVideoEverFrames ||
     (typeof partnerVideoHasFrames === "function" && partnerVideoHasFrames());
+  let audioLive = false;
+  try {
+    audioLive = hasLiveRemoteAudio();
+  } catch (_) {}
   const ageOk = pathReady && matchAgeMs() >= 15000;
-  if (!everFrames && !ageOk) {
+  if (!everFrames && !audioLive && !ageOk) {
     weakConnSince = 0;
     return;
   }
@@ -26871,18 +37954,23 @@ function updateConnChip(rtt, loss, iceKind) {
   const everFrames =
     partnerVideoEverFrames ||
     (typeof partnerVideoHasFrames === "function" && partnerVideoHasFrames());
+  let audioLive = false;
+  try {
+    audioLive = hasLiveRemoteAudio();
+  } catch (_) {}
+  // Laptop no-cam: live audio is a finished link (do not sit on Linking).
+  const mediaLive = everFrames || audioLive;
   let grade = "ok";
-  // !pathReady → Linking (not Good/Weak). pathReady && !everFrames → still Linking/OK
-  // (RTT on empty decoder is noisy; do not show Weak before paint).
+  // !pathReady → Linking (not Good/Weak). pathReady && !mediaLive → still Linking/OK
+  // (RTT on empty decoder is noisy; do not show Weak before paint/audio).
   if (!pathReady) {
     grade = "ok";
-  } else if (!everFrames) {
+  } else if (!mediaLive) {
     grade = "ok";
   } else if (
     (rtt != null && rtt > 450) ||
     (loss != null && loss > 4) ||
-    lastQualityTier === "low" ||
-    lastQualityTier === "min"
+    qualityStripShouldShowWeak()
   ) {
     grade = "weak";
   } else if (
@@ -26900,11 +37988,15 @@ function updateConnChip(rtt, loss, iceKind) {
     iceKind === "direct"
       ? _t("conn.chipDirect") || "Direct"
       : iceKind === "relay"
-        ? _t("conn.chipRelay") || "Relay"
+        ? isSameLanRelayPath()
+          ? sameLanRelayLabel()
+          : _t("conn.chipRelay") || "Relay"
         : _t("conn.chipConnecting") || "Connecting…";
-  // !pathReady → Linking; pathReady && !everFrames → Linking (not Weak/Good)
+  // !pathReady → Linking; pathReady && !mediaLive → Linking (not Weak/Good)
+  // Hop A: once audio/frames latched, do not re-arm Linking on stats ticks.
+  const showLinking = (!pathReady || !mediaLive) && canPaintLinkingCopy();
   const label =
-    !pathReady || !everFrames
+    showLinking
       ? _t("conn.chipLinking") || "Linking"
       : grade === "good"
         ? _t("conn.chipGood") || "Good"
@@ -26914,12 +38006,12 @@ function updateConnChip(rtt, loss, iceKind) {
 
   const prevGrade = lastConnGrade;
   lastConnGrade = grade;
-  const chipGrade = !pathReady || !everFrames ? "ok" : grade;
+  const chipGrade = !pathReady || !mediaLive ? "ok" : grade;
   chip.className =
     "conn-chip grade-" +
     chipGrade +
     (iceKind === "relay" ? " path-relay" : "") +
-    (!pathReady || !everFrames ? " path-unknown" : "");
+    (!pathReady || !mediaLive ? " path-unknown" : "");
   chip.textContent = label + " · " + path;
   // Partner tile live frame grade (visual border) — no weak border pre-paint
   const remoteTile = $("tile-remote");
@@ -26982,6 +38074,9 @@ function startStats() {
           }
         }
       });
+      try {
+        noteQualityStats(rtt, loss);
+      } catch (_) {}
       const parts = [];
       if (rtt != null) parts.push(`${Math.round(rtt)}ms`);
       if (bitrate != null && bitrate > 0) parts.push(`${Math.round(bitrate)}k`);
@@ -27035,6 +38130,9 @@ function endCallKeepPreview() {
 }
 
 function renderFriendsList() {
+  try {
+    if (friendsIsOpen() || messagesSheetOpen) renderInboxPeopleChrome();
+  } catch (_) {}
   const el = $("friends-list");
   if (!el) return;
   friendsCache = dedupeByUserId(friendsCache);
@@ -27124,7 +38222,9 @@ function renderFriendsList() {
     </div>`;
     $("friends-empty-cta")?.addEventListener("click", () => {
       $("btn-copy-code")?.click();
-      $("add-friend-code")?.focus();
+      try {
+        openInboxAddFriend({ focus: true });
+      } catch (_) {}
     });
     // Import buttons use .btn-import-profile (wired globally)
   } else {
@@ -28467,53 +39567,19 @@ function updateFriendsBadge() {
 
 function renderRequestLists() {
   updateFriendsBadge();
+  try {
+    if (messagesSheetOpen || friendsIsOpen()) renderInboxPeopleChrome();
+  } catch (_) {}
   const banner = $("friends-pending-banner");
   if (banner) {
     banner.hidden = !(outgoingRequests && outgoingRequests.length);
   }
   const inc = $("incoming-requests");
   const out = $("outgoing-requests");
+  // Incoming Accept/Decline lives on the main inbox list (#inbox-requests).
   if (inc) {
-    if (!incomingRequests.length) {
-      inc.hidden = true;
-      inc.innerHTML = "";
-    } else {
-      inc.hidden = false;
-      inc.innerHTML =
-        `<div class="hint-inline req-title"><strong>${escapeHtml(
-          _t("friends.incomingTitle")
-        )}</strong> — ${escapeHtml(_t("friends.mutualHint"))}</div>` +
-        incomingRequests
-          .map(
-            (f) => `<div class="friend-row online req-row">
-          <span class="dot"></span>
-          <div class="meta">
-            <strong>${escapeHtml(f.name || f.short_id)}</strong>
-            <span>${escapeHtml(f.friend_code || "")}</span>
-          </div>
-          <div class="friend-actions">
-            <button type="button" class="pill primary btn-accept-req" data-uid="${escapeAttr(
-              f.user_id
-            )}">${escapeHtml(_t("friends.acceptReq"))}</button>
-            <button type="button" class="pill danger btn-decline-req" data-uid="${escapeAttr(
-              f.user_id
-            )}">${escapeHtml(_t("friends.declineReq"))}</button>
-          </div>
-        </div>`
-          )
-          .join("");
-      inc.querySelectorAll(".btn-accept-req").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          send({ type: "accept_friend", user_id: btn.getAttribute("data-uid") });
-          setStatus(_t("friends.requestAccepted"));
-        });
-      });
-      inc.querySelectorAll(".btn-decline-req").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          send({ type: "decline_friend", user_id: btn.getAttribute("data-uid") });
-        });
-      });
-    }
+    inc.hidden = true;
+    inc.innerHTML = "";
   }
   if (out) {
     if (!outgoingRequests.length) {
@@ -28592,6 +39658,7 @@ function startMatchTimer() {
   // Brief peek of timer + quality row, then autohide
   peekRemoteMeta(REMOTE_META_PEEK_MS);
   try {
+    // Primary enable also via syncMatchChrome(isLive); belt on match entrance
     setStageBrandLive(true);
     spinStageBrand({ force: true });
     startStageBrandSpinLoop();
@@ -28608,7 +39675,11 @@ function startMatchTimer() {
   }, 1000);
 }
 
-/** Partner-tile wordmark visibility during live call (has-brand-live). */
+/**
+ * Toggle .stage.has-brand-live — PC center-seam watermark + CSS 360° spin
+ * (live-brand.css: .stage.has-brand-live .stage-brand-center / .stage-brand-spin).
+ * Canonical wire: syncMatchChrome(isLive). Timer + Matched keep-path also call.
+ */
 function setStageBrandLive(on) {
   try {
     document.querySelector("main.stage")?.classList.toggle("has-brand-live", !!on);
@@ -28628,8 +39699,8 @@ function setStageBrandLive(on) {
 
 /**
  * PC watermark spin is pure CSS on .stage.has-brand-live
- * (see live-brand.css: stage-wm-spin-360-loop on partner .stage-wm-text).
- * Soft 360° ~1.2s every 15s upright hold (16.2s cycle). Center seam off on match.
+ * (live-brand.css: stage-brand-spin-360-loop on center .stage-brand-spin).
+ * Soft 360° ~1.9s every 30s upright hold (30s cycle).
  * These hooks remain so match start/stop still wires brand visibility only.
  */
 let stageBrandSpinTimer = 0;
@@ -28651,7 +39722,7 @@ function stopStageBrandSpinLoop() {
  * @param {{ force?: boolean }} [opts]
  */
 function spinStageBrand(_opts = {}) {
-  /* CSS animation handles mid-match partner-tile 360° loop */
+  /* CSS animation handles mid-match center-seam 360° loop */
 }
 function startStageBrandSpinLoop() {
   stopStageBrandSpinLoop();
@@ -28664,7 +39735,10 @@ function stopMatchTimer() {
     matchTimerInterval = 0;
   }
   try {
-    setStageBrandLive(false);
+    // closeAllPeers({ keepFriend }) still stops the timer while call is live —
+    // do not strip brand mid-call; syncMatchChrome clears when isLive ends.
+    const stillLive = !!(matched || inFriendCall || trioBrowse);
+    if (!stillLive) setStageBrandLive(false);
     stopStageBrandSpinLoop();
   } catch (_) {}
   if (matchTimerStartedAt) {
@@ -28987,17 +40061,19 @@ function wireKeysHelp() {
 }
 
 /**
- * Tile chrome: show on move/enter, always autohide after 3s idle on ALL sides
+ * Tile chrome: show on move/enter, always autohide after idle on ALL sides
  * (partner left rail + floor, local right rail + floor).
  * JS-driven (not pure CSS :hover) so chrome doesn't stick while the mouse sits still.
  * Touch / coarse pointers: CSS keeps controls always visible (.chrome-always).
+ * Clean UI: shorter hide delay; volume/water stripped from rails via CSS.
  */
-const CHROME_AUTOHIDE_MS = 3000;
+const CHROME_AUTOHIDE_MS = 2200;
 
 function wireTileChromeAutohide() {
   const remote = $("tile-remote");
   const local = $("tile-local");
-  if (!remote && !local) return;
+  const third = $("tile-third");
+  if (!remote && !local && !third) return;
 
   const coarse =
     typeof window.matchMedia === "function" &&
@@ -29020,6 +40096,7 @@ function wireTileChromeAutohide() {
     if (!tile) return false;
     if (tile.querySelector?.(".is-flyout-open")) return true;
     if (tile.querySelector?.("#match-more-menu:not([hidden])")) return true;
+    if ($("match-more-menu") && !$("match-more-menu").hidden) return true;
     // Settings flyout is portaled in body but triggered from local rail
     if (
       tile.id === "tile-local" &&
@@ -29073,6 +40150,10 @@ function wireTileChromeAutohide() {
       remote.classList.remove("is-chrome-open");
       clearHide(remote);
     }
+    if (third && third !== tile) {
+      third.classList.remove("is-chrome-open");
+      clearHide(third);
+    }
     if (local && local !== tile) {
       local.classList.remove("is-chrome-open");
       clearHide(local);
@@ -29101,7 +40182,23 @@ function wireTileChromeAutohide() {
     hideTimers.set(tile, id);
   };
 
-  [remote, local].forEach((tile) => {
+  const floor = $("tile-floor-partner");
+  if (floor && remote) {
+    const onFloor = () => {
+      floor.classList.add("is-chrome-open");
+      showChrome(remote);
+    };
+    const offFloor = () => {
+      floor.classList.remove("is-chrome-open");
+      hideChromeSoon(remote);
+    };
+    floor.addEventListener("pointerenter", onFloor, { passive: true });
+    floor.addEventListener("pointermove", onFloor, { passive: true });
+    floor.addEventListener("pointerdown", onFloor, { passive: true });
+    floor.addEventListener("pointerleave", offFloor, { passive: true });
+  }
+
+  [remote, local, third].forEach((tile) => {
     if (!tile) return;
     tile.addEventListener(
       "pointerenter",
@@ -29139,8 +40236,12 @@ function wireTileChromeAutohide() {
   document.addEventListener(
     "pointerdown",
     (e) => {
-      const tile = e.target?.closest?.(".tile-remote, .tile-local");
+      const tile = e.target?.closest?.(".tile-remote, .tile-local, .tile-third");
       if (tile) showChrome(tile);
+      if (e.target?.closest?.("#tile-floor-partner") && remote) {
+        $("tile-floor-partner")?.classList.add("is-chrome-open");
+        showChrome(remote);
+      }
     },
     { passive: true }
   );
@@ -29270,7 +40371,7 @@ function showFriendAcceptedToast(f) {
             "You’re friends now — Call when they’re online")
   );
   try {
-    playMatchChime();
+    playGiftFile("identify.wav");
   } catch (_) {}
   trackEvent("friend_accepted", {
     duo: duo ? 1 : 0,
@@ -29567,7 +40668,7 @@ function maybeShowFriendsFirstRun() {
     setTimeout(() => {
       try {
         if (myFriendCode) copyBtn?.focus?.();
-        else $("add-friend-code")?.focus?.();
+        else openInboxAddFriend({ focus: true });
       } catch (_) {}
     }, 140);
   }
@@ -29591,6 +40692,16 @@ function openFriends() {
     });
     void sheet.offsetWidth;
     sheet.classList.add("is-open");
+    requestAnimationFrame(() => {
+      if (friendsIsOpen()) {
+        positionDockFlyout(sheet, btn, {
+          align: "start",
+          maxWidth: 400,
+          maxHeight: friendsFlyoutMaxHeight(),
+          fixedHeight: true,
+        });
+      }
+    });
     // Land on Display name → code → pending → friends (not mid-scroll leftovers)
     try {
       const body = sheet.querySelector(".sheet-body");
@@ -29624,7 +40735,15 @@ function openFriends() {
   renderRequestLists();
   renderHistoryList();
   syncFriendsTabCounts();
-  setFriendsSheetTab(friendsSheetTab || "list");
+  setFriendsSheetTab("list");
+  try {
+    messagesSheetOpen = true;
+    showMsgListView();
+    setMessagesTab(messagesTab || "friends");
+    renderMessagesList();
+    renderInboxPeopleChrome();
+    if ($("inbox-my-code")) $("inbox-my-code").textContent = myFriendCode || "—";
+  } catch (_) {}
   bindSheetFocusTrap(sheet);
   // After trap attaches, first-run may re-focus Copy (slightly later)
   maybeShowFriendsFirstRun();
@@ -29641,6 +40760,10 @@ function closeFriends() {
   const sheet = $("friends-sheet");
   const bd = $("friends-backdrop");
   const btn = $("btn-friends");
+  try {
+    showMsgListView();
+    messagesSheetOpen = false;
+  } catch (_) {}
   releaseSheetFocusTrap(sheet);
   sheet?.classList.remove("is-open");
   bd?.classList.remove("is-open");
@@ -29689,12 +40812,14 @@ function showIncomingCall(msg) {
       ? _t("friends.joinCall") || "Join"
       : _t("friends.accept") || "Accept";
 
+  const avUrl = resolveCallAvatarUrl([msg.from_avatar], msg.from_user_id);
   const toast = document.createElement("div");
   toast.id = "call-toast";
   toast.className = "call-toast" + (isJoin ? " is-join-invite" : "");
   toast.setAttribute("role", "dialog");
   toast.setAttribute("aria-live", "assertive");
   toast.innerHTML = `
+    ${callToastAvatarHtml(name, avUrl)}
     <div class="call-toast-body">
       <strong id="call-toast-name">${escapeHtml(name)}</strong>
       <span>${escapeHtml(body)}</span>
@@ -29710,6 +40835,7 @@ function showIncomingCall(msg) {
       hideIncomingCall();
       return;
     }
+    friendCallAcceptGuardUntil = Date.now() + 8000;
     send({ type: "call_respond", user_id: incomingCallFrom, accept: true });
     hideIncomingCall();
   });
@@ -29774,7 +40900,107 @@ function debatePartnerName() {
   );
 }
 
-/** Send a debate_* control message over the primary P2P data channel. */
+/** User ids in this room for debate turns (1v1 or 3-way). */
+function liveDebateRoster() {
+  const ids = [];
+  const add = (id) => {
+    const s = String(id || "").trim();
+    if (!s || s === "legacy" || s.length < 4) return;
+    if (ids.some((x) => debateUidEq(x, s))) return;
+    ids.push(s);
+  };
+  add(myUserId);
+  add(primaryPartnerUserId);
+  add(debate.hostId);
+  add(debate.partnerId);
+  try {
+    // lastMatchMeta is the primary person, not {peers}. Roster is lastMatchedPeers.
+    const peers = Array.isArray(lastMatchedPeers)
+      ? lastMatchedPeers
+      : Array.isArray(lastMatchMeta?.peers)
+        ? lastMatchMeta.peers
+        : [];
+    for (const p of peers) add(p.user_id || p.uid || p.short_id);
+  } catch (_) {}
+  try {
+    for (const meta of peerUiMeta.values()) {
+      add(meta.userId);
+    }
+  } catch (_) {}
+  try {
+    for (const pc of peerPcs.values()) {
+      add(pc.remoteUserId);
+      add(pc.user_id);
+      add(pc.partnerUserId);
+    }
+  } catch (_) {}
+  return ids;
+}
+
+/** Send debate_* on EVERY live P2P chat DC (3-way must not stop at primary). */
+const DEBATE_HUB_PREFIX = "__debate:";
+
+/** Compact debate_* for hub chat (500 char cap). Laptop 3rd often has no extra DC. */
+function encodeDebateHubBody(obj) {
+  if (!obj || typeof obj !== "object") return "";
+  const slim = {};
+  const keys = [
+    "type",
+    "invite_id",
+    "host_id",
+    "first_speaker_id",
+    "partner_id",
+    "speakers",
+    "turn_ms",
+    "topic",
+    "turn_index",
+    "turn_ends_at",
+    "started_at",
+    "sync",
+    "from_name",
+    "user_id",
+    "reason",
+    "speaker_id",
+  ];
+  for (const k of keys) {
+    const v = obj[k];
+    if (v == null || v === "") continue;
+    slim[k] = v;
+  }
+  const pack = () => DEBATE_HUB_PREFIX + JSON.stringify(slim);
+  let s = pack();
+  if (s.length > 480 && slim.topic) {
+    delete slim.topic;
+    s = pack();
+  }
+  if (s.length > 480 && slim.speakers) {
+    delete slim.speakers;
+    s = pack();
+  }
+  return s.length <= 500 ? s : "";
+}
+
+function parseDebateHubBody(body) {
+  const raw = String(body || "");
+  const prefixes = ["\x01debate:", "__debate:", "debate:"];
+  let json = "";
+  for (const p of prefixes) {
+    if (raw.startsWith(p)) {
+      json = raw.slice(p.length);
+      break;
+    }
+  }
+  if (!json) return null;
+  try {
+    const obj = JSON.parse(json);
+    if (!obj || typeof obj !== "object") return null;
+    if (!String(obj.type || "").startsWith("debate_")) return null;
+    return obj;
+  } catch (_) {
+    return null;
+  }
+}
+
 function sendDebateP2p(obj) {
   if (!obj || typeof obj !== "object") return false;
   const payload = {
@@ -29785,19 +41011,73 @@ function sendDebateP2p(obj) {
     ts: typeof obj.ts === "number" ? obj.ts : Date.now(),
   };
   let ok = false;
-  // Prefer primary peer; fall back to any open chat channel
   const pcs = [];
   if (rtc) pcs.push(rtc);
   for (const pc of chatPeerPcs()) {
     if (pc && !pcs.includes(pc)) pcs.push(pc);
   }
-  for (const pc of pcs) {
-    if (pc?.sendChatMessage?.(payload)) {
-      ok = true;
-      break;
+  try {
+    for (const pc of peerPcs.values()) {
+      if (pc && !pcs.includes(pc)) pcs.push(pc);
     }
+  } catch (_) {}
+  for (const pc of pcs) {
+    try {
+      if (pc?.sendChatMessage?.(payload)) ok = true;
+    } catch (_) {}
   }
+  // Hub chat already fans out to every session peer (pair + 3rd).
+  // Laptop extra DC is often missing — P2P-only invites never arrived.
+  try {
+    const hubBody = encodeDebateHubBody(payload);
+    if (hubBody && send({ type: "chat", body: hubBody })) ok = true;
+  } catch (_) {}
   return ok;
+}
+
+/** Replay live debate onto a late / extra DC (laptop 3rd never saw the overlay). */
+function debateSnapshotPayload() {
+  if (!debate.active) return null;
+  return {
+    type: "debate_start",
+    invite_id: debate.inviteId,
+    host_id: debate.hostId,
+    first_speaker_id: debate.speakerId,
+    partner_id: debate.partnerId,
+    speakers: debate.speakers && debate.speakers.length
+      ? debate.speakers
+      : liveDebateRoster(),
+    turn_ms: debate.turnMs,
+    topic: debate.topic,
+    turn_index: debate.turnIndex,
+    turn_ends_at: debate.turnEndsAt,
+    started_at: debate.startedAt || Date.now(),
+    sync: true,
+  };
+}
+
+function pushDebateSnapshotToAll() {
+  const snap = debateSnapshotPayload();
+  if (!snap) return false;
+  return sendDebateP2p(snap);
+}
+
+function pushDebateOnDcOpen() {
+  try {
+    if (debate.active) {
+      pushDebateSnapshotToAll();
+      return;
+    }
+    if (debate.pending === "out" && debate.inviteId) {
+      sendDebateP2p({
+        type: "debate_invite",
+        invite_id: debate.inviteId,
+        turn_ms: debate.turnMs || DEBATE_TURN_MS,
+        topic: debate.topic || "",
+        speakers: liveDebateRoster(),
+      });
+    }
+  } catch (_) {}
 }
 
 function canStartDebate() {
@@ -29833,7 +41113,8 @@ function normalizeDebateTopic(raw) {
  */
 function debateRoundNumber(turnIndex = debate.turnIndex) {
   const idx = Math.max(0, Number(turnIndex) || 0);
-  return Math.floor(idx / 2) + 1;
+  const n = Math.max(2, (debate.speakers && debate.speakers.length) || 2);
+  return Math.floor(idx / n) + 1;
 }
 
 /** 1 = first half of round (inviter side of the pair), 2 = second half */
@@ -29874,7 +41155,7 @@ function ensureDebateAudioCtx() {
  * @param {number} [gain]
  * @param {number} [delayMs]
  */
-function playDebateTone(freq, durMs, gain = 0.05, delayMs = 0) {
+function playDebateTone(freq, durMs, gain = 0.015, delayMs = 0) {
   if (!debateSoundsAllowed()) return;
   try {
     const ctx = ensureDebateAudioCtx();
@@ -29935,7 +41216,7 @@ function invitePartnerDebate() {
   }
   if (!canStartDebate()) {
     setStatus(
-      _t("debate.needLive") || "Debate only works during a live 1:1 call"
+      _t("debate.needLive") || "Debate only works during a live call"
     );
     closePartnerMenu();
     return;
@@ -29996,7 +41277,7 @@ function hidePartnerDebateCompose() {
 function sendDebateInviteFromCompose() {
   if (!canStartDebate()) {
     setStatus(
-      _t("debate.needLive") || "Debate only works during a live 1:1 call"
+      _t("debate.needLive") || "Debate only works during a live call"
     );
     closePartnerMenu();
     return;
@@ -30004,7 +41285,8 @@ function sendDebateInviteFromCompose() {
   const dcOpen =
     rtc?.isChatDcOpen?.() ||
     [...peerPcs.values()].some((pc) => pc?.isChatDcOpen?.());
-  if (!dcOpen) {
+  const hubOpen = !!(ws && ws.readyState === WebSocket.OPEN);
+  if (!dcOpen && !hubOpen) {
     setStatus(
       _t("debate.needP2p") ||
         "Wait until the connection is ready, then invite again"
@@ -30035,6 +41317,7 @@ function sendDebateInviteFromCompose() {
     turn_ms: turnMs,
     topic,
     from_name: getDisplayName() || "anon",
+    speakers: liveDebateRoster(),
   });
   if (!sent) {
     clearDebatePending();
@@ -30122,6 +41405,12 @@ function handleDebateP2pMessage(msg, _fromPc) {
 }
 
 function handleDebateInviteIncoming(msg, fromUid) {
+  const sameInvite =
+    msg.invite_id &&
+    debate.inviteId &&
+    String(msg.invite_id) === String(debate.inviteId);
+  // Hub + P2P both arrive — same invite is not "busy".
+  if (sameInvite && (debate.pending || debate.active)) return;
   if (debate.active) {
     sendDebateP2p({
       type: "debate_decline",
@@ -30139,23 +41428,46 @@ function handleDebateInviteIncoming(msg, fromUid) {
     });
     return;
   }
-  if (!matched || !primaryPartnerUserId) return;
-  // Only accept from current primary partner
-  if (fromUid && primaryPartnerUserId && fromUid !== primaryPartnerUserId) {
+  if (
+    !(
+      matched ||
+      inFriendCall ||
+      (Array.isArray(lastMatchedPeers) && lastMatchedPeers.length)
+    )
+  ) {
     return;
   }
+  // Never drop a 3-way invite because roster hasn't seen this uid yet.
+  if (fromUid && debateUidEq(fromUid, myUserId)) return;
   debate.pending = "in";
   debate.inviteId = String(msg.invite_id || "");
   debate.partnerId = fromUid || primaryPartnerUserId;
   debate.hostId = fromUid || primaryPartnerUserId;
   debate.turnMs = normalizeDebateTurnMs(msg.turn_ms || DEBATE_TURN_MS);
   debate.topic = normalizeDebateTopic(msg.topic);
+  try {
+    const incoming = Array.isArray(msg.speakers) ? msg.speakers : [];
+    if (incoming.length) {
+      const merged = [];
+      const add = (id) => {
+        const s = String(id || "").trim();
+        if (!s || merged.some((x) => debateUidEq(x, s))) return;
+        merged.push(s);
+      };
+      for (const id of incoming) add(id);
+      for (const id of liveDebateRoster()) add(id);
+      debate.speakers = merged;
+    }
+  } catch (_) {}
   dismissDebateInviteToast();
   const toast = document.createElement("div");
   toast.id = "debate-invite-toast";
   toast.className = "friend-soft-toast debate-invite-toast";
   toast.setAttribute("role", "dialog");
   toast.style.pointerEvents = "auto";
+  try {
+    playDebateTurnChime();
+  } catch (_) {}
   const name =
     String(msg.from_name || msg.name || "").slice(0, 32) || debatePartnerName();
   const secs = Math.round(debate.turnMs / 1000);
@@ -30239,12 +41551,18 @@ function handleDebateAccept(msg, fromUid) {
   const now = Date.now();
   const firstSpeaker = myUserId || "";
   const turnEndsAt = now + turnMs;
+  const speakers = liveDebateRoster();
+  if (fromUid) {
+    const sid = String(fromUid).trim();
+    if (sid && !speakers.some((x) => debateUidEq(x, sid))) speakers.push(sid);
+  }
   const startMsg = {
     type: "debate_start",
     invite_id: debate.inviteId,
     host_id: myUserId || "",
     first_speaker_id: firstSpeaker,
     partner_id: fromUid || primaryPartnerUserId,
+    speakers,
     turn_ms: turnMs,
     topic,
     turn_index: 0,
@@ -30272,6 +41590,13 @@ function handleDebateDecline(msg, _fromUid) {
 }
 
 function applyDebateStart(msg, _fromUid) {
+  const sameInvite =
+    msg.invite_id &&
+    debate.inviteId &&
+    String(msg.invite_id) === String(debate.inviteId);
+  if (debate.active && sameInvite) {
+    if (msg.sync) return;
+  }
   clearDebatePending();
   const turnMs = normalizeDebateTurnMs(msg.turn_ms || debate.turnMs || DEBATE_TURN_MS);
   const topic = normalizeDebateTopic(
@@ -30283,6 +41608,19 @@ function applyDebateStart(msg, _fromUid) {
   const partner =
     String(msg.partner_id || "").slice(0, 64) ||
     (first === myUserId ? primaryPartnerUserId : first);
+  const rosterIn = Array.isArray(msg.speakers) ? msg.speakers : [];
+  const speakers = [];
+  const addSp = (id) => {
+    const s = String(id || "").trim();
+    if (!s || speakers.some((x) => debateUidEq(x, s))) return;
+    speakers.push(s);
+  };
+  for (const id of rosterIn) addSp(id);
+  addSp(first);
+  addSp(partner);
+  addSp(myUserId);
+  for (const id of liveDebateRoster()) addSp(id);
+  debate.speakers = speakers.length ? speakers : liveDebateRoster();
   debate.active = true;
   debate.pending = null;
   debate.hostId = String(msg.host_id || first).slice(0, 64);
@@ -30294,12 +41632,21 @@ function applyDebateStart(msg, _fromUid) {
   debate.turnIndex = Number(msg.turn_index) || 0;
   debate.turnEndsAt = Number(msg.turn_ends_at) || Date.now() + turnMs;
   debate.urgentBeeped = false;
+  debate.tickTockPlayed = false;
   debate.lastUrgentHapticSec = -1;
   debate.lastChimeSpeaker = "";
+  try {
+    playGiftFile("undertaker-bell.mp3");
+  } catch (_) {}
   showDebateOverlay(true);
   startDebateTick();
   applyMicTracks();
-  updateDebateUi({ chime: true, newRound: true });
+  updateDebateUi({ chime: true, newRound: !msg.sync });
+  if (!msg.sync) {
+    try {
+      pushDebateSnapshotToAll();
+    } catch (_) {}
+  }
   const iSpeak = iAmDebateSpeaker();
   const secs = Math.round(turnMs / 1000);
   const r = debateRoundNumber(0);
@@ -30354,6 +41701,16 @@ function applyDebateTurn(msg) {
 }
 
 function otherDebateSpeaker() {
+  const roster =
+    debate.speakers && debate.speakers.length
+      ? debate.speakers
+      : liveDebateRoster();
+  if (roster.length >= 2) {
+    const cur = String(debate.speakerId || "").trim();
+    let i = roster.findIndex((id) => debateUidEq(id, cur));
+    if (i < 0) i = 0;
+    return roster[(i + 1) % roster.length];
+  }
   if (iAmDebateSpeaker()) {
     return (
       String(debate.partnerId || primaryPartnerUserId || "").trim() ||
@@ -30387,6 +41744,7 @@ function advanceDebateTurn({ force = false, yieldTurn = false } = {}) {
   debate.turnIndex = turnIndex;
   debate.turnEndsAt = turnEndsAt;
   debate.urgentBeeped = false;
+  debate.tickTockPlayed = false;
   debate.lastUrgentHapticSec = -1;
   // Broadcast: host clock, or speaker yielding early (always try; hub not required)
   if (isHost || (yieldTurn && iAmSpeaker)) {
@@ -30598,6 +41956,22 @@ function startDebateTick() {
   }, 100);
 }
 
+/** Desktop: timer sits on the speaking person's tile (left / mid / you). */
+function tileElForDebateSpeaker(uid) {
+  if (uid && debateUidEq(uid, myUserId)) return $("tile-local");
+  try {
+    for (const meta of peerUiMeta.values()) {
+      if (!meta?.userId || !debateUidEq(meta.userId, uid)) continue;
+      if (meta.elId === "remote-third") return $("tile-third") || $("tile-remote");
+      if (meta.elId === "remote2") {
+        return $("tile-remote2") || $("remote2-wrap") || $("tile-remote");
+      }
+      if (meta.elId === "remote") return $("tile-remote");
+    }
+  } catch (_) {}
+  return $("tile-remote");
+}
+
 function showDebateOverlay(show) {
   const el = $("debate-overlay");
   if (!el) return;
@@ -30651,7 +42025,9 @@ function placeDebateOverlayOnSpeaker(iSpeak, opts = {}) {
     return;
   }
 
-  const target = iSpeak ? $("tile-local") : $("tile-remote");
+  const target = iSpeak
+    ? $("tile-local")
+    : tileElForDebateSpeaker(debate.speakerId);
   if (!target) return;
   if (!opts.force && overlay.parentElement === target) {
     overlay.classList.toggle("on-local", !!iSpeak);
@@ -30712,7 +42088,7 @@ function updateDebateUi(opts = {}) {
     overlay.classList.add("is-new-round");
     setTimeout(() => overlay.classList.remove("is-new-round"), 500);
     // Slightly stronger cue when a full new round begins
-    if (opts.chime !== false) playDebateRoundChime();
+    if (opts.chime !== false) playGiftFile("pressing.mp3");
   }
   const turnEl = $("debate-turn-label");
   if (turnEl) {
@@ -30770,19 +42146,24 @@ function updateDebateUi(opts = {}) {
     try {
       softHaptic([16, 36, 22]);
     } catch (_) {}
-    playDebateTurnChime();
+    playGiftFile("pressing.mp3");
   } else if (opts.newRound) {
     debate.lastChimeSpeaker = debate.speakerId;
     try {
       softHaptic([14, 30, 14, 30, 28]);
     } catch (_) {}
   }
+  const last10 = remMs > 0 && remMs <= 10000;
+  if (last10 && iSpeak && !debate.tickTockPlayed) {
+    debate.tickTockPlayed = true;
+    playGiftFile("ticktock.mp3");
+  }
+  if (!last10) debate.tickTockPlayed = false;
   if (urgent && !debate.urgentBeeped) {
     debate.urgentBeeped = true;
     try {
       softHaptic([40, 50, 40, 50, 60]);
     } catch (_) {}
-    playDebateUrgentBeep();
   }
   // Pulse each whole second in the last 5s (once per second)
   if (urgent && secs > 0 && secs <= 5 && debate.lastUrgentHapticSec !== secs) {
@@ -30849,6 +42230,9 @@ function updateDebateMuteBadges(iSpeak) {
   setVis("debate-badge-remote-speaking", !iSpeak && !userMutedRemote);
   // Hide separate user-mute badge while debate badge owns the slot
   setVis("peer-mute-badge-remote", false);
+  try {
+    applyRemoteVolume();
+  } catch (_) {}
   // Keep tile veil for user mute on secondary peers
   try {
     setPeerMuteUi("remote", userMutedRemote);
@@ -30911,12 +42295,16 @@ function endDebate(opts = {}) {
   debate.turnIndex = 0;
   debate.topic = "";
   debate.urgentBeeped = false;
+  debate.tickTockPlayed = false;
   debate.lastUrgentHapticSec = -1;
   debate.lastChimeSpeaker = "";
   dismissDebateInviteToast();
   showDebateOverlay(false);
   clearDebateMuteBadges();
   syncDebateMobileBar(false);
+  try {
+    applyRemoteVolume();
+  } catch (_) {}
   try {
     document.body.classList.remove(
       "debate-active",
@@ -31026,6 +42414,7 @@ function closePartnerMenu() {
   }
   // Always reset to main actions for next open
   showPartnerMenuMain();
+  partnerMenuTarget = null;
 }
 
 function normalizeFriendCode(c) {
@@ -31071,9 +42460,145 @@ function isPartnerRequestPending(uid, code) {
   return false;
 }
 
-function openPartnerMenu() {
-  if (!matched || !primaryPartnerUserId || primaryPartnerUserId === myUserId) {
+/** Who the partner menu is acting on (first conversationalist or 3rd). */
+let partnerMenuTarget = null;
+
+function extraPartnerMeta() {
+  const fromPeer = (p) => {
+    if (!p) return null;
+    const peerId = String(p.peer_id || p.remotePeerId || "").trim();
+    if (peerId === "legacy") return null;
+    const uid = String(
+      p.user_id || p._userId || p.userId || peerId
+    ).trim();
+    if (!uid || uid === myUserId) return null;
+    return {
+      slot: "remote-third",
+      userId: uid,
+      peerId,
+      name: p.name || p._displayName || "",
+      friend_code: p.friend_code || p.code || "",
+      flag: p.flag || "",
+      country: p.country || "",
+      city: p.city || "",
+      hide_ip: !!p.hide_ip,
+    };
+  };
+  let got = fromPeer(pickExtraRemotePeer());
+  if (got) return got;
+  try {
+    for (const [pid, meta] of peerUiMeta.entries()) {
+      if (meta?.elId !== "remote-third") continue;
+      got = fromPeer({
+        peer_id: pid,
+        user_id: meta.userId,
+        name: meta.name,
+        friend_code: meta.code,
+        flag: meta.flag,
+        country: meta.country,
+        city: meta.city,
+        hide_ip: meta.hide_ip,
+      });
+      if (got) return got;
+    }
+  } catch (_) {}
+  try {
+    const v = $("remote-third");
+    for (const [pid, pc] of peerPcs.entries()) {
+      const el = pc?._videoEl;
+      if (el === v || el?.id === "remote-third") {
+        got = fromPeer({
+          peer_id: pc.remotePeerId || pid,
+          user_id: pc._userId,
+          name: pc._displayName,
+        });
+        if (got) return got;
+      }
+    }
+  } catch (_) {}
+  try {
+    const first = pickFirstPartnerPeer(lastMatchedPeers);
+    for (const [pid, pc] of peerPcs.entries()) {
+      if (
+        first &&
+        (pid === first.peer_id || pc.remotePeerId === first.peer_id)
+      ) {
+        continue;
+      }
+      if (isTeammateRole(pc._role)) continue;
+      got = fromPeer({
+        peer_id: pid,
+        user_id: pc._userId,
+        name: pc._displayName,
+      });
+      if (got) return got;
+    }
+  } catch (_) {}
+  // Stub whenever #tile-third is shown — no-cam laptop / empty lastMatchedPeers.
+  const third = $("tile-third");
+  const tileShown =
+    !!third && !third.hidden && !third.hasAttribute("hidden");
+  if (tileShown) {
+    const tag = ($("third-tag")?.textContent || "").trim();
+    return {
+      slot: "remote-third",
+      userId: tag || "third-slot",
+      peerId: "",
+      name: tag || "Partner",
+      friend_code: "",
+      flag: "",
+      country: "",
+      city: "",
+      hide_ip: false,
+    };
+  }
+  return null;
+}
+
+function partnerMenuTargetUserId() {
+  const t = partnerMenuTarget;
+  if (t?.userId) return String(t.userId).trim();
+  return String(primaryPartnerUserId || "").trim();
+}
+
+function openPartnerMenu(opts) {
+  const wantThird = !!(opts && opts.slot === "remote-third");
+  const extra = wantThird ? extraPartnerMeta() : null;
+  partnerMenuTarget =
+    extra ||
+    (wantThird
+      ? {
+          slot: "remote-third",
+          userId: "third-slot",
+          peerId: "",
+          name: "Partner",
+          friend_code: "",
+          flag: "",
+          country: "",
+          city: "",
+          hide_ip: false,
+        }
+      : {
+          slot: "remote",
+          userId: primaryPartnerUserId,
+          name: lastMatchMeta?.name || "",
+          friend_code: lastMatchMeta?.friend_code || "",
+          flag: lastMatchMeta?.flag || "",
+          country: lastMatchMeta?.country || "",
+          city: lastMatchMeta?.city || "",
+          hide_ip: !!lastMatchMeta?.hide_ip,
+        });
+  const targetUid = partnerMenuTargetUserId();
+  if (!matched || !targetUid || targetUid === myUserId) {
+    partnerMenuTarget = null;
     return;
+  }
+  // Never collapse 3-way when opening the 3rd's menu (peerPcs=1 + no-cam
+  // mid tile used to look like a stale pair and hide #tile-third).
+  if (opts?.slot !== "remote-third") {
+    try {
+      clearStaleTrioOnPair();
+    } catch (_) {}
   }
   const menu = $("partner-menu");
   const bd = $("partner-menu-backdrop");
@@ -31081,10 +42606,24 @@ function openPartnerMenu() {
 
   const nameEl = $("partner-menu-name");
   if (nameEl) {
-    const nm = lastMatchMeta?.name || _t("remote.tag") || "Partner";
-    const fl = normalizeFlagCode(lastMatchMeta?.flag || "");
-    const country = String(lastMatchMeta?.country || "").trim();
-    const city = String(lastMatchMeta?.city || "").trim();
+    // Prefer latched Courtier over empty hub meta / generic Partner
+    const nm =
+      resolvePartnerPaintName({
+        name: partnerMenuTarget?.name || lastMatchMeta?.name,
+        metaName: partnerMenuTarget?.name || lastMatchMeta?.name,
+      }) ||
+      extraSlotDisplayName(partnerMenuTarget?.name || "") ||
+      _t("remote.tag") ||
+      "Partner";
+    const fl = normalizeFlagCode(
+      partnerMenuTarget?.flag || lastMatchMeta?.flag || ""
+    );
+    const country = String(
+      partnerMenuTarget?.country || lastMatchMeta?.country || ""
+    ).trim();
+    const city = String(
+      partnerMenuTarget?.city || lastMatchMeta?.city || ""
+    ).trim();
     const em = flagEmoji(fl);
     // Menu: flag + name; subline country · city when not hide_ip
     let label = nm;
@@ -31092,19 +42631,30 @@ function openPartnerMenu() {
     nameEl.textContent = label;
     const subBits = [];
     if (country) subBits.push(country);
-    if (city && !lastMatchMeta?.hide_ip) subBits.push(city);
+    if (city && !(partnerMenuTarget?.hide_ip || lastMatchMeta?.hide_ip)) {
+      subBits.push(city);
+    }
     nameEl.title = subBits.length ? subBits.join(" · ") : label;
+  }
+  const menuMuteIco = $("partner-menu-mute-ico");
+  if (menuMuteIco) {
+    const slot = partnerMenuTarget?.slot || "remote";
+    const muted =
+      !!peerMutedByEl[slot] || Number(peerVolByEl[slot]) === 0;
+    menuMuteIco.hidden = !muted;
+    if (muted) menuMuteIco.removeAttribute("hidden");
+    else menuMuteIco.setAttribute("hidden", "");
   }
 
   const friendBtn = $("btn-partner-friend");
   if (friendBtn) {
     const already = isPartnerAlreadyFriend(
-      primaryPartnerUserId,
-      lastMatchMeta?.friend_code
+      targetUid,
+      partnerMenuTarget?.friend_code || lastMatchMeta?.friend_code
     );
     const pending = isPartnerRequestPending(
-      primaryPartnerUserId,
-      lastMatchMeta?.friend_code
+      targetUid,
+      partnerMenuTarget?.friend_code || lastMatchMeta?.friend_code
     );
     const isFriendCall = matchMode === "friend" || inFriendCall;
     friendBtn.disabled = already || pending || isFriendCall;
@@ -31123,36 +42673,57 @@ function openPartnerMenu() {
   // Find 3rd: stranger 1v1 or friend call (same as dock)
   const findBtn = $("btn-partner-find-third");
   if (findBtn) {
-    const friend1v1 =
-      !!inFriendCall &&
-      (matchMode === "friend" || matchMode === "solo") &&
-      !trioBrowse;
+    const pairOnly = isPairOnlyForActions();
+    const friend1v1 = isFriendPair1v1();
     const stranger1v1 =
       !!matched &&
       !inFriendCall &&
       matchMode === "solo" &&
       yourRole === "solo" &&
-      !trioBrowse;
+      pairOnly;
     const canFind =
       TRIO_FIND_ENABLED &&
+      partnerMenuTarget?.slot !== "remote-third" &&
       (stranger1v1 || friend1v1) &&
       !findThirdPending;
     findBtn.hidden = !canFind;
     findBtn.disabled = !canFind;
+    if (canFind) findBtn.removeAttribute("hidden");
+  }
+
+  const invite4 = $("btn-partner-invite-fourth");
+  if (invite4) {
+    let remotes = peerPcs.size;
+    try {
+      remotes = uniqueRemotePcCount();
+    } catch (_) {}
+    const show4 =
+      !!matched &&
+      remotes === 2 &&
+      (matchMode === "party_browse" ||
+        matchMode === "solo" ||
+        matchMode === "friend" ||
+        inFriendCall);
+    invite4.hidden = !show4;
+    invite4.disabled = !show4;
+    if (show4) {
+      invite4.removeAttribute("hidden");
+      const lab = $("btn-partner-invite-fourth-label");
+      if (lab) {
+        lab.textContent = _t("trio.inviteFourth") || "Invite a friend (4th)";
+      }
+    }
   }
 
   // Formal debate invite / end
   const debateBtn = $("btn-partner-debate");
   if (debateBtn) {
-    const live1v1 =
-      !!matched &&
-      !!primaryPartnerUserId &&
-      !trioBrowse &&
-      (matchMode === "solo" ||
-        matchMode === "friend" ||
-        inFriendCall);
-    debateBtn.hidden = !live1v1;
-    debateBtn.disabled = !live1v1;
+    // Always show on a live partner tile. Trio leftovers used to hide it
+    // (isPairOnlyForActions false) so the row vanished from partner actions.
+    const showDebate = !!matched;
+    debateBtn.hidden = !showDebate;
+    debateBtn.disabled = !showDebate;
+    if (showDebate) debateBtn.removeAttribute("hidden");
     debateBtn.classList.toggle("is-active", !!debate.active);
     const label = $("btn-partner-debate-label");
     if (label) {
@@ -31167,83 +42738,78 @@ function openPartnerMenu() {
     }
   }
 
-  // Star gifts (per-kind cost / duration; most mid-tier are 5★ / 15s)
+  // Star gifts — partner menu shows icon + name + cost only
   const liveGift = !!(matched || inFriendCall);
-  const canGift =
-    liveGift && !!primaryPartnerUserId && myStars >= STAR_EFFECT_COST;
-  const needTitle =
-    myStars < STAR_EFFECT_COST
-      ? _t("stars.needStars", { n: STAR_EFFECT_COST, have: myStars }) ||
-        `Need ${STAR_EFFECT_COST} stars (you have ${myStars})`
-      : "";
-  const wireGiftBtn = (id, labelId, kind, baseKey, extendKey, baseFb, extFb) => {
+  const giftNameKey = {
+    bars: "stars.giftBarsName",
+    fence: "stars.giftFenceName",
+    flowers: "stars.giftFlowersName",
+    balloons: "stars.giftBalloonsName",
+    confetti: "stars.giftConfettiName",
+    pass_mic: "stars.giftPassMicName",
+    fireworks: "stars.giftFireworksName",
+    snow: "stars.giftSnowName",
+    spotlight: "stars.giftSpotlightName",
+    crown: "stars.giftCrownName",
+    disco: "stars.giftDiscoName",
+    heart: "stars.giftHeartName",
+    shooting_star: "stars.giftShootingStarName",
+    please_stay: "stars.pleaseStayBtn",
+  };
+  const wireGiftBtn = (id, labelId, kind) => {
     const btn = $(id);
     if (!btn) return;
     const cost = giftCost(kind);
-    const secs = giftSecs(kind);
-    const afford = liveGift && !!primaryPartnerUserId && myStars >= cost;
+    const afford = liveGift && !!targetUid && myStars >= cost;
     btn.disabled = !afford;
     btn.hidden = !liveGift;
     const lbl = $(labelId);
-    const extending =
-      partnerFx &&
-      partnerFx.kind === kind &&
-      partnerFx.until > unixNowSec();
+    const meta = giftKindMeta(kind);
     if (lbl) {
-      lbl.textContent = extending
-        ? _t(extendKey, { n: cost, s: secs }) || extFb
-        : _t(baseKey) || baseFb;
+      lbl.textContent = _t(giftNameKey[kind] || "") || meta.name;
     }
+    let costEl = btn.querySelector(".pm-cost");
+    if (!costEl) {
+      costEl = document.createElement("span");
+      costEl.className = "pm-cost";
+      btn.appendChild(costEl);
+    }
+    costEl.textContent = `${cost}★`;
     btn.title =
       myStars < cost
         ? _t("stars.needStars", { n: cost, have: myStars }) ||
           `Need ${cost} stars (you have ${myStars})`
-        : lbl?.textContent || needTitle || "";
+        : `${lbl?.textContent || meta.name} · ${cost}★`;
   };
   wireGiftBtn(
-    "btn-partner-bars",
-    "btn-partner-bars-label",
-    "bars",
-    "stars.barsBtn",
-    "stars.barsExtend",
-    `Behind bars · ${STAR_EFFECT_COST}★ · ${STAR_EFFECT_SECS}s`,
-    `Extend bars +${STAR_EFFECT_SECS}s · ${STAR_EFFECT_COST}★`
+    "btn-partner-shooting-star",
+    "btn-partner-shooting-star-label",
+    "shooting_star"
+  );
+  wireGiftBtn("btn-partner-snow", "btn-partner-snow-label", "snow");
+  wireGiftBtn("btn-partner-crown", "btn-partner-crown-label", "crown");
+  wireGiftBtn("btn-partner-disco", "btn-partner-disco-label", "disco");
+  wireGiftBtn(
+    "btn-partner-spotlight",
+    "btn-partner-spotlight-label",
+    "spotlight"
+  );
+  wireGiftBtn("btn-partner-heart", "btn-partner-heart-label", "heart");
+  wireGiftBtn("btn-partner-bars", "btn-partner-bars-label", "bars");
+  wireGiftBtn("btn-partner-fence", "btn-partner-fence-label", "fence");
+  wireGiftBtn("btn-partner-flowers", "btn-partner-flowers-label", "flowers");
+  wireGiftBtn("btn-partner-balloons", "btn-partner-balloons-label", "balloons");
+  wireGiftBtn("btn-partner-confetti", "btn-partner-confetti-label", "confetti");
+  wireGiftBtn("btn-partner-pass-mic", "btn-partner-pass-mic-label", "pass_mic");
+  wireGiftBtn(
+    "btn-partner-fireworks",
+    "btn-partner-fireworks-label",
+    "fireworks"
   );
   wireGiftBtn(
-    "btn-partner-flowers",
-    "btn-partner-flowers-label",
-    "flowers",
-    "stars.flowersBtn",
-    "stars.flowersExtend",
-    `Flowers · ${STAR_EFFECT_COST}★ · ${STAR_EFFECT_SECS}s`,
-    `More flowers +${STAR_EFFECT_SECS}s · ${STAR_EFFECT_COST}★`
-  );
-  wireGiftBtn(
-    "btn-partner-balloons",
-    "btn-partner-balloons-label",
-    "balloons",
-    "stars.balloonsBtn",
-    "stars.balloonsExtend",
-    `Balloons · ${STAR_EFFECT_COST}★ · ${STAR_EFFECT_SECS}s`,
-    `More balloons +${STAR_EFFECT_SECS}s · ${STAR_EFFECT_COST}★`
-  );
-  wireGiftBtn(
-    "btn-partner-confetti",
-    "btn-partner-confetti-label",
-    "confetti",
-    "stars.confettiBtn",
-    "stars.confettiExtend",
-    `Confetti · ${STAR_EFFECT_COST}★ · ${STAR_EFFECT_SECS}s`,
-    `More confetti +${STAR_EFFECT_SECS}s · ${STAR_EFFECT_COST}★`
-  );
-  wireGiftBtn(
-    "btn-partner-pass-mic",
-    "btn-partner-pass-mic-label",
-    "pass_mic",
-    "stars.passMicBtn",
-    "stars.passMicExtend",
-    `Pass the mic · 5★ · 5s`,
-    `Pass again +5s · 5★`
+    "btn-partner-please-stay",
+    "btn-partner-please-stay-label",
+    "please_stay"
   );
 
   showPartnerMenuMain();
@@ -31260,7 +42826,8 @@ function openPartnerMenu() {
 }
 
 function invitePartnerFriend() {
-  const code = lastMatchMeta?.friend_code || "";
+  const code =
+    partnerMenuTarget?.friend_code || lastMatchMeta?.friend_code || "";
   if (!code) {
     setStatus(
       _t("partnerMenu.noCode") ||
@@ -31272,8 +42839,8 @@ function invitePartnerFriend() {
   }
   if (
     isPartnerAlreadyFriend(
-      primaryPartnerUserId,
-      lastMatchMeta?.friend_code || code
+      partnerMenuTargetUserId() || primaryPartnerUserId,
+      partnerMenuTarget?.friend_code || lastMatchMeta?.friend_code || code
     )
   ) {
     setStatus(_t("partnerMenu.alreadyFriend"));
@@ -31290,14 +42857,21 @@ function invitePartnerFriend() {
 }
 
 function blockPartnerFromMenu() {
-  const uid = primaryPartnerUserId;
+  const uid = partnerMenuTargetUserId() || primaryPartnerUserId;
+  const extra = partnerMenuTarget?.slot === "remote-third";
   if (!uid) {
     closePartnerMenu();
     return;
   }
   closePartnerMenu();
-  // Block · Next — permanent skip until unblock
   if (!blockUserId(uid)) return;
+  if (extra) {
+    const extraPeer = pickExtraRemotePeer();
+    const pc = extraPeer ? findPcForPeer(extraPeer.peer_id) : null;
+    if (pc) dropOnePeerKeepRest(pc, { reason: "block_3rd" });
+    trackEvent("block_3rd");
+    return;
+  }
   wantSearch = true;
   matched = false;
   showStartButton(false);
@@ -31344,7 +42918,8 @@ function showReportToast(message) {
 }
 
 function reportPartner(reason) {
-  const uid = primaryPartnerUserId;
+  const uid = partnerMenuTargetUserId() || primaryPartnerUserId;
+  const extra = partnerMenuTarget?.slot === "remote-third";
   if (!uid) {
     closePartnerMenu();
     return;
@@ -31352,9 +42927,10 @@ function reportPartner(reason) {
   const entry = {
     t: Date.now(),
     user_id: uid,
-    name: lastMatchMeta?.name || "",
+    name: partnerMenuTarget?.name || lastMatchMeta?.name || "",
     short_id: lastMatchMeta?.short_id || "",
-    friend_code: lastMatchMeta?.friend_code || "",
+    friend_code:
+      partnerMenuTarget?.friend_code || lastMatchMeta?.friend_code || "",
     reason: reason || "other",
   };
   saveLocalReport(entry);
@@ -31379,8 +42955,13 @@ function reportPartner(reason) {
   log((_t("partnerMenu.reportOk") || "reported") + ` · ${entry.reason}`);
   trackEvent("report_next", { reason: entry.reason || "other" });
   closePartnerMenu();
-  // Block + skip so they don't reappear (toast already shown as report)
   blockUserId(uid, { silent: true, skipToast: true });
+  if (extra) {
+    const extraPeer = pickExtraRemotePeer();
+    const pc = extraPeer ? findPcForPeer(extraPeer.peer_id) : null;
+    if (pc) dropOnePeerKeepRest(pc, { reason: "report_3rd" });
+    return;
+  }
   wantSearch = true;
   matched = false;
   showStartButton(false);
@@ -31398,13 +42979,25 @@ function reportPartner(reason) {
 
 function updatePartnerClickable() {
   const tile = $("tile-remote");
-  if (!tile) return;
-  const can =
-    !!matched &&
-    !!primaryPartnerUserId &&
-    primaryPartnerUserId !== myUserId;
-  tile.classList.toggle("partner-clickable", can);
-  if (!can && partnerMenuOpen()) closePartnerMenu();
+  if (tile) {
+    const can =
+      !!matched &&
+      !!primaryPartnerUserId &&
+      primaryPartnerUserId !== myUserId;
+    tile.classList.toggle("partner-clickable", can);
+  }
+  const third = $("tile-third");
+  if (third) {
+    const extra = extraPartnerMeta();
+    third.classList.toggle("partner-clickable", !!matched && !!extra);
+  }
+  if (
+    partnerMenuOpen() &&
+    !primaryPartnerUserId &&
+    !extraPartnerMeta()
+  ) {
+    closePartnerMenu();
+  }
 }
 
 // --- wire UI (null-safe) ---
@@ -31430,6 +43023,11 @@ on("btn-mute-remote-third", "click", (e) => {
   e?.stopPropagation?.();
   togglePeerElMute("remote-third");
 });
+on("btn-third-actions", "click", (e) => {
+  e?.stopPropagation?.();
+  e?.preventDefault?.();
+  openPartnerMenu({ slot: "remote-third" });
+});
 on("btn-blur-remote-main", "click", (e) => {
   e?.stopPropagation?.();
   togglePeerElBlur("remote");
@@ -31442,6 +43040,17 @@ on("btn-blur-remote-third", "click", (e) => {
   e?.stopPropagation?.();
   togglePeerElBlur("remote-third");
 });
+on("btn-mute-remote-third-rail", "click", (e) => {
+  e?.stopPropagation?.();
+  togglePeerElMute("remote-third");
+});
+on("btn-blur-remote-third-rail", "click", (e) => {
+  e?.stopPropagation?.();
+  togglePeerElBlur("remote-third");
+});
+$("remote-third-vol-rail")?.addEventListener("input", () => {
+  setPeerElVolume("remote-third", $("remote-third-vol-rail")?.value);
+});
 $("vol-remote")?.addEventListener("input", () => {
   setPeerElVolume("remote", $("vol-remote")?.value);
 });
@@ -31451,22 +43060,74 @@ $("vol-remote2")?.addEventListener("input", () => {
 $("vol-remote-third")?.addEventListener("input", () => {
   setPeerElVolume("remote-third", $("vol-remote-third")?.value);
 });
-on("btn-blur-remote", "click", () => togglePartnerBlur());
-on("btn-blur-self", "click", () => toggleSelfBlur());
+// CSS/HTML sibling may add input.tile-vol[data-tile] after this file — delegate.
+try {
+  document.addEventListener("input", (e) => {
+    const t = e?.target;
+    if (!t || t.tagName !== "INPUT") return;
+    const isTileVol =
+      t.classList?.contains("tile-vol") || t.hasAttribute("data-tile");
+    if (!isTileVol) return;
+    const slot = normalizeTileVolSlot(
+      t.getAttribute("data-tile") || t.id || ""
+    );
+    if (slot) setTileVolume(slot, t.value);
+  });
+} catch (_) {}
+on("btn-blur-remote", "click", (e) => {
+  e?.preventDefault?.();
+  e?.stopPropagation?.();
+  togglePartnerBlur();
+});
+on("btn-blur-self", "click", (e) => {
+  e?.preventDefault?.();
+  e?.stopPropagation?.();
+  toggleSelfBlur();
+});
 on("btn-fs-remote", "click", () => toggleFullscreenPartner());
 on("btn-stage-layout", "click", (e) => {
   e?.preventDefault?.();
   e?.stopPropagation?.();
   toggleStageLayoutMode();
 });
+on("btn-grid-2x2", "click", (e) => {
+  e?.preventDefault?.();
+  e?.stopPropagation?.();
+  if (livePeopleOnStage() !== 4) return;
+  toggleStageLayoutMode();
+});
 document.addEventListener("enterpictureinpicture", () => updatePipButton());
 document.addEventListener("leavepictureinpicture", () => updatePipButton());
 on("btn-partner-friend", "click", () => invitePartnerFriend());
+on("btn-partner-shooting-star", "click", () =>
+  spendEffectOnPartner("shooting_star")
+);
+on("btn-partner-snow", "click", () => spendEffectOnPartner("snow"));
+on("btn-partner-spotlight", "click", () => spendEffectOnPartner("spotlight"));
+on("btn-partner-crown", "click", () => spendEffectOnPartner("crown"));
+on("btn-partner-disco", "click", () => spendEffectOnPartner("disco"));
+on("btn-partner-heart", "click", () => spendEffectOnPartner("heart"));
 on("btn-partner-bars", "click", () => spendBarsOnPartner());
+on("btn-partner-fence", "click", () => spendEffectOnPartner("fence"));
 on("btn-partner-flowers", "click", () => spendFlowersOnPartner());
 on("btn-partner-balloons", "click", () => spendBalloonsOnPartner());
 on("btn-partner-confetti", "click", () => spendConfettiOnPartner());
 on("btn-partner-pass-mic", "click", () => spendPassMicOnPartner());
+on("btn-partner-fireworks", "click", () => spendFireworksOnPartner());
+on("btn-partner-please-stay", "click", () =>
+  spendEffectOnPartner("please_stay")
+);
+on("btn-partner-invite-fourth", "click", () => {
+  closePartnerMenu();
+  try {
+    openFriends();
+  } catch (_) {}
+  setStatus(
+    _t("trio.inviteFourthHint") ||
+      "Call a friend into this group — no random 4th from the lobby"
+  );
+  trackEvent("invite_fourth", { via: "partner_menu" });
+});
 on("btn-partner-find-third", "click", () => {
   closePartnerMenu();
   if (!TRIO_FIND_ENABLED || findThirdPending) return;
@@ -31671,6 +43332,14 @@ on("btn-friends", "click", (e) => {
   e.stopPropagation();
   toggleFriends();
 });
+on("btn-inbox-people", "click", (e) => {
+  e.stopPropagation();
+  closeMessages();
+  try {
+    setFriendsSheetTab("history");
+  } catch (_) {}
+  openFriends();
+});
 on("friends-close", "click", () => closeFriends());
 on("btn-messages", "click", (e) => {
   e.stopPropagation();
@@ -31700,6 +43369,18 @@ on("msg-tab-matches", "click", () => {
   setMessagesTab("matches");
 });
 on("msg-back", "click", () => showMsgListView());
+on("msg-thread-block", "click", () => {
+  const uid = activeChat.peerUserId;
+  if (!uid) return;
+  const name = activeChat.peerName || "friend";
+  const msg =
+    _t("friends.removeConfirm", { name }) ||
+    `Remove ${name} from your friends list?`;
+  if (!confirm(msg)) return;
+  send({ type: "remove_friend", user_id: uid });
+  setStatus(_t("friends.removed") || "Removed from friends");
+  showMsgListView();
+});
 on("btn-chat-inbox", "click", () => {
   const tab =
     activeChat.mode === "friend"
@@ -31736,7 +43417,7 @@ on("msg-thread-clear", "click", () => {
       if (activeChat.mode === "friend" && activeChat.peerUserId) {
         // Live friend call + open DC → E2E (+ hub store). Else hub only.
         const liveFriend =
-          (inFriendCall || matchMode === "friend") && anyChatDcOpen();
+          (inFriendCall || matchMode === "friend" || matched) && anyChatDcOpen();
         if (liveFriend) {
           if (
             !sendLiveChat(body, {
@@ -31754,8 +43435,14 @@ on("msg-thread-clear", "click", () => {
             body,
           });
         }
-      } else if ((matched || inFriendCall) && activeChat.live) {
-        if (!sendLiveChat(body)) {
+      } else if (matched || inFriendCall) {
+        const uid = primaryPartnerUserId || activeChat.peerUserId || "";
+        if (
+          !sendLiveChat(body, {
+            asFriend: partnerIsFriend(uid),
+            peerUserId: uid,
+          })
+        ) {
           setStatus(_t("chat.sendFail") || "Could not send — reconnecting…");
           return;
         }
@@ -31782,17 +43469,44 @@ on("msg-thread-clear", "click", () => {
   }
 }
 on("friends-backdrop", "click", () => closeFriends());
-on("btn-add-friend", "click", () => {
-  const input = $("add-friend-code");
+on("btn-inbox-add-friend", "click", () => {
+  const input = $("inbox-add-code");
   const raw = input?.value || "";
   if (requestAddFriend(raw)) {
     if (input) input.value = "";
   }
 });
-$("add-friend-code")?.addEventListener("keydown", (e) => {
+$("inbox-add-code")?.addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
     e.preventDefault();
-    $("btn-add-friend")?.click();
+    $("btn-inbox-add-friend")?.click();
+  }
+});
+on("btn-inbox-copy-code", "click", () => {
+  $("btn-copy-code")?.click();
+});
+$("inbox-search")?.addEventListener("input", () => {
+  try {
+    renderMessagesList();
+  } catch (_) {}
+});
+on("msg-thread-call", "click", () => {
+  const uid =
+    $("msg-thread-call")?.getAttribute("data-uid") || activeChat.peerUserId;
+  if (uid) placeFriendCall(uid, { closePanel: false });
+});
+on("btn-inbox-new", "click", () => {
+  const box = $("inbox-people-expand");
+  const btn = $("btn-inbox-new");
+  if (!box) return;
+  const open = box.hidden;
+  box.hidden = !open;
+  btn?.setAttribute("aria-expanded", open ? "true" : "false");
+  btn?.classList.toggle("is-open", open);
+  if (open) {
+    try {
+      $("inbox-add-code")?.focus();
+    } catch (_) {}
   }
 });
 on("btn-copy-code", "click", async () => {
@@ -31813,18 +43527,26 @@ on("btn-copy-code", "click", async () => {
   trackEvent("friend_code_copy");
 });
 on("btn-browse-together", "click", () => {
+  let nPeers = peerPcs.size;
+  try {
+    nPeers = uniqueRemotePcCount();
+  } catch (_) {}
+  if (nPeers >= 2) {
+    try {
+      openFriends();
+    } catch (_) {}
+    setStatus(
+      _t("trio.inviteFourthHint") ||
+        "Call a friend into this group — no random 4th from the lobby"
+    );
+    log(_t("trio.inviteFourth") || "Invite a friend (4th)");
+    return;
+  }
   send({ type: "browse_together", room: currentRoom() });
   wantSearch = true;
-  const nPeers = peerPcs.size;
-  log(
-    nPeers >= 2
-      ? _t("log.browseParty3") || "party of 3 — searching for a stranger (3v1)…"
-      : _t("log.browseTogether") || "browse together…"
-  );
+  log(_t("log.browseTogether") || "browse together…");
   setStatus(
-    nPeers >= 2
-      ? _t("trio.searchingFourth") || "Searching for a stranger as a group of 3…"
-      : _t("trio.searchingTogether") || "Searching for a stranger together…"
+    _t("trio.searchingTogether") || "Searching for a stranger together…"
   );
 });
 on("btn-find-third", "click", () => {
@@ -31908,7 +43630,8 @@ function handleFindThirdIncoming(msg) {
   });
   $("btn-find-third-yes")?.addEventListener("click", () => {
     send({ type: "find_third_respond", accept: true });
-    findThirdPending = null;
+    // Keep pending until find_third_result — clearing here let waiting/spin
+    // rematch-tear the live 1v1 before party_browse flags landed.
     dismissFindThirdToast();
     trackEvent("find_third_accept");
     setStatus(_t("trio.searching") || "Looking for a 3rd together…");
@@ -31929,25 +43652,33 @@ function handleFindThirdResult(msg) {
   dismissFindThirdToast();
   const reason = msg.reason || "";
   if (msg.ok && reason === "accepted") {
-    findThirdPending = null;
-    trioBrowse = true;
+    findThirdPending = "hunt";
     matchMode = "party_browse";
     yourRole = "party";
+    matched = true;
+    wantSearch = false;
     // Promote existing 1v1 stranger PC → teammate *before* layout (keep media)
     for (const pc of peerPcs.values()) {
       if (pc._role === "stranger" || !pc._role) pc._role = "teammate";
     }
-    enableTrioLayout(true, { searching: true });
+    // Stay 2-col until the 3rd person actually connects (human 641 rule).
+    try {
+      enableTrioLayout(false);
+    } catch (_) {}
     setRemoteEmpty(false);
+    try {
+      $("tile-remote")?.classList.add("has-remote-feed");
+      $("remote-empty")?.classList.add("hidden");
+      $("remote-empty")?.setAttribute("hidden", "");
+      const rem = $("remote");
+      if (rem) {
+        rem.hidden = false;
+        rem.removeAttribute("hidden");
+      }
+    } catch (_) {}
     bindFirstPartnerToMain(null);
-    setThirdSlotStream(null); // middle: brand loop while hunting
-    forceThirdBrandLoop();
     ensurePartnerVideoVisible();
-    // Keep rebinding for a moment — Matched/status handlers can race
-    setTimeout(() => bindFirstPartnerToMain(null), 200);
-    setTimeout(() => forceThirdBrandLoop(), 200);
-    setTimeout(() => bindFirstPartnerToMain(null), 800);
-    setTimeout(() => forceThirdBrandLoop(), 800);
+    scheduleSoftKeepPartnerPaint();
     setStatus(_t("trio.searching") || "Looking for a 3rd together…");
     trackEvent("find_third_accepted");
   } else {
@@ -32069,6 +43800,7 @@ on("sel-speaker", "change", () => {
 // Long-press opens gift strip; swipe L/R skips (Next).
 wireGiftStrip();
 wirePartnerSwipe();
+wireExtraTileSwipe();
 // Tap partner chrome → briefly show timer / quality / A/V again
 $("remote-tile-tag")?.addEventListener("click", (e) => {
   e.stopPropagation();
@@ -32076,7 +43808,7 @@ $("remote-tile-tag")?.addEventListener("click", (e) => {
 });
 $("tile-remote")?.addEventListener("click", (e) => {
   if (e.target.closest(
-    ".side-rail, .tile-dock, .tile-floor, .chat-panel, .partner-menu, .gift-strip, .debate-overlay, .debate-mobile-bar, .star-award-fx, button, a, input, select, textarea, label"
+    ".side-rail, .tile-dock, .tile-floor, .chat-panel, .partner-menu, .gift-strip, .debate-overlay, .debate-mobile-bar, .star-award-fx, #remote-avatar, #remote-avatar-stars, .tile-avatar, button, a, input, select, textarea, label"
   )) {
     return;
   }
@@ -32116,10 +43848,51 @@ $("tile-remote")?.addEventListener("click", (e) => {
     });
     return;
   }
-  openPartnerMenu();
+  openPartnerMenu({ slot: "remote" });
 });
+function onThirdTileActivate(e) {
+  const tile = e.target?.closest?.("#tile-third");
+  if (!tile || tile.hidden) return false;
+  if (
+    e.target.closest(
+      "#btn-third-actions, .tile-corner-btn, .side-rail, .tile-dock, .tile-floor, .chat-panel, .partner-menu, .gift-strip, .side-btn, input, select, textarea, label"
+    )
+  ) {
+    return false;
+  }
+  try {
+    tile.classList.add("is-chrome-open");
+  } catch (_) {}
+  if (!matched && !inFriendCall) return false;
+  if (partnerMenuOpen() && partnerMenuTarget?.slot === "remote-third") {
+    closePartnerMenu();
+    return true;
+  }
+  if (tile.classList.contains("peer-slot-blurred")) {
+    togglePeerElBlur("remote-third");
+    setStatus(
+      _t("log.blurOffTap") || "Partner revealed — tap again for more options"
+    );
+    return true;
+  }
+  openPartnerMenu({ slot: "remote-third" });
+  return true;
+}
+document.addEventListener(
+  "click",
+  (e) => {
+    onThirdTileActivate(e);
+  },
+  true
+);
 
 on("btn-spin", "click", () => {
+  if (shouldSkipHuntLobbySpin()) {
+    try {
+      log("skip hunt lobby spin — keep live PC incremental");
+    } catch (_) {}
+    return;
+  }
   maybeShowCellularDataTip();
   pendingSignals.length = 0;
   matched = false;
@@ -32179,42 +43952,8 @@ on("btn-spin", "click", () => {
   );
 });
 
-on("btn-next", "click", () => {
-  if (isSelfNoSkipLocked()) {
-    // Click registers, button presses — skip does nothing for the lock duration.
-    const left = Math.max(0, selfNoSkipUntil - unixNowSec());
-    const next = $("btn-next");
-    next?.classList.add("is-no-skip-pressed");
-    setTimeout(() => next?.classList.remove("is-no-skip-pressed"), 180);
-    setStatus(
-      _t("stars.pleaseStayLocked", { s: left }) ||
-        `Please stay · ${left}s`
-    );
-    try {
-      navigator.vibrate?.(12);
-    } catch (_) {}
-    return;
-  }
-  // Fresh match — give media a beat (hub also refuses Next for ~8s)
-  if (matched && Date.now() < nextGraceUntil) {
-    const left = Math.max(1, Math.ceil((nextGraceUntil - Date.now()) / 1000));
-    setStatus(
-      _t("conn.nextGrace") ||
-        `Just matched — wait ${left}s before Next so video can connect`
-    );
-    try {
-      navigator.vibrate?.(12);
-    } catch (_) {}
-    return;
-  }
-  // ≥80% of unlock window but not yet there — tip before teardown
-  try {
-    maybeAlmostGiftUnlockOnLeave("next");
-  } catch (_) {}
-  // Capture path/quality before tearing down the match
-  maybeShowMatchPathSummary("next");
+function applyConfirmedNextTear(keepFriend) {
   pendingSignals.length = 0;
-  const keepFriend = inFriendCall || yourRole === "party" || matchMode === "friend";
   matched = keepFriend;
   wantSearch = true;
   showStartButton(false);
@@ -32227,9 +43966,11 @@ on("btn-next", "click", () => {
     trioBrowse = false;
     enableTrioLayout(false);
     showPartnerEmptyWithBrand({ searching: true });
-    endActiveMatchChat(); // keep previous partner chat until new match
+    try {
+      setNoCamPortrait("remote", false);
+    } catch (_) {}
+    endActiveMatchChat();
   } else {
-    // Party next: stranger thread ends but friend chat can continue as DM if needed
     endActiveMatchChat();
     if (trioBrowse || yourRole === "party") {
       setThirdSlotStream(null);
@@ -32239,14 +43980,11 @@ on("btn-next", "click", () => {
   setArchPill("default");
   setFedChip(false);
   updateFriendActionButtons();
-  // Next stranger: restore sticky Hide if preferred
   try {
     applySelfBlurPolicyForSession({ silent: true });
   } catch (_) {}
   schedulePostMatchFriendNudge("next");
   hubSignalOrphanCall = false;
-  trackEvent("next");
-  // Hybrid re-warm for next stranger (pure only if Hide IP)
   try {
     const pureWarm =
       typeof hideIpRelayOnlyEnabled === "function" && hideIpRelayOnlyEnabled();
@@ -32264,16 +44002,10 @@ on("btn-next", "click", () => {
       warmIcePool({ preferRelay: !!pureWarm });
     }
   } catch (_) {}
-  send(nextPayload());
   updateConnFromState();
   try {
     syncNextButtonCopy();
   } catch (_) {}
-  log(
-    keepFriend
-      ? _t("log.nextKeepParty") || "next stranger (keeping friend)"
-      : _t("log.next")
-  );
   if (!keepFriend) {
     setTimeout(() => {
       try {
@@ -32281,6 +44013,60 @@ on("btn-next", "click", () => {
       } catch (_) {}
     }, 700);
   }
+}
+
+on("btn-next", "click", () => {
+  if (isSelfNoSkipLocked()) {
+    // Click registers, button presses — skip does nothing for the lock duration.
+    const left = Math.max(0, selfNoSkipUntil - unixNowSec());
+    const next = $("btn-next");
+    next?.classList.add("is-no-skip-pressed");
+    setTimeout(() => next?.classList.remove("is-no-skip-pressed"), 180);
+    setStatus(
+      _t("stars.pleaseStayLocked", { s: left }) ||
+        `Please stay · ${left}s`
+    );
+    try {
+      navigator.vibrate?.(12);
+    } catch (_) {}
+    return;
+  }
+  // Fresh match — hub refuses Next for MATCH_SETTLE_SECS (12s).
+  if (matched && Date.now() < nextGraceUntil) {
+    const left = Math.max(1, Math.ceil((nextGraceUntil - Date.now()) / 1000));
+    setStatus(
+      _t("conn.nextGrace") ||
+        `Just matched — wait ${left}s before Next so video can connect`
+    );
+    try {
+      navigator.vibrate?.(12);
+    } catch (_) {}
+    return;
+  }
+  try {
+    maybeAlmostGiftUnlockOnLeave("next");
+  } catch (_) {}
+  maybeShowMatchPathSummary("next");
+  const keepFriend = inFriendCall || yourRole === "party" || matchMode === "friend";
+  trackEvent("next");
+  if (matched) {
+    // Ask hub first. Tearing here while settle-refuse is active left a
+    // searching browser vs a still-Matched Android (3rd Next dead roll).
+    pendingNextTear = true;
+    pendingNextKeepFriend = keepFriend;
+    send(nextPayload());
+    setStatus(_t("conn.nextSent") || "Skipping…");
+    log(
+      keepFriend
+        ? _t("log.nextKeepParty") || "next stranger (keeping friend)"
+        : _t("log.next")
+    );
+    return;
+  }
+  wantSearch = true;
+  send(nextPayload());
+  updateConnFromState();
+  log(_t("log.next"));
 });
 
 /** Stop: leave queue / end stranger match; do not auto-search again. */
@@ -32303,6 +44089,7 @@ function doStopMatchmaking() {
   } catch (_) {}
   clearLongWaitBoost();
   pendingSignals.length = 0;
+  pendingNextTear = false;
   wantSearch = false;
   matched = false;
   inQueue = false;
@@ -32314,6 +44101,12 @@ function doStopMatchmaking() {
   findThirdPending = null;
   dismissFindThirdToast();
   enableTrioLayout(false);
+  try {
+    clearPartnerMuteChrome();
+  } catch (_) {}
+  try {
+    setNoCamPortrait("remote", false);
+  } catch (_) {}
   primaryPartnerUserId = "";
   clearPartnerStarsBadge();
   clearPartnerFx();
@@ -32321,6 +44114,20 @@ function doStopMatchmaking() {
   clearWeakConnWatch();
   closeAllPeers({ keepFriend: false });
   setSplitRemote(false);
+  try {
+    const stage = document.querySelector("main.stage");
+    stage?.classList.remove(
+      "stage-trio",
+      "stage-trio-searching",
+      "stage-count-4"
+    );
+    $("tile-remote")?.classList.remove(
+      "has-remote-feed",
+      "peer-slot-muted",
+      "partner-blurred",
+      "peer-slot-blurred"
+    );
+  } catch (_) {}
   // Force idle empty: brand loop + Start (never leave black partner tile)
   showPartnerEmptyWithBrand({ searching: false });
   $("remote-empty")?.classList.remove("is-searching");
@@ -32334,6 +44141,10 @@ function doStopMatchmaking() {
   }
   // Big Start returns to center of partner tile
   showStartButton(true);
+  try {
+    document.documentElement.classList.remove("match-live", "match-searching");
+    document.documentElement.classList.add("start-idle");
+  } catch (_) {}
   setArchPill("default");
   setFedChip(false);
   endActiveMatchChat(); // chat stays so links / history remain
@@ -32351,6 +44162,21 @@ function doStopMatchmaking() {
   updateEmptyShareVisibility();
   trackEvent("stop");
   log(_t("log.stopped") || "stopped");
+  try {
+    paintIdlePartnerStage();
+  } catch (_) {}
+  requestAnimationFrame(() => {
+    try {
+      paintIdlePartnerStage();
+    } catch (_) {}
+  });
+  for (const ms of [80, 300, 900]) {
+    setTimeout(() => {
+      try {
+        paintIdlePartnerStage();
+      } catch (_) {}
+    }, ms);
+  }
   // No post-stop invite popup — Stop is one-tap leave (same as mobile).
   // Friends invite remains available from Friends sheet / empty stage share.
 }
@@ -32833,7 +44659,7 @@ function onLangChange() {
       if (!body || input?.disabled) return;
       if (activeChat.mode === "friend" && activeChat.peerUserId) {
         const liveFriend =
-          (inFriendCall || matchMode === "friend") && anyChatDcOpen();
+          (inFriendCall || matchMode === "friend" || matched) && anyChatDcOpen();
         if (liveFriend) {
           if (
             !sendLiveChat(body, {
@@ -32851,8 +44677,14 @@ function onLangChange() {
             body,
           });
         }
-      } else if ((matched || inFriendCall) && activeChat.live) {
-        if (!sendLiveChat(body)) {
+      } else if (matched || inFriendCall) {
+        const uid = primaryPartnerUserId || activeChat.peerUserId || "";
+        if (
+          !sendLiveChat(body, {
+            asFriend: partnerIsFriend(uid),
+            peerUserId: uid,
+          })
+        ) {
           setStatus(_t("chat.sendFail") || "Could not send — reconnecting…");
           return;
         }
@@ -32930,9 +44762,26 @@ document.addEventListener("keydown", (e) => {
       e.preventDefault();
       hideWaitTips();
     }
-  } else if (e.code === "Space") {
+  } else if (e.code === "Space" || e.key === " ") {
+    if (e.repeat) return;
+    if (e.target && e.target.isContentEditable) return;
+    if (
+      keysHelpOpen() ||
+      settingsIsOpen() ||
+      friendsIsOpen() ||
+      messagesIsOpen() ||
+      partnerMenuOpen() ||
+      (typeof starsSheetIsOpen === "function" && starsSheetIsOpen())
+    ) {
+      return;
+    }
     e.preventDefault();
-    $("btn-next").click();
+    const idle = !matched && !inFriendCall && !inQueue && !wantSearch;
+    if (idle) {
+      startMatchFromIdle();
+    } else if (matched || inFriendCall) {
+      $("btn-next")?.click();
+    }
   }
 });
 
@@ -33056,6 +44905,8 @@ wireCallCoach();
 wireWaitTips();
 wireKeysHelp();
 wireTileChromeAutohide();
+wireSelfBlurTapToReveal();
+wireStarUnlockEasterEgg();
 wireHubSettings();
 wireMatchPrefs();
 wireNameInputs();
@@ -33376,6 +45227,9 @@ if (typeof RuletHub !== "undefined" && RuletHub.loadDirectory) {
 }
 try {
   refreshHubChip();
+} catch (_) {}
+try {
+  isFxLite();
 } catch (_) {}
 // Listen for programmatic hub changes (other tabs / future UI)
 window.addEventListener("ruletka:hub", () => {

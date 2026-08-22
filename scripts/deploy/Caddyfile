@@ -1,5 +1,15 @@
 # HTTPS reverse proxy for ruletka.vip + ruletka.me → roulette-bridge
 # Install: /etc/caddy/Caddyfile
+#
+# TURNS mux: public TCP 443 is sslh (ALPN h2/http/1.1 → this Caddy HTTPS
+# on 8443; other TLS → coturn 5349). Do not bind Caddy to TCP 443.
+
+{
+	https_port 8443
+	servers {
+		protocols h1 h2
+	}
+}
 
 # www → apex (SEO)
 www.ruletka.vip {

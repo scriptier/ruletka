@@ -1,11 +1,11 @@
 //! In-memory matchmaking + friends + party browse + chat/signal relay.
 //!
-//! Match shapes (hard caps — max 4 people in a stranger session):
+//! Match shapes (hard caps — max 4 people):
 //! - **1v1** solo ↔ solo
-//! - **1v2** solo ↔ party of 2
-//! - **3v1** solo ↔ party of 3
-//! - **2v2** party of 2 ↔ party of 2
-//! Parties of 2 or 3 (friends / find-third / join-call groups).
+//! - **1v2** solo ↔ party of 2 (3-way)
+//! - **2v2** friend party of 2 ↔ friend party of 2
+//! Queue never forms **3v1 / 1v3** or **2v3**. A 4th person joins only when
+//! someone in a live 3-way **calls a friend** in (`call_friend` join).
 
 use crate::federation::{
     self, caller_is_offerer, federated_peer_id, parse_federated_peer_id, ClaimRequest,
@@ -161,8 +161,19 @@ enum QueueEntry {
     Solo(Uuid),
     /// Friend pair or find-third pair browsing for a stranger (1v2 / 2v2).
     Party { a: Uuid, b: Uuid },
-    /// Three people already mesh-connected, browsing for one solo (3v1 → 4 total).
+    /// Leftover queue shape — no longer matched (4th joins via friend call only).
     Party3 { a: Uuid, b: Uuid, c: Uuid },
+}
+
+/// Queue pairing gate. 1v1 / 1v2 / 2v2 only. Never 3v1 or 2v3.
+fn queue_shape_ok(left: &QueueEntry, right: &QueueEntry) -> bool {
+    match (left, right) {
+        (QueueEntry::Solo(_), QueueEntry::Solo(_)) => true,
+        (QueueEntry::Solo(_), QueueEntry::Party { .. })
+        | (QueueEntry::Party { .. }, QueueEntry::Solo(_)) => true,
+        (QueueEntry::Party { .. }, QueueEntry::Party { .. }) => true,
+        (QueueEntry::Party3 { .. }, _) | (_, QueueEntry::Party3 { .. }) => false,
+    }
 }
 
 pub struct Client {
@@ -179,6 +190,8 @@ pub struct Client {
     session_peers: HashSet<Uuid>,
     session_id: Option<String>,
     last_partner: Option<Uuid>,
+    /// When last 1v1 ended — skip instant same-pair rematch (tears Android ICE).
+    last_unmatch_at: Option<Instant>,
     room: String,
     /// Friend currently in call with us
     friend_call: Option<Uuid>,
@@ -213,10 +226,12 @@ pub struct Client {
     report_times: Vec<Instant>,
     /// When current stranger match began (for avg match length metrics).
     match_started: Option<Instant>,
-    /// Last time this client sent an SDP offer (drop thrash doubles that kill media).
-    last_offer_at: Option<Instant>,
-    /// Last time this client sent an SDP answer (drop answerer re-offer thrash).
-    last_answer_at: Option<Instant>,
+    /// Last SDP offer time **per target** (`to=` peer_id). 3.5s debounce is per pair,
+    /// so a 1v2 offerer may send offer-to-A then offer-to-B immediately.
+    last_offer_at: HashMap<String, Instant>,
+    /// Last SDP answer time **per target**. Answerer-grace / dual-offer thrash
+    /// protection applies only to the same pair, not a different 3rd peer.
+    last_answer_at: HashMap<String, Instant>,
     /// First ICE candidate signal after match (forensics for black-video).
     last_ice_at: Option<Instant>,
     /// When this client entered the queue (for avg wait metrics).
@@ -408,12 +423,14 @@ struct FindThirdPending {
     expires: Instant,
 }
 
-/// A is in 1v1 with `keep`, ringing `to` to join without dropping `keep`.
+/// A is in 1v1 (or 3-way) with `keep` (+ optional `keep2`), ringing `to` to join.
 #[derive(Clone, Debug)]
 struct JoinCallPending {
     from: Uuid,
     to: Uuid,
     keep: Uuid,
+    /// Second mesh peer when inviting a 4th into a live 3-way.
+    keep2: Option<Uuid>,
     expires: Instant,
 }
 
@@ -1439,6 +1456,7 @@ impl SimpleHub {
         // Daily soft cap (admin: / adjust: reasons bypass)
         let bypass_cap = reason.starts_with("admin:")
             || reason.starts_with("adjust:")
+            || reason.starts_with("gift:")
             || reason == "genesis_snapshot";
         let mut amount = n;
         if !bypass_cap {
@@ -1491,17 +1509,33 @@ impl SimpleHub {
         }
     }
 
+    /// UUID or 8-char friend code (e.g. 8CC5D1DE). Codes are case-insensitive.
+    pub fn resolve_admin_user_id(&self, raw: &str) -> Result<String, String> {
+        let s = raw.trim();
+        if s.is_empty() {
+            return Err("user_id required".into());
+        }
+        if uuid::Uuid::parse_str(s).is_ok() {
+            return Ok(s.to_string());
+        }
+        let code = s.to_ascii_uppercase();
+        if code.len() == 8 && code.chars().all(|c| c.is_ascii_hexdigit()) {
+            if let Some(uid) = self.code_index.get(&code) {
+                return Ok(uid.clone());
+            }
+            return Err(format!("unknown friend code {code}"));
+        }
+        Err("use a user UUID or 8-character friend code".into())
+    }
+
     /// Admin grant — always writes `adjust` with reason `admin:…` (bypasses daily mint cap).
     pub fn admin_grant_stars(
         &mut self,
         user_id: &str,
         amount: u64,
         reason: &str,
-    ) -> Result<u64, String> {
-        let uid = user_id.trim();
-        if uid.is_empty() {
-            return Err("user_id required".into());
-        }
+    ) -> Result<(String, u64), String> {
+        let uid = self.resolve_admin_user_id(user_id)?;
         if amount == 0 || amount > 10_000 {
             return Err("amount must be 1..=10000".into());
         }
@@ -1515,17 +1549,17 @@ impl SimpleHub {
                 format!("admin:{}", r.chars().take(64).collect::<String>())
             }
         };
-        match self.star_ledger.adjust(uid, amount, &note) {
+        match self.star_ledger.adjust(&uid, amount, &note) {
             Ok((ev, bal)) => {
                 if bal == 0 {
-                    self.star_counts.remove(uid);
+                    self.star_counts.remove(&uid);
                 } else {
-                    self.star_counts.insert(uid.to_string(), bal);
+                    self.star_counts.insert(uid.clone(), bal);
                 }
                 self.persist_friends();
                 // Push live balance to connected client (hello_ok only runs once per session).
-                if let Some(&cid) = self.by_user.get(uid) {
-                    let trust = self.trust_for(uid);
+                if let Some(&cid) = self.by_user.get(&uid) {
+                    let trust = self.trust_for(&uid);
                     self.send(
                         cid,
                         ServerMsg::RateResult {
@@ -1549,7 +1583,7 @@ impl SimpleHub {
                     reason = %note,
                     "admin star grant"
                 );
-                Ok(bal)
+                Ok((uid.to_string(), bal))
             }
             Err(e) => Err(format!("ledger: {e}")),
         }
@@ -1565,19 +1599,6 @@ impl SimpleHub {
             .collect();
         rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
         let total: u64 = rows.iter().map(|(_, v)| *v).sum();
-        let top: Vec<serde_json::Value> = rows
-            .iter()
-            .take(12)
-            .map(|(u, s)| {
-                serde_json::json!({
-                    "user_id": u,
-                    "stars": s,
-                    "trust": self.trust_for(u),
-                    "trust_gifters": self.trust_gifters_for(u),
-                    "name": self.known_names.get(u).cloned().unwrap_or_default(),
-                })
-            })
-            .collect();
         let mut trust_rows: Vec<(String, u64)> = self
             .star_ledger
             .trust_snapshot()
@@ -1586,20 +1607,49 @@ impl SimpleHub {
             .collect();
         trust_rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
         let total_trust: u64 = trust_rows.iter().map(|(_, v)| *v).sum();
-        let top_trust: Vec<serde_json::Value> = trust_rows
-            .iter()
-            .take(12)
-            .map(|(u, t)| {
-                serde_json::json!({
-                    "user_id": u,
-                    "trust": t,
-                    "trust_effective": self.effective_trust_for(u),
-                    "stars": self.stars_for(u),
-                    "trust_gifters": self.trust_gifters_for(u),
-                    "name": self.known_names.get(u).cloned().unwrap_or_default(),
-                })
+        let mut uids: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for (u, s) in &rows {
+            if *s > 0 {
+                uids.insert(u.clone());
+            }
+        }
+        for (u, t) in &trust_rows {
+            if *t > 0 {
+                uids.insert(u.clone());
+            }
+        }
+        let row_json = |u: &str| {
+            serde_json::json!({
+                "user_id": u,
+                "stars": self.stars_for(u),
+                "trust": self.trust_for(u),
+                "trust_effective": self.effective_trust_for(u),
+                "trust_gifters": self.trust_gifters_for(u),
+                "name": self.known_names.get(u).cloned().unwrap_or_default(),
             })
-            .collect();
+        };
+        let mut all: Vec<serde_json::Value> = uids.iter().map(|u| row_json(u)).collect();
+        all.sort_by(|a, b| {
+            let sa = a.get("stars").and_then(|v| v.as_u64()).unwrap_or(0);
+            let sb = b.get("stars").and_then(|v| v.as_u64()).unwrap_or(0);
+            let ta = a.get("trust").and_then(|v| v.as_u64()).unwrap_or(0);
+            let tb = b.get("trust").and_then(|v| v.as_u64()).unwrap_or(0);
+            let ua = a.get("user_id").and_then(|v| v.as_str()).unwrap_or("");
+            let ub = b.get("user_id").and_then(|v| v.as_str()).unwrap_or("");
+            sb.cmp(&sa).then(tb.cmp(&ta)).then(ua.cmp(ub))
+        });
+        let top: Vec<serde_json::Value> = all.iter().take(12).cloned().collect();
+        let top_trust: Vec<serde_json::Value> = {
+            let mut t = all.clone();
+            t.sort_by(|a, b| {
+                let ta = a.get("trust").and_then(|v| v.as_u64()).unwrap_or(0);
+                let tb = b.get("trust").and_then(|v| v.as_u64()).unwrap_or(0);
+                let ua = a.get("user_id").and_then(|v| v.as_str()).unwrap_or("");
+                let ub = b.get("user_id").and_then(|v| v.as_str()).unwrap_or("");
+                tb.cmp(&ta).then(ua.cmp(ub))
+            });
+            t.into_iter().take(12).collect()
+        };
         let graph = self.trust_graph_stats();
         serde_json::json!({
             "seq": self.star_ledger.seq(),
@@ -1613,6 +1663,7 @@ impl SimpleHub {
             "senior_min_gifters": Self::SENIOR_MIN_GIFTERS,
             "top": top,
             "top_trust": top_trust,
+            "rows": all,
             "graph": graph,
         })
     }
@@ -1682,7 +1733,8 @@ impl SimpleHub {
 
     fn normalize_effect_kind(raw: &str) -> Option<&'static str> {
         match raw.trim().to_ascii_lowercase().as_str() {
-            "bars" | "jail" | "fence" => Some("bars"),
+            "bars" | "jail" => Some("bars"),
+            "fence" | "chain" | "mesh" => Some("fence"),
             "flowers" | "flower" => Some("flowers"),
             "balloons" | "balloon" | "party" => Some("balloons"),
             "confetti" | "confet" | "celebrate" => Some("confetti"),
@@ -1700,6 +1752,17 @@ impl SimpleHub {
             | "yourturn"
             | "handoff"
             | "mic" => Some("pass_mic"),
+            "shooting_star"
+            | "shootingstar"
+            | "comet"
+            | "gift_star"
+            | "send_star" => Some("shooting_star"),
+            "snow" | "snowflake" | "flakes" => Some("snow"),
+            "spotlight" | "spot" | "light" => Some("spotlight"),
+            "crown" | "crowns" | "king" | "queen" | "tiara" | "coronation" => {
+                Some("crown")
+            }
+            "disco" | "discoball" | "dance" | "club" => Some("disco"),
             _ => None,
         }
     }
@@ -1707,13 +1770,23 @@ impl SimpleHub {
     /// (cost stars, duration seconds) per gift kind.
     fn effect_cost_duration(kind: &str) -> (u64, u64) {
         match kind {
-            "heart" => (1, 8),
+            "heart" => (5, 3),
             "fireworks" => (15, 20),
             "please_stay" => (30, 15),
             // Short, punchy social cue — not a long overlay
             "pass_mic" => (5, 5),
+            "shooting_star" => (3, 8),
+            "snow" => (5, 15),
+            "spotlight" => (5, 10),
+            "crown" => (5, 12),
+            "disco" => (5, 12),
             _ => (Self::EFFECT_COST_STARS, Self::EFFECT_DURATION_SECS),
         }
+    }
+
+    /// Wallet ★1 to the conversationalist (not trust). Bars/fence are punitive.
+    fn gift_grants_wallet_star(kind: &str) -> bool {
+        kind != "bars" && kind != "fence"
     }
 
     /// Cooldown between Please stay spends on the same person (~30 days).
@@ -2133,7 +2206,7 @@ impl SimpleHub {
         };
 
         let until;
-        let message;
+        let mut message;
         let mut stack_level: u8 = 1;
         if kind == "please_stay" {
             // Separate from cosmetic overlays (bars/flowers…) so they can coexist.
@@ -2213,11 +2286,32 @@ impl SimpleHub {
                 } else {
                     format!("pass the mic · {dur_secs}s — give them a chance{lvl_tag}")
                 }
+            } else if kind == "fence" {
+                if extended {
+                    format!("+{dur_secs}s fence extended{lvl_tag}")
+                } else {
+                    format!("behind the fence for {dur_secs}s{lvl_tag}")
+                }
+            } else if kind == "shooting_star" {
+                format!("shooting star · they received ★1 (you spent 3){lvl_tag}")
+            } else if kind == "snow" {
+                format!("snow for {dur_secs}s · they received ★1{lvl_tag}")
+            } else if kind == "spotlight" {
+                format!("spotlight for {dur_secs}s · they received ★1{lvl_tag}")
+            } else if kind == "crown" {
+                format!("crown for {dur_secs}s · they received ★1{lvl_tag}")
+            } else if kind == "disco" {
+                format!("disco for {dur_secs}s · they received ★1{lvl_tag}")
             } else if extended {
                 format!("+{dur_secs}s bars extended{lvl_tag}")
             } else {
                 format!("behind bars for {dur_secs}s{lvl_tag}")
             };
+            // Bars / fence are punitive — no ★1 reward on the target.
+            if Self::gift_grants_wallet_star(kind) && !message.contains("they received ★1")
+            {
+                message = format!("{message} · they received ★1");
+            }
             // Social stigma: count unique bars edges (not stack extensions alone)
             if kind == "bars" {
                 let counted = self.record_bars_stigma_edge(&me_uid, &to_user_id);
@@ -2226,6 +2320,12 @@ impl SimpleHub {
                 }
             }
         }
+        // Nice gifts: spend catalog cost, mint ★1 wallet to them (not trust/rep).
+        // Bars / fence stay punitive — no wallet reward.
+        if Self::gift_grants_wallet_star(kind) {
+            self.add_stars_from(&me_uid, &to_user_id, 1, &format!("gift:{kind}"));
+        }
+
         self.persist_friends();
 
         self.metrics_inc_star_spend(kind, true, cost);
@@ -3297,30 +3397,17 @@ impl SimpleHub {
         }
     }
 
-    /// Stranger-formed parties only hunt one solo — never party↔party (2v2/3v3).
+    /// Find-3rd hunt: party2↔solo = 2v1, party2↔party2 = 2v2 (friend *or*
+    /// stranger 1v1s that both accepted Find 3rd). Only Party3 stays blocked
+    /// (no 3v1 / 2v3 queue) — same as `queue_shape_ok`.
     fn stranger_party_blocks_2v2(&self, left: &QueueEntry, right: &QueueEntry) -> bool {
-        let left_party = matches!(left, QueueEntry::Party { .. } | QueueEntry::Party3 { .. });
-        let right_party = matches!(right, QueueEntry::Party { .. } | QueueEntry::Party3 { .. });
-        left_party
-            && right_party
-            && (self.entry_is_stranger_party(left) || self.entry_is_stranger_party(right))
+        matches!(left, QueueEntry::Party3 { .. }) || matches!(right, QueueEntry::Party3 { .. })
     }
 
     /// Entries may match only if no member of left is blocked vs any member of right.
-    /// Allowed: solo↔solo, solo↔party2, solo↔party3, party2↔party2. No party3↔party*.
+    /// Allowed: solo↔solo, solo↔party2, party2↔party2. Never party3↔* (no 3v1/2v3 queue).
     fn entries_compatible(&self, left: &QueueEntry, right: &QueueEntry) -> bool {
-        // Shape gate
-        let shape_ok = match (left, right) {
-            (QueueEntry::Solo(_), QueueEntry::Solo(_)) => true,
-            (QueueEntry::Solo(_), QueueEntry::Party { .. })
-            | (QueueEntry::Party { .. }, QueueEntry::Solo(_)) => true,
-            (QueueEntry::Solo(_), QueueEntry::Party3 { .. })
-            | (QueueEntry::Party3 { .. }, QueueEntry::Solo(_)) => true,
-            (QueueEntry::Party { .. }, QueueEntry::Party { .. }) => true,
-            // Party3 only matches solos (3v1), never other parties
-            (QueueEntry::Party3 { .. }, _) | (_, QueueEntry::Party3 { .. }) => false,
-        };
-        if !shape_ok {
+        if !queue_shape_ok(left, right) {
             return false;
         }
         let left_ids = Self::queue_entry_ids(left);
@@ -3341,14 +3428,28 @@ impl SimpleHub {
         true
     }
 
-    /// Solo↔solo just ended this pair — deprioritize, but still allow when alone.
+    /// Just-ended pair — deprioritize, but still allow when the lobby is empty.
+    /// Solo↔solo and party↔that-same-3rd (so Next 3rd does not instantly rematch
+    /// the pair they just left when anyone else is waiting).
     fn is_last_partner_rematch(&self, left: &QueueEntry, right: &QueueEntry) -> bool {
-        let (QueueEntry::Solo(a), QueueEntry::Solo(b)) = (left, right) else {
-            return false;
-        };
-        let last_a = self.clients.get(a).and_then(|c| c.last_partner);
-        let last_b = self.clients.get(b).and_then(|c| c.last_partner);
-        last_a == Some(*b) || last_b == Some(*a)
+        match (left, right) {
+            (QueueEntry::Solo(a), QueueEntry::Solo(b)) => {
+                let last_a = self.clients.get(a).and_then(|c| c.last_partner);
+                let last_b = self.clients.get(b).and_then(|c| c.last_partner);
+                last_a == Some(*b) || last_b == Some(*a)
+            }
+            (QueueEntry::Solo(s), QueueEntry::Party { a, b })
+            | (QueueEntry::Party { a, b }, QueueEntry::Solo(s)) => {
+                let last_s = self.clients.get(s).and_then(|c| c.last_partner);
+                let last_a = self.clients.get(a).and_then(|c| c.last_partner);
+                let last_b = self.clients.get(b).and_then(|c| c.last_partner);
+                last_s == Some(*a)
+                    || last_s == Some(*b)
+                    || last_a == Some(*s)
+                    || last_b == Some(*s)
+            }
+            _ => false,
+        }
     }
 
     /// Soft gender + interest tags for solo↔solo. Empty tags = no preference.
@@ -4020,8 +4121,8 @@ impl SimpleHub {
             c.party_with = None;
             c.friend_call = None;
             c.match_started = Some(Instant::now());
-            c.last_offer_at = None;
-            c.last_answer_at = None;
+            c.last_offer_at.clear();
+            c.last_answer_at.clear();
             c.last_ice_at = None;
         }
 
@@ -4237,6 +4338,7 @@ impl SimpleHub {
                 session_peers: HashSet::new(),
                 session_id: None,
                 last_partner: None,
+                last_unmatch_at: None,
                 room: String::new(),
                 friend_call: None,
                 party_with: None,
@@ -4255,8 +4357,8 @@ impl SimpleHub {
                 limiter: ClientLimiter::new(),
                 report_times: Vec::new(),
                 match_started: None,
-                last_offer_at: None,
-                last_answer_at: None,
+                last_offer_at: HashMap::new(),
+                last_answer_at: HashMap::new(),
                 last_ice_at: None,
                 wait_started: None,
                 pending_rate_uid: None,
@@ -4624,6 +4726,7 @@ impl SimpleHub {
             c.session_peers.clear();
             c.session_id = None;
             c.match_started = None;
+            c.last_unmatch_at = Some(Instant::now());
             // Stay party if still browsing
             if c.party_with.is_some() {
                 c.phase = Phase::Waiting;
@@ -5124,8 +5227,8 @@ impl SimpleHub {
                 c.session_id = Some(session_id.clone());
                 c.party_with = None;
                 c.match_started = Some(Instant::now());
-            c.last_offer_at = None;
-            c.last_answer_at = None;
+            c.last_offer_at.clear();
+            c.last_answer_at.clear();
             c.last_ice_at = None;
             }
             let offerer = peer.is_offerer;
@@ -5205,14 +5308,23 @@ impl SimpleHub {
                 c.partner = peers.first().copied();
                 c.party_with = party;
                 c.match_started = Some(Instant::now());
-            c.last_offer_at = None;
-            c.last_answer_at = None;
+            c.last_offer_at.clear();
+            c.last_answer_at.clear();
             c.last_ice_at = None;
             }
         };
         set_matched(&mut self.clients, solo, &[a, b], None);
         set_matched(&mut self.clients, a, &[solo, b], Some(b));
         set_matched(&mut self.clients, b, &[solo, a], Some(a));
+        if let Some(c) = self.clients.get_mut(&solo) {
+            c.last_partner = Some(a);
+        }
+        if let Some(c) = self.clients.get_mut(&a) {
+            c.last_partner = Some(solo);
+        }
+        if let Some(c) = self.clients.get_mut(&b) {
+            c.last_partner = Some(solo);
+        }
 
         // Any pair that needs TURN → force all three (party media is multipath).
         let force_relay = self.pair_force_relay(solo, a)
@@ -5307,7 +5419,8 @@ impl SimpleHub {
         self.broadcast_lobby_info();
     }
 
-    /// Party of 2 vs party of 2 (2v2). Each side already has a friend WebRTC link.
+    /// Party of 2 vs party of 2 (2v2). Each side already has a live 1v1
+    /// (friend call *or* Find-3rd stranger pair). Keep that link; mesh the other two.
     fn start_party_vs_party(&mut self, a1: Uuid, a2: Uuid, b1: Uuid, b2: Uuid) {
         let room = self.room_of(a1);
         let (session_id, session_key) = {
@@ -5324,16 +5437,35 @@ impl SimpleHub {
             ])
         };
 
-        // Peers for each: two strangers on the other team + friend teammate
-        let peers_for = |me: Uuid, friend: Uuid, o1: Uuid, o2: Uuid| -> Vec<MatchPeer> {
+        let mate_role = |x: Uuid, y: Uuid| -> &'static str {
+            let sx = self
+                .clients
+                .get(&x)
+                .map(|c| c.stranger_party)
+                .unwrap_or(false);
+            let sy = self
+                .clients
+                .get(&y)
+                .map(|c| c.stranger_party)
+                .unwrap_or(false);
+            if sx || sy {
+                "teammate"
+            } else {
+                "friend"
+            }
+        };
+
+        // Peers for each: two strangers on the other team + existing mate
+        let peers_for = |me: Uuid, mate: Uuid, o1: Uuid, o2: Uuid| -> Vec<MatchPeer> {
             let c_me = self.clients.get(&me).unwrap();
-            let c_f = self.clients.get(&friend).unwrap();
+            let c_f = self.clients.get(&mate).unwrap();
             let c_o1 = self.clients.get(&o1).unwrap();
             let c_o2 = self.clients.get(&o2).unwrap();
+            let mine = mate_role(me, mate);
             vec![
                 self.match_peer(c_me, c_o1, "stranger", self.effect_snapshot_for(&c_o1.user_id).0, self.effect_snapshot_for(&c_o1.user_id).1, self.effect_snapshot_for(&c_o1.user_id).2),
                 self.match_peer(c_me, c_o2, "stranger", self.effect_snapshot_for(&c_o2.user_id).0, self.effect_snapshot_for(&c_o2.user_id).1, self.effect_snapshot_for(&c_o2.user_id).2),
-                self.match_peer(c_me, c_f, "friend", self.effect_snapshot_for(&c_f.user_id).0, self.effect_snapshot_for(&c_f.user_id).1, self.effect_snapshot_for(&c_f.user_id).2),
+                self.match_peer(c_me, c_f, mine, self.effect_snapshot_for(&c_f.user_id).0, self.effect_snapshot_for(&c_f.user_id).1, self.effect_snapshot_for(&c_f.user_id).2),
             ]
         };
 
@@ -5362,8 +5494,8 @@ impl SimpleHub {
                     c.partner = peers.first().copied();
                     c.party_with = Some(party);
                     c.match_started = Some(Instant::now());
-            c.last_offer_at = None;
-            c.last_answer_at = None;
+            c.last_offer_at.clear();
+            c.last_answer_at.clear();
             c.last_ice_at = None;
                 }
             };
@@ -5371,6 +5503,14 @@ impl SimpleHub {
         set_matched(&mut self.clients, a2, &[b1, b2, a1], a1);
         set_matched(&mut self.clients, b1, &[a1, a2, b2], b2);
         set_matched(&mut self.clients, b2, &[a1, a2, b1], b1);
+
+        // Same-LAN / hide_ip: FRA TURN for every new cross-pair (CONNECTIVITY_LOCK).
+        let force_relay = self.pair_force_relay(a1, a2)
+            || self.pair_force_relay(b1, b2)
+            || self.pair_force_relay(a1, b1)
+            || self.pair_force_relay(a1, b2)
+            || self.pair_force_relay(a2, b1)
+            || self.pair_force_relay(a2, b2);
 
         let send_party = |hub: &mut SimpleHub,
                           id: Uuid,
@@ -5390,8 +5530,7 @@ impl SimpleHub {
                     mode: "party_browse".into(),
                     your_role: "party".into(),
                     peers,
-                
-                force_relay: false,
+                    force_relay,
                 },
             );
         };
@@ -5472,8 +5611,8 @@ impl SimpleHub {
                 c.session_id = Some(session_id.clone());
                 c.last_partner = Some(them);
                 c.match_started = Some(Instant::now());
-            c.last_offer_at = None;
-            c.last_answer_at = None;
+            c.last_offer_at.clear();
+            c.last_answer_at.clear();
             c.last_ice_at = None;
             }
             let offerer = peer.is_offerer;
@@ -5805,8 +5944,8 @@ impl SimpleHub {
                     cl.partner = peers.first().copied();
                     cl.party_with = party;
                     cl.match_started = Some(Instant::now());
-            cl.last_offer_at = None;
-            cl.last_answer_at = None;
+            cl.last_offer_at.clear();
+            cl.last_answer_at.clear();
             cl.last_ice_at = None;
                 }
             };
@@ -6109,8 +6248,8 @@ impl SimpleHub {
                     mode: "party_browse".into(),
                     your_role: "party".into(),
                     peers: vec![peer],
-                
-                    force_relay: false,
+                    // Same-LAN must stay FRA relay (CONNECTIVITY_LOCK).
+                    force_relay: self.pair_force_relay(me, them),
                 },
             );
             self.status(me, "find-third — looking for a 3rd");
@@ -6156,6 +6295,13 @@ impl SimpleHub {
             steps -= 1;
             let Some(first) = self.queue.pop_front() else { break };
 
+            // Leftover Party3 queue: never match 3v1. Drop the slot (people stay
+            // in their 3-way if still Matched; Waiting leftovers re-spin solo).
+            if matches!(first, QueueEntry::Party3 { .. }) {
+                tracing::info!("try_match drop Party3 queue slot — 3v1 hunt retired");
+                continue;
+            }
+
             // Validate first entry still waiting
             if !self.queue_entry_waiting_ok(&first) {
                 continue;
@@ -6179,7 +6325,7 @@ impl SimpleHub {
                 if !self.queue_entry_waiting_ok(e) {
                     continue;
                 }
-                // Allowed: 1v1, 1v2, 3v1, 2v2 (see entries_compatible).
+                // Allowed: 1v1, 1v2, 2v2 (see entries_compatible). No 3v1/2v3 queue.
                 if !self.entries_compatible(&first, e) {
                     continue;
                 }
@@ -6188,6 +6334,19 @@ impl SimpleHub {
                 }
                 let rematch = self.is_last_partner_rematch(&first, e);
                 if rematch {
+                    let recent = Self::queue_entry_ids(&first)
+                        .into_iter()
+                        .chain(Self::queue_entry_ids(e))
+                        .any(|id| {
+                            self.clients
+                                .get(&id)
+                                .and_then(|c| c.last_unmatch_at)
+                                .map(|t| t.elapsed() < Duration::from_secs(12))
+                                .unwrap_or(false)
+                        });
+                    if recent {
+                        continue;
+                    }
                     if rematch_fallback.is_none() {
                         rematch_fallback = Some(i);
                     }
@@ -6286,6 +6445,20 @@ impl SimpleHub {
     }
 
     fn enter_waiting_solo(&mut self, id: Uuid, room: String, detail: &str) {
+        // Accept used to stop_matchmaking ("partner stopped") → clients auto-Spin
+        // and tore a friend call that started <3s ago (2026-08-16T21:05 Vadimovich).
+        if let Some(started) = self.clients.get(&id).and_then(|c| {
+            if c.friend_call.is_some() && matches!(c.phase, Phase::FriendCall) {
+                c.match_started
+            } else {
+                None
+            }
+        }) {
+            if started.elapsed().as_secs() < 3 {
+                tracing::info!(%id, "ignore spin — friend call just started");
+                return;
+            }
+        }
         // Leave matches but keep friend call? Solo spin leaves friend call.
         if self.clients.get(&id).and_then(|c| c.friend_call).is_some() {
             self.end_friend_call(id, "left friend call to browse alone");
@@ -6337,8 +6510,8 @@ impl SimpleHub {
             c.session_id = None;
             c.match_started = None;
             // Clear offer debounce so rematch after Stop/Next can send SDP immediately
-            c.last_offer_at = None;
-            c.last_answer_at = None;
+            c.last_offer_at.clear();
+            c.last_answer_at.clear();
             c.last_ice_at = None;
             if c.phase == Phase::Matched || c.phase == Phase::Waiting {
                 c.phase = Phase::Idle;
@@ -6352,6 +6525,19 @@ impl SimpleHub {
                 continue;
             }
             self.unmatch_one(p, partner_msg);
+            // 1v1 leftover after Next/Spin: keep hunting (they were skipped).
+            // Party leftovers are already Waiting. Friend-call leftovers stay.
+            let room = self
+                .clients
+                .get(&p)
+                .map(|c| c.room.clone())
+                .unwrap_or_else(|| "public".into());
+            let should_keep_hunting = self.clients.get(&p).is_some_and(|c| {
+                c.friend_call.is_none() && c.party_with.is_none() && c.phase == Phase::Idle
+            });
+            if should_keep_hunting {
+                self.place_in_solo_queue(p, room, partner_msg);
+            }
         }
     }
 
@@ -6399,8 +6585,8 @@ impl SimpleHub {
             c.stranger_party = false;
             c.friend_call = None;
             // Fresh next match may offer immediately — don't inherit 8s debounce
-            c.last_offer_at = None;
-            c.last_answer_at = None;
+            c.last_offer_at.clear();
+            c.last_answer_at.clear();
             c.last_ice_at = None;
             c.match_started = None;
         }
@@ -6519,11 +6705,18 @@ impl SimpleHub {
                     normalize_room(&room)
                 };
                 if let Some(pid) = self.clients.get(&id).and_then(|c| c.party_with) {
-                    // Next as party: leave stranger, requeue party
+                    // Pair Next: skip this 3rd, hunt the next 3rd (keep teammate).
                     self.party_leave_stranger_and_requeue(id, pid, room);
+                } else if self.leave_keep_remaining_pair(
+                    id,
+                    "stranger left — looking for a 3rd again",
+                ) {
+                    // 3rd Next: pair hunts again; this client searches solo.
+                    self.place_in_solo_queue(id, room, "next — searching again");
+                    self.try_match();
                 } else if self.clients.get(&id).and_then(|c| c.friend_call).is_some() {
-                    // In friend call without party — just stay
-                    self.status(id, "in friend call — use Browse together");
+                    // In friend call without party — stay 1v1
+                    self.status(id, "in friend call — invite them with Find 3rd");
                 } else {
                     self.enter_waiting_solo(id, room, "next — searching again");
                 }
@@ -6566,36 +6759,22 @@ impl SimpleHub {
                     Some(Phase::Matched) | Some(Phase::FriendCall)
                 ) && session.len() == 2;
                 if in_live_3 {
-                    let b = session[0];
-                    let c = session[1];
-                    // All three must still share the session
-                    let ok_b = self
-                        .clients
-                        .get(&b)
-                        .map(|cl| {
-                            cl.session_peers.contains(&id) && cl.session_peers.contains(&c)
-                        })
-                        .unwrap_or(false);
-                    let ok_c = self
-                        .clients
-                        .get(&c)
-                        .map(|cl| {
-                            cl.session_peers.contains(&id) && cl.session_peers.contains(&b)
-                        })
-                        .unwrap_or(false);
-                    if ok_b && ok_c {
-                        for pid in [id, b, c] {
-                            if let Some(cl) = self.clients.get_mut(&pid) {
-                                cl.room = room.clone();
-                            }
-                        }
-                        self.enqueue_party3(id, b, c);
-                        self.broadcast_lobby_info();
-                        self.try_match();
-                        return;
-                    }
+                    // Product: no random 3v1 / 1v3 hunt. Invite a 4th with Call.
+                    self.send(
+                        id,
+                        ServerMsg::Error {
+                            message: "party of 3 stays together — call a friend to invite a 4th"
+                                .into(),
+                        },
+                    );
+                    self.status(
+                        id,
+                        "to add a 4th, Call a friend — random 1v3 hunt is off",
+                    );
+                    return;
                 }
-                // —— Classic: friend call pair (party of 2) ——
+                // Friend 1v1 stays 1v1 until both accept Find 3rd.
+                // Instant browse_together used to throw the pair into 3-way hunt.
                 let Some(fid) = self.clients.get(&id).and_then(|c| c.friend_call) else {
                     self.send(
                         id,
@@ -6606,7 +6785,6 @@ impl SimpleHub {
                     );
                     return;
                 };
-                // Confirm mutual friend call
                 if self.clients.get(&fid).and_then(|c| c.friend_call) != Some(id) {
                     self.send(
                         id,
@@ -6616,17 +6794,17 @@ impl SimpleHub {
                     );
                     return;
                 }
-                if let Some(c) = self.clients.get_mut(&id) {
-                    c.room = room.clone();
-                }
-                if let Some(c) = self.clients.get_mut(&fid) {
-                    c.room = room.clone();
-                }
-                self.enqueue_party(id, fid);
-                self.status(id, "browsing together — searching");
-                self.status(fid, "browsing together — searching");
-                self.broadcast_lobby_info();
-                self.try_match();
+                self.send(
+                    id,
+                    ServerMsg::Error {
+                        message: "invite your friend first — use Find 3rd"
+                            .into(),
+                    },
+                );
+                self.status(
+                    id,
+                    "friend call stays 1v1 until they accept Find 3rd",
+                );
             }
             ClientMsg::AddFriend { code } => self.handle_add_friend(id, code),
             ClientMsg::AcceptFriend { user_id } => self.handle_accept_friend(id, user_id),
@@ -6731,7 +6909,8 @@ impl SimpleHub {
                 })
                 .unwrap_or_default();
             for s in strangers {
-                self.unmatch_one(s, "party moved on — searching again");
+                // Skipped 3rd searches solo (do not idle them; do not unmatch the pair).
+                self.place_in_solo_queue(s, room.clone(), "party moved on — searching again");
             }
             if let Some(c) = self.clients.get_mut(&id) {
                 c.room = room.clone();
@@ -6751,6 +6930,31 @@ impl SimpleHub {
 
     fn party_leave_stranger_and_requeue(&mut self, a: Uuid, b: Uuid, room: String) {
         self.party_requeue(a, b, room, "next together — searching again");
+    }
+
+    /// Put one client in the solo queue without touching remaining session peers.
+    /// Used when the 3rd Nexts (pair already re-queued) or the pair skips them.
+    fn place_in_solo_queue(&mut self, id: Uuid, room: String, detail: &str) {
+        self.dequeue_client(id);
+        if let Some(c) = self.clients.get_mut(&id) {
+            c.room = room;
+            c.phase = Phase::Waiting;
+            c.party_with = None;
+            c.stranger_party = false;
+            c.partner = None;
+            c.session_peers.clear();
+            c.session_id = None;
+            c.match_started = None;
+            c.last_offer_at.clear();
+            c.last_answer_at.clear();
+            c.last_ice_at = None;
+            if c.wait_started.is_none() {
+                c.wait_started = Some(Instant::now());
+            }
+        }
+        self.enqueue_solo(id);
+        self.status(id, detail);
+        self.broadcast_lobby_info();
     }
 
     fn handle_set_prefs(
@@ -8203,6 +8407,26 @@ impl SimpleHub {
         self.status(id, "user unblocked");
     }
 
+    /// Other people in the inviter's live mesh (1v1 → 1 id; 3-way → 2 ids).
+    fn live_mesh_others(&self, id: Uuid) -> Vec<Uuid> {
+        let Some(c) = self.clients.get(&id) else {
+            return vec![];
+        };
+        if !matches!(c.phase, Phase::Matched | Phase::FriendCall) {
+            return vec![];
+        }
+        let mut others: Vec<Uuid> = c.session_peers.iter().copied().collect();
+        others.retain(|p| *p != id);
+        if others.is_empty() {
+            if let Some(p) = c.partner.or(c.friend_call) {
+                others.push(p);
+            }
+        }
+        others.sort();
+        others.dedup();
+        others
+    }
+
     /// True if client is in a pure 1v1 (friend call or stranger) that can invite a 3rd.
     fn live_1v1_partner(&self, id: Uuid) -> Option<Uuid> {
         let c = self.clients.get(&id)?;
@@ -8350,18 +8574,30 @@ impl SimpleHub {
             return;
         };
 
-        // ——— Invite into current 1v1 as 3rd (do not hang up the other person) ———
+        // ——— Invite into current 1v1 as 3rd, or 3-way as 4th (never drop mesh) ———
         if join {
-            let Some(keep) = self.live_1v1_partner(id) else {
+            let others = self.live_mesh_others(id);
+            if others.is_empty() {
                 self.send(
                     id,
                     ServerMsg::Error {
-                        message: "join invite needs an active 1v1 call first".into(),
+                        message: "join invite needs an active 1v1 or 3-way first".into(),
                     },
                 );
                 return;
-            };
-            if keep == oid {
+            }
+            if others.len() >= 3 {
+                self.send(
+                    id,
+                    ServerMsg::Error {
+                        message: "party is full (max 4)".into(),
+                    },
+                );
+                return;
+            }
+            let keep = others[0];
+            let keep2 = others.get(1).copied();
+            if others.iter().any(|p| *p == oid) {
                 self.send(
                     id,
                     ServerMsg::Error {
@@ -8413,6 +8649,7 @@ impl SimpleHub {
                 from: id,
                 to: oid,
                 keep,
+                keep2,
                 expires: Instant::now() + Duration::from_secs(45),
             });
             self.send(
@@ -8507,6 +8744,7 @@ impl SimpleHub {
                 from: id,
                 to: oid,
                 keep,
+                keep2: None,
                 expires: Instant::now() + Duration::from_secs(45),
             });
             self.send(
@@ -8557,6 +8795,10 @@ impl SimpleHub {
         let ab_friend = self.clients.get(&a).and_then(|x| x.friend_call) == Some(b)
             || self.clients.get(&b).and_then(|x| x.friend_call) == Some(a);
         let ab_role = if ab_friend { "friend" } else { "teammate" };
+        // Same-LAN / hide_ip / untrusted: same lock as 4-way join (never hardcode false).
+        let force_relay = self.pair_force_relay(a, b)
+            || self.pair_force_relay(a, c)
+            || self.pair_force_relay(b, c);
 
         // Update session state — do not clear A–B WebRTC
         for (id, peers, party) in [
@@ -8572,8 +8814,8 @@ impl SimpleHub {
                 cl.party_with = party;
                 cl.stranger_party = false;
                 cl.match_started = Some(Instant::now());
-            cl.last_offer_at = None;
-            cl.last_answer_at = None;
+            cl.last_offer_at.clear();
+            cl.last_answer_at.clear();
             cl.last_ice_at = None;
                 // Keep friend_call between a–b only
                 if id == c {
@@ -8613,7 +8855,7 @@ impl SimpleHub {
                 your_role: "party".into(),
                 peers: a_peers,
             
-                force_relay: false,
+                force_relay,
                 },
         );
         self.send(
@@ -8628,7 +8870,7 @@ impl SimpleHub {
                 your_role: "party".into(),
                 peers: b_peers,
             
-                force_relay: false,
+                force_relay,
                 },
         );
         self.send(
@@ -8647,13 +8889,129 @@ impl SimpleHub {
                 your_role: "solo".into(),
                 peers: c_peers,
             
-                force_relay: false,
+                force_relay,
                 },
         );
         self.status(a, "friend joined your call");
         self.status(b, "friend joined the call");
         self.status(c, "you joined their call");
-        tracing::info!(%a, %b, %c, "three_person_join started");
+        tracing::info!(%a, %b, %c, force_relay, "three_person_join started");
+        self.broadcast_lobby_info();
+    }
+
+    /// Invite a 4th friend into a live 3-way (1v3 for the joiner). Never 5.
+    fn start_four_person_join(&mut self, a: Uuid, b: Uuid, c: Uuid, d: Uuid) {
+        let ids = [a, b, c, d];
+        if ids.iter().any(|id| !self.clients.contains_key(id)) {
+            return;
+        }
+        let (session_id, session_key) = {
+            let ca = self.clients.get(&a).unwrap();
+            let cb = self.clients.get(&b).unwrap();
+            let cc = self.clients.get(&c).unwrap();
+            let cd = self.clients.get(&d).unwrap();
+            Self::make_session_id(&[&ca.peer_id, &cb.peer_id, &cc.peer_id, &cd.peer_id, "join4"])
+        };
+        let force_relay = self.pair_force_relay(a, d)
+            || self.pair_force_relay(b, d)
+            || self.pair_force_relay(c, d)
+            || self.pair_force_relay(a, b)
+            || self.pair_force_relay(a, c)
+            || self.pair_force_relay(b, c);
+
+        for (id, peers, party) in [
+            (a, vec![b, c, d], Some(b)),
+            (b, vec![a, c, d], Some(a)),
+            (c, vec![a, b, d], Some(a)),
+            (d, vec![a, b, c], None),
+        ] {
+            if let Some(cl) = self.clients.get_mut(&id) {
+                cl.phase = Phase::Matched;
+                cl.session_id = Some(session_id.clone());
+                cl.session_peers = peers.iter().copied().collect();
+                cl.partner = peers.first().copied();
+                cl.party_with = party;
+                cl.match_started = Some(Instant::now());
+                cl.last_offer_at.clear();
+                cl.last_answer_at.clear();
+                cl.last_ice_at = None;
+                if id == d {
+                    cl.friend_call = None;
+                }
+            }
+        }
+
+        let peer_for = |from: Uuid, to: Uuid, role: &str| {
+            let ca = self.clients.get(&from).unwrap();
+            let cb = self.clients.get(&to).unwrap();
+            let snap = self.effect_snapshot_for(&cb.user_id);
+            self.match_peer(ca, cb, role, snap.0, snap.1, snap.2)
+        };
+
+        let send_one = |hub: &mut SimpleHub,
+                        id: Uuid,
+                        role: &str,
+                        partner_short: String,
+                        peers: Vec<MatchPeer>| {
+            let is_offerer = peers.iter().any(|p| p.is_offerer && p.role == "stranger")
+                || (role == "solo" && peers.iter().any(|p| p.is_offerer));
+            hub.send(
+                id,
+                ServerMsg::Matched {
+                    partner_short,
+                    session_id: session_id.clone(),
+                    session_key: session_key.clone(),
+                    is_offerer,
+                    room: hub.room_of(id),
+                    mode: "party_browse".into(),
+                    your_role: role.into(),
+                    peers,
+                    force_relay,
+                },
+            );
+        };
+
+        let a_peers = vec![
+            peer_for(a, b, "teammate"),
+            peer_for(a, c, "teammate"),
+            peer_for(a, d, "party"),
+        ];
+        let b_peers = vec![
+            peer_for(b, a, "teammate"),
+            peer_for(b, c, "teammate"),
+            peer_for(b, d, "party"),
+        ];
+        let c_peers = vec![
+            peer_for(c, a, "teammate"),
+            peer_for(c, b, "teammate"),
+            peer_for(c, d, "party"),
+        ];
+        let d_peers = vec![
+            peer_for(d, a, "party"),
+            peer_for(d, b, "party"),
+            peer_for(d, c, "party"),
+        ];
+        let d_label = display_label(self.clients.get(&d).unwrap());
+        send_one(self, a, "party", d_label.clone(), a_peers);
+        send_one(self, b, "party", d_label.clone(), b_peers);
+        send_one(self, c, "party", d_label, c_peers);
+        send_one(
+            self,
+            d,
+            "solo",
+            format!(
+                "{}+{}+{}",
+                display_label(self.clients.get(&a).unwrap()),
+                display_label(self.clients.get(&b).unwrap()),
+                display_label(self.clients.get(&c).unwrap())
+            ),
+            d_peers,
+        );
+        self.status(a, "friend joined your party");
+        self.status(b, "friend joined the party");
+        self.status(c, "friend joined the party");
+        self.status(d, "you joined their party");
+        tracing::info!(%a, %b, %c, %d, force_relay, "four_person_join started");
         self.broadcast_lobby_info();
     }
 
@@ -8847,6 +9205,17 @@ impl SimpleHub {
                         return;
                     }
                 }
+                let mine = self.live_mesh_others(id);
+                if mine.len() == 2 && !mine.contains(&caller) {
+                    if matches!(
+                        self.clients.get(&caller).map(|c| c.phase),
+                        Some(Phase::Waiting) | Some(Phase::Matched)
+                    ) {
+                        self.stop_matchmaking(caller);
+                    }
+                    self.start_four_person_join(id, mine[0], mine[1], caller);
+                    return;
+                }
                 // A) Guest accepts invite into host's call (guest may need to leave first)
                 if matches!(
                     self.clients.get(&id).map(|c| c.phase),
@@ -8871,7 +9240,20 @@ impl SimpleHub {
                     );
                     return;
                 }
-                self.start_three_person_join(caller, p.keep, id);
+                if let Some(k2) = p.keep2 {
+                    if !self.clients.contains_key(&k2) {
+                        self.send(
+                            id,
+                            ServerMsg::Error {
+                                message: "call ended — try again".into(),
+                            },
+                        );
+                        return;
+                    }
+                    self.start_four_person_join(caller, p.keep, k2, id);
+                } else {
+                    self.start_three_person_join(caller, p.keep, id);
+                }
                 return;
             }
         }
@@ -8970,13 +9352,14 @@ impl SimpleHub {
             }
         }
         for cid in [id, caller] {
-            if matches!(
-                self.clients.get(&cid).map(|c| c.phase),
-                Some(Phase::Matched) | Some(Phase::Waiting)
-            ) {
-                self.stop_matchmaking(cid);
-            } else {
-                self.dequeue_client(cid);
+            // Quiet leave — do not "partner stopped" (that auto-Spins and
+            // rematches the pair as strangers).
+            self.dequeue_client(cid);
+            if let Some(c) = self.clients.get_mut(&cid) {
+                if matches!(c.phase, Phase::Waiting | Phase::Idle) {
+                    c.phase = Phase::Idle;
+                    c.wait_started = None;
+                }
             }
         }
         self.join_call_pending = None;
@@ -9267,6 +9650,20 @@ impl SimpleHub {
         );
     }
 
+    /// Canonical pair key for offer debounce / answerer grace: prefer peer_id
+    /// so `to=` as short_id and `to=` as peer_id map to the same pair.
+    fn signal_pair_key(&self, to: &str) -> String {
+        let to = to.trim();
+        if to.is_empty() {
+            return String::new();
+        }
+        self.clients
+            .values()
+            .find(|cl| cl.peer_id == to || cl.short_id == to)
+            .map(|cl| cl.peer_id.clone())
+            .unwrap_or_else(|| to.to_string())
+    }
+
     fn handle_signal(&mut self, id: Uuid, kind: String, payload: String, to: String) {
         if kind.len() > MAX_SIGNAL_KIND || payload.len() > MAX_SIGNAL_BYTES {
             self.send(
@@ -9282,40 +9679,32 @@ impl SimpleHub {
         // showed offer→answer→offer in <1s → black video both ways.
         // 3.5s (was 8s): still blocks sub-second thrash, but allows earlyBlack
         // ICE renego ~4s when first path is black (client black_watch).
+        // Debounce + answerer_grace are **per target** (`to=`): a 1v2/3-way
+        // offerer may send offer-to-PC then offer-to-Android immediately.
+        // Same-pair 3.5s debounce and 30s answerer grace stay intact.
+        let pair_key = self.signal_pair_key(&to);
         if kind == "offer" {
             let mut drop_why: Option<(&'static str, u64, String, String)> = None;
             let mut first_offer: Option<(u64, usize, String, String)> = None;
             if let Some(c) = self.clients.get(&id) {
-                if let Some(t) = c.last_offer_at {
-                    if t.elapsed() < std::time::Duration::from_millis(3500) {
-                        drop_why = Some((
-                            "debounce",
-                            t.elapsed().as_millis() as u64,
-                            c.short_id.clone(),
-                            c.platform.clone(),
-                        ));
-                    }
-                }
-                // Answerer re-offer thrash: web offered, phone answered, then
-                // phone hard-rebuild sends a 2nd offer @17–24s (worse black).
-                if drop_why.is_none()
-                    && c.last_answer_at.is_some()
-                    && c.last_offer_at.is_none()
+                let last_offer_elapsed = c.last_offer_at.get(&pair_key).map(|t| t.elapsed());
+                let answered_this = c.last_answer_at.contains_key(&pair_key);
+                let offered_this = c.last_offer_at.contains_key(&pair_key);
+                let match_age = c.match_started.map(|ms| ms.elapsed());
+                if let Some(why) =
+                    offer_drop_reason(last_offer_elapsed, answered_this, offered_this, match_age)
                 {
-                    if let Some(ms) = c.match_started {
-                        let age = ms.elapsed();
-                        if age < std::time::Duration::from_secs(30) {
-                            drop_why = Some((
-                                "answerer_grace",
-                                age.as_millis() as u64,
-                                c.short_id.clone(),
-                                c.platform.clone(),
-                            ));
-                        }
-                    }
+                    let age_ms = if why == "debounce" {
+                        last_offer_elapsed
+                            .map(|d| d.as_millis() as u64)
+                            .unwrap_or(0)
+                    } else {
+                        match_age.map(|d| d.as_millis() as u64).unwrap_or(0)
+                    };
+                    drop_why = Some((why, age_ms, c.short_id.clone(), c.platform.clone()));
                 }
                 // Speed forensics: ONLY the first accepted offer after match.
-                if drop_why.is_none() && c.last_offer_at.is_none() {
+                if drop_why.is_none() && c.last_offer_at.is_empty() {
                     if let Some(ms) = c.match_started {
                         let mto = ms.elapsed().as_millis() as u64;
                         let relay_n = payload.matches("typ relay").count();
@@ -9332,6 +9721,7 @@ impl SimpleHub {
                 if why == "debounce" {
                     tracing::info!(
                         from = %short,
+                        to = %pair_key,
                         age_ms,
                         platform = %plat,
                         "signal offer dropped: debounce (prevent thrash)"
@@ -9339,6 +9729,7 @@ impl SimpleHub {
                 } else {
                     tracing::info!(
                         from = %short,
+                        to = %pair_key,
                         age_ms,
                         platform = %plat,
                         "signal offer dropped: answerer first-path grace"
@@ -9349,6 +9740,7 @@ impl SimpleHub {
                     "reason": why,
                     "ms": age_ms,
                     "from": short,
+                    "to": pair_key,
                     "platform": plat,
                 }));
                 return;
@@ -9379,13 +9771,14 @@ impl SimpleHub {
                     "ms": mto,
                     "relay_candidates": relay_n,
                     "from": short,
+                    "to": pair_key,
                     "platform": plat,
                     "slow": mto >= 3000,
                     "video_dir": v_dir,
                 }));
             }
             if let Some(c) = self.clients.get_mut(&id) {
-                c.last_offer_at = Some(Instant::now());
+                c.last_offer_at.insert(pair_key.clone(), Instant::now());
             }
         }
 
@@ -9393,7 +9786,7 @@ impl SimpleHub {
         if kind == "answer" {
             let mut first_ans: Option<(u64, usize, String, String)> = None;
             if let Some(c) = self.clients.get(&id) {
-                if c.last_answer_at.is_none() {
+                if c.last_answer_at.is_empty() {
                     if let Some(ms) = c.match_started {
                         let mta = ms.elapsed().as_millis() as u64;
                         let relay_n = payload.matches("typ relay").count();
@@ -9446,7 +9839,7 @@ impl SimpleHub {
                 }));
             }
             if let Some(c) = self.clients.get_mut(&id) {
-                c.last_answer_at = Some(Instant::now());
+                c.last_answer_at.insert(pair_key.clone(), Instant::now());
             }
         }
 
@@ -9674,6 +10067,33 @@ impl Default for SimpleHub {
 // Pure connectivity policy (unit-tested — CONNECTIVITY_LOCK / VIDEO_PATH_LOCK)
 // ---------------------------------------------------------------------------
 
+/// Offer drop policy (unit-tested). Debounce 3.5s + answerer 30s grace are
+/// **per target peer**. A 1v2 offerer may send offer-to-A then offer-to-B
+/// immediately; a second offer to the *same* `to=` is still dropped.
+pub(crate) fn offer_drop_reason(
+    last_offer_elapsed: Option<Duration>,
+    answered_this_target: bool,
+    offered_this_target: bool,
+    match_age: Option<Duration>,
+) -> Option<&'static str> {
+    const DEBOUNCE: Duration = Duration::from_millis(3500);
+    const ANSWERER_GRACE: Duration = Duration::from_secs(30);
+    if let Some(elapsed) = last_offer_elapsed {
+        if elapsed < DEBOUNCE {
+            return Some("debounce");
+        }
+    }
+    // Same-pair only: already answered this `to=` and have not offered them.
+    if answered_this_target && !offered_this_target {
+        if let Some(age) = match_age {
+            if age < ANSWERER_GRACE {
+                return Some("answerer_grace");
+            }
+        }
+    }
+    None
+}
+
 /// True for RFC1918 / loopback / link-local / empty — hairpin detection is unreliable.
 pub(crate) fn ip_untrusted_for_direct(ip: &str) -> bool {
     let ip = ip.trim();
@@ -9728,6 +10148,56 @@ pub(crate) fn pair_force_relay_decision(
         return true;
     }
     false
+}
+
+#[cfg(test)]
+mod party_shape_tests {
+    use super::{queue_shape_ok, QueueEntry};
+    use uuid::Uuid;
+
+    fn solo() -> QueueEntry {
+        QueueEntry::Solo(Uuid::nil())
+    }
+    fn party2() -> QueueEntry {
+        QueueEntry::Party {
+            a: Uuid::from_u128(1),
+            b: Uuid::from_u128(2),
+        }
+    }
+    fn party3() -> QueueEntry {
+        QueueEntry::Party3 {
+            a: Uuid::from_u128(1),
+            b: Uuid::from_u128(2),
+            c: Uuid::from_u128(3),
+        }
+    }
+
+    #[test]
+    fn allows_1v1_1v2_2v2() {
+        assert!(queue_shape_ok(&solo(), &solo()));
+        assert!(queue_shape_ok(&solo(), &party2()));
+        assert!(queue_shape_ok(&party2(), &solo()));
+        assert!(queue_shape_ok(&party2(), &party2()));
+    }
+
+    #[test]
+    fn find_third_hunt_is_2v1_or_2v2() {
+        // Two 1v1s that both accepted Find 3rd enqueue as party2.
+        // Solo still joins as 2v1; another hunting pair joins as 2v2.
+        assert!(queue_shape_ok(&party2(), &solo()), "2v1");
+        assert!(queue_shape_ok(&party2(), &party2()), "2v2");
+        assert!(!queue_shape_ok(&party3(), &solo()), "no 3v1 queue");
+        assert!(!queue_shape_ok(&party2(), &party3()), "no 2v3");
+    }
+
+    #[test]
+    fn rejects_3v1_and_2v3() {
+        assert!(!queue_shape_ok(&solo(), &party3()));
+        assert!(!queue_shape_ok(&party3(), &solo()));
+        assert!(!queue_shape_ok(&party2(), &party3()));
+        assert!(!queue_shape_ok(&party3(), &party2()));
+        assert!(!queue_shape_ok(&party3(), &party3()));
+    }
 }
 
 #[cfg(test)]
@@ -9836,5 +10306,81 @@ mod connectivity_lock_tests {
         assert!(ip_untrusted_for_direct("10.1.2.3"));
         assert!(!ip_untrusted_for_direct("8.8.8.8"));
         assert!(!ip_untrusted_for_direct("187.15.153.15"));
+    }
+}
+
+#[cfg(test)]
+mod offer_pair_debounce_tests {
+    use super::offer_drop_reason;
+    use std::time::Duration;
+
+    #[test]
+    fn first_offer_to_a_is_allowed() {
+        assert_eq!(
+            offer_drop_reason(None, false, false, Some(Duration::from_millis(200))),
+            None
+        );
+    }
+
+    #[test]
+    fn second_offer_same_target_within_3_5s_is_debounced() {
+        assert_eq!(
+            offer_drop_reason(
+                Some(Duration::from_millis(800)),
+                false,
+                true,
+                Some(Duration::from_millis(900))
+            ),
+            Some("debounce")
+        );
+    }
+
+    #[test]
+    fn offer_to_different_target_is_allowed_immediately() {
+        // No last_offer for THIS to= (pair B) even if sender just offered to A.
+        assert_eq!(
+            offer_drop_reason(None, false, false, Some(Duration::from_millis(200))),
+            None,
+            "3-way: laptop offer-to-PC then offer-to-Android must not debounce"
+        );
+    }
+
+    #[test]
+    fn same_target_after_3_5s_is_allowed() {
+        assert_eq!(
+            offer_drop_reason(
+                Some(Duration::from_millis(3500)),
+                false,
+                true,
+                Some(Duration::from_millis(4000))
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn answerer_grace_blocks_same_pair_reoffer() {
+        assert_eq!(
+            offer_drop_reason(None, true, false, Some(Duration::from_secs(17))),
+            Some("answerer_grace")
+        );
+    }
+
+    #[test]
+    fn answerer_may_offer_a_different_peer() {
+        // Answered peer A; offering to peer B (answered_this_target=false).
+        assert_eq!(
+            offer_drop_reason(None, false, false, Some(Duration::from_secs(5))),
+            None,
+            "PC answered laptop then offering to Android must pass"
+        );
+    }
+
+    #[test]
+    fn answerer_grace_expires_after_30s() {
+        assert_eq!(
+            offer_drop_reason(None, true, false, Some(Duration::from_secs(30))),
+            None
+        );
     }
 }
