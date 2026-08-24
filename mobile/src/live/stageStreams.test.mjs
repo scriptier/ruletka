@@ -174,10 +174,8 @@ function isLookingForThird(opts) {
 }
 
 function canShowGrid2x2(opts) {
-  return !!(
-    opts.remoteStream3 &&
-    Math.floor(Number(opts.extraPeerCount) || 0) >= 2
-  );
+  void opts.remoteStream3;
+  return Math.floor(Number(opts.extraPeerCount) || 0) >= 2;
 }
 
 function pickStageChromeLayout(opts) {
@@ -199,10 +197,11 @@ function pickStageChromeLayout(opts) {
     remoteStream3: opts.remoteStream3,
     extraPeerCount: extra,
   });
-  const useGrid2x2 = showGrid2x2Toggle && !!opts.grid2x2;
+  const useGrid2x2 = showGrid2x2Toggle && opts.grid2x2 !== false;
   const wrapFirstPartner = has2 || has3 || extra >= 1;
   const includeLocalTile = has3 || extra >= 2;
   const pipYou = !includeLocalTile;
+  const youParty = String(opts.yourRole || "") === "party";
   void opts.splitWide;
   const portraitColumn = wrapFirstPartner && !useGrid2x2;
   return {
@@ -213,6 +212,7 @@ function pickStageChromeLayout(opts) {
     useGrid2x2,
     showGrid2x2Toggle,
     wrapFirstPartner,
+    youParty,
   };
 }
 
@@ -903,10 +903,10 @@ assert.equal(
     splitWide: true,
   });
   assert.equal(L.people, 4);
-  assert.equal(L.portraitColumn, true);
+  assert.equal(L.portraitColumn, false);
   assert.equal(L.wrapFirstPartner, true);
   assert.equal(L.includeLocalTile, true);
-  assert.equal(L.useGrid2x2, false);
+  assert.equal(L.useGrid2x2, true);
 }
 
 // 4 people: 4 tiles (3 remotes + you). 2×2 toggle only with extra>=2 && stream3
@@ -921,9 +921,19 @@ assert.equal(
   assert.equal(stacked.includeLocalTile, true);
   assert.equal(stacked.pipYou, false);
   assert.equal(stacked.wrapFirstPartner, true);
-  assert.equal(stacked.portraitColumn, true);
-  assert.equal(stacked.useGrid2x2, false);
+  assert.equal(stacked.useGrid2x2, true);
   assert.equal(stacked.showGrid2x2Toggle, true);
+  assert.equal(stacked.portraitColumn, false);
+  assert.equal(
+    pickStageChromeLayout({
+      hasRemote: true,
+      remoteStream2: remote2,
+      remoteStream3: remote3,
+      extraPeerCount: 2,
+      yourRole: "party",
+    }).youParty,
+    true
+  );
 
   const grid = pickStageChromeLayout({
     hasRemote: true,
@@ -1028,7 +1038,7 @@ assert.equal(
   );
   assert.equal(
     canShowGrid2x2({ remoteStream3: null, extraPeerCount: 2 }),
-    false
+    true
   );
   assert.equal(
     canShowGrid2x2({ remoteStream3: remote3, extraPeerCount: 1 }),

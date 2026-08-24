@@ -123,16 +123,19 @@
     html.chrome-always .side-rail-left,
     html.chrome-always .side-rail-right,
     html.chrome-always .tile-floor-partner,
+    html.chrome-always #local-id-stack,
     html.chrome-always .tile-floor-local,
     html.chrome-always #tile-remote #match-timer:not([hidden]),
-    html.chrome-always #tile-local #local-id-stack,
     html.chrome-autohide #tile-remote.is-chrome-open .side-rail-left,
     html.chrome-autohide #tile-third.is-chrome-open .side-rail-left,
     html.chrome-autohide #tile-remote.is-chrome-open .tile-floor-partner,
     html.chrome-autohide #tile-remote.is-chrome-open #match-timer:not([hidden]),
     html.chrome-autohide #tile-local.is-chrome-open .side-rail-right,
     html.chrome-autohide #tile-local.is-chrome-open .tile-floor-local,
-    html.chrome-autohide #tile-local.is-chrome-open #local-id-stack {
+    html.chrome-autohide #tile-local.is-chrome-open #local-id-stack,
+    html.chrome-autohide #tile-local.is-chrome-open #local-name,
+    html.chrome-autohide #tile-local.is-chrome-open #local-loc-tag,
+    html.chrome-autohide #tile-local.is-chrome-open #local-loc {
       opacity: 1 !important;
       visibility: visible !important;
       pointer-events: auto !important;
@@ -296,11 +299,41 @@
       pointer-events: none !important;
       max-width: min(52%, 14rem) !important;
     }
-    #remote-avatar-stars, .tile-avatar-stars-remote {
+    #remote-avatar-stars {
       right: 3.2rem !important;
     }
+    #third-avatar-stars, #remote2-avatar-stars, #fourth-avatar-stars {
+      display: flex !important;
+      flex-direction: row !important;
+      align-items: flex-start !important;
+      justify-content: flex-end !important;
+      gap: 0.16rem !important;
+      position: absolute !important;
+      top: 0.18rem !important;
+      right: 0.32rem !important;
+      z-index: 50 !important;
+      pointer-events: none !important;
+    }
+    #third-avatar-stars #third-stars-badge,
+    #remote2-avatar-stars #remote2-stars-badge,
+    #fourth-avatar-stars #fourth-stars-badge {
+      position: relative !important;
+      top: 0.12rem !important;
+      right: auto !important;
+      left: auto !important;
+      pointer-events: auto !important;
+      cursor: pointer !important;
+      flex-shrink: 0 !important;
+    }
+    #third-avatar, #remote2-avatar, #fourth-avatar {
+      pointer-events: auto !important;
+      cursor: pointer !important;
+    }
     #local-avatar.tile-avatar:not([hidden]),
-    #remote-avatar.tile-avatar:not([hidden]) {
+    #remote-avatar.tile-avatar:not([hidden]),
+    #third-avatar.tile-avatar:not([hidden]),
+    #remote2-avatar.tile-avatar:not([hidden]),
+    #fourth-avatar.tile-avatar:not([hidden]) {
       display: block !important;
       width: 4.25rem !important;
       height: 4.25rem !important;
@@ -498,12 +531,32 @@
       display: inline-flex !important;
       visibility: visible !important;
     }
+    /* Quiet skip on post-chat ★ prompt — not a pill (stage CSS owned elsewhere) */
+    .btn-star-skip-quiet {
+      appearance: none;
+      background: none;
+      border: none;
+      font: inherit;
+      font-size: 0.72rem;
+      font-weight: 650;
+      color: #8a96a8;
+      cursor: pointer;
+      padding: 0.2rem 0.15rem;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .btn-star-skip-quiet:hover,
+    .btn-star-skip-quiet:focus-visible {
+      color: #eef2f7;
+      outline: none;
+    }
+    /* vol-hud-v2 look lives in live-stage.css */
 </style>
   <!-- Load stage CSS as all immediately — no media=print FOUC trick (was leaving rails opacity:0) -->
-  <link rel="preload" href="live-stage.css?v=597" as="style" />
-  <link rel="stylesheet" href="live-stage.css?v=597" />
+  <link rel="preload" href="live-stage.css?v=632" as="style" />
+  <link rel="stylesheet" href="live-stage.css?v=632" />
   <link rel="stylesheet" href="live-brand.css?v=23" />
-  <link rel="preload" href="live.js?v=897" as="script" />
+  <link rel="preload" href="live.js?v=964" as="script" />
   <link rel="preload" href="i18n.js?v=266" as="script" />
   <script src="brand.js?v=2" defer></script>
   <script>
@@ -788,6 +841,9 @@
                 <span class="name-on-tile peer-who-name" id="remote2-tag"></span>
                 <span class="loc-on-tile" id="remote2-loc"></span>
                 <span class="peer-who-sub" id="remote2-who-sub" hidden></span>
+                <span class="trust-tier-chip" id="remote2-trust-chip" hidden title="Reputation tier"></span>
+                <span class="partner-praise-chip" id="remote2-praise-chip" hidden title="Peer praise"></span>
+                <span class="code-on-tile" id="remote2-friend-code" hidden title="Friend code"></span>
               </div>
               <div class="tile-peer-meta">
                 <span class="peer-conn-chip" id="remote2-conn-chip" hidden title="Connection">…</span>
@@ -798,10 +854,21 @@
                   <span class="peer-vol-pct" id="vol-remote2-pct" aria-hidden="true">100%</span>
                 </label>
               </div>
-              <button type="button" class="stars-badge stars-badge-remote stars-badge-slot" id="remote2-stars-badge" hidden aria-label="Stars">
-                <span class="stars-icon" aria-hidden="true">★</span>
-                <span class="stars-count" id="remote2-stars-count">0</span>
-              </button>
+              <div class="tile-avatar-stars-stack tile-avatar-stars-remote" id="remote2-avatar-stars">
+                <div class="remote-stars-col">
+                  <button type="button" class="stars-badge stars-badge-remote stars-badge-slot is-clickable" id="remote2-stars-badge" hidden
+                    aria-label="Partner stars — tap to send ★1 · costs 3★" title="Send ★1 · costs 3★">
+                    <span class="stars-icon" aria-hidden="true">★</span>
+                    <span class="stars-count" id="remote2-stars-count">0</span>
+                  </button>
+                  <span class="stars-soft-rank-chip" id="remote2-soft-rank-chip" hidden title="Soft match rank on">↗</span>
+                  <span class="stars-goat-chip" id="remote2-goat-chip" hidden title="GOAT — 2500★">GOAT</span>
+                </div>
+                <span class="tile-avatar tile-avatar-remote" id="remote2-avatar" hidden title="Send ★1 · costs 3★" role="button">
+                  <img id="remote2-avatar-img" alt="" />
+                  <span class="tile-avatar-letter" id="remote2-avatar-letter" hidden aria-hidden="true">?</span>
+                </span>
+              </div>
             </div>
             <div class="mute-speaker-mark" hidden aria-hidden="true"></div>
           </div>
@@ -996,15 +1063,16 @@
               <li data-i18n="remote.firstHint1">Tap Start — allow camera &amp; mic (stays peer-to-peer)</li>
               <li data-i18n="remote.firstHint2">Meet someone · Next anytime · Block/Report if needed</li>
             </ol>
-            <button type="button" class="start-match-btn" id="btn-start-match" data-i18n="btn.start">
-              Start
-            </button>
+            <button type="button" class="start-match-btn" id="btn-start-match" data-i18n="btn.start">Start</button>
             <p class="empty-cam-why" id="empty-cam-why" hidden data-i18n="remote.camWhy">
               Camera is only used for live chat — video goes browser-to-browser, not uploaded to us.
             </p>
             <!-- Alone invite / friend_call CTA removed from under Start (use Friends sheet) -->
             <div class="empty-alone-actions" id="empty-alone-actions" hidden aria-hidden="true"></div>
-            <div class="friends-online-row" id="friends-online-row"></div>
+            <div class="friends-online-strip" id="friends-online-strip" hidden>
+              <div class="friends-online-label" data-i18n="friends.onlineStrip">Friends online</div>
+              <div class="friends-online-row" id="friends-online-row"></div>
+            </div>
             </div>
             <div class="mobile-invite" id="mobile-invite" hidden aria-hidden="true"></div>
           </div>
@@ -1015,8 +1083,8 @@
             <span class="loc-on-tile" id="remote-tag"></span>
             <span class="peer-who-sub" id="remote-who-sub" hidden></span>
             <span class="trust-tier-chip" id="remote-trust-chip" hidden title="Reputation tier"></span>
-            <span class="code-on-tile" id="remote-friend-code" hidden title="Friend code"></span>
             <span class="partner-praise-chip" id="remote-praise-chip" hidden title="Peer praise"></span>
+            <span class="code-on-tile" id="remote-friend-code" hidden title="Friend code"></span>
             <span class="mutual-bond-chip" id="remote-mutual-chip" hidden title="Mutual friend">↔</span>
           </div>
           <div class="tile-remote-meta">
@@ -1173,6 +1241,9 @@
             <span class="name-on-tile" id="third-tag"></span>
             <span class="loc-on-tile" id="third-loc"></span>
             <span class="peer-who-sub" id="third-who-sub" hidden></span>
+            <span class="trust-tier-chip" id="third-trust-chip" hidden title="Reputation tier"></span>
+            <span class="partner-praise-chip" id="third-praise-chip" hidden title="Peer praise"></span>
+            <span class="code-on-tile" id="third-friend-code" hidden title="Friend code"></span>
           </div>
           <!-- Inline mute/blur/vol live on the left rail — not between name and ★ -->
           <div class="tile-peer-meta" hidden aria-hidden="true">
@@ -1186,10 +1257,22 @@
             <input type="range" class="tile-vol" data-tile="third" min="0" max="100" value="100" aria-label="Volume for this person" />
           </div>
         </div>
-        <button type="button" class="stars-badge stars-badge-remote stars-badge-slot" id="third-stars-badge" hidden aria-label="Stars">
-          <span class="stars-icon" aria-hidden="true">★</span>
-          <span class="stars-count" id="third-stars-count">0</span>
-        </button>
+        <!-- Same ★+avatar as 1v1 partner — tap to send ★1 (spend 3★) -->
+        <div class="tile-avatar-stars-stack tile-avatar-stars-remote" id="third-avatar-stars">
+          <div class="remote-stars-col">
+            <button type="button" class="stars-badge stars-badge-remote stars-badge-slot is-clickable" id="third-stars-badge" hidden
+              aria-label="Partner stars — tap to send ★1 · costs 3★" title="Send ★1 · costs 3★">
+              <span class="stars-icon" aria-hidden="true">★</span>
+              <span class="stars-count" id="third-stars-count">0</span>
+            </button>
+            <span class="stars-soft-rank-chip" id="third-soft-rank-chip" hidden title="Soft match rank on">↗</span>
+            <span class="stars-goat-chip" id="third-goat-chip" hidden title="GOAT — 2500★">GOAT</span>
+          </div>
+          <span class="tile-avatar tile-avatar-remote" id="third-avatar" hidden title="Send ★1 · costs 3★" role="button">
+            <img id="third-avatar-img" alt="" />
+            <span class="tile-avatar-letter" id="third-avatar-letter" hidden aria-hidden="true">?</span>
+          </span>
+        </div>
         <!-- Kept in DOM so tap-face / JS still resolve; hidden — ★ sits here instead -->
         <button type="button" class="tile-corner-btn" id="btn-third-actions"
           hidden aria-hidden="true" tabindex="-1"
@@ -1235,6 +1318,9 @@
             <span class="name-on-tile" id="fourth-tag"></span>
             <span class="loc-on-tile" id="fourth-loc"></span>
             <span class="peer-who-sub" id="fourth-who-sub" hidden></span>
+            <span class="trust-tier-chip" id="fourth-trust-chip" hidden title="Reputation tier"></span>
+            <span class="partner-praise-chip" id="fourth-praise-chip" hidden title="Peer praise"></span>
+            <span class="code-on-tile" id="fourth-friend-code" hidden title="Friend code"></span>
           </div>
           <div class="tile-peer-meta">
             <span class="peer-conn-chip" id="fourth-conn-chip" hidden title="Connection">…</span>
@@ -1246,10 +1332,21 @@
             </label>
             <input type="range" class="tile-vol" data-tile="fourth" min="0" max="100" value="100" aria-label="Volume for this person" />
           </div>
-          <button type="button" class="stars-badge stars-badge-remote stars-badge-slot" id="fourth-stars-badge" hidden aria-label="Stars">
-            <span class="stars-icon" aria-hidden="true">★</span>
-            <span class="stars-count" id="fourth-stars-count">0</span>
-          </button>
+        </div>
+        <div class="tile-avatar-stars-stack tile-avatar-stars-remote" id="fourth-avatar-stars">
+          <div class="remote-stars-col">
+            <button type="button" class="stars-badge stars-badge-remote stars-badge-slot is-clickable" id="fourth-stars-badge" hidden
+              aria-label="Partner stars — tap to send ★1 · costs 3★" title="Send ★1 · costs 3★">
+              <span class="stars-icon" aria-hidden="true">★</span>
+              <span class="stars-count" id="fourth-stars-count">0</span>
+            </button>
+            <span class="stars-soft-rank-chip" id="fourth-soft-rank-chip" hidden title="Soft match rank on">↗</span>
+            <span class="stars-goat-chip" id="fourth-goat-chip" hidden title="GOAT — 2500★">GOAT</span>
+          </div>
+          <span class="tile-avatar tile-avatar-remote" id="fourth-avatar" hidden title="Send ★1 · costs 3★" role="button">
+            <img id="fourth-avatar-img" alt="" />
+            <span class="tile-avatar-letter" id="fourth-avatar-letter" hidden aria-hidden="true">?</span>
+          </span>
         </div>
         <div class="mute-speaker-mark" hidden aria-hidden="true"></div>
       </section>
@@ -1373,6 +1470,18 @@
         <div class="pass-mic-youre-up" id="pass-mic-youre-up" hidden aria-live="polite">
           <span class="pass-mic-youre-up-ico" aria-hidden="true">✋</span>
           <span class="pass-mic-youre-up-text" data-i18n="stars.passMicYoureUp">You're up — go ahead</span>
+        </div>
+        <!-- Partner is dragging our playout volume on their device -->
+        <div id="vol-hud" class="vol-hud" hidden aria-live="polite">
+          <span class="vol-hud-glow" aria-hidden="true"></span>
+          <div class="vol-hud-eq" aria-hidden="true">
+            <b></b><b></b><b></b><b></b>
+          </div>
+          <div class="vol-hud-copy">
+            <strong id="vol-hud-title">They're adjusting your volume</strong>
+            <span id="vol-hud-sub" class="vol-hud-pct"></span>
+          </div>
+          <div class="vol-hud-bar" aria-hidden="true"><i id="vol-hud-fill"></i></div>
         </div>
         <!-- Full-screen gift celebration burst (receive) -->
         <div class="gift-celebrate" id="gift-celebrate" hidden aria-hidden="true"></div>
@@ -2527,6 +2636,16 @@
             </span>
             <span class="row-ext" aria-hidden="true">↗</span>
           </a>
+          <a class="settings-row settings-row-ext" href="/download/android.html" id="btn-settings-apk">
+            <span class="row-left">
+              <span class="row-ico" aria-hidden="true">⬇</span>
+              <span class="settings-row-copy">
+                <span class="settings-row-title" data-i18n="settings.downloadApk">Android app</span>
+                <span class="settings-row-sub" data-i18n="settings.downloadApkSub">Download APK 0.1.465 · sideload</span>
+              </span>
+            </span>
+            <span class="row-ext" aria-hidden="true">↗</span>
+          </a>
           <button type="button" class="settings-row" data-settings-open="about">
             <span class="row-left"><span class="row-ico" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-file"/></svg></span><span data-i18n="settings.secAbout">About &amp; legal</span></span>
             <span class="chev">›</span>
@@ -3428,9 +3547,9 @@
   <script src="i18n.js?v=266" defer></script>
   <script src="geoLocalize.js?v=3" defer></script>
   <script src="identity.js?v=156" defer></script>
-  <script src="hubs.js?v=156" defer></script>
-  <script src="webrtc.js?v=342" defer></script>
-  <script src="live.js?v=897" defer></script>
+  <script src="hubs.js?v=157" defer></script>
+  <script src="webrtc.js?v=356" defer></script>
+  <script src="live.js?v=964" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

@@ -7,16 +7,16 @@ Companion: [`PLAY_UPLOAD.md`](PLAY_UPLOAD.md) · [`PLAY_DATA_SAFETY.md`](PLAY_DA
 
 | Field | Value |
 |-------|--------|
-| Version name | **0.1.223** |
-| versionCode | **231** |
-| APK (sideload) | `mobile/artifacts/ruletka-0.1.223-vc231.apk` · `ruletka-latest.apk` |
-| AAB (Console) | `mobile/artifacts/ruletka-0.1.223-vc231.aab` |
-| Handoff notes | `mobile/artifacts/PLAY-INTERNAL-0.1.223.txt` |
+| Version name | **0.1.471** |
+| versionCode | **479** |
+| APK (sideload + site) | `mobile/artifacts/ruletka-0.1.471-vc479.apk` · `/download/ruletka-android-latest.apk` |
+| AAB (Console) | `mobile/artifacts/ruletka-0.1.471-vc479.aab` — local only; **not** uploaded |
+| Source of truth | `mobile/app.json` (`version` + `android.versionCode`) |
 | Signing | Play upload keystore (`mobile/secrets/ruletka-upload.jks`) |
 | targetSdk | 35 |
 | Minify / R8 | **Off** — ignore “upload deobfuscation file” warning |
 
-**0.1.223 highlights:** blur (unmount + Modal); they-muted Alert + bar under stage; fast linking (blur off default); partner card; gifts “To {partner}”.
+> **Historical:** older docs / handoff notes under `mobile/artifacts/PLAY-INTERNAL-0.1.22x*.txt` and mid-series **0.1.28x** builds are **not** the current ship tip.
 
 Rebuild:
 
@@ -24,7 +24,7 @@ Rebuild:
 cd mobile
 # bump versionName / versionCode in app.json when shipping a new cut
 ./scripts/build-apk-local.sh
-./scripts/build-aab-local.sh
+./scripts/build-aab-local.sh   # tip AAB on disk: ruletka-0.1.471-vc479.aab
 ./scripts/play-status.sh
 ./scripts/play-status.sh --notes
 ```
@@ -32,7 +32,7 @@ cd mobile
 Preflight:
 
 ```bash
-cd mobile && ./scripts/play-status.sh   # expect 19 OK, 0 FAIL
+cd mobile && ./scripts/play-status.sh
 ```
 
 ---
@@ -41,7 +41,7 @@ cd mobile && ./scripts/play-status.sh   # expect 19 OK, 0 FAIL
 
 | Track | When |
 |-------|------|
-| **Internal** | Now — upload AAB, small email list |
+| **Internal** | When AAB exists — upload AAB, small email list (**human open**; no agent Console PASS) |
 | **Closed** | After 1–2 days internal green (limited countries) |
 | **Production** | Only after closed green + forms complete |
 
@@ -64,3 +64,4 @@ Avoid worldwide open until internal has real Play↔PC smoke, CSAE / Data safety
 - Bulk public APK dump on the site  
 - Always-on `force_relay` for every match (CONNECTIVITY_LOCK)  
 - SFU as default media path  
+- Claiming Console upload PASS without human confirmation  

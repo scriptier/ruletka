@@ -474,6 +474,32 @@ html.stage-html {
   display: flex;
   flex-direction: column;
 }
+/* One gift overlay per face — not the whole #tile-remote (covers remote2). */
+.remote-slot-wrap,
+#remote-a-wrap {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+#remote-a-wrap .vid,
+#remote-a-wrap #remote {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+#remote-a-wrap .fx-overlay,
+#remote2-wrap .fx-overlay,
+#tile-third .fx-overlay {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 28;
+}
 .remote-stack .vid {
   position: relative;
   width: 100%;
@@ -1153,6 +1179,11 @@ html.chrome-always #tile-remote #match-timer:not([hidden]) {
     opacity 0.35s ease,
     max-height 0.35s ease,
     margin 0.35s ease;
+}
+/* 3-way/1v1 left tile: conn/vol/RTT must not unhide under identity (15:44). */
+html.match-live #tile-remote .tile-remote-meta,
+html.match-live #tile-remote .tile-remote-meta:not(.is-meta-hidden) {
+  display: none !important;
 }
 
 /* Long-wait tips (bottom chip, non-blocking) */
@@ -2661,6 +2692,19 @@ html.chrome-always #tile-remote #match-timer:not([hidden]) {
 .friends-online-strip[hidden] {
   display: none !important;
 }
+/* Start page: friends show, then autohide with tile chrome (move to reveal). */
+html.start-idle.chrome-autohide #tile-remote:not(.is-chrome-open) #friends-online-strip:not([hidden]) {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.35s ease, visibility 0.35s ease;
+}
+html.start-idle.chrome-autohide #tile-remote.is-chrome-open #friends-online-strip:not([hidden]),
+html.start-idle.chrome-always #friends-online-strip:not([hidden]),
+html.start-idle:not(.chrome-autohide) #friends-online-strip:not([hidden]) {
+  opacity: 1;
+  visibility: visible;
+}
 .friends-online-label {
   font-size: 0.72rem;
   font-weight: 600;
@@ -2985,6 +3029,44 @@ html.chrome-always #tile-remote #match-timer:not([hidden]) {
   background: rgba(40, 120, 255, 0.62);
 }
 
+#tile-fourth {
+  touch-action: pan-y;
+}
+#tile-fourth.is-swiping #remote-fourth,
+#tile-fourth.is-swiping .fx-overlay {
+  transform: translateX(var(--swipe-x, 0px))
+    rotate(var(--swipe-rot, 0deg))
+    scale(var(--swipe-scale, 1));
+  transform-origin: 50% 118%;
+  opacity: var(--swipe-o, 1);
+  transition: none;
+  will-change: transform, opacity;
+}
+#tile-fourth.swipe-snapback #remote-fourth,
+#tile-fourth.swipe-snapback .fx-overlay {
+  transition:
+    transform 0.34s cubic-bezier(0.22, 1.45, 0.36, 1),
+    opacity 0.22s ease;
+  transform: translateX(0) rotate(0deg) scale(1);
+  opacity: 1;
+}
+#tile-fourth.swipe-exit-left #remote-fourth,
+#tile-fourth.swipe-exit-left .fx-overlay {
+  transition:
+    transform 0.26s cubic-bezier(0.4, 0, 1, 1),
+    opacity 0.22s ease;
+  transform: translateX(-128%) rotate(-16deg) scale(0.86);
+  opacity: 0.08;
+}
+#tile-fourth.swipe-exit-right #remote-fourth,
+#tile-fourth.swipe-exit-right .fx-overlay {
+  transition:
+    transform 0.26s cubic-bezier(0.4, 0, 1, 1),
+    opacity 0.22s ease;
+  transform: translateX(128%) rotate(16deg) scale(0.86);
+  opacity: 0.08;
+}
+
 /* ── Swipe left/right on partner video → Next (card tilt) ── */
 .tile-remote.is-swiping .remote-stack,
 .tile-remote.is-swiping .fx-overlay,
@@ -3093,6 +3175,46 @@ html.chrome-always #tile-remote #match-timer:not([hidden]) {
 }
 .swipe-skip-hint.is-armed .swipe-skip-arrow {
   opacity: 1;
+}
+/* Idle swipe-to-Start: no Next chip, no edge wash (blue/coral on gold brand = red). */
+html.start-idle .swipe-skip-hint,
+html.start-idle .swipe-edge-glow,
+html.start-idle .swipe-edge-glow-left,
+html.start-idle .swipe-edge-glow-right,
+html.start-idle .tile-remote.is-swiping .swipe-skip-hint,
+html.start-idle .tile-remote.is-swiping .swipe-skip-hint.is-armed,
+html.start-idle .tile-remote.is-swiping .swipe-edge-glow-left,
+html.start-idle .tile-remote.is-swiping .swipe-edge-glow-right {
+  display: none !important;
+  opacity: 0 !important;
+}
+html.start-idle .tile-remote.is-swiping .remote-stack,
+html.start-idle .tile-remote.is-swiping .fx-overlay,
+html.start-idle .tile-remote.is-swiping .empty-bg-video,
+html.start-idle .tile-remote.swipe-exit-left .remote-stack,
+html.start-idle .tile-remote.swipe-exit-right .remote-stack {
+  transform: none !important;
+  opacity: 1 !important;
+  filter: none !important;
+}
+
+/* Partner name · flag · loc stay. Local identity autohides with chrome. */
+html.match-live #remote-tile-tag:not([hidden]),
+html.match-live #remote-name:not([hidden]),
+html.match-live #remote-tag.loc-on-tile:not(:empty) {
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+html.match-live #remote-tile-tag,
+html.match-live #remote-tile-tag[hidden] {
+  z-index: 80 !important;
+  pointer-events: none !important;
+}
+html.match-live #remote-tag.loc-on-tile:not([hidden]):not(:empty) {
+  display: inline-flex !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  z-index: 81 !important;
 }
 
 /* Edge glow while dragging (left / right commit cue) */
@@ -4512,6 +4634,19 @@ html.start-idle #btn-spin,
 html.start-idle #btn-block-report {
   display: none !important;
 }
+/* Start page: Friends button above empty overlay (z 60), autohide with chrome */
+html.start-idle .tile-floor-partner {
+  z-index: 62 !important;
+}
+html.start-idle .tile-floor-partner .tile-compose,
+html.start-idle .tile-floor-partner .compose-typing,
+html.start-idle .tile-floor-partner .tile-match-actions {
+  display: none !important;
+}
+html.start-idle #btn-friends,
+html.start-idle .tile-dock-friends {
+  display: inline-flex !important;
+}
 /* Searching: Stop only (no Next / Block until live) */
 html.match-searching #btn-next,
 html.match-searching #btn-block-report {
@@ -5012,6 +5147,7 @@ html.match-searching #btn-stop {
   align-items: flex-start;
   gap: 0.35rem;
   max-width: min(48%, 12.5rem);
+  overflow: visible;
 }
 .tile-remote-id {
   display: flex;
@@ -5019,6 +5155,7 @@ html.match-searching #btn-stop {
   align-items: center;
   gap: 0.28rem;
   max-width: 100%;
+  overflow: visible;
 }
 .tile-remote-id .tile-avatar,
 .tile-remote-id .tile-avatar-remote {
@@ -5050,8 +5187,8 @@ html.match-searching #btn-stop {
 }
 .tile-remote-id #remote-friend-code.code-on-tile {
   display: block;
-  order: 4 !important;
-  margin-top: 0.08rem;
+  order: 6 !important;
+  margin-top: 0.12rem;
   padding: 0.12rem 0.45rem;
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.4);
@@ -5066,17 +5203,62 @@ html.match-searching #btn-stop {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  z-index: 82;
+  position: relative;
 }
 .tile-remote-id #remote-friend-code.code-on-tile[hidden],
 .tile-remote-id #remote-friend-code.code-on-tile:empty {
   display: none !important;
 }
-html.chrome-autohide #tile-remote:not(.is-chrome-open) #remote-friend-code {
+/* Friend code stays with identity (name / Trusted / praised). Rails still autohide. */
+html.chrome-autohide #tile-remote #remote-friend-code:not([hidden]):not(:empty),
+html.chrome-always #remote-friend-code:not([hidden]):not(:empty) {
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+.tile-remote-id .partner-praise-chip {
+  order: 5;
+}
+.tile-remote-id .code-on-tile {
+  order: 6;
+}
+.tile-remote-id #third-friend-code.code-on-tile,
+.tile-remote-id #remote2-friend-code.code-on-tile,
+.tile-remote-id #fourth-friend-code.code-on-tile {
+  display: block;
+  margin-top: 0.08rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: rgba(210, 225, 245, 0.92);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tile-remote-id #third-friend-code.code-on-tile[hidden],
+.tile-remote-id #remote2-friend-code.code-on-tile[hidden],
+.tile-remote-id #fourth-friend-code.code-on-tile[hidden],
+.tile-remote-id #third-friend-code.code-on-tile:empty,
+.tile-remote-id #remote2-friend-code.code-on-tile:empty,
+.tile-remote-id #fourth-friend-code.code-on-tile:empty {
+  display: none !important;
+}
+html.chrome-autohide #tile-third:not(.is-chrome-open) #third-friend-code,
+html.chrome-autohide #tile-fourth:not(.is-chrome-open) #fourth-friend-code,
+html.chrome-autohide #remote2-wrap:not(.is-chrome-open) #remote2-friend-code {
   opacity: 0 !important;
   visibility: hidden !important;
 }
-html.chrome-autohide #tile-remote.is-chrome-open #remote-friend-code,
-html.chrome-always #remote-friend-code:not([hidden]):not(:empty) {
+html.chrome-autohide #tile-third.is-chrome-open #third-friend-code:not([hidden]):not(:empty),
+html.chrome-autohide #tile-fourth.is-chrome-open #fourth-friend-code:not([hidden]):not(:empty),
+html.chrome-always #third-friend-code:not([hidden]):not(:empty),
+html.chrome-always #fourth-friend-code:not([hidden]):not(:empty),
+html.chrome-always #remote2-friend-code:not([hidden]):not(:empty) {
   opacity: 1 !important;
   visibility: visible !important;
 }
@@ -10977,20 +11159,7 @@ html[data-theme="matrix"] .tile-match-actions .next-in-tile-floor .icon-next {
 }
 html.start-idle.has-live-people .start-match-btn,
 html.start-idle .start-match-btn {
-  animation: start-cta-glow 2.6s ease-in-out infinite;
-}
-@keyframes start-cta-glow {
-  0%, 100% {
-    box-shadow:
-      0 14px 40px rgba(255, 45, 85, 0.42),
-      0 0 0 1px rgba(255, 255, 255, 0.08) inset;
-  }
-  50% {
-    box-shadow:
-      0 16px 48px rgba(255, 45, 85, 0.55),
-      0 0 0 4px rgba(255, 45, 85, 0.12),
-      0 0 0 1px rgba(255, 255, 255, 0.1) inset;
-  }
+  animation: start-gold-pulse 2.8s ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) {
   html.start-idle .start-match-btn {
@@ -12984,8 +13153,9 @@ html.alone-searching .empty-alone-actions:not([hidden]) {
    ALL sides hide after idle:
      Partner → left rail + floor tray + layout btn
      Local   → right rail (Flip/Mic/Hide/Settings) + floor
-     Local name/flag/location (top-left #local-id-stack) autohide.
      Local ★ + avatar stay pinned.
+     Local name / flag / location autohide with rails (hover tile to show).
+     Partner name / flag / location stay.
    Move/enter tile → show; 3s still → hide. Flyouts keep open.
    Touch: always show (.chrome-always / coarse media)
    Use #tile-* IDs so we beat any residual layout !important pins.
@@ -16750,8 +16920,8 @@ html.has-duo-flair .flair-chip {
   overflow: visible;
 }
 /*
-  Behind bars — oxidized iron pipes (shot 154300Z looked like cartoon stripes).
-  Wide gaps, warm metal, two 14px welded straps. Never filter:<video>.
+  Behind bars — cylindrical iron pipes (not flat pinstripes).
+  72px pitch, ~24px rods, wide gaps. Never filter:<video>.
 */
 .fx-bars {
   z-index: 6;
@@ -16765,34 +16935,34 @@ html.has-duo-flair .flair-chip {
   position: absolute;
   inset: 0;
   background-color: transparent;
-  /* 1) thin umbra  2) oxidized iron pipe (~16px in a 68px cell) */
-  background-image:
-    repeating-linear-gradient(
-      90deg,
-      transparent 0 24px,
-      rgba(20, 10, 6, 0.42) 28px 42px,
-      transparent 46px 68px
-    ),
-    repeating-linear-gradient(
-      90deg,
-      transparent 0 22px,
-      #120e0c 22px 23px,
-      #2a1c14 23px 25px,
-      #4a3224 25px 28px,
-      #6e5040 28px 31px,
-      #9a7a5c 31px 33.5px,
-      #5a4030 33.5px 36px,
-      #2a1c14 36px 38px,
-      #120e0c 38px 39px,
-      transparent 39px 68px
-    );
-  background-size: 68px 100%, 68px 100%;
+  /* cylindrical-looking multi-stop gradient: umbra | specular | iron | umbra | cast shadow | gap */
+  background-image: repeating-linear-gradient(
+    90deg,
+    transparent 0 17px,
+    #080604 17px 18px,
+    #16100c 18px 20px,
+    #2a1c14 20px 23px,
+    #4a3224 23px 26px,
+    #8a6248 26px 28px,
+    #d4b080 28px 30px,
+    #f6eedc 30px 31.5px,
+    #c8a070 31.5px 34px,
+    #6a4834 34px 38px,
+    #2c1c14 38px 41px,
+    #120e0a 41px 42px,
+    #080604 42px 43px,
+    rgba(8, 6, 4, 0.58) 43px 48px,
+    rgba(8, 6, 4, 0.28) 48px 52px,
+    rgba(8, 6, 4, 0.08) 52px 55px,
+    transparent 55px 72px
+  );
+  background-size: 72px 100%;
   background-repeat: repeat;
-  background-position: 5px 0, 0 0;
+  background-position: 0 0;
   opacity: 1;
   animation: fx-bars-slam 0.5s cubic-bezier(0.18, 0.88, 0.22, 1) both;
 }
-/* Two 14px welded straps — fixed px so tall tiles are not shutters */
+/* Two 14px welded straps + rivet dots — fixed px so tall tiles are not shutters */
 .fx-bars-mesh::before {
   content: "";
   position: absolute;
@@ -16801,25 +16971,41 @@ html.has-duo-flair .flair-chip {
   background-image:
     linear-gradient(
       180deg,
-      #120e0c 0%,
-      #3a281c 22%,
-      #8a6a50 46%,
-      #4a3224 72%,
-      #120e0c 100%
+      #0a0806 0%,
+      #2a1c14 14%,
+      #8a6248 34%,
+      #e8d4a8 48%,
+      #8a6248 62%,
+      #2a1c14 84%,
+      #0a0806 100%
     ),
     linear-gradient(
       180deg,
-      #120e0c 0%,
-      #3a281c 22%,
-      #8a6a50 46%,
-      #4a3224 72%,
-      #120e0c 100%
+      #0a0806 0%,
+      #2a1c14 14%,
+      #8a6248 34%,
+      #e8d4a8 48%,
+      #8a6248 62%,
+      #2a1c14 84%,
+      #0a0806 100%
+    ),
+    radial-gradient(
+      circle at 8px 7px,
+      #f0e0c0 0 1.35px,
+      #4a3020 1.55px 2.2px,
+      transparent 2.4px
+    ),
+    radial-gradient(
+      circle at 8px 7px,
+      #f0e0c0 0 1.35px,
+      #4a3020 1.55px 2.2px,
+      transparent 2.4px
     );
-  background-size: 100% 14px, 100% 14px;
-  background-repeat: no-repeat;
-  background-position: 0 22%, 0 76%;
+  background-size: 100% 14px, 100% 14px, 28px 14px, 28px 14px;
+  background-repeat: no-repeat, no-repeat, repeat-x, repeat-x;
+  background-position: 0 22%, 0 76%, 6px 22%, 6px 76%;
 }
-/* Quiet metal skim — on rods only */
+/* Quiet metal skim — masked to rods only */
 .fx-bars-mesh::after {
   content: "";
   position: absolute;
@@ -16828,28 +17014,28 @@ html.has-duo-flair .flair-chip {
   background: linear-gradient(
     108deg,
     transparent 40%,
-    rgba(210, 180, 140, 0.05) 49%,
-    rgba(232, 210, 170, 0.16) 50.5%,
-    rgba(210, 180, 140, 0.05) 52%,
+    rgba(210, 180, 140, 0.06) 49%,
+    rgba(248, 236, 210, 0.22) 50.5%,
+    rgba(210, 180, 140, 0.06) 52%,
     transparent 62%
   );
   -webkit-mask-image: repeating-linear-gradient(
     90deg,
-    transparent 0 22px,
-    #000 22px 39px,
-    transparent 39px 68px
+    transparent 0 17px,
+    #000 17px 43px,
+    transparent 43px 72px
   );
   mask-image: repeating-linear-gradient(
     90deg,
-    transparent 0 22px,
-    #000 22px 39px,
-    transparent 39px 68px
+    transparent 0 17px,
+    #000 17px 43px,
+    transparent 43px 72px
   );
-  -webkit-mask-size: 68px 100%;
-  mask-size: 68px 100%;
+  -webkit-mask-size: 72px 100%;
+  mask-size: 72px 100%;
   animation: fx-bars-sheen 7.5s ease-in-out infinite;
   mix-blend-mode: overlay;
-  opacity: 0.65;
+  opacity: 0.72;
 }
 @keyframes fx-bars-sheen {
   0%,
@@ -16877,7 +17063,7 @@ html.has-duo-flair .flair-chip {
     opacity: 1;
   }
 }
-/* Heavy iron door frame */
+/* Heavy iron door frame — thicker inset so the cell reads as a cell door */
 .fx-bars::after {
   content: "";
   position: absolute;
@@ -16885,10 +17071,13 @@ html.has-duo-flair .flair-chip {
   pointer-events: none;
   z-index: 1;
   box-shadow:
-    inset 0 0 0 2px #120e0c,
-    inset 0 0 0 5px #2c241c,
-    inset 0 0 0 6px rgba(110, 88, 64, 0.28),
-    inset 0 0 22px rgba(0, 0, 0, 0.28);
+    inset 0 0 0 3px #0a0806,
+    inset 0 0 0 7px #241c16,
+    inset 0 0 0 8px rgba(160, 128, 88, 0.4),
+    inset 0 0 0 10px #120e0c,
+    inset 0 18px 28px rgba(0, 0, 0, 0.3),
+    inset 0 -16px 26px rgba(0, 0, 0, 0.34),
+    inset 0 0 40px rgba(0, 0, 0, 0.24);
   border-radius: inherit;
 }
 /* No emoji lock — timer chip already carries the cue */
@@ -16899,8 +17088,16 @@ html.has-duo-flair .flair-chip {
   pointer-events: none;
   z-index: 2;
   background:
-    radial-gradient(ellipse 78% 70% at 50% 42%, transparent 46%, rgba(6, 7, 10, 0.28) 100%),
-    linear-gradient(180deg, rgba(4, 5, 8, 0.22) 0%, transparent 16%, transparent 84%, rgba(4, 5, 8, 0.3) 100%);
+    linear-gradient(
+      135deg,
+      rgba(236, 242, 248, 0.16) 0%,
+      transparent 38%,
+      transparent 55%,
+      rgba(6, 8, 12, 0.34) 100%
+    ),
+    radial-gradient(ellipse 76% 68% at 50% 42%, transparent 42%, rgba(6, 7, 10, 0.34) 100%),
+    linear-gradient(180deg, rgba(4, 5, 8, 0.26) 0%, transparent 16%, transparent 84%, rgba(4, 5, 8, 0.36) 100%);
+  mix-blend-mode: soft-light;
 }
 .fx-fence-sheen {
   position: absolute;
@@ -16943,14 +17140,24 @@ html.has-duo-flair .flair-chip {
   inset: -8%;
   /* One mesh only — PNG tile. No CSS diamonds on top (that looked like 2 FX). */
   background-color: transparent;
-  background-image: url("/brand/fx-bars-fence.png?v=8");
-  background-size: 200px 200px;
-  background-repeat: repeat;
-  background-position: center;
-  opacity: 0.88;
-  transform: none;
-  filter: none;
-  animation: fx-bars-in 0.45s cubic-bezier(0.18, 0.9, 0.22, 1);
+  background-image:
+    linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.28) 0%,
+      rgba(190, 200, 210, 0.06) 34%,
+      transparent 52%,
+      rgba(0, 0, 0, 0.38) 100%
+    ),
+    url("/brand/fx-bars-fence.png?v=8");
+  background-size: 100% 100%, 200px 200px;
+  background-repeat: no-repeat, repeat;
+  background-position: center, center;
+  background-blend-mode: overlay, normal;
+  opacity: 0.9;
+  transform-origin: 50% 0%;
+  transform: rotateX(4deg);
+  filter: drop-shadow(0 3px 2px rgba(0, 0, 0, 0.5)) drop-shadow(1px 5px 6px rgba(0, 0, 0, 0.32));
+  animation: fx-fence-slam 0.45s cubic-bezier(0.18, 0.9, 0.22, 1);
 }
 /* Light rust only — no repeating-radial (that drew wavy fence lines). */
 .fx-bars-rust {
@@ -16979,26 +17186,26 @@ html.has-duo-flair .flair-chip {
   pointer-events: none;
   background:
     radial-gradient(
-      ellipse 78% 72% at 50% 42%,
-      transparent 48%,
-      rgba(6, 7, 10, 0.22) 100%
+      ellipse 76% 70% at 50% 42%,
+      transparent 44%,
+      rgba(6, 7, 10, 0.32) 100%
     ),
     linear-gradient(
       180deg,
-      rgba(4, 5, 8, 0.18) 0%,
-      transparent 18%,
+      rgba(4, 5, 8, 0.26) 0%,
+      transparent 16%,
       transparent 82%,
-      rgba(4, 5, 8, 0.28) 100%
+      rgba(4, 5, 8, 0.36) 100%
     );
 }
-@keyframes fx-bars-in {
+@keyframes fx-fence-slam {
   from {
     opacity: 0;
-    transform: translateY(-12%);
+    transform: translateY(-12%) rotateX(4deg);
   }
   to {
-    opacity: 1;
-    transform: translateY(0);
+    opacity: 0.9;
+    transform: translateY(0) rotateX(4deg);
   }
 }
 @keyframes fx-bars-rust-in {
@@ -17036,6 +17243,8 @@ html.has-duo-flair .flair-chip {
   border-radius: inherit;
   opacity: 1 !important;
   visibility: visible;
+  perspective: 900px;
+  transform-style: preserve-3d;
 }
 .fx-fence-timer {
   position: absolute;
@@ -17053,12 +17262,12 @@ html.has-duo-flair .flair-chip {
 }
 @media (max-width: 720px) {
   .fx-fence-mesh {
-    background-size: 168px 168px;
+    background-size: 100% 100%, 168px 168px;
   }
 }
 @media (min-width: 1100px) {
   .fx-fence-mesh {
-    background-size: 220px 220px;
+    background-size: 100% 100%, 220px 220px;
   }
 }
 .partner-menu-btn.star-gift {
@@ -18768,6 +18977,16 @@ body.debate-active.debate-i-speak #tile-remote {
   margin-left: 0.15rem;
   flex-shrink: 0;
 }
+/* Trusted/Senior stay with identity (same as praised-by). */
+html.chrome-autohide #tile-remote:not(.is-chrome-open) #remote-trust-chip:not([hidden]),
+html.match-live.chrome-autohide #tile-remote:not(.is-chrome-open) .trust-tier-chip:not([hidden]),
+html.chrome-autohide #tile-third:not(.is-chrome-open) .trust-tier-chip:not([hidden]),
+html.chrome-autohide #tile-fourth:not(.is-chrome-open) .trust-tier-chip:not([hidden]),
+html.chrome-autohide #remote2-wrap .trust-tier-chip:not([hidden]) {
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: none !important;
+}
 @media (max-width: 520px) {
   .trust-tier-chip {
     font-size: 0.55rem;
@@ -19635,10 +19854,10 @@ html.alone-searching .empty-alone-actions:not([hidden]) {
 /* ── Gift stack levels + tile flavor (spend FX differentiation) ── */
 .fx-overlay.fx-lvl-2 { --fx-stack: 1.12; }
 .fx-overlay.fx-lvl-3 { --fx-stack: 1.28; }
-/* Keep 68px pitch — denser rods looked like cartoon stripes. */
+/* Keep 72px pitch — denser rods looked like cartoon stripes. */
 .fx-overlay.fx-lvl-2 .fx-bars-mesh,
 .fx-overlay.fx-lvl-3 .fx-bars-mesh {
-  background-size: 68px 100%, 68px 100%;
+  background-size: 72px 100%;
 }
 .fx-overlay.fx-lvl-2 .fx-bars-shade {
   background:
@@ -19743,6 +19962,11 @@ html.alone-searching .empty-alone-actions:not([hidden]) {
   backdrop-filter: blur(8px);
 }
 .party-role-strip[hidden] {
+  display: none !important;
+}
+/* Live 3-way: tiles already name people. Strip sat on Courtier video. */
+.stage.stage-trio:not(.stage-trio-searching) .party-role-strip,
+.stage.stage-multi:not(.stage-trio-searching) .party-role-strip {
   display: none !important;
 }
 .party-role-dot {
@@ -21514,21 +21738,22 @@ html.match-live .tile-remote .side-rail-left,
   border: 1px solid rgba(120, 180, 255, 0.4);
 }
 
-/* Partner “praised by N” social proof */
+/* Partner “praised by N” social proof — gold/cream pill, not loc #eef2f7. stage-praise-v1 */
 .partner-praise-chip {
   display: inline-flex;
   align-items: center;
   min-height: 1.15rem;
-  padding: 0.08rem 0.38rem;
+  padding: 0.08rem 0.42rem;
   border-radius: 999px;
-  font-size: 0.6rem;
-  font-weight: 750;
-  letter-spacing: 0.01em;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
   line-height: 1;
   white-space: nowrap;
-  color: rgba(255, 230, 170, 0.95);
-  background: rgba(50, 40, 12, 0.75);
-  border: 1px solid rgba(255, 200, 90, 0.35);
+  color: #1a1200;
+  background: linear-gradient(180deg, #fff6d4, #f0c45a);
+  border: 1px solid rgba(255, 220, 100, 0.55);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
   margin-left: 0.2rem;
   vertical-align: middle;
 }
@@ -21545,13 +21770,14 @@ html.match-live .tile-remote .side-rail-left,
 .tile-remote-id .mutual-bond-chip {
   display: none !important;
 }
-/* Praised-by is chrome: fade with rails (tap/move to show) */
-html.chrome-autohide #tile-remote:not(.is-chrome-open) .partner-praise-chip,
-html.match-live.chrome-autohide #tile-remote:not(.is-chrome-open) #remote-praise-chip {
-  opacity: 0 !important;
-  visibility: hidden !important;
+/* Praised-by stays with identity (★ badge). Rails still autohide. stage-praise-v1 */
+html.chrome-autohide #tile-remote:not(.is-chrome-open) .partner-praise-chip:not([hidden]),
+html.match-live.chrome-autohide #tile-remote:not(.is-chrome-open) #remote-praise-chip:not([hidden]),
+html.chrome-autohide #tile-third:not(.is-chrome-open) .partner-praise-chip:not([hidden]),
+html.chrome-autohide #tile-fourth:not(.is-chrome-open) .partner-praise-chip:not([hidden]) {
+  opacity: 1 !important;
+  visibility: visible !important;
   pointer-events: none !important;
-  transition: opacity 0.22s ease, visibility 0.22s ease;
 }
 .mutual-bond-chip.is-star-bond {
   color: #1a1200;
@@ -21838,13 +22064,14 @@ html.match-live.chrome-autohide #tile-remote:not(.is-chrome-open) #remote-praise
 .tile-remote-id .trust-tier-chip {
   order: 3 !important;
 }
-.tile-remote-id #remote-friend-code.code-on-tile {
-  order: 4 !important;
-}
 .tile-remote-id .partner-praise-chip,
 .tile-remote-id .mutual-bond-chip,
 .tile-remote-id .flair-chip {
   order: 5 !important;
+}
+.tile-remote-id .code-on-tile,
+.tile-remote-id #remote-friend-code.code-on-tile {
+  order: 6 !important;
 }
 /* Local: name first, location below */
 .tile-local #local-name.name-on-tile,
@@ -23751,6 +23978,24 @@ html.match-live #vol-remote-fourth-wrap:not([hidden]) {
   grid-row: 2 !important;
 }
 .stage.stage-quad.stage-grid-2x2:has(#remote2-wrap:not([hidden])):not(:has(#tile-fourth:not([hidden]) > #remote-fourth:not([hidden]))) #tile-local {
+  grid-column: 2 !important;
+  grid-row: 2 !important;
+}
+
+/* 2v2 party: occupancy #remote is teammate → bottom with you. Other pair on top. */
+.stage.stage-quad.stage-grid-2x2.stage-you-party #tile-third:not([hidden]):has(> #remote-third:not([hidden])) {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+}
+.stage.stage-quad.stage-grid-2x2.stage-you-party #tile-fourth:not([hidden]):has(> #remote-fourth:not([hidden])) {
+  grid-column: 2 !important;
+  grid-row: 1 !important;
+}
+.stage.stage-quad.stage-grid-2x2.stage-you-party #tile-remote {
+  grid-column: 1 !important;
+  grid-row: 2 !important;
+}
+.stage.stage-quad.stage-grid-2x2.stage-you-party #tile-local {
   grid-column: 2 !important;
   grid-row: 2 !important;
 }
@@ -25984,7 +26229,430 @@ html.start-idle #btn-start-match,
 html.start-idle #btn-start-match[hidden],
 html.start-idle .start-match-btn[hidden] {
   display: inline-flex !important;
+  justify-content: center !important;
+  align-items: center !important;
   visibility: visible !important;
   opacity: 1 !important;
   pointer-events: auto !important;
+  margin-top: 0 !important;
+  min-width: 13.5rem;
+  padding: 1.08rem 2.7rem 1.18rem !important;
+  font-size: 1.38rem;
+  font-weight: 800;
+  line-height: 1 !important;
+  letter-spacing: 0.06em;
+  text-indent: 0.06em; /* cancel trailing tracking so the word sits dead-center */
+  text-align: center !important;
+  border-radius: 999px;
+}
+/* Idle: brand fills the tile; only Start. No card, icon, copy, friends strip. */
+html.start-idle #remote-empty .empty-icon,
+html.start-idle #remote-empty .empty-title,
+html.start-idle #remote-empty .empty-sub,
+html.start-idle #remote-empty .empty-online-chip,
+html.start-idle #remote-empty .empty-first-hint,
+html.start-idle #remote-empty .empty-cam-why,
+html.start-idle #remote-empty .friends-online-row,
+html.start-idle #remote-empty .empty-alone-actions,
+html.start-idle #remote-empty .mobile-invite,
+html:not(.match-live):not(.match-searching) #remote-empty .empty-icon,
+html:not(.match-live):not(.match-searching) #remote-empty .empty-title {
+  display: none !important;
+}
+html.start-idle #remote-empty .empty-content,
+html:not(.match-live):not(.match-searching) #remote-empty .empty-content {
+  position: absolute !important;
+  left: 50% !important;
+  /* Gold diamond between wordmark and “CHAT ROULETTE” (not on the letters) */
+  top: 81% !important;
+  transform: translate(-50%, -50%) !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  max-width: none !important;
+  z-index: 4;
+}
+html.start-idle #remote-empty .empty-bg-video,
+html:not(.match-live):not(.match-searching) #remote-empty .empty-bg-video {
+  opacity: 1 !important;
+  filter: none !important;
+}
+html.start-idle #remote-empty .empty-bg-scrim {
+  background: radial-gradient(
+    ellipse at center,
+    rgba(0, 0, 0, 0.18) 0%,
+    rgba(0, 0, 0, 0.08) 55%,
+    transparent 80%
+  ) !important;
+}
+
+/* Next + Start: label dead-center, 3D press (bevel + floor) */
+#btn-next.next-in-tile-floor .icon-next,
+.tile-match-actions .next-in-tile-floor .icon-next {
+  display: none !important;
+}
+#btn-next.next-in-tile-floor,
+.tile-match-actions .next-in-tile-floor {
+  justify-content: center !important;
+  align-items: center !important;
+  text-align: center;
+  gap: 0 !important;
+  padding: 0 1.1rem !important;
+  min-width: 5.6rem;
+  line-height: 1;
+}
+#btn-next.next-in-tile-floor span,
+.tile-match-actions .next-in-tile-floor span {
+  display: block;
+  width: 100%;
+  text-align: center;
+  line-height: 1.1;
+}
+#btn-next.next-in-tile-floor,
+.tile-match-actions .next-in-tile-floor {
+  background: linear-gradient(180deg, #ff7a55 0%, #ff2d55 52%, #e01840 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -2px 0 rgba(120, 8, 28, 0.35),
+    0 4px 0 #9e1230,
+    0 10px 22px rgba(255, 45, 85, 0.42) !important;
+  text-shadow: 0 1px 0 rgba(90, 0, 20, 0.35);
+  transform: translateY(0);
+}
+html.start-idle .start-match-btn,
+html.start-idle #btn-start-match {
+  background-image:
+    linear-gradient(
+      108deg,
+      transparent 36%,
+      rgba(255, 248, 220, 0.08) 44%,
+      rgba(255, 255, 255, 0.72) 50%,
+      rgba(255, 220, 150, 0.28) 55%,
+      transparent 64%
+    ),
+    linear-gradient(
+      180deg,
+      #ffb08a 0%,
+      #ff6a4a 14%,
+      #ff2d55 48%,
+      #d0163c 78%,
+      #9a102c 100%
+    ) !important;
+  background-size: 180% 100%, 100% 100%;
+  background-repeat: no-repeat, no-repeat;
+  background-position: 150% 0, 0 0;
+  border: 1.5px solid rgba(242, 214, 150, 0.92) !important;
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.62),
+    inset 0 -4px 5px rgba(80, 0, 18, 0.45),
+    inset 1px 0 0 rgba(255, 220, 190, 0.25),
+    inset -2px 0 4px rgba(80, 0, 20, 0.28),
+    0 7px 0 #6e0c22,
+    0 10px 0 #4a0816,
+    0 16px 28px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(232, 196, 120, 0.45) !important;
+  text-shadow:
+    0 1px 0 rgba(255, 200, 180, 0.35),
+    0 -1px 0 rgba(80, 0, 20, 0.45);
+  transform: translateY(0) scale(1);
+  animation:
+    start-gold-pulse 2.8s ease-in-out infinite,
+    start-slash 4.2s ease-in-out infinite;
+}
+html.start-idle .start-match-btn:focus-visible,
+html.start-idle #btn-start-match:focus-visible {
+  outline: none;
+  animation: none;
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.62),
+    inset 0 -4px 5px rgba(80, 0, 18, 0.45),
+    0 7px 0 #6e0c22,
+    0 10px 0 #4a0816,
+    0 0 0 2px #1a1208,
+    0 0 0 5px rgba(232, 196, 120, 0.95) !important;
+}
+@keyframes start-gold-pulse {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 2px 0 rgba(255, 255, 255, 0.62),
+      inset 0 -4px 5px rgba(80, 0, 18, 0.45),
+      inset 1px 0 0 rgba(255, 220, 190, 0.25),
+      inset -2px 0 4px rgba(80, 0, 20, 0.28),
+      0 7px 0 #6e0c22,
+      0 10px 0 #4a0816,
+      0 16px 28px rgba(0, 0, 0, 0.45),
+      0 0 0 1px rgba(232, 196, 120, 0.4),
+      0 0 16px rgba(232, 196, 120, 0.22);
+  }
+  50% {
+    box-shadow:
+      inset 0 2px 0 rgba(255, 255, 255, 0.7),
+      inset 0 -4px 5px rgba(80, 0, 18, 0.4),
+      inset 1px 0 0 rgba(255, 220, 190, 0.3),
+      inset -2px 0 4px rgba(80, 0, 20, 0.25),
+      0 7px 0 #6e0c22,
+      0 10px 0 #4a0816,
+      0 18px 32px rgba(0, 0, 0, 0.5),
+      0 0 0 3px rgba(232, 196, 120, 0.4),
+      0 0 28px rgba(232, 196, 120, 0.45);
+  }
+}
+@keyframes start-slash {
+  0%,
+  58% {
+    background-position: 150% 0, 0 0;
+  }
+  78% {
+    background-position: -45% 0, 0 0;
+  }
+  100% {
+    background-position: -45% 0, 0 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html.start-idle .start-match-btn,
+  html.start-idle #btn-start-match {
+    animation: none;
+  }
+}
+#btn-next.next-in-tile-floor:hover,
+.tile-match-actions .next-in-tile-floor:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -2px 0 rgba(120, 8, 28, 0.3),
+    0 5px 0 #9e1230,
+    0 12px 26px rgba(255, 45, 85, 0.48) !important;
+}
+html.start-idle .start-match-btn:hover,
+html.start-idle #btn-start-match:hover {
+  filter: brightness(1.06);
+  transform: translateY(-2px) scale(1.03);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.7),
+    inset 0 -4px 5px rgba(80, 0, 18, 0.38),
+    0 9px 0 #6e0c22,
+    0 12px 0 #4a0816,
+    0 20px 34px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(232, 196, 120, 0.5) !important;
+}
+#btn-next.next-in-tile-floor:active,
+.tile-match-actions .next-in-tile-floor:active {
+  transform: translateY(3px) !important;
+  box-shadow:
+    inset 0 2px 4px rgba(80, 0, 18, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 1px 0 #9e1230,
+    0 4px 10px rgba(255, 45, 85, 0.3) !important;
+}
+html.start-idle .start-match-btn:active,
+html.start-idle #btn-start-match:active {
+  filter: brightness(0.96);
+  transform: translateY(7px) scale(0.98) !important;
+  box-shadow:
+    inset 0 4px 8px rgba(60, 0, 14, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 1px 0 #4a0816,
+    0 4px 12px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* vol-hud-v3 — compact 3D pill (eq + % + thin bar). JS --vol + #vol-hud-fill. */
+#tile-remote #vol-hud,
+#tile-third #vol-hud,
+#tile-fourth #vol-hud,
+#remote2-wrap #vol-hud,
+#tile-local #vol-hud,
+#tile-local .vol-hud,
+#vol-hud.vol-hud {
+  --vol: 0;
+  position: absolute;
+  left: 50%;
+  right: auto;
+  top: auto;
+  bottom: 0.5rem;
+  z-index: 46;
+  pointer-events: none;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.28rem 0.4rem;
+  width: min(9.6rem, calc(100% - 1rem));
+  box-sizing: border-box;
+  padding: 0.28rem 0.42rem 0.32rem;
+  border-radius: 999px;
+  color: #eef2f7;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0) 55%),
+    rgba(10, 12, 20, 0.78);
+  border: 1px solid rgba(255, 210, 160, 0.32);
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.45),
+    0 3px 0 #3a1018,
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(-50%) translateY(6px) scale(0.96);
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s cubic-bezier(0.2, 0.9, 0.2, 1),
+    visibility 0.18s ease;
+}
+#tile-local #vol-hud:not([hidden]),
+#tile-local .vol-hud:not([hidden]),
+#vol-hud.vol-hud:not([hidden]) {
+  display: flex;
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0) scale(1);
+}
+/* Adjuster tile: HUD on that person's side, not on you. */
+#tile-remote #vol-hud,
+#tile-third #vol-hud,
+#tile-fourth #vol-hud,
+#remote2-wrap #vol-hud {
+  left: 0.5rem;
+  right: auto;
+  bottom: 0.55rem;
+  transform: translateX(0) translateY(6px) scale(0.96);
+}
+#tile-remote #vol-hud:not([hidden]),
+#tile-third #vol-hud:not([hidden]),
+#tile-fourth #vol-hud:not([hidden]),
+#remote2-wrap #vol-hud:not([hidden]) {
+  transform: translateX(0) translateY(0) scale(1);
+}
+#vol-hud[hidden],
+.vol-hud[hidden] {
+  display: none !important;
+}
+.vol-hud-glow {
+  display: none;
+}
+.vol-hud-eq {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  height: 0.85rem;
+  z-index: 1;
+  flex: 0 0 auto;
+}
+.vol-hud-eq > b {
+  display: block;
+  width: 3px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffd54a, #ff2d55);
+  box-shadow: 0 0 6px rgba(255, 45, 85, 0.4);
+  transform-origin: bottom center;
+  animation: vol-hud-eq 0.5s ease-in-out infinite alternate;
+  height: calc(28% + (var(--vol, 50) * 0.55%));
+}
+.vol-hud-eq > b:nth-child(1) { animation-delay: 0s; }
+.vol-hud-eq > b:nth-child(2) { animation-delay: 0.12s; }
+.vol-hud-eq > b:nth-child(3) { animation-delay: 0.04s; }
+.vol-hud-eq > b:nth-child(4) { animation-delay: 0.2s; }
+@keyframes vol-hud-eq {
+  from { transform: scaleY(0.45); }
+  to { transform: scaleY(1); }
+}
+.vol-hud-copy {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.28rem;
+  min-width: 0;
+  flex: 1 1 auto;
+  z-index: 1;
+}
+#vol-hud-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+#vol-hud-sub,
+.vol-hud-pct {
+  font-size: 0.78rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: #ffd54a;
+  text-shadow: 0 0 8px rgba(255, 213, 74, 0.3);
+}
+.vol-hud-bar {
+  position: relative;
+  flex: 1 1 100%;
+  width: 100%;
+  height: 0.28rem;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.45);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+  z-index: 1;
+}
+#vol-hud-fill,
+#vol-hud .vol-hud-bar > i {
+  display: block;
+  height: 100%;
+  width: 0;
+  max-width: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #ffd54a 0%, #ff7a3b 55%, #ff2d55 100%);
+  box-shadow: 0 0 12px rgba(255, 45, 85, 0.45);
+  transition: width 80ms linear;
+}
+@media (prefers-reduced-motion: reduce) {
+  .vol-hud-eq > b { animation: none; }
+  #tile-local #vol-hud,
+  #vol-hud.vol-hud,
+  #vol-hud-fill {
+    transition: none;
+  }
+}
+
+/* 3-way middle tile: ★ left of avatar, not over it (shot 205742Z). */
+#third-avatar-stars,
+#remote2-avatar-stars,
+#fourth-avatar-stars,
+#tile-third #third-avatar-stars,
+#remote2-wrap #remote2-avatar-stars,
+#tile-fourth #fourth-avatar-stars {
+  right: 0.32rem !important;
+  left: auto !important;
+  top: 0.18rem !important;
+  gap: 0.16rem !important;
+  flex-direction: row !important;
+  align-items: flex-start !important;
+  justify-content: flex-end !important;
+}
+#third-avatar-stars #third-stars-badge:not([hidden]),
+#remote2-avatar-stars #remote2-stars-badge:not([hidden]),
+#tile-third #third-avatar-stars #third-stars-badge:not([hidden]),
+.stage.stage-trio #tile-third #third-avatar-stars #third-stars-badge:not([hidden]),
+.stage.stage-multi #tile-third #third-avatar-stars #third-stars-badge:not([hidden]),
+html.match-live #tile-third #third-avatar-stars #third-stars-badge:not([hidden]) {
+  position: relative !important;
+  top: 0.12rem !important;
+  right: auto !important;
+  left: auto !important;
+  margin: 0 !important;
+  z-index: 53 !important;
+  flex-shrink: 0 !important;
+}
+#third-avatar-stars #third-avatar,
+#remote2-avatar-stars #remote2-avatar {
+  position: relative !important;
+  top: auto !important;
+  right: auto !important;
+  left: auto !important;
+  flex-shrink: 0 !important;
 }

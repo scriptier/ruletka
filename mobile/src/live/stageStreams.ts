@@ -252,17 +252,15 @@ export function pickMultiTiles(opts: {
 }
 
 /**
- * 2×2 chrome only when 4 people are actually on stage:
- * third remote stream + extraPeerCount >= 2. Never 1v1 or 3-way.
+ * 2×2 chrome when 4 people (you + primary + 2 extras).
+ * extras>=2 is enough — don't wait for stream3. Never 1v1 or 3-way.
  */
 export function canShowGrid2x2(opts: {
   remoteStream3?: unknown;
   extraPeerCount?: number;
 }): boolean {
-  return !!(
-    opts.remoteStream3 &&
-    Math.floor(Number(opts.extraPeerCount) || 0) >= 2
-  );
+  void opts.remoteStream3;
+  return Math.floor(Number(opts.extraPeerCount) || 0) >= 2;
 }
 
 export type StageChromeLayout = {
@@ -280,6 +278,8 @@ export type StageChromeLayout = {
   showGrid2x2Toggle: boolean;
   /** Wrap the 1v1 partner VideoView — do not remount it. */
   wrapFirstPartner: boolean;
+  /** 2v2 party: occupancy is teammate → bottom with you. */
+  youParty: boolean;
 };
 
 /**
@@ -370,6 +370,7 @@ export function pickStageChromeLayout(opts: {
   grid2x2?: boolean;
   splitWide?: boolean;
   huntingThird?: boolean;
+  yourRole?: string;
 }): StageChromeLayout {
   const has2 = !!opts.remoteStream2;
   const has3 = !!opts.remoteStream3;
@@ -390,10 +391,12 @@ export function pickStageChromeLayout(opts: {
     remoteStream3: opts.remoteStream3,
     extraPeerCount: extra,
   });
-  const useGrid2x2 = showGrid2x2Toggle && !!opts.grid2x2;
+  // 2v2 defaults ON. Pass grid2x2:false to stack. 1v1/3-way never 2×2.
+  const useGrid2x2 = showGrid2x2Toggle && opts.grid2x2 !== false;
   const wrapFirstPartner = has2 || has3 || extra >= 1;
   const includeLocalTile = has3 || extra >= 2;
   const pipYou = !includeLocalTile;
+  const youParty = String(opts.yourRole || "") === "party";
   // Portrait and landscape: stack tiles (column). Landscape used to flip to a
   // row (`splitWide`) — user wants the same vertical stack when flipped.
   // Optional 2×2 is the only non-column 4-way. Hunt does not wrap.
@@ -407,5 +410,6 @@ export function pickStageChromeLayout(opts: {
     useGrid2x2,
     showGrid2x2Toggle,
     wrapFirstPartner,
+    youParty,
   };
 }

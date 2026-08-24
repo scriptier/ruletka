@@ -36,17 +36,14 @@ let iceConfig = {
 };
 
 /**
- * Strip ?transport=udp (default for turn:) — some stacks mishandle the query.
+ * Trim ice URL. Do not strip ?transport=udp — that is an RN workaround
+ * (MediaSession.ts). Chrome on a bare turn:host:3478 ALLOCATEs UDP+TCP;
+ * TCP relay cannot pair with Android's UDP-only gather under force_relay.
  * @param {string} u
  * @returns {string}
  */
 function normalizeTurnUrl(u) {
-  let s = String(u || "").trim();
-  if (!s) return s;
-  s = s.replace(/\?transport=udp$/i, "");
-  s = s.replace(/([?&])transport=udp(&)?/gi, (_m, p1, p2) => (p2 ? p1 : ""));
-  s = s.replace(/[?&]$/, "");
-  return s;
+  return String(u || "").trim();
 }
 
 /**
@@ -225,22 +222,183 @@ function isRelayIceCandidate(c) {
 }
 
 /**
+ * ICE candidate text (SDP line or RTCIceCandidate.candidate).
+ * @param {RTCIceCandidateInit | RTCIceCandidate | string | null | undefined} c
+ * @returns {string}
+ */
+function iceCandidateText(c) {
+  if (c == null) return "";
+  if (typeof c === "string") return c;
+  return String(
+    /** @type {{ candidate?: string }} */ (c).candidate ||
+      /** @type {{ toJSON?: () => { candidate?: string } }} */ (c).toJSON?.()
+        ?.candidate ||
+      ""
+  );
+}
+
+/**
+ * TCP TURN relay (Chrome gathers these on bare `turn:host:3478`).
+ * Phone is UDP-only under force_relay — TCP↔UDP relay pairs never connect.
+ * @param {string} s
+ * @returns {boolean}
+ */
+function candidateLooksTcp(s) {
+  const t = String(s || "");
+  if (!t) return false;
+  if (/\btcptype\b/i.test(t)) return true;
+  if (/\bcandidate:\S+\s+\d+\s+tcp\b/i.test(t)) return true;
+  return false;
+}
+
+/**
+ * UDP typ relay only. Under force_relay, first *any* relay used to be TCP
+ * (`20260816T061315Z` laptop ALLOCATE tcp, phone ICE failed 0/0).
+ * @param {RTCIceCandidateInit | RTCIceCandidate | string | null | undefined} c
+ * @returns {boolean}
+ */
+function isUdpRelayIceCandidate(c) {
+  if (!isRelayIceCandidate(c)) return false;
+  return !candidateLooksTcp(iceCandidateText(c));
+}
+
+/** Hide IP / hub force_relay: pair only UDP TURN with Android. */
+function shouldPreferUdpRelay() {
+  return hideIpRelayOnlyEnabled() || sessionForceRelayEnabled();
+}
+
+/**
+ * @param {string} sdp
+ * @param {{ udpOnly?: boolean }} [opts]
+ * @returns {number}
+ */
+function countTypRelayInSdp(sdp, opts) {
+  const udpOnly = !!(opts && opts.udpOnly);
+  let n = 0;
+  for (const line of String(sdp || "").split(/\r?\n/)) {
+    if (!/\btyp\s+relay\b/i.test(line)) continue;
+    if (udpOnly && candidateLooksTcp(line)) continue;
+    n += 1;
+  }
+  return n;
+}
+
+/**
+ * Drop TCP typ relay when ≥1 UDP relay remains. Never empty the path.
+ * @param {string} sdp
+ * @returns {string}
+ */
+function stripTcpRelayCandidatesFromSdp(sdp) {
+  if (!sdp || typeof sdp !== "string") return sdp;
+  if (countTypRelayInSdp(sdp, { udpOnly: true }) === 0) return sdp;
+  const out = [];
+  let dropped = 0;
+  for (const line of sdp.split(/\r?\n/)) {
+    if (
+      /^a=candidate:/i.test(line) &&
+      /\btyp\s+relay\b/i.test(line) &&
+      candidateLooksTcp(line)
+    ) {
+      dropped += 1;
+      continue;
+    }
+    out.push(line);
+  }
+  if (dropped) {
+    console.info(`[webrtc] stripped ${dropped} tcp relay (keep udp)`);
+  }
+  return out.join("\r\n");
+}
+
+/**
  * force_relay: UDP turn: only — TCP dual-path stormed ALLOCATEs and never
  * finished relay↔relay media (peer_usage stayed ~0).
  * @param {RTCIceServer[]} servers
  * @returns {RTCIceServer[]}
  */
 function udpTurnOnly(servers) {
-  const udp = (servers || []).filter((s) => {
+  const keep = (servers || []).filter((s) => {
     const u = String(
       Array.isArray(s.urls) ? s.urls[0] : s.urls || ""
     ).toLowerCase();
     if (!(u.startsWith("turn:") || u.startsWith("turns:"))) return false;
+    // TLS TURN (5349/443) is the automatic DPI fallback — keep it.
+    if (u.startsWith("turns:")) return true;
+    // Bare TCP 3478 dual-path stormed ALLOCATEs (CONNECTIVITY_LOCK).
     if (u.includes("transport=tcp")) return false;
-    if (u.startsWith("turns:")) return false;
     return true;
   });
-  return udp.length ? udp : servers || [];
+  return keep.length ? keep : servers || [];
+}
+
+/**
+ * force_relay/hide/warm: keep one UDP turn: plus one turns: (TLS).
+ * slice(0,1) dropped TURNS (FRA) or dropped UDP when geo listed TURNS first (RU vs APK 457).
+ */
+function keepUdpPlusTurns(servers) {
+  const list = servers || [];
+  let udp = null;
+  let turns = null;
+  let firstKind = "";
+  for (const s of list) {
+    const u = String(
+      Array.isArray(s.urls) ? s.urls[0] : s.urls || ""
+    ).toLowerCase();
+    if (u.startsWith("turns:") && !turns) {
+      turns = s;
+      if (!firstKind) firstKind = "turns";
+    } else if (
+      u.startsWith("turn:") &&
+      !u.includes("transport=tcp") &&
+      !udp
+    ) {
+      udp = s;
+      if (!firstKind) firstKind = "udp";
+    }
+  }
+  const out = [];
+  // RU hub lists TURNS before UDP — keep that. CA lists UDP first.
+  if (firstKind === "turns") {
+    if (turns) out.push(turns);
+    if (udp) out.push(udp);
+  } else {
+    if (udp) out.push(udp);
+    if (turns) out.push(turns);
+  }
+  return out.length ? out : list.slice(0, 1);
+}
+
+/**
+ * Pin turn: URLs to UDP so Chrome will not gather TCP relay.
+ * Bare `turn:host:3478` dual-stacks; Android is UDP-only under force_relay.
+ * @param {string} u
+ * @returns {string}
+ */
+function pinTurnUrlToUdp(u) {
+  const raw = String(u || "").trim();
+  if (!raw) return raw;
+  const lower = raw.toLowerCase();
+  // turns: starts with "turn:" — must not pin TLS URLs to UDP.
+  if (lower.startsWith("turns:")) return raw;
+  if (!lower.startsWith("turn:")) return raw;
+  if (lower.includes("transport=tcp")) return raw;
+  if (lower.includes("transport=udp")) return raw;
+  return raw.includes("?") ? raw + "&transport=udp" : raw + "?transport=udp";
+}
+
+/**
+ * @param {RTCIceServer[]} servers
+ * @returns {RTCIceServer[]}
+ */
+function pinTurnUrlsToUdp(servers) {
+  return (servers || []).map((s) => {
+    const urls = Array.isArray(s.urls) ? s.urls : s.urls ? [s.urls] : [];
+    const pinned = urls.map((u) => pinTurnUrlToUdp(u));
+    const entry = { urls: pinned.length === 1 ? pinned[0] : pinned };
+    if (s.username) entry.username = s.username;
+    if (s.credential) entry.credential = s.credential;
+    return entry;
+  });
 }
 
 /**
@@ -314,10 +472,11 @@ function shouldWaitForFirstRelay() {
 function relayWaitBudgetMs() {
   // Pure same-IP: first relay often lands ~0.8–1.5s; cap so mto isn't stuck at 1.7s+.
   // waitForIceGatherRelayOrDone exits early on first typ relay (does not always burn full budget).
-  // Hop3: 1100→850; hop7: 850→700; hop8: 700→600 — rebuild-if-n=0 belt still on pure offer.
-  if (hideIpRelayOnlyEnabled() || sessionForceRelayEnabled()) return 600;
-  // Hop7 hybrid: first-pass 400. Hop8: 350 — still wait when TURN present.
-  return 350;
+  // Hop3: 1100→850; hop7: 850→700; hop8: 700→600; hop9: 600→520; hop11: 520→480.
+  // rebuild-if-n=0 belt still on pure offer. product.ok re-smoke required after deploy.
+  if (hideIpRelayOnlyEnabled() || sessionForceRelayEnabled()) return 480;
+  // Hop7 hybrid: first-pass 400. Hop8: 350. Hop9: 320. Hop11: 300 — still wait when TURN present.
+  return 300;
 }
 
 /**
@@ -439,10 +598,10 @@ function waitForIceGatherRelayOrDone(pc, maxMs = 150) {
       return;
     }
     let settled = false;
+    const udpOnly = shouldPreferUdpRelay();
     const countRelay = () => {
       try {
-        const s = pc.localDescription?.sdp || "";
-        return (s.match(/\btyp\s+relay\b/gi) || []).length;
+        return countTypRelayInSdp(pc.localDescription?.sdp || "", { udpOnly });
       } catch {
         return 0;
       }
@@ -462,7 +621,13 @@ function waitForIceGatherRelayOrDone(pc, maxMs = 150) {
       return;
     }
     const onCand = (ev) => {
-      if (ev?.candidate && isRelayIceCandidate(ev.candidate)) finish();
+      if (
+        ev?.candidate &&
+        (udpOnly
+          ? isUdpRelayIceCandidate(ev.candidate)
+          : isRelayIceCandidate(ev.candidate))
+      )
+        finish();
       else if (!ev?.candidate && pc.iceGatheringState === "complete") finish();
     };
     const onG = () => {
@@ -480,6 +645,69 @@ function waitForIceGatherRelayOrDone(pc, maxMs = 150) {
 }
 
 /**
+ * Per-m-line direction from SDP (default sendrecv if omitted).
+ * @param {string} sdp
+ * @returns {string[]}
+ */
+function sdpMlineDirections(sdp) {
+  const dirs = [];
+  for (const line of String(sdp || "").split(/\r?\n/)) {
+    if (/^m=/i.test(line)) {
+      dirs.push("sendrecv");
+      continue;
+    }
+    const m = line.match(/^a=(sendrecv|recvonly|sendonly|inactive)\b/i);
+    if (m && dirs.length) dirs[dirs.length - 1] = m[1].toLowerCase();
+  }
+  return dirs;
+}
+
+/**
+ * Offer recvonly + answer sendrecv → Chrome InvalidAccessError
+ * "Incompatible send direction" (laptop no-cam vs Android forceVideoSendrecvSdp).
+ * Compatible: recvonly↔sendonly, sendonly↔recvonly.
+ * @param {string} offerSdp
+ * @param {string} answerSdp
+ * @returns {string}
+ */
+function alignAnswerDirectionsToLocalOffer(offerSdp, answerSdp) {
+  if (!offerSdp || !answerSdp) return answerSdp;
+  const offerDirs = sdpMlineDirections(offerSdp);
+  if (!offerDirs.length) return answerSdp;
+  const lines = String(answerSdp).split(/\r?\n/);
+  let mi = -1;
+  let changed = 0;
+  const out = [];
+  for (const line of lines) {
+    if (/^m=/i.test(line)) {
+      mi += 1;
+      out.push(line);
+      continue;
+    }
+    const m = line.match(/^a=(sendrecv|recvonly|sendonly|inactive)\b/i);
+    if (m && mi >= 0 && offerDirs[mi]) {
+      const od = offerDirs[mi];
+      const ad = m[1].toLowerCase();
+      let next = ad;
+      if (od === "recvonly" && ad === "sendrecv") next = "sendonly";
+      else if (od === "sendonly" && ad === "sendrecv") next = "recvonly";
+      if (next !== ad) {
+        out.push("a=" + next);
+        changed += 1;
+        continue;
+      }
+    }
+    out.push(line);
+  }
+  if (changed) {
+    console.info(
+      "[webrtc] aligned " + changed + " answer dir(s) to local offer"
+    );
+  }
+  return out.join("\r\n");
+}
+
+/**
  * @param {RTCSessionDescriptionInit | { type?: string, sdp?: string }} desc
  * @returns {RTCSessionDescriptionInit}
  */
@@ -491,6 +719,8 @@ function sanitizeRemoteDescription(desc) {
   sdp = stripMdnsHostCandidatesFromSdp(sdp);
   if (shouldFilterToRelayCandidates()) {
     sdp = stripNonRelayCandidatesFromSdp(sdp);
+    if (shouldPreferUdpRelay()) sdp = stripTcpRelayCandidatesFromSdp(sdp);
+    // Do NOT spread inbound SDP — 382/383 phone-side spread broke PC↔Android.
   } else if (shouldStripHostCandidates()) {
     sdp = stripHostCandidatesFromSdp(sdp);
   }
@@ -523,7 +753,8 @@ function applyIceDirectPreference() {
     if (turnOnly.length) {
       servers = udpTurnOnly(preferFastTurnFirst(turnOnly));
       if (!servers.length) servers = preferFastTurnFirst(turnOnly);
-      if (servers.length > 1) servers = servers.slice(0, 1);
+      servers = keepUdpPlusTurns(servers);
+      servers = pinTurnUrlsToUdp(servers);
       iceTransportPolicy = "relay";
       poolSize = 0;
     } else {
@@ -533,13 +764,13 @@ function applyIceDirectPreference() {
     }
   } else if (forceRelay) {
     // Hub force_relay (hide_ip / untrusted / same public IP):
-    // pure policy=relay + ONE UDP TURN + pool=0. Pool≥2 caused 437 storms.
+    // policy=relay + UDP TURN + optional TURNS. Not TCP 3478 (437 storms).
     const turnOnly = filterIceServersByMode(raw, "turn");
     let turn = udpTurnOnly(preferFastTurnFirst(turnOnly));
     if (!turn.length) turn = preferFastTurnFirst(turnOnly);
-    if (turn.length > 1) turn = turn.slice(0, 1);
+    turn = keepUdpPlusTurns(turn);
     if (turn.length) {
-      servers = turn;
+      servers = pinTurnUrlsToUdp(turn);
       iceTransportPolicy = "relay";
     } else {
       // Fail-open: keep hosts/STUN if TURN missing (never black forever)
@@ -583,9 +814,9 @@ function preferFastTurnFirst(servers) {
     if (urls.length < 2) return s;
     const score = (u) => {
       const x = String(u).toLowerCase();
+      if (x.startsWith("turns:")) return 1; // TLS fallback (RU / DPI) after UDP
       if (x.startsWith("turn:") && !x.includes("transport=tcp")) return 0; // UDP
-      if (x.startsWith("turn:") && x.includes("transport=tcp")) return 1;
-      if (x.startsWith("turns:")) return 2;
+      if (x.startsWith("turn:") && x.includes("transport=tcp")) return 2;
       return 3; // stun etc.
     };
     urls.sort((a, b) => score(a) - score(b));
@@ -706,10 +937,10 @@ function warmIcePool(opts = {}) {
       if (turnOnly.length) {
         let udp = udpTurnOnly(preferFastTurnFirst(turnOnly));
         if (!udp.length) udp = preferFastTurnFirst(turnOnly);
-        if (udp.length > 1) udp = udp.slice(0, 1);
+        udp = keepUdpPlusTurns(udp);
         cfg = {
           ...cfg,
-          iceServers: udp,
+          iceServers: pinTurnUrlsToUdp(udp),
           iceTransportPolicy: "relay",
           iceCandidatePoolSize: 0,
         };
@@ -720,7 +951,7 @@ function warmIcePool(opts = {}) {
       const stun = filterIceServersByMode(raw, "stun");
       let turn = udpTurnOnly(preferFastTurnFirst(turnOnly));
       if (!turn.length) turn = preferFastTurnFirst(turnOnly);
-      if (turn.length > 1) turn = turn.slice(0, 1);
+      turn = keepUdpPlusTurns(turn);
       cfg = {
         ...cfg,
         iceServers: preferFastTurnFirst([...turn, ...stun, ...raw]),
@@ -745,6 +976,16 @@ function warmIcePool(opts = {}) {
       // Real pure ALLOCATE once (pool=0). Mark primed on first typ relay, then
       // rollback (clean). takeWarmPc still clean-rebuilds pure — prime is for
       // path-hot + __ruletWarmPrimed budget trim, not dirty SDP promote.
+      try {
+        iceWarmPc.onicecandidate = (ev) => {
+          if (iceWarmPrimed) return;
+          const cand = String(ev?.candidate?.candidate || "");
+          if (cand && /\btyp\s+relay\b/i.test(cand)) {
+            iceWarmPrimed = true;
+            console.info("[webrtc] warmIcePool prime on first relay cand");
+          }
+        };
+      } catch (_) {}
       void (async () => {
         const pc = iceWarmPc;
         if (!pc) return;
@@ -839,8 +1080,26 @@ function takeWarmPc() {
     pc.oniceconnectionstatechange = null;
     pc.ondatachannel = null;
   } catch (_) {}
-  // Pure: never promote (dirty SDP / in-flight setLocal race)
+  // Pure 1v1: never promote (dirty SDP / in-flight setLocal race).
+  // Extra 3rd-join: promote a *stable* rolled-back warm PC so the 2nd TURN
+  // ALLOCATE is not a cold 5s setLocal (22:17 PC extra +6.4s, relay=0).
   if (policy === "relay") {
+    let extraPromote = false;
+    try {
+      extraPromote =
+        typeof window !== "undefined" &&
+        !!window.__ruletMultiPeerFast &&
+        (pc.signalingState || "") === "stable";
+    } catch (_) {
+      extraPromote = false;
+    }
+    if (extraPromote) {
+      try {
+        pc.__ruletWarmPrimed = wasPrimed;
+      } catch (_) {}
+      console.info("[webrtc] takeWarmPc extra promote relay primed=" + (wasPrimed ? 1 : 0));
+      return pc;
+    }
     try {
       pc.close();
     } catch (_) {}
@@ -1078,6 +1337,192 @@ function clampQualityTier(tier, ceiling) {
   return (TIER_RANK[t] ?? 2) <= (TIER_RANK[c] ?? 3) ? t : c;
 }
 
+/** Android UA (browser / WebView) — multi min-tier freezes some HW encoders. */
+function isAndroidUa() {
+  try {
+    return /Android/i.test(
+      (typeof navigator !== "undefined" && navigator.userAgent) || ""
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * iPhone / iPad / iPod WebKit, including iPadOS desktop-mode Safari.
+ * Same UA rules as live.js: iPhone|iPad|iPod or MacIntel + maxTouchPoints > 1.
+ * WebKit AudioContext is often 44100 — do not force GUM 48k (resample crackle).
+ */
+function isIosWebKit() {
+  try {
+    if (typeof navigator === "undefined") return false;
+    const ua = navigator.userAgent || "";
+    if (/iPhone|iPad|iPod/i.test(ua)) return true;
+    // iPadOS 13+ reports as Macintosh / MacIntel.
+    if (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1) {
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Multi-peer sibling path (3/4-way): live.js sets _multiPeerLink /
+ * window.__ruletMultiPeerFast for shorter first-relay wait + quality floor.
+ * @param {{ _multiPeerLink?: boolean } | null} [pcLike]
+ */
+function isMultiPeerFastMode(pcLike) {
+  try {
+    if (pcLike && pcLike._multiPeerLink) return true;
+    return !!(
+      typeof window !== "undefined" && window.__ruletMultiPeerFast
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * First-pass typ-relay wait. 1v1 hop11 stays cold=budget (480) / warm 320.
+ * Sibling 2nd+ PC (window.__ruletMultiPeerFast / _multiPeerLink) trims cold
+ * only — never lengthens 1v1, never cuts relayWaitBudgetMs itself.
+ * @param {number} budget
+ * @param {boolean} warmOk
+ * @param {{ _multiPeerLink?: boolean } | null} [pcLike]
+ */
+function siblingAlreadyHasRelay() {
+  try {
+    if (typeof peerPcs === "undefined" || !peerPcs || peerPcs.size < 1) {
+      return false;
+    }
+    for (const pc of peerPcs.values()) {
+      const sdp = String(pc?.pc?.localDescription?.sdp || "");
+      if (sdp && /typ relay/i.test(sdp)) return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
+function firstRelayWait1Ms(budget, warmOk, pcLike) {
+  let wait1 = warmOk ? Math.min(budget, 320) : budget;
+  if (isMultiPeerFastMode(pcLike) && !warmOk) {
+    // Extra 3rd-join: trickle ICE. Sibling TURN → 80ms; first extra (laptop
+    // solo, no sibling SDP yet) → 160ms. Never lengthens 1v1 hop11 480.
+    wait1 = Math.min(wait1, siblingAlreadyHasRelay() ? 80 : 160);
+  }
+  return wait1;
+}
+
+/** Shared local preview stream from live.js (never stop its tracks on multi close). */
+function getRuletPreviewStream() {
+  try {
+    return typeof window !== "undefined"
+      ? window.__ruletPreviewStream || null
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Shared preview still has a live camera. 3-way: live.js clones that
+ * track onto the 2nd PC after connect — do not treat a brief missing
+ * localStream video as no-cam (recvonly black).
+ */
+function previewHasLiveVideo() {
+  try {
+    const preview = getRuletPreviewStream();
+    if (
+      (preview?.getVideoTracks?.() || []).some(
+        (t) => t && t.readyState !== "ended"
+      )
+    ) {
+      return true;
+    }
+  } catch (_) {}
+  // 3rd-join / kickSolo: preview map can lag #local by one tick.
+  // recvonly offer here = Android / other browsers get no camera.
+  try {
+    const el =
+      typeof document !== "undefined" ? document.getElementById("local") : null;
+    const s = el && el.srcObject;
+    if (
+      (s?.getVideoTracks?.() || []).some((t) => t && t.readyState !== "ended")
+    ) {
+      return true;
+    }
+    if (el && el.videoWidth > 2 && el.videoHeight > 2) return true;
+  } catch (_) {}
+  return false;
+}
+
+/** Live camera on preview / #local — not dummy, not ended. */
+function firstLivePreviewVideo() {
+  const streams = [];
+  try {
+    const p = getRuletPreviewStream();
+    if (p) streams.push(p);
+  } catch (_) {}
+  try {
+    const el =
+      typeof document !== "undefined" ? document.getElementById("local") : null;
+    if (el?.srcObject) streams.push(el.srcObject);
+  } catch (_) {}
+  for (const s of streams) {
+    const track = (s.getVideoTracks?.() || []).find(
+      (t) => t && t.readyState !== "ended"
+    );
+    if (track) return { track, stream: s };
+  }
+  return null;
+}
+
+/**
+ * True if track is the live preview source (or same id on preview).
+ * Multi clones must not stop these when replacing / closing.
+ * @param {MediaStreamTrack | null | undefined} track
+ */
+function trackBelongsToPreview(track) {
+  if (!track) return false;
+  try {
+    const preview = getRuletPreviewStream();
+    if (!preview || typeof preview.getTracks !== "function") return false;
+    const pts = preview.getTracks() || [];
+    if (pts.includes(track)) return true;
+    const id = track.id;
+    if (id) return pts.some((t) => t && t.id === id);
+  } catch (_) {}
+  return false;
+}
+
+/**
+ * Stop a track only if it is not the shared preview source.
+ * @param {MediaStreamTrack | null | undefined} track
+ */
+function stopTrackUnlessPreview(track) {
+  if (!track) return;
+  if (trackBelongsToPreview(track)) return;
+  try {
+    track.stop();
+  } catch (_) {}
+}
+
+/**
+ * Android multi: "min" (scale×2 + 200kbps) freezes HW encoders — floor at low.
+ * Desktop and 1v1 keep full ladder.
+ * @param {string} tier
+ * @param {{ _multiPeerLink?: boolean } | null} [pcLike]
+ */
+function mobileSafeMultiTier(tier, pcLike) {
+  const t = QUALITY_TIERS[tier] ? tier : "mid";
+  if (t === "min" && isAndroidUa() && isMultiPeerFastMode(pcLike)) {
+    return "low";
+  }
+  return t;
+}
+
 /**
  * @typedef {object} MediaDeviceChoices
  * @property {string} [videoDeviceId]
@@ -1126,8 +1571,13 @@ function applyLowLatencyPlayout(pc, targetMs = 70) {
     } catch (_) {}
     try {
       const t = receiver.track;
-      if (t && t.kind === "audio" && "contentHint" in t) {
-        t.contentHint = "speech";
+      if (t && t.kind === "audio") {
+        try {
+          if (t.enabled === false) t.enabled = true;
+        } catch (_) {}
+        try {
+          if ("contentHint" in t) t.contentHint = "speech";
+        } catch (_) {}
       }
       if (t && t.kind === "video") {
         try {
@@ -1137,6 +1587,20 @@ function applyLowLatencyPlayout(pc, targetMs = 70) {
           if ("contentHint" in t) t.contentHint = "motion";
         } catch (_) {}
       }
+    } catch (_) {}
+  }
+}
+
+/**
+ * Force inbound audio tracks on (3-way tiles start silent if enabled=false).
+ * @param {RTCPeerConnection | null | undefined} pc
+ */
+function enableInboundAudioTracks(pc) {
+  if (!pc || typeof pc.getReceivers !== "function") return;
+  for (const receiver of pc.getReceivers()) {
+    try {
+      const t = receiver.track;
+      if (t && t.kind === "audio" && t.enabled === false) t.enabled = true;
     } catch (_) {}
   }
 }
@@ -1176,6 +1640,9 @@ function requestOutboundKeyframes(pc) {
  */
 function kickMediaAfterIce(pc) {
   if (!pc) return;
+  try {
+    enableInboundAudioTracks(pc);
+  } catch (_) {}
   try {
     applyLowLatencyPlayout(pc, 60);
   } catch (_) {}
@@ -1242,15 +1709,20 @@ function isLowLatencyAudioEnabled() {
 
 /** Full AEC + noise suppression + AGC (multi-peer / noisy rooms). */
 function fullProcessingAudioConstraints(extra = {}) {
-  return {
+  const c = {
     echoCancellation: true,
     noiseSuppression: true,
     autoGainControl: true,
     channelCount: 1,
     latency: { ideal: 0.02, max: 0.08 },
-    sampleRate: { ideal: 48000 },
-    ...extra,
   };
+  // Desktop prefers 48k Opus. iOS/WebKit AC is often 44.1k — omit forced 48k.
+  if (!isIosWebKit()) {
+    c.sampleRate = { ideal: 48000 };
+  }
+  const out = { ...c, ...extra };
+  if (isIosWebKit()) delete out.sampleRate;
+  return out;
 }
 
 /**
@@ -1265,7 +1737,7 @@ function lowLatencyAudioConstraints(extra = {}) {
     return fullProcessingAudioConstraints(extra);
   }
   const low = isLowLatencyAudioEnabled();
-  return {
+  const c = {
     echoCancellation: true, // keep echo control always
     // NS/AGC add delay; off in low-latency mode
     noiseSuppression: !low,
@@ -1274,9 +1746,14 @@ function lowLatencyAudioConstraints(extra = {}) {
     latency: low
       ? { ideal: 0.005, max: 0.025 }
       : { ideal: 0.02, max: 0.08 },
-    sampleRate: { ideal: 48000 },
-    ...extra,
   };
+  // Desktop prefers 48k Opus. iOS/WebKit AC is often 44.1k — omit forced 48k.
+  if (!isIosWebKit()) {
+    c.sampleRate = { ideal: 48000 };
+  }
+  const out = { ...c, ...extra };
+  if (isIosWebKit()) delete out.sampleRate;
+  return out;
 }
 
 /**
@@ -1365,6 +1842,8 @@ class RouletteWebRtc {
     this._lastTs = 0;
     this._lossEma = 0;
     this._rttEma = 0;
+    /** ICE/PC reached connected|completed at least once on this PC. */
+    this._iceEverOk = false;
     /** @type {RTCDataChannel | null} */
     this._chatDc = null;
     this._chatDcOpen = false;
@@ -1375,10 +1854,12 @@ class RouletteWebRtc {
    * @param {keyof typeof QUALITY_TIERS | string} ceiling
    */
   setQualityCeiling(ceiling) {
-    const c = QUALITY_TIERS[ceiling] ? ceiling : "high";
+    let c = QUALITY_TIERS[ceiling] ? ceiling : "high";
+    // Android multi: never hold ceiling at "min" (encoder freeze)
+    c = mobileSafeMultiTier(c, this);
     this._qualityCeiling = c;
     const cur = this._qualityTier || "high";
-    const next = clampQualityTier(cur, c);
+    const next = mobileSafeMultiTier(clampQualityTier(cur, c), this);
     if (next !== cur) {
       this.applyQualityTier(next).catch(() => {});
     }
@@ -1426,7 +1907,8 @@ class RouletteWebRtc {
     } = opts;
 
     if (this.localStream) {
-      this.localStream.getTracks().forEach((t) => t.stop());
+      // Never stop shared preview tracks (multi/rematch keeps cam live)
+      this.localStream.getTracks().forEach((t) => stopTrackUnlessPreview(t));
       this.localStream = null;
     }
 
@@ -1467,6 +1949,10 @@ class RouletteWebRtc {
 
     if (this.pc) {
       await this.syncLocalTracksToPc();
+    } else {
+      try {
+        this._ensureNoCamVideoRecvonly();
+      } catch (_) {}
     }
     return this.localStream;
   }
@@ -1487,13 +1973,237 @@ class RouletteWebRtc {
     }
   }
 
+  /**
+   * Audio-only GUM: video m-line must be recvonly so we can still see the
+   * partner camera. sendrecv with no track makes Android attach a muted
+   * dummy remote video and stay on Linking cameras.
+   */
+  _ensureNoCamVideoRecvonly() {
+    const hasLocalVideo = (this.localStream?.getVideoTracks?.() || []).some(
+      (t) => t && t.readyState !== "ended"
+    );
+    // Preview cam / 3-way clone pending: keep sendrecv (not recvonly black).
+    if (hasLocalVideo || previewHasLiveVideo() || !this.pc) return;
+    // #local already has a stream (Start preview) — do not flip sendrecv→recvonly.
+    try {
+      const el =
+        typeof document !== "undefined"
+          ? document.getElementById("local")
+          : null;
+      if (el?.srcObject) return;
+    } catch (_) {}
+    try {
+      const tr = this.pc.getTransceivers?.() || [];
+      for (const x of tr) {
+        const kind = x?.receiver?.track?.kind || x?.sender?.track?.kind;
+        if (kind !== "video") continue;
+        const dir = String(x.direction || "");
+        if (
+          (dir === "sendrecv" || dir === "sendonly") &&
+          typeof x.setDirection === "function"
+        ) {
+          x.setDirection("recvonly");
+        }
+      }
+    } catch (_) {}
+  }
+
+  /**
+   * PC-with-cam offered recvonly (preview map lagged) → Safari fin=0 / our fout=0.
+   * Attach #local/preview track and flip video m-line to sendrecv before offer.
+   */
+  _attachPreviewVideoIfSending() {
+    const got = firstLivePreviewVideo();
+    if (!got || !this.pc) return false;
+    const { track, stream } = got;
+    let attached = false;
+    try {
+      for (const tr of this.pc.getTransceivers?.() || []) {
+        const kind = tr?.receiver?.track?.kind || tr?.sender?.track?.kind;
+        if (kind !== "video") continue;
+        const dir = String(tr.direction || "");
+        if (
+          (dir === "recvonly" || dir === "inactive") &&
+          typeof tr.setDirection === "function"
+        ) {
+          try {
+            tr.setDirection("sendrecv");
+            attached = true;
+          } catch (_) {}
+        }
+        if (tr.sender && !tr.sender.track) {
+          try {
+            tr.sender.replaceTrack(track);
+            attached = true;
+          } catch (_) {}
+        }
+      }
+      const hasSender = (this.pc.getSenders?.() || []).some(
+        (s) => s.track && s.track.kind === "video"
+      );
+      if (!hasSender) {
+        try {
+          this.pc.addTrack(track, stream);
+          attached = true;
+        } catch (_) {}
+      }
+    } catch (_) {}
+    return attached;
+  }
+
+  /**
+   * Late 3-way clone / replaceTrack on a recvonly slot must send.
+   * @param {RTCRtpSender | null | undefined} sender
+   */
+  _promoteVideoSend(sender) {
+    if (!sender || !this.pc) return;
+    // 005410Z 1v1: setDirection after createOffer (have-local-offer) rewrites
+    // m-lines → Android answer InvalidModificationError → ICE failed 0/0.
+    if (this._offerSentOnce && !this._gotRemoteAnswerAt) {
+      this._pendingPromoteSend = sender;
+      return;
+    }
+    let flipped = false;
+    try {
+      const tr = (this.pc.getTransceivers?.() || []).find(
+        (x) => x && x.sender === sender
+      );
+      const dir = String(tr?.direction || "");
+      if (
+        tr &&
+        (dir === "recvonly" || dir === "inactive") &&
+        typeof tr.setDirection === "function"
+      ) {
+        tr.setDirection("sendrecv");
+        flipped = true;
+      }
+    } catch (_) {}
+    // 234751Z: 3rd-join offer went recvonly then replaceTrack — remote SDP
+    // still recvonly until we renegotiate. Once per PC, only if we flipped.
+    // 004600Z: never re-offer before the first answer — second offer + first
+    // answer → InvalidModificationError m-line order (ICE failed 0/0).
+    if (
+      flipped &&
+      this.isOfferer &&
+      !this._promotedSendRenego &&
+      this._gotRemoteAnswerAt &&
+      this._offerSentOnce &&
+      this.pc.signalingState === "stable"
+    ) {
+      this._promotedSendRenego = true;
+      try {
+        void this._createAndSendOffer({ iceRestart: false });
+      } catch (_) {}
+    }
+  }
+
+  /**
+   * Remote audio track is live (receivers or remoteStream).
+   * Laptop no-cam / hide never gets videoWidth — this is the link signal.
+   */
+  _remoteAudioIsLive() {
+    try {
+      const recvs = this.pc?.getReceivers?.() || [];
+      for (const r of recvs) {
+        const t = r?.track;
+        if (t && t.kind === "audio" && t.readyState === "live") return true;
+      }
+    } catch (_) {}
+    try {
+      const ats = this.remoteStream?.getAudioTracks?.() || [];
+      if (ats.some((t) => t && t.readyState === "live")) return true;
+    } catch (_) {}
+    return false;
+  }
+
+  /**
+   * Bound remote <video> for this PC. 3-way: keep assigned tile
+   * (remote2 / remote-third). Never steal #remote from a sibling.
+   * @returns {HTMLVideoElement | null}
+   */
+  _resolveRemoteVideoEl() {
+    try {
+      if (this.remoteStream && typeof document !== "undefined") {
+        for (const id of ["remote", "remote2", "remote-third"]) {
+          const el = document.getElementById(id);
+          if (el && el.srcObject === this.remoteStream) {
+            this._videoEl = el;
+            return el;
+          }
+        }
+      }
+    } catch (_) {}
+    try {
+      const assigned = this._videoEl;
+      if (assigned && assigned.isConnected !== false) return assigned;
+    } catch (_) {}
+    if (!this._videoEl && typeof document !== "undefined") {
+      try {
+        if (!this._multiPeerLink) {
+          this._videoEl = document.getElementById("remote");
+        }
+      } catch (_) {}
+    }
+    return this._videoEl || null;
+  }
+
+  /** Remote inbound audio must stay enabled — do not start muted/disabled. */
+  _enableRemoteAudioTracks() {
+    try {
+      enableInboundAudioTracks(this.pc);
+    } catch (_) {}
+    try {
+      const ats = this.remoteStream?.getAudioTracks?.() || [];
+      for (const t of ats) {
+        if (!t) continue;
+        try {
+          if (t.enabled === false) t.enabled = true;
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
+  /**
+   * Unmuted play() after remote tracks. Catch autoplay reject — never
+   * start muted (3-way tiles carry audio on the same <video>).
+   * @param {HTMLVideoElement | null | undefined} el
+   */
+  _playRemoteVideo(el) {
+    if (!el) return;
+    try {
+      el.playsInline = true;
+      el.setAttribute?.("playsinline", "");
+      el.setAttribute?.("webkit-playsinline", "");
+      el.muted = false;
+      el.defaultMuted = false;
+      el.removeAttribute?.("muted");
+    } catch (_) {}
+    try {
+      const p = el.play?.();
+      if (p && typeof p.catch === "function") {
+        p.catch(() => {
+          try {
+            el.muted = false;
+            el.play?.().catch(() => {});
+          } catch (_) {}
+        });
+      }
+    } catch (_) {}
+  }
+
   /** Attach an existing stream (from external preview manager). */
   setLocalStream(stream) {
+    // Never stop previous tracks — preview + multi clones stay owned by
+    // live.js (__ruletPreviewStream / __ruletReleasePeerOutbound).
     this.localStream = stream;
     this._tagTracks();
-    // If PC already exists (rare), push tracks so offer/answer includes cam
+    // If PC already exists, push tracks so offer/answer includes cam
     if (this.pc && stream) {
       void this.syncLocalTracksToPc().catch(() => {});
+    } else {
+      try {
+        this._ensureNoCamVideoRecvonly();
+      } catch (_) {}
     }
   }
 
@@ -1503,14 +2213,22 @@ class RouletteWebRtc {
     this._tagTracks();
     const senders = this.pc.getSenders() || [];
     for (const track of this.localStream.getTracks()) {
-      // Prefer existing sender of same kind (incl. null-track transceiver)
-      let sender = senders.find((s) => s.track && s.track.kind === track.kind);
+      // Prefer existing sender of same kind (incl. null-track transceiver).
+      // Avoid addTrack spam — multi re-push must use replaceTrack only.
+      let sender =
+        senders.find((s) => s.track && s.track.id === track.id) ||
+        senders.find((s) => s.track && s.track.kind === track.kind) ||
+        null;
       if (!sender) {
         try {
           const tr = this.pc.getTransceivers?.() || [];
           for (const x of tr) {
             const st = x?.sender;
             if (!st) continue;
+            if (st.track && st.track.id === track.id) {
+              sender = st;
+              break;
+            }
             if (st.track && st.track.kind === track.kind) {
               sender = st;
               break;
@@ -1523,11 +2241,24 @@ class RouletteWebRtc {
           }
         } catch (_) {}
       }
-      if (sender && typeof sender.replaceTrack === "function") {
-        try {
-          await sender.replaceTrack(track);
+      if (sender) {
+        // Already bound — no replaceTrack churn
+        if (sender.track === track) {
+          if (track.kind === "video") this._promoteVideoSend(sender);
           continue;
-        } catch (_) {}
+        }
+        if (typeof sender.replaceTrack === "function") {
+          try {
+            // prev may be preview real track or multi clone — never stop here
+            await sender.replaceTrack(track);
+            if (track.kind === "video") this._promoteVideoSend(sender);
+            continue;
+          } catch (_) {}
+        }
+      }
+      // Mid-offer addTrack adds a new m-line → first answer fails (005410Z).
+      if (this._offerSentOnce && !this._gotRemoteAnswerAt) {
+        continue;
       }
       try {
         this.pc.addTrack(track, this.localStream);
@@ -1538,26 +2269,43 @@ class RouletteWebRtc {
         if (t.enabled === false) t.enabled = true;
       });
     } catch (_) {}
+    try {
+      this._ensureNoCamVideoRecvonly();
+    } catch (_) {}
     await this.applyQualityTier(this._qualityTier || "high");
   }
 
   setMicEnabled(enabled) {
-    this.localStream?.getAudioTracks().forEach((t) => {
-      t.enabled = enabled;
-    });
+    // Only toggle tracks on this.localStream (clones ok). Never touch preview
+    // tracks by id when they are not attached to this.localStream.
+    const stream = this.localStream;
+    if (!stream) return;
+    for (const t of stream.getAudioTracks()) {
+      try {
+        t.enabled = enabled;
+      } catch (_) {}
+    }
   }
 
   setCamEnabled(enabled) {
-    this.localStream?.getVideoTracks().forEach((t) => {
-      t.enabled = enabled;
-    });
+    // Only this.localStream video — multi clones yes; bare preview no-op if
+    // not on this PC's stream.
+    const stream = this.localStream;
+    if (!stream) return;
+    for (const t of stream.getVideoTracks()) {
+      try {
+        t.enabled = enabled;
+      } catch (_) {}
+    }
   }
 
   /**
    * @param {keyof typeof QUALITY_TIERS | string} tier
    */
   async applyQualityTier(tier) {
-    const capped = clampQualityTier(tier, this._qualityCeiling || "high");
+    let capped = clampQualityTier(tier, this._qualityCeiling || "high");
+    // Android multi: map min→low so scale+bitrate does not freeze encoders
+    capped = mobileSafeMultiTier(capped, this);
     const t = QUALITY_TIERS[capped] || QUALITY_TIERS.mid;
     this._qualityTier = t.label;
     if (!this.pc) return;
@@ -1599,10 +2347,12 @@ class RouletteWebRtc {
 
   async _adaptOnce() {
     if (!this.pc) return;
-    // Hold low until first paint — adaptive mid/high delayed TURN keyframe
+    // Hold low until first paint OR live remote audio (no-cam laptop
+    // never gets videoWidth — audio is enough to leave the low hold).
     try {
       const el = this._videoEl;
-      if (!(el && el.videoWidth > 8 && el.readyState >= 2)) return;
+      const videoOk = !!(el && el.videoWidth > 8 && el.readyState >= 2);
+      if (!videoOk && !this._remoteAudioIsLive()) return;
     } catch (_) {
       return;
     }
@@ -1700,6 +2450,8 @@ class RouletteWebRtc {
       }
       // Multi-party ceiling (secondary streams stay cheaper to encode)
       next = clampQualityTier(next, this._qualityCeiling || "high");
+      // Android multi: adaptive path must not land on "min" either
+      next = mobileSafeMultiTier(next, this);
 
       if (next !== this._qualityTier) {
         await this.applyQualityTier(next);
@@ -1932,9 +2684,8 @@ class RouletteWebRtc {
       // while phone-offerer stayed silent 15–25s → "still slow".
       if (this.isOfferer && !this._offerSentOnce && !this._offerInFlight) {
         void this._createAndSendOffer({ iceRestart: false });
-      } else if (!this.isOfferer && !this._offerSentOnce && !this._answeredAt) {
-        this._armOfferWatchdog(1600);
       }
+      // Answerer: wait for their offer. Do not arm promote-watchdog.
       return;
     }
     if (this.pc) {
@@ -1952,9 +2703,15 @@ class RouletteWebRtc {
     // (biggest Play↔browser first-frame win). Else free warm and create cold.
     // Pure hide_ip / force_relay → warm "relay". Normal → warm "all".
     const wantPure = isRelayMediaMode();
+    // Extra 3rd-join (laptop answer + PC extra offer): Chrome setLocal on
+    // iceTransportPolicy=relay waits TURN ALLOCATE ~6s (22:31 +5901 / +6823,
+    // relay=0). Use policy=all + existing relay filter/trickle. 1v1 stays relay.
+    const extraFast = isMultiPeerFastMode(this);
     let promoted = false;
     try {
-      if (
+      if (extraFast) {
+        // Do not promote a relay-policy warm PC (same 6s setLocal).
+      } else if (
         typeof takeWarmPc === "function" &&
         warmPcPolicy() === (wantPure ? "relay" : "all")
       ) {
@@ -1975,7 +2732,15 @@ class RouletteWebRtc {
       } catch (_) {}
     }
     if (!this.pc) {
-      this.pc = new RTCPeerConnection(iceConfig);
+      const cfg =
+        extraFast && iceConfig.iceTransportPolicy === "relay"
+          ? {
+              ...iceConfig,
+              iceTransportPolicy: "all",
+              iceCandidatePoolSize: 0,
+            }
+          : iceConfig;
+      this.pc = new RTCPeerConnection(cfg);
     }
     // Dirty pure-warm was closed in takeWarmPc — still mark path primed
     try {
@@ -1983,7 +2748,7 @@ class RouletteWebRtc {
     } catch (_) {}
     this._pcBornAt = Date.now();
     this._relayPc =
-      iceConfig.iceTransportPolicy === "relay" || wantPure;
+      iceConfig.iceTransportPolicy === "relay" || wantPure || extraFast;
     this._offerInFlight = false;
     this._offerSentOnce = false;
     this._offerEmitOk = false;
@@ -1991,12 +2756,21 @@ class RouletteWebRtc {
     this._gotRemoteAnswerAt = 0;
     this._lastOfferAt = 0;
     this._pendingRemoteOfferSince = 0;
+    this._iceEverOk = false;
     this.pc.onicecandidate = (ev) => {
       if (!ev.candidate) return;
       // Hide IP pure: only trickle typ relay.
       if (
         shouldFilterToRelayCandidates() &&
         !isRelayIceCandidate(ev.candidate)
+      ) {
+        return;
+      }
+      // Same-IP force_relay: do not trickle TCP relay — Android is UDP-only.
+      if (
+        shouldPreferUdpRelay() &&
+        isRelayIceCandidate(ev.candidate) &&
+        !isUdpRelayIceCandidate(ev.candidate)
       ) {
         return;
       }
@@ -2024,8 +2798,11 @@ class RouletteWebRtc {
       } catch (_) {}
     };
     this.pc.onconnectionstatechange = () => {
-      this.hooks.onConnectionState?.(this.pc.connectionState);
-      if (this.pc.connectionState === "connected") {
+      if (!this.pc) return;
+      const cs = this.pc.connectionState;
+      if (cs === "connected" || cs === "completed") this._iceEverOk = true;
+      this.hooks.onConnectionState?.(cs);
+      if (cs === "connected") {
         this._startAdaptiveQuality();
         kickMediaAfterIce(this.pc);
         try {
@@ -2054,19 +2831,17 @@ class RouletteWebRtc {
         void this.reportAvPath("connected");
         this._armAvPathBeacons();
       }
-      if (
-        this.pc.connectionState === "failed" ||
-        this.pc.connectionState === "closed" ||
-        this.pc.connectionState === "disconnected"
-      ) {
+      if (cs === "failed" || cs === "closed" || cs === "disconnected") {
         // keep adapting a bit on disconnected; stop on failed/closed
-        if (this.pc.connectionState === "failed" || this.pc.connectionState === "closed") {
+        if (cs === "failed" || cs === "closed") {
           this._stopAdaptiveQuality();
         }
       }
     };
     this.pc.oniceconnectionstatechange = () => {
+      if (!this.pc) return;
       const ice = this.pc.iceConnectionState;
+      if (ice === "connected" || ice === "completed") this._iceEverOk = true;
       this.hooks.onIceConnectionState?.(ice);
       if (ice === "failed") {
         // ICE restart can recover after NAT/path change (rate-limited)
@@ -2102,20 +2877,22 @@ class RouletteWebRtc {
         } catch (_) {}
         // Soft paint if track already present (hard rebind on ICE thrash = flicker)
         try {
-          if (this._videoEl && this.remoteStream) {
-            const el = this._videoEl;
-            let painting = false;
-            try {
-              painting =
-                el.srcObject === this.remoteStream &&
-                el.videoWidth > 0 &&
-                el.readyState >= 2;
-            } catch (_) {}
-            if (!painting && el.srcObject !== this.remoteStream) {
-              el.srcObject = this.remoteStream;
+          this._enableRemoteAudioTracks();
+          if (this.remoteStream) {
+            const el = this._resolveRemoteVideoEl();
+            if (el) {
+              let painting = false;
+              try {
+                painting =
+                  el.srcObject === this.remoteStream &&
+                  el.videoWidth > 0 &&
+                  el.readyState >= 2;
+              } catch (_) {}
+              if (!painting && el.srcObject !== this.remoteStream) {
+                el.srcObject = this.remoteStream;
+              }
+              this._playRemoteVideo(el);
             }
-            const p = el.play?.();
-            if (p && typeof p.catch === "function") p.catch(() => {});
           }
           if (this.remoteStream) this.hooks.onRemoteStream?.(this.remoteStream);
         } catch (_) {}
@@ -2155,10 +2932,11 @@ class RouletteWebRtc {
           .some((t) => t.id === ev.track.id);
         if (!exists) this.remoteStream.addTrack(ev.track);
       } catch (_) {}
-      // Partner may send disabled/muted video — force enable for display
+      // Partner may send disabled/muted A/V — force enable; audio never starts muted
       try {
         if (ev.track && ev.track.enabled === false) ev.track.enabled = true;
       } catch (_) {}
+      this._enableRemoteAudioTracks();
       applyLowLatencyPlayout(this.pc);
       if (ev.track?.kind === "video") {
         try {
@@ -2172,12 +2950,8 @@ class RouletteWebRtc {
           } catch (_) {}
         }
       }
-      // Ensure main remote element is bound (kickSolo may race)
-      if (!this._videoEl && typeof document !== "undefined") {
-        try {
-          this._videoEl = document.getElementById("remote");
-        } catch (_) {}
-      }
+      // Bound tile first (3-way: remote2 / remote-third). Do not steal #remote.
+      if (!this._videoEl) this._resolveRemoteVideoEl();
       // First video after audio needs one hard rebind; later paint waves must NOT
       // null→srcObject thrash (PC browser flicker while linking).
       let needHardVideoBind =
@@ -2185,17 +2959,10 @@ class RouletteWebRtc {
       const paint = (opts) => {
         if (!this.remoteStream) return;
         const hard = !!(opts && opts.hard) || needHardVideoBind;
-        // Prefer live #remote (may have been remounted by blank-watch)
-        if (typeof document !== "undefined") {
-          try {
-            const live = document.getElementById("remote");
-            if (live && live !== this._videoEl) this._videoEl = live;
-            if (!this._videoEl) this._videoEl = live;
-          } catch (_) {}
-        }
-        if (!this._videoEl) return;
+        const el = this._resolveRemoteVideoEl();
+        if (!el) return;
+        this._videoEl = el;
         try {
-          const el = this._videoEl;
           // Hard-show (empty overlay / hidden attr left black with HOT RTP)
           try {
             el.hidden = false;
@@ -2235,22 +3002,8 @@ class RouletteWebRtc {
             }
             if (hard) needHardVideoBind = false; // only once per late-video track
           }
-          el.playsInline = true;
-          // Autoplay: try unmuted; if blocked, mute then play (frames still show)
-          el.muted = false;
-          const p = el.play?.();
-          if (p && typeof p.catch === "function") {
-            p.catch(() => {
-              try {
-                el.muted = true;
-                el.play?.().then(() => {
-                  try {
-                    el.muted = false;
-                  } catch (_) {}
-                }).catch(() => {});
-              } catch (_) {}
-            });
-          }
+          this._enableRemoteAudioTracks();
+          this._playRemoteVideo(el);
           try {
             document.getElementById("tile-remote")?.classList.add("has-remote-feed");
             document.getElementById("remote-empty")?.classList.add("hidden");
@@ -2338,19 +3091,34 @@ class RouletteWebRtc {
         this.pc.addTrack(track, this.localStream);
       }
     }
-    // No tracks yet (cam still opening): still negotiate A/V so first SDP leaves
-    // immediately. Tracks attach later via replaceTrack — no second createOffer.
-    if (
-      this.isOfferer &&
-      (!this.localStream || !(this.localStream.getTracks?.() || []).length)
-    ) {
+    // Offerer must advertise A+V even when GUM is audio-only (no-cam laptop).
+    // Video slot is recvonly — sendrecv with no track makes Android attach a
+    // muted dummy remote video and sit on "Linking cameras…" forever.
+    // Laptop still receives the phone camera; phone sees no video track →
+    // existing 384 2.2s no-cam portrait (and no_cam advertise) can fire.
+    if (this.isOfferer) {
+      const kinds = new Set(
+        (this.localStream?.getTracks?.() || []).map((t) => t && t.kind)
+      );
       try {
-        this.pc.addTransceiver("audio", { direction: "sendrecv" });
-        this.pc.addTransceiver("video", { direction: "sendrecv" });
+        if (!kinds.has("audio")) {
+          this.pc.addTransceiver("audio", { direction: "sendrecv" });
+        }
+        if (!kinds.has("video")) {
+          // True no-cam: recvonly (sendrecv empty → Android dummy / Linking).
+          // Preview cam (3-way clone pending in live.js): sendrecv slot so
+          // later replaceTrack actually sends.
+          this.pc.addTransceiver("video", {
+            direction: previewHasLiveVideo() ? "sendrecv" : "recvonly",
+          });
+        }
       } catch (e) {
         console.warn("[webrtc] addTransceiver fallback", e);
       }
     }
+    try {
+      this._ensureNoCamVideoRecvonly();
+    } catch (_) {}
 
     // Offerer must create DC before createOffer so it appears in SDP
     if (this.isOfferer) {
@@ -2371,9 +3139,8 @@ class RouletteWebRtc {
     this._armQualityRampAfterFrame();
 
     // Offerer: retry if first createOffer never emitted.
-    // Answerer: wait for peer offer (web is preferred offerer vs mobile).
-    // Early promote = dual-offer thrash → black cams.
-    this._armOfferWatchdog(this.isOfferer ? 2500 : 4500);
+    // Answerer: wait for peer offer — never 4.5s self-promote (1v1 one-way).
+    if (this.isOfferer) this._armOfferWatchdog(2500);
     if (this.isOfferer) {
       const t0 = Date.now();
       await this._createAndSendOffer({ iceRestart: false });
@@ -2394,6 +3161,13 @@ class RouletteWebRtc {
         void window.pushOutboundVideoTracks();
       }
     } catch (_) {}
+    // After 1v1 takes the search warm, refill so a later 3rd extra can
+    // promote a primed relay PC instead of a cold 5s ALLOCATE.
+    try {
+      if (typeof warmIcePool === "function") {
+        warmIcePool({ preferRelay: wantPure });
+      }
+    } catch (_) {}
   }
 
   _clearOfferWatchdog() {
@@ -2404,17 +3178,19 @@ class RouletteWebRtc {
   }
 
   /**
-   * If we never receive an offer (peer stuck / wrong role), become offerer once.
+   * Offerer: retry if first createOffer never emitted.
+   * Answerer: NEVER self-promote (1v1 one-way: Calgary offer@5s after hub
+   * said answer — dual-offer, partner frames_out=0). Gotcha 52 + 1v1 belt.
    */
   _armOfferWatchdog(ms = 800) {
     this._clearOfferWatchdog();
+    if (this.answerOnly || !this.isOfferer) return;
     this._offerWatchTimer = setTimeout(() => {
       this._offerWatchTimer = null;
       try {
         if (!this.pc) return;
         if (this.pc.remoteDescription || this.pc.currentRemoteDescription) return;
         if (this._offerSentOnce || this._offerInFlight) return;
-        // Real offer already arrived and still applying — don't race promote (003)
         if (
           this._pendingRemoteOfferSince &&
           Date.now() - this._pendingRemoteOfferSince < 4000
@@ -2422,20 +3198,15 @@ class RouletteWebRtc {
           console.info("[webrtc] offer watchdog — skip, remote offer pending");
           return;
         }
-        // Already answered this PC — never re-offer from watchdog
         if (this._answeredAt) return;
+        if (!this.isOfferer) return;
         const live =
           this.remoteStream &&
           (this.remoteStream.getVideoTracks?.() || []).some(
             (t) => t.readyState === "live"
           );
         if (live) return;
-        if (!this.isOfferer) {
-          console.info("[webrtc] offer watchdog — promote answerer → offerer");
-          this.isOfferer = true;
-        } else {
-          console.info("[webrtc] offer watchdog — retry stuck offerer");
-        }
+        console.info("[webrtc] offer watchdog — retry stuck offerer");
         void this._createAndSendOffer({ iceRestart: false });
       } catch (e) {
         console.warn("[webrtc] offer watchdog", e);
@@ -2449,18 +3220,24 @@ class RouletteWebRtc {
    * @returns {Promise<boolean>}
    */
   async _createAndSendOffer(opts = {}) {
+    if (this.answerOnly) {
+      this.isOfferer = false;
+      console.info("[webrtc] skip offer — answerOnly (solo 3rd)");
+      return false;
+    }
     if (!this.pc || !this.isOfferer) return false;
     const iceRestart = !!opts.iceRestart;
     const earlyBlack = !!opts.earlyBlack;
     const now = Date.now();
     // Already building an offer
     if (this._offerInFlight) return false;
-    // Match-level gate: ONE offer per match for all PCs.
-    // Early returns MUST run before taking the lock — prior order set
-    // __ruletMatchOfferLock then returned on debounce/answered → lock stuck
-    // forever (hangTimer never armed) → offerKick no-op → hub MTO ~25s.
+    // Match-level gate: ONE offer per match for 1v1 only.
+    // 3-way: laptop must offer this-PC AND Android. Global lock + 12s
+    // "already offered" skipped the 2nd createOffer (659: laptop sees PC,
+    // Android extra ice=new 0/0, no laptop offerer beacon).
+    const multiMesh = isMultiPeerFastMode(this);
     try {
-      if (typeof window !== "undefined") {
+      if (typeof window !== "undefined" && !multiMesh) {
         const hard = window.__ruletMatchOfferAt || 0;
         // Only block if a prior offer actually left the wire.
         if (!iceRestart && hard && now - hard < 12000 && this._offerEmitOk) {
@@ -2638,13 +3415,13 @@ class RouletteWebRtc {
     // Take match lock ONLY after all early returns (atomic for single-thread JS).
     try {
       if (typeof window !== "undefined" && !iceRestart) {
-        if (window.__ruletMatchOfferLock && this._offerEmitOk) {
+        if (!multiMesh && window.__ruletMatchOfferLock && this._offerEmitOk) {
           console.info("[webrtc] skip offer — match offer lock held (emit ok)");
           return false;
         }
         // Concurrent first-offer race: if another call holds lock <500ms, skip
         // (hop10: free faster so offerKick can re-emit; still blocks dual thrash)
-        if (window.__ruletMatchOfferLock) {
+        if (!multiMesh && window.__ruletMatchOfferLock) {
           const att = window.__ruletMatchOfferAttemptAt || 0;
           if (att && now - att < 500) {
             console.info("[webrtc] skip offer — match offer lock held (racing)");
@@ -2652,11 +3429,19 @@ class RouletteWebRtc {
           }
           window.__ruletMatchOfferLock = 0;
         }
-        window.__ruletMatchOfferLock = 1;
-        window.__ruletMatchOfferAttemptAt = now;
+        if (!multiMesh) {
+          window.__ruletMatchOfferLock = 1;
+          window.__ruletMatchOfferAttemptAt = now;
+        }
       }
     } catch (_) {}
     this._offerInFlight = true;
+    try {
+      this._attachPreviewVideoIfSending();
+    } catch (_) {}
+    try {
+      await this.syncLocalTracksToPc();
+    } catch (_) {}
     // Do NOT set _offerSentOnce until emit succeeds — early set blocked
     // re-emit when localDescription existed but never hit the hub (MTO ~25s).
     // Fail-open: hung createOffer must not hold match lock forever.
@@ -2696,36 +3481,46 @@ class RouletteWebRtc {
       // Answer path still emits before setLocal (safe: offerer already ready).
       await this.pc.setLocalDescription(offer);
       if (this._offerGen !== offerGen) return false;
+      try {
+        const vSend = (this.pc.getSenders?.() || []).some(
+          (s) => s.track && s.track.kind === "video" && s.track.readyState !== "ended"
+        );
+        if (!vSend) {
+          this._attachPreviewVideoIfSending();
+          await this.syncLocalTracksToPc();
+        }
+      } catch (_) {}
       // Include typ relay when possible (same-WiFi host/mDNS often fails).
       // Always wait for real typ relay on THIS pc (never ship 0-relay pure).
       // Early-exit on first relay; warmOk trims first-pass hard (search ALLOCATE hot).
       if (shouldWaitForFirstRelay()) {
         const warmOk = !!(this.pc && this.pc.__ruletWarmPrimed);
+        // 3-way: extra peers often spin pure TURN while "linking cameras".
+        // Sibling already allocated TURN this match → shorter first-relay budget.
+        // Cap ≤450ms cold multiFast only — never lengthens 1v1 hop11 480.
+        const multiFast = isMultiPeerFastMode(this);
         const budget = relayWaitBudgetMs();
-        // Hop8: pure warm first-pass min(budget,400); pure cold = budget (600).
-        // Hybrid budget already 350. Early-exit on first typ relay.
-        const wait1 = warmOk ? Math.min(budget, 400) : budget;
+        // Hop11 1v1: warm 320 / cold = budget (480). Sibling: firstRelayWait1Ms.
+        const wait1 = firstRelayWait1Ms(budget, warmOk, this);
         let n = 0;
         try {
-          n = (
-            String(this.pc?.localDescription?.sdp || "").match(
-              /\btyp\s+relay\b/gi
-            ) || []
-          ).length;
+          n = countTypRelayInSdp(this.pc?.localDescription?.sdp || "", {
+            udpOnly: shouldPreferUdpRelay(),
+          });
         } catch (_) {}
         if (n === 0) {
           n = await waitForIceGatherRelayOrDone(this.pc, wait1);
         }
-        // Second short wait — pure cold 400 flat (was 500); warm/hybrid 300.
-        // rebuild-if-n=0 still belts product.ok; wait exits early on first relay.
-        if (n === 0) {
+        // Extra 3rd-join: trickle ICE. Skip 2nd gather wait (was ~280ms +
+        // 5s rebuild when sibling SDP had no typ relay). 1v1 still waits.
+        if (n === 0 && !multiFast) {
           n = await waitForIceGatherRelayOrDone(
             this.pc,
             isRelayMediaMode()
               ? warmOk
-                ? 300
-                : 400
-              : 300
+                ? 280
+                : 320
+              : 280
           );
         }
         console.info(
@@ -2733,11 +3528,21 @@ class RouletteWebRtc {
             n +
             " warm=" +
             (warmOk ? 1 : 0) +
+            " multi=" +
+            (multiFast ? 1 : 0) +
             " budget=" +
             wait1
         );
         // Pure relay only: rebuild once if still no relay.
-        if (n === 0 && !opts._relayRetry && isRelayMediaMode()) {
+        // Extra 3rd-join: trickle, never 5s rebuild (22:10 laptop answer
+        // +6.7s / PC extra +7.3s — sibling SDP often lacks typ relay).
+        // 1v1 hop11 still rebuilds. Does not cut relayWaitBudgetMs 480.
+        if (
+          n === 0 &&
+          !opts._relayRetry &&
+          isRelayMediaMode() &&
+          !multiFast
+        ) {
           console.warn(
             "[webrtc] offer no relay — rebuild pure-relay PC and retry once"
           );
@@ -2780,6 +3585,9 @@ class RouletteWebRtc {
         sdp = stripMdnsHostCandidatesFromSdp(sdp);
         if (shouldFilterToRelayCandidates()) {
           sdp = stripNonRelayCandidatesFromSdp(sdp);
+          if (shouldPreferUdpRelay()) sdp = stripTcpRelayCandidatesFromSdp(sdp);
+          // Do not copy relay onto empty m-lines. Laptop 321 sendrecv+3-relay
+          // offers got zero Android answers (same class as 382 PC break).
         } else if (shouldStripHostCandidates()) {
           sdp = stripHostCandidatesFromSdp(sdp);
         }
@@ -2787,8 +3595,9 @@ class RouletteWebRtc {
       }
       // Prefer relay under force_relay, but never block emit forever (black cams).
       if (shouldWaitForFirstRelay()) {
-        const rn = (String(desc?.sdp || "").match(/\btyp\s+relay\b/gi) || [])
-          .length;
+        const rn = countTypRelayInSdp(desc?.sdp || "", {
+          udpOnly: shouldPreferUdpRelay(),
+        });
         if (rn === 0) {
           console.warn(
             "[webrtc] offer emit without relay (fail-open host path)"
@@ -2856,8 +3665,9 @@ class RouletteWebRtc {
   }
 
   /**
-   * Hold low bitrate until partner first frame paints, then ramp mid.
-   * Timed 2.5s mid re-encode was fighting TURN first keyframe.
+   * Hold low bitrate until partner first frame paints OR remote audio is live,
+   * then ramp mid. Timed 2.5s mid re-encode was fighting TURN first keyframe.
+   * No-cam laptop never gets videoWidth — live audio is enough to leave low.
    */
   _armQualityRampAfterFrame() {
     if (this._qualityRampTimer) {
@@ -2869,16 +3679,27 @@ class RouletteWebRtc {
       this._qualityRampTimer = 0;
       if (!this.pc || this.pc.connectionState === "closed") return;
       let painted = false;
+      let videoPainted = false;
       try {
         const el = this._videoEl;
-        if (el && el.videoWidth > 8 && el.readyState >= 2) painted = true;
+        if (el && el.videoWidth > 8 && el.readyState >= 2) {
+          painted = true;
+          videoPainted = true;
+        }
       } catch (_) {}
+      // Live remote audio counts as linked (laptop hide/no-cam). First path
+      // still starts low; this only ramps mid — no ICE/relayWait/pool change.
+      if (!painted && this._remoteAudioIsLive()) painted = true;
       if (painted) {
         try {
           void this.applyQualityTier("mid");
         } catch (_) {}
         try {
-          if (typeof window !== "undefined" && window.__ruletConnectT0) {
+          if (
+            videoPainted &&
+            typeof window !== "undefined" &&
+            window.__ruletConnectT0
+          ) {
             window.__ruletConnect = window.__ruletConnect || {};
             if (window.__ruletConnect.frameMs == null) {
               window.__ruletConnect.frameMs =
@@ -2890,15 +3711,15 @@ class RouletteWebRtc {
       }
       n += 1;
       // Poll up to ~12s; fall back to mid if still black (don't stay low forever)
-      if (n < 40) {
-        this._qualityRampTimer = setTimeout(tick, 300);
+      if (n < 50) {
+        this._qualityRampTimer = setTimeout(tick, 150);
       } else {
         try {
           void this.applyQualityTier("mid");
         } catch (_) {}
       }
     };
-    this._qualityRampTimer = setTimeout(tick, 400);
+    this._qualityRampTimer = setTimeout(tick, 80);
   }
 
   /**
@@ -2930,9 +3751,23 @@ class RouletteWebRtc {
     );
     // HARD CAP: at most ONE iceRestart offer per match. Hub 20:52 showed
     // re-offer every ~18s forever → black both sides, peer_usage STUN-only.
+    // 233311Z: first restart burned, then find-3rd ice_failed with no recover.
+    // Allow a second restart only if this PC already had ICE ok and is now
+    // failed/disconnected (3rd-join tear), never a third.
     if (count >= 1 && hasRemote) {
-      console.info("[webrtc] skip iceRestart — already used once this match");
-      return false;
+      let iceNow = "";
+      try {
+        iceNow = String(this.pc.iceConnectionState || "");
+      } catch (_) {}
+      const recover =
+        count < 2 &&
+        this._iceEverOk &&
+        (iceNow === "failed" || iceNow === "disconnected");
+      if (!recover) {
+        console.info("[webrtc] skip iceRestart — already used once this match");
+        return false;
+      }
+      console.info("[webrtc] iceRestart recover after fail (3rd-join)");
     }
     // Still checking — do not renego
     try {
@@ -3029,8 +3864,10 @@ class RouletteWebRtc {
   /** Rebind remote <video> + play() when stream exists but element is black. */
   forceRemoteVideoPaint(why) {
     try {
-      if (!this._videoEl || !this.remoteStream) return;
-      const el = this._videoEl;
+      if (!this.remoteStream) return;
+      const el = this._resolveRemoteVideoEl();
+      if (!el) return;
+      this._videoEl = el;
       // Soft if already painting — null rebind causes visible flicker mid-link
       let painting = false;
       try {
@@ -3053,8 +3890,8 @@ class RouletteWebRtc {
           } catch (_) {}
         }
       }
-      const play = el.play?.();
-      if (play && typeof play.catch === "function") play.catch(() => {});
+      this._enableRemoteAudioTracks();
+      this._playRemoteVideo(el);
       try {
         (this.remoteStream.getTracks?.() || []).forEach((tr) => {
           if (tr && tr.enabled === false) tr.enabled = true;
@@ -3305,7 +4142,16 @@ class RouletteWebRtc {
       this.isOfferer = false;
       // Push tracks before answer so sendrecv m-lines have real media.
       try {
+        this._attachPreviewVideoIfSending();
+      } catch (_) {}
+      try {
         this.syncLocalTracksToPc();
+      } catch (_) {}
+      // No-cam laptop answering a sendrecv video offer: do not keep a send
+      // slot (dummy track on the phone → Linking forever).
+      // Cam-present PC: attach preview first so we never answer recvonly/inactive.
+      try {
+        this._ensureNoCamVideoRecvonly();
       } catch (_) {}
       const iceFlush = this._flushPendingIce();
       try {
@@ -3318,32 +4164,32 @@ class RouletteWebRtc {
         console.warn("[webrtc] setLocal answer failed", e);
       }
       // Pure-relay / hybrid-with-TURN: wait for typ relay in answer SDP.
-      // Hop8: same schedule as offer (cold pure 600 / warm first 400 / hybrid 350).
+      // Hop11: same schedule as offer (cold pure 480 / warm first 320 / hybrid 300).
       // Early-exit on first typ relay; fail-open strip belts unchanged.
       if (shouldWaitForFirstRelay()) {
         const warmOk = !!(this.pc && this.pc.__ruletWarmPrimed);
+        // Cap ≤450ms cold multiFast only — never lengthens 1v1 hop11 480.
+        const multiFast = isMultiPeerFastMode(this);
         const budget = relayWaitBudgetMs();
-        const wait1 = warmOk ? Math.min(budget, 400) : budget;
+        const wait1 = firstRelayWait1Ms(budget, warmOk, this);
         let n = 0;
         try {
-          n = (
-            String(this.pc?.localDescription?.sdp || "").match(
-              /\btyp\s+relay\b/gi
-            ) || []
-          ).length;
+          n = countTypRelayInSdp(this.pc?.localDescription?.sdp || "", {
+            udpOnly: shouldPreferUdpRelay(),
+          });
         } catch (_) {}
         if (n === 0) {
           n = await waitForIceGatherRelayOrDone(this.pc, wait1);
         }
-        // Second wait: pure cold 400; warm/hybrid 300 (hop8).
-        if (n === 0) {
+        // Extra 3rd-join: trickle; skip 2nd gather wait. 1v1 unchanged.
+        if (n === 0 && !multiFast) {
           n = await waitForIceGatherRelayOrDone(
             this.pc,
             isRelayMediaMode()
               ? warmOk
-                ? 300
-                : 400
-              : 300
+                ? 280
+                : 320
+              : 280
           );
         }
         console.info(
@@ -3351,6 +4197,8 @@ class RouletteWebRtc {
             n +
             " warm=" +
             (warmOk ? 1 : 0) +
+            " multi=" +
+            (multiFast ? 1 : 0) +
             " budget=" +
             wait1
         );
@@ -3362,6 +4210,7 @@ class RouletteWebRtc {
         sdp = stripMdnsHostCandidatesFromSdp(sdp);
         if (shouldFilterToRelayCandidates()) {
           sdp = stripNonRelayCandidatesFromSdp(sdp);
+          if (shouldPreferUdpRelay()) sdp = stripTcpRelayCandidatesFromSdp(sdp);
         } else if (shouldStripHostCandidates()) {
           sdp = stripHostCandidatesFromSdp(sdp);
         }
@@ -3419,9 +4268,14 @@ class RouletteWebRtc {
       });
     } else if (kind === "answer") {
       const raw = JSON.parse(payload);
-      const desc = sanitizeRemoteDescription(raw);
+      let desc = sanitizeRemoteDescription(raw);
       try {
         if (!this.pc) return;
+        const localSdp = String(this.pc.localDescription?.sdp || "");
+        if (desc && desc.sdp && localSdp) {
+          const aligned = alignAnswerDirectionsToLocalOffer(localSdp, desc.sdp);
+          if (aligned !== desc.sdp) desc = { type: desc.type, sdp: aligned };
+        }
         const st = String(this.pc.signalingState || "");
         // Only apply answers when we are waiting for one. Stale/late answers
         // after a rebuild (or after already stable) throw and thrash the path.
@@ -3440,6 +4294,18 @@ class RouletteWebRtc {
         this._gotRemoteAnswerAt = Date.now();
         this._offerSentOnce = true;
         this._clearOfferWatchdog();
+        try {
+          this._attachPreviewVideoIfSending();
+          const pending = this._pendingPromoteSend;
+          this._pendingPromoteSend = null;
+          if (pending) this._promoteVideoSend(pending);
+          else {
+            const sender = (this.pc.getSenders?.() || []).find(
+              (s) => s.track && s.track.kind === "video"
+            );
+            if (sender) this._promoteVideoSend(sender);
+          }
+        } catch (_) {}
         // av-verify: beacon while linking (ice=checking frames=0 still useful)
         void this.reportAvPath("answer_applied");
         this._armAvPathBeacons();
@@ -3486,25 +4352,13 @@ class RouletteWebRtc {
           }
           if (this.remoteStream) {
             this.hooks.onRemoteStream?.(this.remoteStream);
-            const el =
-              this._videoEl ||
-              (typeof document !== "undefined"
-                ? document.getElementById("remote")
-                : null);
+            this._enableRemoteAudioTracks();
+            const el = this._resolveRemoteVideoEl();
             if (el) {
               this._videoEl = el;
               try {
                 el.srcObject = this.remoteStream;
-                el.muted = false;
-                const p = el.play?.();
-                if (p && typeof p.catch === "function") {
-                  p.catch(() => {
-                    try {
-                      el.muted = true;
-                      el.play?.().catch(() => {});
-                    } catch (_) {}
-                  });
-                }
+                this._playRemoteVideo(el);
               } catch (_) {}
             }
           }
@@ -3518,7 +4372,13 @@ class RouletteWebRtc {
           }, ms);
         });
       } catch (e) {
+        const msg = String(e && (e.message || e) || "");
         console.warn("[webrtc] answer apply failed", e, "state=", this.pc?.signalingState);
+        // Stale answer vs a later local offer (promote / iceRestart).
+        // Do not leave the PC half-applied — wait for the matching answer.
+        if (/InvalidModification|m-lin|order of m-lines/i.test(msg)) {
+          console.info("[webrtc] skip stale answer (m-line order)");
+        }
       }
     } else if (kind === "ice") {
       try {
@@ -3529,6 +4389,15 @@ class RouletteWebRtc {
           c &&
           c.candidate &&
           !isRelayIceCandidate(c)
+        ) {
+          return;
+        }
+        if (
+          shouldPreferUdpRelay() &&
+          c &&
+          c.candidate &&
+          isRelayIceCandidate(c) &&
+          !isUdpRelayIceCandidate(c)
         ) {
           return;
         }
@@ -3566,7 +4435,10 @@ class RouletteWebRtc {
     if (!batch.length || !this.pc) return;
     if (shouldFilterToRelayCandidates()) {
       batch = batch.filter(
-        (c) => !c?.candidate || isRelayIceCandidate(c)
+        (c) =>
+          !c?.candidate ||
+          (isRelayIceCandidate(c) &&
+            (!shouldPreferUdpRelay() || isUdpRelayIceCandidate(c)))
       );
     } else {
       // Normal / same-LAN: drop mDNS only — keep private host for prflx
@@ -3619,10 +4491,33 @@ class RouletteWebRtc {
     this.remoteStream = null;
     this._gotRemoteAudio = false;
     this._gotRemoteVideo = false;
+    // Multi-peer clones live on the wrapper — always release (not preview tracks)
+    try {
+      if (
+        typeof window !== "undefined" &&
+        typeof window.__ruletReleasePeerOutbound === "function"
+      ) {
+        window.__ruletReleasePeerOutbound(this);
+      }
+    } catch (_) {}
     if (!keepLocal) {
-      this.localStream?.getTracks().forEach((t) => t.stop());
+      // Only stop tracks that are not the shared preview (clones ok to stop)
+      try {
+        this.localStream?.getTracks().forEach((t) => stopTrackUnlessPreview(t));
+      } catch (_) {
+        try {
+          this.localStream?.getTracks().forEach((t) => {
+            if (!trackBelongsToPreview(t)) {
+              try {
+                t.stop();
+              } catch (__) {}
+            }
+          });
+        } catch (__) {}
+      }
       this.localStream = null;
     }
+    // keepLocal:true — never stop tracks; preview stays live for rematch / multi
   }
 
   /** @deprecated use closeCall */
@@ -3843,7 +4738,14 @@ if (typeof window !== "undefined") {
   window.setSessionForceRelay = setSessionForceRelay;
   window.isRelayMediaMode = isRelayMediaMode;
   window.isTurnPreferredPath = isTurnPreferredPath;
+  window.alignAnswerDirectionsToLocalOffer = alignAnswerDirectionsToLocalOffer;
+  window.sdpMlineDirections = sdpMlineDirections;
   window.isRelayIceCandidate = isRelayIceCandidate;
+  window.isUdpRelayIceCandidate = isUdpRelayIceCandidate;
+  window.countTypRelayInSdp = countTypRelayInSdp;
+  window.stripTcpRelayCandidatesFromSdp = stripTcpRelayCandidatesFromSdp;
+  window.pinTurnUrlsToUdp = pinTurnUrlsToUdp;
+  window.udpTurnOnly = udpTurnOnly;
   window.waitForIceGatherRelayOrDone = waitForIceGatherRelayOrDone;
   window.requestOutboundKeyframes = requestOutboundKeyframes;
   window.kickMediaAfterIce = kickMediaAfterIce;

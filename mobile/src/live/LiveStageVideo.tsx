@@ -41,6 +41,7 @@ import {
   getStreamUrl,
   isSoftBlurNativeAvailable,
 } from "./SoftBlurRemote";
+import { IdleArcadeStart } from "./IdleArcadeStart";
 import { SwipeSkipOverlay } from "./SwipeSkipOverlay";
 import type { LivePhase } from "./phase";
 import {
@@ -119,11 +120,13 @@ export type LiveStageVideoProps = {
   onSecondVolume?: () => void;
   onThirdVolume?: () => void;
   /**
-   * Optional 2×2 of the same four people. Ignored unless 4 people
-   * (stream3 + extraPeerCount>=2). Default stacked column.
+   * Optional 2×2 of the same four people. Default ON when 4 people
+   * (extras>=2). Pass false to stack. Never 1v1 or 3-way.
    */
   grid2x2?: boolean;
   onToggleGrid2x2?: () => void;
+  /** Hub your_role. 2v2 party: occupancy is teammate (bottom with you). */
+  yourRole?: string;
   isFriendCall: boolean;
   remoteBlurred: boolean;
   /**
@@ -168,6 +171,8 @@ export type LiveStageVideoProps = {
   /** 3-way: gift overlay on extra0 / extra1 tiles (not full-stage). */
   extraGiftFx0?: string | null;
   extraGiftFx1?: string | null;
+  /** 3-way: clip primary gift FX to partner tile (not full-screen). */
+  stageGiftFx?: string | null;
   barsCaption?: string;
   /** When set, stage draws the full privacy veil + Unblur card (hides clear RTCView). */
   blurVeil?: {
@@ -546,6 +551,7 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
     onSecondVolume,
     onThirdVolume,
     grid2x2: grid2x2Prop,
+    yourRole = "solo",
     onToggleGrid2x2,
     isFriendCall,
     remoteBlurred,
@@ -568,6 +574,7 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
     selfFx = null,
     extraGiftFx0 = null,
     extraGiftFx1 = null,
+    stageGiftFx = null,
     barsCaption,
     blurVeil = null,
     labels: L,
@@ -616,7 +623,7 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
   const pipBars = (!swapViews && selfBars) || (swapViews && partnerBars);
 
   // Smoke: one line when nuclear veil mounts / unmounts (skip initial false)
-  const [localGrid2x2, setLocalGrid2x2] = useState(false);
+  const [localGrid2x2, setLocalGrid2x2] = useState(true);
   const prevPrivacyBlur = useRef(privacyBlur);
   useEffect(() => {
     if (privacyBlur === prevPrivacyBlur.current) return;
@@ -884,6 +891,7 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
     grid2x2: grid2x2Requested,
     splitWide,
     huntingThird,
+    yourRole,
   });
   // Hunt stays 1v1 full partner (status/toast only). Split only when a
   // 3rd tile exists (multiRemote / extras). wrapping on huntingThird
@@ -903,16 +911,28 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
   const firstTileStyle = !splitStage
     ? styles.remoteFill
     : stageLayout.useGrid2x2
-        ? styles.splitTileGrid2x2
-        : useWideSplit
-          ? [styles.splitTileWide, styles.splitTileFocusWide]
-          : [styles.splitTile, styles.splitTileFocus];
-  const extraTileStyle = (isLast: boolean) =>
+      ? stageLayout.youParty
+        ? [styles.splitTileGrid2x2, styles.gridSlotBL]
+        : styles.splitTileGrid2x2
+      : useWideSplit
+        ? [styles.splitTileWide, styles.splitTileFocusWide]
+        : [styles.splitTile, styles.splitTileFocus];
+  const extraTileStyle = (isLast: boolean, extraIndex?: 0 | 1) =>
     stageLayout.useGrid2x2
-      ? styles.splitTileGrid2x2
+      ? stageLayout.youParty
+        ? [
+            styles.splitTileGrid2x2,
+            extraIndex === 1 ? styles.gridSlotTR : styles.gridSlotTL,
+          ]
+        : styles.splitTileGrid2x2
       : useWideSplit
         ? [styles.splitTileWide, isLast && styles.splitTileWideLast]
         : [styles.splitTile, isLast && styles.splitTileLast];
+  const localTileStyle = stageLayout.useGrid2x2
+    ? stageLayout.youParty
+      ? [styles.splitTileGrid2x2, styles.gridSlotBR]
+      : styles.splitTileGrid2x2
+    : extraTileStyle(true);
 
   const secondStarsShown = displayPartnerStars(
     Number(secondStars) || 0,
@@ -1252,6 +1272,20 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
               <MuteMark />
             </View>
           ) : null}
+          {stageGiftFx &&
+          !mainBars &&
+          partnerOnMain &&
+          !coverMainPartner &&
+          !coverMainPartnerHide ? (
+            <View
+              style={styles.remoteFill}
+              pointerEvents="none"
+              collapsable={false}
+              testID="live-primary-gift-fx"
+            >
+              <GiftFxOverlay effect={stageGiftFx} label={null} />
+            </View>
+          ) : null}
           {muteSelfOnMain ? (
             <View
               style={styles.partnerMuteOverlay}
@@ -1260,6 +1294,12 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
             >
               <MuteMark />
             </View>
+          ) : null}
+          {brandLoop && swipeStartActive ? (
+            <IdleArcadeStart
+              label={swipeStartLabel || "Start"}
+              onPress={() => onSwipeStart?.()}
+            />
           ) : null}
           {phase === "matched" &&
           hasRemote &&
@@ -1393,7 +1433,10 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
         {/* Hunt: no looking half. First conversationalist stays full until extras. */}
         {showExtraTile2 ? (
           <View
-            style={extraTileStyle(!remoteStream3 && !stageLayout.includeLocalTile)}
+            style={extraTileStyle(
+              !remoteStream3 && !stageLayout.includeLocalTile,
+              0
+            )}
             collapsable={false}
             testID="live-remote-tile-2-wrap"
           >
@@ -1445,9 +1488,28 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
           </View>
         ) : null}
         {showExtraTile3 ? (
+          <View
+            style={extraTileStyle(!stageLayout.includeLocalTile, 1)}
+            collapsable={false}
+            testID="live-remote-tile-3-wrap"
+          >
+          <SwipeSkipOverlay
+            enabled={swipeExtraActive}
+            onCommit={() => {
+              onHaptic();
+              onSwipeDropExtra?.();
+            }}
+            onHaptic={onHaptic}
+            nextLabel={swipeNextLabel}
+            style={{ width: "100%", height: "100%" }}
+          >
           <ExtraRemoteTile
             testID="live-remote-tile-3"
-            tileStyle={extraTileStyle(!stageLayout.includeLocalTile)}
+            tileStyle={{
+              width: "100%",
+              height: "100%",
+              position: "relative",
+            }}
             stream={remoteStream3}
             epoch={remoteEpoch3}
             name={thirdName || "…"}
@@ -1472,10 +1534,12 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
             onHaptic={onHaptic}
             giftFx={extraGiftFx1}
           />
+          </SwipeSkipOverlay>
+          </View>
         ) : null}
         {stageLayout.includeLocalTile ? (
           <View
-            style={extraTileStyle(true)}
+            style={localTileStyle}
             collapsable={false}
             testID="live-local-tile"
           >

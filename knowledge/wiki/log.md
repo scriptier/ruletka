@@ -2,6 +2,180 @@
 
 Parse tip: `grep '^## \[' knowledge/wiki/log.md | tail -10`
 
+## [2026-08-23] ship | 0.1.471 site APK + AAB + updates
+- Human: update page, wiki/GitHub, website APK, produce AAB.
+- **0.1.471 / vc479** sideload + `/download/ruletka-android-latest.apk`. AAB `mobile/artifacts/ruletka-0.1.471-vc479.aab` (**not** Console). Updates 2026-08-23. 2v2 2×2 · Stop→Next · Let’s Go. **No MULTI_PASS.**
+
+## [2026-08-23] hop | Android 2v2 default 2×2 (disk)
+- Proceed: Pixel idle (shade). No live 2v2/3-way. Web 964 already 2×2.
+- **Android disk:** `pickStageChromeLayout` extras≥2 defaults **2×2** (`grid2x2 !== false`). Party: extras **top**, occupancy+you **bottom** (absolute slots — no first RTCView remount). Extra-tile swipe 4-way → `next()`; 3-way still drop-3rd. Tests ok. **No APK** (470 this session). **No MULTI_PASS.**
+
+## [2026-08-23] hop | 964/632 2v2 default 2×2 + other-pair swipe
+- Human: 2v2 layout + **swipe wonky**. Default 4-col row; swipe bound to `#tile-remote` (teammate in 2v2) / stacked remotes.
+- **live 964 · stage 632**: 4-way defaults **2×2** (`ruletka-quad-2x2-v1`). Party: other pair **top**, you+teammate **bottom** (`stage-you-party`). Swipe teammate **off**; swipe extra/fourth = **Next pair** (not drop one). Harder commit on small tiles. Toggle still 4-col. No APK. **No MULTI_PASS.**
+
+## [2026-08-23] hop | deploy stamp 963/356 idle reload
+- Proceed: Pixel **0.1.470** idle. No 3-way since 963. Post-356 still slow (22:42 PC extra **+4.7s** laptop answer **+8.9s**; 23:21 extra **+2.8–9.6s**). Likely stale cache.
+- **deploy.json** `20260823T194900Z-963-356-extra` rsynced; `/health` ui_deploy matches. Idle PC/laptop should soft-reload then 3-way. **No MULTI_PASS.**
+
+## [2026-08-23] hop | 963 extra kick emit now
+- Proceed after 356: no 3-way in journal (phone unplugged). Extra offer waited `joinPeers().then` while connect hung ~6s (22:31 PC extra +6823).
+- **live 963**: `kickMeshExtraOfferersNow` `joinPeers` + `forceEmitExtraOffers` in parallel; retries 80/250/700/1400/2200. 356 extraFast still on. 1v1 **480** untouched. Prod rsync. Hard-refresh then 3-way. **No MULTI_PASS.**
+
+## [2026-08-23] hop | 356 extra policy=all (no 6s setLocal)
+- Human laptop-as-3rd: Android avatar then video, PC cam slower. Party 22:31:26 Android extra **+1435ms**; laptop answer **+5901ms** recvonly relay=0; PC extra **+6823ms** relay=0; laptop 2nd answer ~+13s. 355 warm promote did not skip Chrome `setLocal(policy=relay)` ALLOCATE.
+- **webrtc 356**: extra `multiFast` PC uses `iceTransportPolicy=all` pool=0; still filter/trickle relay. 1v1 stays relay / **480**. Prod rsync. Hard-refresh. **No MULTI_PASS.**
+
+## [2026-08-23] hop | APK 470 PC Stop → Android Next
+- Human: PC Stop left phone on a frozen last frame. Hub detail **"partner stopped"** was not in Android `leaveDetail` (treated as mid-call noise). P2P bye closed ICE but React kept the stream.
+- **0.1.470 / vc478**: `isHubPartnerLeaveDetail` includes partner stopped; 1v1 primary bye auto-Next (spin). 3-way "still chatting" still keeps the pair. adb install. **No MULTI_PASS.**
+
+## [2026-08-23] hop | 962 refresh mid-call sends leave
+- Human: refresh during 1v1/3-way — others kept a frozen last frame (WS close lagged; pagehide only paused brand).
+- **live 962**: `flushLeaveOnUnload` on `beforeunload` + `pagehide` (!persisted) sends P2P `bye` + hub `stop`. 1v1 `bye` tears match (same as partner disconnected). 3-way still `dropOnePeerKeepRest`. bfcache tab-switch does not leave. Prod rsync. Hard-refresh. **No MULTI_PASS.**
+
+## [2026-08-23] hop | 961/355 extra promote relay warm
+- Human **proceed** after felt-faster: leftover PC extra offer **+6.4s** (22:17, relay=0). Extra offerer skipped takeWarmPc → cold 2nd TURN ALLOCATE on setLocal (~5s). 1v1 never promotes dirty relay warm (lock).
+- **webrtc 355**: extra 3rd-join (`__ruletMultiPeerFast` + stable) promotes rolled-back relay warm; refill warmIcePool after connect. Extra never clearIceWarm. **live 961**: extra kick arms warm pool. 1v1 **480** untouched. Prod rsync. Hard-refresh. **No MULTI_PASS.**
+
+## [2026-08-23] smoke | 3-way felt faster (960/354)
+- Human: **nice it felt faster**. Party 22:17:18 Android extra offer **+1314ms**; laptop answer **+6559ms** recvonly (was +6691); PC extra offer **+6396ms** relay=0 (was +7328 relay=1); laptop 2nd answer 22:17:30 (~+12s). Feel win from trickle vs 5s rebuild — SDP clocks still ~6s laptop/PC extra. 1v1 480 untouched. **No MULTI_PASS.**
+
+## [2026-08-23] hop | 960/354 extra skip TURN rebuild
+- Human 3-way: laptop **both videos**, still wants faster. av-verify **WARN** product.**ok** app_vc **477**. Party 22:10:05 Android extra offer **+1611ms**; laptop answer **+6691ms** recvonly; PC extra offer **+7328ms**; laptop 2nd answer ~+11s. Phone 3-way OK (PC + laptop no-cam, no duplicate).
+- **webrtc 354**: extra `multiFast` skips wait2 + 5s relay rebuild even if sibling SDP has no `typ relay`. First extra wait1 **160ms** (sibling **80**). 1v1 **480** untouched. **live 960**: `joinPeers([one])` 3rd-join still sets `__ruletMultiPeerFast`. Prod rsync. Hard-refresh after this call. **No MULTI_PASS.**
+
+## [2026-08-23] hop | APK 469 Let's Go overlay + extra identity dedupe
+- Human: Let's Go ~10s to press (SurfaceView ate `_layout` overlay). Next felt slow (12s MATCH_SETTLE). 3-way Android: PC top live, Laptop **Almost there** + duplicate Laptop black (same AC89EC2F), You as 4th tile, 2×2. Shot `artifacts/shots/20260823T2155-android-3way/android.png`.
+- **0.1.469 / vc477** Let's Go card on Live (`onPressIn`, elev 2000); bar `onPressIn`; Next grace 2s. Disk extras: `sameExtraPerson` (userId / friendCode ≥6) so leftover mesh peerId does not paint two Laptop tiles. **No APK 470** until 469 Let's Go smoke. **No MULTI_PASS.**
+
+## [2026-08-23] hop | 959 1v1 no leftover mesh
+- Human: 1v1 PC↔Android linking slow. Hub web offer ~1.3s; Android answer **15–22s** (zero_f / linking_8s). After 3-way, `lastMeshPeers` stayed ≥2 and mergeMissingMeshPeers injected extras into 1v1.
+- **959** rememberMeshPeers clears on 1-peer; merge does not splice leftovers. 480 untouched. **No GOAL_MET.**
+
+## [2026-08-23] smoke | 3-way both faces together
+- Human: laptop 2 videos **same time**, still a wait first. Best so far. Hub 21:42 Android extra **+1662ms**; PC extra **+4891ms**; laptop **two answers** 21:42:30.99 Android + 21:42:31.04 PC (~+10s). 954 dual-answer held. Remaining: ~5s PC extra + laptop answers after first createAnswer. **No MULTI_PASS.**
+
+## [2026-08-23] hop | 956 occupancy never stolen by 3rd
+- Human: PC invite Android 3rd; invite overlay slow; 3-way faster but Android painted **left** then blink Courtier **middle**. Hub extra Android **+1.9s**, PC extra **+6.3s**.
+- **956** extra live-video must not steal `#remote`. Courtier stays left; 3rd only `#remote-third`. Invite delay is Android overlay (APK). **No MULTI_PASS.**
+
+## [2026-08-23] hop | 955 vol HUD on adjuster tile
+- Human: volume HUD should sit on the person turning the knob (left vs middle 3-way), not on you.
+- **955/629** move `#vol-hud` onto `#tile-remote` / `#tile-third` / extras via `fxWhichForUserId`. **No ICE.**
+
+## [2026-08-23] hop | 954 dual extra answer
+- Human: laptop Android slower; PC cam never. Hub 21:23 Android extra **+1.4s**; PC extra **+5.8s**; laptop answered **Android only** — no answer to PC.
+- **954** busy-PC 2nd offer → new extra PC + drain after first answer. **No MULTI_PASS.**
+
+## [2026-08-23] hop | 953 mid-tile code + gift ★ + hide strip
+- Human 3-way: friend-code under praised; “You + friend · stranger on the right” overlapped Courtier video (nothing behind but the cam); tap-★ on middle updated **left** ★ then snapped back.
+- **953/627** hide party-role-strip on live trio; praise then autohide code; gift `target_stars` paints extra slot. **No ICE.**
+
+## [2026-08-23] hop | 353 extra skip TURN rebuild
+- Human: 3-way faster but still could be better. Hub 21:13 Android extra **+1605ms**; **PC extra +5501ms**. Extra ALLOCATE missed 500ms wait → full PC rebuild (~5s).
+- webrtc **353**: extra + sibling TURN → trickle, no rebuild. wait1 80ms. 1v1 480 untouched. **No MULTI_PASS.**
+
+## [2026-08-23] hop | 952 extra connect + no-cam wait
+- Human: 3-way Android left **fast**; PC extra black then No-camera, faster than before. Hub 21:04 Android extra **+1.4s**; PC extra **+10018ms** relay=1.
+- forceEmit `_createAndSendOffer` no-op when `this.pc` null. **952** `connect()` first. Extra cylinder 8s / still-linking (ICE up no pixels). **No MULTI_PASS.**
+
+## [2026-08-23] hop | 951 extra-tile chrome = left tile
+- Human: 3-way middle ★ too far / over avatar; no friend code; Trusted/praised unlike left. Same for 4-way.
+- live **951** / stage **626**: third+remote2+fourth get ★ tight left of avatar, autohide friend-code, Trusted + praised-by, tap-★ gift. **No ICE.** **No MULTI_PASS.**
+
+## [2026-08-23] hop | 950 trio latch + extra relay wait
+- Human: 3 tiles → 2 → 3, Android middle fast, PC cam black. Hub 21:00 Android extra **+1.4s**; PC extra **+7.3s relay_candidates=0** then re-offer +11s.
+- **950** `wantTrioColumns` listed≥2. webrtc **352** skipWait2 only if n>0. **No MULTI_PASS.**
+
+## [2026-08-23] hop | 949 extra ice=new keep
+- Human: Android extra super fast on laptop; PC cam still slow. Hub 20:51 Android **+1606ms**, laptop answer **+5.6s**, **PC extra +29262ms**.
+- `joinPeers` treated extra `ice=new` as dead shell and tore it mid-connect(). **949** `extraConnecting` keep. webrtc **351** extra offerer does not `clearIceWarm`. **No MULTI_PASS.**
+
+## [2026-08-23] hop | 948 extra recover per-PC
+- Human: 3-way laptop Android cam fast; PC cam super slow. Hub 20:43 Android extra **+1300ms**, laptop answer Android **+5.7s**, **PC extra +58123ms**.
+- Occupancy 1v1 `_offerEmitOk` + `hasLiveRemoteMedia()` gave extras 25–45s grace. **948** `peerPcHasLiveAv` / neverOffered on **that** extra PC. **No MULTI_PASS.**
+
+## [2026-08-23] hop | 947 3-way mid-tile avatar + tap-★
+- Human: middle 3-way tile no avatar; can't tap ★/avatar to gift ★1 for 3★. Extra tile had stars badge only, gift bound to primary occupancy.
+- live.js **947** `#third-avatar` + `#remote2-avatar` stacks; tap gifts `extraSlotUserId`. **No ICE change.** **No MULTI_PASS.**
+
+## [2026-08-23] hop | 946 occupancy ≠ extra id
+- Human 3-way: laptop no Android cam; PC cam forever. Hub 20:37 Android extra offer **+1.6s**; laptop **never answered Android**; PC extra **+26438ms**; laptop answered PC only. Phone saw PC, laptop tile “Almost there…”.
+- **946** `findPcForPeer` does not return occupancy for a different extra. Extra offerer skips 1v1 warm (350); 3rd answerer still promotes warm. **No MULTI_PASS.**
+
+## [2026-08-23] hop | 468 install + 945 no-cam cylinder
+- Recommended: install 468 (USB up) + recvonly partner → No-camera not Linking. 1v1 ICE/480/occupancy unmap untouched.
+- APK **0.1.468-vc476** on Pixel. live.js **945** `occupancyRemoteIsNoCamReady` (ICE live + 0 video tracks). **No MULTI_PASS.** Next smoke: 3-way laptop PC cam after 1v1 green.
+
+## [2026-08-23] smoke | 1v1 good after 944
+- Human: 1v1 videos both sides. av-verify **PASS** product.**ok** web 700/939 android 866/656 answers=1 relay 1/1. **No linking GOAL_MET.** Next: 3-way laptop PC cam (still no MULTI_PASS).
+
+## [2026-08-23] hop | 944 1v1 occupancy unmap
+- Human: 1v1 no videos both sides. PC shot Courtier black, self live. av-verify **no-media** web+android 0/0 ice=new/checking. Android answer relay_candidates=0.
+- **943** `peerPcs.delete` when occupancy==1v1 stranger **deleted the only PC**. **944** unmap extras only if listed≥2 and peer is not first partner. **No product.ok invent.**
+
+## [2026-08-23] hop | 943 revert extra-warm skip + occupancy unmap
+- Laptop photo `Downloads/photo_2026-08-22_22-56-12.jpg`: 3-col **Courtier black** · **Drakonov No camera** · self no-cam. Hub: Android extra +1593; laptop answer **relay_candidates=0**; **PC extra offer 0**. Laptop ice=new 0/0.
+- 942 skip takeWarmPc on extras starved TURN on laptop answer. **349** restore warm. **943** unmap extra id off occupancy; empty extras stay Linking not No-cam. **No MULTI_PASS.**
+
+## [2026-08-23] hop | 942 force extra createOffer
+- Human 3-way again: laptop no PC cam. Hub 04:47 Android extra +1293; laptop answer +5784; **PC extra offer 0** (941 not enough).
+- live.js **942** `forceEmitExtraOffers` after joinPeers + 250/700/1400. webrtc **348** extra PC does not promote 1v1 warm. **No MULTI_PASS.**
+
+## [2026-08-23] hop | 941 extra joinPeers full list
+- Human: 1v1 **fast**. 3-way laptop sees Android, **not PC**. Hub: Android extra +1660ms; laptop answer +5905; **PC extra offer never sent**.
+- 940 `joinPeers([one extra])` → `list.length<2` skipped extraOffererNeed; 1v1 offer lock held. **941** kicks with full listed + clears match offer lock. **No MULTI_PASS.**
+
+## [2026-08-23] hop | 940 dense extra ensure (3-way / 2v2)
+- Human: keep improving 1v1 + 3-way + 2v2 linking. **Do not cut 480.** 1v1 mto ~1.0–1.2s / mta ~2.4s (locked TURN). 3-way extra was +18/+30/+70s because 2s timer only.
+- live.js **940**: `kickMeshExtraOfferersNow` on MATCHED peers≥2; `armMeshEnsureTimer` ticks now/280/700/1300. 2v2 uses same pair extra-kick. Prod rsync. **No linking GOAL_MET / MULTI_PASS.**
+
+## [2026-08-23] hop | 468 Start-above-whatsnew + 3-way gift clip
+- FAIL: changelog blocked matching (phone on What's new while someone queued). Home **Start chatting** now sits above What's new; Start marks seen.
+- 3-way gifts: full-screen overlay skipped when extras; `stageGiftFx` clipped to partner tile. APK **0.1.468-vc476**. **No MULTI_PASS / no website.**
+
+## [2026-08-23] hop | 939 extra kick on keep-path
+- Human 3-way: laptop missing PC cam, then **slow**. Hub PC extra offer **+70579ms** (Android extra +1211ms). 938 kick lived only inside `needMesh`; 937 ice=new extra counted live. Occupancy #remote ≠ extra PC.
+- live.js **939** `kickMeshExtraOfferersNow` on both keep branches. Prod rsync. **No MULTI_PASS.**
+
+## [2026-08-23] hop | 467 front-cam reset on new 1v1
+- Human 1v1: hear OK, PC black, PiP black. product.ok + Pixel **device 0 BACK**. Flip persisted on keepLocal rematch.
+- MediaSession: `ensureUserFacingPreview` `_switchCamera` only (no GUM). New match / idle preview resets to user; mid-call flip stays. APK **0.1.467-vc475** Download. **No product.ok invent / no GOAL_MET.**
+
+## [2026-08-23] smoke | 1v1 PC black ≠ ICE
+- Human: 1v1 PC+Android, no Android cam on PC. Shots `artifacts/shots/20260823T023314Z-1v1-pc-android/`.
+- av-verify **WARN** product.**ok** web 901/1100 · android 1037/858 ice connected app_vc **474**. Phone **sees PC**. PC partner tile black + mute icon. Phone **self-PiP black**.
+- dumpsys: ruletka had **device 0 (rear)** after 20:24 flip off front. Mute icon = phone mic muted, not a cover. **Not ICE / not 938.** Rear cam at desk → black frames. **No product.ok invent as a fail.**
+
+## [2026-08-23] hop | 938 party extra-offer now
+- Human: 3-way PC cam on laptop **finally appeared, slow**. Journal extra offer **+30158ms** = occupancy skip + missing `is_offerer` until 30s soft-recover.
+- live.js **938**: occupancy skip only if that extra has live A/V; party extra kicks immediately even if hub omitted `is_offerer`. Prod rsync live.js+html. **No MULTI_PASS.**
+
+## [2026-08-22] compound | 3-way extra SDP speed
+- Journal 23:31 Android-as-3rd 2nd answer +10.8s. Herd `20260822T234521Z`: live.js **922** extra kick; live.tsx startCall2 no GUM stall; MediaSession extra applies first offer. **No APK / MULTI_PASS.** Do not cut 480.
+
+## [2026-08-22] rule | site APK is human-gated
+- AGENTS/CLAUDE/MOBILE_BUILD: never rsync APK to `/download/` unless human says **put apk on the site**. Local bump ≠ site publish.
+
+## [2026-08-22] compound | stars / reputation self-gov
+- Wiki: `stars-reputation.md` · gotcha **78** · raw `2026-08-22-stars-self-gov.md`
+- Hub already peer-praise + consensus reports. Feel gap = skippable ★ + opaque chip. Hop not shipped.
+
+## [2026-08-22] gotcha | 3rd no A/V (1v2 rematch + glare)
+- Wiki: `gotchas.md` **77** — hub lock pair offers / 3rd answers; skip busy party; 25s settle.
+
+## [2026-08-22] gotcha | ruletka.me white screen (443 mux SNI)
+- Wiki: `gotchas.md` **76** — no-ALPN on .me hit coturn vip cert; SNI .me → Caddy. `/` 302 live.html.
+
+## [2026-08-22] resource | Android partner actions bottom tab
+- Raw: `raw/2026-08-22-android-partner-actions-tab.md`
+- Wiki: `resources.md` — sheet is a bottom tab; human wants a floating window.
+
+## [2026-08-22] resource | Android 1v1 bottom bar
+- Raw: `raw/2026-08-22-android-bottom-bar.md`
+- Wiki: `resources.md` — Stop/Next in black slab; PiP pad wasted; Next not 3D. Chrome only.
+
 ## [2026-08-21] resource | PC Hide vs Blur them
 - Raw: `raw/2026-08-21-pc-blur-compare.md` + shots `201652Z` / `201842Z`
 - Wiki: `resources.md` — same glass veil family; human **nice blur is good now**. Pins **865/581**. Not product.ok.

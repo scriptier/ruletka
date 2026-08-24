@@ -51,5 +51,7 @@
   "seed.foot": "Help the network",
   "seed.footDl": "Helper",
   "live.theyMutedYou": "They muted you · no sound",
-  "live.theyMutedYouToast": "Partner muted you — they can't hear you"
+  "live.theyMutedYouToast": "Partner muted you — they can't hear you",
+  "settings.downloadApk": "Android app",
+  "settings.downloadApkSub": "Download APK 0.1.465 · sideload"
 }
