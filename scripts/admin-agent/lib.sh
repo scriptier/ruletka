@@ -485,11 +485,15 @@ EOF
 
   if (( ADMIN_HUB_SLOW > 0 || ADMIN_HUB_MAX_MTO > SLOW_OFFER_MS )); then
     local f="$pending/006-auto-slow-offer-${day}.md"
-    # Skip if a connect-speed task is already queued (001-*, 002-*, 004-*)
+    local running="$ROOT/tasks/admin-queue/running"
+    # Skip if a connect-speed task is already queued or in flight (001-*, 002-*, 004-*)
     if [[ ! -f "$f" ]] \
       && ! compgen -G "$pending/001-*" >/dev/null \
       && ! compgen -G "$pending/002-*" >/dev/null \
-      && ! compgen -G "$pending/004-*" >/dev/null
+      && ! compgen -G "$pending/004-*" >/dev/null \
+      && ! compgen -G "$running/001-*" >/dev/null \
+      && ! compgen -G "$running/002-*" >/dev/null \
+      && ! compgen -G "$running/004-*" >/dev/null
     then
       cat >"$f" <<EOF
 # AUTO: slow match→offer (max ${ADMIN_HUB_MAX_MTO}ms)
