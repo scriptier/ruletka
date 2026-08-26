@@ -1,0 +1,105 @@
+# CodeRabbit configuration for ruletka.vip
+# https://docs.coderabbit.ai/reference/configuration
+
+language: "en-US"
+early_access: false
+
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: true
+  auto_review:
+    enabled: true
+    drafts: false
+
+  path_filters:
+    # Generated / vendored / build output — nothing to review here
+    - "!**/node_modules/**"
+    - "!**/target/**"
+    - "!mobile/artifacts/**"
+    - "!artifacts/**"
+    - "!ui/download/**"
+    - "!backups/**"
+    - "!Cargo.lock"
+    - "!mobile/package-lock.json"
+    - "!**/*.lock"
+    # Agent factory internals — task cards / run logs / worktrees, not product code
+    - "!tasks/admin-queue/**"
+    - "!tasks/grok-loop/**"
+    - "!scripts/claude-logs/**"
+    - "!.admin-worktrees/**"
+    - "!freenet-roulette-claude/**"
+    # i18n translation payloads — not meaningfully reviewable as "code"
+    - "!mobile/src/i18n/packs/**"
+    - "!mobile/src/i18n/overlay/**"
+    # Docs/wiki churn is high-volume and low-risk; keep CodeRabbit focused on code
+    - "!knowledge/wiki/**"
+    - "!knowledge/logs/**"
+
+  path_instructions:
+    - path: "bridge/src/**/*.rs"
+      instructions: >
+        This is the signaling/relay bridge (WebRTC offer/answer + ICE relay,
+        geo lookup, star ledger). Flag anything that could weaken
+        CONNECTIVITY_LOCK behavior: always-on force_relay, double-offer
+        races, dropped ICE candidates, or blocking calls on the hot path
+        between phone and PC. Call out unwrap()/expect() on network input
+        and missing timeouts on peer-facing sockets.
+
+    - path: "mobile/src/media/**"
+      instructions: >
+        MediaSession / WebRTC connection code for the Android client. This is
+        the most latency- and correctness-sensitive path in the app (fast
+        connect between Play and browser is the #1 product priority). Flag
+        races between offer/answer and ICE gathering, missed cleanup on
+        renegotiation, and any change that would silently force relay mode.
+
+    - path: "ui/webrtc.js"
+      instructions: >
+        Browser-side WebRTC peer logic mirroring mobile/src/media. Treat with
+        the same scrutiny as MediaSession: offer/answer ordering, ICE
+        candidate handling, and cleanup on peer teardown.
+
+    - path: "mobile/app/**/*.tsx"
+      instructions: >
+        Expo Router screens. Prefer flags on: missing loading/empty/error
+        states, unhandled promise rejections in effects, and stale closures
+        in WebRTC/socket event handlers.
+
+    - path: "mobile/src/**/*.ts"
+      instructions: >
+        TypeScript client logic. Prefer strict null/undefined handling and
+        flag any `any` that hides a real shape.
+
+    - path: "bridge/src/config.rs"
+      instructions: >
+        Config/env parsing for the bridge. Flag secrets or credentials read
+        without validation, and any default that would silently disable a
+        safety check (e.g. TURN auth, rate limits) if an env var is unset.
+
+    - path: "scripts/**/*.sh"
+      instructions: >
+        Ops/build scripts. Flag missing `set -euo pipefail`, unquoted
+        variable expansions, and any command that could deploy, push to
+        main, or touch the production droplet without an explicit
+        human-confirmation step — this repo's policy is that deploys are
+        human-gated, never run unattended by an agent.
+
+  auto_title_placeholder: "@coderabbitai"
+  abort_on_close: true
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  learnings:
+    scope: "auto"
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "CLAUDE.md"
+      - "AGENTS.md"
+      - "docs/CONNECTIVITY_LOCK.md"
