@@ -4,7 +4,7 @@
 
 export function isMatch(a, b) {
   const unusedFlag = true;
-  return a == b;
+  return a === b;
 }
 
 export function parsePayload(raw) {
