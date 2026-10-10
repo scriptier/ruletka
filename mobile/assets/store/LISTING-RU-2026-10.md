@@ -311,3 +311,56 @@ A third-party ASO note says RuStore allows 3–5 tags. The help page checked for
 | Знакомства | Drop, unless you want dating-intent search. The paste has no gender filter and no promise of a date. The public “you may also like” row next to this tag is dating apps. Leaving the tag on pulls that intent. The word in the gifts block (“does not promise a date”) is a refusal, not a reason to keep the tag. |
 
 Do not add a voice-chat tag. This branch has no voice-roulette mode. Do not add an adult or sexual tag. Age stays 18+ because the chat is random, not because the listing promises sexual content.
+
+## 9. QA before paste
+
+Checked 2026-10-10 from this worktree. Not entered in either console. Title and short A vs B are still open. This list does not choose them.
+
+| Check | Result |
+|---|---|
+| Package | `me.ruletka.app` in `mobile/app.json` and on the live RuStore card. |
+| Age | Paste says 18+. The age-gate shot is first in §10. The live RuStore card is already 18+. Set the Play rating to 18+ when the console is opened. Do not set a lower rating. |
+| Privacy | `https://ruletka.me/legal/privacy.html` returned 200. |
+| Terms | `https://ruletka.me/legal/terms.html` returned 200. |
+| Data deletion | `https://ruletka.me/legal/delete.html` returned 200. |
+| Child safety | `https://ruletka.me/legal/child-safety.html` returned 200. |
+| Safety | `https://ruletka.me/safety.html` returned 200. |
+| Site | `https://ruletka.me/` returned 200. |
+| Bad privacy URL | `https://ruletka.me/privacy.html` returned 404. The live RuStore card still uses it. Do not paste that live block again. The draft paste uses `/legal/privacy.html`. |
+| Contact | Paste lists `support@ruletka.me` and `privacy@ruletka.me`. |
+| No `.vip` in paste | The 19 fenced paste blocks in this file contain no `ruletka.vip`. |
+| `.vip` in art | Fail. `phone-03-home.png` and the tablet 7" and 10" twins still print `ruletka.vip` and `v0.1.27`. Do not upload those three until they are redrawn. Captions in §5 do not repeat that version. |
+| Feature graphic | `play-feature-1024x500.png` is 1024×500, 146756 bytes. It shows a revolver, the word `ruletka`, and `peer-to-peer video · 18+`. No `.vip` on that image. It is brand art, not a screenshot. Do not upload it in the screenshot slots. |
+| Screenshots vs art | Phone and tablet files are UI mockups, not photos of a device and not art-only. RuStore’s rule on real app UI still applies: mocks can be rejected. Shots 07–09 stay out (sample queue counts). Shot 04 has no live face. The English footers baked into the mocks (“Age gate”, and the rest) are not the store caption. Use §5. |
+
+## 10. Screenshot order
+
+Same order for Play and RuStore. Upload the age gate first so the phone set stays 9:16. Play allows 2–8 phone shots. The screenshot README asks for at least 4 and lists these 6. RuStore asks for at least 3 phone shots at 9:16. Tablet 7" and 10" follow the same six scenes. Skip phone 07–09.
+
+Captions are the §5 lines, copied here so the order can be pasted without scrolling. Counts match §5.
+
+| # | File | RU caption | EN caption |
+|---|---|---|---|
+| 1 | `phone-01-age-gate.png` | Только 18+. Если вам нет 18 лет — уйдите. Это не чат для несовершеннолетних. | 18+ only. If you are under 18, leave. This is not a chat for minors. |
+| 2 | `phone-02-permissions.png` | Камера и микрофон нужны для видео. Отказ оставляет друзей и настройки. | Camera and mic are for video. You can decline and still open Friends and Settings. |
+| 3 | `phone-03-home.png` | Старт — случайный видеочат 18+. Рядом звонок друзьям. Без обычного аккаунта. | Start is a random 18+ video chat. Friends are beside it. No classic account. |
+| 4 | `phone-04-live-preview.png` | Своя камера до поиска. На этом макете нет живого лица и чужого видео. | Your camera before search. This mock has no live face and no partner video. |
+| 5 | `phone-05-friends.png` | Код, чтобы позвать друга, и звонок по коду. Имена на экране — примеры. | A code to invite a friend, and a call by code. Names on screen are samples. |
+| 6 | `phone-06-settings-safety.png` | Блок и жалоба в каждом звонке. Собеседник может записать экран. Данные можно запросить к удалению. | Block and report on every call. The other person may record. You can request deletion. |
+
+Hold row 3 until the `.vip` art is gone. Rows 1, 2, 4, 5, and 6 can go up as mockups if you accept mocks. Tablet files use the same row number: `tablet7-0N` and `tablet10-0N`.
+
+## 11. Feature-graphic lines — draft only
+
+Play’s feature graphic is an image, 1024×500, not a text field. There is no Play “promo text” box with its own character cap (that 170-character box is Apple’s). RuStore’s help page does not list this banner. These lines are overlay drafts for the graphic. They are not the store title and not short A or B.
+
+The current file already reads `ruletka` and `peer-to-peer video · 18+`. A replacement line should stay one short row so it fits the black band under the revolver.
+
+| Id | Line | Count |
+|---|---|---|
+| RU-1 | `Чат рулетка · 18+` | 17 |
+| RU-2 | `Видеочат без регистрации · 18+` | 30 |
+| EN-1 | `Random video chat · 18+` | 23 |
+| EN-2 | `No sign-up · 18+` | 16 |
+
+RU-1 and RU-2 use the same queries as the listing. They do not choose the title. EN-1 and EN-2 do not promise a partner’s gender. None of them say `.vip`.
