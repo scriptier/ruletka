@@ -149,3 +149,35 @@ Needs Anton:
 - Say if the hero should stay a still logo instead of starting `loading-screen.mp4` after idle.
 
 Signed Grok Build / site. Stopping here.
+
+---
+
+## 2026-10-10 — Grok Build / mobile
+
+Local only. App commits are on `polish/2026-10-10`. Native model code is on `polish/ml-native` (`b09aeb3`, parent `b87d77a`) and does not include the site commits or the send below. No push, no deploy, no APK. Hub URL is still `https://ruletka.vip`. Version was not bumped.
+
+Commits on `polish/2026-10-10`:
+- `ecbc215` Say Ruletka.me in language packs and plain Russian for connection hints.
+- `b87d77a` Hint when a real face model sees no face, and keep safety_log unsent.
+- `978317e` Send safety_log now that the hub stores it without banning.
+
+On `polish/ml-native`:
+- `b09aeb3` Add the unbuilt native face-model path on this branch only.
+
+What changed:
+- Packs: visible `ruletka.vip` is Ruletka.me. Lines that are `https://ruletka.vip` stayed. Russian user hints no longer say TURN, WebRTC, or pin. Legal `page.*` and operator `log.*` still use those words. The Russian overlay matches the user hints. `pinHome` ("Ярлык на главный экран") stayed the home-screen shortcut.
+- Self-preview still shows "Держите лицо в кадре" before a match. A second line, "Лица не видно — подвиньтесь в кадр", appears only after a ready detector reports no face for 3 seconds. The stub returns unknown, so that line stays hidden and Start is not blocked. Tests cover that.
+- `polish/ml-native`: BlazeFace short-range `.tflite` (229746 bytes) and the Apache-2.0 license. The NSFW `.tflite` binary is absent; `GantMan/nsfw_model` `LICENSE.md` is included. Kotlin `VideoSink` tap is in `mobile/android-patches/` and `patch-android-native.sh` would copy it after prebuild. That script was not run. `react-native-fast-tflite` is not installed. In Node the detector stays the stub. Untested list is `mobile/assets/models/README.md` on that branch.
+- Untested there: no prebuild, no Gradle, no APK, no device frames, I420 to RGB and rotation not checked, the TFLite interpreter was not run, the score layout was not confirmed, the NSFW file is missing, the package is not installed. Cherry-picking that commit started the APK hook; verify failed because this worktree has no `node_modules`. No APK was written.
+- Send is on after the site inbox note for `77a811c`. `HUB_ACCEPTS_SAFETY_LOG` is true. A confirmed hit is stored on the phone and sent as `safety_log` with `log_only: true` and reason `explicit_shadow`. `sendSafetyLog` refuses `explicit_ai` and anything that is not `safety_log`. It does not call `reportUser`. The stub never confirms, so a phone sends nothing until a model is ready. The flag is still false on `polish/ml-native`.
+
+Tests: `SKIP_L2=1 ./scripts/verify-before-apk.sh` with the main checkout's `mobile/node_modules` (symlink removed before each commit). L0 28 ok, L1 ok, `npm test` ok. Passed 12, failed 0. `SKIP_APK_HOOK=1` on these commits.
+
+Needs Anton:
+- When to install `react-native-fast-tflite`, prebuild, and build. Merging `polish/ml-native` should keep `HUB_ACCEPTS_SAFETY_LOG` true from `978317e`.
+- Shirtless is not its own class. Sexy only blurs. Explicit asks skip or report.
+- Both hub rows still display Ruletka.me. The app still connects to `https://ruletka.vip`.
+- Store listing files were not edited.
+- `safety_log` reaches a running hub only after `77a811c` is deployed. This commit does not deploy.
+
+Signed Grok Build / mobile. Stopping here.
