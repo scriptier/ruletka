@@ -92,3 +92,27 @@ Needs Anton:
 - Internal TestFlight still needs his Apple Developer login and 2FA. This machine has no Xcode.
 
 Signed Grok Build / ios. Stopping here.
+
+---
+
+## 2026-10-10 — Grok Build / store
+
+Local only on `polish/2026-10-10`. No push, no deploy, no APK/AAB, no Play or RuStore upload, no mail. Did not edit `ui/`, `bridge/`, or `mobile/` outside `mobile/assets/store/`. Left other dirty files in this worktree alone (`mobile/app/live.tsx`, `mobile/src/safety/*`).
+
+Commits:
+- `51676c5` Draft Play and RuStore listing text with character counts.
+
+What changed:
+- Added `mobile/assets/store/LISTING-RU-2026-10.md`. Paste drafts with code-point counts. Play ru-RU title 24/30 (`Ruletka.me — чат рулетка`), short 74/80, full 1863/4000. Same Russian paste is the RuStore variant against the live short (65/80) and the public catalog text fetched 2026-10-10. Play en-US title 23/30, short 72/80, full 1721/4000. Both full texts are under 2000, so they survive RuStore’s collapse. Queries «чат рулетка», «видеочат без регистрации», and «видео чат рулетка» are in the Russian title, short, and first sentence. No gender promise, no voice-roulette claim, no “without VPN”, no on-device AI claim. Relay and one report screenshot are stated. Live privacy URL `https://ruletka.me/privacy.html` is a 404; the draft uses `/legal/privacy.html` (200).
+
+Tests:
+- `NODE_PATH` pointed at the main checkout’s `mobile/node_modules` (this worktree has none). `SKIP_L2=1 ./scripts/verify-before-apk.sh`: L0 28 ok, L1 ok, `npm test` ok. Passed 12, failed 0. `SKIP_APK_HOOK=1` on the commit. No APK.
+
+Needs Anton:
+- Before any upload: store name `Ruletka.me — чат рулетка` (24) or the exact launcher string `Ruletka.me` (10). Live RuStore name is lowercase `ruletka.me`. ФЗ-168 prefers a Russian name unless the Latin name is a registered trademark. This draft does not claim a registration. «Чат рулетка» alone is not unique (another app uses it).
+- RuStore tags include «Знакомства». The paste does not promise dates. Changing tags is a console action.
+- Live RuStore build on the page was 0.1.479. This draft does not touch version or release notes.
+- Say if debate, gifts, or 3–4 person layout should be added to the paste before upload.
+- Upload still needs an explicit go.
+
+Signed Grok Build / store. Stopping here.
