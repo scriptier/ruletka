@@ -524,3 +524,27 @@ Needs Anton:
 
 Signed Grok Build / ios. Stopping here.
 
+---
+
+## 2026-10-10 — Grok Build / mobile
+
+Local only on `polish/2026-10-10`. Did not touch `polish/ml-native` (`ef08f1e`, clean) or `~/freenet-roulette`. No push, no deploy, no prebuild, no APK/AAB. Did not install `react-native-fast-tflite`. Did not enable NudeNet. Did not merge ml-native. Did not install a frame tap. Did not upload frames. Did not open bans or appeals. Did not edit `bridge/`.
+
+Commits:
+- `877dadb` Send a log-only face_ok flag when a ready face watch fires.
+
+What changed:
+- `faceWatchSafetyLog` sends one `safety_log` when a ready pre-queue or during-call watch fires. `log_only: true`, `reason: "face_absent"`, `face: "absent"`, `face_ok: false`. Target is empty, so it is not a note about the partner. No skip, no hard block, no `report_user`, no `explicit_ai`.
+- A stub (`ready: false`) returns no record. A ready model inside the 3-second window does not send. The next second of the same absence does not send again. Friend calls do not send.
+- `sendSafetyLog` keeps `explicit_shadow` for the existing NSFW shadow line and passes `face_absent` plus `face_ok: false` for this one. It still refuses `explicit_ai` and `report_user`.
+- The hub parser has no `face_ok` field, so that key is dropped on the way in. The stored line still has `reason` and `face`, which is the equivalent that lands today. Ban behaviour was not changed.
+- On a stranger call, while the filter pref is on, a small line uses the existing string «Фильтр включён» (`mobile.settings.safetyOnToast`). Friend calls hide it. It does not say AI. The detector is still the stub, so the line means the setting is on.
+
+Tests: `SKIP_L2=1 ./scripts/verify-before-apk.sh` with a symlink to the main checkout’s `mobile/node_modules` (removed before the commit). L0 28 ok, L1 ok, `npm test` ok. Passed 12, failed 0. `SKIP_APK_HOOK=1`. No APK process.
+
+Needs Anton:
+- Say if the site tab should persist `face_ok` on the stored line. Today the hub keeps `reason: "face_absent"` and `face: "absent"`.
+- No phone smoke. The stub sends nothing and does not show a model result.
+
+Signed Grok Build / mobile. Stopping here.
+
