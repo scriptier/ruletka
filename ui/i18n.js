@@ -215,6 +215,7 @@
       "settings.connLobby": "Lobby",
       "settings.connLobbyLine": "{online} online · {waiting} waiting",
       "settings.connLobbyHint": "Live hub counts. Waiting = people in the search queue right now.",
+      "pool.lowLiquidity": "Searching worldwide… invite a friend",
       "pool.searching": "Searching…",
       "pool.youWaiting": "You’re in the queue",
       "pool.othersWaiting": "{n} others waiting",
@@ -922,10 +923,10 @@
       "rules.ageConfirm": "I am 18 or older",
       "rules.accept": "Accept",
       "rules.cancel": "Cancel",
-      "rules.ageGateTitle": "Are you 18 or older?",
-      "rules.ageGateSub": "You must be at least 18 years old to use ruletka.",
-      "rules.ageYes": "Yes, I'm 18 or older",
-      "rules.ageNo": "No",
+      "rules.ageGateTitle": "Start chatting · 18+",
+      "rules.ageGateSub": "By tapping Start you confirm you are 18 or older and accept the terms. The camera is only for the live chat.",
+      "rules.ageYes": "Start",
+      "rules.ageNo": "I'm under 18",
       "rules.underage": "Sorry — you must be 18+ to continue.",
       "rules.underageExit": "Back to homepage",
       "rules.agreeTitle": "User agreement",
@@ -1151,6 +1152,7 @@
       "settings.connLobby": "Лобби",
       "settings.connLobbyLine": "{online} онлайн · {waiting} ждут",
       "settings.connLobbyHint": "Живые счётчики хаба. Waiting — сколько человек сейчас в поиске.",
+      "pool.lowLiquidity": "Ищем собеседника по всему миру… пригласите друга",
       "pool.searching": "Поиск…",
       "pool.youWaiting": "Вы в очереди",
       "pool.othersWaiting": "ещё {n} ждут",
@@ -1829,10 +1831,10 @@
       "rules.ageConfirm": "Мне есть 18 лет",
       "rules.accept": "Принять",
       "rules.cancel": "Отмена",
-      "rules.ageGateTitle": "Вам есть 18 лет?",
-      "rules.ageGateSub": "Для ruletka нужно быть не младше 18 лет.",
-      "rules.ageYes": "Да, мне 18 или больше",
-      "rules.ageNo": "Нет",
+      "rules.ageGateTitle": "Начать чат · 18+",
+      "rules.ageGateSub": "Нажимая «Начать», вы подтверждаете, что вам есть 18 лет, и принимаете условия. Камера только для видеочата.",
+      "rules.ageYes": "Начать",
+      "rules.ageNo": "Мне нет 18",
       "rules.underage": "Извините — доступ только с 18 лет.",
       "rules.underageExit": "На главную",
       "rules.agreeTitle": "Пользовательское соглашение",
@@ -2067,7 +2069,7 @@
     if (!BUNDLED.has(c) && STR[c]) return Promise.resolve(STR[c]);
     if (loading[c]) return loading[c];
     // Prefer sessionStorage pack cache (avoids re-downloading ~100KB JSON every navigation)
-    const packCacheKey = "ruletka-i18n-pack-v98-" + c;
+    const packCacheKey = "ruletka-i18n-pack-v99-" + c;
     try {
       const cached = sessionStorage.getItem(packCacheKey);
       if (cached) {
@@ -2082,7 +2084,7 @@
     } catch (_) {}
 
     // Always fetch /i18n/{code}.json and merge over built-ins (en/ru too)
-    loading[c] = fetch(`/i18n/${c}.json?v=146`, { cache: "force-cache" })
+    loading[c] = fetch(`/i18n/${c}.json?v=147`, { cache: "force-cache" })
       .then((r) => {
         if (!r.ok) throw new Error("lang pack " + c);
         return r.json();

@@ -53,6 +53,9 @@ echo "repo:   $REPO"
 echo
 
 # ── L0 static ────────────────────────────────────────────────────────────
+# Pin lockstep 2026-10-10: live.js?v=986 live-stage.css?v=656
+# webrtc.js?v=356 hubs.js?v=157 identity.js?v=156
+# Hard asserts are in verify-match-ux.mjs. This script reads live.html.
 echo "── L0 static match-UX ──"
 if node scripts/verify-match-ux.mjs; then
   ok=$((ok + 1))

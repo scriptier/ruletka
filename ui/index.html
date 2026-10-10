@@ -1,55 +1,967 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>ruletka.me — random video chat roulette (18+ P2P)</title>
-  <meta name="description" content="ruletka.me and ruletka.vip: free random video chat roulette. No account. Peer-to-peer 18+ chat. Friends, block, report. Чат-рулетка без аккаунта." />
-  <meta name="robots" content="index, follow, max-image-preview:large" />
-  <link rel="canonical" href="https://ruletka.me/live.html" />
-  <link rel="alternate" href="https://ruletka.vip/live.html" />
+  <title>Чат рулетка — бесплатный видеочат без регистрации | Ruletka.me</title>
+  <meta name="description" content="Видео чат рулетка онлайн: случайный собеседник за секунды, без регистрации и аккаунта. Видео идёт напрямую браузер-браузер (P2P). Друзья, блок, жалоба. 18+." />
+  <meta name="keywords" content="чат рулетка, видео чат рулетка, видеочат без регистрации, случайный видеочат, Ruletka.me" />
   <meta name="theme-color" content="#07080c" />
-  <meta property="og:title" content="ruletka.me — live chat roulette" />
-  <meta property="og:description" content="Random P2P video chat. No account. 18+." />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <link rel="canonical" href="https://ruletka.me/" />
+  <link rel="alternate" hreflang="ru" href="https://ruletka.me/" />
+  <link rel="alternate" hreflang="en" href="https://ruletka.me/en/" />
+  <link rel="alternate" hreflang="x-default" href="https://ruletka.me/" />
+  <meta property="og:site_name" content="Ruletka.me" />
   <meta property="og:url" content="https://ruletka.me/" />
-  <meta property="og:image" content="https://ruletka.me/brand/og-share.jpg" />
+  <meta property="og:title" content="Чат рулетка — бесплатный видеочат без регистрации | Ruletka.me" />
+  <meta property="og:description" content="Видео чат рулетка онлайн: случайный собеседник за секунды, без регистрации и аккаунта. Видео идёт напрямую браузер-браузер (P2P). Друзья, блок, жалоба. 18+." />
+  <meta property="og:image" content="https://ruletka.me/brand/logo-mark.png" />
   <meta property="og:type" content="website" />
-  <link rel="icon" href="/brand/favicon-32.png?v=10" type="image/png" />
-  <meta http-equiv="refresh" content="0;url=/live.html" />
-  <style>html,body{margin:0;background:#07080c;min-height:100%;color:#e8eef7;font:16px/1.45 system-ui,sans-serif}</style>
+  <meta property="og:locale" content="ru_RU" />
+  <meta property="og:locale:alternate" content="en_US" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Чат рулетка — бесплатный видеочат без регистрации | Ruletka.me" />
+  <meta name="twitter:description" content="Видео чат рулетка онлайн: случайный собеседник за секунды, без регистрации и аккаунта. Видео идёт напрямую браузер-браузер (P2P). Друзья, блок, жалоба. 18+." />
+  <meta name="twitter:image" content="https://ruletka.me/brand/logo-mark.png" />
+<link rel="icon" href="/brand/favicon-32.png?v=10" type="image/png" sizes="32x32" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/brand/apple-touch-icon-180.png?v=10" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <!-- Non-blocking fonts (was render-blocking — major home slowdown) -->
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap"
+    media="print"
+    onload="this.media='all'"
+  />
+  <noscript>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  </noscript>
+  <link rel="preload" href="/brand/logo-mark.png?v=10" as="image" fetchpriority="high" />
+  <link rel="stylesheet" href="home.css?v=102" />
+  <script src="brand.js?v=3" defer></script>
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
     "@graph": [
       {
         "@type": "WebSite",
-        "name": "ruletka.me",
-        "alternateName": ["ruletka.vip", "ruletka"],
+        "@id": "https://ruletka.me/#website",
         "url": "https://ruletka.me/",
-        "sameAs": ["https://ruletka.vip/"]
+        "name": "Ruletka.me",
+        "alternateName": ["ruletka", "чат рулетка"],
+        "description": "Видео чат рулетка онлайн без регистрации. Видео идёт напрямую между браузерами.",
+        "inLanguage": ["ru", "en"],
+        "publisher": { "@id": "https://ruletka.me/#org" }
       },
       {
-        "@type": "WebApplication",
-        "name": "ruletka",
-        "url": "https://ruletka.me/live.html",
+        "@type": "Organization",
+        "@id": "https://ruletka.me/#org",
+        "name": "Ruletka.me",
+        "url": "https://ruletka.me/",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "https://ruletka.me/brand/icon-512.png",
+          "width": 512,
+          "height": 512
+        },
+        "image": "https://ruletka.me/brand/logo-mark.png"
+      },
+      {
+        "@type": "SoftwareApplication",
+        "@id": "https://ruletka.me/#app",
+        "name": "Ruletka.me",
         "applicationCategory": "SocialNetworkingApplication",
-        "operatingSystem": "Web, Android, iOS",
-        "description": "Random peer-to-peer video chat roulette. No account. 18+.",
-        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+        "operatingSystem": "Web, Android",
+        "contentRating": "18+",
+        "url": "https://ruletka.me/live.html",
+        "downloadUrl": "https://ruletka.me/download/android",
+        "logo": "https://ruletka.me/brand/logo-mark.png",
+        "description": "Случайный видеочат без регистрации. Видео peer-to-peer.",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "RUB"
+        }
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Нужна ли регистрация?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Нет. Нажми «Старт» — и ты уже в видеочате. Без регистрации, почты и телефона."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Куда уходит видео?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "P2P: видео идёт напрямую между браузерами, мы его не записываем. Жалоба может отправить один кадр."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Можно ли позвонить другу?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Да. Понравился собеседник — добавь в друзья по коду и звони ему позже."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Это 18+?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Да. Безопасность: блок, жалоба, размытие, ИИ на устройстве; строго 18+."
+            }
+          }
+        ]
       }
     ]
   }
   </script>
+</head>
+<body class="home-body">
+  <div class="home-bg" aria-hidden="true">
+    <div class="home-bg-grid"></div>
+    <div class="home-bg-orb home-bg-orb-a"></div>
+    <div class="home-bg-orb home-bg-orb-b"></div>
+    <div class="home-bg-orb home-bg-orb-c"></div>
+  </div>
+
+  <header class="home-nav">
+    <a class="home-brand" href="/" aria-label="Ruletka.me">
+      <img class="home-brand-logo" src="/brand/logo-mark.png?v=10" width="36" height="36" alt="" />
+      <span>Ruletka.me</span>
+    </a>
+    <div class="home-nav-right">
+      <button type="button" class="nav-share-btn" id="btn-share-site" data-i18n="home.share" title="Поделиться Ruletka.me">Поделиться</button>
+      <a class="nav-live-link" href="/live.html" data-i18n="home.cta">Начать чат</a>
+      <label class="home-lang" title="Language">
+        <span class="home-lang-ico" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M2 12h20"/>
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+          </svg>
+        </span>
+        <select id="home-lang" aria-label="Language">
+          <option value="ru" selected>Русский</option>
+          <option value="en">English</option>
+          <option value="uk">Українська</option>
+          <option value="pl">Polski</option>
+          <option value="cs">Čeština</option>
+          <option value="bg">Български</option>
+          <option value="sr">Српски</option>
+          <option value="es">Español</option>
+          <option value="de">Deutsch</option>
+          <option value="fr">Français</option>
+          <option value="pt">Português</option>
+          <option value="tr">Türkçe</option>
+          <option value="ar">العربية</option>
+          <option value="zh">中文</option>
+        </select>
+      </label>
+    </div>
+  </header>
+
+  <main class="home-main">
+    <!-- Hero -->
+    <section class="hero-stage">
+      <div class="hero-visual">
+        <div class="hero-logo-ring" aria-hidden="true"></div>
+        <div class="home-logo-wrap">
+          <!-- Poster first (LCP); mp4 loads only when hero is visible / motion OK -->
+          <img
+            class="home-logo home-hero-fallback"
+            id="home-hero-fallback"
+            src="/brand/logo-mark.png?v=10"
+            width="360"
+            height="360"
+            alt="Ruletka.me"
+            decoding="async"
+            fetchpriority="high"
+          />
+          <video
+            class="home-logo home-hero-video"
+            id="home-hero-video"
+            poster="/brand/logo-mark.png?v=10"
+            preload="none"
+            muted
+            playsinline
+            loop
+            hidden
+            width="360"
+            height="360"
+            aria-label="Ruletka.me"
+            data-src="/brand/loading-screen.mp4?v=9"
+          ></video>
+        </div>
+      </div>
+      <div class="hero-copy">
+        <p class="home-eyebrow">
+          <span class="eyebrow-dot" aria-hidden="true"></span>
+          <span data-i18n="home.eyebrow">Видео чат рулетка онлайн · 18+</span>
+        </p>
+        <h1 data-i18n="home.title">Чат рулетка — видеочат со случайными людьми</h1>
+        <p class="home-lead" data-i18n="home.lead">
+          Видео чат рулетка онлайн: случайный собеседник за секунды, без регистрации и аккаунта.
+          Видео идёт напрямую браузер-браузер (P2P). Друзья, блок, жалоба. 18+.
+        </p>
+
+        <div class="home-cta-row">
+          <a class="home-cta" href="/live.html">
+            <span data-i18n="home.cta">Начать чат</span>
+            <span class="cta-arrow" aria-hidden="true">→</span>
+          </a>
+          <button type="button" class="home-secondary home-invite-btn" id="btn-home-invite" data-i18n="home.invite">
+            Пригласить друзей
+          </button>
+        </div>
+        <ul class="home-trust" aria-label="Перед стартом">
+          <li>Будьте вежливы</li>
+          <li>Оставляйте разговор уместным</li>
+          <li>ИИ и жалобы помогают держать чат безопасным</li>
+        </ul>
+        <p class="home-low-pool" id="home-low-pool" data-i18n="home.lowPool">Ищем собеседника по всему миру… пригласите друга</p>
+
+        <div class="home-live-stats is-low" id="home-live-stats" hidden aria-live="polite">
+          <span class="stat-pill">
+            <span class="live-dot" aria-hidden="true"></span>
+            <span data-i18n="home.nowOnline">Сейчас онлайн</span>
+            <strong id="home-stat-online">…</strong>
+          </span>
+          <span class="stat-pill muted">
+            <span data-i18n="home.nowWaiting">В очереди</span>
+            <strong id="home-stat-waiting">…</strong>
+          </span>
+          <span class="stat-pill home-join-pill" id="home-join-pill" hidden>
+            <a href="/live.html" id="home-join-now" data-i18n="home.joinNow">Join now →</a>
+          </span>
+        </div>
+        <!-- Invite hints only (Tonight live chip/copy removed) -->
+        <div class="home-liquidity" id="home-liquidity" role="status">
+          <p class="home-window-chip" id="home-window-chip" hidden aria-hidden="true"></p>
+          <p class="home-busy-hours" id="home-busy-hours" hidden aria-hidden="true"></p>
+          <p class="home-invite-hint" id="home-invite-hint" data-i18n="home.inviteHint" hidden>
+            Тихо? Пригласите друга — в live поделитесь кодом, они примут, потом звонок.
+          </p>
+          <p class="home-quiet-cta" id="home-quiet-cta" hidden data-i18n="home.quietCta">
+            Никого в очереди — нажмите «Пригласить друзей», чтобы зайти вдвоём.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Feature cards — stroke icons (crisp on all displays; matches live UI) -->
+    <ul class="home-points">
+      <li>
+        <span class="pt-ico pt-ico-match" aria-hidden="true">
+          <svg class="pt-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/>
+          </svg>
+        </span>
+        <div>
+          <strong data-i18n="home.p1t">Быстрый матч</strong>
+          <span data-i18n="home.p1d">Спин, матч, далее — можно пропустить</span>
+        </div>
+      </li>
+      <li>
+        <span class="pt-ico pt-ico-p2p" aria-hidden="true">
+          <svg class="pt-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2"/>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          </svg>
+        </span>
+        <div>
+          <strong data-i18n="home.p2t">P2P медиа</strong>
+          <span data-i18n="home.p2d">Видео идёт напрямую. Жалоба может отправить один кадр.</span>
+        </div>
+      </li>
+      <li>
+        <span class="pt-ico pt-ico-friends" aria-hidden="true">
+          <svg class="pt-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+            <circle cx="9" cy="7" r="4"/>
+            <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+        </span>
+        <div>
+          <strong data-i18n="home.p3t">Друзья и блок</strong>
+          <span data-i18n="home.p3d">Код, подтверждение запроса, звонок онлайн</span>
+        </div>
+      </li>
+      <li>
+        <span class="pt-ico pt-ico-safety" aria-hidden="true">
+          <svg class="pt-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <path d="m9 12 2 2 4-4"/>
+          </svg>
+        </span>
+        <div>
+          <strong data-i18n="home.p4t">Безопасность</strong>
+          <span data-i18n="home.p4d">Жалоба, блок, блюр, ИИ на устройстве — несколько жалоб ограничивают матчинг</span>
+        </div>
+      </li>
+      <li class="home-point-stars">
+        <span class="pt-ico pt-ico-stars" aria-hidden="true">
+          <svg class="pt-svg" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+            <path d="M12 2.5l2.6 6.3 6.9.6-5.2 4.5 1.6 6.7L12 16.9 6.1 20.6l1.6-6.7L2.5 9.4l6.9-.6L12 2.5z"/>
+          </svg>
+        </span>
+        <div>
+          <strong data-i18n="home.p5t">Подарки</strong>
+          <span data-i18n="home.p5d">Звёзды — это подарки в чате, не деньги. Купить и вывести нельзя.</span>
+        </div>
+      </li>
+    </ul>
+
+    <section class="home-seo" id="why">
+      <h2>Как это устроено</h2>
+      <p>Нажми «Старт» — и ты уже в видеочате. Без регистрации, почты и телефона. Браузер спросит камеру один раз, на одном экране с правилами 18+.</p>
+      <p>P2P: видео идёт напрямую между браузерами, мы его не записываем. Жалоба может отправить один кадр. Сервер только знакомит двух людей и передаёт технические данные соединения.</p>
+      <p>Понравился собеседник — добавь в друзья по коду и звони ему позже. Не понравился — следующий человек. Если что-то не так, в чате есть блок и жалоба.</p>
+      <p>Безопасность: блок, жалоба, размытие, проверка кадра в браузере; строго 18+. Подробнее на странице <a href="/bezopasnost">безопасности</a>.</p>
+      <h2>Вопросы</h2>
+      <h3>Нужна ли регистрация?</h3>
+      <p>Нет. Нажми «Старт» — и ты уже в видеочате. Без регистрации, почты и телефона.</p>
+      <h3>Куда уходит видео?</h3>
+      <p>P2P: видео идёт напрямую между браузерами, мы его не записываем. Жалоба может отправить один кадр.</p>
+      <h3>Можно ли позвонить другу?</h3>
+      <p>Да. Понравился собеседник — добавь в друзья по коду и звони ему позже.</p>
+      <h3>Это 18+?</h3>
+      <p>Да. Безопасность: блок, жалоба, размытие, ИИ на устройстве; строго 18+.</p>
+    </section>
+
+    <section class="home-final-cta" aria-label="Начать чат">
+      <div class="final-cta-inner">
+        <div>
+          <h2 data-i18n="home.finalTitle">Можно начинать</h2>
+          <p data-i18n="home.finalLead">Без аккаунта. Видео идёт напрямую между браузерами.</p>
+        </div>
+        <a class="home-cta" href="/live.html">
+          <span data-i18n="home.cta">Начать чат</span>
+          <span class="cta-arrow" aria-hidden="true">→</span>
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="home-foot">
+    <span data-i18n="home.foot">18+ · Будьте вежливы · Блок и жалоба</span>
+    <span class="foot-links">
+      <a href="/videochat-bez-registracii" class="foot-link">Видеочат без регистрации</a>
+      <a href="/videochat-s-inostrancami" class="foot-link">Видеочат с иностранцами</a>
+      <a href="/analog-chat-ruletki" class="foot-link">Аналог чат рулетки</a>
+      <a href="/download/android" class="foot-link">Для Android</a>
+      <a href="/videozvonok-bez-registracii" class="foot-link">Видеозвонок другу</a>
+      <a href="/bezopasnost" class="foot-link">Безопасность</a>
+      <a href="/pomosh/kamera-i-mikrofon" class="foot-link">Помощь</a>
+      <a href="/legal/privacy.html" class="foot-link">Конфиденциальность</a>
+      <a href="/legal/terms.html" class="foot-link">Условия</a>
+      <a href="/en/" class="foot-link">English</a>
+    </span>
+  </footer>
+
   <script>
     (function () {
-      location.replace("/live.html" + (location.search || "") + (location.hash || ""));
+      var STR = {
+        en: {
+          "home.eyebrow": "Free random video chat · 18+",
+          "home.title": "Random video chat roulette, free and no sign-up",
+          "home.lead":
+            "Random video chat with strangers in your browser: no account, no download. Peer-to-peer video, friend codes, video calls to friends, block & report. Free, 18+.",
+          "home.cta": "Start chatting",
+          "home.lowPool": "Searching worldwide… invite a friend",
+          "home.share": "Share site",
+          "home.shareOk": "Link copied",
+          "home.invite": "Invite friends",
+          "home.inviteHint": "Quiet right now? Invite a friend — open live, share your code, they Accept, then Call.",
+          "home.busyHours": "Best odds: evenings (18:00–23:00 local) — bring a friend online at the same time.",
+          "home.quietCta": "Nobody waiting — use Invite friends so two of you land together.",
+          "home.busyNow": "People online now — Start chatting is the fastest path.",
+          "home.windowOpen": "Tonight live is open ({range}) — join now or invite a friend so you’re not alone.",
+          "home.windowSoon": "Tonight live starts at {start} (in ~{h}h). Set a reminder — bring a friend.",
+          "home.windowLater": "Best odds: {range} local. Quiet now — invite a friend for the evening window.",
+          "home.windowChipOpen": "Tonight live · open now · {range}",
+          "home.windowChipNext": "Tonight live · {range} local",
+          "home.inviteText": "Join me on {brand} tonight ({range}) — random video chat, or add me as a friend and Call.",
+          "home.inviteTextLive": "{n} online now on {brand}. Open live — match or Call friends.",
+          "home.inviteTextWindow": "I’m going on {brand} during tonight live ({range}). Join so we’re not alone — random chat or Call as friends.",
+          "home.invitePackTitle": "Ready text for a friend",
+          "home.invitePackSub": "Copy → paste in Telegram / chat",
+          "home.invitePackCopy": "Copy text",
+          "home.invitePackCopied": "Copied ✓",
+          "home.invitePackLive": "Open live · my code",
+          "invite.packTitle": "Join me on {brand} tonight",
+          "invite.packLiveTitle": "I’m live on {brand} — add me",
+          "invite.packBody": "Let’s try {brand} during tonight live ({range}) so we’re not alone.\n\nOpen: {url}\n\nRandom video chat or Call friends · no account · P2P video.",
+          "invite.packBodyCode": "Let’s try {brand} together during tonight live ({range}).\n\n1) Open: {url}\n2) Add my friend code: {code}\n3) Accept → Call when both Online\n\nPeer-to-peer video · no account · Block/Report built in.",
+          "invite.packLiveBody": "I’m on {brand} right now (peer-to-peer video, no account).\n\n1) Open: {url}\n2) Add my code: {code}\n3) I Accept → Call when Online\n\nTonight window: {range}",
+          "invite.packOnlineBody": "{n} people online on {brand} now — random video chat or friends Call.\n\nOpen: {url}\nNo account · video stays browser-to-browser.",
+          "invite.shareLineCode": "{brand}: add me {code} then Call · {url}",
+          "home.joinNow": "Join now →",
+          "home.nowOnline": "Online now",
+          "home.nowWaiting": "Waiting",
+          "home.finalTitle": "Ready when you are",
+          "home.finalLead": "No account. Camera stays peer-to-peer. Tap in and spin.",
+          "home.nowOnline": "Online now",
+          "home.nowWaiting": "Waiting",
+          "home.p1t": "Instant match",
+          "home.p1d": "Spin, match, next — skip anytime",
+          "home.p2t": "P2P media",
+          "home.p2d": "Video goes peer-to-peer. A report can include one still.",
+          "home.p3t": "Friends & block",
+          "home.p3d": "Share a code, accept requests, call when online",
+          "home.p4t": "Safety tools",
+          "home.p4d": "Report, block, blur-first, on-device AI skip — multi-report auto-restricts",
+          "home.p5t": "Gifts",
+          "home.p5d": "Stars are gifts in chat, not money. You can’t buy or cash them out.",
+          "home.diffTitle": "How we’re different",
+          "home.diffBody":
+            "Most chat roulettes route your video through their servers and push accounts or ads. On <strong>Ruletka.me</strong>, video goes browser to browser (peer-to-peer) — no signup. Friends, block, report, and on-device safety tools are built in. <strong>Gifts</strong> are play stars in chat — not money.",
+          "home.openTitle": "Open source & multi-hub",
+          "home.openBody":
+            "This software is <strong>open source</strong> (LGPL-2.1). Anyone can run their own hub. This site is a public seed — not the only network. If a hub goes down, the live app can try other hubs from a public directory. Helpers run a full chat node you can share.",
+          "home.openSrc": "GitHub",
+          "home.openSelfHost": "Self-host (Docker)",
+          "home.openDir": "Hub directory API",
+          "home.openHubs": "hubs.json",
+          "home.openSourceJson": "source.json",
+          "home.openHelper": "Run a helper",
+          "home.openOps": "For operators",
+          "home.legal": "Legal",
+          "home.privacy": "Privacy",
+          "home.terms": "Terms",
+          "home.donate": "Donate",
+          "home.safety": "Safety",
+          "home.foot": "18+ · Be respectful · Use Block if needed",
+          "home.statsOffline": "Hub offline",
+        },
+        ru: {
+          "home.eyebrow": "Видео чат рулетка онлайн · 18+",
+          "home.title": "Чат рулетка — видеочат со случайными людьми",
+          "home.lead":
+            "Видео чат рулетка онлайн: случайный собеседник за секунды, без регистрации и аккаунта. Видео идёт напрямую браузер-браузер (P2P). Друзья, блок, жалоба. 18+.",
+          "home.cta": "Начать чат",
+          "home.lowPool": "Ищем собеседника по всему миру… пригласите друга",
+          "home.share": "Поделиться",
+          "home.shareOk": "Ссылка скопирована",
+          "home.invite": "Пригласить друзей",
+          "home.inviteHint": "Тихо? Пригласите друга — в live поделитесь кодом, они Accept, потом звонок.",
+          "home.busyHours": "Лучше вечером (18:00–23:00 по местному) — зайдите с другом в одно время.",
+          "home.quietCta": "Никого в очереди — нажмите «Пригласить друзей», чтобы зайти вдвоём.",
+          "home.busyNow": "Кто-то уже онлайн — быстрее всего «Начать чат».",
+          "home.windowOpen": "Вечерний live открыт ({range}) — зайди сейчас или пригласи друга, чтобы не ждать в одиночку.",
+          "home.windowSoon": "Вечерний live с {start} (через ~{h} ч). Поставь напоминание — приходи с другом.",
+          "home.windowLater": "Лучше {range} по местному. Сейчас тихо — пригласи друга на вечернее окно.",
+          "home.windowChipOpen": "Вечерний live · сейчас · {range}",
+          "home.windowChipNext": "Вечерний live · {range} по местному",
+          "home.inviteText": "Заходи на {brand} вечером ({range}) — случайный видеочат или друзья и звонок.",
+          "home.inviteTextLive": "Сейчас {n} онлайн на {brand}. Открой live — матч или звонок другу.",
+          "home.inviteTextWindow": "Буду на {brand} в вечерний live ({range}). Заходи, чтобы не ждать вдвоём — чат или звонок друзьям.",
+          "home.invitePackTitle": "Готовый текст для друга",
+          "home.invitePackSub": "Скопируй → вставь в Telegram / чат",
+          "home.invitePackCopy": "Скопировать текст",
+          "home.invitePackCopied": "Скопировано ✓",
+          "home.invitePackLive": "Открыть live · мой код",
+          "invite.packTitle": "Заходи на {brand} вечером",
+          "invite.packLiveTitle": "Я в live на {brand} — добавь меня",
+          "invite.packBody": "Давай вместе на {brand} в вечерний live ({range}), чтобы не ждать в одиночку.\n\nОткрой: {url}\n\nСлучайный видеочат или звонок друзьям · без аккаунта · видео P2P.",
+          "invite.packBodyCode": "Давай вместе на {brand} в вечерний live ({range}).\n\n1) Открой: {url}\n2) Добавь мой код: {code}\n3) Accept → звонок, когда оба Online\n\nВидео peer-to-peer · без аккаунта · есть Блок/Жалоба.",
+          "invite.packLiveBody": "Я сейчас на {brand} (peer-to-peer видео, без аккаунта).\n\n1) Открой: {url}\n2) Добавь код: {code}\n3) Я приму → звонок Online\n\nОкно: {range}",
+          "invite.packOnlineBody": "Сейчас {n} онлайн на {brand} — случайный чат или звонок другу.\n\nОткрой: {url}\nБез аккаунта · видео браузер к браузеру.",
+          "invite.shareLineCode": "{brand}: добавь {code} и звони · {url}",
+          "home.joinNow": "Зайти →",
+          "home.nowOnline": "Сейчас онлайн",
+          "home.nowWaiting": "В очереди",
+          "home.finalTitle": "Можно начинать",
+          "home.finalLead": "Без аккаунта. Видео peer-to-peer. Заходите и крутите.",
+          "home.nowOnline": "Сейчас онлайн",
+          "home.nowWaiting": "В очереди",
+          "home.p1t": "Быстрый матч",
+          "home.p1d": "Спин, матч, далее — можно пропустить",
+          "home.p2t": "P2P медиа",
+          "home.p2d": "Видео идёт напрямую. Жалоба может отправить один кадр.",
+          "home.p3t": "Друзья и блок",
+          "home.p3d": "Код, подтверждение запроса, звонок онлайн",
+          "home.p4t": "Безопасность",
+          "home.p4d": "Жалоба, блок, блюр, ИИ на устройстве — несколько жалоб ограничивают матчинг",
+          "home.p5t": "Подарки",
+          "home.p5d": "Звёзды — это подарки в чате, не деньги. Купить и вывести нельзя.",
+          "home.openTitle": "Open source и мульти-хаб",
+          "home.openBody":
+            "Софт <strong>открытый</strong> (LGPL-2.1). Любой может поднять свой хаб. Этот сайт — публичное семя, не единственная сеть. Если хаб упал, live-клиент может взять другой из каталога. Helper — полноценная нода, которой можно делиться.",
+          "home.openSrc": "GitHub",
+          "home.openSelfHost": "Свой хаб (Docker)",
+          "home.openDir": "API каталога хабов",
+          "home.openHubs": "hubs.json",
+          "home.openSourceJson": "source.json",
+          "home.openHelper": "Запустить helper",
+          "home.openOps": "Для операторов",
+          "home.legal": "Правовое",
+          "home.privacy": "Конфиденциальность",
+          "home.terms": "Условия",
+          "home.donate": "Донат",
+          "home.safety": "Безопасность",
+          "home.statsOffline": "Хаб офлайн",
+          "home.diffTitle": "Чем мы отличаемся",
+          "home.diffBody":
+            "Обычные чат-рулетки гонят видео через свои серверы и навязывают аккаунты или рекламу. На <strong>Ruletka.me</strong> видео идёт из браузера в браузер (peer-to-peer) — без регистрации. Есть друзья, блок, жалобы и защита на устройстве.",
+          "home.foot": "18+ · Уважайте других · Есть «В блок»",
+        },
+      };
+
+      var HOME_LANGS = ["ru", "en", "uk", "pl", "cs", "bg", "sr", "es", "de", "fr", "pt", "tr", "ar", "zh"];
+
+      function isHomeRoot() {
+        var p = location.pathname || "/";
+        return p === "/" || p === "/index.html";
+      }
+
+      function goEnglishLanding() {
+        try {
+          var u = new URL("/en/", location.origin);
+          var q = new URLSearchParams(location.search);
+          q.delete("lang");
+          var s = q.toString();
+          location.replace(u.pathname + (s ? "?" + s : "") + (location.hash || ""));
+        } catch (_) {
+          location.replace("/en/");
+        }
+      }
+
+      function getLang() {
+        try {
+          var q = new URLSearchParams(location.search).get("lang");
+          var stored = null;
+          try {
+            stored = localStorage.getItem("nextface-lang-v1");
+          } catch (_) {}
+          // / is the Russian landing. English is /en/. Do not follow navigator.
+          if (isHomeRoot()) {
+            if (q === "en" || (!q && stored === "en")) return "en";
+            if (q && HOME_LANGS.indexOf(q) >= 0) return q;
+            if (stored && HOME_LANGS.indexOf(stored) >= 0 && stored !== "en") return stored;
+            return "ru";
+          }
+          if (q && HOME_LANGS.indexOf(q) >= 0) return q;
+          if (stored && HOME_LANGS.indexOf(stored) >= 0) return stored;
+          var nav = navigator.languages || [navigator.language || ""];
+          for (var i = 0; i < nav.length; i++) {
+            var primary = String(nav[i] || "").toLowerCase().split("-")[0];
+            if (HOME_LANGS.indexOf(primary) >= 0) return primary;
+          }
+        } catch (_) {}
+        return "ru";
+      }
+
+      var packCache = {};
+
+      function applyDict(lang, dict) {
+        document.documentElement.lang = lang === "zh" ? "zh-CN" : lang;
+        document.querySelectorAll("[data-i18n]").forEach(function (el) {
+          var k = el.getAttribute("data-i18n");
+          if (dict[k] != null) el.innerHTML = dict[k];
+          else if (STR.en[k] != null) el.innerHTML = STR.en[k];
+        });
+        var sel = document.getElementById("home-lang");
+        if (sel) sel.value = lang;
+        // All live CTAs keep lang query for handoff
+        document.querySelectorAll(".home-cta, .nav-live-link, a[href*='live.html']").forEach(function (a) {
+          try {
+            var nu = new URL(a.getAttribute("href") || a.href, location.origin);
+            if (nu.pathname.indexOf("live") < 0) return;
+            if (lang && lang !== "en") nu.searchParams.set("lang", lang);
+            else nu.searchParams.delete("lang");
+            a.href = nu.pathname + nu.search + (nu.hash || "");
+          } catch (_) {}
+        });
+        // Host brand (ruletka.me / .vip) after i18n overwrites
+        if (window.RuletBrand && RuletBrand.apply) RuletBrand.apply(document);
+      }
+
+      function setLang(lang) {
+        if (HOME_LANGS.indexOf(lang) < 0) lang = "ru";
+        try {
+          localStorage.setItem("nextface-lang-v1", lang);
+        } catch (_) {}
+        if (lang === "en" && isHomeRoot()) {
+          goEnglishLanding();
+          return;
+        }
+        // Prefer full pack cache (all languages, including en/ru overlays)
+        function peekOnline() {
+          try {
+            var el = document.getElementById("home-stat-online");
+            return el
+              ? parseInt(String(el.textContent || "0").replace(/\D/g, ""), 10) ||
+                  0
+              : 0;
+          } catch (_) {
+            return 0;
+          }
+        }
+        if (packCache[lang]) {
+          applyDict(lang, packCache[lang]);
+          try {
+            var n0 = peekOnline();
+            updateHomeLiveWindow(packCache[lang], {
+              hasPeople: n0 > 0,
+              online: n0,
+            });
+          } catch (_) {}
+          return;
+        }
+        // Flash bundled RU/EN or English while pack loads
+        applyDict(lang, STR[lang] || STR.en || {});
+        try {
+          updateHomeLiveWindow(STR[lang] || STR.en || {}, {
+            hasPeople: false,
+            online: 0,
+          });
+        } catch (_) {}
+        fetch("/i18n/" + lang + ".json?v=147", { cache: "force-cache" })
+          .then(function (r) {
+            if (!r.ok) throw new Error("pack");
+            return r.json();
+          })
+          .then(function (j) {
+            packCache[lang] = Object.assign({}, STR[lang] || STR.en || {}, j);
+            if (getLang() === lang) {
+              applyDict(lang, packCache[lang]);
+              try {
+                var n1 = peekOnline();
+                updateHomeLiveWindow(packCache[lang], {
+                  hasPeople: n1 > 0,
+                  online: n1,
+                });
+              } catch (_) {}
+            }
+          })
+          .catch(function () {});
+      }
+
+      var sel = document.getElementById("home-lang");
+      if (sel) {
+        sel.addEventListener("change", function () {
+          setLang(sel.value);
+        });
+      }
+      setLang(getLang());
+
+      function tHome(dict, key, fallback, vars) {
+        var s = (dict && dict[key]) || fallback || key;
+        if (vars && window.RuletLiveWindow && RuletLiveWindow.fill) {
+          return RuletLiveWindow.fill(s, vars);
+        }
+        if (vars) {
+          return String(s).replace(/\{(\w+)\}/g, function (_, k) {
+            return vars[k] != null ? String(vars[k]) : "";
+          });
+        }
+        return s;
+      }
+
+      /** Tonight-live chip/copy removed from homepage (keep invite hints only). */
+      function updateHomeLiveWindow(dict, ctx) {
+        var busyEl = document.getElementById("home-busy-hours");
+        var chip = document.getElementById("home-window-chip");
+        if (busyEl) {
+          busyEl.hidden = true;
+          busyEl.setAttribute("hidden", "");
+          busyEl.setAttribute("aria-hidden", "true");
+          busyEl.textContent = "";
+        }
+        if (chip) {
+          chip.hidden = true;
+          chip.setAttribute("hidden", "");
+          chip.setAttribute("aria-hidden", "true");
+        }
+      }
+
+      // Live pool snapshot from bridge /health (no account, public)
+      function refreshHomeStats() {
+        var wrap = document.getElementById("home-live-stats");
+        var onlineEl = document.getElementById("home-stat-online");
+        var waitingEl = document.getElementById("home-stat-waiting");
+        if (!wrap || !onlineEl || !waitingEl) return;
+        fetch("/health", { cache: "no-store", credentials: "omit" })
+          .then(function (r) {
+            if (!r.ok) throw new Error("health " + r.status);
+            return r.json();
+          })
+          .then(function (j) {
+            if (!j || j.ok === false) throw new Error("bad health");
+            var online = typeof j.online === "number" ? j.online : 0;
+            var waiting =
+              typeof j.waiting === "number"
+                ? j.waiting
+                : typeof j.waiting_solo === "number"
+                  ? j.waiting_solo
+                  : 0;
+            onlineEl.textContent = String(online);
+            waitingEl.textContent = String(waiting);
+            wrap.classList.remove("is-offline");
+            var low = online < 5;
+            var lowEl = document.getElementById("home-low-pool");
+            if (lowEl) lowEl.hidden = !low;
+            wrap.classList.toggle("is-low", low);
+            wrap.hidden = low;
+            var hasPeople = !low && (online > 0 || waiting > 0);
+            wrap.classList.toggle("has-people", hasPeople);
+            document.body.classList.toggle("has-live-people", hasPeople);
+            document.body.classList.toggle("is-quiet-pool", low);
+            var joinPill = document.getElementById("home-join-pill");
+            if (joinPill) joinPill.hidden = low || !hasPeople;
+            var quietCta = document.getElementById("home-quiet-cta");
+            if (quietCta) quietCta.hidden = true;
+            var inviteHint = document.getElementById("home-invite-hint");
+            if (inviteHint) inviteHint.hidden = low;
+            var dict = packCache[getLang()] || STR[getLang()] || STR.ru;
+            updateHomeLiveWindow(dict, { hasPeople: hasPeople, online: online });
+            var inviteBtn = document.getElementById("btn-home-invite");
+            if (inviteBtn) inviteBtn.classList.remove("is-priority");
+            // Optional title on remaining Start chatting links (header + bottom)
+            if (hasPeople && online > 0) {
+              var base = (dict && dict["home.cta"]) || "Start chatting";
+              document
+                .querySelectorAll(".nav-live-link, .home-final-cta .home-cta")
+                .forEach(function (cta) {
+                  cta.title = base + " · " + online + " online";
+                  cta.setAttribute("data-online", String(online));
+                });
+            }
+          })
+          .catch(function () {
+            var dict = packCache[getLang()] || STR[getLang()] || STR.ru;
+            var lowEl = document.getElementById("home-low-pool");
+            if (lowEl) lowEl.hidden = false;
+            wrap.classList.add("is-low", "is-offline");
+            wrap.classList.remove("has-people");
+            wrap.hidden = true;
+            document.body.classList.remove("has-live-people");
+            document.body.classList.add("is-quiet-pool");
+            var joinPill = document.getElementById("home-join-pill");
+            if (joinPill) joinPill.hidden = true;
+            var quietCta = document.getElementById("home-quiet-cta");
+            if (quietCta) quietCta.hidden = true;
+            var inviteHint = document.getElementById("home-invite-hint");
+            if (inviteHint) inviteHint.hidden = true;
+            updateHomeLiveWindow(dict, { hasPeople: false, online: 0 });
+          });
+      }
+      // Initial window line before health returns
+      updateHomeLiveWindow(
+        packCache[getLang()] || STR[getLang()] || STR.en,
+        { hasPeople: false, online: 0 }
+      );
+      refreshHomeStats();
+      setInterval(refreshHomeStats, 10000);
+      // Refresh window labels every minute (phase can flip at :00)
+      setInterval(function () {
+        var dict = packCache[getLang()] || STR[getLang()] || STR.en;
+        var onlineEl = document.getElementById("home-stat-online");
+        var n =
+          onlineEl &&
+          parseInt(String(onlineEl.textContent || "0").replace(/\D/g, ""), 10);
+        updateHomeLiveWindow(dict, {
+          hasPeople: !!(n > 0),
+          online: n || 0,
+        });
+      }, 60000);
+
+      // Poster (logo-mark) is the LCP image. The mp4 stays unloaded until the
+      // hero is on screen and the browser is idle. Reduced motion keeps the still.
+      (function setupHeroVideo() {
+        var vid = document.getElementById("home-hero-video");
+        var fb = document.getElementById("home-hero-fallback");
+        if (!vid) return;
+        var reduce = false;
+        try {
+          reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        } catch (_) {}
+        if (reduce) return;
+        var armed = false;
+        function arm() {
+          if (armed) return;
+          armed = true;
+          var src = vid.getAttribute("data-src");
+          if (!src) return;
+          vid.addEventListener("error", function () {
+            vid.hidden = true;
+            vid.setAttribute("hidden", "");
+            if (fb) {
+              fb.hidden = false;
+              fb.removeAttribute("hidden");
+            }
+          });
+          vid.addEventListener("loadeddata", function () {
+            vid.hidden = false;
+            vid.removeAttribute("hidden");
+            if (fb) {
+              fb.hidden = true;
+              fb.setAttribute("hidden", "");
+            }
+            var play = vid.play();
+            if (play && play.catch) play.catch(function () {});
+          });
+          vid.preload = "metadata";
+          vid.src = src;
+        }
+        function later(fn) {
+          if (window.requestIdleCallback) requestIdleCallback(fn, { timeout: 2500 });
+          else setTimeout(fn, 1200);
+        }
+        if (!window.IntersectionObserver) {
+          later(arm);
+          return;
+        }
+        var io = new IntersectionObserver(function (entries) {
+          for (var i = 0; i < entries.length; i++) {
+            if (entries[i].isIntersecting) {
+              io.disconnect();
+              later(arm);
+              return;
+            }
+          }
+        });
+        io.observe(fb || vid);
+      })();
+
+      // Share site (clipboard/native) · Invite friends → live to share your real friend code
+      function homeOnlineCount() {
+        var onlineEl = document.getElementById("home-stat-online");
+        return onlineEl
+          ? parseInt(String(onlineEl.textContent || "0").replace(/\D/g, ""), 10) || 0
+          : 0;
+      }
+      function homeLangQs() {
+        try {
+          var lang = getLang();
+          return lang && lang !== "en" ? "lang=" + encodeURIComponent(lang) : "";
+        } catch (_) {
+          return "";
+        }
+      }
+      function doHomeShare(btn, mode) {
+        if (!btn) return;
+        // Site share → live with ref; invite uses dedicated path (see inviteBtn)
+        var qs = "ref=" + (mode === "invite" ? "invite" : "share");
+        var lq = homeLangQs();
+        if (lq) qs += "&" + lq;
+        var url = location.origin + "/live.html?" + qs;
+        var brand =
+          (window.RuletBrand && RuletBrand.name && RuletBrand.name()) ||
+          "Ruletka.me";
+        var title = brand + " — peer-to-peer chat roulette";
+        var dict = packCache[getLang()] || STR[getLang()] || STR.en;
+        var okLabel = (dict && dict["home.shareOk"]) || "Link copied";
+        var n = homeOnlineCount();
+        var text;
+        var range = "18:00–23:00";
+        try {
+          if (window.RuletLiveWindow && RuletLiveWindow.getState) {
+            range = RuletLiveWindow.getState().rangeLabel;
+          }
+        } catch (_) {}
+        if (n > 0) {
+          text = (
+            (dict && dict["home.inviteTextLive"]) ||
+            "{n} online now on {brand}. Open live and match or call friends."
+          )
+            .replace(/\{n\}/g, String(n))
+            .replace(/\{brand\}/g, brand);
+        } else {
+          text = (
+            (dict && dict["home.inviteTextWindow"]) ||
+            (dict && dict["home.inviteText"]) ||
+            "I’m going on {brand} during tonight live ({range}). Join so we’re not alone."
+          )
+            .replace(/\{brand\}/g, brand)
+            .replace(/\{range\}/g, range);
+        }
+        var done = function () {
+          var prev = btn.textContent;
+          var key = mode === "invite" ? "home.invite" : "home.share";
+          btn.textContent = okLabel;
+          setTimeout(function () {
+            btn.textContent = (dict && dict[key]) || prev || "Share";
+          }, 1600);
+        };
+        if (navigator.share) {
+          navigator
+            .share({ title: title, url: url, text: text })
+            .then(done)
+            .catch(function () {});
+          return;
+        }
+        var clip = text + "\n" + url;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(clip).then(done).catch(function () {});
+        } else {
+          var ta = document.createElement("textarea");
+          ta.value = clip;
+          document.body.appendChild(ta);
+          ta.select();
+          try {
+            document.execCommand("copy");
+          } catch (_) {}
+          ta.remove();
+          done();
+        }
+      }
+      var shareBtn = document.getElementById("btn-share-site");
+      if (shareBtn) {
+        shareBtn.addEventListener("click", function () {
+          doHomeShare(shareBtn, "share");
+        });
+      }
+      // Invite friends → open live Friends panel so you share a real ?friend=CODE link
+      var inviteBtn = document.getElementById("btn-home-invite");
+      if (inviteBtn) {
+        inviteBtn.addEventListener("click", function () {
+          var qs = "invite=1";
+          var lq = homeLangQs();
+          if (lq) qs += "&" + lq;
+          try {
+            location.href = "/live.html?" + qs;
+          } catch (_) {
+            doHomeShare(inviteBtn, "invite");
+          }
+        });
+      }
+      // App helpers are not needed for the first paint. Load them after idle.
+      (function loadDeferredAppScripts() {
+        var srcs = ["live-window.js?v=1", "analytics.js?v=3", "pwa-install.js?v=13"];
+        function inject() {
+          srcs.forEach(function (src) {
+            var s = document.createElement("script");
+            s.src = src;
+            s.defer = true;
+            s.onload = function () {
+              if (src.indexOf("live-window") < 0) return;
+              try {
+                var dict = packCache[getLang()] || STR[getLang()] || STR.en;
+                updateHomeLiveWindow(dict, { hasPeople: homeOnlineCount() >= 5, online: homeOnlineCount() });
+              } catch (_) {}
+            };
+            document.body.appendChild(s);
+          });
+        }
+        if (window.requestIdleCallback) requestIdleCallback(inject, { timeout: 2000 });
+        else window.addEventListener("load", function () { setTimeout(inject, 400); });
+      })();
     })();
   </script>
-</head>
-<body>
-  <noscript>
-    <p>ruletka.me — random video chat roulette (18+). No account. Peer-to-peer.</p>
-    <p><a href="/live.html">Start chat</a> · <a href="/home.html">About</a> · <a href="/safety.html">Safety</a> · <a href="https://ruletka.vip/">ruletka.vip</a></p>
-  </noscript>
 </body>
 </html>

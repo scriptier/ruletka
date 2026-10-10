@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "ruletka.vip",
-  "short_name": "ruletka",
+  "name": "Ruletka.me",
+  "short_name": "Ruletka.me",
   "description": "Random peer-to-peer video chat. No account. Friends, block, report. 18+.",
   "start_url": "/live.html?source=pwa",
   "scope": "/",
@@ -56,11 +56,11 @@
   ],
   "screenshots": [
     {
-      "src": "/brand/og-share.jpg",
-      "sizes": "1200x630",
-      "type": "image/jpeg",
+      "src": "/brand/logo-mark.png",
+      "sizes": "256x256",
+      "type": "image/png",
       "form_factor": "wide",
-      "label": "ruletka.vip — peer-to-peer chat roulette"
+      "label": "Ruletka.me"
     }
   ],
   "shortcuts": [

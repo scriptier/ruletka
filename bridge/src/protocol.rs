@@ -187,6 +187,45 @@ pub enum ClientMsg {
         #[serde(default)]
         clear: bool,
     },
+    /// On-device shadow observation from the phone (`buildSafetyLog`).
+    /// Log only. This is not `report_user` and must never ban.
+    SafetyLog {
+        /// Must be true. A false or missing flag is dropped, not filed as a report.
+        #[serde(default)]
+        log_only: bool,
+        #[serde(default)]
+        reason: String,
+        #[serde(default)]
+        target_user_id: String,
+        #[serde(default)]
+        model: String,
+        #[serde(default)]
+        model_ready: bool,
+        #[serde(default)]
+        face: String,
+        #[serde(default)]
+        nsfw: String,
+        /// Last few detector samples. Shape is the client's; capped server-side.
+        #[serde(default)]
+        window: Vec<serde_json::Value>,
+        /// Omitted when the phone has no scores (`undefined` drops out of JSON).
+        #[serde(default)]
+        scores: Option<SafetyScores>,
+        /// Client clock, milliseconds. 0 if missing.
+        #[serde(default)]
+        ts: u64,
+    },
+}
+
+/// porn / hentai / sexy scores on a `safety_log`. Absent object ≠ zeros.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SafetyScores {
+    #[serde(default)]
+    pub porn: f64,
+    #[serde(default)]
+    pub hentai: f64,
+    #[serde(default)]
+    pub sexy: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -614,4 +653,70 @@ fn default_rate_min_secs() -> u64 {
 
 fn default_effect_level_u32() -> u32 {
     1
+}
+
+#[cfg(test)]
+mod safety_log_parse_tests {
+    use super::ClientMsg;
+
+    #[test]
+    fn parses_the_mobile_build_safety_log_body() {
+        let raw = r#"{
+            "type": "safety_log",
+            "log_only": true,
+            "reason": "explicit_shadow",
+            "target_user_id": "abc123abc123abcd",
+            "model": "stub",
+            "model_ready": false,
+            "face": "absent",
+            "nsfw": "explicit",
+            "window": ["explicit", "explicit"],
+            "scores": {"porn": 0.9, "hentai": 0.1, "sexy": 0.2},
+            "ts": 10
+        }"#;
+        let msg: ClientMsg = serde_json::from_str(raw).expect("safety_log json");
+        match msg {
+            ClientMsg::SafetyLog {
+                log_only,
+                reason,
+                target_user_id,
+                model,
+                model_ready,
+                face,
+                nsfw,
+                window,
+                scores,
+                ts,
+            } => {
+                assert!(log_only);
+                assert_eq!(reason, "explicit_shadow");
+                assert_ne!(reason, "explicit_ai");
+                assert_eq!(target_user_id, "abc123abc123abcd");
+                assert_eq!(model, "stub");
+                assert!(!model_ready);
+                assert_eq!(face, "absent");
+                assert_eq!(nsfw, "explicit");
+                assert_eq!(window.len(), 2);
+                let scores = scores.expect("scores object");
+                assert!((scores.porn - 0.9).abs() < 1e-9);
+                assert!((scores.hentai - 0.1).abs() < 1e-9);
+                assert!((scores.sexy - 0.2).abs() < 1e-9);
+                assert_eq!(ts, 10);
+            }
+            other => panic!("expected SafetyLog, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn omitted_scores_stay_absent() {
+        let raw = r#"{"type":"safety_log","log_only":true,"reason":"explicit_shadow","target_user_id":"abc","model":"stub","model_ready":false,"face":"unknown","nsfw":"unknown","window":[],"ts":10}"#;
+        let msg: ClientMsg = serde_json::from_str(raw).unwrap();
+        match msg {
+            ClientMsg::SafetyLog { scores, log_only, .. } => {
+                assert!(log_only);
+                assert!(scores.is_none());
+            }
+            other => panic!("expected SafetyLog, got {other:?}"),
+        }
+    }
 }

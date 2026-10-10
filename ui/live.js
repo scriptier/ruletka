@@ -13285,7 +13285,7 @@ function syncNoCamOutbound() {
   syncCamHiddenSignal();
 }
 
-const NO_CAM_PORTRAIT_SRC = "/brand/logo-hero.jpg?v=1";
+const NO_CAM_PORTRAIT_SRC = "/brand/logo-mark.png?v=10";
 
 function noCamPortraitSrc(avatarUrl) {
   try {
@@ -21337,6 +21337,19 @@ function tickConnLobbyNum(el, next) {
 function paintConnLobbyTicker() {
   const online = Math.max(0, lastOnlineCount || 0);
   const waiting = Math.max(0, lastWaitingCount || 0);
+  const low = online < 5;
+  const stats = $("conn-lobby-stats");
+  const note = $("conn-lobby-low");
+  if (stats) stats.hidden = low;
+  if (note) {
+    note.hidden = !low;
+    if (low) {
+      note.textContent =
+        _t("pool.lowLiquidity") ||
+        "Ищем собеседника по всему миру… пригласите друга";
+    }
+  }
+  if (low) return;
   tickConnLobbyNum($("conn-stat-online"), online);
   tickConnLobbyNum($("conn-stat-waiting"), waiting);
 }
@@ -21477,7 +21490,7 @@ function siteBrandName() {
   try {
     if (typeof RuletBrand !== "undefined" && RuletBrand.name) return RuletBrand.name();
   } catch (_) {}
-  return "ruletka.vip";
+  return "Ruletka.me";
 }
 
 async function shareOrCopy(url, title, okShareKey, okCopyKey, opts) {
@@ -22017,7 +22030,22 @@ function showRulesGate() {
   return true;
 }
 
+let rulesGateEntered = false;
+
+function pendingInviteSkipsAutoStart() {
+  try {
+    if (typeof getPendingFriendCode === "function" && getPendingFriendCode()) return true;
+    const q = new URLSearchParams(location.search);
+    if (q.get("invite") || q.get("friend") || q.get("room") || q.get("open") === "friends") {
+      return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
 function acceptRulesAndEnter() {
+  if (rulesGateEntered) return;
+  rulesGateEntered = true;
   try {
     localStorage.setItem(RULES_KEY, "1");
   } catch (_) {}
@@ -22073,6 +22101,11 @@ function acceptRulesAndEnter() {
       maybeShowFirstSessionGuide();
     } catch (_) {}
   }, 400);
+  if (!pendingInviteSkipsAutoStart()) {
+    try {
+      startMatchFromIdle();
+    } catch (_) {}
+  }
 }
 
 function wireRulesGate() {
@@ -22080,16 +22113,12 @@ function wireRulesGate() {
   if (!ov) return;
 
   $("btn-age-yes")?.addEventListener("click", () => {
+    const gate = $("rules-overlay");
+    if (gate && gate.hidden && rulesAccepted()) return;
     try {
       trackEvent("age_yes");
     } catch (_) {}
-    showAgreeSheet();
-    // Move focus into agreement sheet primary action
-    setTimeout(() => {
-      try {
-        $("btn-rules-accept")?.focus?.();
-      } catch (_) {}
-    }, 80);
+    acceptRulesAndEnter();
   });
   $("btn-age-no")?.addEventListener("click", () => {
     const under = $("age-gate-underage");

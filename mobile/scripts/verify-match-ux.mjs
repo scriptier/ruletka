@@ -1740,16 +1740,16 @@ if (!liveHtml) {
     );
   }
   if (
-    /live-stage\.css\?v=647/.test(html) &&
-    /live\.js\?v=983/.test(html) &&
+    /live-stage\.css\?v=656/.test(html) &&
+    /live\.js\?v=986/.test(html) &&
     /webrtc\.js\?v=356/.test(html) &&
     /hubs\.js\?v=157/.test(html)
   ) {
-    ok("live.html pins stage 645 + live.js 980 + webrtc 356 + hubs 157");
+    ok("live.html pins stage 656 + live.js 986 + webrtc 356 + hubs 157");
   } else {
     fail(
       "Stop idle cache-bust",
-      "live.html must pin live-stage.css?v=645 and live.js?v=980 (webrtc 356, hubs 157)"
+      "live.html must pin live-stage.css?v=656 and live.js?v=986 (webrtc 356, hubs 157)"
     );
   }
 }
@@ -1757,12 +1757,15 @@ if (!liveHtml) {
 {
   const liveJs = readRepo("ui/live.js") || "";
   const indexHtml = readRepo("ui/index.html") || "";
-  if (/href="https:\/\/ruletka\.me\/live\.html"/.test(indexHtml)) {
-    ok("index.html canonical prefers ruletka.me/live.html");
+  if (
+    /rel="canonical" href="https:\/\/ruletka\.me\/"/.test(indexHtml) &&
+    /href="\/live\.html"/.test(indexHtml)
+  ) {
+    ok("index.html is the Russian home and links to /live.html");
   } else {
     fail(
       "index canonical",
-      "ui/index.html canonical must be https://ruletka.me/live.html"
+      "ui/index.html canonical must be https://ruletka.me/ and the page must link to /live.html"
     );
   }
   const hint =
@@ -1822,16 +1825,16 @@ if (!liveHtml) {
   }
   if (
     /hubs\.js\?v=157/.test(html) &&
-    /live\.js\?v=983/.test(html) &&
+    /live\.js\?v=986/.test(html) &&
     /webrtc\.js\?v=356/.test(html) &&
-    /live-stage\.css\?v=647/.test(html) &&
+    /live-stage\.css\?v=656/.test(html) &&
     /identity\.js\?v=156/.test(html)
   ) {
-    ok("lockstep pins hubs 157 · live 980 · webrtc 356 · stage 645");
+    ok("lockstep pins hubs 157 · live 986 · webrtc 356 · stage 656");
   } else {
     fail(
       "sibling pin lockstep",
-      "live.html: hubs.js?v=157 live.js?v=980 webrtc.js?v=356 live-stage.css?v=645 (identity 156)"
+      "live.html: hubs.js?v=157 live.js?v=986 webrtc.js?v=356 live-stage.css?v=656 (identity 156)"
     );
   }
   {

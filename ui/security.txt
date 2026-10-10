@@ -1,11 +1,12 @@
 Contact: mailto:security@ruletka.vip
-Contact: https://ruletka.vip/legal/community.html
+Contact: https://ruletka.me/legal/community.html
 Expires: 2027-07-30T00:00:00.000Z
 Preferred-Languages: en, ru
-Canonical: https://ruletka.vip/.well-known/security.txt
-Policy: https://ruletka.vip/legal/privacy.html
-Acknowledgments: https://ruletka.vip/contribute.html
+Canonical: https://ruletka.me/.well-known/security.txt
+Policy: https://ruletka.me/legal/privacy.html
+Acknowledgments: https://ruletka.me/contribute.html
 
-# Responsible disclosure welcome for ruletka.vip / roulette-bridge.
+# Responsible disclosure welcome for ruletka.me / roulette-bridge.
+# ruletka.vip is the same app.
 # Do not test against third-party commercial chat sites.
 # Media is WebRTC P2P; signaling and match pool are hub-side.

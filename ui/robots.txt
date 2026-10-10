@@ -1,9 +1,11 @@
-# ruletka.me + ruletka.vip (same app)
+# Ruletka.me is the primary host. ruletka.vip is the same app.
 User-agent: *
 Allow: /
 Allow: /home.html
 Allow: /live.html
 Allow: /safety.html
+Allow: /bezopasnost
+Allow: /pomosh/
 Allow: /legal/
 Allow: /.well-known/
 
@@ -14,9 +16,10 @@ Disallow: /v1/
 Disallow: /ws
 Disallow: /config.json
 Disallow: /health
+Disallow: /operators.html
+Disallow: /operators
 
 Sitemap: https://ruletka.me/sitemap.xml
-Sitemap: https://ruletka.vip/sitemap.xml
 
 User-agent: Googlebot
 Allow: /
@@ -27,5 +30,5 @@ Allow: /.well-known/
 Disallow: /admin.html
 Disallow: /v1/
 Disallow: /ws
+Clean-param: lang /
 Sitemap: https://ruletka.me/sitemap.xml
-Sitemap: https://ruletka.vip/sitemap.xml

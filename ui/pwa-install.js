@@ -264,6 +264,12 @@
 
   // --- Service worker: register + soft update UX (avoid stale live.js after deploy) ---
   var RELOAD_ONCE_KEY = "rulet-sw-reload-once";
+  var VISIT_KEY = "rulet-visited";
+  var firstVisit = false;
+  try {
+    firstVisit = !localStorage.getItem(VISIT_KEY);
+    localStorage.setItem(VISIT_KEY, "1");
+  } catch (_) {}
   var updateBanner = null;
 
   function removeUpdateBanner() {
@@ -274,6 +280,7 @@
   }
 
   function showUpdateBanner(reg) {
+    if (firstVisit) return;
     if (updateBanner || !document.body) return;
     updateBanner = document.createElement("div");
     updateBanner.id = "pwa-update-banner";

@@ -78,15 +78,107 @@ fn is_branded_text_path(path: &str) -> bool {
         || p.ends_with("/sitemap.xml")
 }
 
+/// Clean path → file under `ui/` for SEO URLs that are not the filename.
+fn seo_alias(path: &str) -> Option<&'static str> {
+    match path {
+        "/en" | "/en/" => Some("seo/en.html"),
+        "/en/omegle-alternative" | "/en/omegle-alternative/" => Some("seo/en-omegle-alternative.html"),
+        "/videochat-bez-registracii" | "/videochat-bez-registracii/" => {
+            Some("seo/videochat-bez-registracii.html")
+        }
+        "/analog-chat-ruletki" | "/analog-chat-ruletki/" => Some("seo/analog-chat-ruletki.html"),
+        "/download/android" | "/download/android/" => Some("download/android.html"),
+        "/operators" | "/operators/" => Some("operators.html"),
+        "/videozvonok-bez-registracii" | "/videozvonok-bez-registracii/" => {
+            Some("seo/videozvonok-bez-registracii.html")
+        }
+        "/anonimnyj-videochat" | "/anonimnyj-videochat/" => Some("seo/anonimnyj-videochat.html"),
+        "/bezopasnost" | "/bezopasnost/" => Some("safety.html"),
+        "/pomosh/kamera-i-mikrofon" | "/pomosh/kamera-i-mikrofon/" => {
+            Some("seo/pomosh-kamera-i-mikrofon.html")
+        }
+        "/en/free-video-call" | "/en/free-video-call/" => Some("seo/en-free-video-call.html"),
+        "/en/anonymous-video-chat" | "/en/anonymous-video-chat/" => {
+            Some("seo/en-anonymous-video-chat.html")
+        }
+        "/en/safety" | "/en/safety/" => Some("seo/en-safety.html"),
+        "/en/help/camera-microphone" | "/en/help/camera-microphone/" => {
+            Some("seo/en-help-camera-microphone.html")
+        }
+        "/blog/luchshie-videochaty-2026" | "/blog/luchshie-videochaty-2026/" => {
+            Some("seo/blog-luchshie-videochaty-2026.html")
+        }
+        "/videochat-s-inostrancami" | "/videochat-s-inostrancami/" => {
+            Some("seo/videochat-s-inostrancami.html")
+        }
+        "/en/video-chat-with-foreigners" | "/en/video-chat-with-foreigners/" => {
+            Some("seo/en-video-chat-with-foreigners.html")
+        }
+        _ => None,
+    }
+}
+
+/// Short URLs people already publish. The real pages live under `/legal/`.
+fn legal_shortcut(path: &str) -> Option<&'static str> {
+    match path {
+        "/privacy.html" | "/privacy" | "/privacy/" => Some("/legal/privacy.html"),
+        "/terms.html" | "/terms" | "/terms/" => Some("/legal/terms.html"),
+        _ => None,
+    }
+}
+
+fn permanent_redirect(to: &'static str) -> Response {
+    (
+        StatusCode::MOVED_PERMANENTLY,
+        [(header::LOCATION, HeaderValue::from_static(to))],
+    )
+        .into_response()
+}
+
+/// Collapse "ruletka.me and/or/ / ruletka.me" left by a blind vip→me replace.
+fn collapse_doubled_brand(body: &str) -> String {
+    const PHRASES: &[&str] = &[
+        "https://ruletka.me and https://ruletka.me",
+        "https://ruletka.me or https://ruletka.me",
+        "https://ruletka.me / https://ruletka.me",
+        "https://ruletka.me, https://ruletka.me",
+        "Ruletka.me and Ruletka.me",
+        "Ruletka.me or Ruletka.me",
+        "Ruletka.me / Ruletka.me",
+        "ruletka.me and ruletka.me",
+        "ruletka.me or ruletka.me",
+        "ruletka.me / ruletka.me",
+        "Ruletka.me and ruletka.me",
+        "ruletka.me and Ruletka.me",
+        "Ruletka.me or ruletka.me",
+        "ruletka.me or Ruletka.me",
+        "Ruletka.me / ruletka.me",
+        "ruletka.me / Ruletka.me",
+    ];
+    let mut s = body.to_string();
+    for phrase in PHRASES {
+        if phrase.starts_with("https://") {
+            s = s.replace(phrase, "https://ruletka.me");
+        } else {
+            s = s.replace(phrase, "Ruletka.me");
+        }
+    }
+    s
+}
+
 /// Rewrite absolute/site brand strings for the active host.
+/// Titles that name both domains must stay one name ("Ruletka.me"), not
+/// "ruletka.me and ruletka.me".
 fn brand_html(body: &str, brand: &str) -> String {
     if brand == "ruletka.vip" {
-        return body.to_string();
+        return collapse_doubled_brand(body);
     }
     // Prefer longer tokens first
-    body.replace("https://ruletka.vip", "https://ruletka.me")
+    let rewritten = body
+        .replace("https://ruletka.vip", "https://ruletka.me")
         .replace("http://ruletka.vip", "https://ruletka.me")
-        .replace("ruletka.vip", "ruletka.me")
+        .replace("ruletka.vip", "ruletka.me");
+    collapse_doubled_brand(&rewritten)
 }
 
 /// Host-aware UI: HTML (+ PWA manifest) get brand rewrites so previews match the URL.
@@ -105,6 +197,18 @@ async fn branded_ui(
         .unwrap_or("");
     let brand = brand_from_host(host);
     let path = uri.path();
+
+    // One Android URL. /download and the .html filename both 301 there.
+    if path == "/download" || path == "/download/" || path == "/download/android.html" {
+        return permanent_redirect("/download/android");
+    }
+    // Store listings and old notes use /privacy.html. The page is /legal/privacy.html.
+    if let Some(to) = legal_shortcut(path) {
+        return permanent_redirect(to);
+    }
+    if let Some(rel) = seo_alias(path) {
+        return serve_branded_rel(&state, rel, brand).await;
+    }
 
     // Build request for ServeDir (path only)
     let req = axum::http::Request::builder()
@@ -192,6 +296,35 @@ async fn branded_ui(
             Ok(r) => r.into_response(),
             Err(_) => StatusCode::NOT_FOUND.into_response(),
         }
+    }
+}
+
+async fn serve_branded_rel(state: &AppState, rel: &str, brand: &str) -> Response {
+    if rel.contains("..") || rel.starts_with('/') {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let full = state.ui_dir.join(rel);
+    let Ok(canon_ui) = tokio::fs::canonicalize(&state.ui_dir).await else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let Ok(canon_file) = tokio::fs::canonicalize(&full).await else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    if !canon_file.starts_with(&canon_ui) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    match tokio::fs::read(&canon_file).await {
+        Ok(bytes) => {
+            let raw = String::from_utf8_lossy(&bytes);
+            let out = brand_html(&raw, brand);
+            let mut res = Html(out).into_response();
+            res.headers_mut().insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("public, max-age=60"),
+            );
+            res
+        }
+        Err(_) => StatusCode::NOT_FOUND.into_response(),
     }
 }
 
@@ -2062,4 +2195,132 @@ async fn main() {
     )
     .await
     .expect("serve");
+}
+
+#[cfg(test)]
+mod brand_tests {
+    use super::{brand_html, legal_shortcut, seo_alias};
+
+    #[test]
+    fn me_host_does_not_double_the_name_in_titles() {
+        let src = concat!(
+            "<title>чат (ruletka.me / ruletka.vip)</title>",
+            "<meta name=\"description\" content=\"on ruletka.me or ruletka.vip.\" />",
+        );
+        let out = brand_html(src, "ruletka.me");
+        assert!(out.contains("<title>чат (Ruletka.me)</title>"), "{out}");
+        assert!(out.contains("content=\"on Ruletka.me.\""), "{out}");
+        assert!(!out.contains("ruletka.me / ruletka.me"), "{out}");
+        assert!(!out.contains("ruletka.me or ruletka.me"), "{out}");
+    }
+
+    #[test]
+    fn single_vip_token_becomes_me_url() {
+        let out = brand_html(
+            "<title>Ruletka.me</title><a href=\"https://ruletka.vip/live.html\">go</a>",
+            "ruletka.me",
+        );
+        assert!(out.contains("https://ruletka.me/live.html"), "{out}");
+        assert!(out.contains("<title>Ruletka.me</title>"), "{out}");
+    }
+
+    #[test]
+    fn vip_host_keeps_a_single_ruletka_me_title() {
+        let out = brand_html("<title>Чат рулетка | Ruletka.me</title>", "ruletka.vip");
+        assert_eq!(out, "<title>Чат рулетка | Ruletka.me</title>");
+    }
+
+    #[test]
+    fn seo_aliases_skip_redirect_stubs() {
+        assert_eq!(seo_alias("/en"), Some("seo/en.html"));
+        assert_eq!(seo_alias("/en/"), Some("seo/en.html"));
+        assert_eq!(
+            seo_alias("/videochat-bez-registracii"),
+            Some("seo/videochat-bez-registracii.html")
+        );
+        assert_eq!(
+            seo_alias("/analog-chat-ruletki"),
+            Some("seo/analog-chat-ruletki.html")
+        );
+        assert_eq!(
+            seo_alias("/en/omegle-alternative"),
+            Some("seo/en-omegle-alternative.html")
+        );
+        assert_eq!(seo_alias("/download/android"), Some("download/android.html"));
+        assert_eq!(seo_alias("/download"), None);
+        assert_eq!(seo_alias("/live.html"), None);
+        assert_eq!(
+            seo_alias("/videozvonok-bez-registracii"),
+            Some("seo/videozvonok-bez-registracii.html")
+        );
+        assert_eq!(
+            seo_alias("/videozvonok-bez-registracii/"),
+            Some("seo/videozvonok-bez-registracii.html")
+        );
+        assert_eq!(
+            seo_alias("/anonimnyj-videochat"),
+            Some("seo/anonimnyj-videochat.html")
+        );
+        assert_eq!(seo_alias("/bezopasnost"), Some("safety.html"));
+        assert_eq!(seo_alias("/bezopasnost/"), Some("safety.html"));
+        assert_eq!(
+            seo_alias("/pomosh/kamera-i-mikrofon"),
+            Some("seo/pomosh-kamera-i-mikrofon.html")
+        );
+        assert_eq!(seo_alias("/safety.html"), None);
+        assert_eq!(
+            seo_alias("/en/free-video-call"),
+            Some("seo/en-free-video-call.html")
+        );
+        assert_eq!(
+            seo_alias("/en/free-video-call/"),
+            Some("seo/en-free-video-call.html")
+        );
+        assert_eq!(
+            seo_alias("/en/anonymous-video-chat"),
+            Some("seo/en-anonymous-video-chat.html")
+        );
+        assert_eq!(seo_alias("/en/safety"), Some("seo/en-safety.html"));
+        assert_eq!(seo_alias("/en/safety/"), Some("seo/en-safety.html"));
+        assert_eq!(
+            seo_alias("/en/help/camera-microphone"),
+            Some("seo/en-help-camera-microphone.html")
+        );
+        assert_eq!(
+            seo_alias("/blog/luchshie-videochaty-2026"),
+            Some("seo/blog-luchshie-videochaty-2026.html")
+        );
+        assert_eq!(
+            seo_alias("/videochat-s-inostrancami"),
+            Some("seo/videochat-s-inostrancami.html")
+        );
+        assert_eq!(
+            seo_alias("/videochat-s-inostrancami/"),
+            Some("seo/videochat-s-inostrancami.html")
+        );
+        assert_eq!(
+            seo_alias("/en/video-chat-with-foreigners"),
+            Some("seo/en-video-chat-with-foreigners.html")
+        );
+        assert_eq!(
+            seo_alias("/en/video-chat-with-foreigners/"),
+            Some("seo/en-video-chat-with-foreigners.html")
+        );
+        assert_eq!(seo_alias("/golosovoj-chat"), None);
+        assert_eq!(seo_alias("/privacy.html"), None);
+        assert_eq!(seo_alias("/terms.html"), None);
+    }
+
+    #[test]
+    fn legal_shortcuts_point_at_the_real_pages() {
+        assert_eq!(legal_shortcut("/privacy.html"), Some("/legal/privacy.html"));
+        assert_eq!(legal_shortcut("/privacy"), Some("/legal/privacy.html"));
+        assert_eq!(legal_shortcut("/privacy/"), Some("/legal/privacy.html"));
+        assert_eq!(legal_shortcut("/terms.html"), Some("/legal/terms.html"));
+        assert_eq!(legal_shortcut("/terms"), Some("/legal/terms.html"));
+        assert_eq!(legal_shortcut("/terms/"), Some("/legal/terms.html"));
+        assert_eq!(legal_shortcut("/legal/privacy.html"), None);
+        assert_eq!(legal_shortcut("/legal/terms.html"), None);
+        assert_eq!(legal_shortcut("/live.html"), None);
+    }
 }

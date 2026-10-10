@@ -14,7 +14,7 @@ use crate::federation::{
 };
 use crate::friends_store::{self, FriendsFile};
 use crate::limits::{ClientLimiter, LimitConfig};
-use crate::protocol::{ClientMsg, FriendChatLine, FriendInfo, MatchPeer, ServerMsg};
+use crate::protocol::{ClientMsg, FriendChatLine, FriendInfo, MatchPeer, SafetyScores, ServerMsg};
 use crate::push_tokens::{self, PushToken};
 use crate::star_ledger::{SpendError, StarLedger};
 use sha2::{Digest, Sha256};
@@ -224,6 +224,8 @@ pub struct Client {
     limiter: ClientLimiter,
     /// Sliding window of report submissions (anti ban-bomb).
     report_times: Vec<Instant>,
+    /// Sliding window of log-only safety_log lines. Separate from reports.
+    safety_log_times: Vec<Instant>,
     /// When current stranger match began (for avg match length metrics).
     match_started: Option<Instant>,
     /// Last SDP offer time **per target** (`to=` peer_id). 3.5s debounce is per pair,
@@ -3225,6 +3227,10 @@ impl SimpleHub {
     const REPORT_BAN_SECS: u64 = 3 * 24 * 3600;
     /// Max reports one user may file per rolling hour (anti abuse / raid).
     const REPORT_RATE_PER_HOUR: usize = 8;
+    /// Max log-only safety_log lines one connection may append per rolling hour.
+    /// Shadow hits latch once per match, so this stops a flood without dropping
+    /// a normal phone. It does not share a counter with reports.
+    const SAFETY_LOG_PER_HOUR: usize = 30;
     /// Reputation trust for trusted *label* (UI / soft rank — not ban ×2).
     const TRUSTED_REPORTER_STARS: u64 = 100;
     /// Historical trusted weight (UI only; ban scoring caps at 1 for non-underage).
@@ -4446,6 +4452,7 @@ impl SimpleHub {
                 tags: Vec::new(),
                 limiter: ClientLimiter::new(),
                 report_times: Vec::new(),
+                safety_log_times: Vec::new(),
                 match_started: None,
                 last_offer_at: HashMap::new(),
                 last_answer_at: HashMap::new(),
@@ -7149,6 +7156,30 @@ impl SimpleHub {
             ClientMsg::RemoveFriend { user_id } => self.handle_remove_friend(id, user_id),
             ClientMsg::BlockUser { user_id } => self.handle_block_user(id, user_id),
             ClientMsg::UnblockUser { user_id } => self.handle_unblock_user(id, user_id),
+            ClientMsg::SafetyLog {
+                log_only,
+                reason,
+                target_user_id,
+                model,
+                model_ready,
+                face,
+                nsfw,
+                window,
+                scores,
+                ts,
+            } => self.handle_safety_log(
+                id,
+                log_only,
+                reason,
+                target_user_id,
+                model,
+                model_ready,
+                face,
+                nsfw,
+                window,
+                scores,
+                ts,
+            ),
             ClientMsg::ReportUser {
                 user_id,
                 reason,
@@ -7755,6 +7786,136 @@ impl SimpleHub {
             return Some(t.to_string());
         }
         None
+    }
+
+    /// Append one JSON line for a phone shadow observation.
+    /// Does not insert into `report_reporters` or `match_bans`, does not call
+    /// `handle_report_user`, and does not change ban state.
+    fn handle_safety_log(
+        &mut self,
+        id: Uuid,
+        log_only: bool,
+        reason: String,
+        target_user_id: String,
+        model: String,
+        model_ready: bool,
+        face: String,
+        nsfw: String,
+        mut window: Vec<serde_json::Value>,
+        scores: Option<SafetyScores>,
+        ts: u64,
+    ) {
+        let Some(c) = self.clients.get_mut(&id) else {
+            return;
+        };
+        let now = Instant::now();
+        c.safety_log_times
+            .retain(|t| now.duration_since(*t) < Duration::from_secs(3600));
+        if c.safety_log_times.len() >= Self::SAFETY_LOG_PER_HOUR {
+            tracing::debug!(
+                sender = %c.user_id,
+                "safety_log rate limited — not written, not a report"
+            );
+            return;
+        }
+        c.safety_log_times.push(now);
+        let sender_user_id = c.user_id.clone();
+        if !log_only {
+            tracing::warn!(
+                sender = %sender_user_id,
+                "safety_log dropped — log_only is not true; not filed as a report"
+            );
+            return;
+        }
+        if window.len() > 3 {
+            window = window.split_off(window.len() - 3);
+        }
+        for item in &mut window {
+            let rendered = serde_json::to_string(item).unwrap_or_default();
+            if rendered.len() > 400 {
+                *item = serde_json::Value::Null;
+            }
+        }
+        let reason = reason.trim().chars().take(64).collect::<String>();
+        let target_user_id = target_user_id.trim().chars().take(80).collect::<String>();
+        let model = model.trim().chars().take(64).collect::<String>();
+        let face = face.trim().chars().take(32).collect::<String>();
+        let nsfw = nsfw.trim().chars().take(32).collect::<String>();
+        let server_ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        tracing::info!(
+            sender = %sender_user_id,
+            target = %target_user_id,
+            reason = %reason,
+            model = %model,
+            model_ready,
+            "safety_log stored (log only, no ban)"
+        );
+        let mut line = serde_json::json!({
+            "kind": "safety_log",
+            "log_only": true,
+            "reason": reason,
+            "target_user_id": target_user_id,
+            "model": model,
+            "model_ready": model_ready,
+            "face": face,
+            "nsfw": nsfw,
+            "window": window,
+            "ts": ts,
+            "server_ts": server_ts,
+            "sender_user_id": sender_user_id,
+        });
+        if let Some(scores) = scores {
+            line["scores"] = serde_json::json!({
+                "porn": scores.porn,
+                "hentai": scores.hentai,
+                "sexy": scores.sexy,
+            });
+        }
+        self.append_safety_log_line(&line);
+    }
+
+    fn safety_logs_path(&self) -> PathBuf {
+        let base = self
+            .friends_path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("data"));
+        base.join("safety-logs.jsonl")
+    }
+
+    fn append_safety_log_line(&self, line: &serde_json::Value) {
+        let path = self.safety_logs_path();
+        if let Some(parent) = path.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                tracing::warn!(error = %e, "safety_log directory");
+                return;
+            }
+        }
+        let mut text = match serde_json::to_string(line) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(error = %e, "safety_log encode");
+                return;
+            }
+        };
+        text.push('\n');
+        let mut file = match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            Ok(f) => f,
+            Err(e) => {
+                tracing::warn!(error = %e, path = %path.display(), "safety_log open");
+                return;
+            }
+        };
+        if let Err(e) = std::io::Write::write_all(&mut file, text.as_bytes()) {
+            tracing::warn!(error = %e, "safety_log write");
+        }
     }
 
     fn handle_report_user(
@@ -10867,5 +11028,158 @@ mod ws_hold_tests {
             hub.clients.get(&b).unwrap().last_unmatch_at.is_none(),
             "WS-drop expire must not 12s-block rematching the same person"
         );
+    }
+}
+
+#[cfg(test)]
+mod safety_log_hub_tests {
+    use super::{ClientMsg, LimitConfig, SimpleHub};
+    use std::collections::HashSet;
+    use tokio::sync::mpsc;
+    use uuid::Uuid;
+
+    fn hub_and_client() -> (
+        SimpleHub,
+        Uuid,
+        mpsc::UnboundedReceiver<super::ServerMsg>,
+        std::path::PathBuf,
+    ) {
+        let dir = std::env::temp_dir().join(format!("ruletka-safety-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut hub = SimpleHub::with_limits_and_store(
+            LimitConfig::default(),
+            dir.join("friends.json"),
+        );
+        let (tx, rx) = mpsc::unbounded_channel();
+        let id = Uuid::new_v4();
+        hub.try_add_client(id, tx, "203.0.113.10".into())
+            .expect("client");
+        (hub, id, rx, dir)
+    }
+
+    fn shadow(with_scores: bool) -> ClientMsg {
+        let raw = if with_scores {
+            r#"{"type":"safety_log","log_only":true,"reason":"explicit_shadow","target_user_id":"abc123abc123abcd","model":"stub","model_ready":false,"face":"absent","nsfw":"explicit","window":["explicit","explicit"],"scores":{"porn":0.9,"hentai":0.1,"sexy":0.2},"ts":10}"#
+        } else {
+            r#"{"type":"safety_log","log_only":true,"reason":"explicit_shadow","target_user_id":"abc123abc123abcd","model":"stub","model_ready":false,"face":"unknown","nsfw":"unknown","window":[],"ts":10}"#
+        };
+        serde_json::from_str(raw).unwrap()
+    }
+
+    fn lines(dir: &std::path::Path) -> Vec<String> {
+        let path = dir.join("safety-logs.jsonl");
+        match std::fs::read_to_string(path) {
+            Ok(text) => text
+                .lines()
+                .filter(|line| !line.is_empty())
+                .map(|line| line.to_string())
+                .collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    #[test]
+    fn appends_one_line_and_leaves_ban_maps_alone() {
+        let (mut hub, id, _rx, dir) = hub_and_client();
+        hub.report_reporters
+            .insert("kept-target".into(), HashSet::from(["kept-reporter".into()]));
+        hub.match_bans.insert("kept-target".into(), 1_700_000_000);
+        let reporters_before = hub.report_reporters.clone();
+        let bans_before = hub.match_bans.clone();
+
+        hub.handle(id, shadow(true));
+
+        assert_eq!(hub.report_reporters, reporters_before);
+        assert_eq!(hub.match_bans, bans_before);
+        let got = lines(&dir);
+        assert_eq!(got.len(), 1, "{got:?}");
+        let v: serde_json::Value = serde_json::from_str(&got[0]).unwrap();
+        assert_eq!(v["kind"], "safety_log");
+        assert_eq!(v["log_only"], true);
+        assert_eq!(v["reason"], "explicit_shadow");
+        assert_eq!(v["target_user_id"], "abc123abc123abcd");
+        assert_eq!(v["model"], "stub");
+        assert_eq!(v["model_ready"], false);
+        assert_eq!(v["face"], "absent");
+        assert_eq!(v["nsfw"], "explicit");
+        assert_eq!(v["window"].as_array().map(|a| a.len()), Some(2));
+        assert_eq!(v["scores"]["porn"], 0.9);
+        assert_eq!(v["ts"], 10);
+        assert!(v.get("auto_banned").is_none());
+        assert!(
+            !dir.join("reports.jsonl").exists(),
+            "safety_log must not write the report log"
+        );
+
+        hub.handle(
+            id,
+            ClientMsg::ReportUser {
+                user_id: "ffffeeeeccccdddd".into(),
+                reason: "underage".into(),
+                screenshot_jpeg_b64: String::new(),
+            },
+        );
+        assert!(
+            hub.match_bans.contains_key("ffffeeeeccccdddd"),
+            "report_user still bans on its own path"
+        );
+        assert!(hub
+            .report_reporters
+            .get("ffffeeeeccccdddd")
+            .map(|s| !s.is_empty())
+            .unwrap_or(false));
+        assert_eq!(lines(&dir).len(), 1, "a report must not append a safety line");
+        assert!(dir.join("reports.jsonl").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn drops_when_log_only_is_not_true() {
+        let (mut hub, id, _rx, dir) = hub_and_client();
+        hub.handle(
+            id,
+            ClientMsg::SafetyLog {
+                log_only: false,
+                reason: "explicit_shadow".into(),
+                target_user_id: "abc123abc123abcd".into(),
+                model: "stub".into(),
+                model_ready: false,
+                face: "unknown".into(),
+                nsfw: "explicit".into(),
+                window: vec![],
+                scores: None,
+                ts: 10,
+            },
+        );
+        assert!(lines(&dir).is_empty());
+        assert!(hub.report_reporters.is_empty());
+        assert!(hub.match_bans.is_empty());
+        assert!(!dir.join("reports.jsonl").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rate_limit_is_per_sender() {
+        let (mut hub, id, _rx, dir) = hub_and_client();
+        let (tx2, _rx2) = mpsc::unbounded_channel();
+        let id2 = Uuid::new_v4();
+        hub.try_add_client(id2, tx2, "198.51.100.8".into())
+            .unwrap();
+        let cap = SimpleHub::SAFETY_LOG_PER_HOUR;
+        for _ in 0..(cap + 5) {
+            hub.handle(id, shadow(false));
+        }
+        assert_eq!(lines(&dir).len(), cap);
+        let first = lines(&dir);
+        assert!(first.iter().all(|line| !line.contains("\"scores\"")));
+        hub.handle(id2, shadow(false));
+        assert_eq!(
+            lines(&dir).len(),
+            cap + 1,
+            "a second sender keeps its own budget"
+        );
+        assert!(hub.report_reporters.is_empty());
+        assert!(hub.match_bans.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

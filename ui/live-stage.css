@@ -6549,8 +6549,8 @@ html.rooms-disabled #btn-share-room-settings {
 }
 .side-btn .lbl {
   font-size: 0.55rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  text-transform: none;
+  letter-spacing: 0.01em;
   color: #9aa8bc;
   margin-top: 2px;
 }
@@ -6624,7 +6624,7 @@ html.rooms-disabled #btn-share-room-settings {
 
 .side-vol .lbl {
   font-size: 0.55rem;
-  text-transform: uppercase;
+  text-transform: none;
   color: #9aa8bc;
 }
 
@@ -9210,6 +9210,13 @@ html.stage-html {
 .conn-lobby-ticker {
   padding: 0.85rem 0.95rem 0.8rem;
 }
+.conn-lobby-low {
+  margin: 0;
+  color: #c5d0e0;
+  line-height: 1.4;
+  font-size: 0.92rem;
+}
+.conn-lobby-low[hidden] { display: none !important; }
 .conn-lobby-stats {
   display: flex;
   align-items: flex-end;
@@ -24548,7 +24555,7 @@ html.chrome-always #stage > #tile-floor-partner {
   opacity: 1 !important;
   pointer-events: none !important;
   overflow: hidden !important;
-  background: #12151c url("/brand/logo-hero.jpg?v=1") center 40% / cover no-repeat;
+  background: #12151c url("/brand/logo-mark.png?v=10") center 40% / cover no-repeat;
 }
 #tile-third.has-no-cam-portrait #third-no-cam:not([hidden]) #third-no-cam-img,
 #tile-third #third-no-cam:not([hidden]) .no-cam-portrait-img,
@@ -24632,7 +24639,7 @@ html.chrome-always #stage > #tile-floor-partner {
   opacity: 1 !important;
   pointer-events: none !important;
   overflow: hidden !important;
-  background: #12151c url("/brand/logo-hero.jpg?v=1") center 40% / cover no-repeat;
+  background: #12151c url("/brand/logo-mark.png?v=10") center 40% / cover no-repeat;
 }
 #tile-remote.has-no-cam-portrait #remote-no-cam[hidden],
 #tile-remote #remote-no-cam[hidden] {
@@ -24653,7 +24660,7 @@ html.chrome-always #stage > #tile-floor-partner {
   opacity: 1 !important;
   pointer-events: none !important;
   overflow: hidden !important;
-  background: #12151c url("/brand/logo-hero.jpg?v=1") center 40% / cover no-repeat;
+  background: #12151c url("/brand/logo-mark.png?v=10") center 40% / cover no-repeat;
 }
 #tile-local.has-no-cam-portrait #local-no-cam[hidden],
 #tile-local #local-no-cam[hidden] {

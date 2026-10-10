@@ -1,154 +1,187 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
         xmlns:xhtml="http://www.w3.org/1999/xhtml">
-  <!-- Marketing landing (text Google can index). Chat app is /live.html. -->
-  <url>
-    <loc>https://ruletka.me/home.html</loc>
-    <lastmod>2026-09-19</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>1.0</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/home.html" />
-    <xhtml:link rel="alternate" hreflang="en" href="https://ruletka.me/home.html" />
-    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/home.html" />
-  </url>
-  <url>
-    <loc>https://ruletka.vip/home.html</loc>
-    <lastmod>2026-09-19</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>1.0</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.vip/home.html" />
-  </url>
+  <!-- Canonical host is ruletka.me. No ruletka.vip duplicates. No redirect URLs. -->
   <url>
     <loc>https://ruletka.me/</loc>
-    <lastmod>2026-09-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.95</priority>
+    <lastmod>2026-10-10</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ruletka.me/en/" />
     <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/" />
   </url>
   <url>
-    <loc>https://ruletka.vip/</loc>
-    <lastmod>2026-09-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.95</priority>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.vip/" />
+    <loc>https://ruletka.me/en/</loc>
+    <lastmod>2026-10-10</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ruletka.me/en/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/" />
+  </url>
+  <url>
+    <loc>https://ruletka.me/videochat-bez-registracii</loc>
+    <lastmod>2026-10-10</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/videochat-bez-registracii" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/videochat-bez-registracii" />
+  </url>
+  <url>
+    <loc>https://ruletka.me/analog-chat-ruletki</loc>
+    <lastmod>2026-10-10</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/analog-chat-ruletki" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ruletka.me/en/omegle-alternative" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/analog-chat-ruletki" />
+  </url>
+  <url>
+    <loc>https://ruletka.me/en/omegle-alternative</loc>
+    <lastmod>2026-10-10</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/analog-chat-ruletki" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ruletka.me/en/omegle-alternative" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/analog-chat-ruletki" />
+  </url>
+  <url>
+    <loc>https://ruletka.me/download/android</loc>
+    <lastmod>2026-10-10</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/download/android" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/download/android" />
+  </url>
+  <url>
+    <loc>https://ruletka.me/videozvonok-bez-registracii</loc>
+    <lastmod>2026-10-10</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/videozvonok-bez-registracii" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ruletka.me/en/free-video-call" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/videozvonok-bez-registracii" />
+  </url>
+  <url>
+    <loc>https://ruletka.me/anonimnyj-videochat</loc>
+    <lastmod>2026-10-10</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/anonimnyj-videochat" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ruletka.me/en/anonymous-video-chat" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/anonimnyj-videochat" />
+  </url>
+  <url>
+    <loc>https://ruletka.me/bezopasnost</loc>
+    <lastmod>2026-10-10</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/bezopasnost" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ruletka.me/en/safety" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/bezopasnost" />
+  </url>
+  <url>
+    <loc>https://ruletka.me/pomosh/kamera-i-mikrofon</loc>
+    <lastmod>2026-10-10</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/pomosh/kamera-i-mikrofon" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ruletka.me/en/help/camera-microphone" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/pomosh/kamera-i-mikrofon" />
+  </url>
+  <url>
+    <loc>https://ruletka.me/en/free-video-call</loc>
+    <lastmod>2026-10-10</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/videozvonok-bez-registracii" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ruletka.me/en/free-video-call" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/videozvonok-bez-registracii" />
+  </url>
+  <url>
+    <loc>https://ruletka.me/en/anonymous-video-chat</loc>
+    <lastmod>2026-10-10</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/anonimnyj-videochat" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ruletka.me/en/anonymous-video-chat" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/anonimnyj-videochat" />
+  </url>
+  <url>
+    <loc>https://ruletka.me/en/safety</loc>
+    <lastmod>2026-10-10</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/bezopasnost" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ruletka.me/en/safety" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/bezopasnost" />
+  </url>
+  <url>
+    <loc>https://ruletka.me/en/help/camera-microphone</loc>
+    <lastmod>2026-10-10</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/pomosh/kamera-i-mikrofon" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ruletka.me/en/help/camera-microphone" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/pomosh/kamera-i-mikrofon" />
+  </url>
+  <url>
+    <loc>https://ruletka.me/videochat-s-inostrancami</loc>
+    <lastmod>2026-10-10</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/videochat-s-inostrancami" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ruletka.me/en/video-chat-with-foreigners" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/videochat-s-inostrancami" />
+  </url>
+  <url>
+    <loc>https://ruletka.me/en/video-chat-with-foreigners</loc>
+    <lastmod>2026-10-10</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/videochat-s-inostrancami" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ruletka.me/en/video-chat-with-foreigners" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/videochat-s-inostrancami" />
+  </url>
+  <url>
+    <loc>https://ruletka.me/blog/luchshie-videochaty-2026</loc>
+    <lastmod>2026-10-10</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/blog/luchshie-videochaty-2026" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/blog/luchshie-videochaty-2026" />
   </url>
   <url>
     <loc>https://ruletka.me/live.html</loc>
-    <lastmod>2026-09-19</lastmod>
+    <lastmod>2026-10-10</lastmod>
     <changefreq>daily</changefreq>
-    <priority>0.95</priority>
-  </url>
-  <url>
-    <loc>https://ruletka.vip/live.html</loc>
-    <lastmod>2026-09-19</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.95</priority>
-  </url>
-  <url>
-    <loc>https://ruletka.me/safety.html</loc>
-    <lastmod>2026-09-19</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.7</priority>
-  </url>
-  <url>
-    <loc>https://ruletka.vip/safety.html</loc>
-    <lastmod>2026-09-19</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.7</priority>
-  </url>
-  <url>
-    <loc>https://ruletka.me/contribute.html</loc>
-    <lastmod>2026-09-19</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.5</priority>
-  </url>
-  <url>
-    <loc>https://ruletka.vip/contribute.html</loc>
-    <lastmod>2026-09-19</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.5</priority>
-  </url>
-  <url>
-    <loc>https://ruletka.me/updates.html</loc>
-    <lastmod>2026-09-19</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.5</priority>
-  </url>
-  <url>
-    <loc>https://ruletka.vip/updates.html</loc>
-    <lastmod>2026-09-19</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.5</priority>
-  </url>
-  <url>
-    <loc>https://ruletka.me/donate.html</loc>
-    <lastmod>2026-09-19</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.4</priority>
-  </url>
-  <url>
-    <loc>https://ruletka.vip/donate.html</loc>
-    <lastmod>2026-09-19</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.4</priority>
-  </url>
-  <url>
-    <loc>https://ruletka.me/download/android.html</loc>
-    <lastmod>2026-09-19</lastmod>
-    <changefreq>weekly</changefreq>
     <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/live.html" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/live.html" />
   </url>
-  <url>
-    <loc>https://ruletka.vip/download/android.html</loc>
-    <lastmod>2026-09-19</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.6</priority>
-  </url>
-  <url>
-    <loc>https://ruletka.vip/legal/terms.html</loc>
-    <lastmod>2026-09-19</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.3</priority>
-  </url>
+
   <url>
     <loc>https://ruletka.me/legal/terms.html</loc>
-    <lastmod>2026-09-19</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.3</priority>
-  </url>
-  <url>
-    <loc>https://ruletka.vip/legal/privacy.html</loc>
-    <lastmod>2026-09-19</lastmod>
+    <lastmod>2026-10-10</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.3</priority>
   </url>
   <url>
     <loc>https://ruletka.me/legal/privacy.html</loc>
-    <lastmod>2026-09-19</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.3</priority>
-  </url>
-  <url>
-    <loc>https://ruletka.vip/legal/community.html</loc>
-    <lastmod>2026-09-19</lastmod>
+    <lastmod>2026-10-10</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.3</priority>
   </url>
   <url>
     <loc>https://ruletka.me/legal/community.html</loc>
-    <lastmod>2026-09-19</lastmod>
+    <lastmod>2026-10-10</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.3</priority>
   </url>
   <url>
-    <loc>https://ruletka.vip/legal/child-safety.html</loc>
-    <lastmod>2026-09-19</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.4</priority>
-  </url>
-  <url>
     <loc>https://ruletka.me/legal/child-safety.html</loc>
-    <lastmod>2026-09-19</lastmod>
+    <lastmod>2026-10-10</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.4</priority>
   </url>
