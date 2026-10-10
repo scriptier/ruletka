@@ -56,6 +56,12 @@ export type MatchPrefs = {
    * Default ON.
    */
   historySnaps: boolean;
+  /**
+   * On-device check of the partner's incoming video (face + NSFW).
+   * Default ON. Missing means on. Only an explicit false turns it off,
+   * and Settings requires two actions to store that false.
+   */
+  safetyFilter?: boolean;
   /** Live UI layout: native call chrome vs mobile-browser dock. */
   liveLayout: LiveLayoutMode;
   /**
@@ -79,6 +85,7 @@ const DEFAULTS: MatchPrefs = {
    * Settings: off | intro | hold (until Show video).
    */
   blurStrangersMode: "intro",
+  safetyFilter: true,
   historySnaps: true,
   liveLayout: "native",
   swipeSkip: true,
@@ -114,6 +121,7 @@ function prefsFromPartial(
     dataSaver: !!j.dataSaver,
     blurStrangersMode,
     blurStrangers: blurStrangersMode !== "off",
+    safetyFilter: j.safetyFilter === false ? false : true,
     historySnaps: j.historySnaps === undefined ? true : !!j.historySnaps,
     liveLayout: j.liveLayout === "browser" ? "browser" : "native",
     swipeSkip: j.swipeSkip === undefined ? true : !!j.swipeSkip,

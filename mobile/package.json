@@ -20,7 +20,7 @@
     "build:preview": "eas build --profile preview --platform all",
     "build:prod": "eas build --profile production --platform all",
     "build:friends": "eas build --profile production-friends --platform all",
-    "test": "node scripts/test-friend-invite.mjs && node scripts/test-geo-localize.mjs && node scripts/test-live-units.mjs",
+    "test": "node scripts/test-friend-invite.mjs && node scripts/test-geo-localize.mjs && node scripts/test-live-units.mjs && node src/safety/logic.test.mjs && node src/i18n/duration.test.mjs",
     "test:match-ux": "node scripts/verify-match-ux.mjs",
     "verify": "bash scripts/verify-before-apk.sh",
     "verify:strict": "VERIFY_STRICT_L2=1 bash scripts/verify-before-apk.sh",

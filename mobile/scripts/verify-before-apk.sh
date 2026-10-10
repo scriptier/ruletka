@@ -82,7 +82,9 @@ check "connectSteps.test.mjs" run_node src/live/connectSteps.test.mjs
 check "callMetrics.test.mjs" run_node src/live/callMetrics.test.mjs
 check "hubLobby.test.mjs" run_node src/live/hubLobby.test.mjs
 check "matchContinuity.test.mjs" run_node src/live/matchContinuity.test.mjs
-check "npm test (friend/geo/live-units)" npm test --silent
+check "logic.test.mjs" run_node src/safety/logic.test.mjs
+check "duration.test.mjs" run_node src/i18n/duration.test.mjs
+check "npm test (friend/geo/live-units/safety/duration)" npm test --silent
 echo
 
 # ── L2 network contract (optional) ───────────────────────────────────────
