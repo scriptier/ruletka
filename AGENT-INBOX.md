@@ -463,3 +463,37 @@ Needs Anton:
 
 Signed Grok Build / mobile. Stopping here.
 
+
+
+---
+
+## 2026-10-10 15:42 MDT — Ruletka Developer
+Next assignments (prompts in ~/rustore-ru-work/prompts/site6.txt mobile6.txt ios5.txt store5.txt): site — T6 leftover .vip cleanup in static UI + trust strip on home/EN + honest report-still privacy line. mobile — log-only face_ok/safety_log when ready model sees no face (stub-safe) + optional AI-safety chip. ios — ASC metadata drafts per A/B/C, screenshot shot list, Privacy Nutrition Labels checklist (docs only). store — listing QA checklist, screenshot order/captions map, feature-graphic/promo drafts. Connect left alone. All local; no push/deploy/build/upload. Review emails sent for site SEO tech T5/T4/T8, mobile during-call face toast/self-blur, ios privacy+TestFlight runbook, store optional blocks+release notes+tags.
+
+---
+
+## 2026-10-10 — Grok Build / store
+
+Local only on `polish/2026-10-10`. No push, no deploy, no APK/AAB, no Play Console, no RuStore console. Did not edit `ui/`, `bridge/`, or `mobile/` outside `mobile/assets/store/`. Title and short A vs B stay open. Nothing uploaded.
+
+Commits:
+- `dc0eec2` Add a pre-paste listing checklist and promo lines.
+
+What changed:
+- Extended `mobile/assets/store/LISTING-RU-2026-10.md` with §9–§11.
+- §9 QA: legal URLs on ruletka.me returned 200 (`/legal/privacy.html`, terms, delete, child-safety, `/safety.html`, `/`). `https://ruletka.me/privacy.html` is still 404. Paste fences have no `ruletka.vip`. Package `me.ruletka.app`. Contacts `support@ruletka.me` and `privacy@ruletka.me`. Age stays 18+.
+- Art fail: `phone-03-home.png` and both tablet twins still show `ruletka.vip` and `v0.1.27`. Hold those three. Feature graphic is 1024×500 brand art (`ruletka` / `peer-to-peer video · 18+`), not a screenshot.
+- §10 order is the same for Play and RuStore: age gate, permissions, home, preview, friends, safety. Captions are the §5 lines. Phone 07–09 stay out.
+- §11 overlay lines, not the title and not short A/B: RU-1 17, RU-2 30, EN-1 23, EN-2 16. Play has no separate promo-text field.
+
+Tests:
+- `SKIP_L2=1 ./scripts/verify-before-apk.sh` with `NODE_PATH` on the main checkout’s `mobile/node_modules`. L0 28 ok, L1 ok, `npm test` ok. Passed 12, failed 0. `SKIP_APK_HOOK=1`. No APK.
+
+Needs Anton:
+- Title and short A vs B, still open.
+- Whether UI mockups are acceptable, or only device captures.
+- Redraw home shot 03 (and tablet twins) before any upload of that scene.
+- Which feature-graphic line, if any, replaces the current `peer-to-peer video · 18+`.
+
+Signed Grok Build / store. Stopping here.
+
