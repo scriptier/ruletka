@@ -50,7 +50,6 @@ import {
 } from "../src/i18n/duration";
 import { rememberSafetyLog } from "../src/safety/logStore";
 import {
-  buildSafetyLog,
   createFaceWatch,
   createSafetyDetector,
   deliverSafetyLog,
@@ -58,7 +57,7 @@ import {
   duringCallSelfCheck,
   faceWatchSafetyLog,
   preQueueFaceGate,
-  pushVerdict,
+  receiverPartnerCheck,
   type FaceWatch,
   type SafetySession,
 } from "../src/safety/logic";
@@ -550,6 +549,7 @@ function LiveBody() {
   const safetyFilterOnRef = useRef(true);
   const [safetyFilterOn, setSafetyFilterOn] = useState(true);
   const safetySessionRef = useRef<SafetySession>(createSafetySession());
+  const safetyPartnerBlurRef = useRef(false);
   const faceWatchRef = useRef<FaceWatch>(createFaceWatch());
   const duringFaceWatchRef = useRef<FaceWatch>(createFaceWatch());
   const selfFaceSoftGateRef = useRef(false);
@@ -7500,11 +7500,13 @@ function LiveBody() {
   // Alone-queue "Invite someone to live" card removed (product: less noise on Android Live).
   const showAloneBanner = false;
   const isFriendCall = matchMode === "friend";
-  // Receiver-side safety watch. Stub detector returns unknown, so this
-  // does not blur until a real model is plugged in. Friend calls stay off.
+  // Receiver-side partner check. Stub (ready:false) does not blur.
+  // Friend calls stay off. A ready hit covers the partner locally and
+  // may send one log-only note. It does not skip, report, or ban.
   useEffect(() => {
     if (phase !== "matched" || isFriendCall) {
       safetySessionRef.current = createSafetySession();
+      safetyPartnerBlurRef.current = false;
       return;
     }
     const detector = createSafetyDetector();
@@ -7513,56 +7515,42 @@ function LiveBody() {
       if (stopped || !safetyFilterOnRef.current) return;
       void detector.classify(null).then((verdict) => {
         if (stopped || !safetyFilterOnRef.current) return;
-        const step = pushVerdict(safetySessionRef.current, verdict);
-        safetySessionRef.current = step.session;
-        if (step.action === "none") return;
-        setRemoteBlurred(true);
-        remoteBlurredRef.current = true;
-        blurAutoAppliedRef.current = true;
-        console.log(`[safety] blur why=${step.action} model=${detector.id}`);
-        if (step.action !== "confirmed") return;
-        const uid =
-          partnerUserId.current || lastPartnerIdsRef.current.userId || "";
-        const record = buildSafetyLog({
-          targetUserId: uid,
+        const step = receiverPartnerCheck({
+          friendCall: false,
+          detectorReady: detector.ready,
+          session: safetySessionRef.current,
+          verdict,
+          wasBlur: safetyPartnerBlurRef.current,
+          targetUserId:
+            partnerUserId.current || lastPartnerIdsRef.current.userId || "",
           model: verdict.model || detector.id,
-          modelReady: detector.ready,
-          face: verdict.face,
-          nsfw: verdict.nsfw,
-          window: step.session.window,
-          scores: verdict.scores,
+          ts: Date.now(),
         });
-        void rememberSafetyLog(record);
-        deliverSafetyLog(record, {
+        safetySessionRef.current = step.session;
+        safetyPartnerBlurRef.current = step.blur;
+        if (step.blur) {
+          setRemoteBlurred(true);
+          remoteBlurredRef.current = true;
+          blurAutoAppliedRef.current = true;
+          console.log(`[safety] blur why=partner model=${detector.id}`);
+        }
+        if (step.toast) {
+          showToastRef.current(t("mobile.live.safetyHitTitle"));
+        }
+        if (!step.record) return;
+        void rememberSafetyLog(step.record);
+        deliverSafetyLog(step.record, {
           send: (rec) => {
             hubForSafetyRef.current.sendSafetyLog(rec);
           },
         });
-        Alert.alert(
-          t("mobile.live.safetyHitTitle"),
-          t("mobile.live.safetyHitBody"),
-          [
-            {
-              text: t("mobile.live.safetySkip"),
-              onPress: () => next(),
-            },
-            {
-              text: t("mobile.live.safetyReport"),
-              onPress: () => {
-                void openReport();
-              },
-            },
-            { text: t("mobile.common.cancel"), style: "cancel" },
-          ]
-        );
       });
     }, 2000);
     return () => {
       stopped = true;
       clearInterval(timer);
     };
-    // next/openReport are function declarations in this component.
-    // Re-bind when the match starts, not on every parent render.
+    // showToastRef and t stay current for the match lifetime.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, isFriendCall]);
   // Self-preview before queueing. Friend calls are excluded.

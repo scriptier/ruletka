@@ -23,7 +23,7 @@ export type FilterGate = { enabled: boolean; confirmPending: boolean };
 export type SafetyLogRecord = {
   type: "safety_log";
   log_only: true;
-  reason: "explicit_shadow" | "face_absent";
+  reason: "explicit_shadow" | "face_absent" | "partner_flag_shadow";
   target_user_id: string;
   model: string;
   model_ready: boolean;
@@ -92,6 +92,23 @@ export function faceWatchSafetyLog(input?: {
 }): {
   record: SafetyLogRecord | null;
   send: boolean;
+  hardBlock: false;
+  skip: false;
+};
+export function receiverPartnerCheck(input?: {
+  friendCall?: boolean;
+  detectorReady?: boolean;
+  session?: SafetySession | null;
+  verdict?: Partial<SafetyVerdict> | null;
+  wasBlur?: boolean;
+  targetUserId?: string;
+  model?: string;
+  ts?: number;
+}): {
+  session: SafetySession;
+  blur: boolean;
+  toast: boolean;
+  record: SafetyLogRecord | null;
   hardBlock: false;
   skip: false;
 };

@@ -21,6 +21,7 @@ import {
   preQueueFaceGate,
   pushFaceSample,
   pushVerdict,
+  receiverPartnerCheck,
   safetyFilterEnabled,
 } from "./logic.js";
 
@@ -317,6 +318,111 @@ const faceNotSent = deliverSafetyLog(stubFaceLog.record, {
   },
 });
 assert.equal(faceNotSent.sent, false);
+
+const stubPartner = receiverPartnerCheck({
+  detectorReady: false,
+  verdict: { nsfw: "explicit", face: "absent" },
+  session: createSafetySession(),
+  wasBlur: false,
+});
+assert.equal(stubPartner.blur, false, "stub does not blur the partner");
+assert.equal(stubPartner.toast, false, "stub does not toast");
+assert.equal(stubPartner.record, null, "stub does not send");
+assert.equal(stubPartner.hardBlock, false);
+assert.equal(stubPartner.skip, false);
+
+const clearPartner = receiverPartnerCheck({
+  detectorReady: true,
+  verdict: { nsfw: "clean", face: "present" },
+  session: createSafetySession(),
+  wasBlur: false,
+});
+assert.equal(clearPartner.blur, false, "a clean frame does not blur");
+assert.equal(clearPartner.toast, false);
+assert.equal(clearPartner.record, null);
+assert.equal(clearPartner.hardBlock, false);
+assert.equal(clearPartner.skip, false);
+
+let partner = receiverPartnerCheck({
+  detectorReady: true,
+  verdict: { nsfw: "sexy", face: "present", scores: { porn: 0.1, hentai: 0, sexy: 0.7 } },
+  session: createSafetySession(),
+  wasBlur: false,
+  targetUserId: "partner-1",
+  model: "face",
+  ts: 5,
+});
+assert.equal(partner.blur, true, "ready + hit blurs the partner");
+assert.equal(partner.toast, true, "toast fires once when the blur starts");
+assert.equal(partner.hardBlock, false, "partner flag does not end the call");
+assert.equal(partner.skip, false, "partner flag does not skip");
+assert.equal(partner.record.type, "safety_log");
+assert.equal(partner.record.log_only, true);
+assert.equal(partner.record.reason, "partner_flag_shadow");
+assert.notEqual(partner.record.reason, "explicit_ai");
+assert.notEqual(partner.record.type, "report_user");
+assert.equal(partner.record.target_user_id, "partner-1");
+assert.equal(partner.record.model_ready, true);
+partner = receiverPartnerCheck({
+  detectorReady: true,
+  verdict: { nsfw: "sexy", face: "present" },
+  session: partner.session,
+  wasBlur: true,
+  ts: 6,
+});
+assert.equal(partner.blur, true, "blur holds while the window is still hot");
+assert.equal(partner.toast, false, "toast does not repeat");
+assert.equal(partner.record, null, "a latched window does not send again");
+assert.equal(partner.skip, false);
+for (let i = 0; i < 3; i++) {
+  partner = receiverPartnerCheck({
+    detectorReady: true,
+    verdict: { nsfw: "clean", face: "present" },
+    session: partner.session,
+    wasBlur: partner.blur,
+    ts: 10 + i,
+  });
+}
+assert.equal(partner.blur, false, "a clean window clears the partner blur");
+assert.equal(partner.record, null);
+assert.equal(partner.toast, false);
+assert.equal(partner.hardBlock, false);
+assert.equal(partner.skip, false);
+
+const friendPartner = receiverPartnerCheck({
+  friendCall: true,
+  detectorReady: true,
+  verdict: { nsfw: "explicit", face: "absent" },
+  session: createSafetySession(),
+  wasBlur: false,
+});
+assert.equal(friendPartner.blur, false, "friend calls are not partner-blurred");
+assert.equal(friendPartner.toast, false);
+assert.equal(friendPartner.record, null);
+assert.equal(friendPartner.hardBlock, false);
+assert.equal(friendPartner.skip, false);
+
+let partnerSent = null;
+const partnerDelivered = deliverSafetyLog(
+  receiverPartnerCheck({
+    detectorReady: true,
+    verdict: { nsfw: "explicit", face: "present" },
+    session: createSafetySession(),
+    wasBlur: false,
+    targetUserId: "partner-2",
+    ts: 8,
+  }).record,
+  {
+    send(rec) {
+      partnerSent = rec;
+    },
+  }
+);
+assert.equal(partnerDelivered.sent, true);
+assert.equal(partnerSent.reason, "partner_flag_shadow");
+assert.equal(partnerSent.log_only, true);
+assert.notEqual(partnerSent.reason, "explicit_ai");
+assert.notEqual(partnerSent.type, "report_user");
 
 const shadow = buildSafetyLog({ targetUserId: "abc", nsfw: "explicit" });
 const held = deliverSafetyLog(shadow, {

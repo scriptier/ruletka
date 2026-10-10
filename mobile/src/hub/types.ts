@@ -97,7 +97,7 @@ export type ClientSpendStars = {
 export type ClientSafetyLog = {
   type: "safety_log";
   log_only: true;
-  reason: "explicit_shadow" | "face_absent";
+  reason: "explicit_shadow" | "face_absent" | "partner_flag_shadow";
   target_user_id: string;
   model: string;
   model_ready: boolean;

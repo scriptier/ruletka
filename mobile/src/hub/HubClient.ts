@@ -285,7 +285,11 @@ export class HubClient {
       return false;
     }
     const reason =
-      record.reason === "face_absent" ? "face_absent" : "explicit_shadow";
+      record.reason === "face_absent"
+        ? "face_absent"
+        : record.reason === "partner_flag_shadow"
+          ? "partner_flag_shadow"
+          : "explicit_shadow";
     const msg: ClientSafetyLog = {
       type: "safety_log",
       log_only: true,

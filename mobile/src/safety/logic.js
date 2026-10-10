@@ -256,6 +256,66 @@ export function faceWatchSafetyLog(input) {
 }
 
 /**
+ * Receiver check on the partner stream during a stranger call.
+ * A stub or a friend call does nothing.
+ * A ready model reuses pushVerdict (sexy / explicit / 2 of the last 3).
+ * That sets a local blur and, on the rising edge, one log-only note.
+ * hardBlock and skip stay false. This is not report_user or explicit_ai.
+ * A clean window drops the blur flag. The caller decides whether to peel
+ * a veil the user already chose.
+ */
+export function receiverPartnerCheck(input) {
+  const quiet = {
+    session: createSafetySession(),
+    blur: false,
+    toast: false,
+    record: null,
+    hardBlock: false,
+    skip: false,
+  };
+  if (!input || input.friendCall || !input.detectorReady) return quiet;
+  const step = pushVerdict(input.session, input.verdict);
+  const flagged = step.action === "suspicion" || step.action === "confirmed";
+  const window = step.session.window || [];
+  const stillHot =
+    window.some((x) => x === "explicit" || x === "sexy") ||
+    step.session.faceAbsent >= FACE_ABSENT_SUSPICION;
+  const blur = flagged || (!!step.session.suspicionLatched && stillHot);
+  const verdict = input.verdict || {};
+  let record = null;
+  if (flagged) {
+    record = {
+      type: "safety_log",
+      log_only: true,
+      reason: "partner_flag_shadow",
+      target_user_id: String(input.targetUserId || ""),
+      model: String(input.model || verdict.model || "stub"),
+      model_ready: true,
+      face: String(verdict.face || "unknown"),
+      nsfw: String(verdict.nsfw || "unknown"),
+      window: window.slice(-3),
+      ts: Number(input.ts) || Date.now(),
+    };
+    const scores = verdict.scores;
+    if (scores && typeof scores === "object") {
+      record.scores = {
+        porn: Number(scores.porn) || 0,
+        hentai: Number(scores.hentai) || 0,
+        sexy: Number(scores.sexy) || 0,
+      };
+    }
+  }
+  return {
+    session: step.session,
+    blur,
+    toast: blur && !input.wasBlur,
+    record,
+    hardBlock: false,
+    skip: false,
+  };
+}
+
+/**
  * Send safety_log only when the hub flag is on.
  * Never sends report_user / explicit_ai.
  */
