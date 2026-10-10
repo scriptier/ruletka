@@ -15,6 +15,7 @@ DONE WHEN:
   - §5 lists privacy/terms strings to change before TestFlight for A and for C, and Safari notes for B
   - §6 is the internal TestFlight runbook: accounts, certificates, 2FA, and what this Linux box cannot do
   - §7 has metadata drafts, a real-screen screenshot list, and a privacy-label checklist for A, B, and C
+  - §8 has age-rating answers, export-compliance wording, and App Review contact notes for A and C
   - eas.json stays REPLACE_ASC_APP_ID; 6804910924 stays a note
   - No build and no App Store Connect action is taken from this hop
 EVAL:
@@ -46,7 +47,7 @@ The Play app and an iOS build are the same Expo project (`mobile/`, bundle / pac
 |---|---|---|---|
 | Stranger Start / Next / Stop | `live.tsx` → hub spin / next / stop | Same file | None in code. `isFriendsOnly()` hides the stranger queue on both. Production `eas.json` does not set that flag. |
 | Friends by code, chat, call | `friends.tsx`, `call_friend` | Same | None in code. Profiles `preview-friends` and `production-friends` set `EXPO_PUBLIC_FRIENDS_ONLY=1`. |
-| 18+ gate | `rules.tsx` before the hub | Same | Age-rating answers in App Store Connect are still a human form. Expect 17+. |
+| 18+ gate | `rules.tsx` before the hub | Same | Age-rating answers are a human form. Draft is §8. Override to 18+ so the store matches the gate. |
 | Blur / hide, gifts, identity, 3-way | Shared live UI | Same JS | Visual safe-area and tile chrome are unsmoked on an iPhone. |
 | Camera + mic permission copy | Android manifest permissions | `NSCameraUsageDescription` and `NSMicrophoneUsageDescription` in `app.json` and the WebRTC config plugin | Strings exist. A real grant on iOS is untested here. |
 | Call audio | `audioSession.ts` mode `call`, speaker (not earpiece) | Same function: `allowsRecordingIOS: true`, `playsInSilentModeIOS: true`, `interruptionModeIOS: MixWithOthers`, `staysActiveInBackground: false` | `UIBackgroundModes` is `[]` in `app.config.js`. No background audio. No iPhone A/V scorecard. |
@@ -326,11 +327,84 @@ Do not add a row for `safety_log` on this binary. The stub never sends it. Add l
 
 `docs/PLAY_DATA_SAFETY.md` is the Android analog. Use it for camera, mic, report still, user id, and “stars are not money.” Do not copy its location “No” onto this form while the app shows a city.
 
-## 8. Sources
+## 8. Age rating, export, review contact
+
+Prep only. Not entered in App Store Connect. `eas.json` stays `REPLACE_ASC_APP_ID`. Candidate **6804910924** is notes-only. Option B has no questionnaire, no export upload, and no review contact, because there is no binary.
+
+### Age rating
+
+Source: Apple’s age-rating values page, fetched 2026-10-10, and the 9 July 2026 note that social media means a feed or similar discovery that spreads user content to many people. Apple calculates a rating from the answers. A higher age can be set when the product rule is stricter. Kids category: **Not Applicable**. Do not list the app in Kids.
+
+The in-app gate is the rules screen (`rules.tsx`): the person taps 18+ before the hub. That tap is not the Declared Age Range API and not an ID check. Apple’s age-assurance note says some regions still require that API even when the store rating is 18+. This branch does not call it. Do not answer Age Assurance as Yes.
+
+Shared answers for A and C (the app’s own UI, not what a partner might show):
+
+| Question | Answer |
+|---|---|
+| Parental controls | No |
+| Age assurance (API, estimate, or government ID) | No |
+| Unrestricted web access | No. No in-app browser. Privacy, terms, and safety open in Safari via `Linking.openURL`. |
+| Social media (feed, likes, reshare to many people) | No. There is no feed. |
+| Social media disabled under 13 | Do not select. That row requires the Declared Age Range API. |
+| Messaging and chat | Yes. Voice and video, plus text, for a direct call. |
+| User-generated content | Yes. The other person creates the live picture, sound, and chat. |
+| Advertising | No |
+| Profanity, horror, alcohol or drugs, medical, health | None |
+| Mature or suggestive themes, sexual content, graphic sexual content | None in the app’s own screens and art |
+| Violence, weapons | None |
+| Gambling, simulated gambling, contests, loot boxes | None |
+| Calculated floor from those rows | Messaging and user-generated content sit in Apple’s 4+ examples. They do not by themselves produce 18+. |
+| Override | **18+**. The product rule is 18+. Leave the calculated floor in place and set the higher age. On OS versions before 26 the store can still show an older label such as 17+. |
+
+**A.** Same table. There is no stranger queue, so the user-generated risk is a person you added by code. Still override to 18+, because this binary keeps the 18+ rules screen. Do not drop the override to chase a lower badge unless Anton changes that screen.
+
+**C.** Same table, plus this risk: the stranger queue can put mature or explicit live video on the screen. That is why the override stays 18+. Do not tick Frequent or Infrequent **graphic sexual content**. On Apple’s chart that value is **Unrated**, and an Unrated app cannot be published on the App Store. Do not tick Unrestricted web access to “explain” the queue. The app does not contain a browser. Guideline 1.2 is the review risk (§2), not an age-rating row.
+
+### Export compliance
+
+No CCATS, no ERN, no French encryption declaration, and no other certificate is in this repo. Do not type a number.
+
+The binary already says exempt encryption:
+
+- `app.config.js`: `ITSAppUsesNonExemptEncryption: false`
+- `app.config.js`: `ios.config.usesNonExemptEncryption: false`
+
+That is the answer already chosen: the app is not using non-exempt encryption, so a documentation upload is not required on each build. This hop does not change the keys.
+
+If App Store Connect or the upload form still asks, the true description is:
+
+- Signaling uses HTTPS (and WSS) to the hub.
+- Call media uses WebRTC DTLS-SRTP. The dependency is `react-native-webrtc` 124, which brings its own WebRTC stack. That path is not only Apple’s URLSession.
+- No custom cipher. The app is not an encryption product.
+
+Use the standard exemption wording for that: encryption is limited to standard HTTPS and DTLS-SRTP for a video call, qualifying under the mass-market / ancillary exemptions in Category 5, Part 2 (the app is not sold as crypto). Answer that it qualifies for the exemption. Answer that it does not use proprietary or non-standard cryptography. Leave every document-upload field empty.
+
+If counsel or Apple says the bundled WebRTC stack is non-exempt, stop. Flip the plist only with a real classification in hand. Do not invent one.
+
+### App Review contact
+
+The contact form wants a person, a phone, and an email. This repo has **support@ruletka.me** and **privacy@ruletka.me**. It has no reviewer phone. Anton types his own name and phone when he submits. Do not copy a guessed number into the form.
+
+There is no demo password. Sign-in required: **No**.
+
+**A.** Notes to paste beside the contact:
+
+- Friends-only build. Stranger Start is hidden.
+- No account. Accept 18+ and allow camera and microphone.
+- On Friends, the review device shows its own code. A second device we operate adds that code and calls. The code is created on the device at install, so it is written into these notes at submit time, not stored in the repo.
+- Report and Block are in the call. Settings shows the safety filter on. The detector does not fire in this build.
+- Contact for the app: support@ruletka.me.
+
+**C.** Add this bullet to the review notes in §7:
+
+- The developer has read Guideline 1.2. This binary includes random video chat, which that guideline says may be removed without notice. The submission is made with that risk accepted. Report, block, the default-on filter control, and support@ruletka.me are in the app. The detector is a stub and does not catch video.
+
+## 9. Sources
 
 - Apple App Review Guidelines, 1.2, 1.1.4, 1.5, 2.2, 2.3.8: <https://developer.apple.com/app-store/review/guidelines/> (fetched 2026-10-10).
 - TestFlight pages in §4.
 - Screenshot specifications, fetched 2026-10-10: <https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/> (Dynamic Island medium required; iPad 13-inch required if the app runs on iPad).
+- Age ratings values and definitions, fetched 2026-10-10: <https://developer.apple.com/help/app-store-connect/reference/app-information/age-ratings-values-and-definitions/>. Social media definition: Apple news, 9 July 2026, <https://developer.apple.com/news/?id=tlur8uvi>.
 - `knowledge/research/moderation-ui-2026-10-08.md` §10 (Play two-step filter and Apple 1.2) and open question 8.
 - `knowledge/research/seo-2026-10-08.md` P4 (Safari line for iPhone) and T11 (do not advertise iOS in schema until it is real).
 - This branch: `mobile/eas.json` (`distribution: internal` on preview, `ascAppId` placeholder), `mobile/app.json` (camera/mic strings, `hubBase`), `mobile/app.config.js`, `mobile/src/i18n/packs/en.json` and `overlay/en.json` (privacy, terms, friends-only note), `ui/legal/privacy.html`, `ui/index.html` schema, `ui/pwa-install.js`, `docs/PLAY_DATA_SAFETY.md`.
@@ -338,6 +412,6 @@ Do not add a row for `safety_log` on this binary. The stub never sends it. Add l
 
 ## Status
 
-- **Draft for Anton.** Docs hop 4 added §7 (metadata, screenshots, privacy labels). Not an implementation hop.
+- **Draft for Anton.** Docs hop 5 added §8 (age rating, export compliance, review contact). Not an implementation hop.
 - Last measure: 2026-10-10, `polish/2026-10-10`. `eas.json` `ascAppId` is still `REPLACE_ASC_APP_ID`. Candidate `6804910924` is notes-only.
 - Next: Anton picks A, B, or C. No EAS build, no `eas submit`, no `eas.json` edit, and no Submit for Review until he says so.
