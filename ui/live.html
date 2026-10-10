@@ -3,40 +3,42 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
-  <title>ruletka.vip — live chat roulette (P2P video)</title>
-  <meta name="description" content="Start random peer-to-peer video chat on ruletka.vip. No account required. Friends, block, report. 18+ adult video chat roulette." />
+  <title>Чат рулетка — живой видеочат | Ruletka.me</title>
+  <meta name="description" content="Живой видеочат рулетка на Ruletka.me: случайный собеседник без регистрации. Видео напрямую между браузерами. Друзья, блок, жалоба. 18+." />
   <meta name="robots" content="index, follow, max-image-preview:large" />
-  <link rel="canonical" href="https://ruletka.vip/live.html" />
+  <link rel="canonical" href="https://ruletka.me/live.html" />
+  <link rel="alternate" hreflang="ru" href="https://ruletka.me/" />
+  <link rel="alternate" hreflang="en" href="https://ruletka.me/en/" />
+  <link rel="alternate" hreflang="x-default" href="https://ruletka.me/" />
   <meta name="theme-color" content="#07080c" id="meta-theme-color" />
   <!-- Deploys: SW + Caddy treat live stack as no-store; bump ?v= on each ship -->
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <meta property="og:site_name" content="ruletka.vip" />
+  <meta property="og:site_name" content="Ruletka.me" />
   <meta property="og:type" content="website" />
-  <meta property="og:url" content="https://ruletka.vip/live.html" />
-  <meta property="og:title" content="ruletka.vip — live chat roulette" />
-  <meta property="og:description" content="Random P2P video chat. No account. Friends, block, report. Video stays browser-to-browser." />
-  <meta property="og:image" content="https://ruletka.vip/brand/og-share.jpg" />
-  <meta property="og:image:width" content="1200" />
-  <meta property="og:image:height" content="630" />
-  <meta property="og:locale" content="en_US" />
-  <meta property="og:locale:alternate" content="ru_RU" />
-  <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="ruletka.vip — live chat roulette" />
-  <meta name="twitter:description" content="Random P2P video chat. No account required." />
-  <meta name="twitter:image" content="https://ruletka.vip/brand/og-share.jpg" />
+  <meta property="og:url" content="https://ruletka.me/live.html" />
+  <meta property="og:title" content="Чат рулетка — живой видеочат | Ruletka.me" />
+  <meta property="og:description" content="Живой видеочат рулетка на Ruletka.me: случайный собеседник без регистрации. Видео напрямую между браузерами. Друзья, блок, жалоба. 18+." />
+  <meta property="og:image" content="https://ruletka.me/brand/logo-mark.png" />
+  <meta property="og:locale" content="ru_RU" />
+  <meta property="og:locale:alternate" content="en_US" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="Чат рулетка — живой видеочат | Ruletka.me" />
+  <meta name="twitter:description" content="Случайный видеочат без регистрации. Видео напрямую между браузерами. 18+." />
+  <meta name="twitter:image" content="https://ruletka.me/brand/logo-mark.png" />
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
     "@type": "WebApplication",
-    "name": "ruletka.vip live",
-    "url": "https://ruletka.vip/live.html",
+    "name": "Ruletka.me",
+    "url": "https://ruletka.me/live.html",
     "applicationCategory": "SocialNetworkingApplication",
     "operatingSystem": "Web",
-    "description": "Random peer-to-peer video chat roulette. No account. Friends, block, report.",
-    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+    "contentRating": "18+",
+    "description": "Живой видеочат рулетка: случайный собеседник без регистрации. Видео напрямую между браузерами.",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "RUB" }
   }
   </script>
   <link rel="icon" href="/brand/favicon-32.png?v=10" type="image/png" sizes="32x32" />
@@ -74,7 +76,12 @@
       width: min(22rem, 100%); text-align: center;
     }
     .age-gate-title { font-size: 1.5rem; font-weight: 800; margin: 0; }
-    .age-gate-sub, .age-gate-kicker { color: #9aa8bc; max-width: 28rem; line-height: 1.45; }
+    .age-gate-sub, .age-gate-kicker, .age-gate-consent { color: #9aa8bc; max-width: 28rem; line-height: 1.45; }
+    .age-gate-consent a { color: #e8eef7; }
+    .live-seo-h1 {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+    }
     .age-gate-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; justify-content: center; margin-top: 0.5rem; }
     .age-gate-btn {
       border: 0; border-radius: 999px; padding: 0.75rem 1.25rem; font-weight: 700; cursor: pointer;
@@ -553,12 +560,12 @@
     /* vol-hud-v2 look lives in live-stage.css */
 </style>
   <!-- Load stage CSS as all immediately — no media=print FOUC trick (was leaving rails opacity:0) -->
-  <link rel="preload" href="live-stage.css?v=632" as="style" />
-  <link rel="stylesheet" href="live-stage.css?v=632" />
+  <link rel="preload" href="live-stage.css?v=633" as="style" />
+  <link rel="stylesheet" href="live-stage.css?v=633" />
   <link rel="stylesheet" href="live-brand.css?v=23" />
-  <link rel="preload" href="live.js?v=964" as="script" />
-  <link rel="preload" href="i18n.js?v=266" as="script" />
-  <script src="brand.js?v=2" defer></script>
+  <link rel="preload" href="live.js?v=965" as="script" />
+  <link rel="preload" href="i18n.js?v=267" as="script" />
+  <script src="brand.js?v=3" defer></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
     (function () {
@@ -597,6 +604,7 @@
   </script>
 </head>
 <body class="stage-body">
+  <h1 class="live-seo-h1">Чат рулетка — видеочат со случайными людьми</h1>
   <!-- Stroke icon sprite (currentColor) -->
   <svg xmlns="http://www.w3.org/2000/svg" class="icon-sprite" aria-hidden="true" focusable="false">
     <defs>
@@ -2418,51 +2426,28 @@
       <div class="age-gate-visual" aria-hidden="true">
         <img class="age-gate-logo" src="/brand/icon-192.png?v=10" width="96" height="96" alt="" decoding="async" fetchpriority="low" />
       </div>
-      <p class="age-gate-kicker" data-i18n="rules.ageGateKicker">18+ only · peer-to-peer video chat</p>
-      <h1 id="age-gate-title" class="age-gate-title" data-i18n="rules.ageGateTitle">Are you 18 or older?</h1>
-      <p class="age-gate-sub" data-i18n="rules.ageGateSub">You must be at least 18. Next: quick rules, then Start — camera only for live chat (peer-to-peer).</p>
+      <p class="age-gate-kicker" data-i18n="rules.ageGateKicker">18+ · видеочат напрямую между браузерами</p>
+      <h2 id="age-gate-title" class="age-gate-title" data-i18n="rules.ageGateTitle">Начать чат · 18+</h2>
+      <p class="age-gate-sub" data-i18n="rules.ageGateSub">Нажимая «Начать», вы подтверждаете, что вам есть 18 лет, и принимаете условия. Камера только для видеочата.</p>
+      <p class="age-gate-consent">
+        <a href="/legal/terms.html" target="_blank" rel="noopener" data-i18n="rules.terms">Условия использования</a>
+        ·
+        <a href="/legal/privacy.html" target="_blank" rel="noopener" data-i18n="rules.privacyLink">Конфиденциальность</a>
+        ·
+        <a href="/legal/eula.html" target="_blank" rel="noopener">EULA</a>
+      </p>
       <div class="age-gate-actions">
         <button type="button" class="age-gate-btn primary" id="btn-age-yes" data-i18n="rules.ageYes">
-          Yes, I'm 18 or older
+          Начать
         </button>
         <button type="button" class="age-gate-btn ghost" id="btn-age-no" data-i18n="rules.ageNo">
-          No
+          Мне нет 18
         </button>
       </div>
       <p class="age-gate-underage" id="age-gate-underage" hidden data-i18n="rules.underage">
-        Sorry — you must be 18+ to continue.
+        Извините — доступ только с 18 лет.
       </p>
     </div>
-    <!-- Step 2: agreement sheet -->
-    <div class="agree-sheet" id="agree-sheet" hidden role="dialog" aria-modal="true" aria-labelledby="agree-title">
-      <header class="agree-sheet-head">
-        <h2 id="agree-title" data-i18n="rules.agreeTitle">User agreement</h2>
-        <button type="button" class="agree-sheet-close" id="btn-agree-close" aria-label="Back">✕</button>
-      </header>
-      <div class="agree-sheet-body">
-        <p class="agree-lead" data-i18n="rules.agreeLead">By continuing, you accept the license terms.</p>
-        <ul class="agree-list">
-          <li>
-            <span data-i18n="rules.agreeRead">I agree that I have read the</span>
-            <a href="/legal/eula.html" target="_blank" rel="noopener">EULA</a>,
-            <a href="/legal/terms.html" target="_blank" rel="noopener" data-i18n="rules.terms">Terms of Service</a>,
-            <a href="/legal/privacy.html" target="_blank" rel="noopener" data-i18n="rules.privacyLink">Privacy policy</a>.
-          </li>
-          <li data-i18n="rules.agreeCommunity">I will follow community rules: respect others, no illegal content, use Block/Report when needed.</li>
-          <li data-i18n="rules.agreeMedia">I understand video is peer-to-peer and partners may record — I will use Block/Report for abuse.</li>
-        </ul>
-      </div>
-      <div class="agree-sheet-actions">
-        <button type="button" class="age-gate-btn primary" id="btn-rules-accept" data-i18n="rules.accept">
-          Accept &amp; continue
-        </button>
-        <button type="button" class="age-gate-btn ghost" id="btn-agree-cancel" data-i18n="rules.cancel">
-          Cancel
-        </button>
-      </div>
-    </div>
-    <!-- Backdrop dim when sheet open -->
-    <div class="agree-sheet-scrim" id="agree-sheet-scrim" hidden aria-hidden="true"></div>
   </div>
 
   <!-- Settings sheet (competitor-style grouped list) -->
@@ -2568,14 +2553,15 @@
 
         <p class="settings-section-label" data-i18n="settings.connLobby">Lobby</p>
         <div class="settings-group conn-lobby-ticker" id="conn-lobby-ticker" aria-live="polite">
-          <div class="conn-lobby-stats">
+          <p class="conn-lobby-low" id="conn-lobby-low" data-i18n="pool.lowLiquidity">Ищем собеседника по всему миру… пригласите друга</p>
+          <div class="conn-lobby-stats" id="conn-lobby-stats" hidden>
             <div class="conn-lobby-stat">
               <span class="conn-lobby-n" id="conn-stat-online">—</span>
-              <span class="conn-lobby-k" data-i18n="pool.online">Online</span>
+              <span class="conn-lobby-k" data-i18n="pool.online">В сети</span>
             </div>
             <div class="conn-lobby-stat">
               <span class="conn-lobby-n" id="conn-stat-waiting">—</span>
-              <span class="conn-lobby-k" data-i18n="pool.waiting">Waiting</span>
+              <span class="conn-lobby-k" data-i18n="pool.waiting">В очереди</span>
             </div>
           </div>
         </div>
@@ -3542,14 +3528,14 @@
 
   <!-- Critical path: defer app scripts. QR / invite-copy / live-window load on demand. -->
   <script src="analytics.js?v=4" defer></script>
-  <script src="pwa-install.js?v=12" defer></script>
+  <script src="pwa-install.js?v=13" defer></script>
   <script src="web-push.js?v=1" defer></script>
-  <script src="i18n.js?v=266" defer></script>
+  <script src="i18n.js?v=267" defer></script>
   <script src="geoLocalize.js?v=3" defer></script>
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=157" defer></script>
   <script src="webrtc.js?v=356" defer></script>
-  <script src="live.js?v=964" defer></script>
+  <script src="live.js?v=965" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {
