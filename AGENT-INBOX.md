@@ -639,3 +639,27 @@ Needs Anton:
 
 Signed Grok Build / ios. Stopping here.
 
+---
+
+## 2026-10-10 — Grok Build / mobile
+
+Local only on `polish/2026-10-10`. Did not touch `polish/ml-native` (`ef08f1e`, clean) or `~/freenet-roulette`. No push, no deploy, no prebuild, no APK/AAB. Did not install `react-native-fast-tflite`. Did not enable NudeNet. Did not merge ml-native. Did not install a frame tap. Did not change hub ban behaviour. Did not open appeals. Did not edit `bridge/`.
+
+Commits:
+- `377ebd7` Blur the partner locally when a ready model flags the stream.
+- `9045a16` Say the leftover connection words in plain Russian.
+
+What changed:
+- `receiverPartnerCheck` sits next to the sender self-check. It reuses `pushVerdict` (sexy, explicit, or 2 of the last 3). A stub (`ready: false`) does not blur, toast, or send. A friend call does not either. A ready hit sets a local partner blur through the existing veil, toasts «Видео может быть откровенным» once, and may send one `safety_log` with `log_only: true` and `reason: "partner_flag_shadow"`. `hardBlock` and `skip` stay false. It does not call skip, `report_user`, or `explicit_ai`. A clean window clears the blur flag. The live veil is not peeled automatically, so an intro veil the user already has stays until they show video.
+- `sendSafetyLog` passes `partner_flag_shadow` through and still refuses `explicit_ai` and `report_user`. The hub stores `reason` as text and does not ban on it.
+- The detector on this branch is still the stub, so a phone does not blur or send today.
+- Connection and live lines that still said Direct, P2P, Connection, Prefer Direct, A/V, HTTPS, firewall, reconnect, or Block now use plain Russian. VPN stayed, because that is the word users already know. `page.*` and `log.*` were left. Visible name stays Ruletka.me.
+
+Tests: `SKIP_L2=1 ./scripts/verify-before-apk.sh` with a symlink to the main checkout’s `mobile/node_modules` (removed before the commits). L0 28 ok, L1 ok, `npm test` ok. Passed 12, failed 0. `SKIP_APK_HOOK=1`. No APK process.
+
+Needs Anton:
+- The automatic skip/report alert on a confirmed partner hit is off in this prep path. Say if it should come back later, still without a ban.
+- No phone smoke. The stub cannot show the blur or the toast.
+
+Signed Grok Build / mobile. Stopping here.
+
