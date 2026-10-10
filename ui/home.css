@@ -1873,3 +1873,45 @@ html[dir="rtl"] .home-nav,
 html[dir="rtl"] .legal-nav {
   direction: rtl;
 }
+
+/* SEO article on the existing dark landing — same type, no new theme */
+.home-seo {
+  max-width: 46rem;
+  margin: 0 auto 2.5rem;
+  padding: 0 1.25rem 1rem;
+}
+.home-seo h2 {
+  font-size: 1.25rem;
+  margin: 1.6rem 0 0.45rem;
+  letter-spacing: -0.02em;
+}
+.home-seo p,
+.home-seo li {
+  color: #c5d0e0;
+  line-height: 1.6;
+}
+.home-seo ul {
+  padding-left: 1.15rem;
+}
+.home-seo table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+  margin: 0.75rem 0 1rem;
+}
+.home-seo th,
+.home-seo td {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0.45rem 0.4rem;
+  text-align: left;
+  vertical-align: top;
+}
+.home-low-pool {
+  margin: 0.35rem 0 0;
+  color: #c5d0e0;
+  font-size: 0.98rem;
+  line-height: 1.45;
+}
+.home-live-stats.is-low {
+  display: none;
+}
