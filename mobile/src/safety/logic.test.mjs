@@ -16,6 +16,7 @@ import {
   deliverSafetyLog,
   FACE_HINT_AFTER_MS,
   faceForSelfCheck,
+  preQueueFaceGate,
   pushFaceSample,
   pushVerdict,
   safetyFilterEnabled,
@@ -126,6 +127,61 @@ assert.equal(faceStep.showHint, false);
 assert.equal(faceForSelfCheck(false, "absent"), "unknown");
 assert.equal(faceForSelfCheck(true, "absent"), "absent");
 assert.equal(faceForSelfCheck(true, "maybe"), "unknown");
+
+const stubGate = preQueueFaceGate({
+  detectorReady: false,
+  face: "absent",
+  watch: createFaceWatch(),
+  nowMs: 0,
+});
+const stubLater = preQueueFaceGate({
+  detectorReady: false,
+  face: "absent",
+  watch: stubGate.watch,
+  nowMs: FACE_HINT_AFTER_MS + 5000,
+});
+assert.equal(stubLater.showHint, false, "stub does not hint");
+assert.equal(stubLater.softGate, false, "stub does not gate the queue");
+assert.equal(stubLater.hardBlock, false, "stub does not hard-block Start");
+
+let readyWatch = createFaceWatch();
+let readyGate = preQueueFaceGate({
+  detectorReady: true,
+  face: "absent",
+  watch: readyWatch,
+  nowMs: 1000,
+});
+assert.equal(readyGate.showHint, false);
+assert.equal(readyGate.softGate, false);
+assert.equal(readyGate.hardBlock, false);
+readyGate = preQueueFaceGate({
+  detectorReady: true,
+  face: "absent",
+  watch: readyGate.watch,
+  nowMs: 1000 + FACE_HINT_AFTER_MS,
+});
+assert.equal(readyGate.showHint, true, "ready + no face shows the hint");
+assert.equal(readyGate.softGate, true, "ready + no face soft-gates the queue");
+assert.equal(readyGate.hardBlock, false, "soft gate leaves Start tappable");
+readyGate = preQueueFaceGate({
+  detectorReady: true,
+  face: "present",
+  watch: readyGate.watch,
+  nowMs: 1000 + FACE_HINT_AFTER_MS + 10,
+});
+assert.equal(readyGate.showHint, false);
+assert.equal(readyGate.softGate, false);
+
+const friendGate = preQueueFaceGate({
+  friendCall: true,
+  detectorReady: true,
+  face: "absent",
+  watch: readyGate.watch,
+  nowMs: 99_000,
+});
+assert.equal(friendGate.showHint, false, "friend calls skip the face hint");
+assert.equal(friendGate.softGate, false, "friend calls are not gated");
+assert.equal(friendGate.hardBlock, false);
 
 const shadow = buildSafetyLog({ targetUserId: "abc", nsfw: "explicit" });
 const held = deliverSafetyLog(shadow, {

@@ -56,6 +56,18 @@ export function faceForSelfCheck(
   detectorReady: boolean,
   face: string | null | undefined
 ): FaceClass;
+export function preQueueFaceGate(input?: {
+  friendCall?: boolean;
+  detectorReady?: boolean;
+  face?: string | null;
+  watch?: FaceWatch | null;
+  nowMs?: number;
+}): {
+  watch: FaceWatch;
+  showHint: boolean;
+  softGate: boolean;
+  hardBlock: false;
+};
 export function deliverSafetyLog(
   record: SafetyLogRecord | null | undefined,
   opts?: { accept?: boolean; send?: (record: SafetyLogRecord) => void }

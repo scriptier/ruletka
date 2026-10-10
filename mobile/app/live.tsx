@@ -55,8 +55,7 @@ import {
   createSafetyDetector,
   deliverSafetyLog,
   createSafetySession,
-  faceForSelfCheck,
-  pushFaceSample,
+  preQueueFaceGate,
   pushVerdict,
   type FaceWatch,
   type SafetySession,
@@ -549,6 +548,7 @@ function LiveBody() {
   const safetyFilterOnRef = useRef(true);
   const safetySessionRef = useRef<SafetySession>(createSafetySession());
   const faceWatchRef = useRef<FaceWatch>(createFaceWatch());
+  const selfFaceSoftGateRef = useRef(false);
   const [selfFaceHint, setSelfFaceHint] = useState(false);
   // Must stay defined — 0.1.388 crashed Live (`blurMode` missing).
   const [blurMode, setBlurMode] = useState<BlurStrangersMode>("intro");
@@ -5678,6 +5678,15 @@ function LiveBody() {
       return;
     }
     if (!guardAction()) return;
+    // Ready face model, no face for N seconds: keep the preview and the
+    // hint. Start stays tappable. The stub never sets this flag.
+    // Friend calls do not use it.
+    if (matchMode !== "friend" && selfFaceSoftGateRef.current) {
+      setSelfFaceHint(true);
+      showToastRef.current(t("mobile.live.faceMissing"));
+      push("face soft-gate: preview stays, queue not sent");
+      return;
+    }
     // Flip Start → Next/Stop immediately (before media work can delay/fail).
     enterSearchUi();
     try {
@@ -7549,11 +7558,14 @@ function LiveBody() {
     // Re-bind when the match starts, not on every parent render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, isFriendCall]);
-  // Self-preview face hint before queueing. Unknown (stub) clears the
-  // warning and never blocks Start.
+  // Self-preview before queueing. Friend calls are excluded.
+  // Stub (ready:false) never hints and never soft-gates Start.
+  // A ready model with no face for N seconds shows the hint and holds
+  // the stranger queue. Start stays tappable.
   useEffect(() => {
-    if (phase === "matched") {
+    if (phase === "matched" || isFriendCall) {
       faceWatchRef.current = createFaceWatch();
+      selfFaceSoftGateRef.current = false;
       setSelfFaceHint(false);
       return;
     }
@@ -7562,9 +7574,15 @@ function LiveBody() {
     const timer = setInterval(() => {
       void detector.classify(null).then((verdict) => {
         if (stopped) return;
-        const face = faceForSelfCheck(detector.ready, verdict.face);
-        const step = pushFaceSample(faceWatchRef.current, face, Date.now());
+        const step = preQueueFaceGate({
+          friendCall: false,
+          detectorReady: detector.ready,
+          face: verdict.face,
+          watch: faceWatchRef.current,
+          nowMs: Date.now(),
+        });
         faceWatchRef.current = step.watch;
+        selfFaceSoftGateRef.current = step.softGate;
         setSelfFaceHint((prev) => (prev === step.showHint ? prev : step.showHint));
       });
     }, 1000);
@@ -7572,7 +7590,7 @@ function LiveBody() {
       stopped = true;
       clearInterval(timer);
     };
-  }, [phase]);
+  }, [phase, isFriendCall]);
   useFocusEffect(
     useCallback(() => {
       loadMatchPrefs()

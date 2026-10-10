@@ -132,7 +132,8 @@ export function createFaceWatch() {
  * Self-check before queueing.
  * "unknown" (the stub) and "present" clear the hint.
  * "absent" for FACE_HINT_AFTER_MS shows the hint.
- * blocked is always false — a missing face does not stop Start.
+ * blocked is always false. The queue uses preQueueFaceGate, which
+ * can soft-gate a ready model without disabling the Start control.
  */
 export function pushFaceSample(watch, face, nowMs) {
   const now = Number(nowMs) || 0;
@@ -158,6 +159,32 @@ export function faceForSelfCheck(detectorReady, face) {
   if (!detectorReady) return "unknown";
   if (face === "absent" || face === "present") return face;
   return "unknown";
+}
+
+/**
+ * Pre-queue path. Friend calls are excluded.
+ * Stub (detector not ready) never hints and never gates, so Start proceeds.
+ * A ready detector with no face for FACE_HINT_AFTER_MS shows the hint and
+ * sets softGate. hardBlock stays false: the Start control stays tappable,
+ * and the caller holds the stranger queue while softGate is set.
+ */
+export function preQueueFaceGate(input) {
+  if (input && input.friendCall) {
+    return {
+      watch: createFaceWatch(),
+      showHint: false,
+      softGate: false,
+      hardBlock: false,
+    };
+  }
+  const face = faceForSelfCheck(!!input?.detectorReady, input?.face);
+  const step = pushFaceSample(input?.watch, face, input?.nowMs);
+  return {
+    watch: step.watch,
+    showHint: step.showHint,
+    softGate: !!input?.detectorReady && step.showHint,
+    hardBlock: false,
+  };
 }
 
 /**
