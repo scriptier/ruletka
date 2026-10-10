@@ -1,6 +1,7 @@
 export type { LivePhase } from "./phase";
 export type { PeerPick, PartnerGeoApplyDecision } from "./matchPeers";
 export {
+  MAX_EXTRA_PEERS,
   normalizePeer,
   pickPeer,
   extraPeersFromMatch,

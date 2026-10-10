@@ -45,6 +45,18 @@ import {
 import { fillPublicGeo } from "../src/identity/fillPublicGeo";
 import { hubBase, isFriendsOnly } from "../src/config";
 import {
+  formatDurationSeconds,
+  unitsFromTranslator,
+} from "../src/i18n/duration";
+import { rememberSafetyLog } from "../src/safety/logStore";
+import {
+  buildSafetyLog,
+  createSafetyDetector,
+  createSafetySession,
+  pushVerdict,
+  type SafetySession,
+} from "../src/safety/logic";
+import {
   hapticDebateTurn,
   hapticDebateUrgent,
   hapticLight,
@@ -526,6 +538,9 @@ function LiveBody() {
   // Until AsyncStorage returns, do not assume off forever — match path uses
   // intro as optimistic default; prefs_load applies real mode (incl. off).
   const blurModeRef = useRef<BlurStrangersMode>("intro");
+  /** Partner incoming-video filter. Default on until prefs say false. */
+  const safetyFilterOnRef = useRef(true);
+  const safetySessionRef = useRef<SafetySession>(createSafetySession());
   // Must stay defined — 0.1.388 crashed Live (`blurMode` missing).
   const [blurMode, setBlurMode] = useState<BlurStrangersMode>("intro");
   void blurMode;
@@ -2332,6 +2347,7 @@ function LiveBody() {
       const mode: BlurStrangersMode =
         raw === "off" || raw === "intro" || raw === "hold" ? raw : "intro";
       blurModeRef.current = mode;
+      safetyFilterOnRef.current = prefs.safetyFilter !== false;
       setBlurMode(mode);
       blurStrangersRef.current = mode !== "off";
       blurPrefsReadyRef.current = true;
@@ -6885,7 +6901,7 @@ function LiveBody() {
 
   function shareInvite(via: string = "live") {
     const code = friendCode || "……";
-    const share = friendInviteShareMessage(hubBase(), code, "ruletka");
+    const share = friendInviteShareMessage(hubBase(), code);
     track("funnel_invite_share", { via });
     if (via === "alone" || phase === "search") {
       track("empty_alone_invite_share", { via });
@@ -7459,6 +7475,76 @@ function LiveBody() {
   // Alone-queue "Invite someone to live" card removed (product: less noise on Android Live).
   const showAloneBanner = false;
   const isFriendCall = matchMode === "friend";
+  // Receiver-side safety watch. Stub detector returns unknown, so this
+  // does not blur until a real model is plugged in. Friend calls stay off.
+  useEffect(() => {
+    if (phase !== "matched" || isFriendCall) {
+      safetySessionRef.current = createSafetySession();
+      return;
+    }
+    const detector = createSafetyDetector();
+    let stopped = false;
+    const timer = setInterval(() => {
+      if (stopped || !safetyFilterOnRef.current) return;
+      void detector.classify(null).then((verdict) => {
+        if (stopped || !safetyFilterOnRef.current) return;
+        const step = pushVerdict(safetySessionRef.current, verdict);
+        safetySessionRef.current = step.session;
+        if (step.action === "none") return;
+        setRemoteBlurred(true);
+        remoteBlurredRef.current = true;
+        blurAutoAppliedRef.current = true;
+        console.log(`[safety] blur why=${step.action} model=${detector.id}`);
+        if (step.action !== "confirmed") return;
+        const uid =
+          partnerUserId.current || lastPartnerIdsRef.current.userId || "";
+        void rememberSafetyLog(
+          buildSafetyLog({
+            targetUserId: uid,
+            model: verdict.model || detector.id,
+            modelReady: detector.ready,
+            face: verdict.face,
+            nsfw: verdict.nsfw,
+            window: step.session.window,
+            scores: verdict.scores,
+          })
+        );
+        Alert.alert(
+          t("mobile.live.safetyHitTitle"),
+          t("mobile.live.safetyHitBody"),
+          [
+            {
+              text: t("mobile.live.safetySkip"),
+              onPress: () => next(),
+            },
+            {
+              text: t("mobile.live.safetyReport"),
+              onPress: () => {
+                void openReport();
+              },
+            },
+            { text: t("mobile.common.cancel"), style: "cancel" },
+          ]
+        );
+      });
+    }, 2000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+    // next/openReport are function declarations in this component.
+    // Re-bind when the match starts, not on every parent render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, isFriendCall]);
+  useFocusEffect(
+    useCallback(() => {
+      loadMatchPrefs()
+        .then((p) => {
+          safetyFilterOnRef.current = p.safetyFilter !== false;
+        })
+        .catch(() => {});
+    }, [])
+  );
   const extraActionIdx =
     actionSlot === "extra1" ? 1 : actionSlot === "extra0" ? 0 : -1;
   const extraActionPeer =
@@ -7739,7 +7825,7 @@ function LiveBody() {
         const secs =
           secsRaw && secsRaw !== "mobile.live.reconnectSecs"
             ? secsRaw
-            : `${s}s`;
+            : t("mobile.time.s", { n: s });
         return `${chance} · ${secs}`;
       })()
     : "";
@@ -7937,6 +8023,7 @@ function LiveBody() {
         }}
       >
         <LiveStageVideo
+          formatElapsed={(n) => t("mobile.time.s", { n })}
           phase={uiPhase}
           localStream={localStream}
           remoteStream={remoteStream}
@@ -8199,6 +8286,7 @@ function LiveBody() {
             */}
             {uiPhase === "matched" ? null : uiPhase === "search" ? (
               <LiveSearchLabel
+                formatElapsed={(n) => t("mobile.time.s", { n })}
                 queueAcked={queueAcked}
                 alone={alone}
                 waiting={waiting}
@@ -8239,6 +8327,9 @@ function LiveBody() {
                       "Reconnecting…"}
                 </Text>
               </View>
+            )}
+            {uiPhase === "matched" ? null : (
+              <Text style={styles.stagePool}>{t("mobile.live.faceInFrame")}</Text>
             )}
           </View>
           {/* Steps only while joining queue — hide once looking (less top stack) */}
@@ -8292,6 +8383,7 @@ function LiveBody() {
             showConnRetry ||
             showHardRetry) ? (
             <LiveConnPill
+              formatElapsed={(n) => t("mobile.time.s", { n })}
               conn={conn || "connecting"}
               connLabel={connLabel || t("mobile.live.stageConnecting")}
               callTimerText={callTimerText}
@@ -8354,9 +8446,10 @@ function LiveBody() {
               <Text style={styles.lastHintMeta}>
                 {t("mobile.live.lastHintMeta", {
                   time:
-                    (lastMatchHint.duration_secs || 0) >= 60
-                      ? `${Math.floor((lastMatchHint.duration_secs || 0) / 60)}m`
-                      : `${lastMatchHint.duration_secs || 0}s`,
+                    formatDurationSeconds(
+                      lastMatchHint.duration_secs || 0,
+                      unitsFromTranslator(t)
+                    ) || t("mobile.time.s", { n: 0 }),
                 })}
               </Text>
             </Pressable>
@@ -8432,7 +8525,7 @@ function LiveBody() {
           showAlone={showAloneBanner}
           friendCode={friendCode || ""}
           inviteUrl={
-            friendInviteShareMessage(hubBase(), friendCode || "……", "ruletka")
+            friendInviteShareMessage(hubBase(), friendCode || "……")
               .url || hubBase()
           }
           labels={{
@@ -8451,8 +8544,7 @@ function LiveBody() {
           onCopyLink={() => {
             const share = friendInviteShareMessage(
               hubBase(),
-              friendCode || "……",
-              "ruletka"
+              friendCode || "……"
             );
             Clipboard.setStringAsync(share.url || share.message).catch(
               () => {}

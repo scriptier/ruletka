@@ -161,6 +161,8 @@ export type LiveStageVideoProps = {
   stageH: number;
   pipHint: boolean;
   connectElapsedSecs?: number;
+  /** Localized elapsed. Falls back to "{n}s". */
+  formatElapsed?: (secs: number) => string;
   /**
    * Gift effect on partner tile (e.g. "bars"). Android SurfaceView sits above
    * RN views — we drop zOrder to 0 and paint bars on the conversationalist tile.
@@ -567,6 +569,7 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
     retryBusy,
     autoRetryCount,
     connectElapsedSecs = 0,
+    formatElapsed,
     stageW,
     stageH,
     pipHint,
@@ -1141,7 +1144,11 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
                         : L.retrying
                       : emptyStatus}
                     {connectElapsedSecs >= 1
-                      ? ` · ${connectElapsedSecs}s`
+                      ? ` · ${
+                          formatElapsed
+                            ? formatElapsed(connectElapsedSecs)
+                            : `${connectElapsedSecs}s`
+                        }`
                       : ""}
                   </Text>
                   {connectElapsedSecs >= 6 && !retryBusy ? (

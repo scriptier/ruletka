@@ -20,6 +20,8 @@ export type LiveSearchLabelProps = {
   queueInPoolLabel: string;
   queueConfirmingLabel: string;
   reconnectingLabel: string;
+  /** Localized elapsed, e.g. "4 с". Falls back to "{n}s". */
+  formatElapsed?: (secs: number) => string;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -37,6 +39,7 @@ export function LiveSearchLabel(props: LiveSearchLabelProps) {
     queueInPoolLabel,
     queueConfirmingLabel,
     reconnectingLabel,
+    formatElapsed,
     style,
   } = props;
 
@@ -44,7 +47,15 @@ export function LiveSearchLabel(props: LiveSearchLabelProps) {
     ? queueJoiningLabel
     : `${lookingLabel.replace(/\.+$/, "")}${
         ".".repeat(searchDots) || ""
-      }${searchSecs >= 3 ? ` · ${searchSecs}s` : ""}`;
+      }${
+        searchSecs >= 3
+          ? ` · ${
+              formatElapsed
+                ? formatElapsed(searchSecs)
+                : `${searchSecs}s`
+            }`
+          : ""
+      }`;
 
   // Single meta line: pool / first-in-line / confirming (drop third row)
   const meta = !queueAcked

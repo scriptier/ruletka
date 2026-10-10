@@ -38,6 +38,10 @@ import {
   clearMatchThumbs,
   loadMatchThumbsMap,
 } from "../src/calls/matchThumbs";
+import {
+  formatDurationSeconds,
+  unitsFromTranslator,
+} from "../src/i18n/duration";
 import { track } from "../src/analytics/track";
 import { hubBase } from "../src/config";
 import type { FriendInfo } from "../src/hub/types";
@@ -633,7 +637,7 @@ function FriendsBody() {
   }
 
   function shareMyCode() {
-    const share = friendInviteShareMessage(hubBase(), friendCode, "ruletka");
+    const share = friendInviteShareMessage(hubBase(), friendCode);
     track("funnel_invite_share", { via: "friends" });
     track("friend_invite_share", { via: "friends" });
     Share.share({
@@ -1118,12 +1122,11 @@ function FriendsBody() {
           </View>
           {matchHistory.slice(0, 12).map((h) => {
             const fr = friends.find((f) => f.user_id === h.user_id);
-            const mins = Math.floor((h.duration_secs || 0) / 60);
-            const secs = (h.duration_secs || 0) % 60;
             const dur =
-              (h.duration_secs || 0) >= 60
-                ? `${mins}m${secs ? ` ${secs}s` : ""}`
-                : `${h.duration_secs || 0}s`;
+              formatDurationSeconds(
+                h.duration_secs || 0,
+                unitsFromTranslator(t)
+              ) || t("mobile.time.s", { n: 0 });
             const thumbUri = matchThumbs[h.user_id];
             const showThumb = !!thumbUri && !failedThumbs[h.user_id];
             // Prefer on-device match thumb; else friend hub avatar; else letter tile.

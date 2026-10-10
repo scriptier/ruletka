@@ -4,6 +4,9 @@
 import { peerIdsLooseMatch } from "../identity/flagTrust";
 import type { MatchPeer, ServerMatched } from "../hub/types";
 
+/** Primary partner plus this many extras (2 extras = 4 people on stage). */
+export const MAX_EXTRA_PEERS = 2;
+
 export type PeerPick = {
   peerId: string;
   userId: string;

@@ -164,13 +164,25 @@ export function webFriendInviteUrl(hubBase: string, code: string): string {
   return `${base}/live.html?friend=${encodeURIComponent(c)}&ref=friend_invite`;
 }
 
+/** Share links for the public product use ruletka.me. Other hubs stay as given. */
+function shareHubBase(hubBase: string): string {
+  const raw = String(hubBase || "").replace(/\/$/, "");
+  try {
+    const u = new URL(raw);
+    if (u.hostname === "ruletka.vip") u.hostname = "ruletka.me";
+    return u.toString().replace(/\/$/, "");
+  } catch {
+    return raw;
+  }
+}
+
 export function friendInviteShareMessage(
   hubBase: string,
   code: string,
-  brand = "ruletka"
+  brand = "Ruletka.me"
 ): { message: string; title: string; url: string } {
   const c = normalizeFriendCode(code);
-  const web = webFriendInviteUrl(hubBase, c);
+  const web = webFriendInviteUrl(shareHubBase(hubBase), c);
   const app = appFriendInviteUrl(c);
   return {
     title: `${brand} · code ${c}`,

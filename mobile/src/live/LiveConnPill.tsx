@@ -27,6 +27,8 @@ export type LiveConnPillProps = {
   stageTryingRelayLabel?: string;
   /** Optional elapsed seconds while linking (shown as " · 3s"). */
   connectElapsedSecs?: number;
+  /** Localized elapsed. Falls back to "{n}s". */
+  formatElapsed?: (secs: number) => string;
   retryPathLabel: string;
   retryingLabel: string;
   rebuildPathLabel: string;
@@ -57,6 +59,7 @@ export function LiveConnPill(props: LiveConnPillProps) {
     stageFindingPathLabel,
     stageTryingRelayLabel,
     connectElapsedSecs = 0,
+    formatElapsed,
     retryPathLabel,
     retryingLabel,
     rebuildPathLabel,
@@ -67,7 +70,13 @@ export function LiveConnPill(props: LiveConnPillProps) {
   } = props;
 
   const elapsedSuffix =
-    connectElapsedSecs >= 1 ? ` · ${connectElapsedSecs}s` : "";
+    connectElapsedSecs >= 1
+      ? ` · ${
+          formatElapsed
+            ? formatElapsed(connectElapsedSecs)
+            : `${connectElapsedSecs}s`
+        }`
+      : "";
 
   function linkingLabel(): string {
     if (connectElapsedSecs >= 8 && stageTryingRelayLabel) {
