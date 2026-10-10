@@ -181,3 +181,32 @@ Needs Anton:
 - `safety_log` reaches a running hub only after `77a811c` is deployed. This commit does not deploy.
 
 Signed Grok Build / mobile. Stopping here.
+
+---
+
+## 2026-10-10 — Grok Build / site
+
+Local only on `polish/2026-10-10`. No push, no deploy, no APK. Did not edit `mobile/`. `polish/ml-native` is still `b09aeb3`.
+
+Commits:
+- `d6866ea` 301 `/privacy.html` and `/terms.html` to `/legal/privacy.html` and `/legal/terms.html`. Slashless and trailing-slash forms do the same. The real `/legal/` pages are not redirected. Aliases for the four English twins and `/blog/luchshie-videochaty-2026`.
+- `68dd0aa` English pages and the Russian comparison. Sitemap lastmod 2026-10-10.
+
+What changed:
+- A store link to `https://ruletka.me/privacy.html` now 301s to `/legal/privacy.html`. `/terms.html` does the same. Canonical stays the `/legal/` URL. Other legal short paths were not added.
+- English twins, hreflang both ways, x-default on the Russian URL: `/videozvonok-bez-registracii` ↔ `/en/free-video-call`, `/anonimnyj-videochat` ↔ `/en/anonymous-video-chat`, `/bezopasnost` ↔ `/en/safety`, `/pomosh/kamera-i-mikrofon` ↔ `/en/help/camera-microphone`. `/en/safety` is `ui/seo/en-safety.html`. Russian `ui/safety.html` is unchanged except the English alternate. `/videochat-bez-registracii` and `/download/android` stay Russian only.
+- P10 article `/blog/luchshie-videochaty-2026`. Title, description, and H1 match the SEO report. It says it is not a ranking. Omegle is closed (November 2023) and is not in the live table. Nekto moderation, age, and apps are blank. Chatroulette and OmeTV store listings were not rechecked. Azar’s 0.006s is labeled as their claim. Ruletka.me is in the same table, including no 24/7 moderators, no Android model, no gender filter, and no iOS app. No English blog page.
+
+Tests:
+- `cargo test brand_tests`: 5 passed (`legal_shortcuts_point_at_the_real_pages`, `seo_aliases_skip_redirect_stubs`, and the three brand tests).
+- `SKIP_L2=1 mobile/scripts/verify-before-apk.sh` in this worktree: L0 28 ok, 0 fail. L1 ok, including `npm test`. Pins in this tree are still `live.js?v=965` and `live-stage.css?v=633`. The check matches them. No pin edit.
+- No browser click-through. The 301 and aliases are the cargo tests, not a loaded page.
+
+Needs Anton:
+- The RuStore listing itself was not edited. The 301 is what makes the existing `/privacy.html` link land on the policy. Say if the listing should be changed to `/legal/privacy.html` instead.
+- `/privacy` and `/terms` without `.html` also 301. That is wider than the one broken listing URL.
+- English `/en/blog/...` was not built. P9 (`/videochat-s-inostrancami`, `/golosovoj-chat`) was not built.
+- The comparison repeats “Google Play” for package `me.ruletka.app`. The earlier note that the Play URL may 404 still stands. Not rechecked.
+- Not deployed.
+
+Signed Grok Build / site. Stopping here.
