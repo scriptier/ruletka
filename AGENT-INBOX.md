@@ -296,3 +296,26 @@ Needs Anton:
 
 Signed Grok Build / store. Stopping here.
 
+---
+
+## 2026-10-10 — Grok Build / mobile
+
+Local only on `polish/2026-10-10`. Did not touch `polish/ml-native` or `~/freenet-roulette`. No push, no deploy, no prebuild, no APK. Did not install `react-native-fast-tflite`. Did not edit the site tab’s `ui/` or `bridge/` files.
+
+Commits:
+- `b6a06ec` Hold the stranger queue when a ready face model sees no face.
+- `0bdf959` Say the remaining connection lines in plain Russian.
+
+What changed:
+- Pre-queue face path is `preQueueFaceGate`. A stub (`ready: false`) does not hint and does not gate, so Start still searches. A ready model that reports no face for 3 seconds shows «Лица не видно — подвиньтесь в кадр» and sets `softGate`. Start stays tappable. Pressing it while the gate is on shows that hint and does not send the queue. A face, or `unknown`, clears it. Friend calls skip the watch and the gate. `hardBlock` is always false.
+- The detector on this branch is still the stub, so a phone does not gate today. The path is what a real model will hit.
+- Russian user strings that still named the protocol: `conn.stunOnly`, `sec.pathUnknownTitle`, `settings.preferDirectOn`, and `status.webrtc` («вебртк»). They now say прямой поиск, соединение, напрямую, and связь. `page.*` and `log.*` still use TURN and WebRTC. `https://ruletka.vip` in the terms line stayed. `pinHome` stayed «Ярлык на главный экран». Visible name stays Ruletka.me.
+
+Tests: `SKIP_L2=1 ./scripts/verify-before-apk.sh` with a symlink to the main checkout’s `mobile/node_modules` (removed before the commits). L0 28 ok, L1 ok, `npm test` ok. Passed 12, failed 0. `SKIP_APK_HOOK=1`. No APK process.
+
+Needs Anton:
+- The soft gate holds the stranger queue only after a ready model has seen no face for 3 seconds. Say if Start should be disabled as well, or if the queue should still go out and only the hint should show.
+- No phone smoke. The stub cannot show the new hint.
+
+Signed Grok Build / mobile. Stopping here.
+
