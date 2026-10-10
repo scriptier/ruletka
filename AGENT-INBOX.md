@@ -210,3 +210,32 @@ Needs Anton:
 - Not deployed.
 
 Signed Grok Build / site. Stopping here.
+
+---
+
+## 2026-10-10 — Grok Build / mobile
+
+Local only on `polish/ml-native` in `~/freenet-roulette-ml`. Did not switch this worktree off `polish/2026-10-10`. Did not edit `~/freenet-roulette`. No push, no deploy, no prebuild, no APK.
+
+Commits on `polish/ml-native` (was `b09aeb3`):
+- `f02ffae` Bundle the official NSFW MobileNetV2 model and record the desktop check.
+- `ef08f1e` Add a JVM-tested I420 to RGB helper.
+
+What changed:
+- NSFW weights are the official 1.2.0 file `https://github.com/GantMan/nsfw_model/releases/download/1.2.0/mobilenet_v2_140_224.1.zip` (zip sha256 `22c0892695929639c16ea302996b8f64df9c52e7a6c1d874c1de1047bfe109f7`), member `mobilenet_v2_140_224/saved_model.tflite`. 17355548 bytes, sha256 `380f98f7685f9d8a386f8cc595b6dfcb972989aae3d1b8b270d3a4a5b96fab40`, MIT. Recorded in `mobile/assets/models/README.md`. The h5, pb, and TFJS shards were not committed.
+- Desktop interpreter is `ai-edge-litert` 2.3.0 in `~/rustore-ru-work/venv-ml`. Python 3.12 has no `tflite-runtime` wheel. System Python was not changed. Script `mobile/scripts/model-desktop/verify_models.py` exited 0.
+- Face input is float32 `[1,128,128,3]`. Scores are logits in `classificators` `[1,896,1]` (sigmoid, then 0.5). Boxes are `regressors` `[1,896,16]`. On divide-by-255 the clothed portrait is present (sigmoid max 0.880) and the black frame is absent (0.054). `[-1, 1]` also separates them (0.939 / 0.008). Raw 0..255 does not see the face.
+- NSFW input is float32 `[1,224,224,3]`. Output `Identity` `[1,5]` already sums to 1, order drawings, hentai, neutral, porn, sexy, matching `nsfw_detector/predict.py` which divides by 255. Portrait: neutral 0.9995, porn 0.0005, hentai 0, sexy 0. Black frame: porn 0.015, sexy 0.006, hentai 0.201, which stays under the 0.78 explicit gate. Fixtures are a generated clothed adult portrait and a blank frame. No explicit image was stored.
+- `classify` still does not run the NSFW file, so a phone would still report nsfw unknown. The require is there so Metro can bundle it. `createSafetyDetector("tflite")` stays the stub until `react-native-fast-tflite` is installed. `HUB_ACCEPTS_SAFETY_LOG` is still false on this branch.
+- `I420Rgb.sampleSquare` is the I420 → RGB and rotation math. `I420RgbTest.kt` compiled with kotlinc-jvm 2.3.10 and printed `0 failed` (0/90/180/270, stride padding, BT.601, clamp). No Android SDK. The WebRTC plane copy has not been checked on a device. `patch-android-native.sh` would copy `I420Rgb.kt`. That script was not run.
+
+Tests in the ml worktree: `verify_models.py` exit 0. JVM jar `0 failed`. `SKIP_L2=1 ./scripts/verify-before-apk.sh`: L0 28 ok, L1 ok, `npm test` ok. Passed 12, failed 0. The `node_modules` symlink was removed before the commits. `SKIP_APK_HOOK=1`. No APK process.
+
+Needs Anton:
+- When to install `react-native-fast-tflite`, prebuild, and build. The NSFW file is in the tree and not executed.
+- The app helper still divides by 255, which passed both models on these images. MediaPipe's usual face norm is `[-1, 1]`, and that scored a bit higher on the portrait. Say if the face model should use its own norm.
+- Merging this branch should keep `HUB_ACCEPTS_SAFETY_LOG` true from `978317e`. This branch does not have that send path.
+- Shirtless is still not its own class.
+- Not deployed. No phone smoke.
+
+Signed Grok Build / mobile. Stopping here.
