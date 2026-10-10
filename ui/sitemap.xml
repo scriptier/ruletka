@@ -60,6 +60,7 @@
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
     <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/videozvonok-bez-registracii" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ruletka.me/en/free-video-call" />
     <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/videozvonok-bez-registracii" />
   </url>
   <url>
@@ -68,6 +69,7 @@
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
     <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/anonimnyj-videochat" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ruletka.me/en/anonymous-video-chat" />
     <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/anonimnyj-videochat" />
   </url>
   <url>
@@ -76,6 +78,7 @@
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
     <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/bezopasnost" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ruletka.me/en/safety" />
     <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/bezopasnost" />
   </url>
   <url>
@@ -84,7 +87,52 @@
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
     <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/pomosh/kamera-i-mikrofon" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ruletka.me/en/help/camera-microphone" />
     <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/pomosh/kamera-i-mikrofon" />
+  </url>
+  <url>
+    <loc>https://ruletka.me/en/free-video-call</loc>
+    <lastmod>2026-10-10</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/videozvonok-bez-registracii" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ruletka.me/en/free-video-call" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/videozvonok-bez-registracii" />
+  </url>
+  <url>
+    <loc>https://ruletka.me/en/anonymous-video-chat</loc>
+    <lastmod>2026-10-10</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/anonimnyj-videochat" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ruletka.me/en/anonymous-video-chat" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/anonimnyj-videochat" />
+  </url>
+  <url>
+    <loc>https://ruletka.me/en/safety</loc>
+    <lastmod>2026-10-10</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/bezopasnost" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ruletka.me/en/safety" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/bezopasnost" />
+  </url>
+  <url>
+    <loc>https://ruletka.me/en/help/camera-microphone</loc>
+    <lastmod>2026-10-10</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/pomosh/kamera-i-mikrofon" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ruletka.me/en/help/camera-microphone" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/pomosh/kamera-i-mikrofon" />
+  </url>
+  <url>
+    <loc>https://ruletka.me/blog/luchshie-videochaty-2026</loc>
+    <lastmod>2026-10-10</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/blog/luchshie-videochaty-2026" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/blog/luchshie-videochaty-2026" />
   </url>
   <url>
     <loc>https://ruletka.me/live.html</loc>
