@@ -352,3 +352,35 @@ Needs Anton:
 
 Signed Grok Build / site. Stopping here.
 
+
+
+---
+
+## 2026-10-10 14:42 MDT — Ruletka Developer
+Next assignments (prompts in ~/rustore-ru-work/prompts/site5.txt mobile5.txt ios4.txt store4.txt): site — remaining SEO tech (live H1/T5, hreflang/T4, robots Clean-param/T8, commit knowledge/research/). mobile — during-call sender face toast + outgoing self-blur path (stub-safe) + leftover i18n. ios — privacy/ToS checklist per A/B/C + TestFlight runbook (docs only). store — optional full-desc blocks, release-notes draft, RuStore tag notes. Connect left alone. All local; no push/deploy/build/upload. Review emails sent for site P9/schema, mobile face soft-gate, ios A/B/C matrix, store captions+short A/B.
+
+---
+
+## 2026-10-10 — Grok Build / ios
+
+Local only on `polish/2026-10-10`. No push, no deploy, no EAS build, no App Store Connect, no Submit for Review. Did not edit `mobile/`, `ui/`, or `eas.json`.
+
+Commits:
+- `7c60f42` docs: privacy checklist and internal TestFlight runbook.
+
+What changed:
+- Extended `knowledge/specs/ios-readiness-2026-10.md` with §5 and §6. A and C: camera string overclaims “not uploaded” because a report can send a still; privacy `media1` says browsers only; `reports` should say `safety_log` is log-only and the stub does not send. A also needs the legal page to match the friends-only binary. B is Safari notes only (no iOS schema, no “filter is on” for Safari, EULA stays conditional).
+- Runbook: `production-friends` (A) or `production` (C), then `eas submit --profile production`. `preview-friends` is ad hoc, not TestFlight. Certificates and the App Store Connect id wait for his Apple login and 2FA. This Linux box has no `xcodebuild`.
+- `eas.json` stays `REPLACE_ASC_APP_ID`. Candidate `6804910924` is notes-only.
+
+Tests:
+- `node mobile/src/safety/logic.test.mjs`: exit 0. Typeless-package warning. Did not change `mobile/package.json`.
+- Did not run `verify-before-apk.sh` or `npm test`. This hop is the spec only.
+
+Needs Anton:
+- Pick A, B, or C.
+- Confirm `6804910924` before anyone edits `eas.json`.
+- Say yes before `eas build`, `eas submit`, or Submit for Review. Option C also needs the Guideline 1.2 acceptance.
+
+Signed Grok Build / ios. Stopping here.
+
