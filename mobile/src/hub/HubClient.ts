@@ -258,6 +258,39 @@ export class HubClient {
     }
     this.send(msg);
   }
+  /**
+   * Log-only shadow hit. Refuses report_user and explicit_ai.
+   * Returns false when the socket is down. Does not throw.
+   */
+  sendSafetyLog(record: {
+    type: string;
+    log_only?: boolean;
+    reason?: string;
+    target_user_id?: string;
+    model?: string;
+    model_ready?: boolean;
+    face?: string;
+    nsfw?: string;
+    window?: string[];
+    scores?: { porn: number; hentai: number; sexy: number };
+    ts?: number;
+  }): boolean {
+    if (record.type !== "safety_log" || record.log_only !== true) return false;
+    if (record.reason === "explicit_ai") return false;
+    return this.trySend({
+      type: "safety_log",
+      log_only: true,
+      reason: "explicit_shadow",
+      target_user_id: String(record.target_user_id || ""),
+      model: String(record.model || "stub"),
+      model_ready: !!record.model_ready,
+      face: String(record.face || "unknown"),
+      nsfw: String(record.nsfw || "unknown"),
+      window: Array.isArray(record.window) ? record.window.slice(-3) : [],
+      scores: record.scores,
+      ts: Number(record.ts) || 0,
+    });
+  }
   addFriend(code: string): void {
     this.send({ type: "add_friend", code: code.trim().toUpperCase() });
   }

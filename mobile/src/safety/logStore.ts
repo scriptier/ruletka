@@ -20,10 +20,7 @@ export async function rememberSafetyLog(rec: SafetyLogRecord): Promise<void> {
   console.log(`[safety-log] ${JSON.stringify(rec)}`);
 }
 
-/**
- * Hub delivery is off until safety_log exists and does not touch bans.
- * Returning false is success for phase 1: the record is already stored locally.
- */
+/** True when a confirmed hit may also be sent as safety_log. */
 export function safetyLogSentToHub(): boolean {
   return HUB_ACCEPTS_SAFETY_LOG;
 }

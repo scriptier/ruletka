@@ -53,6 +53,7 @@ import {
   buildSafetyLog,
   createFaceWatch,
   createSafetyDetector,
+  deliverSafetyLog,
   createSafetySession,
   faceForSelfCheck,
   pushFaceSample,
@@ -316,6 +317,8 @@ function LiveBody() {
     findThirdIncoming,
     clearFindThirdIncoming,
   } = useHub();
+  const hubForSafetyRef = useRef(hub);
+  hubForSafetyRef.current = hub;
   const starsRef = useRef(stars);
   const trustRef = useRef(trust);
   const trustEffectiveRef = useRef(trustEffective);
@@ -7504,17 +7507,21 @@ function LiveBody() {
         if (step.action !== "confirmed") return;
         const uid =
           partnerUserId.current || lastPartnerIdsRef.current.userId || "";
-        void rememberSafetyLog(
-          buildSafetyLog({
-            targetUserId: uid,
-            model: verdict.model || detector.id,
-            modelReady: detector.ready,
-            face: verdict.face,
-            nsfw: verdict.nsfw,
-            window: step.session.window,
-            scores: verdict.scores,
-          })
-        );
+        const record = buildSafetyLog({
+          targetUserId: uid,
+          model: verdict.model || detector.id,
+          modelReady: detector.ready,
+          face: verdict.face,
+          nsfw: verdict.nsfw,
+          window: step.session.window,
+          scores: verdict.scores,
+        });
+        void rememberSafetyLog(record);
+        deliverSafetyLog(record, {
+          send: (rec) => {
+            hubForSafetyRef.current.sendSafetyLog(rec);
+          },
+        });
         Alert.alert(
           t("mobile.live.safetyHitTitle"),
           t("mobile.live.safetyHitBody"),

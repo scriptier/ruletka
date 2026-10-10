@@ -93,6 +93,20 @@ export type ClientSpendStars = {
   effect: string;
   op_id?: string;
 };
+/** On-device shadow hit. Log only. Not report_user and not a ban. */
+export type ClientSafetyLog = {
+  type: "safety_log";
+  log_only: true;
+  reason: "explicit_shadow";
+  target_user_id: string;
+  model: string;
+  model_ready: boolean;
+  face: string;
+  nsfw: string;
+  window: string[];
+  scores?: { porn: number; hentai: number; sexy: number };
+  ts: number;
+};
 export type ClientRegisterPush = {
   type: "register_push";
   token: string;
@@ -128,6 +142,7 @@ export type ClientMsg =
   | ClientHangupFriend
   | ClientRatePartner
   | ClientSpendStars
+  | ClientSafetyLog
   | ClientRegisterPush
   | { type: string; [k: string]: unknown };
 

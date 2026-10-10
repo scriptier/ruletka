@@ -96,7 +96,7 @@ assert.equal(log.type, "safety_log");
 assert.equal(log.log_only, true);
 assert.equal(log.reason, "explicit_shadow");
 assert.notEqual(log.reason, "explicit_ai");
-assert.equal(HUB_ACCEPTS_SAFETY_LOG, false);
+assert.equal(HUB_ACCEPTS_SAFETY_LOG, true);
 
 let face = createFaceWatch();
 let faceStep = pushFaceSample(face, "unknown", 0);
@@ -129,15 +129,15 @@ assert.equal(faceForSelfCheck(true, "maybe"), "unknown");
 
 const shadow = buildSafetyLog({ targetUserId: "abc", nsfw: "explicit" });
 const held = deliverSafetyLog(shadow, {
+  accept: false,
   send() {
-    throw new Error("must not send while the hub flag is off");
+    throw new Error("must not send when accept is false");
   },
 });
 assert.equal(held.sent, false);
 assert.equal(held.reason, "hub_log_disabled");
 let sent = null;
 const passed = deliverSafetyLog(shadow, {
-  accept: true,
   send(rec) {
     sent = rec;
   },

@@ -6,9 +6,9 @@
  * Set EXPO_PUBLIC_SAFETY_DETECTOR=tflite later; unknown values stay on the stub.
  * The stub never raises a hit, so it cannot false-blur a match.
  *
- * Hub transport: HUB_ACCEPTS_SAFETY_LOG stays false until the hub has a
- * log-only safety_log message. Do not send report_user for these hits —
- * that reason counts toward the existing auto-ban.
+ * Hub transport: the site tab added a log-only safety_log (commit 77a811c).
+ * It appends a line and does not touch bans. Do not send report_user for
+ * these hits — that reason counts toward the existing auto-ban.
  */
 
 export const FACE_ABSENT_SUSPICION = 3;
@@ -95,10 +95,10 @@ export function cancelDisableFilter() {
 }
 
 /**
- * False until bridge accepts `{ type: "safety_log", log_only: true }`
- * without counting it as report_user.
+ * True after bridge accepts `{ type: "safety_log", log_only: true }`
+ * without counting it as report_user (site commit 77a811c).
  */
-export const HUB_ACCEPTS_SAFETY_LOG = false;
+export const HUB_ACCEPTS_SAFETY_LOG = true;
 
 export function buildSafetyLog(input) {
   const scores = input?.scores;
@@ -162,7 +162,6 @@ export function faceForSelfCheck(detectorReady, face) {
 
 /**
  * Send safety_log only when the hub flag is on.
- * Default flag is false until bridge accepts the log-only message.
  * Never sends report_user / explicit_ai.
  */
 export function deliverSafetyLog(record, opts) {
