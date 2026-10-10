@@ -14,6 +14,7 @@ DONE WHEN:
   - §3.1 is a matrix for options A, B, and C: App Store exposure, engineering scope, moderation, and what waits for an explicit OK
   - §5 lists privacy/terms strings to change before TestFlight for A and for C, and Safari notes for B
   - §6 is the internal TestFlight runbook: accounts, certificates, 2FA, and what this Linux box cannot do
+  - §7 has metadata drafts, a real-screen screenshot list, and a privacy-label checklist for A, B, and C
   - eas.json stays REPLACE_ASC_APP_ID; 6804910924 stays a note
   - No build and no App Store Connect action is taken from this hop
 EVAL:
@@ -236,10 +237,100 @@ A later `eas build --platform ios` compiles on Expo’s Mac builders. Starting i
 
 Submit for Review of the public listing stays a separate yes.
 
-## 7. Sources
+## 7. Listing drafts (not pasted)
+
+Prep only. Nothing here is entered in App Store Connect. `mobile/eas.json` → `submit.production.ios.ascAppId` stays `REPLACE_ASC_APP_ID`. Candidate **6804910924** is still only the uncommitted value on the connect tree. Do not copy it in.
+
+Limits used below: subtitle 30, promotional text 170, keywords 100 (commas, no space after a comma). Name on the binary is `Ruletka.me` or, for A, `Ruletka.me Friends` (`app.config.js`). Guideline 2.3.7: the words must describe the binary. Guideline 2.3.8: subtitle, keywords, and screenshots stay suitable for a 4+ page even though the app is 18+ / expect 17+.
+
+### A — friends-by-code
+
+**Subtitle** (24): `Friend video calls. 18+.`
+
+**Keywords** (45): `friends,video call,friend code,p2p,webrtc,18+`
+
+No `roulette`, `random`, `stranger`, or `omegle`. Those words describe a queue this binary hides.
+
+**Promotional text** (144): `Call someone you know. Exchange a friend code, then start a video call. This build has no stranger queue. Report and block are in the call. 18+.`
+
+**Review Notes**
+
+- This binary is friends-only (`EXPO_PUBLIC_FRIENDS_ONLY=1`). Stranger Start is hidden. Home text: “Friends-only build: Call friends by code. Stranger matchmaking is off.”
+- No account. Accept 18+, allow camera and microphone.
+- Two devices: open Friends, copy the code, add the other device, tap Call.
+- In the call, open Report (reasons include explicit and underage) and Block. A report can attach a still from the stage.
+- Settings → safety filter defaults on. The detector in this build is a stub and does not blur or send a log.
+- Contact: support@ruletka.me. Privacy and terms open from Settings.
+- Encryption: `ITSAppUsesNonExemptEncryption` is false (HTTPS and WebRTC only).
+
+### B — Safari only
+
+Do not create an App Store record and do not paste subtitle, keywords, or promotional text. There is no binary to review.
+
+Public line, already the SEO recommendation: there is no iPhone app; ruletka.me opens in Safari. Schema stays `Web, Android` (§5). Review Notes are not used.
+
+### C — stranger match
+
+Paste this only after Anton has accepted Guideline 1.2 in chat. The removal sentence still applies.
+
+**Subtitle** (20): `P2P video chat. 18+.`
+
+**Keywords** (56): `video chat,roulette,webrtc,p2p,friends,random chat,adult`
+
+**Promotional text** (156): `18+ video chat. Tap Start to meet someone, or call a friend by code. Report and block are in every call. Live video is peer-to-peer when the network allows.`
+
+**Review Notes**
+
+- 18+ peer-to-peer video chat with a stranger queue (Start) and friend calls by code. No login.
+- Guideline 1.2: this is random video chat. Report, block, a default-on filter control, and support@ruletka.me are in the app. The on-device detector in this build is a stub: it does not catch video and it does not send `safety_log`. Human report and block do work.
+- Demo: two devices, accept 18+, allow camera and mic, tap Start. If the queue is empty, use Friends → code → Call so both sides have audio and video.
+- Report attaches a still when the capture succeeds. Block can be used without a report. Both skip to the next step.
+- Stars are cosmetics, not IAP and not real money.
+- Encryption: `ITSAppUsesNonExemptEncryption` is false.
+
+### Screenshots
+
+Source: Apple’s screenshot specifications, fetched 2026-10-10. At least one image, at most 10, JPEG or PNG, no alpha. To submit you must supply:
+
+- **iPhone, Dynamic Island, medium display** (required): portrait **1179×2556** or **1206×2622**.
+- **iPad 13-inch** (required while `app.json` `supportsTablet` is true): portrait **2064×2752** or **2048×2732**.
+
+A larger iPhone set is optional. Dynamic Island large accepts portrait **1290×2796** among other sizes on that page. If Anton turns `supportsTablet` off before the build, the iPad row drops. This Linux box cannot take these shots (`xcodebuild` is absent). Capture them from the real iOS binary on a device or a Simulator of that same build. No composited faces, no Figma frames, no Android or browser chrome, no other brands (Guideline 2.3.3 and 2.3.10). Frames must stay 4+ even though the app is rated higher (2.3.8): clothed adults who agreed to be in the shot, or the real UI with no second person. Do not paste a stock face onto a black tile.
+
+| # | A (friends binary) | C (stranger binary) |
+|---|---|---|
+| 1 | Home, friends-only line visible, stranger Start absent | 18+ rules screen, before camera |
+| 2 | Friends, this device’s own code visible. No one else’s real name | Live idle, Start visible |
+| 3 | Outgoing or in-call stage from that build. If no consented partner, shoot the real ringing state | In-call stage, same 4+ rule. If no consented partner, shoot the real searching state |
+| 4 | Report sheet open on a non-explicit frame | Report sheet, same rule |
+| 5 | Settings with the safety filter On and support@ruletka.me visible | Same Settings screen |
+
+B has no shot list.
+
+### Privacy Nutrition Labels
+
+Human form in App Store Connect. Not filled here. Types follow what this branch actually does. “No account” means no email and password. The app still creates a `user_id` and sends it to the hub, in stranger mode and in friends mode. Declare that as **User ID**, linked to the user, App Functionality, not used to track. Tracking (ads, data brokers, IDFA): **none**. Do not declare Email, Phone, Contacts, Precise Location, Payment Info, Health, Purchases, or Advertising Data.
+
+| Data type | Declare | Linked to the user | Notes for A and C |
+|---|---|---|---|
+| Photos or Videos | Yes | Yes | Camera stream to the partner (WebRTC, or TURN if the direct path fails). Not stored as a call archive. A report can also upload one JPEG still. |
+| Audio Data | Yes | Yes | Microphone, same path as video. |
+| User ID | Yes | Yes | App-generated id. Used to match, call friends, report, and block. Stranger mode has this id too. |
+| Name | Yes, if a display name is saved | Yes | Optional name the person types. Skip the row only if that build cannot save one. |
+| Coarse Location | Yes, if the build still shows country or city | Yes | Shown from the connection when Hide IP is off (`PartnerChrome.tsx`). No Core Location permission and no Precise Location row. The Play draft’s “Approximate location: No” does not match that screen. |
+| Product Interaction | Yes | No | `track()` stores counts on device and POSTs `{event}` to `/v1/funnel` with no user id (`mobile/src/analytics/track.ts`). Purpose Analytics. |
+| Other User Content | Yes | Yes | Friend list and friend codes on the hub; in-call chat. Friends mode uses this. Stranger mode still can add a friend after a match. |
+| Device ID | Only if push is offered | Yes | Expo push token via `register_push`, optional. Not required for the first install. |
+
+Do not add a row for `safety_log` on this binary. The stub never sends it. Add labels-only (not video) on the next build that can confirm a hit.
+
+`docs/PLAY_DATA_SAFETY.md` is the Android analog. Use it for camera, mic, report still, user id, and “stars are not money.” Do not copy its location “No” onto this form while the app shows a city.
+
+## 8. Sources
 
 - Apple App Review Guidelines, 1.2, 1.1.4, 1.5, 2.2, 2.3.8: <https://developer.apple.com/app-store/review/guidelines/> (fetched 2026-10-10).
 - TestFlight pages in §4.
+- Screenshot specifications, fetched 2026-10-10: <https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/> (Dynamic Island medium required; iPad 13-inch required if the app runs on iPad).
 - `knowledge/research/moderation-ui-2026-10-08.md` §10 (Play two-step filter and Apple 1.2) and open question 8.
 - `knowledge/research/seo-2026-10-08.md` P4 (Safari line for iPhone) and T11 (do not advertise iOS in schema until it is real).
 - This branch: `mobile/eas.json` (`distribution: internal` on preview, `ascAppId` placeholder), `mobile/app.json` (camera/mic strings, `hubBase`), `mobile/app.config.js`, `mobile/src/i18n/packs/en.json` and `overlay/en.json` (privacy, terms, friends-only note), `ui/legal/privacy.html`, `ui/index.html` schema, `ui/pwa-install.js`, `docs/PLAY_DATA_SAFETY.md`.
@@ -247,6 +338,6 @@ Submit for Review of the public listing stays a separate yes.
 
 ## Status
 
-- **Draft for Anton.** Docs hop 3 added §5 (privacy/terms) and §6 (internal TestFlight runbook). Not an implementation hop.
-- Last measure: 2026-10-10, `polish/2026-10-10`. `xcodebuild` absent. `eas.json` `ascAppId` is still `REPLACE_ASC_APP_ID`. Candidate `6804910924` is notes-only.
+- **Draft for Anton.** Docs hop 4 added §7 (metadata, screenshots, privacy labels). Not an implementation hop.
+- Last measure: 2026-10-10, `polish/2026-10-10`. `eas.json` `ascAppId` is still `REPLACE_ASC_APP_ID`. Candidate `6804910924` is notes-only.
 - Next: Anton picks A, B, or C. No EAS build, no `eas submit`, no `eas.json` edit, and no Submit for Review until he says so.
