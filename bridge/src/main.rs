@@ -89,6 +89,14 @@ fn seo_alias(path: &str) -> Option<&'static str> {
         "/analog-chat-ruletki" | "/analog-chat-ruletki/" => Some("seo/analog-chat-ruletki.html"),
         "/download/android" | "/download/android/" => Some("download/android.html"),
         "/operators" | "/operators/" => Some("operators.html"),
+        "/videozvonok-bez-registracii" | "/videozvonok-bez-registracii/" => {
+            Some("seo/videozvonok-bez-registracii.html")
+        }
+        "/anonimnyj-videochat" | "/anonimnyj-videochat/" => Some("seo/anonimnyj-videochat.html"),
+        "/bezopasnost" | "/bezopasnost/" => Some("safety.html"),
+        "/pomosh/kamera-i-mikrofon" | "/pomosh/kamera-i-mikrofon/" => {
+            Some("seo/pomosh-kamera-i-mikrofon.html")
+        }
         _ => None,
     }
 }
@@ -2144,5 +2152,24 @@ mod brand_tests {
         assert_eq!(seo_alias("/download/android"), Some("download/android.html"));
         assert_eq!(seo_alias("/download"), None);
         assert_eq!(seo_alias("/live.html"), None);
+        assert_eq!(
+            seo_alias("/videozvonok-bez-registracii"),
+            Some("seo/videozvonok-bez-registracii.html")
+        );
+        assert_eq!(
+            seo_alias("/videozvonok-bez-registracii/"),
+            Some("seo/videozvonok-bez-registracii.html")
+        );
+        assert_eq!(
+            seo_alias("/anonimnyj-videochat"),
+            Some("seo/anonimnyj-videochat.html")
+        );
+        assert_eq!(seo_alias("/bezopasnost"), Some("safety.html"));
+        assert_eq!(seo_alias("/bezopasnost/"), Some("safety.html"));
+        assert_eq!(
+            seo_alias("/pomosh/kamera-i-mikrofon"),
+            Some("seo/pomosh-kamera-i-mikrofon.html")
+        );
+        assert_eq!(seo_alias("/safety.html"), None);
     }
 }

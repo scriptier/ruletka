@@ -4,6 +4,8 @@ Allow: /
 Allow: /home.html
 Allow: /live.html
 Allow: /safety.html
+Allow: /bezopasnost
+Allow: /pomosh/
 Allow: /legal/
 Allow: /.well-known/
 

@@ -44,9 +44,6 @@
   <link rel="preload" href="/brand/logo-mark.png?v=10" as="image" fetchpriority="high" />
   <link rel="stylesheet" href="home.css?v=101" />
   <script src="brand.js?v=3" defer></script>
-  <script src="live-window.js?v=1" defer></script>
-  <script src="analytics.js?v=3" defer></script>
-  <script src="pwa-install.js?v=13" defer></script>
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -190,6 +187,20 @@
             decoding="async"
             fetchpriority="high"
           />
+          <video
+            class="home-logo home-hero-video"
+            id="home-hero-video"
+            poster="/brand/logo-mark.png?v=10"
+            preload="none"
+            muted
+            playsinline
+            loop
+            hidden
+            width="360"
+            height="360"
+            aria-label="Ruletka.me"
+            data-src="/brand/loading-screen.mp4?v=9"
+          ></video>
         </div>
       </div>
       <div class="hero-copy">
@@ -311,7 +322,7 @@
       <p>Нажми «Старт» — и ты уже в видеочате. Без регистрации, почты и телефона. Браузер спросит камеру один раз, на одном экране с правилами 18+.</p>
       <p>P2P: видео идёт напрямую между браузерами, мы его не записываем и не загружаем. Сервер только знакомит двух людей и передаёт технические данные соединения.</p>
       <p>Понравился собеседник — добавь в друзья по коду и звони ему позже. Не понравился — следующий человек. Если что-то не так, в чате есть блок и жалоба.</p>
-      <p>Безопасность: блок, жалоба, размытие, ИИ на устройстве; строго 18+. Подробнее на странице <a href="/safety.html">безопасности</a>.</p>
+      <p>Безопасность: блок, жалоба, размытие, проверка кадра в браузере; строго 18+. Подробнее на странице <a href="/bezopasnost">безопасности</a>.</p>
       <h2>Вопросы</h2>
       <h3>Нужна ли регистрация?</h3>
       <p>Нет. Нажми «Старт» — и ты уже в видеочате. Без регистрации, почты и телефона.</p>
@@ -343,7 +354,9 @@
       <a href="/videochat-bez-registracii" class="foot-link">Видеочат без регистрации</a>
       <a href="/analog-chat-ruletki" class="foot-link">Аналог чат рулетки</a>
       <a href="/download/android" class="foot-link">Для Android</a>
-      <a href="/safety.html" class="foot-link">Безопасность</a>
+      <a href="/videozvonok-bez-registracii" class="foot-link">Видеозвонок другу</a>
+      <a href="/bezopasnost" class="foot-link">Безопасность</a>
+      <a href="/pomosh/kamera-i-mikrofon" class="foot-link">Помощь</a>
       <a href="/legal/privacy.html" class="foot-link">Конфиденциальность</a>
       <a href="/legal/terms.html" class="foot-link">Условия</a>
       <a href="/en/" class="foot-link">English</a>
@@ -758,25 +771,62 @@
         });
       }, 60000);
 
-      // Hero art: keep the fire brand still (logo-hero) next to "Meet someone new".
-      // Cylinder mp4 used to replace it — disabled so the classic picture stays.
+      // Poster (logo-mark) is the LCP image. The mp4 stays unloaded until the
+      // hero is on screen and the browser is idle. Reduced motion keeps the still.
       (function setupHeroVideo() {
         var vid = document.getElementById("home-hero-video");
         var fb = document.getElementById("home-hero-fallback");
-        if (fb) {
-          fb.hidden = false;
-          fb.removeAttribute("hidden");
+        if (!vid) return;
+        var reduce = false;
+        try {
+          reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        } catch (_) {}
+        if (reduce) return;
+        var armed = false;
+        function arm() {
+          if (armed) return;
+          armed = true;
+          var src = vid.getAttribute("data-src");
+          if (!src) return;
+          vid.addEventListener("error", function () {
+            vid.hidden = true;
+            vid.setAttribute("hidden", "");
+            if (fb) {
+              fb.hidden = false;
+              fb.removeAttribute("hidden");
+            }
+          });
+          vid.addEventListener("loadeddata", function () {
+            vid.hidden = false;
+            vid.removeAttribute("hidden");
+            if (fb) {
+              fb.hidden = true;
+              fb.setAttribute("hidden", "");
+            }
+            var play = vid.play();
+            if (play && play.catch) play.catch(function () {});
+          });
+          vid.preload = "metadata";
+          vid.src = src;
         }
-        if (vid) {
-          vid.hidden = true;
-          vid.setAttribute("hidden", "");
-          try {
-            vid.pause();
-            vid.removeAttribute("src");
-            vid.removeAttribute("data-src");
-            vid.load();
-          } catch (_) {}
+        function later(fn) {
+          if (window.requestIdleCallback) requestIdleCallback(fn, { timeout: 2500 });
+          else setTimeout(fn, 1200);
         }
+        if (!window.IntersectionObserver) {
+          later(arm);
+          return;
+        }
+        var io = new IntersectionObserver(function (entries) {
+          for (var i = 0; i < entries.length; i++) {
+            if (entries[i].isIntersecting) {
+              io.disconnect();
+              later(arm);
+              return;
+            }
+          }
+        });
+        io.observe(fb || vid);
       })();
 
       // Share site (clipboard/native) · Invite friends → live to share your real friend code
@@ -881,6 +931,27 @@
           }
         });
       }
+      // App helpers are not needed for the first paint. Load them after idle.
+      (function loadDeferredAppScripts() {
+        var srcs = ["live-window.js?v=1", "analytics.js?v=3", "pwa-install.js?v=13"];
+        function inject() {
+          srcs.forEach(function (src) {
+            var s = document.createElement("script");
+            s.src = src;
+            s.defer = true;
+            s.onload = function () {
+              if (src.indexOf("live-window") < 0) return;
+              try {
+                var dict = packCache[getLang()] || STR[getLang()] || STR.en;
+                updateHomeLiveWindow(dict, { hasPeople: homeOnlineCount() >= 5, online: homeOnlineCount() });
+              } catch (_) {}
+            };
+            document.body.appendChild(s);
+          });
+        }
+        if (window.requestIdleCallback) requestIdleCallback(inject, { timeout: 2000 });
+        else window.addEventListener("load", function () { setTimeout(inject, 400); });
+      })();
     })();
   </script>
 </body>
