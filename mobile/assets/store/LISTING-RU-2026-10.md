@@ -364,3 +364,69 @@ The current file already reads `ruletka` and `peer-to-peer video · 18+`. A repl
 | EN-2 | `No sign-up · 18+` | 16 |
 
 RU-1 and RU-2 use the same queries as the listing. They do not choose the title. EN-1 and EN-2 do not promise a partner’s gender. None of them say `.vip`.
+
+## 12. Play Data safety — draft answers
+
+Not submitted. Answers match this branch’s Android app (`mobile/package.json`, hub client, push register, funnel beacon). No ads SDK and no billing library are in that dependency list. Do not add Firebase, AdMob, or another tracker to the form.
+
+| Question | Draft answer |
+|---|---|
+| Collect or share user data? | Yes. |
+| All of it sold? | No. |
+| Tracking? | No. Play’s tracking box is for ads and data brokers. The funnel beacon is a first-party POST of `{event}` only to `/v1/funnel`. It is not a third-party analytics SDK. |
+| Encrypted in transit? | Yes. Hub traffic is HTTPS. Call media is WebRTC. |
+| Deletion request? | Yes. `https://ruletka.me/legal/delete.html` returned 200 on 2026-10-10. |
+| Designed for children / Families? | No. 18+. |
+
+| Data type | What actually happens | Collected | Shared | Purpose |
+|---|---|---|---|---|
+| Approximate location | Country and city come from the connection IP on the hub. The app has no location permission and does not read GPS. The partner sees the city line unless Hide IP is on. | Yes | With the partner, unless hidden | App functionality |
+| Precise location | Not collected. | No | No | — |
+| Name | The display name is sent so the partner can see it. | Yes | With the partner | App functionality |
+| User IDs | A device identity is sent to the hub. There is no password account. | Yes | With the hub | App functionality |
+| Email, phone, contacts, financial, health | Not collected by the app. | No | No | — |
+| Messages | Friend chat is sent to the hub and can be loaded again (`friend_chat_history`). | Yes | With that friend | App functionality |
+| Photos and videos | The camera goes to the other person (direct path, or a relay if the direct path fails). The app does not record the call. A report the user sends can include one JPEG, capped around 120 KB in `HubClient`. The 2026-10-08 research says the hub stores that still with the report. This hop did not re-open `bridge/`. | Yes | Live video with the peer. The still with the hub. | App functionality, safety |
+| Audio | The microphone goes to the other person the same way. Not stored as a recording. | Yes | With the peer | App functionality |
+| App interactions | Counts stay on the device. The hub receives the event name only. | Yes | First party only | App functionality. Not ads. |
+| Device or other IDs | An Expo push token is registered with the hub so a friend call can ring. Delivery uses Expo’s push service. | Yes | Hub, and Expo to deliver the alert | App functionality. Not ads. |
+| Advertising ID, crash SDK, web browsing | Not in the dependency list. Do not declare them. | No | No | — |
+
+Do not tick “data is sold”. Do not describe the funnel beacon as a tracking SDK.
+
+## 13. Content rating — 18+ UGC chat
+
+Not submitted. The live RuStore card is already 18+. Set Play’s rating to 18+ as well. Do not pick a lower band to look milder.
+
+Declare:
+
+- Users talk to other users in real time, by video and by friend messages.
+- Users can show whatever the camera shows. That is user content, not a video library the app ships.
+- Users can see an approximate city for the partner unless Hide IP is on.
+- Users can block and report. A report can include one still.
+- Several independent reports can limit search. That is the moderation the app can claim today.
+- No in-app purchases in `mobile/package.json`. Stars are a free mark, not a Play product and not money.
+
+Do not declare:
+
+- That the Android app blurs or removes explicit video by itself. The detector on this branch is still a stub (`ready: false`). It does not toast, blur, or scan. The web client’s classifier is not this Android binary.
+- That the app “contains pornography” or a sexual catalog. Age 18+ is because strangers are on camera, not because the listing promises sex.
+- A face-in-frame gate as a live control. The phone does not run it while the model is a stub.
+- “No user interaction”, “no location shared”, or “fully automated moderation”.
+
+RuStore stays category **Общение**, age **18+**. Do not add an adult or sexual category to match a rating form.
+
+## 14. Paste order — the day Anton says upload
+
+Stop if he has not said upload. Title and short are still his choice. Fill those two blanks first. Do not guess them from this list.
+
+1. Package `me.ruletka.app`. Age rating 18+ (§13). Data safety from §12.
+2. Title: his choice (`Ruletka.me — чат рулетка`, plain `Ruletka.me`, or live `ruletka.me`).
+3. Short: A or B from §4. Not the feature-graphic lines.
+4. Full description: the base paste in §1 (Russian) and §3 (English). Then only the optional blocks he marked in §6. If a gifts block goes in, delete the shorter stars sentence. Russian add-ons cross the ~2000 fold.
+5. Privacy `https://ruletka.me/legal/privacy.html`. Terms, deletion, child safety, and safety from §9. Not `/privacy.html`.
+6. Emails `support@ruletka.me` and `privacy@ruletka.me`.
+7. What’s new (§7) only with a new binary. Do not attach it to the live 0.1.479 card. Do not bump the version in this file.
+8. Screenshots in §10 order, age gate first. Hold `phone-03` and both tablet twins until `ruletka.vip` is gone. Hold phone 07–09. Feature graphic stays in the feature-graphic slot, not a screenshot slot.
+9. RuStore tags from §8. Drop **Знакомства** unless he says to keep it.
+10. Graphic line from §11 only if he wants the overlay changed. The file on disk still says `peer-to-peer video · 18+`.
