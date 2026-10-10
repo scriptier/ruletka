@@ -2,14 +2,19 @@
  * Pure tensor helpers for the on-device detector.
  * No native module. Node tests cover these. Device output is untested.
  *
- * Face scores follow the MediaPipe short-range model: a tensor named like
- * "scores", or a tensor whose last dimension is 1. Anything else is unknown,
- * which must not raise the missing-face hint.
+ * Face scores follow the bundled BlazeFace file: the tensor is named
+ * "classificators" (shape 1×896×1), not "scores". A tensor whose last
+ * dimension is 1 is the same fallback. "regressors" (1×896×16) is boxes.
+ * Anything else is unknown, which must not raise the missing-face hint.
  * Values inside 0..1 are treated as probabilities. Values outside that
- * range are treated as logits and passed through a sigmoid.
+ * range are logits and pass through a sigmoid. Desktop check: the winning
+ * score on a portrait is above 1, so it is a logit.
  *
- * NSFW class order, when a 5-vector exists, matches nsfwjs / nsfw_model:
- * drawing, hentai, neutral, porn, sexy. The numeric gates match classifyScores.
+ * NSFW class order, when a 5-vector exists, matches the bundled file's
+ * class_labels.txt and nsfw_detector/predict.py:
+ * drawings, hentai, neutral, porn, sexy. The vector is already
+ * probabilities (it sums to 1). Do not softmax it again. The numeric
+ * gates match classifyScores. Input floats are pixel/255.
  */
 
 export const FACE_SCORE_THRESHOLD = 0.5;
@@ -55,7 +60,7 @@ function asProbability(value) {
 
 export function faceFromOutputs(outputs) {
   if (!Array.isArray(outputs) || outputs.length === 0) return "unknown";
-  const named = outputs.find((o) => /score/i.test(String(o?.name || "")));
+  const named = outputs.find((o) => /score|classificat/i.test(String(o?.name || "")));
   const last1 = outputs.find((o) => {
     const shape = o?.shape;
     return Array.isArray(shape) && shape[shape.length - 1] === 1;
@@ -75,7 +80,7 @@ export function faceFromOutputs(outputs) {
   return max >= FACE_SCORE_THRESHOLD ? "present" : "absent";
 }
 
-/** drawing, hentai, neutral, porn, sexy. Wrong length → unknown. */
+/** drawings, hentai, neutral, porn, sexy. Wrong length → unknown. */
 export function nsfwFromFive(values) {
   if (!values || values.length !== 5) return { nsfw: "unknown" };
   const porn = Number(values[3]);

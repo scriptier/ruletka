@@ -183,6 +183,19 @@ assert.equal(
   "unknown",
   "box tensor is not a face score"
 );
+assert.equal(
+  faceFromOutputs([{ name: "classificators", data: [2] }]),
+  "present",
+  "blaze face scores are logits named classificators"
+);
+assert.equal(
+  faceFromOutputs([{ name: "classificators", shape: [1, 896, 1], data: [-4] }]),
+  "absent"
+);
+assert.equal(
+  faceFromOutputs([{ name: "regressors", shape: [1, 896, 16], data: [2, 2, 2] }]),
+  "unknown"
+);
 const five = nsfwFromFive([0.01, 0.1, 0.05, 0.9, 0.2]);
 assert.equal(five.nsfw, "explicit");
 assert.equal(five.nsfw, classifyScores(five.scores));

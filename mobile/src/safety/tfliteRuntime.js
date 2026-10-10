@@ -7,8 +7,10 @@
  * - expo prebuild and patch-android-native.sh (not run here)
  * - Metro assetExts includes tflite (set in metro.config.js on this branch)
  *
- * NSFW weights are not in the repo. classify reports nsfw "unknown" until
- * mobile/assets/models/nsfw_mobilenet_v2.tflite exists and is loaded below.
+ * The NSFW file is in mobile/assets/models and required below so Metro
+ * bundles it. classify does not run that model yet, so nsfw stays
+ * "unknown" until a later pass loads it. Desktop numbers are in
+ * mobile/assets/models/README.md.
  */
 
 import {
@@ -75,6 +77,12 @@ function createLiveDetector(loadTensorflowModel) {
       if (!inputEdge(loaded)) return;
       faceModel = loaded;
       ready = true;
+      // Kept so Metro bundles the file. classify does not run it yet.
+      const nsfwAsset = require("../../assets/models/nsfw_mobilenet_v2.tflite");
+      if (nsfwAsset == null) {
+        faceModel = null;
+        ready = false;
+      }
     } catch {
       faceModel = null;
       ready = false;
