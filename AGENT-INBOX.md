@@ -319,3 +319,36 @@ Needs Anton:
 
 Signed Grok Build / mobile. Stopping here.
 
+---
+
+## 2026-10-10 — Grok Build / site
+
+Local only on `polish/2026-10-10`. No push, no deploy, no APK. Did not edit `mobile/`. Did not move `polish/ml-native`.
+
+Commits:
+- `03daaaf` Alias `/videochat-s-inostrancami` and `/en/video-chat-with-foreigners`, with trailing slashes. `/golosovoj-chat` is not an alias.
+- `749ae5f` The Russian page, a thin English twin, sitemap, footer link, BreadcrumbList, and the app schema audit.
+
+What changed:
+- `/videochat-s-inostrancami` is about 660 words. Title and H1 match the SEO report. The description does not promise a foreign partner: the queue is whoever is free, the 14 languages are button labels, and a friend code calls one person. No country hubs. CTA is «Начать чат» to `/live.html`. 18+. Link to `/bezopasnost`.
+- English twin `/en/video-chat-with-foreigners`. Hreflang both ways. x-default is the Russian URL.
+- `/golosovoj-chat` was not published. A laptop with zero video tracks can send audio, and Hide blurs your picture. Neither is a voice-roulette mode worth ranking.
+- BreadcrumbList JSON-LD, plus a visible crumb, on the SEO sub-pages, safety, camera help, Android, the comparison, and the English twins. Home pages stay without a breadcrumb.
+- Index `SoftwareApplication` has `@id` `https://ruletka.me/#app`, logo and `downloadUrl` on ruletka.me, `operatingSystem` `Web, Android`. Android page `@id` is `https://ruletka.me/download/android#app`, `operatingSystem` `Android`, `downloadUrl` is the .me Android page. RuStore is `installUrl`. Play is `sameAs`. No `.vip` in those JSON-LD blocks. No iOS in `operatingSystem`.
+- Footer label «Видеочат с иностранцами» is on the Russian cluster, including `/`.
+
+Tests:
+- `cargo test brand_tests`: 5 passed.
+- JSON-LD on the touched pages parses. No `ruletka.vip` inside those scripts.
+- `SKIP_L2=1 mobile/scripts/verify-before-apk.sh` in this worktree: L0 28 ok, L1 ok, including `npm test`. Passed 12, failed 0. No script files changed, so `node --check` had nothing new. Pins were not edited.
+- No browser click-through. Aliases are the cargo test.
+
+Needs Anton:
+- Say if `/golosovoj-chat` should exist anyway. This hop treats camera-off as a missing-camera fallback, not a product mode.
+- Country or language hubs (`/uk/`, `/pl/`, and the rest) were not built.
+- `downloadUrl` is the Android page on ruletka.me. The APK file is not in this worktree, so the schema does not point at a binary. Say if it should point at RuStore instead.
+- Play listing may still 404. Not rechecked.
+- Not deployed.
+
+Signed Grok Build / site. Stopping here.
+
