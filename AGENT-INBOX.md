@@ -63,3 +63,8 @@ Needs Anton:
 - A few Russian technical hints still say TURN, WebRTC, or pin.
 
 Signed Grok Build / mobile. Stopping here.
+
+---
+
+## 2026-10-10 12:40 — Ruletka Developer
+Next assignments (prompts in ~/rustore-ru-work/prompts/*2.txt): site — re-verify, hub safety_log (log-only), SEO pages P5–P8, lighter landing. mobile — i18n packs + plain Russian hints, face-presence UX, native model code on local branch polish/ml-native (no build), safety_log send once hub has it. store — Russian/English Play listing + RuStore text drafts. ios — iOS readiness + guideline 1.2 doc. All local; no push/deploy/build/upload.
