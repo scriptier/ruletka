@@ -97,6 +97,26 @@ fn seo_alias(path: &str) -> Option<&'static str> {
         "/pomosh/kamera-i-mikrofon" | "/pomosh/kamera-i-mikrofon/" => {
             Some("seo/pomosh-kamera-i-mikrofon.html")
         }
+        "/en/free-video-call" | "/en/free-video-call/" => Some("seo/en-free-video-call.html"),
+        "/en/anonymous-video-chat" | "/en/anonymous-video-chat/" => {
+            Some("seo/en-anonymous-video-chat.html")
+        }
+        "/en/safety" | "/en/safety/" => Some("seo/en-safety.html"),
+        "/en/help/camera-microphone" | "/en/help/camera-microphone/" => {
+            Some("seo/en-help-camera-microphone.html")
+        }
+        "/blog/luchshie-videochaty-2026" | "/blog/luchshie-videochaty-2026/" => {
+            Some("seo/blog-luchshie-videochaty-2026.html")
+        }
+        _ => None,
+    }
+}
+
+/// Short URLs people already publish. The real pages live under `/legal/`.
+fn legal_shortcut(path: &str) -> Option<&'static str> {
+    match path {
+        "/privacy.html" | "/privacy" | "/privacy/" => Some("/legal/privacy.html"),
+        "/terms.html" | "/terms" | "/terms/" => Some("/legal/terms.html"),
         _ => None,
     }
 }
@@ -175,6 +195,10 @@ async fn branded_ui(
     // One Android URL. /download and the .html filename both 301 there.
     if path == "/download" || path == "/download/" || path == "/download/android.html" {
         return permanent_redirect("/download/android");
+    }
+    // Store listings and old notes use /privacy.html. The page is /legal/privacy.html.
+    if let Some(to) = legal_shortcut(path) {
+        return permanent_redirect(to);
     }
     if let Some(rel) = seo_alias(path) {
         return serve_branded_rel(&state, rel, brand).await;
@@ -2102,7 +2126,7 @@ async fn main() {
 
 #[cfg(test)]
 mod brand_tests {
-    use super::{brand_html, seo_alias};
+    use super::{brand_html, legal_shortcut, seo_alias};
 
     #[test]
     fn me_host_does_not_double_the_name_in_titles() {
@@ -2171,5 +2195,42 @@ mod brand_tests {
             Some("seo/pomosh-kamera-i-mikrofon.html")
         );
         assert_eq!(seo_alias("/safety.html"), None);
+        assert_eq!(
+            seo_alias("/en/free-video-call"),
+            Some("seo/en-free-video-call.html")
+        );
+        assert_eq!(
+            seo_alias("/en/free-video-call/"),
+            Some("seo/en-free-video-call.html")
+        );
+        assert_eq!(
+            seo_alias("/en/anonymous-video-chat"),
+            Some("seo/en-anonymous-video-chat.html")
+        );
+        assert_eq!(seo_alias("/en/safety"), Some("seo/en-safety.html"));
+        assert_eq!(seo_alias("/en/safety/"), Some("seo/en-safety.html"));
+        assert_eq!(
+            seo_alias("/en/help/camera-microphone"),
+            Some("seo/en-help-camera-microphone.html")
+        );
+        assert_eq!(
+            seo_alias("/blog/luchshie-videochaty-2026"),
+            Some("seo/blog-luchshie-videochaty-2026.html")
+        );
+        assert_eq!(seo_alias("/privacy.html"), None);
+        assert_eq!(seo_alias("/terms.html"), None);
+    }
+
+    #[test]
+    fn legal_shortcuts_point_at_the_real_pages() {
+        assert_eq!(legal_shortcut("/privacy.html"), Some("/legal/privacy.html"));
+        assert_eq!(legal_shortcut("/privacy"), Some("/legal/privacy.html"));
+        assert_eq!(legal_shortcut("/privacy/"), Some("/legal/privacy.html"));
+        assert_eq!(legal_shortcut("/terms.html"), Some("/legal/terms.html"));
+        assert_eq!(legal_shortcut("/terms"), Some("/legal/terms.html"));
+        assert_eq!(legal_shortcut("/terms/"), Some("/legal/terms.html"));
+        assert_eq!(legal_shortcut("/legal/privacy.html"), None);
+        assert_eq!(legal_shortcut("/legal/terms.html"), None);
+        assert_eq!(legal_shortcut("/live.html"), None);
     }
 }
