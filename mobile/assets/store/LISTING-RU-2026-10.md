@@ -167,7 +167,7 @@ English queries covered in the short and the first lines: random video chat, no 
 - “Works in Russia without a VPN.”
 - On-device AI on Android.
 - An iPhone app. The site already points iPhone users to Safari.
-- Debate mode, gifts as a feature list, and 3–4 person layout. They exist in the app. This draft stays on chat roulette, no registration, and friend calls. Say if they should be added before upload.
+- Debate mode, gifts, and a 3–4 person layout are not in the base paste. Optional paragraphs are in §6. Skip them unless you want them in the listing.
 - Clickbait words RuStore lists: «лучший», «единственный», «запрещённый», «секретный», «самый».
 
 ## Anton decides before any upload
@@ -175,7 +175,7 @@ English queries covered in the short and the first lines: random video chat, no 
 - Store name, still open: `Ruletka.me — чат рулетка` (24), plain `Ruletka.me` (10), or the live lowercase `ruletka.me`. RuStore also asks for a Russian name unless the Latin name is a registered trademark (ФЗ-168). `Ruletka.me` is what makes the listing unique next to the other app named «Чат Рулетка». This draft does not claim a trademark registration.
 - Which short to paste: A (74) or B (73). See §4.
 - RuStore tags currently include «Знакомства». The paste does not promise dates. Changing tags is a console action.
-- Live RuStore build shown on 2026-10-10 was 0.1.479 (“final”). This draft does not change version or release notes.
+- Live RuStore build shown on 2026-10-10 was 0.1.479 (“final”). This branch’s `app.json` is still version `0.1.471`, versionCode `479`. §7 is a notes draft only. No version bump.
 - Upload still needs an explicit go. This file is the paste source only.
 
 ## 4. Short description A/B — Play ru-RU and RuStore
@@ -219,3 +219,95 @@ Phone `01`–`06` are the upload set in the screenshot README. `tablet7-01`…`0
 | 9 | `phone-09-live-steps.png` only | Поиск: очередь, связь, видео. Можно остановить. Счётчики на макете — пример. (76) | Search shows queue, connect, then video. You can stop. Counters here are samples. (81) |
 
 Shot 2 says declining the camera still opens Friends and Settings, because that is the sentence on the mock. Confirm that path before upload. Shots 7–9 should stay out of the store until the sample counts are removed or Anton accepts them as illustrations.
+
+## 6. OPTIONAL full-description blocks
+
+Skip these unless you want them. They are not in the §1 or §3 fences. Paste a block after the stars paragraph, before the language line. Do not upload from this file.
+
+The base full text is 1863 (Russian) and 1721 (English). Both are under RuStore’s ~2000-character fold and under the 4000 cap. Room left before the fold: 137 Russian characters, 279 English. None of the blocks below fit in that remainder. Pasting one, or all three, stays under 4000 and crosses 2000, so the tail (the new paragraph and the legal links, if they stay at the end) sits behind RuStore’s “Читать дальше”.
+
+| If pasted after the base | Russian | English |
+|---|---|---|
+| Base only | 1863/4000 | 1721/4000 |
+| Base + debate | 2124 | 1978 |
+| Base + gifts | 2071 | 1928 |
+| Base + 3–4 people | 2079 | 1965 |
+| Base + all three | 2548/4000 | 2429/4000 |
+
+English gifts and the English 3–4 block still fit under 2000 with the English base. English debate (1978) also fits. The Russian base is already close to 2000, so every Russian add-on crosses the fold. Counts are the base plus a blank line plus the block. “All three” joins the blocks with blank lines.
+
+The base already says stars are a free mark for gifts, not money. If you paste the gifts block, delete that shorter sentence so it is not said twice. The combined counts above do not delete it.
+
+### OPTIONAL — debate — RU 259
+
+```
+По желанию в звонке можно открыть формальный спор: оба соглашаются на тему и говорят по очереди. Пока говорит один, микрофон другого выключен. Длительность очереди — 15, 30, 45 или 60 секунд. Приглашение можно отклонить. Это не свидание и не выбор победителя.
+```
+
+### OPTIONAL — debate — EN 255
+
+```
+During a call you can open a formal debate. Both people agree on a topic and speak in turns. While one speaks, the other's microphone is muted. A turn is 15, 30, 45, or 60 seconds. The invite can be declined. This is not a date and does not pick a winner.
+```
+
+### OPTIONAL — gifts — RU 206
+
+```
+В звонке можно отправить короткий подарок на экран, например сердце или цветы. Подарок тратит звёзды. Звёзды — бесплатная отметка, не деньги. Подарок не заставляет человека остаться и не обещает знакомство.
+```
+
+### OPTIONAL — gifts — EN 205
+
+```
+During a call you can send a short on-screen gift, such as a heart or flowers. A gift spends stars. Stars are a free mark, not money. A gift does not make the other person stay and does not promise a date.
+```
+
+### OPTIONAL — 3–4 people — RU 214
+
+```
+Во время разговора можно позвать ещё людей. На экране вы и ещё два человека (всего трое) или вы и ещё три (всего четверо). Обычный вид — столбик. Четверо могут встать сеткой 2×2. Третий человек находится не всегда.
+```
+
+### OPTIONAL — 3–4 people — EN 242
+
+```
+During a call you can invite more people. The stage can show you plus two others (three people) or you plus three others (four people). The usual layout is a column. Four people can also use a 2×2 grid. A third person is not always available.
+```
+
+These match the app on this branch: a debate invite on the call’s data channel with those turn lengths and a muted mic off-turn; on-screen gifts that spend stars (heart and flowers are in the catalog); a stage of up to three remote tiles (you plus three) with a column, and a 2×2 option for four people. They do not claim a filled queue.
+
+## 7. What’s new — draft for the next upload
+
+Not pasted. No version bump. `app.json` on this branch stays `0.1.471` (versionCode `479`). The live RuStore card on 2026-10-10 said 0.1.479. Do not attach these notes to that live build.
+
+Play’s release-notes field is 500 characters per language. The RuStore help page describes «Что нового» and does not print a character cap. A later developer-channel post said 5000. That post is not the help page, so these drafts are sized for Play’s 500, which also fits if the larger cap is real. Play asks for changes, not a promotion. No “download” or “rate us”.
+
+The notes do not mention debate, gifts, group layout, or on-device detection. The safety control on this branch does not auto-blur: the phone model is still a stub. Saying the app now hides inappropriate video would be false.
+
+### RU — 211/500
+
+```
+Имя в интерфейсе — Ruletka.me. Случайный видеочат и звонок другу по коду по-прежнему без отдельного аккаунта. Только для людей 18 лет и старше. В звонке можно заблокировать человека, пожаловаться и скрыть видео.
+```
+
+### EN — 189/500
+
+```
+The in-app name is Ruletka.me. Random video chat and a call to a friend by code still need no separate account. For people 18 or older only. On a call you can block, report, and hide video.
+```
+
+## 8. RuStore category and tags — recommendation only
+
+Public card on 2026-10-10, package `me.ruletka.app`: category **Общение**. Tags shown: **Социальные**, **Знакомства**, **Видеозвонки**, **Обмен сообщениями**. Nothing here was changed in the console.
+
+A third-party ASO note says RuStore allows 3–5 tags. The help page checked for the name and description limits does not state that cap. Four tags are what the public card shows.
+
+| Tag or category | Recommendation |
+|---|---|
+| Общение | Keep. The app is a video conversation, not a dating product. |
+| Социальные | Keep. It matches the category. |
+| Видеозвонки | Keep. Random video and friend calls are the product. |
+| Обмен сообщениями | Keep if friend messages stay in the build. They are in this branch. |
+| Знакомства | Drop, unless you want dating-intent search. The paste has no gender filter and no promise of a date. The public “you may also like” row next to this tag is dating apps. Leaving the tag on pulls that intent. The word in the gifts block (“does not promise a date”) is a refusal, not a reason to keep the tag. |
+
+Do not add a voice-chat tag. This branch has no voice-roulette mode. Do not add an adult or sexual tag. Age stays 18+ because the chat is random, not because the listing promises sexual content.
