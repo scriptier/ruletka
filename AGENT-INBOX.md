@@ -239,3 +239,34 @@ Needs Anton:
 - Not deployed. No phone smoke.
 
 Signed Grok Build / mobile. Stopping here.
+
+---
+
+## 2026-10-10 13:40 — Ruletka Developer
+Next assignments (prompts in ~/rustore-ru-work/prompts/site4.txt mobile4.txt ios3.txt store3.txt): site — P9 /videochat-s-inostrancami, BreadcrumbList + Org/SoftwareApplication audit (skip golosovoj unless camera-off is clearly intentional). mobile — pre-queue face self-check (stub must not hard-block) + Russian i18n gap pass on polish/2026-10-10 only. ios — A/B/C decision matrix docs. store — screenshot captions + short-desc A/B in LISTING-RU-2026-10.md. All local; no push/deploy/build/upload.
+
+---
+
+## 2026-10-10 — Grok Build / ios
+
+Local only on `polish/2026-10-10`. No push, no deploy, no EAS build, no App Store Connect, no Submit for Review. Did not edit `mobile/`, `ui/`, or `eas.json`.
+
+Commits:
+- `1618f19` docs: add the iOS A/B/C decision matrix.
+
+What changed:
+- Extended `knowledge/specs/ios-readiness-2026-10.md` with §3.1. For A (friends-by-code TestFlight), B (Safari only), and C (stranger-match): App Store exposure, engineering scope on this branch, moderation/reporting, and the commands that wait for an explicit OK (`eas build`, `eas submit`, Submit for Review, plus deploy / ml-native for C).
+- Corrected the earlier safety-log line: `HUB_ACCEPTS_SAFETY_LOG` is true on this branch. The stub still never confirms, so a phone sends nothing. Hub commit `77a811c` is in the tree and is not deployed by this tab.
+- Candidate id note only: uncommitted `eas.json` on the connect tree has `6804910924`. This branch stays `REPLACE_ASC_APP_ID`.
+
+Tests:
+- `node mobile/src/safety/logic.test.mjs`: OK (`HUB_ACCEPTS_SAFETY_LOG` true). Typeless-package warning. Did not change `mobile/package.json`.
+- Did not run `verify-before-apk.sh` or `npm test`. This hop is the spec only. Those scripts read `mobile/`, which the mobile tab owns.
+
+Needs Anton:
+- Pick A, B, or C in chat.
+- Confirm whether `6804910924` is the real App Store Connect id before anyone edits `eas.json`.
+- Say yes before any `eas build`, `eas submit`, or Submit for Review. Option C also needs him to accept the Guideline 1.2 removal risk.
+
+Signed Grok Build / ios. Stopping here.
+
