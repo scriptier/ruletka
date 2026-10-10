@@ -13,7 +13,9 @@ fi
 mkdir -p "$APP_JAVA"
 cp -a "$PATCHES/RuletkaShortcutsModule.kt" "$APP_JAVA/"
 cp -a "$PATCHES/RuletkaShortcutsPackage.kt" "$APP_JAVA/"
-echo "copied RuletkaShortcuts Module+Package"
+cp -a "$PATCHES/RuletkaFrameTapModule.kt" "$APP_JAVA/"
+cp -a "$PATCHES/RuletkaFrameTapPackage.kt" "$APP_JAVA/"
+echo "copied RuletkaShortcuts + RuletkaFrameTap"
 
 # Register package in MainApplication.kt if missing
 MAIN="$APP_JAVA/MainApplication.kt"
@@ -41,6 +43,27 @@ elif [[ -f "$MAIN" ]]; then
   echo "MainApplication: RuletkaShortcutsPackage already registered"
 else
   echo "WARN: MainApplication.kt missing" >&2
+fi
+
+if [[ -f "$MAIN" ]] && ! grep -q 'RuletkaFrameTapPackage' "$MAIN"; then
+  python3 - "$MAIN" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+t = p.read_text()
+needle = "val packages = PackageList(this).packages"
+if needle in t and "RuletkaFrameTapPackage" not in t:
+    t = t.replace(
+        needle,
+        needle + "\n            packages.add(RuletkaFrameTapPackage())",
+    )
+    p.write_text(t)
+    print("MainApplication: registered RuletkaFrameTapPackage")
+else:
+    print("MainApplication: skip frame tap register")
+PY
+elif [[ -f "$MAIN" ]]; then
+  echo "MainApplication: RuletkaFrameTapPackage already registered"
 fi
 
 # Signing (release keystore)

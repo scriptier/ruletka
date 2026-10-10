@@ -2,14 +2,16 @@
  * On-device safety policy (phase 1).
  * Pure JS so node tests and the Expo app share one implementation.
  *
- * Detector runtime is a stub until a native TFLite/ONNX build lands.
- * Set EXPO_PUBLIC_SAFETY_DETECTOR=tflite later; unknown values stay on the stub.
+ * Detector runtime stays on the stub unless react-native-fast-tflite is
+ * installed and the face model loads. That package is not installed here.
  * The stub never raises a hit, so it cannot false-blur a match.
  *
  * Hub transport: HUB_ACCEPTS_SAFETY_LOG stays false until the hub has a
  * log-only safety_log message. Do not send report_user for these hits —
  * that reason counts toward the existing auto-ban.
  */
+
+import { createTfliteBackedDetector } from "./tfliteRuntime.js";
 
 export const FACE_ABSENT_SUSPICION = 3;
 
@@ -189,10 +191,11 @@ export function createSafetyDetector(mode) {
         ? process.env.EXPO_PUBLIC_SAFETY_DETECTOR
         : "";
   const id = String(raw || "stub").toLowerCase();
-  // tflite / onnx are reserved. This binary has no native runtime, so both
-  // stay on the stub instead of throwing on a missing module.
+  // onnx has no runtime here. tflite delegates to the optional native
+  // module and falls back to the stub when that module is missing.
+  if (id === "tflite") return createTfliteBackedDetector();
   return {
-    id: id === "tflite" || id === "onnx" ? "stub" : id === "stub" ? "stub" : "stub",
+    id: "stub",
     requested: id,
     ready: false,
     classify() {

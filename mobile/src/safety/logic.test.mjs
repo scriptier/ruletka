@@ -20,6 +20,12 @@ import {
   pushVerdict,
   safetyFilterEnabled,
 } from "./logic.js";
+import {
+  faceFromOutputs,
+  inputEdge,
+  nsfwFromFive,
+  rgbToSquareFloat,
+} from "./tfliteDecode.js";
 
 assert.equal(classifyScores({ porn: 0.8, hentai: 0, sexy: 0 }), "explicit");
 assert.equal(classifyScores({ porn: 0, hentai: 0.8, sexy: 0 }), "explicit");
@@ -152,5 +158,34 @@ const banned = deliverSafetyLog(
 );
 assert.equal(banned.sent, false);
 assert.equal(banned.reason, "not_a_report");
+
+assert.equal(det.requested, "tflite", "tflite request is recorded on the stub");
+assert.equal(
+  inputEdge({ inputs: [{ shape: [1, 128, 128, 3] }] }),
+  128
+);
+assert.equal(inputEdge({ inputs: [{ shape: [1, 224, 224, 1] }] }), null);
+const px = rgbToSquareFloat(Uint8Array.of(255, 0, 0), 1, 1, 1);
+assert.ok(px);
+assert.ok(Math.abs(px[0] - 1) < 1e-6);
+assert.equal(px[1], 0);
+
+assert.equal(
+  faceFromOutputs([{ name: "scores", shape: [1, 2, 1], data: [0.1, 0.2] }]),
+  "absent"
+);
+assert.equal(
+  faceFromOutputs([{ name: "scores", shape: [1, 2, 1], data: [0.2, 0.91] }]),
+  "present"
+);
+assert.equal(
+  faceFromOutputs([{ name: "boxes", shape: [1, 2, 16], data: [0, 1, 0, 1] }]),
+  "unknown",
+  "box tensor is not a face score"
+);
+const five = nsfwFromFive([0.01, 0.1, 0.05, 0.9, 0.2]);
+assert.equal(five.nsfw, "explicit");
+assert.equal(five.nsfw, classifyScores(five.scores));
+assert.equal(nsfwFromFive([0.1, 0.1, 0.1, 0.1]).nsfw, "unknown");
 
 console.log("logic.test.mjs OK");

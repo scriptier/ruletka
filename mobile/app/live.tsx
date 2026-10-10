@@ -49,6 +49,7 @@ import {
   unitsFromTranslator,
 } from "../src/i18n/duration";
 import { rememberSafetyLog } from "../src/safety/logStore";
+import { watchVideoFrames } from "../src/safety/tfliteRuntime";
 import {
   buildSafetyLog,
   createFaceWatch,
@@ -769,9 +770,13 @@ function LiveBody() {
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
   const [localStream, setLocalStream] = useState<MediaStreamLike | null>(null);
+  const safetyLocalStreamRef = useRef(localStream);
+  safetyLocalStreamRef.current = localStream;
   const [remoteStream, setRemoteStream] = useState<MediaStreamLike | null>(
     null
   );
+  const safetyRemoteStreamRef = useRef(remoteStream);
+  safetyRemoteStreamRef.current = remoteStream;
   const [remoteStream2, setRemoteStream2] = useState<MediaStreamLike | null>(
     null
   );
@@ -7489,10 +7494,11 @@ function LiveBody() {
       return;
     }
     const detector = createSafetyDetector();
+    const frames = watchVideoFrames(() => safetyRemoteStreamRef.current);
     let stopped = false;
     const timer = setInterval(() => {
       if (stopped || !safetyFilterOnRef.current) return;
-      void detector.classify(null).then((verdict) => {
+      void detector.classify(frames.latest()).then((verdict) => {
         if (stopped || !safetyFilterOnRef.current) return;
         const step = pushVerdict(safetySessionRef.current, verdict);
         safetySessionRef.current = step.session;
@@ -7536,6 +7542,7 @@ function LiveBody() {
     }, 2000);
     return () => {
       stopped = true;
+      frames.stop();
       clearInterval(timer);
     };
     // next/openReport are function declarations in this component.
@@ -7551,9 +7558,10 @@ function LiveBody() {
       return;
     }
     const detector = createSafetyDetector();
+    const frames = watchVideoFrames(() => safetyLocalStreamRef.current);
     let stopped = false;
     const timer = setInterval(() => {
-      void detector.classify(null).then((verdict) => {
+      void detector.classify(frames.latest()).then((verdict) => {
         if (stopped) return;
         const face = faceForSelfCheck(detector.ready, verdict.face);
         const step = pushFaceSample(faceWatchRef.current, face, Date.now());
@@ -7563,6 +7571,7 @@ function LiveBody() {
     }, 1000);
     return () => {
       stopped = true;
+      frames.stop();
       clearInterval(timer);
     };
   }, [phase]);

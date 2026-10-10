@@ -38,7 +38,9 @@ export type SafetyDetector = {
   id: string;
   requested: string;
   ready: boolean;
-  classify(frame: { width: number; height: number } | null): Promise<SafetyVerdict>;
+  classify(
+    frame: { width: number; height: number; rgbBase64?: string } | null
+  ): Promise<SafetyVerdict>;
 };
 
 export const FACE_ABSENT_SUSPICION: number;
