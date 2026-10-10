@@ -11,12 +11,13 @@ DONE WHEN:
   - It quotes Guideline 1.2 (filter, report, block, published contact, and the random-chat removal sentence)
   - It states the friends-by-code option and the iPhone Safari / PWA option
   - It lists the minimum human steps to an internal TestFlight install
+  - §3.1 is a matrix for options A, B, and C: App Store exposure, engineering scope, moderation, and what waits for an explicit OK
   - No build and no App Store Connect action is taken from this hop
 EVAL:
   - Sources section names the Apple pages fetched 2026-10-10 and the two research notes
-  - Safety claims match mobile/src/safety/logic.test.mjs on this branch
+  - Safety claims match mobile/src/safety/logic.test.mjs on this branch (HUB_ACCEPTS_SAFETY_LOG is true; the detector stub still does not confirm)
   - eas.json on this branch still shows ascAppId REPLACE_ASC_APP_ID (unchanged)
-CHECKPOINTS: Anton picks one option below before any EAS login, IPA, or TestFlight group
+CHECKPOINTS: Anton picks A, B, or C in §3.1 before any EAS login, IPA, or TestFlight group
 OUT OF SCOPE:
   - Swift rewrite
   - Editing mobile/ or ui/ (mobile tab and site tab)
@@ -29,8 +30,8 @@ VERIFY:
   - Second critic: none
 LANE: ios (docs)
 OWN FILES: knowledge/specs/ios-readiness-2026-10.md
-MUST NOT: pool>0, push.sh, git push, eas build, eas submit, invent GOAL_MET
-MAX HOPS: 1 (this document). Next hop waits for Anton.
+MUST NOT: pool>0, push.sh, git push, eas build, eas submit, edit eas.json, invent GOAL_MET
+MAX HOPS: docs only until Anton picks A, B, or C. Implementation still waits.
 ```
 
 ## 1. Parity vs Android
@@ -59,7 +60,7 @@ Source: `mobile/src/safety/logic.js`, `mobile/app/settings.tsx`, `mobile/app/liv
 - Turning it off takes two actions: the Off chip calls `beginDisableFilter()` (filter stays on, confirm pending), then a confirm alert calls `confirmDisableFilter()`. Cancel leaves it on.
 - The live watch runs only in a stranger match. Friend calls reset the session and do not scan.
 - `createSafetyDetector()` stays on the stub for `tflite` and `onnx` as well (`ready: false`, face and nsfw `unknown`). The stub cannot raise a hit, so a match is not false-blurred.
-- Policy, when a real detector exists: one sexy / explicit / face-absent streak blurs; 2 of the last 3 frames explicit opens skip or report and writes a local `safety_log` with reason `explicit_shadow`. `HUB_ACCEPTS_SAFETY_LOG` is **false**. The app does not send `report_user` for that hit.
+- Policy, when a real detector exists: one sexy / explicit / face-absent streak blurs; 2 of the last 3 frames explicit opens skip or report, stores a local `safety_log` (`explicit_shadow`, `log_only: true`), and `deliverSafetyLog` may send that record. `HUB_ACCEPTS_SAFETY_LOG` is **true** on this branch (`logic.js`, site commit `77a811c` is in the tree). The send path refuses `explicit_ai` and `report_user`. The stub never confirms, so a phone still sends nothing. The running hub gets that line only after `77a811c` is deployed. Deploy is not this tab.
 - Web (research, not this binary): nsfwjs is default on, and it is disabled on FX-lite, which includes Safari, and on friend calls. iPhone Safari therefore does not get the web filter today. Source: `knowledge/research/moderation-ui-2026-10-08.md` (table row “On-device NSFW (web)”).
 
 The Oct 8 research note said the mobile app had no filter. Phase 1 on this branch added the stub, the default, and the two-step off. It did not add a model.
@@ -94,7 +95,7 @@ Guideline 2.2 (same page): betas belong on TestFlight, and an app submitted for 
 | Apple bullet | On this branch | Short of the bullet |
 |---|---|---|
 | Filter objectionable material | Pref default on, two-step off, blur veil, web nsfwjs on desktop browsers | Native detector is a stub. iPhone Safari web filter is off (FX-lite). “Via your website” is how Apple describes the incidental-NSFW switch. Our switch is in Settings. |
-| Report + timely response | In-call report with reasons, hub stores the report, auto-ban ladder | No published response-time. No staffed queue in this doc. AI hits are local-only until `safety_log` exists. |
+| Report + timely response | In-call report with reasons, hub stores the report, auto-ban ladder. A confirmed model hit can also send `safety_log` (log only, no ban). | No published response-time. No staffed queue in this doc. The stub never confirms, so that log is not sent today. |
 | Block | `block_user` in the call, with or without a report | Block is per hub account / id, not a proven device ban across reinstalls. |
 | Published contact | In-app copy of `support@ruletka.me`. `app.config.js` `supportUrl` = `{hub}/safety.html` | App Store Connect Support URL and a monitored inbox are human steps. |
 
@@ -108,12 +109,25 @@ Guideline 2.2 (same page): betas belong on TestFlight, and an app submitted for 
 
 Public store Submit for Review stays blocked until Anton says yes in chat. This document does not submit anything.
 
+### 3.1 Decision matrix
+
+Read this before any `eas build` or `eas submit`. Exposure follows Guideline 1.2 and 2.2 (quoted in §2) and the TestFlight rules in §4. Engineering scope is what this codebase already contains on `polish/2026-10-10`. The mobile tab owns `mobile/`. The site tab owns `ui/` and hub config. This tab does not take those files.
+
+| | **A. Friends-by-code TestFlight** | **B. Safari only** | **C. Stranger-match app** |
+|---|---|---|---|
+| App Store exposure | A TestFlight binary of the friends-only profile. An internal group (up to 100 team roles) can install after processing, without the first external Beta App Review. The first build added to an external group goes to TestFlight App Review, and Guideline 2.2 says that beta should comply with the App Review Guidelines. Stranger Start is hidden, so the product is not the random queue Guideline 1.2 names. Live video between people who exchanged a code is still user-generated content. A later public release is a separate Submit for Review. | No App Store binary and no TestFlight review. iPhone users stay on `ruletka.me` in Safari. The SEO note (P4) already recommends the public line that there is no iPhone app and Safari works. Schema should not list iOS as an `operatingSystem` until a real app exists (T11). | Highest. This is the “random or anonymous chat” case Guideline 1.2 says does not belong on the App Store and may be removed without notice. Internal TestFlight is the same binary Apple reviews if it is later sent to Beta App Review or Submit for Review. Approval, if it happened, would not remove that sentence. |
+| Engineering scope on this codebase | Already built. `eas.json` profiles `preview-friends` and `production-friends` set `EXPO_PUBLIC_FRIENDS_ONLY=1`. `isFriendsOnly()` hides the stranger queue and keeps Friends and Call (`config.ts`, `index.tsx`, `live.tsx`). No new feature is required for a first internal build. Still open: a real iPhone smoke (camera, mic, friend call, report, block) and APNs if a closed-app friend ring matters. `submit.production.ios.ascAppId` on this branch is `REPLACE_ASC_APP_ID`. | No `mobile/` change. Safari behavior lives in `ui/live.js` and `ui/webrtc.js` (site and connect). The moderation note: the web nsfwjs filter is default on, and it is off on FX-lite, which includes Safari. Safari crackle and conversational delay stay on that web lane. | The default `production` profile does not set `FRIENDS_ONLY`, so Start matches Play. Same `live.tsx`. Still open on iPhone: camera, mic, and tile chrome, with no smoke in this worktree. `createSafetyDetector()` stays the stub until a native runtime is installed, including when the env says `tflite`. Face self-check does not block Start while the detector is not ready (`pushFaceSample` always returns `blocked: false`). The native model commit is on `polish/ml-native`, not the path a production iOS build of this branch would run. iOS frame capture was the later half of the research plan (Android first). |
+| Moderation and reporting | Friend calls skip the receiver safety watch (`live.tsx`: the watch resets when `matchMode === "friend"`). Report and block stay in the call (`report_user`, `block_user`). The four Guideline 1.2 bullets still apply to that video. The filter pref does not scan these calls. In-app contact remains `support@ruletka.me` and `{hub}/safety.html`. | Web report and block exist (moderation note). iPhone Safari does not run that nsfwjs graph today. There is no native `safety_log` from the browser. A staffed response and the published contact are the same human duties as on Android, on the website. | Filter defaults on and takes two actions to turn off (§1.1). A confirmed hit stores a local log and may send `safety_log` (`log_only`, reason `explicit_shadow`). That send does not ban and is not `report_user`. The stub never confirms, so nothing is sent now. Hub handling is commit `77a811c` in this branch and reaches production only if that commit is deployed. Human report, block, and a monitored inbox are still required. “Timely responses” is not implemented as a staffed queue. |
+| Waits for Anton’s explicit OK | `eas build --profile production-friends --platform ios` (or `preview-friends`). `eas submit --profile production --platform ios` after a real `ascAppId` is in `eas.json`. Adding TestFlight testers. Any edit that replaces `REPLACE_ASC_APP_ID`. Submit for Review. | No EAS command. A Safari filter change or an audio change is a site/connect edit plus a deploy of ruletka.me. Both wait for his go in that lane. | `eas build --profile production --platform ios`, then `eas submit`, then Submit for Review. Also, separately: deploy of hub `safety_log`, and any prebuild that installs `react-native-fast-tflite` or merges `polish/ml-native`. He accepts the Guideline 1.2 removal risk in chat before this row starts. |
+
+**Candidate App Store id (connect tree only).** Uncommitted `mobile/eas.json` in `~/freenet-roulette` contains `ascAppId` **6804910924**. This branch’s committed file is still `REPLACE_ASC_APP_ID`. That number was not opened in App Store Connect, not copied into this branch, and not treated as proof the record is current. Confirm it before anyone edits `eas.json`.
+
 ## 4. Minimum path to TestFlight
 
 Internal testing is the shortest path to a binary on a phone Anton controls. It still needs his Apple login. This Linux box cannot run Xcode. Steps below are the sequence, not work this hop did.
 
 1. Apple Developer Program membership on the account that will own `me.ruletka.app`.
-2. App Store Connect record for that bundle id. Copy the numeric Apple ID into `mobile/eas.json` → `submit.production.ios.ascAppId`. **This branch still has `REPLACE_ASC_APP_ID`.** The live connect checkout (not this branch) has an uncommitted `eas.json` value `6804910924`. Confirm which id is real before anyone submits. This hop does not edit `eas.json`.
+2. App Store Connect record for that bundle id. Copy the numeric Apple ID into `mobile/eas.json` → `submit.production.ios.ascAppId` only after Anton confirms it. **This branch still has `REPLACE_ASC_APP_ID`.** Candidate seen on the connect tree: **6804910924** (§3.1). This hop does not edit `eas.json` and does not open App Store Connect.
 3. EAS credentials (distribution cert, provisioning profile) via `eas` while Anton completes Apple 2FA. Expo owner in `app.json` is `courtiers-team`. Project id `1e9b8ca4-2dfc-4923-84d1-138222be372f`.
 4. Export compliance is already in `app.config.js`: `ITSAppUsesNonExemptEncryption: false` and `ios.config.usesNonExemptEncryption: false`. iOS deployment target **15.1**. `supportsTablet: true` (iPad screenshots enter the conversation if that stays).
 5. When Anton asks for a build: `cd mobile && eas build --profile production --platform ios` (or `production-friends` for option A). Then `eas submit --profile production --platform ios` only after the real `ascAppId` is in the file. Agents do not run these until he asks.
@@ -139,6 +153,6 @@ Before a **public** listing (not required for the first internal install): 6.7" 
 
 ## Status
 
-- **Draft for Anton.** Not an implementation hop.
-- Last measure: 2026-10-10, read-only on `polish/2026-10-10`. Safety policy test run recorded in `AGENT-INBOX.md`.
-- Next: Anton picks A, B, or C. No EAS and no Submit for Review until he says so.
+- **Draft for Anton.** Docs hop 2 added §3.1. Not an implementation hop.
+- Last measure: 2026-10-10, `polish/2026-10-10`. `HUB_ACCEPTS_SAFETY_LOG` is true in `logic.js`. `eas.json` `ascAppId` is still `REPLACE_ASC_APP_ID`. Safety policy test recorded in `AGENT-INBOX.md`.
+- Next: Anton picks A, B, or C. No EAS build, no `eas submit`, and no Submit for Review until he says so.
