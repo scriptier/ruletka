@@ -24,11 +24,15 @@ Fallback if the reviewer wants the store name identical to the launcher label (1
 Ruletka.me
 ```
 
-### Short description — 74/80
+Final title waits on Anton: `Ruletka.me — чат рулетка` (24) vs plain `Ruletka.me` (10) vs the live lowercase `ruletka.me`.
+
+### Short description — variant A, 74/80
 
 ```
 Чат рулетка: видеочат без регистрации. Случайный собеседник и друзья. 18+.
 ```
+
+Variant B is in §4. Neither A nor B is chosen.
 
 ### Full description — 1863/4000
 
@@ -73,13 +77,13 @@ Same limits as Play (30 / 80 / 4000). The Russian paste in §1 is the proposed R
 Видеочат без аккаунта: случайный собеседник и звонки друзьям. 18+
 ```
 
-### Proposed short — 74/80
+### Proposed shorts — A/B, both ≤80
 
-Same fence as §1. What changed:
+Play ru-RU and RuStore use the same 80-character short. §4 has two drafts. What both change versus the live short:
 
-- Adds the head query «чат рулетка» and the modifier «видеочат без регистрации».
-- Keeps the honest product: a random partner, friends, and 18+.
-- «Без аккаунта» is the same fact as «без регистрации». It moves into the full text («Отдельный аккаунт не создаётся»), so the 80-character short can carry the higher-interest phrase.
+- They add «чат рулетка» and «видеочат без регистрации».
+- They keep a random partner and 18+.
+- «Без аккаунта» is the same fact as «без регистрации». It stays in the full text («Отдельный аккаунт не создаётся»), so the short can carry the higher-interest phrase.
 
 ### Live catalog text (public page, 2026-10-10)
 
@@ -150,8 +154,8 @@ English queries covered in the short and the first lines: random video chat, no 
 
 | Phrase | Where |
 |---|---|
-| чат рулетка | Title; short; first sentence of the full text |
-| видеочат без регистрации | Short; first sentence of the full text |
+| чат рулетка | Title draft; short A and short B; first sentence of the full text |
+| видеочат без регистрации | Short A and short B; first sentence of the full text |
 | видео чат рулетка | First sentence of the full text |
 
 «Видео чат рулетка» also contains «чат рулетка». That is one sentence, not a repeated slogan.
@@ -168,7 +172,50 @@ English queries covered in the short and the first lines: random video chat, no 
 
 ## Anton decides before any upload
 
-- Store name: `Ruletka.me — чат рулетка` (24) or the exact launcher string `Ruletka.me` (10). RuStore also asks for a Russian name unless the Latin name is a registered trademark (ФЗ-168). `Ruletka.me` is what makes the listing unique next to the other app named «Чат Рулетка». This draft does not claim a trademark registration.
+- Store name, still open: `Ruletka.me — чат рулетка` (24), plain `Ruletka.me` (10), or the live lowercase `ruletka.me`. RuStore also asks for a Russian name unless the Latin name is a registered trademark (ФЗ-168). `Ruletka.me` is what makes the listing unique next to the other app named «Чат Рулетка». This draft does not claim a trademark registration.
+- Which short to paste: A (74) or B (73). See §4.
 - RuStore tags currently include «Знакомства». The paste does not promise dates. Changing tags is a console action.
 - Live RuStore build shown on 2026-10-10 was 0.1.479 (“final”). This draft does not change version or release notes.
 - Upload still needs an explicit go. This file is the paste source only.
+
+## 4. Short description A/B — Play ru-RU and RuStore
+
+Both are ≤80. Both contain «чат рулетка» and «видеочат без регистрации». Neither promises a partner’s gender or a date. Not chosen. Not uploaded.
+
+### A — 74/80 — head query first
+
+```
+Чат рулетка: видеочат без регистрации. Случайный собеседник и друзья. 18+.
+```
+
+Leads with «чат рулетка». Names a random partner and friends.
+
+### B — 73/80 — “no registration” first
+
+```
+Видеочат без регистрации — чат рулетка. Случайный собеседник и друг. 18+.
+```
+
+Leads with «видеочат без регистрации», then «чат рулетка». Same facts: a random partner, a friend call, 18+.
+
+## 5. Screenshot captions — draft only
+
+Not entered in Play Console or RuStore. One line per scene, Russian and English. Counts are Unicode code points.
+
+The files are branded layout mocks (`mobile/assets/store/screenshots/README.md`). They show no real stranger. Sample codes (`K7MX2P`, `AB12CD`), sample names (Alex, Sam, Jordan), and on-screen counts (including “online 42” and “5 online · 3 waiting”) are placeholders. Captions do not treat those numbers as a live queue. The home mock still prints `ruletka.vip` and `v0.1.27`. That art is older than the `Ruletka.me` name. Captions do not repeat the old version.
+
+Phone `01`–`06` are the upload set in the screenshot README. `tablet7-01`…`06` and `tablet10-01`…`06` are the same six scenes. Phone `07`–`09` have no tablet pair and are not in that upload map.
+
+| # | Files | RU | EN |
+|---|---|---|---|
+| 1 | `phone-01-age-gate.png`, `tablet7-01`, `tablet10-01` | Только 18+. Если вам нет 18 лет — уйдите. Это не чат для несовершеннолетних. (76) | 18+ only. If you are under 18, leave. This is not a chat for minors. (68) |
+| 2 | `phone-02-permissions.png`, `tablet7-02`, `tablet10-02` | Камера и микрофон нужны для видео. Отказ оставляет друзей и настройки. (70) | Camera and mic are for video. You can decline and still open Friends and Settings. (82) |
+| 3 | `phone-03-home.png`, `tablet7-03`, `tablet10-03` | Старт — случайный видеочат 18+. Рядом звонок друзьям. Без обычного аккаунта. (76) | Start is a random 18+ video chat. Friends are beside it. No classic account. (76) |
+| 4 | `phone-04-live-preview.png`, `tablet7-04`, `tablet10-04` | Своя камера до поиска. На этом макете нет живого лица и чужого видео. (69) | Your camera before search. This mock has no live face and no partner video. (75) |
+| 5 | `phone-05-friends.png`, `tablet7-05`, `tablet10-05` | Код, чтобы позвать друга, и звонок по коду. Имена на экране — примеры. (70) | A code to invite a friend, and a call by code. Names on screen are samples. (75) |
+| 6 | `phone-06-settings-safety.png`, `tablet7-06`, `tablet10-06` | Блок и жалоба в каждом звонке. Собеседник может записать экран. Данные можно запросить к удалению. (98) | Block and report on every call. The other person may record. You can request deletion. (86) |
+| 7 | `phone-07-home-quiet.png` only | Если очередь тихая, позовите друга по коду. Код на макете — пример. (67) | If the queue is quiet, invite a friend by code. The code on this mock is a sample. (82) |
+| 8 | `phone-08-home-busy.png` only | Когда кто-то ждёт, на главной есть Старт. Цифры на макете — не живая очередь. (77) | When someone is waiting, home shows Start. Numbers on this mock are not a live queue. (85) |
+| 9 | `phone-09-live-steps.png` only | Поиск: очередь, связь, видео. Можно остановить. Счётчики на макете — пример. (76) | Search shows queue, connect, then video. You can stop. Counters here are samples. (81) |
+
+Shot 2 says declining the camera still opens Friends and Settings, because that is the sentence on the mock. Confirm that path before upload. Shots 7–9 should stay out of the store until the sample counts are removed or Anton accepts them as illustrations.
