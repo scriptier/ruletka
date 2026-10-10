@@ -108,6 +108,12 @@ fn seo_alias(path: &str) -> Option<&'static str> {
         "/blog/luchshie-videochaty-2026" | "/blog/luchshie-videochaty-2026/" => {
             Some("seo/blog-luchshie-videochaty-2026.html")
         }
+        "/videochat-s-inostrancami" | "/videochat-s-inostrancami/" => {
+            Some("seo/videochat-s-inostrancami.html")
+        }
+        "/en/video-chat-with-foreigners" | "/en/video-chat-with-foreigners/" => {
+            Some("seo/en-video-chat-with-foreigners.html")
+        }
         _ => None,
     }
 }
@@ -2217,6 +2223,23 @@ mod brand_tests {
             seo_alias("/blog/luchshie-videochaty-2026"),
             Some("seo/blog-luchshie-videochaty-2026.html")
         );
+        assert_eq!(
+            seo_alias("/videochat-s-inostrancami"),
+            Some("seo/videochat-s-inostrancami.html")
+        );
+        assert_eq!(
+            seo_alias("/videochat-s-inostrancami/"),
+            Some("seo/videochat-s-inostrancami.html")
+        );
+        assert_eq!(
+            seo_alias("/en/video-chat-with-foreigners"),
+            Some("seo/en-video-chat-with-foreigners.html")
+        );
+        assert_eq!(
+            seo_alias("/en/video-chat-with-foreigners/"),
+            Some("seo/en-video-chat-with-foreigners.html")
+        );
+        assert_eq!(seo_alias("/golosovoj-chat"), None);
         assert_eq!(seo_alias("/privacy.html"), None);
         assert_eq!(seo_alias("/terms.html"), None);
     }
