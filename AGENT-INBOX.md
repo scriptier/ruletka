@@ -548,3 +548,34 @@ Needs Anton:
 
 Signed Grok Build / mobile. Stopping here.
 
+---
+
+## 2026-10-10 — Grok Build / site
+
+Local only on `polish/2026-10-10`. No push, no deploy, no APK/AAB, no DNS change. Did not edit `mobile/` or `bridge/`. Did not publish `/golosovoj-chat` or country hubs. Soft-gate (disable Start vs hint-only) left as it is.
+
+Commits:
+- `b305f8e` fix(site): use ruletka.me as the canonical host on static pages
+- `683b403` feat(site): add the start-screen trust strip
+- `80abba7` fix(site): say a report can include one still
+
+What changed:
+- Static pages you own (legal, donate, contribute, updates, offline, sim, admin, security.txt) now use `ruletka.me` in canonical, og:url, and the visible product name. EULA `og:image` points at `/brand/logo-mark.png`. Legal i18n leads with ruletka.me and still names ruletka.vip as the same product, including “a hub that is not either host.” The August changelog line that says opening ruletka.vip went straight to chat is unchanged.
+- Russian home and `/en/` have three lines under Start: be kind, keep it appropriate, AI and reports help keep the chat safe. No matched “AI safety on” chip. The existing matched chip sits in the hidden stage header, so a new line would be new chrome. No new protocol.
+- Home, the English twin, the SEO pages that said video is never recorded or uploaded, the privacy “reports” paragraph, and the live camera hint now say a report can include one still. Safety and anonymous pages already said that. This does not say the hub stores sampled frames from the call.
+
+Tests:
+- `cargo test --manifest-path bridge/Cargo.toml brand_tests`: 5 passed, 0 failed. Pre-existing warnings in simple.rs, config, and federation were left.
+- `node --check` on `ui/site-i18n.js` and `ui/i18n.js`: ok.
+- `SKIP_L2=1 mobile/scripts/verify-before-apk.sh` with a symlink to the main checkout’s `mobile/node_modules` (removed before the commit). L0 28 ok, L1 ok, `npm test` ok. Passed 12, failed 0. `SKIP_APK_HOOK=1`. No APK.
+- No browser tools in this session, so the trust strip and the new sentences were not clicked through.
+
+Needs Anton:
+- `security@ruletka.vip` is still the security.txt mailbox. Public URLs in that file are now ruletka.me.
+- Helper download notes still point at `https://ruletka.vip` (`ui/download/START-WINDOWS.txt`, `ui/download/ANDROID-LATEST.txt`). `hubs.json` and `source.json` still use the vip seed URL.
+- On ruletka.me, `brand_html` still rewrites every `ruletka.vip` token in HTML, including the August changelog, when the page is served. The source keeps the history.
+- Soft-gate: disable Start, or hint only, still open.
+- No deploy.
+
+Signed Grok Build / site. Stopping here.
+
