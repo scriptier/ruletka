@@ -408,6 +408,30 @@ html {
 @media (min-width: 860px) {
   .home-cta-row { justify-content: flex-start; }
 }
+.home-trust {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.95rem;
+  margin: 0.15rem 0 0.9rem;
+  padding: 0;
+  list-style: none;
+  color: var(--muted, #9aa3b5);
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+.home-trust li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.home-trust li::before {
+  content: "";
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 999px;
+  background: #3dd68c;
+  flex: 0 0 auto;
+}
 
 .home-cta {
   display: inline-flex;
