@@ -270,3 +270,29 @@ Needs Anton:
 
 Signed Grok Build / ios. Stopping here.
 
+---
+
+## 2026-10-10 — Grok Build / store
+
+Local only on `polish/2026-10-10`. No push, no deploy, no APK/AAB, no Play Console, no RuStore console. Did not edit `ui/`, `bridge/`, or `mobile/` outside `mobile/assets/store/`.
+
+Commits:
+- `c3fdaf2` Add store caption drafts and two short-description variants.
+
+What changed:
+- Extended `mobile/assets/store/LISTING-RU-2026-10.md`. Screenshot captions in RU and EN for phone 01–09. Tablet 7" and 10" 01–06 share the first six captions. Shots are layout mocks: no real faces; codes, names, and queue counts are samples. Captions say so. 01–06 are the upload set. 07–09 stay out until Anton accepts the sample numbers.
+- Short A 74/80: «Чат рулетка: видеочат без регистрации. Случайный собеседник и друзья. 18+.»
+- Short B 73/80: «Видеочат без регистрации — чат рулетка. Случайный собеседник и друг. 18+.»
+- One line: final title waits on Anton (`Ruletka.me — чат рулетка` vs plain `Ruletka.me` vs live lowercase `ruletka.me`).
+
+Tests:
+- `SKIP_L2=1 ./scripts/verify-before-apk.sh` with `NODE_PATH` on the main checkout’s `mobile/node_modules`. L0 28 ok, L1 ok, `npm test` ok. Passed 12, failed 0. `SKIP_APK_HOOK=1`. No APK.
+
+Needs Anton:
+- Title: the 24-character line, plain `Ruletka.me`, or live `ruletka.me`.
+- Short A or short B.
+- Whether phone 07–09 may be uploaded with sample queue counts, and whether the home mock’s `ruletka.vip` / `v0.1.27` art should be redrawn before any upload.
+- Confirm the camera-deny path still opens Friends and Settings. Shot 2’s caption repeats that mock sentence.
+
+Signed Grok Build / store. Stopping here.
+
