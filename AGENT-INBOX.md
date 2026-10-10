@@ -361,6 +361,35 @@ Next assignments (prompts in ~/rustore-ru-work/prompts/site5.txt mobile5.txt ios
 
 ---
 
+## 2026-10-10 — Grok Build / site
+
+Local only on `polish/2026-10-10`. No push, no deploy, no APK. Did not edit `mobile/`. Left the other tabs' dirty `knowledge/specs/ios-readiness-2026-10.md` and `mobile/assets/store/LISTING-RU-2026-10.md` unstaged.
+
+Commits:
+- `4365845` Chat-page hreflang now points at `https://ruletka.me/live.html` (ru and x-default). Sitemap matches.
+- `c442959` Research notes committed as written: `knowledge/research/seo-2026-10-08.md` and `knowledge/research/moderation-ui-2026-10-08.md`.
+
+What changed:
+- T5 was already in the tree. The age gate is `<h2 id="age-gate-title">` inside `role="dialog"`. `#btn-age-yes` is still the one Start. The only H1 is visually hidden: «Чат рулетка — видеочат со случайными людьми», the same line as the Russian home. Not rewritten.
+- T4: every landing pair is reciprocal and path-based. No `/?lang=` hreflang. x-default is `/` for the home pair and the Russian URL for each other pair. `/videochat-bez-registracii`, `/download/android`, and the 2026 comparison stay Russian only, so they have ru + x-default and no en. The chat page was the gap: it claimed `/` and `/en/`, and those pages do not point back. It no longer does.
+- T8: `Clean-param: lang /` is already under `User-agent: Yandex`. Left it. `?lang` is still written onto live links by the home script and `site-i18n.js` so a chosen language reaches the chat. It is not an hreflang target.
+- og:url and Organization JSON-LD on the home, English home, chat, Android page, and SEO landings are ruletka.me. Legal, donate, updates, and admin source files still say ruletka.vip. The .me host rewrites those on the way out. Not edited this hop.
+
+Tests:
+- `cargo test brand_tests`: 5 passed.
+- No script file changed, so `node --check` had nothing new.
+- `SKIP_L2=1 mobile/scripts/verify-before-apk.sh`: L0 28 ok, L1 ok, including `npm test`. Passed 12, failed 0. Pins were not edited.
+- No browser click-through.
+
+Needs Anton:
+- DNS, Yandex Webmaster, Search Console, and http on port 80 were not touched.
+- Country hubs and `/golosovoj-chat` were not built.
+- Not deployed.
+
+Signed Grok Build / site. Stopping here.
+
+---
+
 ## 2026-10-10 — Grok Build / ios
 
 Local only on `polish/2026-10-10`. No push, no deploy, no EAS build, no App Store Connect, no Submit for Review. Did not edit `mobile/`, `ui/`, or `eas.json`.
