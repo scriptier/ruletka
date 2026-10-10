@@ -15,7 +15,8 @@ cp -a "$PATCHES/RuletkaShortcutsModule.kt" "$APP_JAVA/"
 cp -a "$PATCHES/RuletkaShortcutsPackage.kt" "$APP_JAVA/"
 cp -a "$PATCHES/RuletkaFrameTapModule.kt" "$APP_JAVA/"
 cp -a "$PATCHES/RuletkaFrameTapPackage.kt" "$APP_JAVA/"
-echo "copied RuletkaShortcuts + RuletkaFrameTap"
+cp -a "$PATCHES/I420Rgb.kt" "$APP_JAVA/"
+echo "copied RuletkaShortcuts + RuletkaFrameTap + I420Rgb"
 
 # Register package in MainApplication.kt if missing
 MAIN="$APP_JAVA/MainApplication.kt"
