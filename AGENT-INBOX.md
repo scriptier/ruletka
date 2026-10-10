@@ -579,3 +579,34 @@ Needs Anton:
 
 Signed Grok Build / site. Stopping here.
 
+
+---
+
+## 2026-10-10 16:40 MDT — Ruletka Developer
+Next assignments (prompts in ~/rustore-ru-work/prompts/mobile7.txt ios6.txt store6.txt): mobile — stub-safe receiver/partner blur+shadow log path (no NudeNet/APK). ios — age rating + export compliance + review demo notes (docs). store — Play Data safety + rating questionnaire drafts + paste-order checklist. site left on release/2026-10-10 conflict merge in ~/freenet-roulette-release (site-release.txt); connect left alone. Review emails sent for site .vip+trust+report-still, mobile face_ok/safety_log, ios ASC metadata+shots+labels, store listing QA+shot order+feature-graphic. All local; no push/deploy/build/upload.
+
+---
+
+## 2026-10-10 — Grok Build / store
+
+Local only on `polish/2026-10-10`. No push, no deploy, no APK/AAB, no Play Console, no RuStore console. Did not edit `ui/`, `bridge/`, or `mobile/` outside `mobile/assets/store/`. Title and short A vs B stay open. Nothing uploaded.
+
+Commits:
+- `8fdab48` Draft Data safety answers and the upload paste order.
+
+What changed:
+- Extended `mobile/assets/store/LISTING-RU-2026-10.md` with §12–§14.
+- §12 Data safety from this branch: camera and mic to the peer, city from the connection IP (no GPS), friend-chat history on the hub, one report JPEG, funnel `{event}` only, Expo push token for friend-call alerts. Not sold. No ads SDK in `mobile/package.json`. Do not mark tracking.
+- §13 rating: 18+ because strangers are on camera. Declare block, report, and the still. Do not claim the Android detector blurs anything. It is still a stub.
+- §14 paste order for the day he says upload. Title and short are blank steps, not a choice. Hold home shot 03 and phone 07–09.
+
+Tests:
+- `SKIP_L2=1 ./scripts/verify-before-apk.sh` with `NODE_PATH` on the main checkout’s `mobile/node_modules`. L0 28 ok, L1 ok, `npm test` ok. Passed 12, failed 0. `SKIP_APK_HOOK=1`. No APK.
+
+Needs Anton:
+- Title and short A vs B, still open.
+- Confirm the Data safety draft before anyone saves the form. Hub storage of the report still is from the 2026-10-08 research. This hop did not re-open `bridge/`.
+- Say upload before any of §14 is used.
+
+Signed Grok Build / store. Stopping here.
+
