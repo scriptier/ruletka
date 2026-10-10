@@ -23,11 +23,13 @@ export type FilterGate = { enabled: boolean; confirmPending: boolean };
 export type SafetyLogRecord = {
   type: "safety_log";
   log_only: true;
-  reason: "explicit_shadow";
+  reason: "explicit_shadow" | "face_absent";
   target_user_id: string;
   model: string;
   model_ready: boolean;
   face: string;
+  /** Low-weight self-check. Present only when a ready model saw no face. */
+  face_ok?: false;
   nsfw: string;
   window: string[];
   scores?: SafetyScores;
@@ -80,6 +82,18 @@ export function duringCallSelfCheck(input?: {
   selfBlur: boolean;
   toast: boolean;
   hardBlock: false;
+};
+export function faceWatchSafetyLog(input?: {
+  friendCall?: boolean;
+  detectorReady?: boolean;
+  fired?: boolean;
+  model?: string;
+  ts?: number;
+}): {
+  record: SafetyLogRecord | null;
+  send: boolean;
+  hardBlock: false;
+  skip: false;
 };
 export function deliverSafetyLog(
   record: SafetyLogRecord | null | undefined,

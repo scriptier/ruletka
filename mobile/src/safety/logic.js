@@ -220,6 +220,42 @@ export function duringCallSelfCheck(input) {
 }
 
 /**
+ * Low-weight hub note when a ready self-check has had no face long enough.
+ * Stub, friend calls, and a watch that has not fired return no record.
+ * log_only. Not a report, not a skip, not a ban. hardBlock stays false.
+ * face_ok is false only on that send. The partner is not the target.
+ */
+export function faceWatchSafetyLog(input) {
+  const quiet = {
+    record: null,
+    send: false,
+    hardBlock: false,
+    skip: false,
+  };
+  if (!input || input.friendCall || !input.detectorReady || !input.fired) {
+    return quiet;
+  }
+  return {
+    record: {
+      type: "safety_log",
+      log_only: true,
+      reason: "face_absent",
+      target_user_id: "",
+      model: String(input.model || "face"),
+      model_ready: true,
+      face: "absent",
+      face_ok: false,
+      nsfw: "unknown",
+      window: [],
+      ts: Number(input.ts) || Date.now(),
+    },
+    send: true,
+    hardBlock: false,
+    skip: false,
+  };
+}
+
+/**
  * Send safety_log only when the hub flag is on.
  * Never sends report_user / explicit_ai.
  */

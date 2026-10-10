@@ -15,6 +15,7 @@ import {
   createSafetySession,
   deliverSafetyLog,
   duringCallSelfCheck,
+  faceWatchSafetyLog,
   FACE_HINT_AFTER_MS,
   faceForSelfCheck,
   preQueueFaceGate,
@@ -250,6 +251,72 @@ assert.equal(friendCall.selfBlur, false, "friend calls are not self-blurred");
 assert.equal(friendCall.toast, false, "friend calls do not toast");
 assert.equal(friendCall.hardBlock, false);
 assert.equal(friendCall.showHint, false);
+
+const stubFaceLog = faceWatchSafetyLog({
+  detectorReady: false,
+  fired: true,
+  model: "stub",
+  ts: 10,
+});
+assert.equal(stubFaceLog.send, false, "stub does not send face_ok");
+assert.equal(stubFaceLog.record, null);
+assert.equal(stubFaceLog.hardBlock, false);
+assert.equal(stubFaceLog.skip, false);
+
+const waitingFaceLog = faceWatchSafetyLog({
+  detectorReady: true,
+  fired: false,
+  ts: 10,
+});
+assert.equal(waitingFaceLog.send, false, "ready model inside the window does not send");
+assert.equal(waitingFaceLog.record, null);
+
+const readyFaceLog = faceWatchSafetyLog({
+  detectorReady: true,
+  fired: true,
+  model: "face",
+  ts: 20,
+});
+assert.equal(readyFaceLog.send, true, "ready + no face sends the log");
+assert.equal(readyFaceLog.hardBlock, false, "face log does not end the call");
+assert.equal(readyFaceLog.skip, false, "face log does not skip");
+assert.equal(readyFaceLog.record.type, "safety_log");
+assert.equal(readyFaceLog.record.log_only, true);
+assert.equal(readyFaceLog.record.reason, "face_absent");
+assert.notEqual(readyFaceLog.record.reason, "explicit_ai");
+assert.notEqual(readyFaceLog.record.type, "report_user");
+assert.equal(readyFaceLog.record.face_ok, false);
+assert.equal(readyFaceLog.record.face, "absent");
+assert.equal(readyFaceLog.record.model_ready, true);
+assert.equal(readyFaceLog.record.target_user_id, "");
+
+const friendFaceLog = faceWatchSafetyLog({
+  friendCall: true,
+  detectorReady: true,
+  fired: true,
+  ts: 30,
+});
+assert.equal(friendFaceLog.send, false, "friend calls do not send face_ok");
+assert.equal(friendFaceLog.record, null);
+assert.equal(friendFaceLog.hardBlock, false);
+assert.equal(friendFaceLog.skip, false);
+
+let faceSent = null;
+const faceDelivered = deliverSafetyLog(readyFaceLog.record, {
+  send(rec) {
+    faceSent = rec;
+  },
+});
+assert.equal(faceDelivered.sent, true);
+assert.equal(faceSent.face_ok, false);
+assert.equal(faceSent.log_only, true);
+assert.equal(faceSent.reason, "face_absent");
+const faceNotSent = deliverSafetyLog(stubFaceLog.record, {
+  send() {
+    throw new Error("stub must not send");
+  },
+});
+assert.equal(faceNotSent.sent, false);
 
 const shadow = buildSafetyLog({ targetUserId: "abc", nsfw: "explicit" });
 const held = deliverSafetyLog(shadow, {

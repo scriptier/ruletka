@@ -56,6 +56,7 @@ import {
   deliverSafetyLog,
   createSafetySession,
   duringCallSelfCheck,
+  faceWatchSafetyLog,
   preQueueFaceGate,
   pushVerdict,
   type FaceWatch,
@@ -547,6 +548,7 @@ function LiveBody() {
   const blurModeRef = useRef<BlurStrangersMode>("intro");
   /** Partner incoming-video filter. Default on until prefs say false. */
   const safetyFilterOnRef = useRef(true);
+  const [safetyFilterOn, setSafetyFilterOn] = useState(true);
   const safetySessionRef = useRef<SafetySession>(createSafetySession());
   const faceWatchRef = useRef<FaceWatch>(createFaceWatch());
   const duringFaceWatchRef = useRef<FaceWatch>(createFaceWatch());
@@ -2361,6 +2363,7 @@ function LiveBody() {
         raw === "off" || raw === "intro" || raw === "hold" ? raw : "intro";
       blurModeRef.current = mode;
       safetyFilterOnRef.current = prefs.safetyFilter !== false;
+      setSafetyFilterOn(prefs.safetyFilter !== false);
       setBlurMode(mode);
       blurStrangersRef.current = mode !== "off";
       blurPrefsReadyRef.current = true;
@@ -7578,6 +7581,9 @@ function LiveBody() {
     const timer = setInterval(() => {
       void detector.classify(null).then((verdict) => {
         if (stopped) return;
+        const wasHint = !!(
+          faceWatchRef.current && faceWatchRef.current.showHint
+        );
         const step = preQueueFaceGate({
           friendCall: false,
           detectorReady: detector.ready,
@@ -7588,6 +7594,20 @@ function LiveBody() {
         faceWatchRef.current = step.watch;
         selfFaceSoftGateRef.current = step.softGate;
         setSelfFaceHint((prev) => (prev === step.showHint ? prev : step.showHint));
+        const flag = faceWatchSafetyLog({
+          friendCall: false,
+          detectorReady: detector.ready,
+          fired: step.softGate && !wasHint,
+          model: detector.id,
+          ts: Date.now(),
+        });
+        if (!flag.send || !flag.record) return;
+        void rememberSafetyLog(flag.record);
+        deliverSafetyLog(flag.record, {
+          send: (rec) => {
+            hubForSafetyRef.current.sendSafetyLog(rec);
+          },
+        });
       });
     }, 1000);
     return () => {
@@ -7595,9 +7615,11 @@ function LiveBody() {
       clearInterval(timer);
     };
   }, [phase, isFriendCall]);
-  // During a stranger call. Stub never blurs. Friend calls are excluded.
-  // selfBlur covers the local preview only. The sent track stays as-is
-  // and this path does not send self_hide.
+  // During a stranger call. Stub never blurs and never sends face_ok.
+  // Friend calls are excluded. selfBlur covers the local preview only.
+  // The sent track stays as-is. This path does not send self_hide,
+  // does not skip, and does not ban. A ready model sends one log-only
+  // face_ok:false when the watch fires.
   useEffect(() => {
     if (phase !== "matched" || isFriendCall) {
       duringFaceWatchRef.current = createFaceWatch();
@@ -7620,11 +7642,26 @@ function LiveBody() {
         setOutgoingSelfBlur((prev) =>
           prev === step.selfBlur ? prev : step.selfBlur
         );
-        if (!step.toast) return;
-        showToastRef.current(t("mobile.live.faceInFrame"));
-        console.log(
-          "[safety] self-blur why=no-face track=kept model=" + detector.id
-        );
+        if (step.toast) {
+          showToastRef.current(t("mobile.live.faceInFrame"));
+          console.log(
+            "[safety] self-blur why=no-face track=kept model=" + detector.id
+          );
+        }
+        const flag = faceWatchSafetyLog({
+          friendCall: false,
+          detectorReady: detector.ready,
+          fired: step.toast,
+          model: detector.id,
+          ts: Date.now(),
+        });
+        if (!flag.send || !flag.record) return;
+        void rememberSafetyLog(flag.record);
+        deliverSafetyLog(flag.record, {
+          send: (rec) => {
+            hubForSafetyRef.current.sendSafetyLog(rec);
+          },
+        });
       });
     }, 1000);
     return () => {
@@ -7639,6 +7676,7 @@ function LiveBody() {
       loadMatchPrefs()
         .then((p) => {
           safetyFilterOnRef.current = p.safetyFilter !== false;
+          setSafetyFilterOn(p.safetyFilter !== false);
         })
         .catch(() => {});
     }, [])
@@ -8795,6 +8833,22 @@ function LiveBody() {
             onLongPress={copyPartnerIdentity}
             onGiftStar={() => spend("shooting_star", 3)}
           />
+          ) : null}
+          {!isFriendCall && safetyFilterOn ? (
+            <Text
+              testID="live-safety-on"
+              pointerEvents="none"
+              style={{
+                alignSelf: "center",
+                marginTop: 2,
+                color: "#d5deea",
+                fontSize: 11,
+                fontWeight: "700",
+                opacity: 0.85,
+              }}
+            >
+              {t("mobile.settings.safetyOnToast")}
+            </Text>
           ) : null}
           {reconnectSnap ? (
             <View

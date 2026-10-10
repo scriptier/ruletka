@@ -97,11 +97,13 @@ export type ClientSpendStars = {
 export type ClientSafetyLog = {
   type: "safety_log";
   log_only: true;
-  reason: "explicit_shadow";
+  reason: "explicit_shadow" | "face_absent";
   target_user_id: string;
   model: string;
   model_ready: boolean;
   face: string;
+  /** Set only for the low-weight no-face self-check. */
+  face_ok?: false;
   nsfw: string;
   window: string[];
   scores?: { porn: number; hentai: number; sexy: number };

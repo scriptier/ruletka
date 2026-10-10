@@ -1,5 +1,5 @@
 import { configUrl, hubBase, wsUrl } from "../config";
-import type { ClientMsg, IceConfig, ServerMsg } from "./types";
+import type { ClientMsg, ClientSafetyLog, IceConfig, ServerMsg } from "./types";
 
 export type HubClientHandlers = {
   onOpen?: () => void;
@@ -270,17 +270,26 @@ export class HubClient {
     model?: string;
     model_ready?: boolean;
     face?: string;
+    face_ok?: boolean;
     nsfw?: string;
     window?: string[];
     scores?: { porn: number; hentai: number; sexy: number };
     ts?: number;
   }): boolean {
     if (record.type !== "safety_log" || record.log_only !== true) return false;
-    if (record.reason === "explicit_ai") return false;
-    return this.trySend({
+    if (
+      record.reason === "explicit_ai" ||
+      record.reason === "report_user" ||
+      record.type === "report_user"
+    ) {
+      return false;
+    }
+    const reason =
+      record.reason === "face_absent" ? "face_absent" : "explicit_shadow";
+    const msg: ClientSafetyLog = {
       type: "safety_log",
       log_only: true,
-      reason: "explicit_shadow",
+      reason,
       target_user_id: String(record.target_user_id || ""),
       model: String(record.model || "stub"),
       model_ready: !!record.model_ready,
@@ -289,7 +298,9 @@ export class HubClient {
       window: Array.isArray(record.window) ? record.window.slice(-3) : [],
       scores: record.scores,
       ts: Number(record.ts) || 0,
-    });
+    };
+    if (record.face_ok === false) msg.face_ok = false;
+    return this.trySend(msg);
   }
   addFriend(code: string): void {
     this.send({ type: "add_friend", code: code.trim().toUpperCase() });
