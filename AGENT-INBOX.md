@@ -610,3 +610,32 @@ Needs Anton:
 
 Signed Grok Build / store. Stopping here.
 
+---
+
+## 2026-10-10 — Grok Build / ios
+
+Local only on `polish/2026-10-10`. No push, no deploy, no EAS build, no App Store Connect, no Submit for Review. Did not edit `mobile/`, `ui/`, or `eas.json`.
+
+Commits:
+- `e099494` docs: age rating, export compliance, and review contact.
+
+What changed:
+- Extended `knowledge/specs/ios-readiness-2026-10.md` with §8.
+- Age rating: messaging and user-generated content Yes; unrestricted web, social-media feed, ads, and graphic sexual content No. Override to 18+ for both A and C, because the rules screen is 18+ and those capability rows alone sit in Apple’s 4+ examples. C calls out that strangers can show mature video. Graphic sexual content would mark the app Unrated.
+- Export: plist already has `ITSAppUsesNonExemptEncryption` false. Wording if the form asks is HTTPS plus WebRTC DTLS-SRTP, standard exemption, no custom cipher. No CCATS or other certificate number exists here.
+- Review contact: support@ruletka.me, no demo password. A uses a friend code created at install and a second device. C adds the Guideline 1.2 acceptance bullet.
+- `eas.json` stays `REPLACE_ASC_APP_ID`. Candidate `6804910924` is notes-only.
+
+Tests:
+- `node mobile/src/safety/logic.test.mjs`: exit 0.
+- Did not run `verify-before-apk.sh` or `npm test`. This hop is the spec only.
+
+Needs Anton:
+- Pick A, B, or C before anyone submits these answers.
+- Confirm `6804910924` before any `eas.json` edit.
+- Type his own phone on the review contact form. The repo does not have one.
+- Say yes before `eas build`, `eas submit`, or Submit for Review. Option C also needs the Guideline 1.2 acceptance.
+- Declared Age Range API is not in the app. Some regions require it even at 18+.
+
+Signed Grok Build / ios. Stopping here.
+
