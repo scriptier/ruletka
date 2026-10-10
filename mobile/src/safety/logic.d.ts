@@ -68,6 +68,19 @@ export function preQueueFaceGate(input?: {
   softGate: boolean;
   hardBlock: false;
 };
+export function duringCallSelfCheck(input?: {
+  friendCall?: boolean;
+  detectorReady?: boolean;
+  face?: string | null;
+  watch?: FaceWatch | null;
+  nowMs?: number;
+}): {
+  watch: FaceWatch;
+  showHint: boolean;
+  selfBlur: boolean;
+  toast: boolean;
+  hardBlock: false;
+};
 export function deliverSafetyLog(
   record: SafetyLogRecord | null | undefined,
   opts?: { accept?: boolean; send?: (record: SafetyLogRecord) => void }

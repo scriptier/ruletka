@@ -55,6 +55,7 @@ import {
   createSafetyDetector,
   deliverSafetyLog,
   createSafetySession,
+  duringCallSelfCheck,
   preQueueFaceGate,
   pushVerdict,
   type FaceWatch,
@@ -548,8 +549,11 @@ function LiveBody() {
   const safetyFilterOnRef = useRef(true);
   const safetySessionRef = useRef<SafetySession>(createSafetySession());
   const faceWatchRef = useRef<FaceWatch>(createFaceWatch());
+  const duringFaceWatchRef = useRef<FaceWatch>(createFaceWatch());
   const selfFaceSoftGateRef = useRef(false);
   const [selfFaceHint, setSelfFaceHint] = useState(false);
+  /** Local cover while a ready model sees no face. Does not replace the track. */
+  const [outgoingSelfBlur, setOutgoingSelfBlur] = useState(false);
   // Must stay defined — 0.1.388 crashed Live (`blurMode` missing).
   const [blurMode, setBlurMode] = useState<BlurStrangersMode>("intro");
   void blurMode;
@@ -7591,6 +7595,45 @@ function LiveBody() {
       clearInterval(timer);
     };
   }, [phase, isFriendCall]);
+  // During a stranger call. Stub never blurs. Friend calls are excluded.
+  // selfBlur covers the local preview only. The sent track stays as-is
+  // and this path does not send self_hide.
+  useEffect(() => {
+    if (phase !== "matched" || isFriendCall) {
+      duringFaceWatchRef.current = createFaceWatch();
+      setOutgoingSelfBlur(false);
+      return;
+    }
+    const detector = createSafetyDetector();
+    let stopped = false;
+    const timer = setInterval(() => {
+      void detector.classify(null).then((verdict) => {
+        if (stopped) return;
+        const step = duringCallSelfCheck({
+          friendCall: false,
+          detectorReady: detector.ready,
+          face: verdict.face,
+          watch: duringFaceWatchRef.current,
+          nowMs: Date.now(),
+        });
+        duringFaceWatchRef.current = step.watch;
+        setOutgoingSelfBlur((prev) =>
+          prev === step.selfBlur ? prev : step.selfBlur
+        );
+        if (!step.toast) return;
+        showToastRef.current(t("mobile.live.faceInFrame"));
+        console.log(
+          "[safety] self-blur why=no-face track=kept model=" + detector.id
+        );
+      });
+    }, 1000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+    // showToastRef and t are stable enough for the match lifetime.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, isFriendCall]);
   useFocusEffect(
     useCallback(() => {
       loadMatchPrefs()
@@ -8164,6 +8207,8 @@ function LiveBody() {
           onSecondVolume={() => setExtraTileMuted(1, !extraMuted2)}
           onThirdVolume={() => setExtraTileMuted(2, !extraMuted3)}
           isFriendCall={isFriendCall}
+          outgoingSelfBlur={outgoingSelfBlur}
+          selfBlurLabel={t("mobile.live.faceInFrame")}
           remoteBlurred={remoteBlurred}
           partnerCamHidden={partnerCamHidden}
           partnerNoCam={partnerNoCam}

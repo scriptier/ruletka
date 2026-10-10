@@ -54,6 +54,25 @@ import {
 import { VideoView } from "./VideoView";
 import { flagEmoji } from "../identity/flagTrust";
 
+/** Local cover while a ready face model sees no face. Keeps the RTCView mounted. */
+function SelfOutgoingVeil(props: { fill: StyleProp<ViewStyle>; label: string }) {
+  return (
+    <View
+      style={[props.fill, styles.blurCoverElevated]}
+      collapsable={false}
+      removeClippedSubviews={false}
+      pointerEvents="none"
+      testID="live-self-outgoing-veil"
+    >
+      <PartnerBlurVeil
+        compact
+        title={props.label}
+        style={[props.fill, styles.blurUnderlay]}
+      />
+    </View>
+  );
+}
+
 export type LiveStageVideoProps = {
   phase: LivePhase | string;
   localStream: MediaStreamLike | null;
@@ -128,6 +147,13 @@ export type LiveStageVideoProps = {
   /** Hub your_role. 2v2 party: occupancy is teammate (bottom with you). */
   yourRole?: string;
   isFriendCall: boolean;
+  /**
+   * Ready self-check saw no face for N seconds. Cover the local preview.
+   * Does not replace the sent track and does not send self_hide.
+   */
+  outgoingSelfBlur?: boolean;
+  /** Compact label on that cover. Existing face-in-frame copy. */
+  selfBlurLabel?: string;
   remoteBlurred: boolean;
   /**
    * Partner hid their camera (self_hide / cam off). Show mosaic on partner tile
@@ -556,6 +582,8 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
     yourRole = "solo",
     onToggleGrid2x2,
     isFriendCall,
+    outgoingSelfBlur = false,
+    selfBlurLabel = "",
     remoteBlurred,
     partnerCamHidden = false,
     partnerNoCam = false,
@@ -864,6 +892,7 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
     mutePartnerOnMain ||
     muteSelfOnMain ||
     (!camOn && swapViews) ||
+    (outgoingSelfBlur && swapViews && !multiRemote) ||
     mainShowsPartner ||
     phase === "matched"
       ? 0
@@ -872,6 +901,7 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
     coverPip ||
     pipBars ||
     (!camOn && !swapViews) ||
+    (outgoingSelfBlur && (multiRemote || !swapViews)) ||
     mutePartnerOnPip ||
     muteSelfOnPip ||
     pipShowsPartner
@@ -1260,6 +1290,17 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
               ) : null}
             </View>
           ) : null}
+          {/* Swapped 1v1: local fills main. Cover it; leave the RTCView mounted. */}
+          {outgoingSelfBlur &&
+          swapViews &&
+          !multiRemote &&
+          !lockFirstRemote &&
+          mountMainVideo ? (
+            <SelfOutgoingVeil
+              fill={styles.remoteFill}
+              label={selfBlurLabel}
+            />
+          ) : null}
           {/* Swapped views: local fills main — show Hide badge */}
           {!camOn && swapViews && mountMainVideo && L.selfHiddenBadge ? (
             <View style={styles.selfHiddenMain} pointerEvents="none">
@@ -1561,6 +1602,12 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
             ) : (
               <View style={[styles.remoteFill, styles.videoPlaceholder]} />
             )}
+            {outgoingSelfBlur ? (
+              <SelfOutgoingVeil
+                fill={styles.remoteFill}
+                label={selfBlurLabel}
+              />
+            ) : null}
             {!camOn && localStream && L.selfHiddenBadge ? (
               <View style={styles.selfHiddenOverlay} pointerEvents="none">
                 <Text style={styles.selfHiddenBadge} numberOfLines={1}>
@@ -1752,6 +1799,10 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
             >
               <Text style={styles.partnerCallTimerTextPip}>{callTimerText}</Text>
             </View>
+          ) : null}
+          {/* Self PiP (1v1 not swapped, or 3-way). Partner PiP stays uncovered. */}
+          {outgoingSelfBlur && (multiRemote || !swapViews) && mountPipVideo ? (
+            <SelfOutgoingVeil fill={styles.pipVideo} label={selfBlurLabel} />
           ) : null}
           {/* Self Hide badge only on the surface that shows self (PiP = local when not swapped) */}
           {!camOn && (!swapViews || multiRemote) && mountPipVideo && L.selfHiddenBadge ? (

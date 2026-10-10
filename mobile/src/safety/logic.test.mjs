@@ -14,6 +14,7 @@ import {
   createSafetyDetector,
   createSafetySession,
   deliverSafetyLog,
+  duringCallSelfCheck,
   FACE_HINT_AFTER_MS,
   faceForSelfCheck,
   preQueueFaceGate,
@@ -182,6 +183,73 @@ const friendGate = preQueueFaceGate({
 assert.equal(friendGate.showHint, false, "friend calls skip the face hint");
 assert.equal(friendGate.softGate, false, "friend calls are not gated");
 assert.equal(friendGate.hardBlock, false);
+
+const stubCall = duringCallSelfCheck({
+  detectorReady: false,
+  face: "absent",
+  watch: createFaceWatch(),
+  nowMs: 0,
+});
+const stubCallLater = duringCallSelfCheck({
+  detectorReady: false,
+  face: "absent",
+  watch: stubCall.watch,
+  nowMs: FACE_HINT_AFTER_MS + 8000,
+});
+assert.equal(stubCallLater.showHint, false, "stub does not hint during a call");
+assert.equal(stubCallLater.selfBlur, false, "stub does not blur outgoing video");
+assert.equal(stubCallLater.toast, false, "stub does not toast");
+assert.equal(stubCallLater.hardBlock, false, "stub does not end the call");
+
+let callWatch = createFaceWatch();
+let callStep = duringCallSelfCheck({
+  detectorReady: true,
+  face: "absent",
+  watch: callWatch,
+  nowMs: 2000,
+});
+assert.equal(callStep.selfBlur, false, "ready + short absence does not blur yet");
+assert.equal(callStep.toast, false);
+assert.equal(callStep.hardBlock, false);
+callStep = duringCallSelfCheck({
+  detectorReady: true,
+  face: "absent",
+  watch: callStep.watch,
+  nowMs: 2000 + FACE_HINT_AFTER_MS,
+});
+assert.equal(callStep.showHint, true);
+assert.equal(callStep.selfBlur, true, "ready + no face prepares the self blur");
+assert.equal(callStep.toast, true, "toast fires once when the blur starts");
+assert.equal(callStep.hardBlock, false, "missing face does not end the call");
+callStep = duringCallSelfCheck({
+  detectorReady: true,
+  face: "absent",
+  watch: callStep.watch,
+  nowMs: 2000 + FACE_HINT_AFTER_MS + 1000,
+});
+assert.equal(callStep.selfBlur, true, "blur stays while the face is gone");
+assert.equal(callStep.toast, false, "toast does not repeat each second");
+callStep = duringCallSelfCheck({
+  detectorReady: true,
+  face: "present",
+  watch: callStep.watch,
+  nowMs: 2000 + FACE_HINT_AFTER_MS + 2000,
+});
+assert.equal(callStep.selfBlur, false, "a face clears the self blur");
+assert.equal(callStep.toast, false);
+assert.equal(callStep.showHint, false);
+
+const friendCall = duringCallSelfCheck({
+  friendCall: true,
+  detectorReady: true,
+  face: "absent",
+  watch: callStep.watch,
+  nowMs: 99_000,
+});
+assert.equal(friendCall.selfBlur, false, "friend calls are not self-blurred");
+assert.equal(friendCall.toast, false, "friend calls do not toast");
+assert.equal(friendCall.hardBlock, false);
+assert.equal(friendCall.showHint, false);
 
 const shadow = buildSafetyLog({ targetUserId: "abc", nsfw: "explicit" });
 const held = deliverSafetyLog(shadow, {

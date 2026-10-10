@@ -188,6 +188,38 @@ export function preQueueFaceGate(input) {
 }
 
 /**
+ * During a stranger call. Friend calls are excluded.
+ * Stub (detector not ready) never toasts and never sets selfBlur.
+ * A ready detector with no face for FACE_HINT_AFTER_MS sets selfBlur.
+ * toast is true only on the rising edge, so the caller shows it once.
+ * hardBlock stays false: the call is not ended.
+ * selfBlur is a local cover flag. It does not replace the sent track
+ * and it does not send self_hide.
+ */
+export function duringCallSelfCheck(input) {
+  if (input && input.friendCall) {
+    return {
+      watch: createFaceWatch(),
+      showHint: false,
+      selfBlur: false,
+      toast: false,
+      hardBlock: false,
+    };
+  }
+  const wasHint = !!(input?.watch && input.watch.showHint);
+  const face = faceForSelfCheck(!!input?.detectorReady, input?.face);
+  const step = pushFaceSample(input?.watch, face, input?.nowMs);
+  const selfBlur = !!input?.detectorReady && step.showHint;
+  return {
+    watch: step.watch,
+    showHint: step.showHint,
+    selfBlur,
+    toast: selfBlur && !wasHint,
+    hardBlock: false,
+  };
+}
+
+/**
  * Send safety_log only when the hub flag is on.
  * Never sends report_user / explicit_ai.
  */
