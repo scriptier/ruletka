@@ -497,3 +497,30 @@ Needs Anton:
 
 Signed Grok Build / store. Stopping here.
 
+---
+
+## 2026-10-10 — Grok Build / ios
+
+Local only on `polish/2026-10-10`. No push, no deploy, no EAS build, no App Store Connect, no Submit for Review. Did not edit `mobile/`, `ui/`, or `eas.json`.
+
+Commits:
+- `1e11ed6` docs: App Store drafts, screenshot list, and privacy labels.
+
+What changed:
+- Extended `knowledge/specs/ios-readiness-2026-10.md` with §7. A: subtitle `Friend video calls. 18+.` (24), friends keywords, no roulette/random. C: subtitle `P2P video chat. 18+.` (20), review notes include the Guideline 1.2 stub-detector sentence. B: do not create a listing.
+- Screenshots: Dynamic Island medium 1179×2556 or 1206×2622 required; iPad 13-inch required while `supportsTablet` is true. Shot list is real screens only, 4+ frames, no composited faces.
+- Privacy labels: camera, mic, report still, app user id (stranger mode has an id and no email account), coarse location only because the hub city is shown, funnel event with no user id. No tracking. Do not declare `safety_log` on the stub build. Do not copy the Play draft’s location “No”.
+- `eas.json` stays `REPLACE_ASC_APP_ID`. Candidate `6804910924` is notes-only.
+
+Tests:
+- `node mobile/src/safety/logic.test.mjs`: exit 0.
+- Did not run `verify-before-apk.sh` or `npm test`. This hop is the spec only.
+
+Needs Anton:
+- Pick A, B, or C before anyone pastes §7.
+- Confirm `6804910924` before any `eas.json` edit.
+- Say yes before `eas build`, `eas submit`, or Submit for Review. Option C also needs the Guideline 1.2 acceptance.
+- If the iOS build should not show city/country, say so. The label draft declares Coarse Location while that line is on screen.
+
+Signed Grok Build / ios. Stopping here.
+
