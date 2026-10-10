@@ -44,11 +44,43 @@ MAX HOPS: 2 implementers per side without new smoke
 
 ### Status
 
-- **Active** — hops 1–8 on disk. Residual pure path historically mto~1749 / mta~4097; hybrid smoke often mto~600 / mta~1400.
-- **Web hop6–8 need UI deploy** for PC browser. **Android hop8** ships in next APK.
-- Smoke + **product.ok** after deploy required before GOAL_MET.
+- **FAIL `20260820T203346Z` (blocker for &lt;3s GOAL_MET — read before any relayWaitBudgetMs work):** 1v1 PC↔Android av-verify **FAIL**: matches=3 offers=2 **answers=0** — phone never sent an SDP answer (not a slow-but-working relay wait). Android av_path pinned `ice=new`/`cs=new` the whole window (0/0 both ways), `force_relay=true`, `bind_v=0`, `app_vc=464`. TURN itself was HOT (`max_rb=641559 peer_hot=61`) — infra fine, only the phone's answer leg is dead. **Do not** read this as the `relayWaitBudgetMs` **480** tuning question (hop11 below) — that lock is about trimming a *working* wait; here there is no answer to wait for, so cutting 480 cannot fix it and is not in scope. See gotcha **70** (`gotchas.md`), raw `20260820T203320Z-1v1-linking.md`, residual detail in [`linking-speed.md`](../wiki/linking-speed.md). **No product.ok invent** from this stamp — this is a FAIL, not a residual.
+- **Herd `20260814T045854Z` (av-verify `20260814T041120Z`):** verdict **WARN** · product.**ok** · last match **web↔web** `force_relay=true` · max_mto **6859** / max_mta **7426** (**SLOW**). Mixed 10-min window also has android fin/fout **67/54** app_vc **385** — **do not cite as phone PASS**. Stretch **unchanged**: p50 mto &lt;800 / mta &lt;2500. **“weak link”** = first-path encode **low** + same-LAN **FRA TURN**, **not** broken P2P. Same-IP `force_relay` **stays** (`CONNECTIVITY_LOCK`). Hop11 `relayWaitBudgetMs` **480** — **do not cut**. Feel hops: [`current-linking-feel.md`](current-linking-feel.md). **No linking GOAL_MET** / **no invent product.ok**.
+- **Human 2026-08-14 later (herd `20260814T043610Z`):** laptop browser ↔ desk PC browser **connects**. Static/hiss **gone** (mic boost **100** + NS). **Linking cameras still feels too long** — feel hop is dismiss Linking on first media (`trio-js` / paint-first), **not** another `relayWaitBudgetMs` cut. Mixed scores stay as written (desk `025100Z` 1097/2153 · evening `193821Z` 1498/2685 · `034518Z` no-media 1538/2948). **3-way layout FAIL** shots `20260814T043425Z` is a **separate** layout FAIL (not linking ICE). **No GOAL_MET**.
+- **Active** — hops 1–11 on disk. **Laptop↔Pixel 2026-08-14 `034518Z` product.no-media** (mto 1538 / mta 2948 this match; max 2194/6893; answer relay **0**; android ICE checking→**failed**; black 24s+). Morning desk product.ok `025100Z` 1097/2153 **≠** this. Disk hop: answer wait uses full `relayWaitBudgetMs()` + do not treat RN false-complete as relay-ready. **Needs APK** (vc384 still has 180/220 cap). **No GOAL_MET**.
+- Hop11 `relayWaitBudgetMs` **480** pure / **300** hybrid **already on disk** — **do not cut further** without a new `product.ok` smoke.
+- **This hop OUT:** MediaSession, wait cuts, ICE. Feel hops live in [`current-linking-feel.md`](current-linking-feel.md) (dismiss Linking on first media; weak badge only on real loss/rtt). (Wiki residual compound only.)
+- **No GOAL_MET** — stretch still mto &lt;800 warm / &lt;1500 pure · mta &lt;2500. Window max **6859/7426** is SLOW tail, not p50. Mixed 1498/2685 / desk 1097/2153 stay historical.
 
-### Live residual (2026-08-10, before hop3 ship)
+### Live residual (2026-08-14 web↔web `20260814T041120Z` — product.ok + SLOW)
+
+| Metric | Web↔web same-LAN (`force_relay=true`) |
+|--------|----------------------------------------|
+| verdict | **WARN** (answers 6 &lt; offers 8) |
+| product | **ok** · last match **web↔web** · web **142/140** · android **67/54** (mixed window) · app_vc **385** · bind_v=1 · fr_mismatch **false** |
+| max mto | **6859** **SLOW** (stretch &lt;800 warm / &lt;1500 pure) — hub: `from=925ecbfe` `video_dir=recvonly` |
+| max mta | **7426** **SLOW** (stretch &lt;2500) — hub: `from=5fda140a` `video_dir=sendonly` |
+| same-IP force_relay | **stays** (`CONNECTIVITY_LOCK`) — FRA TURN on same-LAN is policy, not a broken P2P path |
+| “weak link” | first-path encode **low** + FRA TURN RTT — **not** broken P2P (feel: [`current-linking-feel.md`](current-linking-feel.md)) |
+| hop11 | `relayWaitBudgetMs` **480** — **do not cut** |
+| Source | `artifacts/av-verify/latest.md` · stamp `20260814T041120Z` · at=`2026-08-14T04:11:20Z` |
+
+**Not GOAL_MET.** product.ok ≠ speed gate. max ≠ p50. Mixed android frames in the same 10-min window **≠** phone PASS. Feel hops are in `current-linking-feel.md`, not another wait cut.
+
+### Prior live residual (2026-08-12 product.ok `20260812T193821Z`)
+
+| Metric | Pure web→android (force_relay=true) |
+|--------|-------------------------------------|
+| max mto | **1498** (stretch &lt;800 warm / &lt;1500 pure) |
+| max mta | **2685** (stretch &lt;2500) |
+| answer serial (mta−mto) | ~**1187** ms |
+| product | **ok** · app_vc **383** · bind_v=1 · fr_mismatch **false** |
+| frames | web **4372/5038** · android **5021/4371** |
+| Source | `artifacts/av-verify/latest.md` · stamp `20260812T193821Z` |
+
+**Not GOAL_MET.** Explorer: mto ≈ web offer first-relay on cold pure; mta ≈ android bind + answer relay + ICE feel. Residual is answer serial + gather, **not** more `relayWaitBudgetMs` cuts.
+
+### Historical residual (2026-08-10, before hop3 ship)
 
 | Metric | Pure web→android |
 |--------|------------------|
@@ -143,3 +175,68 @@ Kept: early-exit first `typ relay`, fail-open, pool=0, pure rebuild-if-n=0, no s
 
 **Gate:** UI deploy + APK + `av-verify product.ok` before GOAL_MET.
 
+### Hop 9 (2026-08-12) — residual after product.ok smoke
+
+**Live scorecard (same session, human match):**
+| Metric | Value |
+|--------|-------|
+| product | **ok** web fin/fout 516/764 · android 214/29 |
+| max_mto | **1264** ms (target &lt;800 warm / &lt;1500 pure) |
+| max_mta | **2700** ms (target &lt;2500) |
+| serial answer (mta−mto) | ~**1436** ms |
+| WARN | force_relay mismatch hub=true android fr=1 **policy=all** (web policy=relay) |
+| app_vc | 367 |
+
+**Prefer (no pure thrash without re-smoke):**
+| Lane | OWN | Focus |
+|------|-----|--------|
+| link-web-kick | `ui/live.js` | kickSolo emit race, offerKick early waves, match→offer locks, paint-first media-OK (feel) |
+| link-web-relay | `ui/webrtc.js` | hop9: pure budget 600→**520**; warm first-pass **350**; early-exit already; **no** pool; rebuild-if-n=0 stays |
+| link-android-answer | `MediaSession.ts` | answer serial: bind pre-createAnswer, pure relay cap **350→280**, hybrid poll trim; policy=all→relay when hub force_relay sticky |
+| link-android-ui | `mobile/app/live.tsx` | earliest startCall/answer on matched; don't block primary on secondary; forceRelayHub latch re-apply |
+| link-docs | wiki `linking-speed.md` + SMOKE-NEXT | residual table + smoke steps for hop9 |
+
+**MUST NOT:** pool&gt;0, dual-offer thrash, wipe force_relay sticky, GOAL_MET without re-smoke product.ok.
+
+### Hop 10 (2026-08-12) — web-kick on disk (historical)
+
+| Side | Change | Expect | Ship |
+|------|--------|--------|------|
+| web kick | pure offerer `connectBudgetMs` **1100**; force_relay `inflightGrace` **1100** (hybrid 400) | cover first-path gather; less tear-mid-gather | on disk |
+| web offerer GUM | **async SDP-first** (empty transceivers; cam later) | mto not blocked on cold GUM | on disk |
+
+Kept: pool=0, no dual-offer thrash. Static re-read PASS. **Not** speed GOAL_MET.
+
+### Hop 11 (on disk) — `relayWaitBudgetMs` already **480**
+
+| Side | Change | Expect | Ship |
+|------|--------|--------|------|
+| web pure | `relayWaitBudgetMs` **520→480**; hybrid first-pass **300**; warm first-pass **320**; second pure cold **320** | last wait trim | **on disk** |
+| web answer | same schedule as offer hop11 | mta when web answers | same |
+
+**Floor:** hop11 wait is **already below** the old “do not cut &lt;520 without re-smoke” plan. **Do not cut `relayWaitBudgetMs` further** without a **new** `product.ok` smoke. This hop **OUT:** MediaSession, wait cuts, ICE.
+
+### This hop (2026-08-14 · herd `20260814T045854Z`) — spec residual only
+
+| In | Out |
+|----|-----|
+| Record av-verify `20260814T041120Z` product.**ok** · max_mto **6859** / max_mta **7426** **SLOW** · last match **web↔web** `force_relay=true` | **MediaSession** / wait cuts / ICE |
+| **“weak link”** = first-path **low** + FRA TURN same-LAN, **not** broken P2P | Invent linking **GOAL_MET** / invent a new product.ok |
+| Same-IP `force_relay` **stays** (`CONNECTIVITY_LOCK`) · hop11 **480** **do not cut** | Undo same-IP relay |
+| Feel hops → [`current-linking-feel.md`](current-linking-feel.md) | Cut `relayWaitBudgetMs` |
+
+**No linking GOAL_MET.** product.ok + SLOW 6859/7426 is a residual, not a gate.
+
+### Prior hop (2026-08-14 later · herd `20260814T043610Z`) — residual only
+
+Human: laptop↔PC **connects**; hiss gone (mic **100** + NS); linking still **slow** (feel). Stretch p50 mto &lt;800 / mta &lt;2500 **unchanged**. Hop11 **480** already on disk — **no further relayWait cut**. Feel hop = dismiss Linking on first media (`trio-js`). 3-way layout FAIL `20260814T043425Z` is **not** ICE. Last known mixed scores stay as written — **no new journal / product.ok invent**. **No GOAL_MET.**
+
+### Prior hop (2026-08-14 herd) — spec residual only
+
+| In | Out |
+|----|-----|
+| Status + live residual → product.ok **1498 / 2685** (`20260812T193821Z`, app_vc **383**) | **MediaSession** |
+| Note hop11 **480** already on disk — no further wait cut | **wait cuts** (`relayWaitBudgetMs` / android answer cap) |
+| Keep hops 1–11 historical tables | **ICE** (policy, pool, dual-offer, sticky) |
+
+**No GOAL_MET.** Next implementer needs a new human hard-refresh + phone match → new `av-verify` before any budget / MediaSession hop. Feel (Linking dismiss) is `trio-js`, not a wait cut.

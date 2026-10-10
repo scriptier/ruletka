@@ -51,6 +51,11 @@
       "dir": "ltr"
     },
     {
+      "code": "it",
+      "native": "Italiano",
+      "dir": "ltr"
+    },
+    {
       "code": "pt",
       "native": "Português",
       "dir": "ltr"
@@ -68,6 +73,11 @@
     {
       "code": "zh",
       "native": "中文",
+      "dir": "ltr"
+    },
+    {
+      "code": "id",
+      "native": "Bahasa Indonesia",
       "dir": "ltr"
     }
   ],

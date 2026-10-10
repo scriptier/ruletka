@@ -76,6 +76,11 @@ function resolvePartnerLabel(opts) {
   };
   const name = cleanPartnerLabel(opts.name);
   if (name && !isPlaceholderPartnerName(name, ids)) return name;
+  // friend_code before short_id — hub partner_short is often a junk 2-char
+  // slice that must not beat a real 8-char invite code (matches matchPeers.ts
+  // resolvePartnerDisplayNameWithSource ordering; test + production thrash).
+  const code = cleanPartnerLabel(opts.friendCode).toUpperCase();
+  if (code) return code;
   const shortId = cleanPartnerLabel(opts.shortId);
   if (
     shortId &&
@@ -88,9 +93,6 @@ function resolvePartnerLabel(opts) {
   ) {
     return shortId;
   }
-  // friend_code is 8 hex by design — always a valid secondary label
-  const code = cleanPartnerLabel(opts.friendCode).toUpperCase();
-  if (code) return code;
   const prev = cleanPartnerLabel(opts.prev);
   if (prev && isKeepablePrevPartnerLabel(prev, ids)) {
     if (isHexIdLike(prev)) return prev.toUpperCase();
@@ -147,10 +149,13 @@ assert.equal(resolvePartnerDisplayName("？", "ab12"), "ab12");
 assert.equal(resolvePartnerDisplayName("", "", "xyzw"), "XYZW");
 assert.equal(resolvePartnerDisplayName("Partner", "", "ab12"), "AB12");
 assert.equal(resolvePartnerDisplayName("…", undefined, "cd34"), "CD34");
-// non-hex shortId still beats friendCode
-assert.equal(resolvePartnerDisplayName("", "short99", "xyzw"), "short99");
-// hex shortId loses to friendCode
+// friendCode always wins over shortId (even non-hex) when both are present —
+// hub partner_short can be junk; the 8-char invite code is the trustworthy one.
+assert.equal(resolvePartnerDisplayName("", "short99", "xyzw"), "XYZW");
 assert.equal(resolvePartnerDisplayName("", "deadbeef", "xyzw"), "XYZW");
+// shortId only wins when friendCode is absent/empty.
+assert.equal(resolvePartnerDisplayName("", "short99", ""), "short99");
+assert.equal(resolvePartnerDisplayName("", "short99", undefined), "short99");
 
 // anon is placeholder
 assert.equal(resolvePartnerDisplayName("anon", "", "kode"), "KODE");
@@ -170,5 +175,50 @@ assert.equal(isPlaceholderName("Partner"), true);
 assert.equal(isPlaceholderName("anon"), true);
 assert.equal(isPlaceholderName("3dc02a71"), true);
 assert.equal(isPlaceholderName("Alex"), false);
+
+// Poison inputs — dock wrapper coerces via String(); must never throw and
+// must not paint hub/partner-controlled junk as a trusted placeholder.
+assert.equal(resolvePartnerDisplayName(0, "ab12"), "0"); // short non-hex number still a "real" label
+assert.equal(resolvePartnerDisplayName(NaN, "ab12"), "NaN");
+assert.equal(resolvePartnerDisplayName("", "", 123), "123"); // numeric friendCode coerces + uppercases
+const longName = "Z".repeat(300);
+assert.equal(resolvePartnerDisplayName(longName, "ab12"), longName);
+assert.equal(
+  resolvePartnerDisplayName("Al" + String.fromCharCode(0) + "ex", "ab12"),
+  "Al" + String.fromCharCode(0) + "ex"
+);
+
+// Bidi override poison (U+202E) is not stripped by cleanPartnerLabel — only
+// ZWSP/BOM are. Locked in as a documented known gap for the dock wrapper too,
+// mirroring matchPeers.test.mjs coverage.
+{
+  const rtlName = "Ale" + "‮" + "xe";
+  assert.equal(resolvePartnerDisplayName(rtlName, "ab12"), rtlName);
+}
+
+// Array-valued name (dock wrapper coerces via String()) — same pass-through
+// as matchPeers.test.mjs; mirrors the resolver's no-array-awareness gap.
+assert.equal(resolvePartnerDisplayName(["Bob", "X"], "ab12"), "Bob,X");
+assert.equal(resolvePartnerDisplayName([], "ab12"), "ab12");
+
+// friend_code-before-short_id ordering fix (see the reordered resolvePartnerLabel
+// above) exercised through the dock wrapper with poison-shaped friendCode
+// values, so a future accidental revert-to-old-order is caught here too and
+// not just in matchPeers.test.mjs.
+assert.equal(resolvePartnerDisplayName("", "short99", "​"), "short99"); // ZWSP-only friendCode cleans to "" → skipped, falls to shortId
+assert.equal(resolvePartnerDisplayName("", "short99", NaN), "NAN"); // NaN coerces to non-empty "NaN" → still wins over shortId
+assert.equal(resolvePartnerDisplayName("", "short99", 0), "0"); // 0 still a non-empty code string
+assert.equal(resolvePartnerDisplayName("", "junkshort", "0000abcd"), "0000ABCD");
+
+// Friend-code line: paint when distinct from name; hide when it IS the name.
+function shouldPaintFriendCode(name, code) {
+  const n = String(name || "").trim().toUpperCase();
+  const c = String(code || "").trim().toUpperCase();
+  return !!c && c.length >= 4 && c !== n;
+}
+assert.equal(shouldPaintFriendCode("Courtier", "A1B2C3D4"), true);
+assert.equal(shouldPaintFriendCode("A1B2C3D4", "A1B2C3D4"), false);
+assert.equal(shouldPaintFriendCode("Courtier", "AB"), false);
+assert.equal(shouldPaintFriendCode("Courtier", ""), false);
 
 console.log("partnerIdentityDisplay.test.mjs OK");

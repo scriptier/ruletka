@@ -111,6 +111,27 @@ One Claude process at a time (dispatch guards with pid file). Multiple tasks = s
 
 ---
 
+## Multi-party stage + harvest ownership
+
+- **Multi-party / find-third tasks** (3-way, 4-way, `huntingThird`, trio split,
+  Chrome Android multi-cam): read `.grok/skills/multi-party-stage/SKILL.md`
+  first — it's a Grok-side skill (not present in Claude's worktree), so Grok
+  copies the relevant constraints into the task body. Rule that always
+  applies even to "just UI polish" tasks in this area: never unmount the live
+  partner `RTCView` / remount 1v1→multi to enter a hunt/trio layout.
+- **Harvest paths** (`scripts/agents/lib.sh` → `AGENTS_HARVEST_PATHS`) already
+  cover `mobile/src`, `mobile/app`, `mobile/scripts`, i18n, `ui/live-stage.css`,
+  `ui/live.html`, `ui/style.css`, `docs`, `scripts/agents` — Claude edits
+  inside those paths harvest automatically via `harvest.sh`.
+- **`ui/live.js` (and `ui/webrtc.js`) are Grok OWN by default** — neither is
+  in `AGENTS_HARVEST_PATHS`, so a Claude edit there won't harvest unless the
+  task explicitly says so. Only hand Claude `live.js` when a task lists it in
+  scope.
+- Most multi-party polish belongs in the sleep shift / continuous queue
+  below, not a one-off dispatch.
+
+---
+
 ## Sleep shift (PC stays on — no “proceed”)
 
 ```bash

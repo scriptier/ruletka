@@ -1,11 +1,20 @@
 /**
- * Partner privacy veil (opaque cover over mounted RTCView).
+ * Partner privacy veil (opaque cover over mounted RTCView on Android).
  *
  * LiveStageVideo keeps partner RTCView mounted while remoteBlurred (unmount
- * mid-call crashes WebRTC). This component is the solid fill on the partner
+ * mid-call crashes WebRTC). On Android this is the solid fill on the partner
  * tile: #45536c + mosaic + Show video CTA. live.tsx also hosts an opaque
  * Android Modal while veiled so SurfaceView cannot punch through. Palette is
  * mid-tone frosted — never pure #000 (OLED "broken").
+ *
+ * iOS has no SoftBlurVideoView (no native VideoSink pixel blur, no OEM
+ * SurfaceView black-hole risk). Product wants iOS to *look* like Android's
+ * soft blur — a hazy, still-moving partner behind glass — instead of a fully
+ * opaque mosaic. So on iOS the base + root layers go translucent (tinted,
+ * not opaque) and the hard-edged mosaic grid is skipped; only the soft
+ * blobs + frost wash sit over the still-mounted RTCView, which keeps
+ * bleeding color/motion through underneath. Card/CTA stay fully opaque and
+ * legible either way.
  *
  * Layout: absoluteFill parents often give % children 0 size on Android.
  * Measure via onLayout and paint pixel cells; solid BLUR_VEIL_BASE always wins
@@ -15,6 +24,7 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import {
   Dimensions,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -24,8 +34,23 @@ import {
   type ViewStyle,
 } from "react-native";
 
-/** Solid mid-tone — never pure #000 (OLED "broken camera"). */
+/** Solid mid-tone — never pure #000 (OLED "broken camera"). Android base. */
 export const BLUR_VEIL_BASE = "#45536c";
+
+/**
+ * iOS has no pixel-blur native view, so the veil itself must read as "soft
+ * blur" rather than "solid hide" — root/base go translucent (this tint) so
+ * the still-mounted RTCView bleeds through, instead of Android's opaque
+ * BLUR_VEIL_BASE (#45536c at full alpha).
+ */
+const IOS_VEIL_TINT = "rgba(69, 83, 108, 0.55)";
+
+/** True when this veil should render iOS's translucent soft-blur look. */
+const IOS_SOFT_BLUR = Platform.OS === "ios";
+
+/** Root/base fill — opaque on Android (SurfaceView black-hole guard), translucent on iOS. */
+const VEIL_ROOT_BG = IOS_SOFT_BLUR ? "transparent" : BLUR_VEIL_BASE;
+const VEIL_BASE_BG = IOS_SOFT_BLUR ? IOS_VEIL_TINT : BLUR_VEIL_BASE;
 
 export type PartnerBlurVeilProps = {
   style?: StyleProp<ViewStyle>;
@@ -137,6 +162,8 @@ export const PartnerBlurVeil = memo(function PartnerBlurVeil(
   }, [compact]);
 
   const cells = useMemo((): Cell[] => {
+    // iOS: no hard-edged mosaic — translucent base + blobs read as blur instead.
+    if (IOS_SOFT_BLUR) return [];
     const seed = hashSeed(partnerLabel || title || "veil");
     // Fewer cells = less JS/native view thrash on match (crash/ANR risk at 8×12).
     const cols = compact ? 4 : 5;
@@ -184,36 +211,38 @@ export const PartnerBlurVeil = memo(function PartnerBlurVeil(
 
   const mosaic = (
     <>
-      {/* Opaque base — never transparent (transparent = black hole over stage) */}
+      {/* Android: opaque base, never transparent (= black hole over stage). iOS: translucent blur tint. */}
       <View
         style={styles.base}
         pointerEvents="none"
         collapsable={false}
         removeClippedSubviews={false}
       />
-      <View
-        style={styles.grid}
-        pointerEvents="none"
-        collapsable={false}
-        removeClippedSubviews={false}
-      >
-        {cells.map((cell) => (
-          <View
-            key={cell.key}
-            collapsable={false}
-            style={[
-              styles.gridCell,
-              {
-                backgroundColor: cell.color,
-                left: cell.left,
-                top: cell.top,
-                width: cell.width,
-                height: cell.height,
-              },
-            ]}
-          />
-        ))}
-      </View>
+      {!IOS_SOFT_BLUR ? (
+        <View
+          style={styles.grid}
+          pointerEvents="none"
+          collapsable={false}
+          removeClippedSubviews={false}
+        >
+          {cells.map((cell) => (
+            <View
+              key={cell.key}
+              collapsable={false}
+              style={[
+                styles.gridCell,
+                {
+                  backgroundColor: cell.color,
+                  left: cell.left,
+                  top: cell.top,
+                  width: cell.width,
+                  height: cell.height,
+                },
+              ]}
+            />
+          ))}
+        </View>
+      ) : null}
       <View style={[styles.blob, styles.blobA]} pointerEvents="none" />
       <View style={[styles.blob, styles.blobB]} pointerEvents="none" />
       <View style={[styles.blob, styles.blobC]} pointerEvents="none" />
@@ -264,23 +293,30 @@ export const PartnerBlurVeil = memo(function PartnerBlurVeil(
         onLayout={onRootLayout}
         accessibilityRole="button"
         accessibilityLabel={a11yLabel}
-        accessibilityHint={hint}
+        accessibilityHint={hint || "Tap anywhere to show video"}
         collapsable={false}
         // Android: mosaic cells must not be culled before first layout
         removeClippedSubviews={false}
-        // Whole veil is the hit target (card uses pointerEvents none)
-        hitSlop={4}
+        // Whole veil is the hit target (card / mosaic use pointerEvents none)
+        hitSlop={8}
+        android_ripple={
+          Platform.OS === "android"
+            ? { color: "rgba(255,255,255,0.12)", foreground: true }
+            : undefined
+        }
       >
         {mosaic}
       </Pressable>
     );
   }
+  // Nested under a parent Pressable (e.g. Android privacy Modal): pass
+  // touches through so "tap anywhere" peels the veil.
   return (
     <View
       style={fillStyle}
       collapsable={false}
       removeClippedSubviews={false}
-      pointerEvents="auto"
+      pointerEvents="none"
       accessible
       accessibilityRole="image"
       accessibilityLabel={a11yLabel}
@@ -304,8 +340,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 28,
-    // Solid mid-tone — never #000 (OLED reads that as "broken camera")
-    backgroundColor: BLUR_VEIL_BASE,
+    // Android: solid mid-tone, never #000 (OLED reads that as "broken camera").
+    // iOS: transparent — the `base` layer below carries the translucent tint
+    // so the still-mounted RTCView blurs through instead of being hidden.
+    backgroundColor: VEIL_ROOT_BG,
     opacity: 1,
     // Above residual SurfaceView holes on some Android OEMs
     zIndex: 40,
@@ -320,16 +358,23 @@ const styles = StyleSheet.create({
     height: "100%",
     minWidth: 1,
     minHeight: 120,
-    backgroundColor: BLUR_VEIL_BASE,
+    backgroundColor: VEIL_ROOT_BG,
     opacity: 1,
     zIndex: 40,
     elevation: 28,
   },
-  /** Applied last so caller transparent styles cannot punch a black hole. */
+  /**
+   * Applied last so caller transparent styles cannot punch a black hole
+   * on Android. On iOS this stays transparent on purpose — `base` is the
+   * one translucent layer so the veil reads as blur, not stacked opacity.
+   */
   forceOpaque: {
-    backgroundColor: BLUR_VEIL_BASE,
+    backgroundColor: VEIL_ROOT_BG,
     // Never inherit opacity/transparent from parent remoteFill styles
     opacity: 1,
+    // Reassert stack so multi/PiP callers cannot strip elevation under SurfaceView
+    zIndex: 40,
+    elevation: 28,
   },
   rootCompact: {
     paddingHorizontal: 0,
@@ -337,8 +382,10 @@ const styles = StyleSheet.create({
   },
   base: {
     ...StyleSheet.absoluteFillObject,
-    // Solid opaque base — if grid cells fail to layout, still not pure black
-    backgroundColor: BLUR_VEIL_BASE,
+    // Android: solid opaque base — if grid cells fail to layout, still not
+    // pure black. iOS: translucent tint (VEIL_BASE_BG) — this is the layer
+    // that makes the mounted RTCView visible-but-blurred underneath.
+    backgroundColor: VEIL_BASE_BG,
     opacity: 1,
     flex: 1,
     width: "100%",

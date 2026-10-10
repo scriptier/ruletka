@@ -1,13 +1,21 @@
 # HTTPS reverse proxy for ruletka.vip + ruletka.me → roulette-bridge
 # Install: /etc/caddy/Caddyfile
 #
-# TURNS mux: public TCP 443 is sslh (ALPN h2/http/1.1 → this Caddy HTTPS
-# on 8443; other TLS → coturn 5349). Do not bind Caddy to TCP 443.
+# TURNS mux: public TCP 443 is HAProxy (ALPN h2/http/1.1 → this Caddy HTTPS
+# on 8443 with PROXY v2 so hub geo sees the real client IP; other TLS → coturn 5349).
 
 {
 	https_port 8443
 	servers {
 		protocols h1 h2
+		# Direct visitors: HAProxy PROXY v2 supplies client IP. No Hetzner XFF front.
+		listener_wrappers {
+			proxy_protocol {
+				timeout 5s
+				allow 127.0.0.1/32
+			}
+			tls
+		}
 	}
 }
 
@@ -93,6 +101,14 @@ ruletka.vip, ruletka.me {
 	handle @media {
 		reverse_proxy 127.0.0.1:8790
 		header Cache-Control "public, max-age=86400"
+	}
+
+	# Tiny `/` still (camble-sized). Instant client redirect to /live.html — no splash.
+	# Do not rewrite `/` → live.html — 223k shell timed out some RU checkers.
+	@home path / /index.html
+	handle @home {
+		reverse_proxy 127.0.0.1:8790
+		header Cache-Control "public, max-age=60, must-revalidate"
 	}
 
 	# HTML / rest — short cache so deploys show without hard-fight

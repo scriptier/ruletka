@@ -2,8 +2,18 @@
  * Pre-system permission education (Play best practice).
  * Show this *before* PermissionsAndroid.request so users understand why.
  */
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useT } from "../i18n";
+
+/** i18n with English fallback when overlay key is not shipped yet (ns-i18n). */
+function tf(
+  t: (key: string, vars?: Record<string, string | number>) => string,
+  key: string,
+  fallback: string,
+): string {
+  const s = t(key);
+  return !s || s === key ? fallback : s;
+}
 
 export function PermissionRationaleCard(props: {
   busy?: boolean;
@@ -17,7 +27,15 @@ export function PermissionRationaleCard(props: {
     <View style={styles.card}>
       <Text style={styles.badge}>{t("mobile.perm.badge")}</Text>
       <Text style={styles.title}>{t("mobile.perm.screenTitle")}</Text>
-      <Text style={styles.body}>{t("mobile.perm.screenBody")}</Text>
+      <Text style={styles.body}>
+        {Platform.OS === "ios"
+          ? tf(
+              t,
+              "mobile.perm.screenBodyIos",
+              "Next, iOS will show system permission dialogs. Here’s why we ask:",
+            )
+          : t("mobile.perm.screenBody")}
+      </Text>
       <View style={styles.bullets}>
         <Text style={styles.bullet}>• {t("mobile.perm.bulletCam")}</Text>
         <Text style={styles.bullet}>• {t("mobile.perm.bulletMic")}</Text>

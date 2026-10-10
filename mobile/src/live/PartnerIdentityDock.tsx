@@ -1,14 +1,27 @@
 /**
- * ONLY mid-match partner identity surface: name · ★ · location.
+ * ONLY mid-match partner identity surface: photo · name · ★ · location.
  * placement="top" (default for match): root absolute strip under status bar.
  * Do not also mount PartnerChrome / stagePartnerHud for the same fields.
  */
-import { Pressable, Text, View, type StyleProp, type ViewStyle } from "react-native";
+import { useEffect, useState } from "react";
+import {
+  Image,
+  Platform,
+  Pressable,
+  Text,
+  useWindowDimensions,
+  View,
+  type StyleProp,
+  type ViewStyle,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { avatarColor, isAvatarUri } from "../friends/CallPeerAvatar";
 import { useI18n, useT } from "../i18n";
 import { flagEmoji, formatLocLine } from "../identity/flagTrust";
 import { liveStyles as styles } from "./liveStyles";
 import {
   displayPartnerStars,
+  formatPraisedBy,
   isPlaceholderPartnerName,
   resolvePartnerDisplayName as resolvePartnerLabel,
 } from "./matchPeers";
@@ -19,21 +32,43 @@ export type PartnerIdentityDockProps = {
   friendCode?: string;
   stars?: number;
   trust?: number;
-  /** Pre-computed max(stars,trust) from parent — preferred when set */
+  /** Unique praisers (hub trust_gifters). >0 paints "praised by N". */
+  trustGifters?: number;
+  /** Pre-computed partner ★ (trust/rep) from parent — preferred when set */
   displayStars?: number;
   flag?: string;
   country?: string;
   city?: string;
   hideIp?: boolean;
+  /** Partner photo (data URL / https / file). Empty / invalid → letter. */
+  avatar?: string;
+  /**
+   * Decode the photo only after first live audio/frame so Image work does not
+   * jank the first second of a match. Name · flag · loc · ★ always paint.
+   * Default true (call cards / tests). Live match passes false until media.
+   */
+  avatarReady?: boolean;
   /**
    * "top" — root absolute under status bar (matched default).
    * "row" | "below" — legacy shell only; avoid remounting mid-match.
    */
   placement?: "row" | "below" | "top";
+  /**
+   * Friend code painted as its own dim line (not the name). Shown even when
+   * hex-looking — that's the add-friend code. Hidden when it matches the name.
+   */
+  code?: string;
   /** Extra shell style (e.g. { paddingTop: insets.top }) from live.tsx */
   style?: StyleProp<ViewStyle>;
+  /**
+   * Paint the top-right ★ N chip. Default true so 1v1 callers stay unchanged.
+   * 3-way dock (p-live) passes false — tile chrome already has stars.
+   */
+  showStars?: boolean;
   testID?: string;
   onLongPress?: () => void;
+  /** Tap their ★ / identity to send ★1 (costs 3). */
+  onGiftStar?: () => void;
 };
 
 /** @deprecated Prefer isPlaceholderPartnerName from matchPeers */
@@ -59,12 +94,47 @@ export function resolvePartnerDisplayName(
   });
 }
 
+/** 32px circle next to the dock name. Photo when URI valid; else letter. */
+function DockAvatar(props: { uri?: string; name: string; ready?: boolean }) {
+  const raw = isAvatarUri(props.uri) ? String(props.uri).trim() : "";
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setFailed(false);
+  }, [raw]);
+  const letter = (props.name || "?").trim().slice(0, 1).toUpperCase() || "?";
+  const bg = avatarColor(props.name || letter);
+  // Linking: letter first. Mount Image only after audio/frame (avatarReady).
+  const show = !!raw && !failed && props.ready !== false;
+  return (
+    <View
+      style={[
+        styles.partnerIdentityDockAvatar,
+        { backgroundColor: show ? "#0c121c" : bg },
+      ]}
+      importantForAccessibility="no"
+      testID="live-partner-identity-avatar"
+    >
+      {show ? (
+        <Image
+          source={{ uri: raw }}
+          style={styles.partnerIdentityDockAvatarImg}
+          resizeMode="cover"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <Text style={styles.partnerIdentityDockAvatarLetter}>{letter}</Text>
+      )}
+    </View>
+  );
+}
+
 export function PartnerIdentityDock(props: PartnerIdentityDockProps) {
   const t = useT();
   const { lang } = useI18n();
+  const insets = useSafeAreaInsets();
+  const { width: winW, height: winH } = useWindowDimensions();
 
-  // max(spendable, trust). ★ 0 is valid empty ledger (hub always serializes u64);
-  // never invent stars, but never hide the chip either. Real >0 must paint gold.
+  // Partner ★ = trust (rep). Wallet is yours only. ★0 is a valid empty score.
   const starsNum = Number(props.stars) || 0;
   const trustNum = Number(props.trust) || 0;
   const displayStars =
@@ -78,10 +148,10 @@ export function PartnerIdentityDock(props: PartnerIdentityDockProps) {
     props.nameFallback,
     props.friendCode
   );
-  // Flag is ONLY the stage partnerFlagChip (top-left on video). Never prefix
-  // name or loc with 🇨🇦 — dual-flag fail on 2026-08-11 15:01 screenshot.
+  // Dock owns the single flag visual (stage partnerFlagChip removed — dual-flag
+  // fail was dock+stage). Flag emoji on name row only; loc omits flag emoji.
   const em = flagEmoji(props.flag);
-  const nameLine = name; // no flag emoji on name
+  const nameLine = name;
 
   const hideIp = !!props.hideIp;
   const flagTrim = props.flag != null ? String(props.flag).trim() : "";
@@ -90,7 +160,7 @@ export function PartnerIdentityDock(props: PartnerIdentityDockProps) {
   const cityTrim = props.city != null ? String(props.city).trim() : "";
   // Any geo field from MatchPeer / partner_geo → second line must paint.
   const hasGeoSignal = !!(flagTrim || countryTrim || cityTrim);
-  // omitFlag: chip owns the flag visual — loc is "Canada · Calgary" only
+  // omitFlag: flag already on name row — loc is "Canada · Calgary" only
   const locRaw = hideIp
     ? ""
     : formatLocLine({
@@ -101,7 +171,7 @@ export function PartnerIdentityDock(props: PartnerIdentityDockProps) {
         hideIp: false,
         omitFlag: true,
       });
-  // Fallback without flag emoji/ISO prefix (chip owns the flag)
+  // Fallback without second flag emoji on loc line
   const locFallback = (() => {
     if (hideIp || locRaw) return "";
     if (countryTrim) return countryTrim.slice(0, 28);
@@ -110,13 +180,30 @@ export function PartnerIdentityDock(props: PartnerIdentityDockProps) {
   })();
   const locPrivate = t("mobile.live.locPrivate") || "Location hidden";
   const locLine = hideIp ? locPrivate : locRaw || locFallback;
+  const codeRaw = String(props.code || "").trim().toUpperCase();
+  const showCode =
+    !!codeRaw &&
+    codeRaw.length >= 4 &&
+    codeRaw !== name.toUpperCase();
+  const trustGifters = Math.max(
+    0,
+    Math.floor(Number(props.trustGifters) || 0)
+  );
+  let praisedLine = "";
+  if (trustGifters > 0) {
+    const praisedKey = "mobile.live.praisedBy";
+    const raw = t(praisedKey, { n: trustGifters });
+    praisedLine =
+      !raw || raw === praisedKey ? formatPraisedBy(trustGifters) : raw;
+  }
   // Second line: hide_ip (private copy) OR any non-empty loc OR raw geo signal.
   const showLoc = hideIp || !!locLine || (!hideIp && hasGeoSignal);
   const locPaint = hideIp
     ? locPrivate
     : locLine || (hasGeoSignal ? locFallback || locRaw : "") || "";
 
-  // Always paint ★ N (incl. 0 dimmed). Never omit the chip mid-match.
+  // Default true: omit showStars and 1v1 still paints ★ N (incl. 0 dimmed).
+  const showStars = props.showStars !== false;
   const starsText = `★ ${displayStars}`;
   const starsStyle = starsZero
     ? styles.partnerIdentityDockStarsZero
@@ -125,18 +212,34 @@ export function PartnerIdentityDock(props: PartnerIdentityDockProps) {
   const a11yLabel = [
     nameLine,
     em || (flagTrim ? flagTrim.toUpperCase().slice(0, 2) : ""),
-    starsText,
+    showStars ? starsText : "",
     showLoc && locPaint ? locPaint : "",
+    showCode ? codeRaw : "",
   ]
     .filter(Boolean)
     .join(", ");
 
   // Two lines so long names never flex-squeeze location to 0 width:
-  //   1) name · ★
+  //   1) 🇨🇦 name · ★  (flag only here — not also on loc)
   //   2) location (full width under name — required when flag/country/city known)
   const body = (
     <View collapsable={false}>
       <View style={styles.partnerIdentityDockRow} collapsable={false}>
+        <DockAvatar
+          uri={props.avatar}
+          name={name}
+          ready={props.avatarReady}
+        />
+        {em ? (
+          <Text
+            style={[styles.partnerIdentityDockName, { flexShrink: 0, marginRight: 4 }]}
+            numberOfLines={1}
+            importantForAccessibility="no"
+            testID="live-partner-identity-flag"
+          >
+            {em}
+          </Text>
+        ) : null}
         <Text
           style={[styles.partnerIdentityDockName, { flexShrink: 1, flexGrow: 1 }]}
           numberOfLines={1}
@@ -144,13 +247,29 @@ export function PartnerIdentityDock(props: PartnerIdentityDockProps) {
         >
           {nameLine}
         </Text>
-        <Text
-          style={[starsStyle, { flexShrink: 0 }]}
-          numberOfLines={1}
-          testID="live-partner-identity-stars"
-        >
-          {starsText}
-        </Text>
+        {showStars ? (
+          props.onGiftStar ? (
+            <Pressable
+              onPress={props.onGiftStar}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel={t("stars.giftShootingStarHint") || "Send ★1 · 3★"}
+              testID="live-partner-identity-stars"
+            >
+              <Text style={[starsStyle, { flexShrink: 0 }]} numberOfLines={1}>
+                {starsText}
+              </Text>
+            </Pressable>
+          ) : (
+            <Text
+              style={[starsStyle, { flexShrink: 0 }]}
+              numberOfLines={1}
+              testID="live-partner-identity-stars"
+            >
+              {starsText}
+            </Text>
+          )
+        ) : null}
       </View>
       {showLoc ? (
         <Text
@@ -172,6 +291,32 @@ export function PartnerIdentityDock(props: PartnerIdentityDockProps) {
             (hideIp ? locPrivate : "")}
         </Text>
       ) : null}
+      {showCode ? (
+        <Text
+          style={[
+            styles.partnerIdentityDockCode,
+            { marginTop: 1, width: "100%", flexShrink: 0 },
+          ]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+          testID="live-partner-identity-code"
+        >
+          {codeRaw}
+        </Text>
+      ) : null}
+      {praisedLine ? (
+        <Text
+          style={[
+            styles.partnerIdentityDockLocDim,
+            { marginTop: 1, width: "100%", flexShrink: 0 },
+          ]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+          testID="live-partner-identity-praised"
+        >
+          {praisedLine}
+        </Text>
+      ) : null}
     </View>
   );
 
@@ -180,8 +325,29 @@ export function PartnerIdentityDock(props: PartnerIdentityDockProps) {
       ? styles.partnerIdentityTopStrip
       : styles.partnerIdentityDock;
 
+  // live.tsx's inline paddingTop (insets.top - 10) is tuned for Android's
+  // status bar. On iPhone that sits the name/★/loc under the notch/Dynamic
+  // Island and behind the transient camera-in-use / volume HUD. Floor it
+  // to the real top inset plus a small buffer, iOS only — Android untouched.
+  // In landscape the notch/Dynamic Island moves to one side (insets.left or
+  // insets.right, never both) and insets.top drops to ~0 — add matching
+  // horizontal room instead so the row never sits under the sensor housing
+  // or the rotated status/home-indicator strip. partnerIdentityTopStrip's
+  // base paddingHorizontal is 12 — extend it, never replace it below that.
+  const isLandscape = winW > winH;
+  const iosTopStyle =
+    Platform.OS === "ios" && props.placement === "top"
+      ? {
+          paddingTop: isLandscape
+            ? Math.max(insets.top, 8) + 4
+            : Math.max(insets.top, 44) + 6,
+          paddingLeft: 12 + Math.max(insets.left, 0),
+          paddingRight: 12 + Math.max(insets.right, 0),
+        }
+      : null;
+
   const shellProps = {
-    style: props.style ? [shellBase, props.style] : shellBase,
+    style: [shellBase, props.style, iosTopStyle].filter(Boolean) as StyleProp<ViewStyle>[],
     testID: props.testID || "live-partner-identity-dock",
     accessibilityRole: "header" as const,
     accessibilityLabel: a11yLabel,

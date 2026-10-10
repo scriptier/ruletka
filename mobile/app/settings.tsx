@@ -46,6 +46,10 @@ import {
   isEncryptedProfile,
   shareProfileJson,
 } from "../src/identity/profileBackup";
+import {
+  isValidAvatarDataUrl,
+  resizeUriToAvatarDataUrl,
+} from "../src/identity/avatar";
 import { replaceIdentity, setDisplayName } from "../src/identity/store";
 import {
   loadMatchPrefs,
@@ -93,6 +97,8 @@ function Chip(props: {
   label: string;
   active: boolean;
   onPress: () => void;
+  /** Overrides accessibilityLabel with fuller context (e.g. field name + option). */
+  a11yLabel?: string;
 }) {
   return (
     <Pressable
@@ -102,7 +108,7 @@ function Chip(props: {
       }}
       style={[styles.chip, props.active && styles.chipOn]}
       accessibilityRole="button"
-      accessibilityLabel={props.label}
+      accessibilityLabel={props.a11yLabel || props.label}
       accessibilityState={{ selected: props.active }}
     >
       <Text
@@ -113,6 +119,16 @@ function Chip(props: {
       </Text>
     </Pressable>
   );
+}
+
+/** i18n with English fallback when overlay key is not shipped yet (ns-i18n). */
+function tf(
+  t: (key: string, vars?: Record<string, string | number>) => string,
+  key: string,
+  fallback: string,
+): string {
+  const s = t(key);
+  return !s || s === key ? fallback : s;
 }
 
 /** Collapsible card section — keeps long Settings scannable. */
@@ -332,6 +348,16 @@ function SettingsBody() {
     );
   }
 
+  function hubPrefsPayload(p: MatchPrefs) {
+    return {
+      gender: p.gender || "",
+      looking: p.looking || "any",
+      flag: p.flag || "",
+      hide_ip: !!p.hideIp,
+      avatar: p.avatar ?? "",
+    };
+  }
+
   /** Persist hide-IP immediately + push hub so partners see correct loc privacy. */
   async function setHideIp(on: boolean) {
     if (!prefs) return;
@@ -341,12 +367,7 @@ function SettingsBody() {
       await saveMatchPrefs(next);
       if (connected) {
         try {
-          hub.setPrefs({
-            gender: next.gender || "",
-            looking: next.looking || "any",
-            flag: next.flag || "",
-            hide_ip: !!on,
-          });
+          hub.setPrefs(hubPrefsPayload(next));
         } catch {
           /* offline */
         }
@@ -357,6 +378,19 @@ function SettingsBody() {
           ? t("settings.hideIpOnStatus") || "Location hidden from partners"
           : t("settings.hideIpOffStatus") || "Location visible to partners"
       );
+    } catch (e) {
+      showToast(`${t("mobile.common.offline")}: ${String(e)}`);
+    }
+  }
+
+  /** Persist noise reduction immediately (no need to tap Save). */
+  async function setNoiseReduction(on: boolean) {
+    if (!prefs) return;
+    const next: MatchPrefs = { ...prefs, noiseReduction: on };
+    setPrefs(next);
+    try {
+      await saveMatchPrefs(next);
+      hapticLight();
     } catch (e) {
       showToast(`${t("mobile.common.offline")}: ${String(e)}`);
     }
@@ -397,19 +431,11 @@ function SettingsBody() {
     // Push prefs + name to hub now (not only on next reconnect)
     if (connected) {
       try {
-        hub.setPrefs({
-          gender: prefs.gender || "",
-          looking: prefs.looking || "any",
-          flag: prefs.flag || "",
-          hide_ip: !!prefs.hideIp,
-        });
+        hub.setPrefs(hubPrefsPayload(prefs));
         hub.hello({
           user_id: identity.user_id,
           name: name || identity.name || "anon",
-          gender: prefs.gender || "",
-          looking: prefs.looking || "any",
-          flag: prefs.flag || "",
-          hide_ip: !!prefs.hideIp,
+          ...hubPrefsPayload(prefs),
         });
       } catch {
         /* offline */
@@ -421,9 +447,98 @@ function SettingsBody() {
     setTimeout(() => setSaved(false), 1500);
   }
 
+  async function persistAvatar(dataUrl: string) {
+    if (!prefs) return;
+    const next: MatchPrefs = { ...prefs, avatar: dataUrl };
+    setPrefs(next);
+    await saveMatchPrefs(next);
+    if (connected) {
+      try {
+        hub.setPrefs(hubPrefsPayload(next));
+        hub.hello({
+          user_id: identity.user_id,
+          name: name || identity.name || "anon",
+          ...hubPrefsPayload(next),
+        });
+      } catch {
+        /* offline */
+      }
+    }
+    hapticLight();
+    showToast(
+      dataUrl
+        ? tf(t, "mobile.settings.avatarSaved", "Photo saved")
+        : tf(t, "avatar.cleared", "Photo removed")
+    );
+  }
+
+  async function pickAvatar() {
+    if (!prefs || busy) return;
+    setBusy(true);
+    try {
+      const pick = await DocumentPicker.getDocumentAsync({
+        type: ["image/*"],
+        copyToCacheDirectory: true,
+      });
+      if (pick.canceled || !pick.assets?.[0]?.uri) return;
+      const asset = pick.assets[0];
+      const mime = String(asset.mimeType || "").toLowerCase();
+      const fname = String(asset.name || "").toLowerCase();
+      const looksImage =
+        mime.startsWith("image/") ||
+        !mime ||
+        /\.(jpe?g|png|webp|gif|bmp|heic|heif)$/i.test(fname);
+      if (!looksImage) {
+        showToast(tf(t, "avatar.notImage", "Please choose an image file"));
+        return;
+      }
+      if (Number(asset.size || 0) > 8 * 1024 * 1024) {
+        showToast(
+          tf(
+            t,
+            "mobile.settings.avatarTooLarge",
+            "Photo too large — pick a smaller one"
+          )
+        );
+        return;
+      }
+      const data = await resizeUriToAvatarDataUrl(asset.uri);
+      await persistAvatar(data);
+    } catch (e) {
+      const msg = String((e as Error)?.message || e);
+      if (msg.includes("too large") || msg.includes("too big")) {
+        showToast(
+          tf(
+            t,
+            "mobile.settings.avatarTooLarge",
+            "Photo too large — pick a smaller one"
+          )
+        );
+      } else {
+        showToast(
+          tf(t, "avatar.fail", "Could not use that image — try JPG or PNG")
+        );
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function clearAvatar() {
+    if (!prefs) return;
+    try {
+      await persistAvatar("");
+    } catch (e) {
+      showToast(`${t("mobile.common.offline")}: ${String(e)}`);
+    }
+  }
+
   function buildLabel(): string {
     const ver = Constants.expoConfig?.version || "?";
-    const vc = Constants.expoConfig?.android?.versionCode || "";
+    const vc =
+      Platform.OS === "ios"
+        ? Constants.expoConfig?.ios?.buildNumber || ""
+        : Constants.expoConfig?.android?.versionCode || "";
     return vc ? `ruletka ${ver} (${vc})` : `ruletka ${ver}`;
   }
 
@@ -569,6 +684,15 @@ function SettingsBody() {
                       profile.prefs.swipeSkip === undefined
                         ? true
                         : !!profile.prefs.swipeSkip,
+                    noiseReduction:
+                      profile.prefs.noiseReduction === undefined
+                        ? true
+                        : !!profile.prefs.noiseReduction,
+                    avatar: isValidAvatarDataUrl(
+                      String(profile.prefs.avatar || "")
+                    )
+                      ? String(profile.prefs.avatar)
+                      : "",
                   });
                 }
                 const next = await replaceIdentity(String(uid), newName);
@@ -631,6 +755,70 @@ function SettingsBody() {
         onToggle={() => toggleSec("profile")}
         badge={stars > 0 ? `★${stars}` : undefined}
       >
+        <Text style={styles.fieldLabel}>
+          {tf(t, "mobile.settings.avatar", "Photo")}
+        </Text>
+        <View style={styles.avatarRow}>
+          <View
+            style={styles.avatarCircle}
+            accessibilityLabel={
+              isValidAvatarDataUrl(prefs.avatar || "")
+                ? tf(t, "mobile.settings.avatar", "Photo")
+                : tf(t, "mobile.settings.avatarNone", "No photo")
+            }
+          >
+            {isValidAvatarDataUrl(prefs.avatar || "") ? (
+              <Image
+                source={{ uri: prefs.avatar || "" }}
+                style={styles.avatarImg}
+              />
+            ) : (
+              <Text style={styles.avatarLetter}>
+                {(name || "?").trim().slice(0, 1).toUpperCase() || "?"}
+              </Text>
+            )}
+          </View>
+          <View style={styles.avatarActions}>
+            <Pressable
+              style={styles.avatarBtn}
+              onPress={() => void pickAvatar()}
+              disabled={busy}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: busy, busy }}
+              accessibilityLabel={tf(
+                t,
+                "mobile.settings.avatarChange",
+                "Change photo"
+              )}
+            >
+              <Text style={styles.avatarBtnText}>
+                {tf(t, "mobile.settings.avatarChange", "Change photo")}
+              </Text>
+            </Pressable>
+            {isValidAvatarDataUrl(prefs.avatar || "") ? (
+              <Pressable
+                style={styles.avatarBtn}
+                onPress={() => void clearAvatar()}
+                disabled={busy}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: busy }}
+                accessibilityLabel={tf(
+                  t,
+                  "mobile.settings.avatarClear",
+                  "Remove photo"
+                )}
+              >
+                <Text style={styles.avatarBtnText}>
+                  {tf(t, "mobile.settings.avatarClear", "Remove photo")}
+                </Text>
+              </Pressable>
+            ) : (
+              <Text style={styles.hint}>
+                {tf(t, "mobile.settings.avatarNone", "No photo")}
+              </Text>
+            )}
+          </View>
+        </View>
         <Text style={styles.fieldLabel}>{t("mobile.settings.displayName")}</Text>
         <TextInput
           style={styles.input}
@@ -769,11 +957,17 @@ function SettingsBody() {
             label={t("mobile.settings.hideIpOff")}
             active={!prefs.hideIp}
             onPress={() => void setHideIp(false)}
+            a11yLabel={`${t("settings.hideIp")}: ${t(
+              "mobile.settings.hideIpOff",
+            )}`}
           />
           <Chip
             label={t("mobile.settings.hideIpOn")}
             active={prefs.hideIp}
             onPress={() => void setHideIp(true)}
+            a11yLabel={`${t("settings.hideIp")}: ${t(
+              "mobile.settings.hideIpOn",
+            )}`}
           />
         </View>
         <Text style={styles.hint}>{t("settings.hideIpHint")}</Text>
@@ -793,6 +987,39 @@ function SettingsBody() {
         </View>
 
         <Text style={styles.fieldLabel}>
+          {tf(t, "mobile.settings.noiseReduction", "Noise reduction")}
+        </Text>
+        <View style={styles.row}>
+          <Chip
+            label={tf(t, "mobile.settings.noiseReductionOff", "Off")}
+            active={prefs.noiseReduction === false}
+            onPress={() => void setNoiseReduction(false)}
+            a11yLabel={`${tf(
+              t,
+              "mobile.settings.noiseReduction",
+              "Noise reduction",
+            )}: ${tf(t, "mobile.settings.noiseReductionOff", "Off")}`}
+          />
+          <Chip
+            label={tf(t, "mobile.settings.noiseReductionOn", "On")}
+            active={prefs.noiseReduction !== false}
+            onPress={() => void setNoiseReduction(true)}
+            a11yLabel={`${tf(
+              t,
+              "mobile.settings.noiseReduction",
+              "Noise reduction",
+            )}: ${tf(t, "mobile.settings.noiseReductionOn", "On")}`}
+          />
+        </View>
+        <Text style={styles.hint}>
+          {tf(
+            t,
+            "mobile.settings.noiseReductionHint",
+            "On (recommended): quieter mic in noisy rooms and group calls. Off: less delay if speech feels late.",
+          )}
+        </Text>
+
+        <Text style={styles.fieldLabel}>
           {t("mobile.settings.liveLayout") || "Live layout"}
         </Text>
         <View style={styles.row}>
@@ -803,6 +1030,7 @@ function SettingsBody() {
               setPrefs({
                 ...prefs,
                 liveLayout: "native" as LiveLayoutMode,
+                liveLayoutExplicit: true,
               })
             }
           />
@@ -813,13 +1041,14 @@ function SettingsBody() {
               setPrefs({
                 ...prefs,
                 liveLayout: "browser" as LiveLayoutMode,
+                liveLayoutExplicit: true,
               })
             }
           />
         </View>
         <Text style={styles.hint}>
           {t("mobile.settings.liveLayoutHint") ||
-            "Native: bottom Start/Next/Stop bar. Browser: full-screen video with controls over the stage (like mobile web)."}
+            "Browser style (default): you on the bottom like mobile web. Native: small PiP."}
         </Text>
 
         <Text style={styles.fieldLabel}>
@@ -864,6 +1093,9 @@ function SettingsBody() {
             onPress={() => {
               void setBlurMode("off");
             }}
+            a11yLabel={`${t("mobile.settings.blurStrangers")}: ${t(
+              "mobile.settings.blurModeOff",
+            )}`}
           />
           <Chip
             label={t("mobile.settings.blurModeIntro")}
@@ -871,6 +1103,9 @@ function SettingsBody() {
             onPress={() => {
               void setBlurMode("intro");
             }}
+            a11yLabel={`${t("mobile.settings.blurStrangers")}: ${t(
+              "mobile.settings.blurModeIntro",
+            )}`}
           />
           <Chip
             label={t("mobile.settings.blurModeHold")}
@@ -878,6 +1113,9 @@ function SettingsBody() {
             onPress={() => {
               void setBlurMode("hold");
             }}
+            a11yLabel={`${t("mobile.settings.blurStrangers")}: ${t(
+              "mobile.settings.blurModeHold",
+            )}`}
           />
         </View>
         <Text style={styles.hint}>{t("mobile.settings.blurStrangersHint")}</Text>
@@ -964,7 +1202,15 @@ function SettingsBody() {
           <Text style={styles.alertGuideTitle}>
             {t("mobile.settings.callAlertsGuideTitle")}
           </Text>
-          <Text style={styles.hint}>{t("mobile.settings.pushBatteryTip")}</Text>
+          <Text style={styles.hint}>
+            {Platform.OS === "ios"
+              ? tf(
+                  t,
+                  "mobile.settings.pushBatteryTipIos",
+                  "iOS: allow notifications for ruletka so friend rings can wake the phone.",
+                )
+              : t("mobile.settings.pushBatteryTip")}
+          </Text>
           {pushModuleAvailable() ? (
             <Pressable
               style={styles.secondary}
@@ -1001,7 +1247,19 @@ function SettingsBody() {
           <Pressable
             style={styles.secondary}
             onPress={() => {
-              void Linking.openSettings().catch(() => {});
+              void Linking.openSettings()
+                .then(() => {
+                  showToast(
+                    t("mobile.settings.openNotifSettings") ||
+                      "Opened notification settings"
+                  );
+                })
+                .catch(() => {
+                  showToast(
+                    t("mobile.common.offline") ||
+                      "Couldn't open system settings"
+                  );
+                });
             }}
             accessibilityRole="button"
             accessibilityLabel={t("mobile.settings.openNotifSettings")}
@@ -1017,6 +1275,11 @@ function SettingsBody() {
                 void openBatterySettings().then((ok) => {
                   if (ok) {
                     showToast(t("mobile.settings.batteryOpened"));
+                  } else {
+                    showToast(
+                      t("mobile.common.offline") ||
+                        "Couldn't open battery settings"
+                    );
                   }
                 });
               }}
@@ -1117,7 +1380,14 @@ function SettingsBody() {
             key={row.base}
             style={[styles.hubRow, active && styles.hubRowOn]}
             onPress={async () => {
-              if (active) return;
+              if (active) {
+                // Was silent no-op — confirm current hub so tap always feedbacks
+                showToast(
+                  `${host} · ${t("mobile.settings.hubActive")}` ||
+                    `${host} · active`
+                );
+                return;
+              }
               if (row.ok === false) {
                 Alert.alert(
                   t("mobile.settings.hubUnhealthyTitle"),
@@ -1258,9 +1528,21 @@ function SettingsBody() {
             <Pressable
               style={styles.secondary}
               onPress={() => {
-                clearReportHistory().then(() => setReports([]));
+                void clearReportHistory()
+                  .then(() => {
+                    setReports([]);
+                    showToast(
+                      t("mobile.settings.reportHistoryClear") || "Log cleared"
+                    );
+                  })
+                  .catch(() => {
+                    showToast(
+                      t("mobile.common.offline") || "Couldn't clear log"
+                    );
+                  });
               }}
               accessibilityRole="button"
+              accessibilityLabel={t("mobile.settings.reportHistoryClear")}
             >
               <Text style={styles.secondaryText}>
                 {t("mobile.settings.reportHistoryClear")}
@@ -1439,6 +1721,27 @@ function SettingsBody() {
             ↗
           </Text>
         </Pressable>
+        {Platform.OS === "android" ? (
+          <Pressable
+            style={styles.linkRow}
+            onPress={() => {
+              hapticLight();
+              const url = `${hubBase().replace(/\/$/, "")}/download/android.html`;
+              void Linking.openURL(url).catch(() => {
+                showToast(url);
+              });
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={t("mobile.settings.downloadApk")}
+          >
+            <Text style={styles.linkText} importantForAccessibility="no">
+              {t("mobile.settings.downloadApk")}
+            </Text>
+            <Text style={styles.linkChevron} importantForAccessibility="no">
+              ⬇
+            </Text>
+          </Pressable>
+        ) : null}
         <Pressable
           style={styles.linkRow}
           onPress={() => {
@@ -1446,7 +1749,11 @@ function SettingsBody() {
               url: "https://ruletka.vip",
               code: friendCode || "…",
             });
-            Share.share({ message: msg, title: "ruletka" }).catch(() => {});
+            void Share.share({ message: msg, title: "ruletka" }).catch(() => {
+              showToast(
+                t("mobile.common.offline") || "Couldn't open share sheet"
+              );
+            });
           }}
           accessibilityRole="button"
           accessibilityLabel={t("mobile.settings.shareApp")}
@@ -1466,7 +1773,9 @@ function SettingsBody() {
               await Clipboard.setStringAsync(em);
               showToast(t("mobile.settings.supportCopied", { email: em }));
             } catch {
-              Linking.openURL(`mailto:${em}`).catch(() => {});
+              void Linking.openURL(`mailto:${em}`).catch(() => {
+                showToast(em);
+              });
             }
           }}
           accessibilityRole="button"
@@ -1482,6 +1791,20 @@ function SettingsBody() {
           </Text>
         </Pressable>
         <Pressable
+          onPress={async () => {
+            // Short tap used to be a silent no-op (long-press only).
+            const label = buildLabel();
+            try {
+              await Clipboard.setStringAsync(label);
+              showToast(t("mobile.settings.buildCopied", { build: label }));
+              hapticLight();
+            } catch {
+              showToast(
+                t("mobile.settings.buildCopyHint") ||
+                  "Long-press to copy build for support"
+              );
+            }
+          }}
           onLongPress={async () => {
             const label = buildLabel();
             try {
@@ -1489,7 +1812,10 @@ function SettingsBody() {
               showToast(t("mobile.settings.buildCopied", { build: label }));
               hapticLight();
             } catch {
-              /* ignore */
+              showToast(
+                t("mobile.settings.buildCopyHint") ||
+                  "Long-press to copy build for support"
+              );
             }
           }}
           delayLongPress={400}
@@ -1619,6 +1945,36 @@ const styles = StyleSheet.create({
     color: "#fff",
     backgroundColor: "rgba(0,0,0,0.35)",
   },
+  avatarRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    marginBottom: 4,
+  },
+  avatarCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    overflow: "hidden",
+    backgroundColor: "#2a3548",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.22)",
+  },
+  avatarImg: { width: 72, height: 72, borderRadius: 36 },
+  avatarLetter: { color: "#e8eef7", fontWeight: "800", fontSize: 28 },
+  avatarActions: { flex: 1, gap: 8 },
+  avatarBtn: {
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.04)",
+  },
+  avatarBtnText: { color: "#c5d0e0", fontWeight: "600", fontSize: 13 },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   chip: {
     paddingVertical: 8,

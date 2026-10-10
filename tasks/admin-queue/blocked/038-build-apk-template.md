@@ -1,3 +1,9 @@
+# BLOCKED — Grok owns APK; needs human smoke before another bump
+
+**Blocked by manager (kept 2026-08-25).** Claude must not `--bump`. Disk pin **0.1.477 / vc485**. Site still **0.1.475**. APK flood rule: one bump per session until human smoke or explicit FAIL. Unblock only when human says **build apk**.
+
+---
+
 # Task: Build local sideload APK (template for Grok / overnight)
 
 ## Goal

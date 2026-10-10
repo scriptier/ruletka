@@ -292,6 +292,7 @@
   "mobile.live.longSearchBody": "La file d'attente peut être calme. Invitez un ami ou arrêtez et réessayez plus tard.",
   "mobile.live.longSearchTitle": "Je cherche toujours… ( {s} s)",
   "mobile.live.looking": "Recherche…",
+  "mobile.live.matchBanned": "Recherche interdite",
   "mobile.live.matched": "Jumelé",
   "mobile.live.mediaResumed": "Caméra et micro réactivés après l'arrière-plan",
   "mobile.live.meta": "★ {stars} · en ligne {online} · attente {wait}",

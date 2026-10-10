@@ -13,7 +13,8 @@ Read **[now](now.md)** first (situation). Then this catalog. Update on every ing
 | [connect-scorecard](connect-scorecard.md) | How to run/read av-verify and av-loop; machine DONE WHEN |
 | [one-way-video](one-way-video.md) | PC black — **RESOLVED** product.ok 0.1.297; layered A/B/C checklist |
 | [force-relay-same-lan](force-relay-same-lan.md) | Same public IP pure TURN; pool=0; client latch rules |
-| [gotchas](gotchas.md) | Thrash anti-patterns through **75** (Stop idle inline, Find-3rd 2v1/2v2, TURNS 443 ALPN mux, 2v2 tap PARTIAL) |
+| [gotchas](gotchas.md) | Thrash anti-patterns through **78** (stars cannot buy non-underage ban; praise skip) |
+| [stars-reputation](stars-reputation.md) | Self-gov: wallet ≠ trust; Trusted 100/5 · Senior 250/12; reports consensus; **unverified** feel hop |
 | [agent-lanes](agent-lanes.md) | diagnose / client-ice / turn-media / Claude worker; herd **20260814T020528Z** 5/5 done; Claude **479** connectUi tests COMPLETE |
 | [connect-cleanup](connect-cleanup.md) | UI single-surface **A–D done**; P0 MediaSession + real connectUi tests **done** (herd 2026-08-14); P1 extract **inventory only**; P2 out; **no product.ok** |
 | [ios-safari-audio](ios-safari-audio.md) | iPhone Safari crackle+delay — **unverified**; mic-boost 125% + 48k GUM vs 44.1k AC; herd **20260814T021357Z** hop **in progress**; no product.ok |
@@ -31,11 +32,11 @@ Read **[now](now.md)** first (situation). Then this catalog. Update on every ing
 |------|--------|
 | [`../specs/current-av.md`](../specs/current-av.md) | A/V both faces — **Done** product.ok 0.1.297+ |
 | [`../specs/current-linking-speed.md`](../specs/current-linking-speed.md) | Faster mto/mta — hops on disk + hop10 web; **product.ok after smoke still required** |
-| [`../specs/current-mobile-ux.md`](../specs/current-mobile-ux.md) | Loc · stars · blur · identity dock · brand · gift FX — APK **0.1.330+** on disk; **device smoke pending** |
-| [`../specs/current-ship-ux.md`](../specs/current-ship-ux.md) | **Primary** ship UX smoke — human gate; web on disk **live.js?v=559** / **webrtc.js?v=315** / stage **v=382** / brand **v=10** |
-| [`../specs/current-multi-party.md`](../specs/current-multi-party.md) | 3/4-way multi mesh — clone + hunt split Android **0.1.363-vc371** on disk; human smoke open |
-| [`../specs/SMOKE-NEXT.md`](../specs/SMOKE-NEXT.md) | Human checkbox paste-back — **APK 0.1.363-vc371** / `live.js?v=559` / `webrtc.js?v=315`; **still open** (no agent PASS) |
-| [`../specs/current-ui-dedupe-connect-cleanup.md`](../specs/current-ui-dedupe-connect-cleanup.md) | UI A–D done · P0 herd **done** · P1 inventory · P2 out · **no product.ok** |
+| [`../specs/current-mobile-ux.md`](../specs/current-mobile-ux.md) | Loc · stars · blur · identity dock · brand · gift FX — APK **0.1.480-vc488** on disk; **device smoke pending** |
+| [`../specs/archive/current-ship-ux.md`](../specs/archive/current-ship-ux.md) | **Archived** — ship UX smoke superseded by `current-mobile-ux` + SMOKE-NEXT |
+| [`../specs/current-multi-party.md`](../specs/current-multi-party.md) | 3/4-way multi mesh — clone + hunt split Android on disk; human smoke open · **no MULTI_PASS** |
+| [`../specs/SMOKE-NEXT.md`](../specs/SMOKE-NEXT.md) | Human checkbox paste-back — **APK 0.1.480-vc488** / live.js **985**; agents do **not** load at session start |
+| [`../specs/archive/current-ui-dedupe-connect-cleanup.md`](../specs/archive/current-ui-dedupe-connect-cleanup.md) | **Archived** — UI A–D + P0/P1 done |
 | [`../specs/current-ios-safari-audio.md`](../specs/current-ios-safari-audio.md) | iPhone Safari crackle+delay — **Active**; wiki filed; code hop **in progress** herd `20260814T021357Z`; **human Safari smoke** is the product gate (no agent PASS) |
 
 ## Schema

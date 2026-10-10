@@ -2,6 +2,7 @@
  * Debate timer chip, incoming invite, compose sheet, pending-out line.
  */
 import {
+  Modal,
   Pressable,
   Text,
   TextInput,
@@ -12,6 +13,72 @@ import {
 import type { DebateSnapshot } from "../media/debate";
 import { DEBATE_TURN_CHOICES_S } from "../media/debate";
 import { liveStyles as styles } from "./liveStyles";
+
+export type DebateIncomingOverlayProps = {
+  visible: boolean;
+  partnerName: string;
+  turnSecs: number;
+  topic?: string;
+  onDecline: () => void;
+  onAccept: () => void;
+  labels: {
+    incomingTitle: string;
+    incomingBody: (name: string, s: number) => string;
+    incomingMeta: (s: number) => string;
+    decline: string;
+    accept: string;
+  };
+};
+
+/**
+ * Full-screen centered invite. Must sit at live.tsx ROOT (not inside the
+ * stage next to SurfaceView). Nested Modal was covered by Stop/Next.
+ */
+export function DebateIncomingOverlay({
+  visible,
+  partnerName,
+  turnSecs,
+  topic,
+  onDecline,
+  onAccept,
+  labels: L,
+}: DebateIncomingOverlayProps) {
+  if (!visible) return null;
+  const turnS = turnSecs || 30;
+  const partner = partnerName || "Partner";
+  return (
+    <View style={styles.debateScreenCover} pointerEvents="box-none">
+      <View style={styles.debateInviteCard}>
+        <Text style={styles.debateInviteTitle} accessibilityRole="header">
+          {L.incomingTitle}
+        </Text>
+        <Text style={styles.debateInviteBody}>
+          {L.incomingBody(partner, turnS)}
+        </Text>
+        <Text style={styles.debateInviteMeta}>{L.incomingMeta(turnS)}</Text>
+        {topic ? <Text style={styles.debateTopic}>{topic}</Text> : null}
+        <View style={styles.row}>
+          <Pressable
+            style={styles.btnGhost}
+            onPress={onDecline}
+            accessibilityRole="button"
+            accessibilityLabel={L.decline}
+          >
+            <Text style={styles.btnText}>{L.decline}</Text>
+          </Pressable>
+          <Pressable
+            style={styles.btn}
+            onPress={onAccept}
+            accessibilityRole="button"
+            accessibilityLabel={L.accept}
+          >
+            <Text style={styles.btnText}>{L.accept}</Text>
+          </Pressable>
+        </View>
+      </View>
+    </View>
+  );
+}
 
 export type LiveDebateChromeProps = {
   debate: DebateSnapshot;
@@ -190,131 +257,83 @@ export function LiveDebateChrome(props: LiveDebateChromeProps) {
         </View>
       ) : null}
 
-      {debate.pending === "in" ? (
-        <View style={styles.debateInviteCard}>
-          <View
-            style={{ gap: 6 }}
-            accessible
-            accessibilityRole="summary"
-            accessibilityLiveRegion="polite"
-            accessibilityLabel={[
-              L.incomingTitle,
-              L.incomingBody(partner, turnS),
-              L.incomingMeta(turnS),
-              debate.topic || "",
-            ]
-              .filter(Boolean)
-              .join(". ")}
-          >
-            <Text
-              style={styles.debateInviteTitle}
-              accessibilityRole="header"
-              importantForAccessibility="no"
-            >
-              {L.incomingTitle}
-            </Text>
-            <Text
-              style={styles.debateInviteBody}
-              importantForAccessibility="no"
-            >
-              {L.incomingBody(partner, turnS)}
-            </Text>
-            <Text
-              style={styles.debateInviteMeta}
-              importantForAccessibility="no"
-            >
-              {L.incomingMeta(turnS)}
-            </Text>
-            {debate.topic ? (
-              <Text style={styles.debateTopic} importantForAccessibility="no">
-                {debate.topic}
-              </Text>
-            ) : null}
-          </View>
-          <View style={styles.row}>
-            <Pressable
-              style={styles.btnGhost}
-              onPress={onDeclineIncoming}
-              accessibilityRole="button"
-              accessibilityLabel={L.decline}
-            >
-              <Text style={styles.btnText} importantForAccessibility="no">
-                {L.decline}
-              </Text>
-            </Pressable>
-            <Pressable
-              style={styles.btn}
-              onPress={onAcceptIncoming}
-              accessibilityRole="button"
-              accessibilityLabel={L.accept}
-            >
-              <Text style={styles.btnText} importantForAccessibility="no">
-                {L.accept}
-              </Text>
-            </Pressable>
-          </View>
-        </View>
-      ) : null}
-
       {composeOpen ? (
-        <View style={styles.debateCompose}>
-          <Text style={styles.debateInviteTitle} accessibilityRole="header">
-            {L.composeTitle}
-          </Text>
-          <Text style={styles.debateInviteBody}>{L.composeHint}</Text>
-          <Text style={styles.debateComposeLabel}>{L.turnLength}</Text>
-          <View style={styles.row}>
-            {DEBATE_TURN_CHOICES_S.map((s) => (
-              <Pressable
-                key={s}
-                style={[
-                  styles.debateSecChip,
-                  turnSecs === s && styles.debateSecChipOn,
-                ]}
-                onPress={() => onTurnSecs(s)}
-                accessibilityRole="button"
-                accessibilityLabel={L.turnSecondsOption(s)}
-                accessibilityState={{ selected: turnSecs === s }}
-              >
-                <Text style={styles.btnText} importantForAccessibility="no">
-                  {s}s
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-          <Text style={styles.debateComposeLabel}>{L.topicLabel}</Text>
-          <TextInput
-            style={styles.debateTopicInput}
-            value={topicDraft}
-            onChangeText={onTopicChange}
-            placeholder={L.topicPlaceholder}
-            placeholderTextColor="#6b7a90"
-            maxLength={80}
-            accessibilityLabel={L.topicLabel}
-          />
-          <View style={styles.row}>
+        <Modal
+          visible
+          transparent
+          animationType="fade"
+          statusBarTranslucent
+          onRequestClose={onCloseCompose}
+        >
+          <View style={styles.debateModalBackdrop}>
             <Pressable
-              style={styles.btnGhost}
+              style={styles.debateModalDismiss}
               onPress={onCloseCompose}
-              accessibilityRole="button"
               accessibilityLabel={L.cancel}
-            >
-              <Text style={styles.btnText} importantForAccessibility="no">
-                {L.cancel}
+            />
+            <View style={styles.debateCompose}>
+              <Text style={styles.debateInviteTitle} accessibilityRole="header">
+                {L.composeTitle}
               </Text>
-            </Pressable>
-            <Pressable
-              style={styles.btn}
-              onPress={onSendInvite}
-              accessibilityRole="button"
-              accessibilityLabel={L.sendInvite}
-            >
-              <Text style={styles.btnText} importantForAccessibility="no">
-                {L.sendInvite}
-              </Text>
-            </Pressable>
+              <Text style={styles.debateInviteBody}>{L.composeHint}</Text>
+              <Text style={styles.debateComposeLabel}>{L.turnLength}</Text>
+              <View style={styles.row}>
+                {DEBATE_TURN_CHOICES_S.map((s) => (
+                  <Pressable
+                    key={s}
+                    style={[
+                      styles.debateSecChip,
+                      turnSecs === s && styles.debateSecChipOn,
+                    ]}
+                    onPress={() => onTurnSecs(s)}
+                    accessibilityRole="button"
+                    accessibilityLabel={L.turnSecondsOption(s)}
+                    accessibilityState={{ selected: turnSecs === s }}
+                  >
+                    <Text
+                      style={styles.btnText}
+                      importantForAccessibility="no"
+                    >
+                      {s}s
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Text style={styles.debateComposeLabel}>{L.topicLabel}</Text>
+              <TextInput
+                style={styles.debateTopicInput}
+                value={topicDraft}
+                onChangeText={onTopicChange}
+                placeholder={L.topicPlaceholder}
+                placeholderTextColor="#6b7a90"
+                maxLength={80}
+                accessibilityLabel={L.topicLabel}
+              />
+              <View style={styles.row}>
+                <Pressable
+                  style={styles.btnGhost}
+                  onPress={onCloseCompose}
+                  accessibilityRole="button"
+                  accessibilityLabel={L.cancel}
+                >
+                  <Text style={styles.btnText} importantForAccessibility="no">
+                    {L.cancel}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={styles.btn}
+                  onPress={onSendInvite}
+                  accessibilityRole="button"
+                  accessibilityLabel={L.sendInvite}
+                >
+                  <Text style={styles.btnText} importantForAccessibility="no">
+                    {L.sendInvite}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
           </View>
-        </View>
+        </Modal>
       ) : null}
 
       {debate.pending === "out" ? (

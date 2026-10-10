@@ -13,6 +13,7 @@
  * PartnerBlurVeil is fallback only when !softBlurNative (iOS / missing native).
  * Partner hide / advertised no-cam uses NoCamPortrait — not privacy blur.
  */
+import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useRef, useState } from "react";
 import {
   Dimensions,
@@ -248,6 +249,20 @@ export type LiveStageVideoProps = {
    * Idle Start screen: swipe the brand/top video left or right → Start search.
    */
   onSwipeStart?: () => void;
+  /**
+   * 1v1 like mobile web: you on the bottom half, Next/Stop/Friends on the
+   * conversationalist. Partner RTCView stays full-stage (no remount).
+   */
+  browserDuo?: boolean;
+  onNext?: () => void;
+  onStop?: () => void;
+  onOpenFriends?: () => void;
+  duoLabels?: {
+    next: string;
+    stop: string;
+    report: string;
+    friends: string;
+  };
   /** Pref gate (default true). When false, no swipe gesture. */
   swipeSkip?: boolean;
   /** i18n "Next" label while dragging (optional polish). */
@@ -589,6 +604,11 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
     onSwipeNext,
     onSwipeDropExtra,
     onSwipeStart,
+    browserDuo: browserDuoPref = false,
+    onNext,
+    onStop,
+    onOpenFriends,
+    duoLabels,
     swipeSkip = true,
     swipeStartLabel,
     swipeNextLabel,
@@ -896,6 +916,13 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
   // Hunt stays 1v1 full partner (status/toast only). Split only when a
   // 3rd tile exists (multiRemote / extras). wrapping on huntingThird
   // restyled remoteFill → overflow:hidden and tore SurfaceView (400 hunt FAIL).
+  const browserDuo =
+    !!browserDuoPref &&
+    phase === "matched" &&
+    (hasRemote || !!remoteStream) &&
+    !multiRemote &&
+    !huntingThird &&
+    extraPeerCount < 1;
   const splitStage = multiRemote;
   // Always column for 3-way / 4-way (portrait and landscape). Row split was
   // landscape-only; user wants the same vertical stack when the phone is on its side.
@@ -1336,7 +1363,13 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
           !coverMainPartnerHide &&
           callTimerText ? (
             <View
-              style={styles.partnerCallTimerChip}
+              style={[
+                styles.partnerCallTimerChip,
+                browserDuo &&
+                  (splitWide
+                    ? styles.partnerCallTimerChipDuoWide
+                    : styles.partnerCallTimerChipDuo),
+              ]}
               pointerEvents="none"
               collapsable={false}
               accessibilityRole="text"
@@ -1605,7 +1638,78 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
         Never unmount partner RTCView while veiled.
         1v1 + 3-way: PiP = you. 4-way: you is a stage tile, hide PiP.
       */}
-      {(mountPipVideo || coverPip) && stageLayout.pipYou ? (
+      {browserDuo && phase === "matched" ? (
+        <View
+          style={[
+            styles.duoMatchCluster,
+            splitWide && styles.duoMatchClusterWide,
+          ]}
+          pointerEvents="box-none"
+          testID="live-duo-match-cluster"
+        >
+          <Pressable
+            style={[styles.duoMatchBtn, styles.duoMatchBtnNext]}
+            onPress={() => {
+              onHaptic();
+              onNext?.();
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={duoLabels?.next || "Next"}
+          >
+            <Ionicons name="play-skip-forward" size={18} color="#fff" />
+          </Pressable>
+          <Pressable
+            style={styles.duoMatchBtn}
+            onPress={() => {
+              onHaptic();
+              onReport?.();
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={duoLabels?.report || "Report"}
+          >
+            <Ionicons name="flag" size={16} color="#f0f3f8" />
+          </Pressable>
+          <Pressable
+            style={styles.duoMatchBtn}
+            onPress={() => {
+              onHaptic();
+              onStop?.();
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={duoLabels?.stop || "Stop"}
+          >
+            <Ionicons name="stop" size={16} color="#f0f3f8" />
+          </Pressable>
+          <Pressable
+            style={styles.duoMatchBtn}
+            onPress={() => {
+              onHaptic();
+              onOpenFriends?.();
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={duoLabels?.friends || "Friends"}
+          >
+            <Ionicons name="people" size={16} color="#f0f3f8" />
+          </Pressable>
+        </View>
+      ) : null}
+      {browserDuo && (mountPipVideo || coverPip) && stageLayout.pipYou ? (
+        <View
+          style={[styles.youTileDock, splitWide && styles.youTileDockWide]}
+          testID="live-you-tile-dock"
+        >
+          {mountPipVideo ? (
+            <VideoView
+              stream={displayPipStream}
+              streamEpoch={0}
+              mirror={displayPipMirror}
+              style={styles.youTileVideo}
+              zOrder={pipZOrder}
+            />
+          ) : null}
+        </View>
+      ) : null}
+      {(mountPipVideo || coverPip) && stageLayout.pipYou && !browserDuo ? (
         <DraggablePip
           stageW={layoutW}
           stageH={layoutH}

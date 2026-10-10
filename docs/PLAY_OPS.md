@@ -7,13 +7,13 @@ Companion: [`PLAY_UPLOAD.md`](PLAY_UPLOAD.md) · [`PLAY_DATA_SAFETY.md`](PLAY_DA
 
 | Field | Value |
 |-------|--------|
-| Version name | **0.1.471** |
-| versionCode | **479** |
-| APK (sideload + site) | `mobile/artifacts/ruletka-0.1.471-vc479.apk` · `/download/ruletka-android-latest.apk` |
-| AAB (Console) | `mobile/artifacts/ruletka-0.1.471-vc479.aab` — local only; **not** uploaded |
+| Version name | **0.1.479** |
+| versionCode | **487** |
+| APK (sideload + site) | `mobile/artifacts/ruletka-0.1.479-vc487.apk` · site still older until **put apk on the site** |
+| AAB (Console) | `mobile/artifacts/ruletka-0.1.479-vc487.aab` — **human uploaded 2026-08-31**; wait Play process + track rollout |
 | Source of truth | `mobile/app.json` (`version` + `android.versionCode`) |
 | Signing | Play upload keystore (`mobile/secrets/ruletka-upload.jks`) |
-| targetSdk | 35 |
+| targetSdk | **36** (Play updates from 2026-08-30) |
 | Minify / R8 | **Off** — ignore “upload deobfuscation file” warning |
 
 > **Historical:** older docs / handoff notes under `mobile/artifacts/PLAY-INTERNAL-0.1.22x*.txt` and mid-series **0.1.28x** builds are **not** the current ship tip.

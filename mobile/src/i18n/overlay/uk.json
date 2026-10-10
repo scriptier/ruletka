@@ -292,6 +292,7 @@
   "mobile.live.longSearchBody": "Черга може бути тихою. Запросіть друга або зупиніться та спробуйте пізніше.",
   "mobile.live.longSearchTitle": "Все ще шукаю… ( {s} с)",
   "mobile.live.looking": "Шукаємо…",
+  "mobile.live.matchBanned": "Вам заборонено шукати",
   "mobile.live.matched": "Пара",
   "mobile.live.mediaResumed": "Камеру й мікрофон знову ввімкнути після фону",
   "mobile.live.meta": "★ {stars} · онлайн {online} · чекають {wait}",

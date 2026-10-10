@@ -105,6 +105,10 @@ export async function presentLocalCallAlert(
         ...(Platform.OS === "android"
           ? { channelId: CHANNEL, sticky: true }
           : {}),
+        // iOS parity for Android's MAX importance — breaks through Focus
+        // modes the same way a call-style alert should (falls back to
+        // "active" silently if the Time Sensitive entitlement isn't set).
+        ...(Platform.OS === "ios" ? { interruptionLevel: "timeSensitive" } : {}),
       },
       trigger: null, // immediate
     });

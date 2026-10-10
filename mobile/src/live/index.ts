@@ -7,6 +7,7 @@ export {
   readNonNegInt,
   readPeerStars,
   readPeerTrust,
+  readPeerGifters,
   readPeerGeo,
   shouldApplyPartnerGeo,
   partnerGeoHasSignal,
@@ -29,14 +30,22 @@ export {
 export {
   pickStageStreams,
   pickMultiTiles,
+  pickMultiRemoteTiles,
+  MAX_REMOTE_TILES,
   type StageStreamPick,
   type MultiTile,
+  type MultiRemoteInput,
 } from "./stageStreams";
+export { MAX_EXTRA_PEERS } from "./matchPeers";
 export { VideoView } from "./VideoView";
 export { DraggablePip, PIP_W, PIP_H } from "./DraggablePip";
 export { LiveConnPill } from "./LiveConnPill";
 export { LiveSearchLabel } from "./LiveSearchLabel";
-export { LiveDebateChrome } from "./LiveDebateChrome";
+export {
+  LiveDebateChrome,
+  DebateIncomingOverlay,
+} from "./LiveDebateChrome";
+export { StarGiftPopup } from "./StarGiftPopup";
 export { LiveMoreSheet } from "./LiveMoreSheet";
 export { LiveChatOverlay } from "./LiveChatOverlay";
 export { LiveGiftBar } from "./LiveGiftBar";
@@ -48,6 +57,14 @@ export { LiveStageVideo } from "./LiveStageVideo";
 export { BrandLoadingLoop } from "./BrandLoadingLoop";
 export { SwipeSkipOverlay } from "./SwipeSkipOverlay";
 export { PartnerBlurVeil, BLUR_VEIL_BASE } from "./PartnerBlurVeil";
+export {
+  SoftBlurRemote,
+  getStreamUrl,
+  isSoftBlurNativeAvailable,
+  SOFT_BLUR_NATIVE_NAME,
+  SOFT_BLUR_PRODUCT_ENABLED,
+  type SoftBlurRemoteProps,
+} from "./SoftBlurRemote";
 export { LiveStatusBanners } from "./LiveStatusBanners";
 export { LiveConnectSteps } from "./LiveConnectSteps";
 export { computeConnectSteps } from "./connectSteps";
@@ -55,11 +72,21 @@ export { liveStyles } from "./liveStyles";
 export {
   reduceStatusMsg,
   reduceLobbyInfoMsg,
-  pickPrimaryPeerIndex,
+  isHubPartnerLeaveDetail,
 } from "./hubLobby";
+export { pickPrimaryPeerIndex } from "./matchPeers";
 export {
   computeMatchContinuity,
   shouldSoftRematch,
+  shouldClearRemoteUi,
+  isPartyKeepOnSkip,
+  shouldKeepTrioOnCallEnded,
+  shouldNavigateToLive,
+  routeInboundNoCamSlot,
+  shouldRehomePrimaryNoCam,
+  extraPartnerActionTarget,
+  type PartnerActionSlot,
+  type PartnerActionTarget,
 } from "./matchContinuity";
 export {
   floorQueueCounts,

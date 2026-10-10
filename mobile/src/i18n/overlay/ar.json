@@ -292,6 +292,7 @@
   "mobile.live.longSearchBody": "يمكن أن تكون قائمة الانتظار هادئة. قم بدعوة صديق، أو توقف وحاول لاحقًا.",
   "mobile.live.longSearchTitle": "مازلت أبحث... ( {s} s)",
   "mobile.live.looking": "جارٍ البحث…",
+  "mobile.live.matchBanned": "تم حظرك من المطابقة",
   "mobile.live.matched": "Matched",
   "mobile.live.mediaResumed": "عودة الكاميرا والميكروفون بعد الخلفية",
   "mobile.live.meta": "★ {stars} · online {online} · wait {wait}",

@@ -119,6 +119,7 @@ Pick **exactly one** NEXT_ROLE.
 | answers>0 + tiny max_rb + force_relay=true | **turn-media** | Only if media plane cold |
 | err_437 high + tiny media | **turn-media** | Pool storms |
 | Signaling OK + frames both sides + human black UI | **client-ice** | Paint/ontrack only |
+| Face painted then gone at ~3s (SoftBlur / intro peel / navy slab) | **stop** | Overlay/peel — skill `android-partner-paint`. Not ICE |
 | Product frames OK + human both faces ≥30s | **ship** | Then APK/deploy if asked |
 | After mobile ship, no smoke yet | **smoke** | Install APK first |
 

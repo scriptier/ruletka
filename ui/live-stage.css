@@ -651,6 +651,50 @@ html.stage-html {
 #blocked-list .friend-row {
   gap: 0.55rem;
 }
+#blocked-list .blocked-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(4.5rem, 1fr));
+  gap: 0.7rem 0.45rem;
+  padding: 0.85rem 0.75rem 1.2rem;
+}
+#blocked-list .blocked-grid-hint {
+  padding: 0.65rem 0.85rem 0.15rem;
+  margin: 0;
+}
+#blocked-list .blocked-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.32rem;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+#blocked-list .blocked-tile .friend-avatar.hist-thumb {
+  width: 4.35rem;
+  height: 4.35rem;
+  border-radius: 12px;
+}
+#blocked-list .blocked-tile .friend-avatar.hist-thumb img {
+  border-radius: 11px;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+#blocked-list .blocked-tile-name {
+  font-size: 0.68rem;
+  font-weight: 650;
+  max-width: 4.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  color: #c5d0de;
+}
 #blocked-list .friend-row.is-blocked {
   border-color: rgba(255, 80, 100, 0.22);
   background: rgba(40, 16, 22, 0.35);
@@ -3332,7 +3376,11 @@ html.match-live #remote-tag.loc-on-tile:not([hidden]):not(:empty) {
   pointer-events: none;
 }
 .tile-remote:not(.has-remote-feed) #remote-empty:not(.hidden) .start-match-btn {
-  pointer-events: auto;
+  pointer-events: auto !important;
+  z-index: 20 !important;
+}
+html.start-idle #remote-empty .empty-content {
+  pointer-events: auto !important;
 }
 /* Partner mute / vol / blur only make sense mid-call */
 html:not(.match-live) .tile-remote > .side-rail.side-rail-left {
@@ -4260,7 +4308,7 @@ html:not(.match-live) .tile-remote > .side-rail.side-rail-left {
 .partner-menu-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 45;
+  z-index: 230;
   background: rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(2px);
 }
@@ -4273,7 +4321,7 @@ html:not(.match-live) .tile-remote > .side-rail.side-rail-left {
   left: 50%;
   bottom: max(0.45rem, env(safe-area-inset-bottom, 0px) + 0.3rem);
   transform: translateX(-50%);
-  z-index: 46;
+  z-index: 231;
   width: min(280px, calc(100vw - 1.6rem));
   padding: 0.55rem 0.6rem 0.5rem;
   border-radius: 16px;
@@ -4311,6 +4359,21 @@ html:not(.match-live) .tile-remote > .side-rail.side-rail-left {
   #btn-report-dock {
     min-height: 2.5rem;
   }
+}
+
+/* Tap-face sheet must sit above volume / flag / avatar / rails (shot 16:24). */
+html.partner-menu-open .tile-tag,
+html.partner-menu-open .tile-avatar-stars-stack,
+html.partner-menu-open .tile-avatar,
+html.partner-menu-open .side-rail,
+html.partner-menu-open .tile-floor,
+html.partner-menu-open .stage-brand-center,
+html.partner-menu-open .match-timer,
+html.partner-menu-open .peer-who-sub,
+html.partner-menu-open .loc-on-tile,
+html.partner-menu-open .name-on-tile {
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
 .partner-menu-head {
   display: flex;
@@ -5486,6 +5549,12 @@ html.chrome-always #remote2-friend-code:not([hidden]):not(:empty) {
   flex-direction: column;
   gap: 0.2rem;
   pointer-events: none;
+}
+.find-third-toast {
+  z-index: 500 !important;
+  pointer-events: auto !important;
+  bottom: auto !important;
+  top: max(0.75rem, env(safe-area-inset-top, 0px) + 0.5rem) !important;
 }
 .friend-soft-toast strong {
   font-size: 0.88rem;
@@ -12095,7 +12164,7 @@ html.match-live .tile-remote::after {
   border-radius: 999px !important;
 }
 .empty-online-chip {
-  display: inline-flex;
+  display: none;
   align-items: center;
   gap: 0.4rem;
   margin: 0 auto 0.35rem;
@@ -13352,8 +13421,12 @@ html.chrome-always #tile-local.tile-local .tile-floor-local {
   /* During a live call: chrome-autohide wins (tap video to show rails/floor) */
 }
 
-/* Empty card: no green online chip clutter */
-#empty-online-chip {
+/* Idle empty-tile online/queue chip removed (human 2026-10-05). */
+#empty-online-chip,
+#empty-online-chip:not([hidden]),
+html.start-idle #empty-online-chip,
+html.match-searching #empty-online-chip,
+html:not(.match-live) #empty-online-chip {
   display: none !important;
 }
 /* Alone-invite sub under Start removed — keep empty-sub hidden */
@@ -26235,8 +26308,10 @@ html.start-idle .start-match-btn[hidden] {
   opacity: 1 !important;
   pointer-events: auto !important;
   margin-top: 0 !important;
-  min-width: 13.5rem;
-  padding: 1.08rem 2.7rem 1.18rem !important;
+  min-width: 7.5rem !important;
+  width: 7.5rem !important;
+  height: 3.6rem !important;
+  padding: 0 !important;
   font-size: 1.38rem;
   font-weight: 800;
   line-height: 1 !important;
@@ -26249,7 +26324,6 @@ html.start-idle .start-match-btn[hidden] {
 html.start-idle #remote-empty .empty-icon,
 html.start-idle #remote-empty .empty-title,
 html.start-idle #remote-empty .empty-sub,
-html.start-idle #remote-empty .empty-online-chip,
 html.start-idle #remote-empty .empty-first-hint,
 html.start-idle #remote-empty .empty-cam-why,
 html.start-idle #remote-empty .friends-online-row,
@@ -26259,12 +26333,17 @@ html:not(.match-live):not(.match-searching) #remote-empty .empty-icon,
 html:not(.match-live):not(.match-searching) #remote-empty .empty-title {
   display: none !important;
 }
+html.start-idle #remote-empty .empty-online-chip,
+html:not(.match-live):not(.match-searching) #remote-empty .empty-online-chip,
+html.match-searching #remote-empty .empty-online-chip {
+  display: none !important;
+}
 html.start-idle #remote-empty .empty-content,
 html:not(.match-live):not(.match-searching) #remote-empty .empty-content {
   position: absolute !important;
   left: 50% !important;
-  /* Gold diamond between wordmark and “CHAT ROULETTE” (not on the letters) */
-  top: 81% !important;
+  /* Gold diamond just below the wordmark, lightly on the tagline */
+  top: 83% !important;
   transform: translate(-50%, -50%) !important;
   background: transparent !important;
   border: none !important;
@@ -26514,21 +26593,27 @@ html.start-idle #btn-start-match:active {
   visibility: visible;
   transform: translateX(-50%) translateY(0) scale(1);
 }
-/* Adjuster tile: HUD on that person's side, not on you. */
+/*
+ * Adjuster tile: HUD in the CENTER of the conversationalist (not under
+ * mute/timer, not on your tile). z above partner-floor cluster.
+ */
 #tile-remote #vol-hud,
 #tile-third #vol-hud,
 #tile-fourth #vol-hud,
 #remote2-wrap #vol-hud {
-  left: 0.5rem;
+  left: 50%;
   right: auto;
-  bottom: 0.55rem;
-  transform: translateX(0) translateY(6px) scale(0.96);
+  top: 50%;
+  bottom: auto;
+  z-index: 80;
+  width: min(12.5rem, calc(100% - 1.2rem));
+  transform: translate(-50%, -50%) scale(0.96);
 }
 #tile-remote #vol-hud:not([hidden]),
 #tile-third #vol-hud:not([hidden]),
 #tile-fourth #vol-hud:not([hidden]),
 #remote2-wrap #vol-hud:not([hidden]) {
-  transform: translateX(0) translateY(0) scale(1);
+  transform: translate(-50%, -50%) scale(1);
 }
 #vol-hud[hidden],
 .vol-hud[hidden] {
@@ -26655,4 +26740,223 @@ html.match-live #tile-third #third-avatar-stars #third-stars-badge:not([hidden])
   right: auto !important;
   left: auto !important;
   flex-shrink: 0 !important;
+}
+
+/*
+ * Phone 1v1 (idle + live): portrait = partner on TOP, you on BOTTOM.
+ * Landscape / flip = partner LEFT, you RIGHT (keep).
+ * Shot 2026-08-24 14:59: iPhone Chrome still 2-col in portrait — later
+ * !important 1fr 1fr rules were winning over the 900px stack.
+ */
+@media (max-width: 900px) and (orientation: portrait) {
+  main.stage:not(.stage-trio):not(.stage-quad):not(.stage-grid-2x2),
+  #stage:not(.stage-trio):not(.stage-quad):not(.stage-grid-2x2) {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    grid-template-rows: minmax(0, 1.12fr) minmax(0, 0.88fr) !important;
+    flex-direction: unset !important;
+  }
+  main.stage:not(.stage-trio):not(.stage-quad):not(.stage-grid-2x2) #tile-remote,
+  #stage:not(.stage-trio):not(.stage-quad):not(.stage-grid-2x2) #tile-remote {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+    border-right: none !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+  }
+  main.stage:not(.stage-trio):not(.stage-quad):not(.stage-grid-2x2) #tile-local,
+  #stage:not(.stage-trio):not(.stage-quad):not(.stage-grid-2x2) #tile-local {
+    grid-column: 1 !important;
+    grid-row: 2 !important;
+  }
+  html.start-idle #remote-empty .empty-content {
+    top: auto !important;
+    bottom: 14% !important;
+    transform: translateX(-50%) !important;
+  }
+}
+@media (max-width: 900px) and (orientation: portrait) {
+  /* Partner floor = bottom of TOP tile (not the you-tile). Friends in that corner. */
+  main.stage:not(.stage-trio):not(.stage-quad) .tile-floor-partner,
+  #stage:not(.stage-trio):not(.stage-quad) .tile-floor-partner {
+    top: 0 !important;
+    bottom: auto !important;
+    height: 56% !important;
+    left: 0 !important;
+    right: 0 !important;
+    align-items: flex-end !important;
+    padding: 0.35rem 0.4rem !important;
+    z-index: 22 !important;
+    background: linear-gradient(
+      to top,
+      rgba(0, 0, 0, 0.42) 0%,
+      transparent 72%
+    ) !important;
+  }
+  html.start-idle .tile-floor-partner,
+  html.match-searching .tile-floor-partner {
+    background: none !important;
+  }
+  html.start-idle .tile-floor-partner .tile-tray-partner,
+  html.match-searching .tile-floor-partner .tile-tray-partner {
+    width: auto !important;
+    max-width: none !important;
+    margin-left: auto !important;
+    margin-right: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    min-height: 0 !important;
+  }
+  html.start-idle #btn-friends,
+  html.start-idle .tile-dock-friends,
+  html.match-searching #btn-friends,
+  html.match-searching .tile-dock-friends {
+    display: inline-flex !important;
+    position: relative !important;
+    z-index: 24 !important;
+  }
+
+  /*
+   * Live portrait: compact cluster in the conversationalist’s
+   * bottom-RIGHT corner (shot 17:03 still packed left over the timer).
+   * You-tile is 0.88/2 ≈ 44% of the stage — sit just above that seam.
+   */
+  html.match-live
+    main.stage:not(.stage-trio):not(.stage-quad):not(.stage-grid-2x2)
+    .tile-floor-partner,
+  html.match-live
+    #stage:not(.stage-trio):not(.stage-quad):not(.stage-grid-2x2)
+    .tile-floor-partner {
+    top: auto !important;
+    left: auto !important;
+    right: 0.28rem !important;
+    bottom: calc(44% + 0.22rem) !important;
+    width: max-content !important;
+    max-width: calc(100% - 0.56rem) !important;
+    height: auto !important;
+    padding: 0 !important;
+    padding-left: 0 !important;
+    margin: 0 !important;
+    align-items: flex-end !important;
+    justify-content: flex-end !important;
+    background: none !important;
+    z-index: 24 !important;
+  }
+  html.match-live
+    main.stage:not(.stage-trio):not(.stage-quad):not(.stage-grid-2x2)
+    .tile-floor-partner
+    .tile-tray-partner,
+  html.match-live
+    #stage:not(.stage-trio):not(.stage-quad):not(.stage-grid-2x2)
+    .tile-floor-partner
+    .tile-tray-partner {
+    width: max-content !important;
+    max-width: none !important;
+    margin: 0 0 0 auto !important;
+    flex: 0 0 auto !important;
+    justify-content: flex-end !important;
+    align-items: center !important;
+    gap: 0.22rem !important;
+    flex-wrap: nowrap !important;
+  }
+  html.match-live
+    main.stage:not(.stage-trio):not(.stage-quad):not(.stage-grid-2x2)
+    .tile-floor-partner
+    .tile-compose,
+  html.match-live
+    #stage:not(.stage-trio):not(.stage-quad):not(.stage-grid-2x2)
+    .tile-floor-partner
+    .tile-compose {
+    display: none !important;
+  }
+}
+@media (max-width: 900px) {
+  html.start-idle #remote-empty .start-match-btn,
+  html.start-idle #btn-start-match.start-match-btn,
+  .start-match-btn {
+    min-width: min(9.5rem, 58vw) !important;
+    padding: 0.52rem 1.25rem !important;
+    font-size: 0.92rem !important;
+    font-weight: 750 !important;
+    letter-spacing: 0.03em !important;
+  }
+  .tile-dock-btn {
+    width: 2.15rem;
+    height: 2.15rem;
+  }
+  .tile-dock-btn .icon {
+    width: 0.95rem;
+    height: 0.95rem;
+  }
+}
+@media (max-width: 900px) and (orientation: landscape) {
+  main.stage:not(.stage-trio):not(.stage-quad):not(.stage-grid-2x2),
+  #stage:not(.stage-trio):not(.stage-quad):not(.stage-grid-2x2) {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    grid-template-rows: minmax(0, 1fr) !important;
+  }
+  main.stage:not(.stage-trio):not(.stage-quad):not(.stage-grid-2x2) #tile-remote,
+  #stage:not(.stage-trio):not(.stage-quad):not(.stage-grid-2x2) #tile-remote {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+    border-bottom: none !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
+  }
+  main.stage:not(.stage-trio):not(.stage-quad):not(.stage-grid-2x2) #tile-local,
+  #stage:not(.stage-trio):not(.stage-quad):not(.stage-grid-2x2) #tile-local {
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+  }
+}
+
+/* Icon-only live buttons — labels stay for a11y / i18n, never painted */
+.start-match-btn .btn-label,
+.tile-match-actions .btn-label,
+.tile-dock-btn .lbl,
+.tile-local .lbl {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+.start-match-btn,
+html.start-idle .start-match-btn,
+html.start-idle.has-live-people .start-match-btn {
+  min-width: 3.5rem !important;
+  width: 3.6rem !important;
+  height: 3.6rem !important;
+  min-height: 3.5rem !important;
+  padding: 0 !important;
+  font-size: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+.start-match-btn .icon {
+  width: 1.35rem;
+  height: 1.35rem;
+  color: #fff;
+}
+.tile-match-actions .next-in-tile-floor,
+.tile-match-actions #btn-stop,
+.tile-match-actions #btn-block-report {
+  min-width: 2.45rem !important;
+  width: 2.55rem;
+  padding: 0 !important;
+  gap: 0 !important;
+  font-size: 0 !important;
+}
+.tile-match-actions .next-in-tile-floor .icon-next,
+.tile-match-actions #btn-stop .icon,
+.tile-match-actions #btn-block-report .icon {
+  width: 1.15rem;
+  height: 1.15rem;
+  color: inherit;
 }

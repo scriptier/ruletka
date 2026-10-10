@@ -2,6 +2,7 @@
  * Multi-hub discovery + health check (mirrors ui/hubs.js intent).
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { siblingHubBase } from "../config";
 
 const PREF_KEY = "ruletka-hub-base-v1";
 const BUILTIN = ["https://ruletka.vip", "https://ruletka.me"];
@@ -45,6 +46,7 @@ export async function listCandidateHubs(
   };
 
   add(seedBase || "");
+  add(siblingHubBase(seedBase || ""));
   add(await getSavedHub());
   for (const b of BUILTIN) add(b);
 

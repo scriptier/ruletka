@@ -21,6 +21,21 @@ export type LobbyContext = {
   searching: boolean;
 };
 
+/**
+ * Hub status detail that means the stranger/partner left this call.
+ * PC Stop sends "partner stopped" — must auto-Next on Android (frozen last
+ * frame if we treat it as mid-call noise). "still chatting" is 3-way keep.
+ */
+export function isHubPartnerLeaveDetail(detail: string): boolean {
+  const d = String(detail || "");
+  if (/still chatting|still with match|still connected/i.test(d)) {
+    return false;
+  }
+  return /partner hit Next|partner disconnected|partner stopped|party moved on|partner blocked you|restricted due to reports|restricted by operator|party partner left/i.test(
+    d
+  );
+}
+
 /** Apply hub `status` to waiting/online/alone/search flags. */
 export function reduceStatusMsg(
   m: {
@@ -102,34 +117,5 @@ export function reduceLobbyInfoMsg(
   };
 }
 
-/**
- * Prefer primary continuity after multi-peer promote / re-match.
- */
-export function pickPrimaryPeerIndex(
-  peerIds: string[],
-  opts: {
-    wasMatched: boolean;
-    prevPrimary: string;
-    prevSecondary: string;
-  }
-): number {
-  if (!peerIds.length) return 0;
-  const { wasMatched, prevPrimary, prevSecondary } = opts;
-  if (
-    wasMatched &&
-    prevPrimary &&
-    prevPrimary !== "legacy" &&
-    peerIds.includes(prevPrimary)
-  ) {
-    return peerIds.indexOf(prevPrimary);
-  }
-  if (
-    wasMatched &&
-    prevSecondary &&
-    prevSecondary !== "legacy" &&
-    peerIds.includes(prevSecondary)
-  ) {
-    return peerIds.indexOf(prevSecondary);
-  }
-  return 0;
-}
+/** Canonical pick lives in matchPeers (loose id match). */
+export { pickPrimaryPeerIndex } from "./matchPeers";

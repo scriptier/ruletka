@@ -4,6 +4,9 @@
  * Layout: one row ★ · flag Name; loc only when known (no pending line).
  * elevation 32+ so Android does not wash the chip under stage neighbors.
  * pointerEvents box-none on wrap — does not block stage taps outside card.
+ *
+ * Mute chips / theyMutedMe UI removed — mute state is mid-stage icon only.
+ * muted / theyMutedMe props kept as deprecated voids for any remaining callers.
  */
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useI18n, useT } from "../i18n";
@@ -14,6 +17,7 @@ import {
   trustTier,
   trustTierI18nKey,
 } from "./flagTrust";
+import { displayPartnerStars, formatPraisedBy } from "../live/matchPeers";
 
 function cleanChromeName(raw: unknown): string {
   return String(raw || "")
@@ -57,6 +61,11 @@ export function PartnerChrome(props: {
   friendCode?: string;
   stars?: number;
   trust?: number;
+  /**
+   * Unique praisers (hub trust_gifters). When > 0, compact chrome paints
+   * "praised by N". live.tsx / PartnerIdentityDock pass this from MatchPeer.
+   */
+  trustGifters?: number;
   flag?: string;
   country?: string;
   city?: string;
@@ -65,11 +74,14 @@ export function PartnerChrome(props: {
    * If false/unknown and no geo from hub → omit loc line (not a tall pending).
    */
   hideIp?: boolean;
-  /** You muted their audio (local playout off). */
+  /**
+   * @deprecated Mute text/chip removed — mid-stage mute icon only.
+   * Kept so call sites can still pass without a chrome mute surface.
+   */
   muted?: boolean;
   /**
-   * @deprecated UI lives in LiveStatusBanners only (one banner). Kept so call
-   * sites can still pass the prop without a second on-screen duplicate.
+   * @deprecated Mute text/chip removed — mid-stage mute icon only.
+   * Kept so call sites can still pass without a second on-screen mute UI.
    */
   theyMutedMe?: boolean;
   isFriend?: boolean;
@@ -83,8 +95,9 @@ export function PartnerChrome(props: {
   /** a11y hint only — not painted on screen (kept face clear). */
   longPressHint?: string;
   /**
-   * Compact chrome: skip trust/friend/muted chip row (default true).
-   * Mute state lives in top LiveStatusBanners (under PartnerIdentityDock).
+   * Compact chrome: skip friend/tier chip row (default true).
+   * "praised by N" / compact trust belt still paint — do not remount RTC.
+   * Mute chips are never painted (mid-stage icon owns mute UI).
    */
   compact?: boolean;
 }) {
@@ -93,10 +106,12 @@ export function PartnerChrome(props: {
   const compact = props.compact !== false;
   const stars = Math.max(0, Math.floor(Number(props.stars) || 0));
   const trust = Math.max(0, Math.floor(Number(props.trust) || 0));
-  // Visible ★ chip: always max(spendable, trust). Hub often sends trust as
-  // social_health while spendable balance is 0 — never paint ★0 in that case.
-  // Real spendable stays in a11y when different. Always paint chip (incl. ★0).
-  const displayStars = Math.max(stars, trust);
+  const trustGifters = Math.max(
+    0,
+    Math.floor(Number(props.trustGifters) || 0)
+  );
+  // Partner ★ = reputation (trust). Wallet stays on you.
+  const displayStars = displayPartnerStars(stars, trust);
   const starsFromTrust = stars === 0 && trust > 0;
   // hide_ip → empty loc from formatLocLine; we show short "hidden" only then.
   // Real geo: flag ISO alone must beat empty (partner_geo may still be racing).
@@ -123,7 +138,13 @@ export function PartnerChrome(props: {
     props.friendCode
   );
 
-  // Extra chips only when not compact (legacy). Timer / friend / muted / trust.
+  // Mute chrome intentionally not rendered (mid-stage icon only).
+  void props.muted;
+  void props.theyMutedMe;
+
+  // Extra chips only when not compact (legacy). Timer always; friend / trust only.
+  // muted chip dead-pathed — never push "muted" even when !compact.
+  // Compact still paints praised-by / trust belt as a small line (not a chip).
   const chips: {
     key: string;
     label: string;
@@ -134,13 +155,6 @@ export function PartnerChrome(props: {
   if (!compact) {
     if (props.isFriend) {
       chips.push({ key: "f", label: t("mobile.live.friend") || "Friend" });
-    }
-    if (props.muted) {
-      chips.push({
-        key: "m",
-        label: t("mobile.live.partnerMuted") || "muted",
-        style: styles.chipMuted,
-      });
     }
     if (trust > 0) {
       const trustProminent = stars === 0;
@@ -158,10 +172,24 @@ export function PartnerChrome(props: {
     }
   }
 
-  void props.theyMutedMe;
+  const praisedKey = "mobile.live.praisedBy";
+  const praisedFromGifters = trustGifters > 0;
+  const praisedFromTrust = !praisedFromGifters && compact && trust > 0;
+  const praisedN = praisedFromGifters ? trustGifters : praisedFromTrust ? trust : 0;
+  let praisedLine = "";
+  if (praisedFromGifters) {
+    const raw = t(praisedKey, { n: praisedN });
+    praisedLine = !raw || raw === praisedKey ? formatPraisedBy(praisedN) : raw;
+  } else if (praisedFromTrust) {
+    const trustKey = "mobile.live.trustN";
+    const raw = t(trustKey, { n: trust });
+    praisedLine = !raw || raw === trustKey ? `trust ${trust}` : raw;
+  }
+
   const a11yLabel = [
     name,
     showLoc ? locLine : null,
+    praisedLine || null,
     starsFromTrust
       ? `★ ${displayStars} (${t("mobile.live.tierKnown") || "status"}; spendable ${stars})`
       : `★ ${displayStars}`,
@@ -192,6 +220,11 @@ export function PartnerChrome(props: {
       {showLoc ? (
         <Text style={styles.loc} numberOfLines={1}>
           {locLine}
+        </Text>
+      ) : null}
+      {praisedLine ? (
+        <Text style={styles.praised} numberOfLines={1}>
+          {praisedLine}
         </Text>
       ) : null}
       {chips.length ? (
@@ -265,7 +298,7 @@ export function formatPartnerSummary(opts: {
       .trim() || "Partner";
   const stars = Math.max(0, Math.floor(Number(opts.stars) || 0));
   const trust = Math.max(0, Math.floor(Number(opts.trust) || 0));
-  const displayStars = Math.max(stars, trust);
+  const displayStars = displayPartnerStars(stars, trust);
   const loc = formatLocLine({
     flag: opts.flag,
     country: opts.country,
@@ -332,6 +365,16 @@ const styles = StyleSheet.create({
     textAlign: "right",
     maxWidth: "100%",
   },
+  /** Compact "praised by N" / trust belt — not mashed into the gold ★ chip. */
+  praised: {
+    color: "#e6d08a",
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.04,
+    textAlign: "right",
+    maxWidth: "100%",
+    includeFontPadding: false,
+  },
   chipRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -380,10 +423,6 @@ const styles = StyleSheet.create({
   chipTrustGoldText: {
     color: "#ffe9a0",
     fontWeight: "800",
-  },
-  chipMuted: {
-    backgroundColor: "rgba(120, 40, 40, 0.9)",
-    borderColor: "rgba(255, 140, 120, 0.8)",
   },
   chipText: {
     color: "#f2f5fa",

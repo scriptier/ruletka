@@ -2,7 +2,7 @@
 # Build a Play-uploadable AAB on this machine (no EAS free-tier queue).
 #
 # Prerequisites (one-time):
-#   - Android SDK at ~/Android/Sdk (platform 35, build-tools 35, NDK 26.1)
+#   - Android SDK at ~/Android/Sdk (platform 36, build-tools 36, NDK 26.1)
 #   - JDK 17 at ~/.local/jdk-17 (Temurin)
 #   - Play upload keystore in mobile/secrets/ (see secrets/README.md)
 #
@@ -23,8 +23,8 @@ if [[ ! -x "$JAVA_HOME/bin/javac" ]]; then
   echo "Missing JDK 17 at $JAVA_HOME (need javac). Install Temurin 17 or set JAVA_HOME." >&2
   exit 1
 fi
-if [[ ! -d "$ANDROID_HOME/platforms/android-35" ]]; then
-  echo "Missing Android SDK platform 35 under $ANDROID_HOME" >&2
+if [[ ! -d "$ANDROID_HOME/platforms/android-36" && ! -d "$ANDROID_HOME/platforms/android-35" ]]; then
+  echo "Missing Android SDK platform 36 (or 35) under $ANDROID_HOME" >&2
   exit 1
 fi
 if [[ ! -f secrets/keystore.properties || ! -f secrets/ruletka-upload.jks ]]; then

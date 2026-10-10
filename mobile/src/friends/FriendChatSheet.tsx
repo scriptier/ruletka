@@ -3,8 +3,10 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as Clipboard from "expo-clipboard";
+import { Ionicons } from "@expo/vector-icons";
 import {
   FlatList,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -19,6 +21,27 @@ import { hapticLight } from "../feedback/haptics";
 import { useHub } from "../hub/HubProvider";
 import type { FriendChatLine, FriendInfo, ServerMsg } from "../hub/types";
 import { useT } from "../i18n";
+
+/** Solid letter tile — matches Friends Signal palette. */
+const AVATAR_COLORS = [
+  "#6B7CFF",
+  "#C45CFF",
+  "#E85D75",
+  "#F0A202",
+  "#2BB673",
+  "#3D9EED",
+  "#FF6B4A",
+  "#9B6DFF",
+];
+
+function avatarColor(seed: string): string {
+  let h = 0;
+  const s = seed || "?";
+  for (let i = 0; i < s.length; i++) {
+    h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+  }
+  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
+}
 
 const DM_MAX = 500;
 
@@ -38,8 +61,10 @@ export function FriendChatSheet(props: {
   friend: FriendInfo | null;
   visible: boolean;
   onClose: () => void;
+  /** Signal-thread-header spirit: icon-only call CTA next to name. */
+  onCall?: () => void;
 }) {
-  const { friend, visible, onClose } = props;
+  const { friend, visible, onClose, onCall } = props;
   const {
     hub,
     userId,
@@ -184,25 +209,71 @@ export function FriendChatSheet(props: {
           ]}
         >
           <View style={styles.head}>
-            <View style={styles.headMain}>
-              <Text style={styles.title} numberOfLines={1} accessibilityRole="header">
-                {friend.name || friend.short_id || t("mobile.friends.friend")}
-              </Text>
-              <Text style={styles.sub}>
-                {friend.online
-                  ? t("mobile.common.online")
-                  : t("mobile.common.offline")}
-                {friend.friend_code ? ` · ${friend.friend_code}` : ""}
-              </Text>
-            </View>
             <Pressable
-              style={styles.close}
+              style={styles.backBtn}
               onPress={onClose}
               accessibilityRole="button"
               accessibilityLabel={t("mobile.common.ok")}
+              hitSlop={8}
             >
-              <Text style={styles.closeText}>{t("mobile.common.ok")}</Text>
+              <Ionicons name="chevron-back" size={26} color="#3d9eed" />
             </Pressable>
+            <View
+              style={[
+                styles.headAvatar,
+                {
+                  backgroundColor: avatarColor(
+                    friend.user_id || friend.friend_code || friend.name || "?"
+                  ),
+                },
+              ]}
+              importantForAccessibility="no"
+            >
+              {friend.avatar && String(friend.avatar).startsWith("http") ? (
+                <Image
+                  source={{ uri: String(friend.avatar).trim() }}
+                  style={styles.headAvatarImg}
+                  resizeMode="cover"
+                />
+              ) : (
+                <Text style={styles.headAvatarText}>
+                  {(
+                    friend.name ||
+                    friend.short_id ||
+                    friend.friend_code ||
+                    "?"
+                  )
+                    .slice(0, 1)
+                    .toUpperCase()}
+                </Text>
+              )}
+              {friend.online ? <View style={styles.headDot} /> : null}
+            </View>
+            <View style={styles.headMain}>
+              <Text
+                style={styles.title}
+                numberOfLines={1}
+                accessibilityRole="header"
+              >
+                {friend.name || friend.short_id || t("mobile.friends.friend")}
+              </Text>
+              <Text style={styles.sub} numberOfLines={1}>
+                {friend.online
+                  ? t("mobile.common.online")
+                  : t("mobile.common.offline")}
+              </Text>
+            </View>
+            {onCall ? (
+              <Pressable
+                style={styles.headCallBtn}
+                onPress={onCall}
+                accessibilityRole="button"
+                accessibilityLabel={t("friends.call")}
+                hitSlop={8}
+              >
+                <Ionicons name="videocam" size={22} color="#3d9eed" />
+              </Pressable>
+            ) : null}
           </View>
 
           <FlatList
@@ -229,8 +300,12 @@ export function FriendChatSheet(props: {
                   accessibilityRole="button"
                   accessibilityLabel={item.body}
                 >
-                  <Text style={styles.bubbleText}>{item.body}</Text>
-                  <Text style={styles.bubbleTs}>{formatTs(item.ts)}</Text>
+                  <Text style={mine ? styles.bubbleTextMe : styles.bubbleTextThem}>
+                    {item.body}
+                  </Text>
+                  <Text style={mine ? styles.bubbleTsMe : styles.bubbleTsThem}>
+                    {formatTs(item.ts)}
+                  </Text>
                 </Pressable>
               );
             }}
@@ -264,7 +339,7 @@ export function FriendChatSheet(props: {
               accessibilityLabel={t("mobile.common.send")}
               accessibilityState={{ disabled: !connected }}
             >
-              <Text style={styles.sendText}>{t("mobile.common.send")}</Text>
+              <Ionicons name="send" size={18} color="#fff" />
             </Pressable>
           </View>
           {draft.length >= 400 ? (
@@ -289,25 +364,69 @@ const styles = StyleSheet.create({
   sheet: {
     maxHeight: "88%",
     minHeight: "55%",
-    backgroundColor: "#10141c",
+    backgroundColor: "#0b0c10",
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.1)",
-    paddingTop: 12,
-    paddingHorizontal: 12,
+    borderColor: "rgba(255,255,255,0.08)",
+    paddingTop: 8,
+    paddingHorizontal: 8,
   },
   head: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 8,
     paddingBottom: 10,
+    paddingHorizontal: 4,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(255,255,255,0.1)",
+    borderBottomColor: "rgba(255,255,255,0.08)",
   },
-  headMain: { flex: 1 },
-  title: { color: "#e8eef7", fontWeight: "800", fontSize: 17 },
-  sub: { color: "#9aa8bc", fontSize: 12, marginTop: 2 },
+  backBtn: {
+    width: 36,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  headAvatarImg: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+  },
+  headAvatarText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 15,
+  },
+  headDot: {
+    position: "absolute",
+    right: -1,
+    bottom: -1,
+    width: 11,
+    height: 11,
+    borderRadius: 6,
+    backgroundColor: "#3dffa0",
+    borderWidth: 2,
+    borderColor: "#0b0c10",
+  },
+  headMain: { flex: 1, minWidth: 0 },
+  headCallBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(61,158,237,0.14)",
+  },
+  title: { color: "#f0f3f8", fontWeight: "700", fontSize: 16 },
+  sub: { color: "#8b97a8", fontSize: 12, marginTop: 1 },
   close: {
     paddingVertical: 8,
     paddingHorizontal: 12,
@@ -328,19 +447,26 @@ const styles = StyleSheet.create({
     maxWidth: "82%",
     paddingVertical: 8,
     paddingHorizontal: 12,
-    borderRadius: 14,
+    borderRadius: 18,
     marginVertical: 2,
   },
   bubbleMe: {
     alignSelf: "flex-end",
-    backgroundColor: "rgba(61,126,255,0.35)",
+    backgroundColor: "#3d7eff",
   },
   bubbleThem: {
     alignSelf: "flex-start",
-    backgroundColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "#1c212b",
   },
-  bubbleText: { color: "#e8eef7", fontSize: 14, lineHeight: 19 },
-  bubbleTs: {
+  bubbleTextMe: { color: "#ffffff", fontSize: 14, lineHeight: 19 },
+  bubbleTextThem: { color: "#e8eef7", fontSize: 14, lineHeight: 19 },
+  bubbleTsMe: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 10,
+    marginTop: 4,
+    alignSelf: "flex-end",
+  },
+  bubbleTsThem: {
     color: "#8a96a8",
     fontSize: 10,
     marginTop: 4,
@@ -352,25 +478,26 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginBottom: 6,
   },
-  compose: { flexDirection: "row", gap: 8, paddingTop: 8 },
+  compose: { flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 8 },
   input: {
     flex: 1,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
     color: "#fff",
     backgroundColor: "rgba(0,0,0,0.35)",
   },
   send: {
-    backgroundColor: "#3d7eff",
-    paddingHorizontal: 16,
+    width: 46,
+    height: 46,
+    alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#3d7eff",
     borderRadius: 999,
   },
   sendDisabled: { opacity: 0.4 },
-  sendText: { color: "#fff", fontWeight: "700", fontSize: 13 },
   charHint: {
     color: "#6b7a90",
     fontSize: 11,

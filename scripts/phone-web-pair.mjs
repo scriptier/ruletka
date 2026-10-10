@@ -6,6 +6,9 @@
  * Patterns mirrored from scripts/prod-pair-media.mjs (boot, age dismiss, Start).
  * Soft-skips if puppeteer-core or Chrome is unavailable (exit 0).
  *
+ * Multi / find-third (2 web or 2web+phone): use scripts/multi-pair.mjs instead
+ * (MODE=web2|web2phone|web3). That harness never invents multi product PASS.
+ *
  * Usage:
  *   node scripts/phone-web-pair.mjs
  *   RULETKA_URL=https://ruletka.vip/live.html BUDGET_MS=60000 node scripts/phone-web-pair.mjs

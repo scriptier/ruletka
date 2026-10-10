@@ -11,11 +11,26 @@ You **orchestrate** work with Spec → Verifier → Environment. You do **not** 
 | Endless chat thrash | One hop, one writer, verify-after |
 | Amnesia | Wiki compound + this file |
 
+**Work surfaces (Personal OS hub):** this repo is **ruletka** (3rd product). Siblings: `~/personal-os` (life / sell kit) · `~/ShopOps` (primary business). Runtime: **herdr** (`herdr workspace list` — labels `ruletka (grok main)`, `personal-os`, `shopops`). Map: `~/personal-os/knowledge/wiki/work-surfaces.md`. herdr notes: `docs/HERD_HERDR.md`.
+
 **Playbook:** `docs/AGENTIC_ENGINEERING.md` · skill **`agentic-engineering`** · slash **`/agentic`**  
 **Spec tool:** skill **`spec`** · slash **`/spec`**  
 **Preflight:** `./scripts/agentic-check.sh` (`--connect` for A/V)  
 **One-shot entry:** `./scripts/agentic-loop.sh` (check + av-loop + director hints)  
 **Claude workers:** skill **`claude-worker`** · factory `docs/AGENT_GROK_CLAUDE.md` · `CLAUDE-WORKFLOW.md`
+
+### Session start (every new chat / after compact)
+
+This file is already in the prompt. Do **not** re-read it. Do **not** open every `knowledge/specs/current-*.md`. Do **not** load `SMOKE-NEXT.md` unless the human is pasting smoke.
+
+1. `.grok/session-card.txt` if present (≤15 lines; newest 5 spec names + count). Do not invent pins.  
+2. `knowledge/wiki/now.md` (situation board).  
+3. The **one** spec named in the user message, or the first spec on the card if the hop needs it.  
+4. Wiki index / locks on demand (hard bugs), not every turn.
+
+**One topic per session.** Connect/A/V, idle HUD, iOS store, SEO, and infra/DNS are separate chats. When the lane changes, start `/new`.
+
+Grok experimental memory is **pointers only**. Wiki/specs are truth. `/flush` before you walk away from a long debug.
 
 ---
 
@@ -69,9 +84,10 @@ You own: Spec clarity, honest verifiers, compounding environment, disciplined or
 
 | Bucket | Examples |
 |--------|----------|
-| **Always** | Spec for multi-step; before multi-step work list active `knowledge/specs/current-*.md`; measure before ICE/TURN claims; **UX default: one implementer + optional verify-only** (multi-agent only when human lists ≥2 independent FAIL lines with non-overlapping OWN); pool=0; read wiki+locks on hard bugs; verify-after edits; compound after solid evidence; when human drops bug screenshots run `/add-new-resource` before coding; after version bump update `knowledge/specs/SMOKE-NEXT.md` install APK line (version string only) |
-| **Ask first** | Production `push.sh`; Play upload; bulk APK to site download; hub force_relay policy flip; changing locks |
-| **Never** | Claim “fixed” without scorecard/human faces; `iceCandidatePoolSize` > 0; dual-offer thrash; parallel ICE rewriters; SFU as default; invent wiki facts that contradict locks; ship on vibe; **APK flood** — after one successful `npm run verify` + one `build-apk-local --bump` in a session, **stop** until human smoke paste or explicit FAIL lines (second bump needs FAIL ticket text in chat) |
+| **Always** | Spec for multi-step; open **only** the spec that matches the ask; measure before ICE/TURN claims; **UX default: one implementer + optional verify-only** (multi-agent only when human lists ≥2 independent FAIL lines with non-overlapping OWN); pool=0; read wiki+locks on hard bugs; verify-after edits; compound after solid evidence; when human drops bug screenshots run `/add-new-resource` before coding; after version bump update `knowledge/specs/SMOKE-NEXT.md` install APK line (version string only) |
+| **Paint-only skip** | Screenshot HUD align / one CSS or one live.html pin bump: skip new spec, wiki/memory, SMOKE-NEXT. One log line is enough. |
+| **Ask first** | Production `push.sh`; Play upload; hub force_relay policy flip; changing locks |
+| **Never** | Claim “fixed” without scorecard/human faces; `iceCandidatePoolSize` > 0; dual-offer thrash; parallel ICE rewriters; SFU as default; invent wiki facts that contradict locks; ship on vibe; **APK flood** — after one successful `npm run verify` + one `build-apk-local --bump` in a session, **stop** until human smoke paste or explicit FAIL lines (second bump needs FAIL ticket text in chat); **site APK** — do not `rsync`/`cp` an APK to `ui/download/` or `/opt/ruletka/ui/download/` unless the human says **put apk on the site** / **update website apk**. Local `--bump` + adb-push is not a site publish. |
 
 Prefer tool-level checks (`av-verify` exit codes, `product.status`) over hope.
 
@@ -188,7 +204,7 @@ Detail: `docs/MOBILE_BUILD.md`.
 
 - Production deploy / `scripts/deploy/push.sh`
 - Play Console upload  
-- (Site download APK only when smoke ship clearly authorized)
+- **Website APK** (`ui/download/ruletka-android-latest.apk`) — you choose when. Say **put apk on the site** / **update website apk**. A local `--bump` is not a site publish.
 
 ---
 
@@ -196,7 +212,7 @@ Detail: `docs/MOBILE_BUILD.md`.
 
 ### Non-trivial / multi-step
 
-1. **Spec** — DONE WHEN (or `/spec`); list active `knowledge/specs/current-*.md` first.  
+1. **Spec** — DONE WHEN (or `/spec`); open **only** the matching spec.  
 2. **Preflight** — `agentic-check` when useful.  
 3. **Measure** — baseline.  
 4. **State** — evidence in plain language.  

@@ -13,6 +13,7 @@ Environment=ROULETTE_LISTEN=127.0.0.1:8790
 # Self-hosted coturn (see scripts/deploy/setup-turn.sh)
 Environment=ROULETTE_OPEN_TURN=false
 Environment=ROULETTE_TURN=turn:ruletka.vip:3478?transport=udp,turn:ruletka.vip:3478?transport=tcp
+# After setup-turns-tls.sh: append ,turns:ruletka.vip:5349?transport=tcp
 Environment=ROULETTE_TURN_TTL=21600
 # Secrets (not in git) — created by setup scripts
 EnvironmentFile=-/opt/ruletka/data/turn.env

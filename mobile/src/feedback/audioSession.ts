@@ -88,7 +88,11 @@ export async function setAudioSession(
         interruptionModeIOS: Audio.InterruptionModeIOS.DoNotMix,
       });
     } else if (mode === "call") {
-      // WebRTC owns mic; keep speaker for video chat (not earpiece)
+      // WebRTC owns mic; playAndRecord category (allowsRecordingIOS) is what
+      // lets react-native-webrtc's own RTCAudioSession activate for iOS —
+      // it then owns actual route selection (defaults to speaker for a
+      // video call). Duck other apps' audio here to match Android instead
+      // of letting them mix in at full volume under the call.
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
@@ -96,7 +100,7 @@ export async function setAudioSession(
         shouldDuckAndroid: true,
         playThroughEarpieceAndroid: false,
         interruptionModeAndroid: Audio.InterruptionModeAndroid.DuckOthers,
-        interruptionModeIOS: Audio.InterruptionModeIOS.MixWithOthers,
+        interruptionModeIOS: Audio.InterruptionModeIOS.DuckOthers,
       });
     } else if (mode === "ui") {
       await Audio.setAudioModeAsync({

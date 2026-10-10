@@ -16,6 +16,8 @@ import {
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
+  Easing,
+  interpolate,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
@@ -32,6 +34,8 @@ export type SwipeSkipOverlayProps = {
   onHaptic?: () => void;
   /** Double-tap reblur (optional — replaces Pressable remoteTapLayer). */
   onDoubleTap?: () => void;
+  /** Single tap (optional — partner actions). Double-tap still wins. */
+  onTap?: () => void;
   /** Long-press report (optional). */
   onLongPress?: () => void;
   /** Label shown while dragging (e.g. i18n swipe.next). */
@@ -46,6 +50,7 @@ export function SwipeSkipOverlay(props: SwipeSkipOverlayProps) {
     onCommit,
     onHaptic,
     onDoubleTap,
+    onTap,
     onLongPress,
     nextLabel,
     style,
@@ -75,6 +80,14 @@ export function SwipeSkipOverlay(props: SwipeSkipOverlayProps) {
       /* ignore */
     }
   }, [onDoubleTap]);
+
+  const fireTap = useCallback(() => {
+    try {
+      onTap?.();
+    } catch {
+      /* ignore */
+    }
+  }, [onTap]);
 
   const fireLongPress = useCallback(() => {
     try {
@@ -142,15 +155,19 @@ export function SwipeSkipOverlay(props: SwipeSkipOverlayProps) {
     .onUpdate((e) => {
       if (committing.value) return;
       const w = widthSV.value;
-      const max = Math.max(120, w * 0.45);
-      const clamped = Math.max(-max, Math.min(max, e.translationX));
+      const max = Math.max(160, w * 0.72);
+      const raw = e.translationX;
+      const over = Math.abs(raw) > max;
+      const clamped = over
+        ? Math.sign(raw) * (max + (Math.abs(raw) - max) * 0.22)
+        : raw;
       translateX.value = clamped;
       const progress = Math.min(
         1,
-        Math.abs(clamped) / Math.max(72, w * 0.22)
+        Math.abs(clamped) / Math.max(64, w * 0.2)
       );
-      opacity.value = 1 - progress * 0.28;
-      const nowArmed = progress >= 0.92 ? 1 : 0;
+      opacity.value = 1 - progress * 0.12;
+      const nowArmed = progress >= 0.88 ? 1 : 0;
       dragging.value = 1;
       if (nowArmed === 1 && armedHapticFired.value === 0) {
         armedHapticFired.value = 1;
@@ -166,10 +183,8 @@ export function SwipeSkipOverlay(props: SwipeSkipOverlayProps) {
       const dx = e.translationX;
       const dy = e.translationY;
       const vx = e.velocityX; // px/s
-      // Mirror web touch thresholds (ui/live.js wirePartnerSwipe)
       const distMin = Math.max(64, w * 0.18);
       const distOk = Math.abs(dx) >= distMin;
-      // web: |dx|>=42 && velocity>0.55 px/ms → ~550 px/s
       const flickOk = Math.abs(dx) >= 42 && Math.abs(vx) > 550;
       const horizontal = Math.abs(dx) > Math.abs(dy) * 1.05;
       const willCommit = horizontal && (distOk || flickOk);
@@ -177,18 +192,30 @@ export function SwipeSkipOverlay(props: SwipeSkipOverlayProps) {
         const dir = (dx < 0 ? -1 : 1) as -1 | 1;
         committing.value = 1;
         runOnJS(fireHaptic)();
-        const target = dir * Math.max(w * 1.15, 420);
-        translateX.value = withTiming(target, { duration: 160 }, (fin) => {
-          if (fin) {
-            runOnJS(finishCommit)(dir);
+        const boost = Math.min(280, Math.abs(vx) * 0.18);
+        const target = dir * (Math.max(w * 1.28, 460) + boost);
+        translateX.value = withTiming(
+          target,
+          { duration: 300, easing: Easing.out(Easing.cubic) },
+          (fin) => {
+            if (fin) {
+              runOnJS(finishCommit)(dir);
+            }
           }
+        );
+        opacity.value = withTiming(0, {
+          duration: 260,
+          easing: Easing.out(Easing.quad),
         });
-        opacity.value = withTiming(0.15, { duration: 160 });
         dragging.value = 1;
         armed.value = 1;
       } else {
-        translateX.value = withSpring(0, { damping: 22, stiffness: 320 });
-        opacity.value = withTiming(1, { duration: 160 });
+        translateX.value = withSpring(0, {
+          damping: 13,
+          stiffness: 320,
+          mass: 0.7,
+        });
+        opacity.value = withTiming(1, { duration: 180 });
         armed.value = 0;
         dragging.value = 0;
         armedHapticFired.value = 0;
@@ -196,8 +223,12 @@ export function SwipeSkipOverlay(props: SwipeSkipOverlayProps) {
     })
     .onFinalize((_e, success) => {
       if (!success && !committing.value) {
-        translateX.value = withSpring(0, { damping: 22, stiffness: 320 });
-        opacity.value = withTiming(1, { duration: 160 });
+        translateX.value = withSpring(0, {
+          damping: 13,
+          stiffness: 320,
+          mass: 0.7,
+        });
+        opacity.value = withTiming(1, { duration: 180 });
         armed.value = 0;
         dragging.value = 0;
         armedHapticFired.value = 0;
@@ -212,6 +243,13 @@ export function SwipeSkipOverlay(props: SwipeSkipOverlayProps) {
       runOnJS(fireDoubleTap)();
     });
 
+  const singleTap = Gesture.Tap()
+    .enabled(enabled && !!onTap)
+    .numberOfTaps(1)
+    .onEnd(() => {
+      runOnJS(fireTap)();
+    });
+
   const longPress = Gesture.LongPress()
     .enabled(enabled && !!onLongPress)
     .minDuration(450)
@@ -221,26 +259,75 @@ export function SwipeSkipOverlay(props: SwipeSkipOverlayProps) {
 
   const composed = Gesture.Simultaneous(
     pan,
-    Gesture.Exclusive(doubleTap, longPress)
+    Gesture.Exclusive(doubleTap, singleTap, longPress)
   );
 
-  const animStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: translateX.value }],
-    opacity: opacity.value,
-  }));
+  const animStyle = useAnimatedStyle(() => {
+    const w = Math.max(1, widthSV.value);
+    const progress = Math.min(
+      1,
+      Math.abs(translateX.value) / Math.max(64, w * 0.2)
+    );
+    const rot = interpolate(translateX.value, [-w, 0, w], [-18, 0, 18]);
+    const lift = dragging.value ? 1.03 : 1;
+    const shrink = 1 - progress * 0.04;
+    return {
+      transform: [
+        { translateX: translateX.value },
+        { rotate: `${rot}deg` },
+        { scale: lift * shrink },
+      ],
+      opacity: opacity.value,
+    };
+  });
 
-  const hintStyle = useAnimatedStyle(() => ({
-    opacity: dragging.value * (0.5 + armed.value * 0.5),
-  }));
+  const washStyle = useAnimatedStyle(() => {
+    const w = Math.max(1, widthSV.value);
+    const progress = Math.min(
+      1,
+      Math.abs(translateX.value) / Math.max(64, w * 0.2)
+    );
+    const left = translateX.value < 0;
+    return {
+      opacity: dragging.value * progress * 0.42,
+      backgroundColor: left
+        ? "rgba(255, 70, 110, 0.38)"
+        : "rgba(55, 140, 255, 0.38)",
+    };
+  });
+
+  const hintStyle = useAnimatedStyle(() => {
+    const w = Math.max(1, widthSV.value);
+    const progress = Math.min(
+      1,
+      Math.abs(translateX.value) / Math.max(64, w * 0.2)
+    );
+    const left = translateX.value < 0;
+    const pop = 0.82 + progress * 0.38 + armed.value * 0.12;
+    return {
+      opacity: dragging.value * Math.min(1, 0.25 + progress * 1.15),
+      transform: [
+        { rotate: `${left ? -18 : 18}deg` },
+        { scale: pop },
+        { translateX: left ? -36 : 36 },
+        { translateY: interpolate(progress, [0, 1], [8, -6]) },
+      ],
+    };
+  });
+
+  // Parent-sized wrap — never StyleSheet.absoluteFillObject. Extra-tile
+  // callers pass height 50%; leftover top/left/right/bottom:0 from
+  // absoluteFill would stretch the 3rd over the whole stage.
+  const wrap = style ? [style] : [styles.fill];
 
   if (!enabled) {
-    return <View style={[styles.fill, style]}>{children}</View>;
+    return <View style={wrap}>{children}</View>;
   }
 
   return (
     <GestureDetector gesture={composed}>
       <Animated.View
-        style={[styles.fill, style, animStyle]}
+        style={[wrap, animStyle]}
         collapsable={false}
         onLayout={(e) => {
           const w = e.nativeEvent.layout.width;
@@ -248,6 +335,10 @@ export function SwipeSkipOverlay(props: SwipeSkipOverlayProps) {
         }}
       >
         {children}
+        <Animated.View
+          style={[styles.wash, washStyle]}
+          pointerEvents="none"
+        />
         {nextLabel ? (
           <Animated.View style={[styles.hint, hintStyle]} pointerEvents="none">
             <Text style={styles.hintText} numberOfLines={1}>
@@ -262,11 +353,16 @@ export function SwipeSkipOverlay(props: SwipeSkipOverlayProps) {
 
 const styles = StyleSheet.create({
   fill: {
+    width: "100%",
+    height: "100%",
+  },
+  wash: {
     ...StyleSheet.absoluteFillObject,
+    zIndex: 30,
   },
   hint: {
     position: "absolute",
-    top: "42%",
+    top: "38%",
     alignSelf: "center",
     left: 0,
     right: 0,
@@ -275,16 +371,19 @@ const styles = StyleSheet.create({
   },
   hintText: {
     color: "#fff",
-    fontSize: 18,
-    fontWeight: "800",
-    letterSpacing: 0.6,
-    paddingHorizontal: 16,
+    fontSize: 26,
+    fontWeight: "900",
+    letterSpacing: 2.2,
+    paddingHorizontal: 18,
     paddingVertical: 8,
-    borderRadius: 999,
+    borderRadius: 10,
     overflow: "hidden",
-    backgroundColor: "rgba(0,0,0,0.45)",
-    textShadowColor: "rgba(0,0,0,0.6)",
-    textShadowRadius: 4,
-    textShadowOffset: { width: 0, height: 1 },
+    backgroundColor: "transparent",
+    borderWidth: 3.5,
+    borderColor: "rgba(255,255,255,0.92)",
+    textTransform: "uppercase",
+    textShadowColor: "rgba(0,0,0,0.55)",
+    textShadowRadius: 6,
+    textShadowOffset: { width: 0, height: 2 },
   },
 });

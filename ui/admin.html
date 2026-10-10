@@ -381,6 +381,29 @@
       box-shadow: 0 16px 48px rgba(0,0,0,0.28);
       backdrop-filter: blur(12px);
     }
+    .ledger-wrap {
+      max-height: min(70vh, 38rem);
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+    .ledger-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem 0.7rem;
+      align-items: center;
+      margin: 0 0 0.55rem;
+    }
+    .ledger-count { font-size: 0.8rem; color: var(--muted); }
+    #ledger-table thead th {
+      position: sticky;
+      top: 0;
+      background: var(--panel-solid);
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+    #ledger-table thead th:hover { color: var(--accent); }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -408,6 +431,17 @@
       color: #9ec5ff;
       word-break: break-all;
     }
+    .ev-thumb {
+      width: 56px;
+      height: 56px;
+      object-fit: cover;
+      border-radius: 8px;
+      background: #121820;
+      border: 1px solid var(--border);
+      display: block;
+      cursor: zoom-in;
+    }
+    .ev-thumb[hidden] { display: none; }
     .muted { color: var(--muted); }
     .pill {
       display: inline-block;
@@ -429,8 +463,86 @@
       color: #ff8fab;
       margin: 0.5rem 0 0;
       font-size: 0.85rem;
+      position: sticky;
+      top: 2.75rem;
+      z-index: 39;
+      background: rgba(40, 12, 20, 0.92);
+      border: 1px solid rgba(255, 45, 85, 0.28);
+      border-radius: 10px;
+      padding: 0.45rem 0.7rem;
     }
     .row-actions { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+    .jump-nav {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      align-items: center;
+      padding: 0.45rem 0 0.7rem;
+      margin: -0.15rem 0 1rem;
+      background: linear-gradient(180deg, rgba(7,8,12,0.97) 65%, rgba(7,8,12,0.35));
+    }
+    .jump-nav a {
+      font-size: 0.75rem;
+      font-weight: 650;
+      text-decoration: none;
+      padding: 0.28rem 0.6rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.04);
+      color: var(--text);
+    }
+    .jump-nav a:hover { border-color: var(--accent); color: #cfe0ff; }
+    .jump-nav input {
+      flex: 1 1 12rem;
+      min-width: 8rem;
+      border: 1px solid var(--border);
+      background: #0e131a;
+      color: var(--text);
+      border-radius: 999px;
+      padding: 0.4rem 0.75rem;
+      font: inherit;
+      font-size: 0.82rem;
+    }
+    .grant-preview {
+      margin: 0.55rem 0 0;
+      padding: 0.55rem 0.7rem;
+      border-radius: 10px;
+      border: 1px solid rgba(91,157,255,0.28);
+      background: rgba(91,157,255,0.08);
+      font-size: 0.82rem;
+      line-height: 1.4;
+    }
+    .grant-preview.is-miss {
+      border-color: rgba(245,165,36,0.4);
+      background: rgba(245,165,36,0.08);
+    }
+    .grant-log {
+      margin: 0.45rem 0 0;
+      padding: 0;
+      list-style: none;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+    .grant-log li { margin: 0.18rem 0; }
+    details.fold {
+      margin: 0 0 1rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    details.fold summary {
+      cursor: pointer;
+      color: var(--text);
+      font-weight: 650;
+    }
+    tr.is-hit td { background: rgba(91,157,255,0.12); }
+    .btn-mini {
+      font-size: 0.7rem !important;
+      padding: 0.18rem 0.45rem !important;
+      margin-left: 0.28rem;
+    }
     .hint {
       margin: 0.35rem 0 0;
       font-size: 0.78rem;
@@ -447,8 +559,19 @@
       <h1>ruletka.vip admin</h1>
       <span class="badge">reports</span>
       <span style="flex:1"></span>
+      <a href="/admin-connect.html" class="btn" style="text-decoration:none">Connect</a>
       <a href="/live.html" class="btn" style="text-decoration:none">← Live</a>
     </header>
+
+    <nav class="jump-nav" aria-label="Jump">
+      <a href="#sec-glance">Glance</a>
+      <a href="#sec-stars">Stars</a>
+      <a href="#sec-bans">Bans</a>
+      <a href="#sec-matches">Matches</a>
+      <a href="#sec-reports">Reports</a>
+      <a href="#connect-live-card">Connect</a>
+      <input id="find-user" type="search" placeholder="Find name · UUID · IP · 8-char" autocomplete="off" />
+    </nav>
 
     <div class="auth">
       <input id="token" type="password" placeholder="Admin token (ROULETTE_ADMIN_TOKEN)" autocomplete="current-password" />
@@ -456,24 +579,21 @@
       <button type="button" id="btn-clear-token">Forget</button>
     </div>
     <p class="hint">
-      <strong>Two locks:</strong> (1) browser HTTP Basic login at the edge (Caddy),
-      (2) this admin token (<code>ROULETTE_ADMIN_TOKEN</code>).
-      Token is stored only in this browser’s <code>localStorage</code>.
-      API: <code>GET /v1/admin/reports</code>
+      <strong>Two locks:</strong> (1) browser HTTP Basic at the edge (Caddy),
+      (2) this token (<code>ROULETTE_ADMIN_TOKEN</code> via <code>X-Admin-Token</code> — never Bearer).
+      Stored in <code>localStorage</code> only.
     </p>
-    <p class="hint">
-      <strong>Auto-moderation (no admin required):</strong>
-      underage → 1 report / 30d ban;
-      explicit → 3 independent reporters / <strong>90d</strong> (2nd strike → permanent only with ≥3 reporters, not during raid spikes);
-      ban score is <strong>1 per reporter</strong> for non-underage (stars no longer ×2/×3 bans);
-      harassment·hate → 2 / 14d;
-      spam·other → 3 / 7d;
-      AI NSFW reports (<code>explicit_ai</code>) need one extra unique reporter.
-      Clients also block + skip immediately. Review logs / recent matches below.
-      Optional alerts: set <code>ROULETTE_MOD_WEBHOOK_URL</code> (Telegram
-      <code>…/sendMessage?chat_id=…</code>, Slack, or Discord) in
-      <code>data/mod.env</code> — see <code>docs/OPS.md</code>.
-    </p>
+    <details class="fold">
+      <summary>Auto-moderation + webhook (click)</summary>
+      <p class="hint">
+        underage → 1 report / 30d;
+        explicit → 3 reporters / <strong>90d</strong> (2nd strike → permanent only with ≥3, not during raid spikes);
+        harassment·hate → 2 / 14d;
+        spam·other → 3 / 7d;
+        <code>explicit_ai</code> needs one extra unique reporter.
+        Optional: <code>ROULETTE_MOD_WEBHOOK_URL</code> in <code>data/mod.env</code> — <code>docs/OPS.md</code>.
+      </p>
+    </details>
     <p class="err" id="err" hidden></p>
 
     <div class="stats" id="stats" hidden>
@@ -532,6 +652,7 @@
 
     <!-- Operator dashboard: key signals in one place -->
     <section class="glance" id="glance" aria-label="Today at a glance">
+      <span id="sec-glance" hidden></span>
       <div class="glance-head">
         <h2>Today at a glance</h2>
         <span class="glance-updated" id="glance-updated">Sign in to load</span>
@@ -684,11 +805,12 @@
       </table>
     </div>
 
-    <h2>Stars ledger</h2>
+    <h2 id="sec-stars">Stars ledger</h2>
     <p class="hint">
       Append-only <code>data/star_ledger.jsonl</code> · daily natural mint cap · admin grants write
       <code>adjust</code> events (never edit balances by hand).
       Trust = peer gifts only · report tiers need 5+ / 12+ unique gifters · auto-ban clawback burns ~25% balance / ~35% trust.
+      Table is the <strong>full ledger</strong> (every account with ★ or trust), not top 12.
     </p>
     <div class="stats" id="ledger-stats" hidden>
       <div class="stat">Seq <strong id="lg-seq">0</strong></div>
@@ -702,18 +824,25 @@
     <div class="card" style="margin-bottom:1rem">
       <div class="empty" id="ledger-empty">Sign in to load ledger</div>
       <p class="hint" id="ledger-graph-hint" hidden style="margin:0 0 0.65rem"></p>
+      <div class="ledger-toolbar" id="ledger-toolbar" hidden>
+        <input id="ledger-filter" type="search" placeholder="Filter by name or UUID" autocomplete="off" style="flex:1 1 16rem;min-width:12rem;border:1px solid var(--border);background:#0e131a;color:var(--text);border-radius:10px;padding:0.4rem 0.7rem;font:inherit;font-size:0.82rem" />
+        <span class="ledger-count" id="ledger-count"></span>
+        <button type="button" class="btn-mini" id="btn-ledger-csv">CSV</button>
+      </div>
+      <div class="ledger-wrap" id="ledger-wrap" hidden>
       <table id="ledger-table" hidden>
         <thead>
           <tr>
-            <th>User</th>
-            <th>Name</th>
-            <th>★ bal</th>
-            <th>Trust</th>
-            <th>Gifters</th>
+            <th data-sort="user_id">User</th>
+            <th data-sort="name">Name</th>
+            <th data-sort="stars">★ bal</th>
+            <th data-sort="trust">Trust</th>
+            <th data-sort="trust_gifters">Gifters</th>
           </tr>
         </thead>
         <tbody id="ledger-body"></tbody>
       </table>
+      </div>
       <p class="settings-section-label" id="ledger-ld-label" hidden style="margin:0.85rem 0 0.35rem;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted)">Low diversity (high trust, few gifters)</p>
       <table id="ledger-ld-table" hidden>
         <thead>
@@ -730,7 +859,7 @@
       <div class="auth" style="margin-top:0.85rem;padding:0;border:none;background:transparent">
         <label>
           Grant stars (ledger)
-          <input id="grant-uid" type="text" placeholder="user_id" autocomplete="off" />
+          <input id="grant-uid" type="text" placeholder="user UUID or 8-char friend code" autocomplete="off" />
         </label>
         <label>
           Amount
@@ -742,7 +871,9 @@
         </label>
         <button type="button" class="primary" id="btn-grant-stars">Grant ★</button>
       </div>
+      <p class="grant-preview" id="grant-preview" hidden></p>
       <p class="hint" id="grant-result" hidden style="margin:0.5rem 0 0"></p>
+      <ul class="grant-log" id="grant-log" hidden></ul>
     </div>
 
     <h2>Ops checklist</h2>
@@ -805,7 +936,7 @@
       </table>
     </div>
 
-    <h2>Active match bans</h2>
+    <h2 id="sec-bans">Active match bans</h2>
     <p class="hint">
       Priority reporter <code>2AFEE934</code> → permanent <strong>user + IP</strong> ban on any report.
       Unban user also clears linked IPs. Unban IP alone leaves the user ban if still present.
@@ -815,6 +946,7 @@
       <table id="bans-table" hidden>
         <thead>
           <tr>
+            <th>Face</th>
             <th>User</th>
             <th>Until</th>
             <th>Reporters</th>
@@ -877,7 +1009,7 @@
       <button type="button" id="btn-social-mute-refresh">Refresh mutes</button>
     </div>
 
-    <h2>Recent matches</h2>
+    <h2 id="sec-matches">Recent matches</h2>
     <div class="card" id="recent-matches-card">
       <div class="empty" id="recent-matches-empty">Sign in to load recent matches (in-memory, last ~80 since hub restart)</div>
       <table id="recent-matches-table" hidden>
@@ -894,12 +1026,13 @@
       </table>
     </div>
 
-    <h2>Recent reports</h2>
+    <h2 id="sec-reports">Recent reports</h2>
     <div class="card" id="reports-card">
       <div class="empty" id="reports-empty">Sign in to load reports</div>
       <table id="reports-table" hidden>
         <thead>
           <tr>
+            <th>Face</th>
             <th>When</th>
             <th>Target</th>
             <th>Reporter</th>
@@ -943,19 +1076,31 @@
       } catch (_) {}
     }
 
+    function stripTokenQuery() {
+      try {
+        const u = new URL(location.href);
+        if (!u.searchParams.has("token")) return;
+        u.searchParams.delete("token");
+        const q = u.searchParams.toString();
+        history.replaceState({}, "", u.pathname + (q ? "?" + q : "") + u.hash);
+      } catch (_) {}
+    }
+
     function loadSaved() {
       try {
         const t = localStorage.getItem(KEY) || "";
         if (t) $("token").value = t;
         const q = new URLSearchParams(location.search).get("token");
         if (q) $("token").value = q;
+        stripTokenQuery();
       } catch (_) {}
     }
 
     function headers() {
       const t = token();
       return {
-        Authorization: "Bearer " + t,
+        // Do not set Authorization: Bearer — that overwrites Caddy HTTP Basic
+        // and the browser pops the sign-in dialog again on Load.
         "X-Admin-Token": t,
         "Content-Type": "application/json",
       };
@@ -996,13 +1141,365 @@
       return s.slice(0, 10) + "…" + s.slice(-4);
     }
 
+    function evidenceFileName(path) {
+      const s = String(path || "").replace(/\\/g, "/");
+      const n = s.split("/").pop() || "";
+      return /^r_[A-Za-z0-9_.]+\.jpg$/.test(n) ? n : "";
+    }
+
+    function evidenceCell(path) {
+      const n = evidenceFileName(path);
+      if (!n) return '<span class="muted">—</span>';
+      return `<img class="ev-thumb" data-evidence="${escapeAttr(n)}" alt="" hidden />`;
+    }
+
+    let lastReportsList = [];
+    function evidenceForUser(uid) {
+      const id = String(uid || "");
+      for (const r of lastReportsList) {
+        if (String(r.target_user_id || "") === id && r.evidence) {
+          return r.evidence;
+        }
+      }
+      return "";
+    }
+
+    async function bindEvidenceThumbs(root) {
+      if (!root) return;
+      const imgs = root.querySelectorAll("img[data-evidence]");
+      imgs.forEach(async (img) => {
+        const name = img.getAttribute("data-evidence") || "";
+        if (!name) return;
+        try {
+          const r = await fetch("/v1/admin/evidence/" + encodeURIComponent(name), {
+            headers: headers(),
+            credentials: "same-origin",
+            cache: "no-store",
+          });
+          if (!r.ok) return;
+          const blob = await r.blob();
+          img.src = URL.createObjectURL(blob);
+          img.hidden = false;
+          img.addEventListener("click", () => window.open(img.src, "_blank"));
+        } catch (_) {}
+      });
+    }
+
+    /** In-page people index from last /v1/admin/reports dump (no lookup API). */
+    let identIndex = [];
+    const grantLog = [];
+    let ledgerRows = [];
+    let ledgerSort = { key: "stars", dir: -1 };
+
+    function rememberPerson(uid, extra) {
+      const id = String(uid || "").trim();
+      if (!id) return;
+      let row = identIndex.find((r) => r.uid === id);
+      if (!row) {
+        row = { uid: id, name: "", stars: null, ip: "", sources: [] };
+        identIndex.push(row);
+      }
+      if (extra?.name && extra.name !== "—") row.name = extra.name;
+      if (extra?.stars != null) row.stars = extra.stars;
+      if (extra?.ip) row.ip = extra.ip;
+      if (extra?.source && !row.sources.includes(extra.source)) {
+        row.sources.push(extra.source);
+      }
+    }
+
+    function rebuildIdentIndex(data) {
+      identIndex = [];
+      if (!data) return;
+      const led = (data.metrics && data.metrics.stars_ledger) || {};
+      const rows =
+        (Array.isArray(led.rows) && led.rows.length && led.rows) ||
+        led.top_trust ||
+        led.top ||
+        [];
+      for (const r of rows) {
+        rememberPerson(r.user_id, { name: r.name, stars: r.stars, source: "ledger" });
+      }
+      for (const r of data.reports || []) {
+        rememberPerson(r.target_user_id, {
+          name: r.target_name,
+          ip: r.target_ip,
+          source: "report",
+        });
+        rememberPerson(r.reporter_user_id, {
+          name: r.reporter_name,
+          source: "reporter",
+        });
+      }
+      for (const b of data.bans || []) {
+        rememberPerson(b.user_id, { name: b.name, ip: b.last_ip, source: "ban" });
+      }
+      for (const t of data.targets || []) {
+        rememberPerson(t.user_id, { name: t.name, source: "target" });
+      }
+      for (const m of data.recent_matches || []) {
+        rememberPerson(m.user_a, { name: m.name_a, source: "match" });
+        rememberPerson(m.user_b, { name: m.name_b, source: "match" });
+      }
+    }
+
+    function findIdentity(q) {
+      const s = String(q || "").trim();
+      if (!s) return null;
+      const low = s.toLowerCase();
+      const up = s.toUpperCase();
+      const exact = identIndex.find(
+        (r) => r.uid === s || r.uid.toLowerCase() === low
+      );
+      if (exact) return exact;
+      if (up.length === 8 && /^[0-9A-F]{8}$/.test(up)) {
+        return { uid: "", name: "", stars: null, code: up, unresolved: true };
+      }
+      return (
+        identIndex.find((r) => (r.name || "").toLowerCase().includes(low)) ||
+        identIndex.find(
+          (r) =>
+            shortId(r.uid).toLowerCase() === low ||
+            r.uid.toLowerCase().includes(low)
+        ) ||
+        null
+      );
+    }
+
+    function describePerson(uid) {
+      const hit = findIdentity(uid);
+      if (hit && !hit.unresolved) {
+        return (
+          (hit.name || "unnamed") +
+          " (" +
+          hit.uid +
+          ")" +
+          (hit.stars != null ? " · ★" + hit.stars : "")
+        );
+      }
+      return String(uid || "");
+    }
+
+    function fillGrant(uid) {
+      if ($("grant-uid")) $("grant-uid").value = uid || "";
+      renderGrantPreview();
+      $("grant-uid")?.focus?.();
+      $("sec-stars")?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    }
+
+    function renderGrantPreview() {
+      const box = $("grant-preview");
+      if (!box) return;
+      const q = ($("grant-uid")?.value || "").trim();
+      if (!q) {
+        box.hidden = true;
+        box.textContent = "";
+        return;
+      }
+      const hit = findIdentity(q);
+      box.hidden = false;
+      if (hit?.unresolved) {
+        box.className = "grant-preview is-miss";
+        box.textContent =
+          "Friend code " +
+          hit.code +
+          " — not in this page’s tables. Grant asks the hub to resolve it; unknown codes are rejected (not a new ledger key).";
+        return;
+      }
+      if (!hit) {
+        box.className = "grant-preview is-miss";
+        box.textContent =
+          "No name match in loaded ledger / reports / matches. A real UUID still grants if the user exists.";
+        return;
+      }
+      box.className = "grant-preview";
+      box.innerHTML =
+        "<strong>" +
+        escapeHtml(hit.name || "unnamed") +
+        "</strong> · " +
+        escapeHtml(hit.uid) +
+        (hit.stars != null ? " · current ★ " + hit.stars : "") +
+        " · seen in " +
+        escapeHtml((hit.sources || []).join(", ") || "page");
+    }
+
+    function pushGrantLog(line) {
+      grantLog.unshift(line);
+      if (grantLog.length > 10) grantLog.pop();
+      const ul = $("grant-log");
+      if (!ul) return;
+      ul.hidden = false;
+      ul.innerHTML = grantLog
+        .map((s) => "<li>" + escapeHtml(s) + "</li>")
+        .join("");
+    }
+
+    function applyFind(q) {
+      const s = String(q || "").trim().toLowerCase();
+      document.querySelectorAll("tr.is-hit").forEach((tr) => {
+        tr.classList.remove("is-hit");
+      });
+      if (!s) return;
+      let first = null;
+      document.querySelectorAll(".wrap tbody tr").forEach((tr) => {
+        const t = (tr.textContent || "").toLowerCase();
+        const title = Array.from(tr.querySelectorAll("[title]"))
+          .map((el) => el.getAttribute("title") || "")
+          .join(" ")
+          .toLowerCase();
+        if (t.includes(s) || title.includes(s)) {
+          tr.classList.add("is-hit");
+          if (!first) first = tr;
+        }
+      });
+      if (first) first.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+
+    function sortLedgerRows() {
+      const key = ledgerSort.key || "stars";
+      const dir = ledgerSort.dir || -1;
+      const num = (r, k) => Number(r[k]) || 0;
+      ledgerRows.sort((a, b) => {
+        if (key === "name" || key === "user_id") {
+          const av = String(a[key] || "").toLowerCase();
+          const bv = String(b[key] || "").toLowerCase();
+          return av.localeCompare(bv) * dir;
+        }
+        const d = (num(a, key) - num(b, key)) * dir;
+        if (d) return d;
+        return String(a.user_id || "").localeCompare(String(b.user_id || ""));
+      });
+    }
+
+    function paintLedgerBody() {
+      const body = $("ledger-body");
+      if (!body) return;
+      sortLedgerRows();
+      body.innerHTML = ledgerRows
+        .map((r) => {
+          const uid = r.user_id || "";
+          const trust = r.trust ?? 0;
+          const eff =
+            r.trust_effective != null ? r.trust_effective : trust;
+          const g = r.trust_gifters ?? 0;
+          return `<tr>
+          <td class="uid" title="${escapeAttr(uid)}">${escapeHtml(
+            shortId(uid)
+          )}${personActions(uid)}</td>
+          <td>${escapeHtml(r.name || "—")}</td>
+          <td><strong>★ ${r.stars ?? 0}</strong></td>
+          <td>${trust}${eff !== trust ? " → " + eff : ""}</td>
+          <td>${g}</td>
+        </tr>`;
+        })
+        .join("");
+      bindPersonActions(body);
+      filterLedgerRows();
+      $("ledger-table")
+        ?.querySelectorAll("thead th[data-sort]")
+        .forEach((th) => {
+          const on = th.getAttribute("data-sort") === ledgerSort.key;
+          th.textContent = th.textContent.replace(/ [▲▼]$/, "");
+          if (on) th.textContent += ledgerSort.dir < 0 ? " ▼" : " ▲";
+        });
+    }
+
+    function exportLedgerCsv() {
+      if (!ledgerRows.length) return;
+      const cols = ["user_id", "name", "stars", "trust", "trust_effective", "trust_gifters"];
+      const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+      const lines = [cols.join(",")].concat(
+        ledgerRows.map((r) => cols.map((c) => esc(r[c])).join(","))
+      );
+      const blob = new Blob(["\ufeff" + lines.join("\n")], {
+        type: "text/csv;charset=utf-8",
+      });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "stars-ledger.csv";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+    }
+
+    function filterLedgerRows() {
+      const q = ($("ledger-filter")?.value || "").trim().toLowerCase();
+      const body = $("ledger-body");
+      if (!body) return;
+      let shown = 0;
+      body.querySelectorAll("tr").forEach((tr) => {
+        if (!q) {
+          tr.hidden = false;
+          shown += 1;
+          return;
+        }
+        const t = (tr.textContent || "").toLowerCase();
+        const title = (tr.querySelector("[title]")?.getAttribute("title") || "").toLowerCase();
+        const hit = t.includes(q) || title.includes(q);
+        tr.hidden = !hit;
+        if (hit) shown += 1;
+      });
+      const count = $("ledger-count");
+      if (count) {
+        const n = ledgerRows.length;
+        count.textContent = q
+          ? shown + " / " + n + " shown"
+          : n + " account" + (n === 1 ? "" : "s");
+      }
+    }
+
+    function personActions(uid) {
+      const id = String(uid || "");
+      if (!id) return "";
+      return (
+        `<button type="button" class="btn-mini" data-grant-fill="${escapeAttr(id)}">Grant…</button>` +
+        `<button type="button" class="btn-mini" data-copy-id="${escapeAttr(id)}" title="${escapeAttr(id)}">Copy id</button>`
+      );
+    }
+
+    function bindPersonActions(root) {
+      if (!root) return;
+      root.querySelectorAll("[data-grant-fill]").forEach((btn) => {
+        btn.addEventListener("click", () =>
+          fillGrant(btn.getAttribute("data-grant-fill") || "")
+        );
+      });
+      root.querySelectorAll("[data-copy-id]").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const id = btn.getAttribute("data-copy-id") || "";
+          try {
+            await navigator.clipboard.writeText(id);
+            btn.textContent = "Copied";
+            setTimeout(() => {
+              btn.textContent = "Copy id";
+            }, 1200);
+          } catch (_) {
+            showErr(id);
+          }
+        });
+      });
+    }
+
+    function signedOutUi() {
+      if ($("stats")) $("stats").hidden = true;
+      if ($("connect-live-card")) $("connect-live-card").hidden = true;
+      $("glance")?.classList.remove("is-on");
+      if (clTimer) {
+        clearInterval(clTimer);
+        clTimer = 0;
+      }
+    }
+
     async function api(path, opts) {
       const r = await fetch(path, {
         ...opts,
         headers: { ...headers(), ...(opts && opts.headers) },
         cache: "no-store",
+        // Send Caddy HTTP Basic the browser already prompted for.
+        credentials: "same-origin",
       });
-      if (r.status === 401) throw new Error("Unauthorized — check admin token");
+      if (r.status === 401)
+        throw new Error(
+          "401 — admin token rejected. Caddy Basic can still be ok. Paste ROULETTE_ADMIN_TOKEN into the field (sent as X-Admin-Token). Do not send Bearer."
+        );
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || r.statusText || "request failed");
       return j;
@@ -1121,6 +1618,7 @@
                 .join("")
             : '<span class="muted">—</span>';
           return `<tr>
+          <td>${evidenceCell(evidenceForUser(b.user_id))}</td>
           <td>
             <div>${escapeHtml(b.name || "—")}</div>
             <div class="uid" title="${escapeAttr(b.user_id)}">${escapeHtml(shortId(b.user_id))}</div>
@@ -1140,6 +1638,7 @@
       body.querySelectorAll("[data-unban]").forEach((btn) => {
         btn.addEventListener("click", () => unban(btn.getAttribute("data-unban")));
       });
+      bindEvidenceThumbs(body);
     }
 
     function renderIpBans(list) {
@@ -1194,6 +1693,7 @@
     }
 
     function renderReports(list) {
+      lastReportsList = Array.isArray(list) ? list : [];
       const body = $("reports-body");
       const empty = $("reports-empty");
       const table = $("reports-table");
@@ -1217,10 +1717,12 @@
             ? `<div class="uid" title="IP">${escapeHtml(r.target_ip)}</div>`
             : "";
           return `<tr>
+          <td>${evidenceCell(r.evidence)}</td>
           <td class="muted">${escapeHtml(fmtTime(r.t))}</td>
           <td>
             <div>${escapeHtml(r.target_name || "—")} ${banned}</div>
             <div class="uid" title="${escapeAttr(r.target_user_id)}">${escapeHtml(shortId(r.target_user_id))}</div>
+            ${personActions(r.target_user_id)}
             ${ipBit}
           </td>
           <td>
@@ -1234,6 +1736,8 @@
         </tr>`;
         })
         .join("");
+      bindPersonActions(body);
+      bindEvidenceThumbs(body);
     }
 
     function renderSeeders(list) {
@@ -1450,6 +1954,7 @@
           <td>
             <div>${escapeHtml(t.name || "—")}</div>
             <div class="uid" title="${escapeAttr(t.user_id)}">${escapeHtml(shortId(t.user_id))}</div>
+            ${personActions(t.user_id)}
           </td>
           <td>${t.unique_reporters ?? 0}</td>
           <td>${st}</td>
@@ -1469,6 +1974,7 @@
       body.querySelectorAll("[data-ban]").forEach((btn) => {
         btn.addEventListener("click", () => ban(btn.getAttribute("data-ban"), 7));
       });
+      bindPersonActions(body);
     }
 
     function escapeHtml(s) {
@@ -2050,6 +2556,8 @@
           empty.textContent = "No ledger data";
         }
         if (table) table.hidden = true;
+        if ($("ledger-wrap")) $("ledger-wrap").hidden = true;
+        if ($("ledger-toolbar")) $("ledger-toolbar").hidden = true;
         if (ldTable) ldTable.hidden = true;
         if (ldLabel) ldLabel.hidden = true;
         if (graphHint) graphHint.hidden = true;
@@ -2088,52 +2596,29 @@
         $("lg-tip").textContent = tip ? tip.slice(0, 16) + "…" : "—";
         $("lg-tip").title = tip;
       }
-      const topTrust = Array.isArray(led.top_trust) ? led.top_trust : [];
-      const top = topTrust.length
-        ? topTrust
+      ledgerRows = Array.isArray(led.rows) && led.rows.length
+        ? led.rows.slice()
         : Array.isArray(led.top)
-          ? led.top
-          : [];
+          ? led.top.slice()
+          : Array.isArray(led.top_trust)
+            ? led.top_trust.slice()
+            : [];
       if (!body) return;
-      if (!top.length) {
+      if (!ledgerRows.length) {
         if (empty) {
           empty.hidden = false;
           empty.textContent = "No balances yet";
         }
         if (table) table.hidden = true;
+        if ($("ledger-wrap")) $("ledger-wrap").hidden = true;
+        if ($("ledger-toolbar")) $("ledger-toolbar").hidden = true;
         body.innerHTML = "";
       } else {
         if (empty) empty.hidden = true;
         if (table) table.hidden = false;
-        body.innerHTML = top
-          .map((r) => {
-            const uid = r.user_id || "";
-            const trust = r.trust ?? 0;
-            const eff =
-              r.trust_effective != null ? r.trust_effective : trust;
-            const g = r.trust_gifters ?? 0;
-            return `<tr>
-          <td class="uid" title="${escapeAttr(uid)}">${escapeHtml(
-              shortId(uid)
-            )}</td>
-          <td>${escapeHtml(r.name || "—")}</td>
-          <td><strong>★ ${r.stars ?? 0}</strong>
-            <button type="button" data-grant-fill="${escapeAttr(
-              uid
-            )}" style="margin-left:0.35rem;font-size:0.72rem">Grant…</button>
-          </td>
-          <td>${trust}${eff !== trust ? " → " + eff : ""}</td>
-          <td>${g}</td>
-        </tr>`;
-          })
-          .join("");
-        body.querySelectorAll("[data-grant-fill]").forEach((btn) => {
-          btn.addEventListener("click", () => {
-            const uid = btn.getAttribute("data-grant-fill") || "";
-            if ($("grant-uid")) $("grant-uid").value = uid;
-            $("grant-uid")?.focus?.();
-          });
-        });
+        if ($("ledger-wrap")) $("ledger-wrap").hidden = false;
+        if ($("ledger-toolbar")) $("ledger-toolbar").hidden = false;
+        paintLedgerBody();
       }
       const low = Array.isArray(graph.low_diversity) ? graph.low_diversity : [];
       if (ldBody && ldTable) {
@@ -2170,24 +2655,39 @@
       const out = $("grant-result");
       if (!uid || amount < 1) {
         showErr("user_id and amount required");
+        if (out) {
+          out.hidden = false;
+          out.textContent = "user UUID / 8-char friend code and amount required";
+        }
         return;
       }
-      if (!confirm(`Grant ★ ${amount} to ${uid}?`)) return;
+      const who = describePerson(uid);
+      if (!confirm(`Grant ★ ${amount} to ${who}?`)) return;
       try {
         const data = await api("/v1/admin/stars", {
           method: "POST",
           body: JSON.stringify({ user_id: uid, amount, reason }),
         });
+        const line = data.ok
+          ? `OK · ★${amount} → ${data.user_id || uid} · balance ★ ${data.stars}`
+          : data.error || "failed";
         if (out) {
           out.hidden = false;
-          out.textContent = data.ok
-            ? `OK · balance ★ ${data.stars}`
-            : data.error || "failed";
+          out.textContent = line;
+        }
+        if (data.ok) {
+          pushGrantLog(new Date().toLocaleTimeString() + " · " + line);
+          if (data.user_id && $("grant-uid")) $("grant-uid").value = data.user_id;
+          renderGrantPreview();
         }
         if (data.ledger) renderStarsLedger(data.ledger);
         else await refresh();
       } catch (e) {
         showErr(e.message || String(e));
+        if (out) {
+          out.hidden = false;
+          out.textContent = e.message || String(e);
+        }
       }
     }
 
@@ -2326,13 +2826,14 @@
         $("st-bans").textContent =
           (data.bans || []).length + (data.ip_bans || []).length;
         $("st-seeders").textContent = (data.seeders || []).length;
+        renderReports(data.reports || []);
         renderBans(data.bans || []);
         renderIpBans(data.ip_bans || []);
         renderRecentMatches(data.recent_matches || []);
-        renderReports(data.reports || []);
         renderTargets(data.targets || []);
         renderSeeders(data.seeders || []);
         renderMetrics(data.metrics || {});
+        rebuildIdentIndex(data);
         renderGlance({
           online: data.online ?? 0,
           waiting: data.waiting ?? 0,
@@ -2340,6 +2841,8 @@
           bans: (data.bans || []).length + (data.ip_bans || []).length,
           metrics: data.metrics || {},
         });
+        renderGrantPreview();
+        applyFind($("find-user")?.value || "");
         await loadMesh();
         await loadSocialMutes();
         await loadConnectLive();
@@ -2365,7 +2868,8 @@
     }
 
     async function unban(uid) {
-      if (!uid || !confirm("Unban user " + uid + " (and linked IPs)?")) return;
+      if (!uid || !confirm("Unban " + describePerson(uid) + " (and linked IPs)?"))
+        return;
       try {
         await api("/v1/admin/unban", {
           method: "POST",
@@ -2397,7 +2901,7 @@
       const permanent = !Number.isFinite(d) ? false : d === 0;
       const secs = permanent ? 0 : Math.max(1, d || 7) * 86400;
       const label = permanent ? "PERMANENTLY" : "for " + (d || 7) + " days";
-      if (!confirm("Ban " + uid + " " + label + "?")) return;
+      if (!confirm("Ban " + describePerson(uid) + " " + label + "?")) return;
       try {
         await api("/v1/admin/ban", {
           method: "POST",
@@ -2442,10 +2946,12 @@
             <td>
               <div>${escapeHtml(na)}</div>
               <div class="uid" title="${escapeAttr(ua)}">${escapeHtml(shortId(ua))}</div>
+              ${personActions(ua)}
             </td>
             <td>
               <div>${escapeHtml(nb)}</div>
               <div class="uid" title="${escapeAttr(ub)}">${escapeHtml(shortId(ub))}</div>
+              ${personActions(ub)}
             </td>
             <td style="white-space:nowrap">
               ${
@@ -2469,6 +2975,7 @@
           ban(btn.getAttribute("data-ban"), btn.getAttribute("data-days"))
         );
       });
+      bindPersonActions(body);
     }
 
     $("btn-load").addEventListener("click", refresh);
@@ -2485,6 +2992,28 @@
       $("token").value = "";
       saveToken("");
       showErr("");
+      signedOutUi();
+    });
+    $("grant-uid")?.addEventListener("input", () => renderGrantPreview());
+    $("grant-uid")?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") grantStars();
+    });
+    $("grant-amt")?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") grantStars();
+    });
+    $("find-user")?.addEventListener("input", () => applyFind($("find-user").value));
+    $("ledger-filter")?.addEventListener("input", () => filterLedgerRows());
+    $("btn-ledger-csv")?.addEventListener("click", () => exportLedgerCsv());
+    $("ledger-table")?.querySelectorAll("thead th[data-sort]").forEach((th) => {
+      th.addEventListener("click", () => {
+        const key = th.getAttribute("data-sort") || "stars";
+        if (ledgerSort.key === key) ledgerSort.dir *= -1;
+        else {
+          ledgerSort.key = key;
+          ledgerSort.dir = key === "name" || key === "user_id" ? 1 : -1;
+        }
+        paintLedgerBody();
+      });
     });
     $("btn-ban").addEventListener("click", () => {
       ban($("ban-uid").value.trim(), $("ban-days").value);

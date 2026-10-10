@@ -17,6 +17,7 @@ import {
 import {
   Alert,
   BackHandler,
+  Modal,
   Dimensions,
   KeyboardAvoidingView,
   Linking,
@@ -91,6 +92,7 @@ import {
   partnerGeoHasSignal,
   pickPeer,
   readPeerGeo,
+  readPeerGifters,
   readPeerStars,
   readPeerTrust,
   resolvePartnerDisplayName,
@@ -426,6 +428,7 @@ function LiveBody() {
   const [partner, setPartner] = useState("");
   const [partnerStars, setPartnerStars] = useState(0);
   const [partnerTrust, setPartnerTrust] = useState(0);
+  const [partnerTrustGifters, setPartnerTrustGifters] = useState(0);
   const [partnerFlag, setPartnerFlag] = useState("");
   const [partnerCountry, setPartnerCountry] = useState("");
   const [partnerCity, setPartnerCity] = useState("");
@@ -491,7 +494,7 @@ function LiveBody() {
   /** One-shot swipe coach toast (AsyncStorage key below). */
   const swipeCoachShownRef = useRef(false);
   /** native = bottom call bar; browser = full-bleed dock over video */
-  const [liveLayout, setLiveLayout] = useState<LiveLayoutMode>("native");
+  const [liveLayout, setLiveLayout] = useState<LiveLayoutMode>("browser");
   const isBrowserLayout = liveLayout === "browser";
   /**
    * Stranger safety veil over partner video (friends never start veiled).
@@ -1904,6 +1907,12 @@ function LiveBody() {
                 })
               );
             }
+            {
+              const { gifters, known: gKnown } = readPeerGifters(anyMsg);
+              if (gKnown) {
+                setPartnerTrustGifters(Math.max(0, gifters));
+              }
+            }
             // Geo from peer DC when hub partner_geo / MatchPeer geo empty
             const geo = readPeerGeo(anyMsg);
             const hasGeoField =
@@ -2326,7 +2335,7 @@ function LiveBody() {
       setDataSaverOn(!!prefs.dataSaver);
       setSwipeSkipOn(prefs.swipeSkip !== false);
       setLiveLayout(
-        prefs.liveLayout === "browser" ? "browser" : "native"
+        prefs.liveLayout === "native" ? "native" : "browser"
       );
       const raw = prefs.blurStrangersMode;
       const mode: BlurStrangersMode =
@@ -2575,6 +2584,20 @@ function LiveBody() {
           };
           const detailRaw = String(m.detail || "");
           const hubPhase = String(m.phase || "");
+          if (
+            /restricted|banned from matching|cannot match/.test(detailRaw) &&
+            phaseRef.current !== "matched"
+          ) {
+            searchingRef.current = false;
+            queueAckedRef.current = false;
+            setQueueAcked(false);
+            setPhase("idle");
+            phaseRef.current = "idle";
+            showToastRef.current(
+              t("mobile.live.matchBanned") ||
+                "You're banned from matching"
+            );
+          }
           // Partner left: only tear down on EXPLICIT leave details.
           // Never kill a live call on bare phase=idle/waiting (that regressed
           // phone↔browser connect in 0.1.86 — status noise mid-call).
@@ -2664,6 +2687,7 @@ function LiveBody() {
             setPartnerCode("");
             setPartnerStars(0);
             setPartnerTrust(0);
+            setPartnerTrustGifters(0);
             setPartnerFlag("");
             setPartnerCountry("");
             setPartnerCity("");
@@ -3816,6 +3840,12 @@ function LiveBody() {
                 nextKnown: !!peer.trustKnown,
               })
             );
+            setPartnerTrustGifters((prev) => {
+              if (peer.trustGiftersKnown) {
+                return Math.max(0, Math.floor(Number(peer.trustGifters) || 0));
+              }
+              return samePartner ? prev : 0;
+            });
             // Always flush Matched peer geo (incl. flag-only) so formatLocLine
             // can expand ISO→country. samePartner: merge non-empty only so a
             // second empty Matched does not wipe partner_geo-filled fields.
@@ -4735,6 +4765,20 @@ function LiveBody() {
           const low = em.toLowerCase();
           log(`hub error: ${em}`);
           if (
+            /restricted|banned from matching|cannot match/.test(low)
+          ) {
+            searchingRef.current = false;
+            queueAckedRef.current = false;
+            setQueueAcked(false);
+            setPhase("idle");
+            phaseRef.current = "idle";
+            showToastRef.current(
+              t("mobile.live.matchBanned") ||
+                "You're banned from matching"
+            );
+            break;
+          }
+          if (
             !em ||
             low === "not matched" ||
             low.includes("not matched") ||
@@ -4899,8 +4943,32 @@ function LiveBody() {
                 ? `${gift?.emoji || "🎤"} ${m.from_name || tRef.current("mobile.live.passMicTitle")}`.trim()
                 : label || m.effect;
             setGiftFlash(giftLabel);
-            // Non-bars gifts keep full-stage flash; bars paint on the tile (SurfaceView)
-            if (effectId !== "bars") {
+            try {
+              applyInboundGiftFxRef.current(
+                {
+                  effect: effectId,
+                  from_user_id: m.from_user_id,
+                  user_id: m.user_id,
+                  target_user_id: m.user_id,
+                  until: m.until,
+                  effect_until: m.effect_until,
+                  from_name: m.from_name,
+                },
+                "hub_star_effect"
+              );
+            } catch {
+              /* ignore */
+            }
+            const extraHitStar = (extraPeersRef.current || []).some((p) => {
+              const uid = String(m.user_id || "").trim();
+              const a = String(p?.userId || "").trim();
+              const b = String(p?.peerId || "").trim();
+              return !!uid && ((a && a === uid) || (b && b === uid));
+            });
+            // Extra tiles own FX; don't also flash the primary tile.
+            if (extraHitStar) {
+              setGiftEffect(null);
+            } else if (effectId !== "bars") {
               setGiftEffect(effectId);
             } else {
               setGiftEffect(null);
@@ -5072,6 +5140,7 @@ function LiveBody() {
           setExtraPeers([]);
           setPartnerStars(0);
           setPartnerTrust(0);
+          setPartnerTrustGifters(0);
           setPartnerFlag("");
           setPartnerCountry("");
           setPartnerCity("");
@@ -5397,6 +5466,7 @@ function LiveBody() {
     if (phase !== "search" || !connected) return;
     const id = setInterval(() => {
       if (phaseRef.current !== "search" || !searchingRef.current) return;
+      if (queueAckedRef.current) return;
       try {
         hub.spin();
         push("→ spin (keep-alive)");
@@ -5669,6 +5739,7 @@ function LiveBody() {
       setPartnerCode("");
       setPartnerStars(0);
       setPartnerTrust(0);
+      setPartnerTrustGifters(0);
       setPartnerFlag("");
       setPartnerCountry("");
       setPartnerCity("");
@@ -5939,6 +6010,7 @@ function LiveBody() {
       setPartner("");
       setPartnerStars(0);
       setPartnerTrust(0);
+      setPartnerTrustGifters(0);
       setPartnerFlag("");
       setPartnerCountry("");
       setPartnerCity("");
@@ -6144,6 +6216,7 @@ function LiveBody() {
       setPartner("");
       setPartnerStars(0);
       setPartnerTrust(0);
+      setPartnerTrustGifters(0);
       setPartnerFlag("");
       setPartnerCountry("");
       setPartnerCity("");
@@ -6400,14 +6473,10 @@ function LiveBody() {
       );
     });
     if (!onMe && !onPartner) {
-      if (extraHit && !fromMe) {
-        // Gift is on the other extra (laptop) — do not paint our face.
-        return;
-      }
       if (fromMe) onPartner = !extraHit;
-      else onMe = true;
+      else onMe = !extraHit;
     }
-    if (extraHit && fromMe) {
+    if (extraHit) {
       const extras = extraPeersRef.current || [];
       const idx = extras.findIndex((p) => {
         const a = String(p?.userId || "").trim();
@@ -7950,6 +8019,19 @@ function LiveBody() {
           // Find-3rd hunt: top=partner · bottom=looking. Drive from hunt flags
           // only — matchMode party_browse alone must not stick after cancel.
           // Matched + party_browse sets huntingWithPartner; remote2/3 ends it.
+          browserDuo={isBrowserLayout}
+          onNext={next}
+          onStop={stop}
+          onOpenFriends={() => {
+            hapticLight();
+            router.push("/friends");
+          }}
+          duoLabels={{
+            next: t("btn.next"),
+            stop: t("btn.stop"),
+            report: t("mobile.live.report") || "Report",
+            friends: t("mobile.nav.friends"),
+          }}
           lookingForThird={isLookingForThird({
             remoteStream,
             remoteStream2,
@@ -8188,6 +8270,9 @@ function LiveBody() {
           style={[
             styles.overlay,
             { paddingTop: Math.max(insets.top, 8) + 2 },
+            uiPhase === "search"
+              ? { zIndex: 2000, elevation: 2000 }
+              : null,
           ]}
           pointerEvents="box-none"
         >
@@ -8587,6 +8672,7 @@ function LiveBody() {
             code={partnerIdFriendCode || ""}
             stars={partnerStars}
             trust={partnerTrust}
+            trustGifters={partnerTrustGifters}
             displayStars={partnerDisplayStars}
             flag={partnerFlag}
             country={partnerCountry}
@@ -8654,12 +8740,26 @@ function LiveBody() {
       ) : null}
 
       {findThirdIncoming ? (
+        <Modal
+          visible
+          transparent
+          animationType="fade"
+          statusBarTranslucent
+          onRequestClose={() => {
+            try {
+              hub.findThirdRespond(false);
+            } catch {
+              /* ignore */
+            }
+            clearFindThirdIncoming();
+          }}
+        >
         <View
           pointerEvents="auto"
           style={{
             ...StyleSheet.absoluteFillObject,
-            zIndex: 2000,
-            elevation: 2000,
+            zIndex: 4000,
+            elevation: 4000,
             backgroundColor: "rgba(0,0,0,0.55)",
             justifyContent: "flex-start",
             paddingTop: Math.max(insets.top, 12) + 8,
@@ -8731,6 +8831,7 @@ function LiveBody() {
             </View>
           </View>
         </View>
+        </Modal>
       ) : null}
 
       <View
@@ -8748,6 +8849,11 @@ function LiveBody() {
           phase={uiPhase}
           hideIdleStart={!friendsOnly}
           searchArmed={searchArmed}
+          hideSearchControls={
+            isBrowserLayout &&
+            uiPhase === "matched" &&
+            extraPeers.length < 1
+          }
           friendsOnly={friendsOnly}
           isFriendCall={isFriendCall}
           stayRemSecs={stayRemSecs}

@@ -22,6 +22,17 @@
           }
         ]
       }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "scripts/session-start-agentic.sh",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

@@ -37,9 +37,10 @@ const expo = {
       {
         android: {
           minSdkVersion: 24,
-          // Play Console requires target API 35+ (Aug 2025+)
-          compileSdkVersion: 35,
-          targetSdkVersion: 35,
+          // Play: from 2026-08-30 updates must target API 36 (Android 16)
+          compileSdkVersion: 36,
+          targetSdkVersion: 36,
+          buildToolsVersion: "36.0.0",
           // Extract .so at install — more reliable on Android 15 (16KB pages)
           // when some prebuilt RN/Expo libs are still 4KB-aligned.
           useLegacyPackaging: true,

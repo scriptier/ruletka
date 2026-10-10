@@ -211,6 +211,10 @@
       // pool / chrome
       "pool.online": "Online",
       "pool.waiting": "Waiting",
+      "friends.onlineNow": "Online now",
+      "settings.connLobby": "Lobby",
+      "settings.connLobbyLine": "{online} online · {waiting} waiting",
+      "settings.connLobbyHint": "Live hub counts. Waiting = people in the search queue right now.",
       "pool.searching": "Searching…",
       "pool.youWaiting": "You’re in the queue",
       "pool.othersWaiting": "{n} others waiting",
@@ -276,6 +280,9 @@
       "trio.partnerLeftKeep": "Partner left — still connected",
       "trio.findStrangerTogether": "Find stranger together",
       "trio.findStrangerTogetherHint": "You both search for a stranger now — no invite step",
+      "trio.inviteFourth": "Invite a friend (4th)",
+      "trio.partyFull": "Party full (max 4) — leave someone before inviting",
+      "trio.inviteFourthHint": "Call a friend into this group — no random 4th from the lobby",
       "trio.inviteThenSearch": "Ask friend · Find 3rd",
       "trio.inviteFriendTitle": "Ask your friend first, then search together",
       "trio.roleFriend": "Friend",
@@ -336,12 +343,19 @@
       "btn.stopTitle": "Stop searching / leave call",
       "status.stopped": "stopped",
       "log.stopped": "stopped",
-      "log.partyCap": "max 2 opponents — skipping extra peer",
+      "log.partyCap": "max 3 opponents (you+3) — skipping extra peer",
+      "partyCap": "max 3 opponents (you+3) — skipping extra peer",
       "hub.autoShort": "auto",
       "hub.offline": "offline",
       "hub.probeOk": "reachable",
       "keys.stop": "Stop (leave queue / idle)",
       "remote.connecting": "Linking cameras…",
+      "remote.audioOnly": "Connected · no camera",
+      "local.audioOnly": "No camera — connecting with microphone",
+      "remote.noCamTitle": "No camera",
+      "remote.noCamSub": "Talking with microphone",
+      "local.noCamTitle": "No camera",
+      "local.noCamSub": "You're on microphone",
       "remote.handshake": "WebRTC handshake",
       "remote.tag": "Partner",
       "local.emptyTitle": "Your camera",
@@ -507,6 +521,9 @@
       "friends.blocked": "blocked",
       "friends.unblock": "Unblock",
       "friends.remove": "Remove",
+      "friends.removeFromList": "Remove from friends",
+      "friends.removeConfirm": "Remove {name} from your friends list?",
+      "friends.removed": "Removed from friends",
       "friends.blockConfirm": "Block this person? You will not match them again.",
       "friends.blockOk": "user blocked",
       "friends.blockOkTitle": "Blocked",
@@ -639,7 +656,7 @@
       "debate.inviteExpired": "Debate invite expired",
       "debate.inviteSent": "Debate invite sent to {n}…",
       "debate.inviteSentLog": "debate invite sent",
-      "debate.needLive": "Debate only works during a live 1:1 call",
+      "debate.needLive": "Debate only works during a live call",
       "debate.needP2p": "Wait until the connection is ready, then invite again",
       "debate.notYourTurn": "Not your turn",
       "debate.pass": "Pass turn",
@@ -846,7 +863,7 @@
       "hub.directory": "Known hubs",
       "hub.refresh": "Refresh list",
       "hub.usePage": "Use this page’s hub",
-      "hub.runOwn": "Run your own hub: github.com/scriptier/ruletka",
+      "hub.runOwn": "Video stays peer-to-peer.",
       "hub.loading": "Loading directory…",
       "hub.empty": "No other hubs listed yet",
       "hub.switched": "Switched hub → {h}",
@@ -865,7 +882,7 @@
       "sec.qualityWeakTitle": "High loss or latency — video may auto-lower quality",
       "friends.onlineNow": "is online",
       "keys.title": "Keyboard shortcuts",
-      "keys.next": "Next partner",
+      "keys.next": "Start search / Next partner",
       "keys.mic": "Mute mic",
       "keys.cam": "Camera on/off",
       "keys.partner": "Mute partner",
@@ -921,6 +938,7 @@
 
       // server detail translations
       "srv.partnerNext": "partner hit Next — searching again",
+      "status.autoNextSkip": "They skipped — looking for next…",
       "srv.partnerStopped": "partner stopped",
       "srv.partnerDisc": "partner disconnected — searching again",
       "srv.reportOk": "report received — thank you",
@@ -1129,6 +1147,10 @@
 
       "pool.online": "В сети",
       "pool.waiting": "В очереди",
+      "friends.onlineNow": "Сейчас в сети",
+      "settings.connLobby": "Лобби",
+      "settings.connLobbyLine": "{online} онлайн · {waiting} ждут",
+      "settings.connLobbyHint": "Живые счётчики хаба. Waiting — сколько человек сейчас в поиске.",
       "pool.searching": "Поиск…",
       "pool.youWaiting": "Вы в очереди",
       "pool.othersWaiting": "ещё {n} ждут",
@@ -1193,6 +1215,8 @@
       "trio.partnerLeftKeep": "Собеседник вышел — вы всё ещё на связи",
       "trio.findStrangerTogether": "Искать незнакомца вместе",
       "trio.findStrangerTogetherHint": "Оба сразу ищете незнакомца — без запроса",
+      "trio.inviteFourth": "Пригласить друга (4-й)",
+      "trio.inviteFourthHint": "Позвоните другу в эту группу — без случайного 4-го из лобби",
       "trio.inviteThenSearch": "Спросить друга · 3-й",
       "trio.inviteFriendTitle": "Сначала спросите друга, потом ищите вместе",
       "trio.roleFriend": "Друг",
@@ -1250,10 +1274,17 @@
       "btn.stopTitle": "Остановить поиск / выйти из звонка",
       "status.stopped": "остановлено",
       "log.stopped": "остановлено",
-      "log.partyCap": "макс. 2 собеседника — лишний пропущен",
+      "log.partyCap": "макс. 3 собеседника (вы+3) — лишний пропущен",
+      "partyCap": "макс. 3 собеседника (вы+3) — лишний пропущен",
       "hub.autoShort": "авто",
       "keys.stop": "Стоп (выйти из очереди)",
       "remote.connecting": "Связываем камеры…",
+      "remote.audioOnly": "Связь · без камеры",
+      "local.audioOnly": "Нет камеры — подключаемся с микрофоном",
+      "remote.noCamTitle": "Нет камеры",
+      "remote.noCamSub": "Разговор по микрофону",
+      "local.noCamTitle": "Нет камеры",
+      "local.noCamSub": "Вы на микрофоне",
       "remote.handshake": "Установка WebRTC",
       "remote.tag": "Собеседник",
       "local.emptyTitle": "Ваша камера",
@@ -1401,6 +1432,9 @@
       "friends.blocked": "в блоке",
       "friends.unblock": "Разблок.",
       "friends.remove": "Удалить",
+      "friends.removeFromList": "Убрать из друзей",
+      "friends.removeConfirm": "Убрать {name} из списка друзей?",
+      "friends.removed": "Убрано из друзей",
       "friends.blockConfirm": "Заблокировать? Вы больше не встретитесь в поиске.",
       "friends.blockOk": "пользователь заблокирован",
       "friends.blockOkTitle": "В блоке",
@@ -1533,7 +1567,7 @@
       "debate.inviteExpired": "Приглашение в дебаты истекло",
       "debate.inviteSent": "Приглашение в дебаты отправлено {n}…",
       "debate.inviteSentLog": "приглашение в дебаты отправлено",
-      "debate.needLive": "Дебаты только в живом разговоре 1 на 1",
+      "debate.needLive": "Дебаты только в живом разговоре",
       "debate.needP2p": "Дождитесь готовности связи и пригласите снова",
       "debate.notYourTurn": "Сейчас не ваш ход",
       "debate.pass": "Передать ход",
@@ -1735,7 +1769,7 @@
       "hub.directory": "Известные хабы",
       "hub.refresh": "Обновить список",
       "hub.usePage": "Хаб этой страницы",
-      "hub.runOwn": "Свой хаб: github.com/scriptier/ruletka",
+      "hub.runOwn": "Видео остаётся peer-to-peer.",
       "hub.loading": "Загрузка каталога…",
       "hub.empty": "Других хабов пока нет",
       "hub.switched": "Хаб → {h}",
@@ -1754,7 +1788,7 @@
       "sec.qualityWeakTitle": "Большие потери или задержка — качество может снижаться автоматически",
       "friends.onlineNow": "сейчас онлайн",
       "keys.title": "Горячие клавиши",
-      "keys.next": "Следующий",
+      "keys.next": "Начать поиск / Следующий",
       "keys.mic": "Микрофон",
       "keys.cam": "Камера вкл/выкл",
       "keys.partner": "Звук собеседника",
@@ -1810,6 +1844,7 @@
       "rules.agreeMedia": "Я понимаю, что видео peer-to-peer и собеседник может записывать — при абьюзе использую Block/Report.",
 
       "srv.partnerNext": "собеседник нажал «Далее» — снова ищем",
+      "status.autoNextSkip": "Они нажали «Далее» — ищем следующего…",
       "srv.partnerStopped": "собеседник остановился",
       "srv.partnerDisc": "собеседник отключился — снова ищем",
       "srv.reportOk": "жалоба принята — спасибо",
@@ -1864,10 +1899,12 @@
       { code: "es", native: "Español", dir: "ltr" },
       { code: "de", native: "Deutsch", dir: "ltr" },
       { code: "fr", native: "Français", dir: "ltr" },
+      { code: "it", native: "Italiano", dir: "ltr" },
       { code: "pt", native: "Português", dir: "ltr" },
       { code: "tr", native: "Türkçe", dir: "ltr" },
       { code: "ar", native: "العربية", dir: "rtl" },
       { code: "zh", native: "中文", dir: "ltr" },
+      { code: "id", native: "Bahasa Indonesia", dir: "ltr" },
     ],
     default: "ru",
   };
@@ -1912,16 +1949,35 @@
   }
 
   function t(key, vars) {
+    const raw = String(key || "");
+    // Bare noCam* → dotted keys (2241Z painted "No Cam Title" from camel fallback).
+    const aliased =
+      raw === "noCamTitle"
+        ? "remote.noCamTitle"
+        : raw === "noCamSub"
+          ? "remote.noCamSub"
+          : raw;
     const table = STR[lang] || {};
-    let s = table[key] ?? STR.en?.[key] ?? STR.ru?.[key];
-    // Missing key → readable fallback (not raw "settings.foo" / uppercased section junk)
+    let s =
+      table[aliased] ??
+      STR.en?.[aliased] ??
+      STR.ru?.[aliased] ??
+      table[raw] ??
+      STR.en?.[raw] ??
+      STR.ru?.[raw];
     if (s == null || s === "") {
-      const last = String(key || "").split(".").pop() || key;
-      s = last
-        .replace(/([A-Z])/g, " $1")
-        .replace(/[_-]+/g, " ")
-        .replace(/^\s+/, "")
-        .replace(/^./, (c) => c.toUpperCase());
+      if (aliased.endsWith("noCamTitle") || raw.endsWith("noCamTitle")) {
+        s = "No camera";
+      } else if (aliased.endsWith("noCamSub") || raw.endsWith("noCamSub")) {
+        s = "Talking with microphone";
+      } else {
+        const last = aliased.split(".").pop() || aliased;
+        s = last
+          .replace(/([A-Z])/g, " $1")
+          .replace(/[_-]+/g, " ")
+          .replace(/^\s+/, "")
+          .replace(/^./, (c) => c.toUpperCase());
+      }
     }
     if (vars && typeof vars === "object") {
       for (const [k, v] of Object.entries(vars)) {
@@ -2011,7 +2067,7 @@
     if (!BUNDLED.has(c) && STR[c]) return Promise.resolve(STR[c]);
     if (loading[c]) return loading[c];
     // Prefer sessionStorage pack cache (avoids re-downloading ~100KB JSON every navigation)
-    const packCacheKey = "ruletka-i18n-pack-v91-" + c;
+    const packCacheKey = "ruletka-i18n-pack-v98-" + c;
     try {
       const cached = sessionStorage.getItem(packCacheKey);
       if (cached) {
@@ -2026,7 +2082,7 @@
     } catch (_) {}
 
     // Always fetch /i18n/{code}.json and merge over built-ins (en/ru too)
-    loading[c] = fetch(`/i18n/${c}.json?v=136`, { cache: "force-cache" })
+    loading[c] = fetch(`/i18n/${c}.json?v=146`, { cache: "force-cache" })
       .then((r) => {
         if (!r.ok) throw new Error("lang pack " + c);
         return r.json();
@@ -2056,7 +2112,7 @@
   }
 
   function loadMeta() {
-    return fetch("/i18n/meta.json?v=136", { cache: "force-cache" })
+    return fetch("/i18n/meta.json?v=137", { cache: "force-cache" })
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
         if (j && Array.isArray(j.languages)) META = j;

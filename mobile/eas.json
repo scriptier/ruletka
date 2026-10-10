@@ -14,7 +14,8 @@
         "buildType": "apk"
       },
       "ios": {
-        "simulator": false
+        "simulator": false,
+        "image": "macos-sequoia-15.6-xcode-26.2"
       }
     },
     "preview": {
@@ -40,6 +41,9 @@
       },
       "android": {
         "buildType": "app-bundle"
+      },
+      "ios": {
+        "image": "macos-sequoia-15.6-xcode-26.2"
       }
     },
     "production-friends": {
@@ -57,7 +61,7 @@
         "track": "internal"
       },
       "ios": {
-        "ascAppId": "REPLACE_ASC_APP_ID"
+        "ascAppId": "6804910924"
       }
     }
   }

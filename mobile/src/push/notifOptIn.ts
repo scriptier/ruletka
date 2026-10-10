@@ -27,13 +27,9 @@ export async function markNotifOptInSeen(): Promise<void> {
   }
 }
 
+/** Opens the app's system settings page (Notifications toggle lives there on both OSes). */
 async function openAppNotificationSettings(): Promise<void> {
   try {
-    if (Platform.OS === "android") {
-      // Opens app details; user can open Notifications + Battery from there
-      await Linking.openSettings();
-      return;
-    }
     await Linking.openSettings();
   } catch {
     /* ignore */

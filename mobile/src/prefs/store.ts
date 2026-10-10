@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { isValidAvatarDataUrl } from "../identity/avatar";
 
 const KEY = "ruletka.media-prefs.v1";
 /** One-shot: undo forced hold migration from 0.1.214 that slowed linking. */
@@ -16,8 +17,8 @@ export type LookingFor = "any" | "man" | "woman";
 /**
  * Stranger privacy veil on match (friends never start blurred).
  * - off: show partner cam immediately
- * - intro: frosted veil ~2.5s after video ready, then auto-reveal (DEFAULT)
- * - hold: stay covered until user taps Show video
+ * - intro: frosted veil ~2.5s after video ready, then auto-reveal
+ * - hold: stay covered until user taps Show video (DEFAULT / product policy)
  */
 export type BlurStrangersMode = "off" | "intro" | "hold";
 
@@ -48,7 +49,7 @@ export type MatchPrefs = {
   blurStrangers: boolean;
   /**
    * How to cover stranger video on match. Friend calls never start blurred.
-   * Default: intro (brief privacy veil). Opt-in off/hold in Settings.
+   * Default: hold (until Show video). Opt-in off/intro in Settings.
    */
   blurStrangersMode: BlurStrangersMode;
   /**
@@ -56,13 +57,22 @@ export type MatchPrefs = {
    * Default ON.
    */
   historySnaps: boolean;
-  /** Live UI layout: native call chrome vs mobile-browser dock. */
+  /** Live UI layout: native PiP vs mobile-browser split (you on the bottom). */
   liveLayout: LiveLayoutMode;
+  /** True after the user taps Native/Browser in Settings (skip migrate). */
+  liveLayoutExplicit?: boolean;
   /**
    * Swipe left/right on partner main video → Next (skip). Default ON.
    * Matches web prefs.swipeSkip.
    */
   swipeSkip: boolean;
+  /**
+   * Mic noise reduction + echo control (browser: lowLatencyAudio OFF).
+   * Default ON — same product as web. User can turn off in Settings.
+   */
+  noiseReduction: boolean;
+  /** Self photo data URL (jpeg/png/webp, ≤48k). Empty = letter fallback. */
+  avatar?: string;
 };
 
 const DEFAULTS: MatchPrefs = {
@@ -74,14 +84,16 @@ const DEFAULTS: MatchPrefs = {
   dataSaver: false,
   blurStrangers: true,
   /**
-   * Product default: brief privacy veil on strangers (intro ~2.8s), then
-   * auto-reveal. Friends never auto-veil. Eye toggles anytime mid-call.
-   * Settings: off | intro | hold (until Show video).
+   * Product default: hold veil on strangers until user taps Show video.
+   * Prior default was intro (~2.5–2.8s auto-reveal). Friends never auto-veil.
+   * Eye toggles anytime mid-call. Settings: off | intro | hold.
    */
-  blurStrangersMode: "intro",
+  blurStrangersMode: "hold",
   historySnaps: true,
-  liveLayout: "native",
+  liveLayout: "browser",
   swipeSkip: true,
+  noiseReduction: true,
+  avatar: "",
 };
 
 function normalizeBlurMode(
@@ -90,10 +102,10 @@ function normalizeBlurMode(
   const m = j.blurStrangersMode;
   if (m === "off" || m === "intro" || m === "hold") return m;
   // Migrate legacy boolean: true used to mean permanent black cover →
-  // prefer brief intro (better UX); false stays off.
+  // product default hold; false stays off.
   if (j.blurStrangers === false) return "off";
-  if (j.blurStrangers === true) return "intro";
-  return "intro";
+  if (j.blurStrangers === true) return "hold";
+  return "hold";
 }
 
 function prefsFromPartial(
@@ -115,8 +127,17 @@ function prefsFromPartial(
     blurStrangersMode,
     blurStrangers: blurStrangersMode !== "off",
     historySnaps: j.historySnaps === undefined ? true : !!j.historySnaps,
-    liveLayout: j.liveLayout === "browser" ? "browser" : "native",
+    liveLayout:
+      j.liveLayoutExplicit && j.liveLayout === "native"
+        ? "native"
+        : "browser",
+    liveLayoutExplicit: !!j.liveLayoutExplicit,
     swipeSkip: j.swipeSkip === undefined ? true : !!j.swipeSkip,
+    // Missing / legacy: ON (web lowLatencyAudio default false).
+    noiseReduction: j.noiseReduction === undefined ? true : !!j.noiseReduction,
+    avatar: isValidAvatarDataUrl(String(j.avatar || ""))
+      ? String(j.avatar)
+      : "",
   };
 }
 
@@ -124,8 +145,8 @@ export async function loadMatchPrefs(): Promise<MatchPrefs> {
   try {
     const raw = await AsyncStorage.getItem(KEY);
     if (!raw) {
-      // Fresh install already defaults to intro — mark one-shot so a later
-      // user Off choice is never re-migrated back to intro.
+      // Fresh install defaults to hold — mark one-shot so a later
+      // user Off choice is never re-migrated back to intro by BLUR_UX_INTRO_KEY.
       try {
         const introFixed = await AsyncStorage.getItem(BLUR_UX_INTRO_KEY);
         if (!introFixed) await AsyncStorage.setItem(BLUR_UX_INTRO_KEY, "1");

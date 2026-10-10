@@ -2,11 +2,21 @@
  * Privacy blur banner only (top strip under identity dock).
  * Mute text banners ("They muted you" / "You muted · no sound") removed —
  * mute state is the mid-stage icon only (user 2026-08-11 Android screenshot).
+ * Mute-related props are accepted (void) so live.tsx can keep passing them.
  */
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export function LiveStatusBanners(props: {
+  /**
+   * @deprecated Mute text removed — mid-stage mute icon only.
+   * Kept optional so callers can still pass without a second text surface.
+   */
   theyMutedMe?: boolean;
+  /**
+   * @deprecated Mute text removed — mid-stage mute icon only.
+   * Kept optional so callers can still pass without a second text surface.
+   */
   partnerMuted?: boolean;
   remoteBlurred?: boolean;
   /** Hide blur row when a full-screen Modal already covers privacy (default true when remoteBlurred). */
@@ -17,8 +27,14 @@ export function LiveStatusBanners(props: {
    * default = slightly larger banners without strip chrome.
    */
   placement?: "default" | "bottom" | "top";
-  theyMutedLabel: string;
-  partnerMutedLabel: string;
+  /**
+   * @deprecated Mute text removed. Optional void — live.tsx may still pass i18n strings.
+   */
+  theyMutedLabel?: string;
+  /**
+   * @deprecated Mute text removed. Optional void — live.tsx may still pass i18n strings.
+   */
+  partnerMutedLabel?: string;
   blurredLabel?: string;
   onUnblur?: () => void;
   unblurLabel?: string;
@@ -44,47 +60,60 @@ export function LiveStatusBanners(props: {
   const bottom = placement === "bottom";
   const top = placement === "top";
 
+  // iPhone notch / home indicator: this banner can land as the outermost
+  // element on either edge depending on caller layout, so it carries its
+  // own safe-area gap instead of assuming a parent already padded it
+  // (same pattern as PartnerIdentityDock / LiveBottomBar).
+  const insets = useSafeAreaInsets();
+  const iosEdgeGap =
+    Platform.OS === "ios"
+      ? bottom
+        ? { marginBottom: insets.bottom }
+        : top
+          ? { marginTop: Math.max(insets.top - 6, 0) }
+          : null
+      : null;
+
   return (
     <View
       style={[
         styles.wrap,
         bottom && styles.wrapBottom,
         top && styles.wrapTop,
+        iosEdgeGap,
       ]}
       accessibilityLiveRegion="polite"
       pointerEvents="box-none"
       collapsable={false}
     >
-      {blurRow ? (
-        <Pressable
+      <Pressable
+        style={[
+          styles.banner,
+          bottom && styles.bannerBottom,
+          top && styles.bannerTop,
+          styles.blurred,
+        ]}
+        onPress={onUnblur}
+        accessibilityRole="button"
+        accessibilityLabel={`${blurredLabel || "Privacy veil on"}${
+          unblurLabel ? `. ${unblurLabel}` : ""
+        }`}
+        collapsable={false}
+      >
+        <Text
           style={[
-            styles.banner,
-            bottom && styles.bannerBottom,
-            top && styles.bannerTop,
-            styles.blurred,
+            styles.bannerText,
+            bottom && styles.bannerTextBottom,
+            top && styles.bannerTextTop,
           ]}
-          onPress={onUnblur}
-          accessibilityRole="button"
-          accessibilityLabel={`${blurredLabel || "Privacy veil on"}${
-            unblurLabel ? `. ${unblurLabel}` : ""
-          }`}
-          collapsable={false}
         >
-          <Text
-            style={[
-              styles.bannerText,
-              bottom && styles.bannerTextBottom,
-              top && styles.bannerTextTop,
-            ]}
-          >
-            <Text importantForAccessibility="no" accessibilityElementsHidden>
-              👁{" "}
-            </Text>
-            {blurredLabel || "Privacy veil on"}
-            {unblurLabel ? ` · ${unblurLabel}` : ""}
+          <Text importantForAccessibility="no" accessibilityElementsHidden>
+            👁{" "}
           </Text>
-        </Pressable>
-      ) : null}
+          {blurredLabel || "Privacy veil on"}
+          {unblurLabel ? ` · ${unblurLabel}` : ""}
+        </Text>
+      </Pressable>
     </View>
   );
 }
@@ -110,7 +139,7 @@ const styles = StyleSheet.create({
   },
   /**
    * Full-width strip under PartnerIdentityDock top strip.
-   * High elevation so Android SurfaceView does not cover mute text.
+   * High elevation so Android SurfaceView does not cover the blur banner.
    */
   wrapTop: {
     paddingHorizontal: 10,
@@ -169,14 +198,6 @@ const styles = StyleSheet.create({
       },
       default: {},
     }),
-  },
-  theyMuted: {
-    backgroundColor: "rgba(90, 18, 14, 0.98)",
-    borderColor: "rgba(255, 120, 90, 0.95)",
-  },
-  youMuted: {
-    backgroundColor: "rgba(55, 22, 14, 0.97)",
-    borderColor: "rgba(255, 150, 110, 0.8)",
   },
   blurred: {
     backgroundColor: "rgba(28, 48, 88, 0.97)",

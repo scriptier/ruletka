@@ -292,6 +292,7 @@
   "mobile.live.longSearchBody": "Опашката може да бъде тиха. Поканете приятел или спрете и опитайте по-късно.",
   "mobile.live.longSearchTitle": "Все още търсите… ( {s} s)",
   "mobile.live.looking": "Търсене…",
+  "mobile.live.matchBanned": "Забранено ви е да се свързвате",
   "mobile.live.matched": "Matched",
   "mobile.live.mediaResumed": "Включване на камерата и микрофона след фона",
   "mobile.live.meta": "★ {stars} · online {online} · wait {wait}",

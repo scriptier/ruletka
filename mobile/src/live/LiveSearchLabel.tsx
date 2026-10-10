@@ -2,7 +2,7 @@
  * Stage header while searching — one tight line + optional pool meta.
  * Avoids the old 3-line stack under the status bar.
  */
-import { Text, View, type StyleProp, type ViewStyle } from "react-native";
+import { Platform, Text, View, type StyleProp, type ViewStyle } from "react-native";
 import { liveStyles as styles } from "./liveStyles";
 
 export type LiveSearchLabelProps = {
@@ -57,9 +57,14 @@ export function LiveSearchLabel(props: LiveSearchLabelProps) {
 
   const a11y = meta ? `${title}. ${meta}` : title;
 
+  // live.tsx's overlay already pads for insets.top, but on iPhone the
+  // transient camera/volume system HUD renders a bit further down than the
+  // safe-area edge — nudge the block clear of it. Android untouched.
+  const iosExtraTop = Platform.OS === "ios" ? { marginTop: 10 } : null;
+
   return (
     <View
-      style={[styles.stageLabelBlock, style]}
+      style={[styles.stageLabelBlock, style, iosExtraTop]}
       accessibilityRole="text"
       accessibilityLiveRegion="polite"
       accessibilityLabel={a11y}

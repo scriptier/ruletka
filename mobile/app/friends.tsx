@@ -3,16 +3,21 @@ import * as Clipboard from "expo-clipboard";
 import { Ionicons } from "@expo/vector-icons";
 import {
   Redirect,
+  Stack,
   router,
   useFocusEffect,
   useLocalSearchParams,
 } from "expo-router";
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   Image,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   RefreshControl,
+  ScrollView,
   Share,
   StyleSheet,
   Text,
@@ -50,7 +55,12 @@ import { hapticLight } from "../src/feedback/haptics";
 import { flagEmoji } from "../src/identity/flagTrust";
 import { loadMatchPrefs } from "../src/prefs/store";
 import { maybeOfferNotifOptIn } from "../src/push/notifOptIn";
-import { rememberBlock } from "../src/safety/blocks";
+import {
+  forgetBlock,
+  rememberBlock,
+  resolveBlockedList,
+  type BlockedEntry,
+} from "../src/safety/blocks";
 import { pushReportHistory } from "../src/safety/reportHistory";
 import {
   cleanPartnerLabel,
@@ -70,6 +80,69 @@ function formatWhen(ts: number): string {
   } catch {
     return "";
   }
+}
+
+/**
+ * Signal-style row time: time today, weekday this week, else short date.
+ * Used on friend list (last_msg_ts) and history.
+ */
+function formatRowTime(ts: number | undefined | null): string {
+  if (!ts || !Number.isFinite(ts) || ts <= 0) return "";
+  try {
+    const d = new Date(ts);
+    const now = new Date();
+    const startToday = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate()
+    ).getTime();
+    const startThat = new Date(
+      d.getFullYear(),
+      d.getMonth(),
+      d.getDate()
+    ).getTime();
+    const dayMs = 86400000;
+    if (startThat === startToday) {
+      return d.toLocaleTimeString(undefined, {
+        hour: "numeric",
+        minute: "2-digit",
+      });
+    }
+    if (startThat === startToday - dayMs) {
+      // "Yesterday" — keep short; full locale string can be long
+      return d.toLocaleDateString(undefined, { weekday: "short" });
+    }
+    if (now.getTime() - d.getTime() < 6 * dayMs) {
+      return d.toLocaleDateString(undefined, { weekday: "short" });
+    }
+    return d.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    });
+  } catch {
+    return "";
+  }
+}
+
+/** Signal-like solid avatar colors (dark theme). */
+const SIGNAL_AVATAR_COLORS = [
+  "#6B7CFF",
+  "#C45CFF",
+  "#E85D75",
+  "#F0A202",
+  "#2BB673",
+  "#3D9EED",
+  "#FF6B4A",
+  "#9B6DFF",
+];
+
+function signalAvatarColor(seed: string): string {
+  let h = 0;
+  const s = seed || "?";
+  for (let i = 0; i < s.length; i++) {
+    h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+  }
+  return SIGNAL_AVATAR_COLORS[Math.abs(h) % SIGNAL_AVATAR_COLORS.length];
 }
 
 /** data: / http(s) / file:// — hub may send avatar as data URL. */
@@ -248,35 +321,58 @@ function lastMsgSnippet(msg: string | undefined, max = 48): string {
   return `${s.slice(0, Math.max(1, max - 1))}…`;
 }
 
+/**
+ * Browser Friends sheet is titled Chats (`friends.tabList`). Overlay may
+ * still ship "Friends" or miss the key — only keep a chat-like label.
+ */
+function chatsScreenTitle(
+  t: (key: string, vars?: Record<string, string | number>) => string
+): string {
+  for (const key of ["friends.tabList", "friends.title"] as const) {
+    const s = String(t(key) || "").trim();
+    if (s && s !== key && /chat|чат/i.test(s)) return s;
+  }
+  return "Chats";
+}
+
+function chatsSearchPlaceholder(
+  t: (key: string, vars?: Record<string, string | number>) => string
+): string {
+  const s = String(t("friends.searchChats") || "").trim();
+  if (s && s !== "friends.searchChats") return s;
+  return t("mobile.friends.search");
+}
+
 function FriendRow(props: {
   item: FriendInfo;
   unread: number;
   /** In a live 1v1 — show Invite (join) instead of Call. */
   liveBusy: boolean;
+  /** Already you+3 remotes — no 5th. */
+  partyFull?: boolean;
   onCall: () => void;
   onInvite: () => void;
   onChat: () => void;
   onRemove: () => void;
   onCopyCode: () => void;
-  onBlock: () => void;
 }) {
   const {
     item,
     unread,
     liveBusy,
+    partyFull,
     onCall,
     onInvite,
     onChat,
     onRemove,
     onCopyCode,
-    onBlock,
   } = props;
   const t = useT();
-  /** Short label on the row CTA; longer a11y when offline ring. */
-  const callLabel = liveBusy
-    ? t("mobile.friends.inviteJoin")
-    : t("friends.call");
-  const callA11y = liveBusy
+  const showInvite = liveBusy && !partyFull;
+  /** a11y only — row is chat-first like Signal; call is icon on the right. */
+  const callA11y = partyFull
+    ? t("mobile.friends.invitePartyFull")
+    : liveBusy
     ? t("mobile.friends.inviteJoin")
     : item.online
       ? t("friends.call")
@@ -301,177 +397,141 @@ function FriendRow(props: {
     setAvatarFailed(false);
   }, [avatarUri]);
   const letter = (friendName || "?").slice(0, 1).toUpperCase();
-  const codeLine = item.friend_code
-    ? t("mobile.friends.codeLabel", { code: item.friend_code })
-    : item.user_id.slice(0, 12);
-  /** Line 2: code · ★ only (last_msg is dedicated line 3). */
-  const metaLine = `${codeLine}${item.stars ? ` · ★${item.stars}` : ""}`;
-  const snippet = lastMsgSnippet(item.last_msg, 48);
+  const avatarBg = signalAvatarColor(
+    item.user_id || item.friend_code || friendName
+  );
+  const snippet = lastMsgSnippet(item.last_msg, 52);
+  const fallbackSub = onlineState;
+  const preview = snippet || fallbackSub;
+  const when = formatRowTime(item.last_msg_ts);
   const showAvatar = !!avatarUri && !avatarFailed;
 
+  function openActions() {
+    Alert.alert(friendName, t("mobile.friends.actionsHint"), [
+      { text: t("mobile.common.cancel"), style: "cancel" },
+      {
+        text: t("mobile.friends.copyCode"),
+        onPress: onCopyCode,
+      },
+      {
+        text: showInvite
+          ? t("mobile.friends.inviteJoin")
+          : t("friends.call"),
+        onPress: showInvite ? onInvite : onCall,
+      },
+      {
+        text: t("mobile.friends.removeBtn"),
+        style: "destructive",
+        onPress: onRemove,
+      },
+    ]);
+  }
+
   return (
-    <View style={styles.row}>
-      <Pressable
-        onPress={onChat}
-        accessibilityRole="button"
-        accessibilityLabel={`${friendName}. ${onlineState}. ${chatLabel}`}
-        hitSlop={4}
-      >
-        <View style={styles.avatarOuter} importantForAccessibility="no">
-          <View style={styles.avatar}>
-            {showAvatar ? (
-              <Image
-                source={{ uri: avatarUri }}
-                style={styles.avatarImg}
-                resizeMode="cover"
-                onError={() => setAvatarFailed(true)}
-              />
-            ) : (
-              <Text style={styles.avatarText}>{letter}</Text>
-            )}
-          </View>
-          <View
-            style={[styles.dot, item.online ? styles.dotOn : styles.dotOff]}
-          />
-          {unread > 0 ? (
-            <View style={styles.dmBadge}>
-              <Text style={styles.dmBadgeText}>
-                {unread > 9 ? "9+" : String(unread)}
-              </Text>
-            </View>
-          ) : null}
-        </View>
-      </Pressable>
-      <Pressable
-        style={styles.rowMain}
-        onPress={onChat}
-        onLongPress={onCopyCode}
-        accessibilityRole="button"
-        accessibilityLabel={`${friendName}. ${onlineState}${
-          snippet ? `. ${snippet}` : ""
-        }`}
-        accessibilityHint={t("mobile.friends.copyCode")}
-      >
-        <View style={styles.nameRow}>
-          <Text style={styles.name} numberOfLines={1}>
-            {friendName}
-          </Text>
-          {item.online ? (
-            <View style={styles.onlinePill}>
-              <Text style={styles.onlinePillText}>
-                {t("mobile.common.online")}
-              </Text>
-            </View>
+    <Pressable
+      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+      onPress={onChat}
+      onLongPress={openActions}
+      delayLongPress={380}
+      accessibilityRole="button"
+      accessibilityLabel={`${friendName}. ${onlineState}${
+        preview ? `. ${preview}` : ""
+      }${unread > 0 ? `. ${chatLabel} ${unread > 9 ? "9+" : unread}` : ""}`}
+      accessibilityHint={t("mobile.friends.actionsHint")}
+    >
+      <View style={styles.avatarOuter} importantForAccessibility="no">
+        <View
+          style={[
+            styles.avatar,
+            !showAvatar ? { backgroundColor: avatarBg } : null,
+          ]}
+        >
+          {showAvatar ? (
+            <Image
+              source={{ uri: avatarUri }}
+              style={styles.avatarImg}
+              resizeMode="cover"
+              onError={() => setAvatarFailed(true)}
+            />
           ) : (
-            <Text style={styles.offlinePill}>{t("mobile.common.offline")}</Text>
+            <Text style={styles.avatarText}>{letter}</Text>
           )}
         </View>
-        <Text style={styles.sub} numberOfLines={1}>
-          {metaLine}
-        </Text>
-        {snippet ? (
+        <View
+          style={[styles.dot, item.online ? styles.dotOn : styles.dotOff]}
+          accessibilityElementsHidden
+          importantForAccessibility="no"
+        />
+      </View>
+
+      <View style={styles.rowMain}>
+        <View style={styles.nameRow}>
+          <Text
+            style={[styles.name, unread > 0 && styles.nameUnread]}
+            numberOfLines={1}
+          >
+            {friendName}
+          </Text>
+          {when ? (
+            <Text
+              style={[styles.rowTime, unread > 0 && styles.rowTimeUnread]}
+              numberOfLines={1}
+            >
+              {when}
+            </Text>
+          ) : null}
+        </View>
+        <View style={styles.previewRow}>
           <Text
             style={[styles.snippet, unread > 0 && styles.snippetUnread]}
             numberOfLines={1}
           >
-            {snippet}
-          </Text>
-        ) : null}
-      </Pressable>
-      <View style={styles.rowActions}>
-        <Pressable
-          style={[styles.ctaBtn, unread > 0 && styles.ctaBtnUnread]}
-          onPress={onChat}
-          accessibilityRole="button"
-          accessibilityLabel={
-            unread > 0
-              ? `${chatLabel} (${unread > 9 ? "9+" : unread})`
-              : chatLabel
-          }
-          hitSlop={2}
-        >
-          <Ionicons
-            name={unread > 0 ? "chatbubble" : "chatbubble-outline"}
-            size={14}
-            color={unread > 0 ? "#c8dcff" : "#e8eef7"}
-          />
-          <Text
-            style={[styles.ctaBtnText, unread > 0 && styles.ctaBtnTextUnread]}
-            numberOfLines={1}
-          >
-            {chatLabel}
+            {preview}
           </Text>
           {unread > 0 ? (
-            <View style={styles.ctaBadge}>
-              <Text style={styles.ctaBadgeText}>
-                {unread > 9 ? "9+" : String(unread)}
+            <View style={styles.unreadPill}>
+              <Text style={styles.unreadPillText}>
+                {unread > 99 ? "99+" : String(unread)}
               </Text>
             </View>
           ) : null}
-        </Pressable>
+        </View>
+      </View>
+
+      <View style={styles.rowActions}>
         <Pressable
           style={[
-            styles.ctaBtn,
-            callActive ? styles.ctaBtnCall : styles.ctaBtnMuted,
-            liveBusy && !item.online && styles.ctaBtnMuted,
+            styles.callIconOnly,
+            !(callActive && !(showInvite && !item.online)) &&
+              styles.callIconOnlyMuted,
           ]}
-          onPress={liveBusy ? onInvite : onCall}
+          onPress={(e) => {
+            // Don't bubble to row → chat
+            e?.stopPropagation?.();
+            if (partyFull) {
+              onInvite();
+              return;
+            }
+            if (showInvite) onInvite();
+            else onCall();
+          }}
           accessibilityRole="button"
           accessibilityLabel={callA11y}
-          hitSlop={2}
+          hitSlop={8}
         >
           <Ionicons
-            name={liveBusy ? "person-add" : "call"}
-            size={14}
+            name={liveBusy ? "person-add" : "videocam"}
+            size={20}
             color={
-              callActive && !(liveBusy && !item.online) ? "#b8f5d4" : "#9aa8bc"
+              partyFull ||
+              !(callActive && !(showInvite && !item.online))
+                ? "#6b7a90"
+                : "#3d9eed"
             }
           />
-          <Text
-            style={[
-              styles.ctaBtnText,
-              callActive && !(liveBusy && !item.online)
-                ? styles.ctaBtnTextCall
-                : styles.ctaBtnTextMuted,
-            ]}
-            numberOfLines={1}
-          >
-            {callLabel}
-          </Text>
-        </Pressable>
-        <Pressable
-          style={styles.moreBtn}
-          accessibilityRole="button"
-          accessibilityLabel={t("mobile.friends.actionsHint")}
-          hitSlop={6}
-          onPress={() => {
-            Alert.alert(
-              friendName,
-              t("mobile.friends.actionsHint"),
-              [
-                { text: t("mobile.common.cancel"), style: "cancel" },
-                {
-                  text: t("mobile.friends.copyCode"),
-                  onPress: onCopyCode,
-                },
-                {
-                  text: t("mobile.friends.removeBtn"),
-                  style: "destructive",
-                  onPress: onRemove,
-                },
-                {
-                  text: t("mobile.friends.blockBtn"),
-                  style: "destructive",
-                  onPress: onBlock,
-                },
-              ]
-            );
-          }}
-        >
-          <Ionicons name="ellipsis-horizontal" size={18} color="#9aa8bc" />
         </Pressable>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -499,7 +559,10 @@ function FriendsBody() {
     pendingChatUserId,
     clearPendingChatUserId,
     liveBusy,
+    liveRemoteCount,
     openFriendChat,
+    reconnectHub,
+    blockedIds,
   } = useHub();
   const { identity } = useApp();
   const t = useT();
@@ -516,6 +579,14 @@ function FriendsBody() {
   const [missed, setMissed] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [chatFriend, setChatFriend] = useState<FriendInfo | null>(null);
+  /** Local match/call history load lifecycle (empty ≠ error). */
+  const [histStatus, setHistStatus] = useState<"loading" | "ready" | "error">(
+    "loading"
+  );
+  const [sheetTab, setSheetTab] = useState<"list" | "history" | "blocked">(
+    "list"
+  );
+  const [blocked, setBlocked] = useState<BlockedEntry[]>([]);
 
   // Open DM from toast tap, push deep link, or pending chat
   useEffect(() => {
@@ -535,33 +606,51 @@ function FriendsBody() {
   }, [pendingChatUserId, friends, clearPendingChatUserId]);
 
   const reloadHistory = useCallback(async () => {
-    const n = await countUnreadMissed();
-    setMissed(n);
-    const list = await loadCallHistory();
-    setHistory(list);
-    const matches = await loadMatchHistory();
-    setMatchHistory(matches);
+    setHistStatus((prev) => (prev === "ready" ? prev : "loading"));
     try {
-      const ids = matches.map((m) => m.user_id).filter(Boolean);
-      setMatchThumbs(await loadMatchThumbsMap(ids));
-      // Fresh map may restore paths that previously failed to paint
-      setFailedThumbs({});
+      const n = await countUnreadMissed();
+      setMissed(n);
+      const list = await loadCallHistory();
+      setHistory(Array.isArray(list) ? list : []);
+      const matches = await loadMatchHistory();
+      setMatchHistory(Array.isArray(matches) ? matches : []);
+      try {
+        const ids = (Array.isArray(matches) ? matches : [])
+          .map((m) => m.user_id)
+          .filter(Boolean);
+        setMatchThumbs(await loadMatchThumbsMap(ids));
+        // Fresh map may restore paths that previously failed to paint
+        setFailedThumbs({});
+      } catch {
+        setMatchThumbs({});
+        setFailedThumbs({});
+      }
+      await markMissedCallsRead();
+      setMissed(0);
+      try {
+        const list = await resolveBlockedList(blockedIds);
+        setBlocked(list);
+        const ids = list.map((b) => b.user_id).filter(Boolean);
+        const extraThumbs = await loadMatchThumbsMap(ids);
+        setMatchThumbs((prev) => ({ ...prev, ...extraThumbs }));
+      } catch {
+        /* keep prior blocked rows */
+      }
+      setHistStatus("ready");
     } catch {
-      setMatchThumbs({});
-      setFailedThumbs({});
+      // Keep prior rows if any; still surface recovery CTA
+      setHistStatus("error");
     }
-    await markMissedCallsRead();
-    setMissed(0);
-  }, []);
+  }, [blockedIds]);
 
   useFocusEffect(
     useCallback(() => {
-      reloadHistory().catch(() => {});
+      void reloadHistory();
     }, [reloadHistory, callHistoryTick])
   );
 
   useEffect(() => {
-    reloadHistory().catch(() => {});
+    void reloadHistory();
   }, [callHistoryTick, reloadHistory]);
 
   useEffect(() => {
@@ -576,26 +665,42 @@ function FriendsBody() {
     [friends]
   );
 
+  const chatsTitle = chatsScreenTitle(t);
+  const searchPlaceholder = chatsSearchPlaceholder(t);
+
   const sortedFriends = useMemo(() => {
     const q = query.trim().toLowerCase();
     let list = [...friends];
     if (q) {
       list = list.filter((f) => {
-        const hay = `${f.name} ${f.short_id} ${f.friend_code} ${f.user_id}`.toLowerCase();
+        const hay =
+          `${f.name} ${f.short_id} ${f.friend_code} ${f.user_id} ${f.last_msg || ""}`.toLowerCase();
         return hay.includes(q);
       });
     }
+    // Signal-ish: recent DM activity first, then online, then name
     list.sort((a, b) => {
+      const ta = Number(a.last_msg_ts) || 0;
+      const tb = Number(b.last_msg_ts) || 0;
+      if (ta !== tb) return tb - ta;
       if (a.online !== b.online) return a.online ? -1 : 1;
       return (a.name || "").localeCompare(b.name || "");
     });
     return list;
   }, [friends, query]);
 
+  /** Pull-to-refresh + offline offline CTA: nudge hub + reload local history. */
   async function refresh() {
     setRefreshing(true);
     hapticLight();
     try {
+      if (!connected) {
+        try {
+          reconnectHub();
+        } catch {
+          /* ignore */
+        }
+      }
       // Re-hello nudges hub to re-push friends snapshot
       const prefs = await loadMatchPrefs();
       hub.hello({
@@ -603,12 +708,25 @@ function FriendsBody() {
         name: identity.name || "anon",
         gender: prefs.gender || "",
         looking: prefs.looking || "any",
+        flag: prefs.flag || "",
+        hide_ip: !!prefs.hideIp,
+        avatar: prefs.avatar || "",
       });
       await reloadHistory();
     } catch {
-      /* ignore */
+      /* ignore — empty/error UI still offers Retry */
     }
     setTimeout(() => setRefreshing(false), 600);
+  }
+
+  function retryConnection() {
+    hapticLight();
+    try {
+      reconnectHub();
+    } catch {
+      /* ignore */
+    }
+    void refresh();
   }
 
   function add() {
@@ -633,23 +751,52 @@ function FriendsBody() {
   }
 
   function shareMyCode() {
-    const share = friendInviteShareMessage(hubBase(), friendCode, "ruletka");
-    track("funnel_invite_share", { via: "friends" });
-    track("friend_invite_share", { via: "friends" });
-    Share.share({
-      message: share.message,
-      title: share.title,
-      url: share.url,
-    }).catch(() => {});
+    const c = (friendCode || "").trim();
+    if (!c) {
+      showToast(
+        connected
+          ? t("mobile.common.loading")
+          : t("mobile.friends.notConnected")
+      );
+      return;
+    }
+    try {
+      const share = friendInviteShareMessage(hubBase(), c, "ruletka");
+      track("funnel_invite_share", { via: "friends" });
+      track("friend_invite_share", { via: "friends" });
+      Share.share({
+        message: share.message,
+        title: share.title,
+        url: share.url,
+      }).catch(() => {
+        showToast(t("mobile.friends.notConnected"));
+      });
+    } catch {
+      showToast(t("mobile.friends.notConnected"));
+    }
   }
 
   async function copyCode(c: string) {
-    if (!c) return;
+    const text = (c || "").trim();
+    if (!text) {
+      showToast(
+        friendCode
+          ? t("mobile.friends.codeShort")
+          : connected
+            ? t("mobile.common.loading")
+            : t("mobile.friends.notConnected")
+      );
+      return;
+    }
     try {
-      await Clipboard.setStringAsync(c);
+      await Clipboard.setStringAsync(text);
       showToast(t("mobile.friends.codeCopied"));
     } catch {
-      Share.share({ message: c }).catch(() => {});
+      try {
+        await Share.share({ message: text });
+      } catch {
+        showToast(t("mobile.friends.notConnected"));
+      }
     }
   }
 
@@ -670,6 +817,10 @@ function FriendsBody() {
       showToast(t("mobile.friends.inviteNeedLive"));
       return;
     }
+    if (opts?.join && liveBusy && liveRemoteCount >= 3) {
+      showToast(t("mobile.friends.invitePartyFull"));
+      return;
+    }
     if (opts?.join && !("online" in f ? f.online : true)) {
       showToast(t("mobile.friends.inviteNeedOnline"));
       return;
@@ -681,6 +832,7 @@ function FriendsBody() {
       setOutboundCall({
         user_id: f.user_id,
         name: f.name || ("short_id" in f ? f.short_id : undefined) || "Friend",
+        avatar: "avatar" in f ? String(f.avatar || "") : "",
         join: !!opts?.join,
       });
       track("friend_call_attempt", {
@@ -754,37 +906,6 @@ function FriendsBody() {
     ]);
   }
 
-  function blockFriend(item: FriendInfo) {
-    const label = friendDisplayName(item, "…");
-    Alert.alert(
-      t("mobile.friends.blockTitle"),
-      t("mobile.friends.blockBody", {
-        name: label,
-      }),
-      [
-        { text: t("mobile.common.cancel"), style: "cancel" },
-        {
-          text: t("mobile.friends.blockBtn"),
-          style: "destructive",
-          onPress: () => {
-            try {
-              hub.blockUser(item.user_id);
-              void rememberBlock(item.user_id, label);
-              void pushReportHistory({
-                user_id: item.user_id,
-                name: label || item.user_id.slice(0, 8),
-                kind: "block",
-              });
-              showToast(t("mobile.friends.blocked"));
-            } catch (e) {
-              showToast(t("mobile.friends.notConnected"));
-            }
-          },
-        },
-      ]
-    );
-  }
-
   function blockMatchHistory(h: MatchHistoryEntry) {
     Alert.alert(
       t("mobile.history.blockTitle"),
@@ -808,6 +929,7 @@ function FriendsBody() {
               );
               hapticLight();
               showToast(t("mobile.friends.blocked"));
+              setSheetTab("blocked");
             } catch (e) {
               showToast(t("mobile.friends.notConnected"));
             }
@@ -859,9 +981,33 @@ function FriendsBody() {
       );
       hapticLight();
       showToast(t("mobile.history.reported"));
+      setSheetTab("blocked");
     } catch (e) {
       showToast(t("mobile.friends.notConnected"));
     }
+  }
+
+  function unblockUser(uid: string, name?: string) {
+    Alert.alert(
+      t("friends.unblock") || t("mobile.settings.unblockTitle"),
+      name || t("mobile.settings.unblockBody"),
+      [
+        { text: t("mobile.common.cancel"), style: "cancel" },
+        {
+          text: t("friends.unblock") || t("mobile.settings.unblockBtn"),
+          onPress: () => {
+            try {
+              hub.unblockUser(uid);
+              void forgetBlock(uid);
+              setBlocked((list) => list.filter((e) => e.user_id !== uid));
+              showToast(t("friends.unblock") || t("mobile.settings.unblockBtn"));
+            } catch (e) {
+              showToast(t("mobile.friends.notConnected"));
+            }
+          },
+        },
+      ]
+    );
   }
 
   function addMatchFriend(h: MatchHistoryEntry) {
@@ -879,27 +1025,40 @@ function FriendsBody() {
     }
   }
 
+  const uniqueMatches = useMemo(() => {
+    const seen = new Set<string>();
+    const out: MatchHistoryEntry[] = [];
+    for (const h of matchHistory) {
+      const id = String(h.user_id || h.id || "").trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push(h);
+      if (out.length >= 6) break;
+    }
+    return out;
+  }, [matchHistory]);
+
   const listHeader = (
     <View style={styles.headerBlock}>
       <View style={styles.hero}>
-        <Text style={styles.heroLabel}>{t("mobile.friends.yourCode")}</Text>
-        <Pressable
-          onLongPress={() => copyCode(friendCode)}
-          onPress={shareMyCode}
-          accessibilityRole="button"
-          accessibilityLabel={
-            friendCode
-              ? `${t("mobile.friends.yourCode")} ${friendCode}`
-              : t("mobile.friends.yourCode")
-          }
-          accessibilityHint={t("mobile.friends.tapCodeHint")}
-        >
-          <Text style={styles.heroCode} importantForAccessibility="no">
-            {friendCode || "…"}
-          </Text>
-        </Pressable>
-        <Text style={styles.copyHint}>{t("mobile.friends.tapCodeHint")}</Text>
-        <View style={styles.heroActions}>
+        <View style={styles.heroTop}>
+          <Pressable
+            style={styles.heroCodeHit}
+            onLongPress={() => copyCode(friendCode)}
+            onPress={shareMyCode}
+            accessibilityRole="button"
+            accessibilityLabel={
+              friendCode
+                ? `${t("mobile.friends.yourCode")} ${friendCode}`
+                : t("mobile.friends.yourCode")
+            }
+            accessibilityHint={t("mobile.friends.tapCodeHint")}
+          >
+            <Text style={styles.heroLabel}>{t("mobile.friends.yourCode")}</Text>
+            <Text style={styles.heroCode} importantForAccessibility="no">
+              {friendCode || "…"}
+            </Text>
+          </Pressable>
           <Pressable
             style={styles.shareBtn}
             onPress={shareMyCode}
@@ -910,25 +1069,25 @@ function FriendsBody() {
               {t("mobile.friends.shareInvite")}
             </Text>
           </Pressable>
-          <Pressable
-            style={styles.copyBtn}
-            onPress={() => copyCode(friendCode)}
-            accessibilityRole="button"
-            accessibilityLabel={t("mobile.friends.copyCode")}
-          >
-            <Text style={styles.btnText} importantForAccessibility="no">
-              {t("mobile.friends.copyCode")}
-            </Text>
-          </Pressable>
         </View>
         {!connected ? (
-          <Text
-            style={styles.warn}
-            accessibilityRole="alert"
+          <Pressable
+            style={styles.offlineRow}
+            onPress={retryConnection}
+            accessibilityRole="button"
+            accessibilityLabel={`${t("mobile.friends.offline")} ${t("mobile.live.retryPath")}`}
+            accessibilityHint={t("mobile.home.hubOfflineTap")}
             accessibilityLiveRegion="polite"
           >
-            {t("mobile.friends.offline")}
-          </Text>
+            <Text style={styles.warn} accessibilityRole="alert">
+              {t("mobile.friends.offline")}
+            </Text>
+            <View style={styles.retryBtn}>
+              <Text style={styles.retryBtnText} importantForAccessibility="no">
+                {t("mobile.live.retryPath")}
+              </Text>
+            </View>
+          </Pressable>
         ) : (
           <Text
             style={styles.onlineCount}
@@ -943,7 +1102,9 @@ function FriendsBody() {
         )}
         {liveBusy ? (
           <Text style={styles.liveBusyHint}>
-            {t("mobile.friends.liveBusyHint")}
+            {liveRemoteCount >= 3
+              ? t("mobile.friends.invitePartyFull")
+              : t("mobile.friends.liveBusyHint")}
           </Text>
         ) : null}
       </View>
@@ -974,18 +1135,25 @@ function FriendsBody() {
         </Pressable>
       </View>
 
-      {friends.length > 2 ? (
+      <View style={styles.searchWrap}>
+        <Ionicons
+          name="search"
+          size={16}
+          color="#6b7a90"
+          style={styles.searchIcon}
+          importantForAccessibility="no"
+        />
         <TextInput
           style={styles.search}
           value={query}
           onChangeText={setQuery}
-          placeholder={t("mobile.friends.search")}
+          placeholder={searchPlaceholder}
           placeholderTextColor="#6b7a90"
           autoCorrect={false}
           clearButtonMode="while-editing"
-          accessibilityLabel={t("mobile.friends.search")}
+          accessibilityLabel={searchPlaceholder}
         />
-      ) : null}
+      </View>
 
       {missed > 0 ? (
         <View style={styles.missedBanner}>
@@ -998,63 +1166,130 @@ function FriendsBody() {
         </View>
       ) : null}
 
+      {histStatus === "loading" &&
+      history.length === 0 &&
+      matchHistory.length === 0 ? (
+        <View
+          style={styles.statusStrip}
+          accessibilityRole="text"
+          accessibilityLabel={t("mobile.common.loading")}
+        >
+          <ActivityIndicator size="small" color="#9ec5ff" />
+          <Text style={styles.statusStripText}>
+            {t("mobile.common.loading")}
+          </Text>
+        </View>
+      ) : null}
+
+      {/* Local history load failure only — when hub is down the hero offline
+          strip is the single reconnect CTA; avoid a second Offline/Retry. */}
+      {histStatus === "error" && connected ? (
+        <Pressable
+          style={styles.errorBanner}
+          onPress={() => {
+            void reloadHistory();
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={`${t("mobile.live.errorTitle")} ${t("mobile.live.retryPath")}`}
+        >
+          <View style={styles.errorBannerTextCol}>
+            <Text style={styles.errorBannerTitle}>
+              {t("mobile.live.errorTitle")}
+            </Text>
+            <Text style={styles.errorBannerBody}>
+              {t("mobile.friends.notConnected")}
+            </Text>
+          </View>
+          <View style={styles.retryBtn}>
+            <Text style={styles.retryBtnText} importantForAccessibility="no">
+              {t("mobile.live.retryPath")}
+            </Text>
+          </View>
+        </Pressable>
+      ) : null}
+
       {incomingRequests.length > 0 ? (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>
             {t("mobile.friends.incoming")} ({incomingRequests.length})
           </Text>
-          {incomingRequests.map((r) => (
-            <View key={r.user_id} style={styles.row}>
-              <View style={styles.rowMain}>
-                <Text style={styles.name}>{r.name || r.short_id}</Text>
-                <Text style={styles.sub}>{r.friend_code}</Text>
+          {incomingRequests.map((r) => {
+            const reqName = r.name || r.short_id || r.friend_code || "?";
+            const reqLetter = (reqName || "?").slice(0, 1).toUpperCase();
+            const reqColor = signalAvatarColor(
+              r.user_id || r.friend_code || reqName
+            );
+            return (
+              <View key={r.user_id} style={styles.row}>
+                <View
+                  style={[styles.reqAvatar, { backgroundColor: reqColor }]}
+                  importantForAccessibility="no"
+                >
+                  <Text style={styles.reqAvatarText}>{reqLetter}</Text>
+                </View>
+                <View style={styles.rowMain}>
+                  <Text style={styles.name}>{reqName}</Text>
+                  <Text style={styles.sub}>{r.friend_code}</Text>
+                </View>
+                <Pressable
+                  style={styles.acceptBtnSoft}
+                  onPress={() => {
+                    try {
+                      hub.acceptFriend(r.user_id);
+                      track("funnel_invite_connected", { via: "friends_accept" });
+                      hapticLight();
+                      showToast(t("mobile.friends.accepted"));
+                      void maybeOfferNotifOptIn({
+                        hub,
+                        title: t("mobile.notif.optInTitle"),
+                        body: t("mobile.notif.optInBody"),
+                        enableLabel: t("mobile.notif.optInEnable"),
+                        laterLabel: t("mobile.notif.optInLater"),
+                        deniedTitle: t("mobile.notif.optInDeniedTitle"),
+                        deniedBody: t("mobile.notif.optInDeniedBody"),
+                        openSettingsLabel: t("mobile.notif.optInOpenSettings"),
+                        batteryTitle: t("mobile.notif.batteryTitle"),
+                        batteryBody: t("mobile.notif.batteryBody"),
+                        batteryEnableLabel: t("mobile.notif.batteryEnable"),
+                        onEnabled: () =>
+                          showToast(t("mobile.notif.optInEnabled")),
+                      });
+                    } catch (e) {
+                      showToast(t("mobile.friends.notConnected"));
+                    }
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("friends.accept")}
+                >
+                  <Text
+                    style={styles.acceptBtnSoftText}
+                    importantForAccessibility="no"
+                  >
+                    {t("friends.accept")}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={styles.ghostBtn}
+                  onPress={() => {
+                    try {
+                      hub.declineFriend(r.user_id);
+                    } catch {
+                      /* ignore */
+                    }
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("friends.declineReq")}
+                >
+                  <Text
+                    style={styles.btnTextMuted}
+                    importantForAccessibility="no"
+                  >
+                    {t("friends.declineReq")}
+                  </Text>
+                </Pressable>
               </View>
-              <Pressable
-                style={styles.callBtn}
-                onPress={() => {
-                  try {
-                    hub.acceptFriend(r.user_id);
-                    track("funnel_invite_connected", { via: "friends_accept" });
-                    hapticLight();
-                    showToast(t("mobile.friends.accepted"));
-                    void maybeOfferNotifOptIn({
-                      hub,
-                      title: t("mobile.notif.optInTitle"),
-                      body: t("mobile.notif.optInBody"),
-                      enableLabel: t("mobile.notif.optInEnable"),
-                      laterLabel: t("mobile.notif.optInLater"),
-                      deniedTitle: t("mobile.notif.optInDeniedTitle"),
-                      deniedBody: t("mobile.notif.optInDeniedBody"),
-                      openSettingsLabel: t("mobile.notif.optInOpenSettings"),
-                      batteryTitle: t("mobile.notif.batteryTitle"),
-                      batteryBody: t("mobile.notif.batteryBody"),
-                      batteryEnableLabel: t("mobile.notif.batteryEnable"),
-                      onEnabled: () =>
-                        showToast(t("mobile.notif.optInEnabled")),
-                    });
-                  } catch (e) {
-                    showToast(String(e).slice(0, 80));
-                  }
-                }}
-              >
-                <Text style={styles.btnText}>{t("friends.accept")}</Text>
-              </Pressable>
-              <Pressable
-                style={styles.ghostBtn}
-                onPress={() => {
-                  try {
-                    hub.declineFriend(r.user_id);
-                  } catch {
-                    /* ignore */
-                  }
-                }}
-              >
-                <Text style={styles.btnTextMuted}>
-                  {t("friends.declineReq")}
-                </Text>
-              </Pressable>
-            </View>
-          ))}
+            );
+          })}
         </View>
       ) : null}
 
@@ -1062,15 +1297,15 @@ function FriendsBody() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t("mobile.friends.waiting")}</Text>
           {outgoingRequests.map((r) => (
-            <View key={r.user_id} style={styles.row}>
+            <View key={r.user_id} style={[styles.row, styles.rowMuted]}>
               <View style={styles.rowMain}>
-                <Text style={styles.name}>
+                <Text style={styles.nameMuted}>
                   {r.name || r.short_id || r.friend_code}
                 </Text>
                 <Text style={styles.sub}>{r.friend_code}</Text>
               </View>
               <Pressable
-                style={styles.ghostBtn}
+                style={styles.cancelTextBtn}
                 onPress={() => {
                   try {
                     hub.declineFriend(r.user_id);
@@ -1079,8 +1314,14 @@ function FriendsBody() {
                     /* ignore */
                   }
                 }}
+                accessibilityRole="button"
+                accessibilityLabel={t("mobile.common.cancel")}
+                hitSlop={8}
               >
-                <Text style={styles.btnTextMuted}>
+                <Text
+                  style={styles.cancelTextBtnText}
+                  importantForAccessibility="no"
+                >
                   {t("mobile.common.cancel")}
                 </Text>
               </Pressable>
@@ -1089,7 +1330,19 @@ function FriendsBody() {
         </View>
       ) : null}
 
-      {matchHistory.length > 0 ? (
+      <Text style={styles.sectionTitle} accessibilityRole="header">
+        {chatsTitle} ({sortedFriends.length})
+        {query ? ` · “${query}”` : ""}
+      </Text>
+    </View>
+  );
+
+  const listFooter = (
+    <View style={styles.footerBlock}>
+      {uniqueMatches.length === 0 && history.length === 0 ? (
+        <Text style={styles.empty}>{t("friends.historyTitle")}</Text>
+      ) : null}
+      {uniqueMatches.length > 0 ? (
         <View style={styles.section}>
           <View style={styles.sectionHead}>
             <Text style={styles.sectionTitle}>
@@ -1112,11 +1365,15 @@ function FriendsBody() {
                   },
                 ]);
               }}
+              accessibilityRole="button"
+              accessibilityLabel={t("mobile.history.clearMatches")}
             >
-              <Text style={styles.clearLink}>{t("mobile.friends.clear")}</Text>
+              <Text style={styles.clearLink} importantForAccessibility="no">
+                {t("mobile.friends.clear")}
+              </Text>
             </Pressable>
           </View>
-          {matchHistory.slice(0, 12).map((h) => {
+          {uniqueMatches.map((h) => {
             const fr = friends.find((f) => f.user_id === h.user_id);
             const mins = Math.floor((h.duration_secs || 0) / 60);
             const secs = (h.duration_secs || 0) % 60;
@@ -1192,6 +1449,11 @@ function FriendsBody() {
                       });
                     }}
                     delayLongPress={380}
+                    accessibilityRole="text"
+                    accessibilityLabel={`${matchTitle}. ${subParts.join(" · ")}`}
+                    accessibilityHint={
+                      h.friend_code ? t("mobile.friends.copyCode") : undefined
+                    }
                   >
                     <Text style={styles.name} numberOfLines={1}>
                       {flag ? `${flag} ` : ""}
@@ -1206,65 +1468,67 @@ function FriendsBody() {
                       </Text>
                     ) : null}
                   </Pressable>
-                </View>
                 <View style={styles.matchActions}>
-                  {h.friend_code && !fr ? (
+                  {fr ? (
                     <Pressable
                       style={styles.matchAct}
-                      onPress={() => addMatchFriend(h)}
+                      onPress={() => setChatFriend(fr)}
+                      accessibilityRole="button"
+                      accessibilityLabel={t("mobile.friends.chat")}
                     >
-                      <Text style={styles.matchActText}>
-                        {t("mobile.live.addFriend")}
+                      <Text
+                        style={styles.matchActText}
+                        importantForAccessibility="no"
+                      >
+                        {t("mobile.friends.chat")}
                       </Text>
                     </Pressable>
-                  ) : null}
-                  {h.friend_code ? (
-                    <Pressable
-                      style={styles.matchActGhost}
-                      onPress={() => {
-                        void Clipboard.setStringAsync(h.friend_code || "").then(
-                          () => {
-                            showToast(t("mobile.friends.codeCopied"));
-                            hapticLight();
-                          }
-                        );
-                      }}
-                    >
-                      <Text style={styles.matchActTextMuted}>
-                        {t("mobile.friends.copyCode")}
-                      </Text>
-                    </Pressable>
-                  ) : null}
-                  <Pressable
-                    style={styles.matchActGhost}
-                    onPress={() => reportMatchHistory(h)}
-                  >
-                    <Text style={styles.matchActTextWarn}>
-                      {t("mobile.live.report")}
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    style={styles.matchActGhost}
-                    onPress={() => blockMatchHistory(h)}
-                  >
-                    <Text style={styles.matchActTextWarn}>
-                      {t("mobile.friends.blockBtn")}
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    style={styles.matchActGhost}
-                    onPress={() => {
-                      void removeMatchHistory(h.id).then(() =>
-                        setMatchHistory((list) =>
-                          list.filter((x) => x.id !== h.id)
-                        )
-                      );
-                    }}
-                  >
-                    <Text style={styles.matchActTextMuted}>
-                      {t("mobile.history.dismiss")}
-                    </Text>
-                  </Pressable>
+                  ) : (
+                    <>
+                      {h.friend_code ? (
+                        <Pressable
+                          style={styles.matchAct}
+                          onPress={() => addMatchFriend(h)}
+                          accessibilityRole="button"
+                          accessibilityLabel={t("mobile.live.addFriend")}
+                        >
+                          <Text
+                            style={styles.matchActText}
+                            importantForAccessibility="no"
+                          >
+                            {t("mobile.live.addFriend")}
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                      <Pressable
+                        style={styles.matchAct}
+                        onPress={() => blockMatchHistory(h)}
+                        accessibilityRole="button"
+                        accessibilityLabel={t("mobile.friends.blockBtn")}
+                      >
+                        <Text
+                          style={styles.matchActText}
+                          importantForAccessibility="no"
+                        >
+                          {t("mobile.friends.blockBtn")}
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        style={styles.matchAct}
+                        onPress={() => reportMatchHistory(h)}
+                        accessibilityRole="button"
+                        accessibilityLabel={t("mobile.live.report")}
+                      >
+                        <Text
+                          style={styles.matchActText}
+                          importantForAccessibility="no"
+                        >
+                          {t("mobile.live.report")}
+                        </Text>
+                      </Pressable>
+                    </>
+                  )}
+                </View>
                 </View>
               </View>
             );
@@ -1290,8 +1554,12 @@ function FriendsBody() {
                   },
                 ]);
               }}
+              accessibilityRole="button"
+              accessibilityLabel={t("mobile.history.clear")}
             >
-              <Text style={styles.clearLink}>{t("mobile.friends.clear")}</Text>
+              <Text style={styles.clearLink} importantForAccessibility="no">
+                {t("mobile.friends.clear")}
+              </Text>
             </Pressable>
           </View>
           {history.slice(0, 20).map((h) => (
@@ -1304,46 +1572,228 @@ function FriendsBody() {
           ))}
         </View>
       ) : null}
-
-      <Text style={styles.sectionTitle} accessibilityRole="header">
-        {t("mobile.friends.list", { n: sortedFriends.length })}
-        {query ? ` · “${query}”` : ""}
-      </Text>
     </View>
   );
 
+  const tabChats = t("friends.tabList") || chatsTitle;
+  const tabCalls = t("friends.tabCalls") || t("friends.tabHistory") || "Calls";
+  const tabBlocked = t("friends.tabBlocked") || "Blocked";
+  const screenTitle =
+    sheetTab === "history"
+      ? tabCalls
+      : sheetTab === "blocked"
+        ? tabBlocked
+        : chatsTitle;
+
+  const tabs = (
+    <View style={styles.tabsRow} accessibilityRole="tablist">
+      {(
+        [
+          ["list", tabChats, sortedFriends.length],
+          ["history", tabCalls, uniqueMatches.length + history.length],
+          ["blocked", tabBlocked, blocked.length],
+        ] as const
+      ).map(([id, label, n]) => {
+        const on = sheetTab === id;
+        return (
+          <Pressable
+            key={id}
+            style={[styles.tabBtn, on && styles.tabBtnOn]}
+            onPress={() => setSheetTab(id)}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: on }}
+            accessibilityLabel={`${label}${n ? ` ${n}` : ""}`}
+            testID={`friends-tab-${id}`}
+          >
+            <Text style={[styles.tabBtnText, on && styles.tabBtnTextOn]}>
+              {label}
+              {n ? ` ${n}` : ""}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+
+  const blockedPanel = (
+    <ScrollView
+      style={styles.list}
+      contentContainerStyle={styles.blockedPad}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={refresh}
+          tintColor="#9ec5ff"
+          colors={["#3d7eff"]}
+          progressBackgroundColor="#12151c"
+        />
+      }
+    >
+      {blocked.length === 0 ? (
+        <Text style={styles.empty}>{t("friends.blockedEmpty")}</Text>
+      ) : (
+        <>
+          <Text style={styles.blockedHint}>
+            {t("friends.blockedThumbHint") ||
+              "Snapshots stay on this device. Tap to unblock."}
+          </Text>
+          <View style={styles.blockedGrid}>
+            {blocked.map((b) => {
+              const thumb = matchThumbs[b.user_id];
+              const showThumb = !!thumb && !failedThumbs[b.user_id];
+              const letter =
+                (b.name || b.user_id || "?").trim().charAt(0).toUpperCase() ||
+                "?";
+              return (
+                <Pressable
+                  key={b.user_id}
+                  style={styles.blockedTile}
+                  onPress={() => unblockUser(b.user_id, b.name)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${t("friends.unblock") || "Unblock"} ${b.name || b.user_id.slice(0, 8)}`}
+                  testID="friends-blocked-tile"
+                >
+                  {showThumb ? (
+                    <Image
+                      source={{ uri: thumb }}
+                      style={styles.blockedThumb}
+                      blurRadius={12}
+                      accessibilityLabel={t("mobile.history.thumbOnDevice")}
+                      onError={() => {
+                        setFailedThumbs((prev) =>
+                          prev[b.user_id]
+                            ? prev
+                            : { ...prev, [b.user_id]: true }
+                        );
+                      }}
+                    />
+                  ) : (
+                    <View style={styles.blockedLetter}>
+                      <Text style={styles.blockedLetterText}>{letter}</Text>
+                    </View>
+                  )}
+                  <Text style={styles.blockedName} numberOfLines={1}>
+                    {b.name || b.user_id.slice(0, 8)}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </>
+      )}
+    </ScrollView>
+  );
+
   return (
-    <View
+    <KeyboardAvoidingView
       style={[
         styles.root,
         { paddingBottom: Math.max(insets.bottom, 8) },
       ]}
+      // Android's window already resizes for the keyboard (adjustResize);
+      // iOS needs this explicitly or the code/search inputs and the
+      // native header both end up hidden under the keyboard.
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
+      <Stack.Screen options={{ title: screenTitle }} />
+      {tabs}
+      {sheetTab === "history" ? (
+        <ScrollView
+          style={styles.list}
+          contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={refresh}
+              tintColor="#9ec5ff"
+              colors={["#3d7eff"]}
+              progressBackgroundColor="#12151c"
+            />
+          }
+        >
+          {listFooter}
+        </ScrollView>
+      ) : null}
+      {sheetTab === "blocked" ? blockedPanel : null}
+      {sheetTab === "list" ? (
       <FlatList
         data={sortedFriends}
-        keyExtractor={(f) => f.user_id}
+        keyExtractor={(f, index) =>
+          f.user_id || f.friend_code || f.short_id || `friend-${index}`
+        }
         style={styles.list}
         ListHeaderComponent={listHeader}
         ListEmptyComponent={
-          <View
-            style={styles.emptyWrap}
-            accessibilityRole="summary"
-            accessibilityLabel={t("mobile.friends.empty")}
-          >
-            <Text style={styles.empty} importantForAccessibility="no">
-              {t("mobile.friends.empty")}
-            </Text>
-            <Pressable
-              style={styles.shareBtn}
-              onPress={shareMyCode}
-              accessibilityRole="button"
-              accessibilityLabel={t("mobile.friends.shareInvite")}
-            >
-              <Text style={styles.btnText} importantForAccessibility="no">
-                {t("mobile.friends.shareInvite")}
-              </Text>
-            </Pressable>
-          </View>
+          (() => {
+            const q = query.trim();
+            const isSearchMiss = !!q && friends.length > 0;
+            const emptyTitle = isSearchMiss
+              ? t("mobile.friends.searchEmpty", { query: q })
+              : t("mobile.friends.emptyTitle");
+            const emptyBody = isSearchMiss
+              ? ""
+              : t("mobile.friends.empty");
+            // Offline · Retry lives only in the hero offline strip (listHeader).
+            // Do not duplicate it here when the list is empty.
+            const a11y = [emptyTitle, emptyBody].filter(Boolean).join(". ");
+            return (
+              <View
+                style={styles.emptyWrap}
+                accessibilityRole="summary"
+                accessibilityLabel={a11y}
+              >
+                <Text style={styles.emptyTitle} importantForAccessibility="no">
+                  {emptyTitle}
+                </Text>
+                {emptyBody ? (
+                  <Text style={styles.empty} importantForAccessibility="no">
+                    {emptyBody}
+                  </Text>
+                ) : null}
+                {!isSearchMiss ? (
+                  <View style={styles.heroActions}>
+                    <Pressable
+                      style={styles.shareBtn}
+                      onPress={shareMyCode}
+                      accessibilityRole="button"
+                      accessibilityLabel={t("mobile.friends.shareInvite")}
+                    >
+                      <Text
+                        style={styles.btnText}
+                        importantForAccessibility="no"
+                      >
+                        {t("mobile.friends.shareInvite")}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.copyBtn}
+                      onPress={() => copyCode(friendCode)}
+                      accessibilityRole="button"
+                      accessibilityLabel={t("mobile.friends.copyCode")}
+                    >
+                      <Text
+                        style={styles.btnText}
+                        importantForAccessibility="no"
+                      >
+                        {t("mobile.friends.copyCode")}
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <Pressable
+                    style={styles.copyBtn}
+                    onPress={() => setQuery("")}
+                    accessibilityRole="button"
+                    accessibilityLabel={t("mobile.friends.clear")}
+                  >
+                    <Text style={styles.btnText} importantForAccessibility="no">
+                      {t("mobile.friends.clear")}
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
+            );
+          })()
         }
         refreshControl={
           <RefreshControl
@@ -1362,6 +1812,7 @@ function FriendsBody() {
             item={item}
             unread={unreadDms[item.user_id] || 0}
             liveBusy={liveBusy}
+            partyFull={liveBusy && liveRemoteCount >= 3}
             onCall={() => call(item)}
             onInvite={() => call(item, { join: true })}
             onChat={() => setChatFriend(item)}
@@ -1369,18 +1820,24 @@ function FriendsBody() {
             onCopyCode={() =>
               copyCode(item.friend_code || item.user_id.slice(0, 12))
             }
-            onBlock={() => blockFriend(item)}
           />
         )}
         contentContainerStyle={styles.listContent}
         keyboardShouldPersistTaps="handled"
       />
+      ) : null}
       <FriendChatSheet
         friend={chatFriend}
         visible={!!chatFriend}
         onClose={() => setChatFriend(null)}
+        onCall={() => {
+          if (!chatFriend) return;
+          const f = chatFriend;
+          setChatFriend(null);
+          call(f);
+        }}
       />
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -1409,43 +1866,67 @@ function CallHistRow(props: {
   }, [av]);
   const letter = (histName || "?").slice(0, 1).toUpperCase();
   const showAv = !!av && !avFailed;
+  const when = formatRowTime(h.t);
+  const kindLine = [
+    t(kindI18nKey(h.kind)),
+    h.kind === "missed" ? t("mobile.history.callbackHint") : "",
+    !fr ? t("mobile.history.notFriend") : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const avBg = signalAvatarColor(h.user_id || histName);
   return (
-    <View style={styles.histRow}>
-      <View style={styles.histAvatar} importantForAccessibility="no">
-        {showAv ? (
-          <Image
-            source={{ uri: av }}
-            style={styles.histAvatarImg}
-            resizeMode="cover"
-            onError={() => setAvFailed(true)}
+    <Pressable
+      style={({ pressed }) => [styles.histRow, pressed && styles.rowPressed]}
+      onPress={fr ? onCall : undefined}
+      disabled={!fr}
+      accessibilityRole={fr ? "button" : "text"}
+      accessibilityLabel={`${histName}. ${kindLine}`}
+    >
+      <View style={styles.histAvatarOuter} importantForAccessibility="no">
+        <View
+          style={[
+            styles.histAvatar,
+            !showAv ? { backgroundColor: avBg } : null,
+          ]}
+        >
+          {showAv ? (
+            <Image
+              source={{ uri: av }}
+              style={styles.histAvatarImg}
+              resizeMode="cover"
+              onError={() => setAvFailed(true)}
+            />
+          ) : (
+            <Text style={styles.histAvatarText}>{letter}</Text>
+          )}
+        </View>
+        {fr ? (
+          <View
+            style={[styles.dot, online ? styles.dotOn : styles.dotOff]}
+            accessibilityElementsHidden
+            importantForAccessibility="no"
           />
-        ) : (
-          <Text style={styles.histAvatarText}>{letter}</Text>
-        )}
+        ) : null}
       </View>
-      <Pressable
-        style={styles.rowMain}
-        onPress={fr ? onCall : undefined}
-        disabled={!fr}
-        accessibilityRole={fr ? "button" : "text"}
-        accessibilityLabel={`${histName}. ${t(kindI18nKey(h.kind))}`}
-      >
-        <Text style={styles.name} numberOfLines={1}>
-          {histName}
+      <View style={styles.rowMain}>
+        <View style={styles.nameRow}>
+          <Text style={styles.name} numberOfLines={1}>
+            {histName}
+          </Text>
+          {when ? (
+            <Text style={styles.rowTime} numberOfLines={1}>
+              {when}
+            </Text>
+          ) : null}
+        </View>
+        <Text style={styles.snippet} numberOfLines={1}>
+          {kindLine}
         </Text>
-        <Text style={styles.sub} numberOfLines={2}>
-          {t(kindI18nKey(h.kind))}
-          {h.kind === "missed"
-            ? ` · ${t("mobile.history.callbackHint")}`
-            : ""}{" "}
-          · {formatWhen(h.t)}
-          {online ? ` · ${t("mobile.common.online")}` : ""}
-          {!fr ? ` · ${t("mobile.history.notFriend")}` : ""}
-        </Text>
-      </Pressable>
+      </View>
       {fr ? (
         <Pressable
-          style={online ? styles.histCallBtn : styles.histCallBtnMuted}
+          style={[styles.callIconOnly, !online && styles.callIconOnlyMuted]}
           onPress={onCall}
           accessibilityRole="button"
           accessibilityLabel={
@@ -1456,21 +1937,13 @@ function CallHistRow(props: {
           hitSlop={8}
         >
           <Ionicons
-            name={online ? "call" : "call-outline"}
-            size={15}
-            color={online ? "#b8f5d4" : "#9aa8bc"}
+            name={online ? "videocam" : "videocam-outline"}
+            size={20}
+            color={online ? "#3d9eed" : "#6b7a90"}
           />
-          <Text
-            style={
-              online ? styles.histCallBtnText : styles.histCallBtnTextMuted
-            }
-            numberOfLines={1}
-          >
-            {online ? t("friends.call") : t("mobile.history.ringAnyway")}
-          </Text>
         </Pressable>
       ) : null}
-    </View>
+    </Pressable>
   );
 }
 
@@ -1490,27 +1963,116 @@ const styles = StyleSheet.create({
     backgroundColor: "#07080c",
     flexGrow: 1,
   },
-  hero: {
+  screenTitle: {
+    color: "#f0f3f8",
+    fontWeight: "800",
+    fontSize: 22,
+    letterSpacing: -0.3,
+    paddingHorizontal: 2,
+    paddingTop: 2,
+  },
+  tabsRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.08)",
+    paddingHorizontal: 8,
+  },
+  tabBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: "center",
+    borderBottomWidth: 2,
+    borderBottomColor: "transparent",
+  },
+  tabBtnOn: {
+    borderBottomColor: "#ff2d55",
+  },
+  tabBtnText: {
+    color: "#8b97ab",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  tabBtnTextOn: {
+    color: "#f0f3f8",
+  },
+  blockedPad: {
     padding: 16,
-    borderRadius: 16,
-    backgroundColor: "rgba(255,45,85,0.12)",
-    borderWidth: 1,
-    borderColor: "rgba(255,45,85,0.28)",
+    paddingBottom: 32,
+    gap: 10,
+  },
+  blockedHint: {
+    color: "#8b97ab",
+    fontSize: 12,
+    lineHeight: 16,
+    marginBottom: 8,
+  },
+  blockedGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  blockedTile: {
+    width: "30%",
+    minWidth: 88,
+    alignItems: "center",
     gap: 6,
   },
-  heroLabel: { color: "#9aa8bc", fontSize: 12, fontWeight: "600" },
+  blockedThumb: {
+    width: 72,
+    height: 72,
+    borderRadius: 12,
+    backgroundColor: "#1a2030",
+  },
+  blockedLetter: {
+    width: 72,
+    height: 72,
+    borderRadius: 12,
+    backgroundColor: "#243044",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  blockedLetterText: {
+    color: "#d7e2f2",
+    fontSize: 22,
+    fontWeight: "800",
+  },
+  blockedName: {
+    color: "#c5d0e0",
+    fontSize: 12,
+    fontWeight: "600",
+    textAlign: "center",
+    width: "100%",
+  },
+  hero: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,45,85,0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(255,45,85,0.22)",
+    gap: 6,
+  },
+  heroTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  heroCodeHit: { flex: 1, minWidth: 0, gap: 2 },
+  heroLabel: { color: "#9aa8bc", fontSize: 11, fontWeight: "600" },
   heroCode: {
     color: "#fff",
-    fontSize: 28,
+    fontSize: 20,
     fontWeight: "800",
-    letterSpacing: 2,
+    letterSpacing: 1.4,
   },
   heroActions: { flexDirection: "row", gap: 8, marginTop: 4, flexWrap: "wrap" },
   shareBtn: {
-    alignSelf: "flex-start",
+    alignSelf: "center",
     backgroundColor: "#ff2d55",
-    paddingVertical: 10,
-    paddingHorizontal: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
     borderRadius: 999,
   },
   copyBtn: {
@@ -1521,6 +2083,61 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   warn: { color: "#ffe9a0", fontSize: 12 },
+  offlineRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    marginTop: 4,
+    flexWrap: "wrap",
+  },
+  retryBtn: {
+    backgroundColor: "rgba(61,126,255,0.35)",
+    borderWidth: 1,
+    borderColor: "rgba(100,160,255,0.45)",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+  },
+  retryBtnText: {
+    color: "#c8dcff",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  statusStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: "rgba(61,126,255,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(100,160,255,0.25)",
+  },
+  statusStripText: { color: "#9ec5ff", fontSize: 13, fontWeight: "600" },
+  errorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,170,60,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(255,190,100,0.35)",
+  },
+  errorBannerTextCol: { flex: 1, gap: 2 },
+  errorBannerTitle: {
+    color: "#ffe4b8",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  errorBannerBody: {
+    color: "#d0b890",
+    fontSize: 12,
+    lineHeight: 16,
+  },
   onlineCount: { color: "#9effc8", fontSize: 12, fontWeight: "600" },
   liveBusyHint: {
     color: "#9ec5ff",
@@ -1540,14 +2157,21 @@ const styles = StyleSheet.create({
     color: "#e8eef7",
     backgroundColor: "#12151c",
   },
-  search: {
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.1)",
+  searchWrap: {
+    flexDirection: "row",
+    alignItems: "center",
     borderRadius: 12,
+    backgroundColor: "#16181f",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.08)",
     paddingHorizontal: 12,
-    paddingVertical: 10,
+  },
+  searchIcon: { marginRight: 8 },
+  search: {
+    flex: 1,
+    paddingVertical: 11,
     color: "#e8eef7",
-    backgroundColor: "#12151c",
+    fontSize: 15,
   },
   addBtn: {
     backgroundColor: "#3d7eff",
@@ -1556,6 +2180,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   addBtnDisabled: { opacity: 0.45 },
+  footerBlock: {
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+    gap: 4,
+    backgroundColor: "#07080c",
+  },
   headerBlock: { gap: 10, marginBottom: 4 },
   section: { gap: 6 },
   sectionHead: {
@@ -1594,12 +2224,57 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "rgba(255,255,255,0.08)",
   },
+  rowPressed: { backgroundColor: "rgba(255,255,255,0.04)" },
+  /** Outgoing (waiting) requests — de-emphasized vs. incoming/friends. */
+  rowMuted: { opacity: 0.68 },
   nameRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     flexWrap: "wrap",
   },
+  nameUnread: { color: "#fff" },
+  nameMuted: { color: "#9aa8bc", fontWeight: "600", fontSize: 15 },
+  rowTime: { color: "#6b7a90", fontSize: 11, fontWeight: "600" },
+  rowTimeUnread: { color: "#9ec5ff", fontWeight: "800" },
+  previewRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    marginTop: 2,
+  },
+  unreadPill: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: "#3d7eff",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+  },
+  unreadPillText: { color: "#fff", fontSize: 11, fontWeight: "800" },
+  /** Incoming request avatar — same letter-tile spirit as friend rows. */
+  reqAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  reqAvatarText: { color: "#fff", fontWeight: "800", fontSize: 15 },
+  acceptBtnSoft: {
+    backgroundColor: "rgba(45,159,111,0.32)",
+    borderWidth: 1,
+    borderColor: "rgba(45,159,111,0.5)",
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+  },
+  acceptBtnSoftText: { color: "#b8f5d4", fontWeight: "800", fontSize: 13 },
+  cancelTextBtn: { paddingVertical: 8, paddingHorizontal: 8 },
+  cancelTextBtnText: { color: "#9aa8bc", fontWeight: "700", fontSize: 13 },
   onlinePill: {
     backgroundColor: "rgba(61,255,160,0.16)",
     borderWidth: 1,
@@ -1717,39 +2392,45 @@ const styles = StyleSheet.create({
   histRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
     paddingVertical: 12,
-    minHeight: 56,
+    minHeight: 64,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "rgba(255,255,255,0.08)",
   },
+  /** Outer so online presence dot is not clipped by histAvatar overflow. */
+  histAvatarOuter: {
+    width: 50,
+    height: 50,
+    position: "relative",
+    flexShrink: 0,
+  },
   histAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(61,126,255,0.22)",
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: "#6B7CFF",
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
-    borderWidth: 1,
+    borderWidth: 0,
     borderColor: "rgba(255,255,255,0.12)",
     flexShrink: 0,
   },
   histAvatarImg: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
   },
   histAvatarText: {
     color: "#c8dcff",
     fontWeight: "800",
-    fontSize: 15,
+    fontSize: 17,
   },
   matchCard: {
-    paddingVertical: 10,
+    paddingVertical: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "rgba(255,255,255,0.08)",
-    gap: 6,
   },
   matchLastMsg: {
     color: "#7a8a9e",
@@ -1759,9 +2440,9 @@ const styles = StyleSheet.create({
   },
   matchActions: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-    paddingBottom: 4,
+    alignItems: "center",
+    gap: 4,
+    flexShrink: 0,
   },
   matchAct: {
     backgroundColor: "rgba(45,159,111,0.35)",
@@ -1769,15 +2450,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     borderRadius: 999,
   },
-  matchActGhost: {
-    backgroundColor: "rgba(255,255,255,0.06)",
+  matchActCall: {
+    backgroundColor: "rgba(61,158,237,0.32)",
     paddingVertical: 6,
     paddingHorizontal: 10,
     borderRadius: 999,
   },
   matchActText: { color: "#b8f5d4", fontSize: 11, fontWeight: "800" },
-  matchActTextMuted: { color: "#9aa8bc", fontSize: 11, fontWeight: "700" },
-  matchActTextWarn: { color: "#ffb0bc", fontSize: 11, fontWeight: "700" },
+  matchActCallText: { color: "#bfe0ff", fontSize: 11, fontWeight: "800" },
+  /** "…" overflow — report / block / dismiss / copy live in this Alert. */
+  matchActMore: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
   /** Outer so online dot + DM badge are not clipped by avatar overflow. */
   avatarOuter: {
     width: 46,
@@ -1826,8 +2515,8 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: "#07080c",
   },
-  dotOn: { backgroundColor: "#3dffa0" },
-  dotOff: { backgroundColor: "#556070" },
+  dotOn: { backgroundColor: "#3dd68c" },
+  dotOff: { backgroundColor: "#e24b4b" },
   rowMain: { flex: 1, minWidth: 0 },
   name: { color: "#e8eef7", fontWeight: "700", fontSize: 15, flexShrink: 1 },
   online: { color: "#6dffa8", fontWeight: "600" },
@@ -1879,40 +2568,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#2d9f6f",
   },
-  /** Labeled call CTA on call-history rows (larger tap target). */
-  histCallBtn: {
-    flexDirection: "row",
+  /** Icon-only call CTA on call-history rows (Signal-style, no label pill). */
+  callIconOnly: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: "center",
-    gap: 5,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    minHeight: 40,
-    borderRadius: 999,
-    backgroundColor: "rgba(45,159,111,0.4)",
-    borderWidth: 1,
-    borderColor: "rgba(45,159,111,0.55)",
-    maxWidth: 130,
+    justifyContent: "center",
+    backgroundColor: "rgba(61,158,237,0.14)",
   },
-  histCallBtnMuted: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    minHeight: 40,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    maxWidth: 140,
-  },
-  histCallBtnText: {
-    color: "#b8f5d4",
-    fontWeight: "800",
-    fontSize: 12,
-  },
-  histCallBtnTextMuted: {
-    color: "#9aa8bc",
-    fontWeight: "700",
-    fontSize: 12,
+  callIconOnlyMuted: {
+    backgroundColor: "rgba(255,255,255,0.05)",
   },
   iconBadge: {
     position: "absolute",
@@ -1934,5 +2600,11 @@ const styles = StyleSheet.create({
   btnText: { color: "#fff", fontWeight: "700", fontSize: 13 },
   btnTextMuted: { color: "#9aa8bc", fontWeight: "600", fontSize: 13 },
   emptyWrap: { gap: 12, marginTop: 16, alignItems: "flex-start" },
+  emptyTitle: {
+    color: "#e8eef7",
+    fontSize: 16,
+    fontWeight: "800",
+    lineHeight: 22,
+  },
   empty: { color: "#6b7a90", fontSize: 13, lineHeight: 20 },
 });

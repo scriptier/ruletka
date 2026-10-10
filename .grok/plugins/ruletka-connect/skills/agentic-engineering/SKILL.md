@@ -9,7 +9,8 @@ metadata:
 
 # Agentic engineering (plugin)
 
-Follow project skill **agentic-engineering** and `docs/AGENTIC_ENGINEERING.md`.
+Follow project skill **agentic-engineering** and `docs/AGENTIC_ENGINEERING.md`.  
+Session picture: `.grok/session-card.txt` then `knowledge/wiki/now.md`. One matching spec only — not every `current-*.md`, not SMOKE-NEXT.
 
 ```bash
 ./scripts/agentic-check.sh --connect   # A/V

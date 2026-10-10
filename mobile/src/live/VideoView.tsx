@@ -10,9 +10,19 @@
  * Privacy blur: parent keeps this view mounted while remoteBlurred and covers
  * with PartnerBlurVeil (+ Android Modal). Unmount mid-call crashes WebRTC on
  * some devices. Do not remount on every layout tick (local cam blink).
+ *
+ * iOS objectFit: RTCVideoView's native setObjectFit: only touches
+ * videoContentMode when the incoming value differs from its cached
+ * _objectFit — which the native init already sets to Cover. So a view that
+ * mounts straight into objectFit="cover" never gets the aspect-fill call and
+ * silently renders letterboxed (aspect-fit) instead of filling like Android.
+ * Fix: mount at "contain" and flip to "cover" one frame later on the *same*
+ * native view (no key change) so the setter observes a real transition.
+ * Android's WebRTCView has no such guard, so it always gets "cover" as-is.
  */
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import {
+  Platform,
   StyleSheet,
   Text,
   View,
@@ -43,6 +53,24 @@ export const VideoView = memo(function VideoView(props: {
     }
   }, [stream, streamEpoch]);
 
+  // Default 1 = media overlay (visible). Cap at 2. Never default 0.
+  let zo = zOrder == null ? 1 : zOrder;
+  if (zo > 2) zo = 2;
+  if (zo < 0) zo = 0;
+  // Key includes epoch + zOrder so unblur (0→1 + epoch bump) rebinds cleanly.
+  // Do not churn key on layout-only updates.
+  const rtcKey = url ? `rtc-${url}-e${streamEpoch ?? 0}-z${zo}` : "";
+
+  const [iosObjectFit, setIosObjectFit] = useState<"contain" | "cover">(
+    "contain",
+  );
+  useEffect(() => {
+    if (Platform.OS !== "ios" || !rtcKey) return;
+    setIosObjectFit("contain");
+    const raf = requestAnimationFrame(() => setIosObjectFit("cover"));
+    return () => cancelAnimationFrame(raf);
+  }, [rtcKey]);
+
   if (!stream || !url) {
     // Mid-tone placeholder — never pure black (reads as broken camera on OLED)
     return <View style={[styles.videoPlaceholder, style]} />;
@@ -50,17 +78,11 @@ export const VideoView = memo(function VideoView(props: {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { RTCView } = require("react-native-webrtc");
-    // Default 1 = media overlay (visible). Cap at 2. Never default 0.
-    let zo = zOrder == null ? 1 : zOrder;
-    if (zo > 2) zo = 2;
-    if (zo < 0) zo = 0;
-    // Key includes epoch + zOrder so unblur (0→1 + epoch bump) rebinds cleanly.
-    // Do not churn key on layout-only updates.
     return (
       <RTCView
-        key={`rtc-${url}-e${streamEpoch ?? 0}-z${zo}`}
+        key={rtcKey}
         streamURL={url}
-        objectFit="cover"
+        objectFit={Platform.OS === "ios" ? iosObjectFit : "cover"}
         mirror={!!mirror}
         zOrder={zo}
         style={[styles.rtc, style]}
@@ -84,7 +106,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   rtc: {
-    // Transparent so parent blurUnderlay / mosaic shows when zOrder 0
+    // SurfaceView needs a real box. Empty style → 0×0 → black 3-way tiles
+    // (PiP still painted because its parent is sized).
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: "transparent",
   },
   stageHint: { color: "#6b7a90", fontSize: 12, fontWeight: "600" },

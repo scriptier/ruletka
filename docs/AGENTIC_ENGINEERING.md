@@ -85,6 +85,10 @@ Director (you / agent director)
 
 Never: parallel writers thrashing the same module without reconcile.
 
+### Multi-lane herd (optional)
+
+When the human lists **≥2 independent FAIL lines** with **non-overlapping OWN**, use the **herd shepherd** under `scripts/herd/` (`new-run` → `register` → `status` / `wait-all` → `finish`). Layout: `artifacts/herd/<run>/`. Playbook: **[`docs/HERD.md`](./HERD.md)**. Default remains one implementer + optional verify-only. Connect/A/V still goes through **av-loop**, not multi-writer herd on MediaSession.
+
 ---
 
 ## Default workflow (any non-trivial task)
@@ -139,6 +143,7 @@ Agents own: bookkeeping, measure, implement under lane, write-back.
 | Enter agentic mode | `/agentic` · skill `agentic-engineering` |
 | Write / refine spec | `/spec` |
 | Connect loop | `/av-loop` · `av-fix-loop` |
+| Multi-lane OWN / status | `docs/HERD.md` · `./scripts/herd/status.sh` |
 | Score only | `/av-verify` · `./scripts/av-verify.sh` |
 | Wiki | `/knowledge-query` · compound · ingest · health |
 | 3 layers deep-dive | `/karpathy` · `knowledge/wiki/karpathy-method.md` |

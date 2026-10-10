@@ -21,8 +21,8 @@ export function computeConnSlow(opts: {
     hasRemoteVideo,
     connSince,
     now,
-    // First path often 3–8s — flag "slow" after 5s of no picture
-    slowMs = 5000,
+    // First path often 2–5s after hop11 — flag "slow" sooner so UI feels alive
+    slowMs = 3500,
   } = opts;
   if (phase !== "matched") return false;
   if (connSince <= 0) return false;
@@ -57,7 +57,7 @@ export function computeShowConnRetry(opts: {
     matchStartedAt,
     now,
     // Surface Retry sooner so stuck first-paths aren't a long black wait
-    softMs = 4000,
+    softMs = 3000,
   } = opts;
   if (phase !== "matched") return false;
   if (conn === "failed" || conn === "disconnected") return true;

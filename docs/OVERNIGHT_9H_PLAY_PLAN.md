@@ -9,7 +9,7 @@
 
 Open **Play app** + **PC browser** → both cameras + audio **fast** and stable, then bring Play UX up to (or past) browser for live features.
 
-Hub live (**2026-08-07 ~14:38**): offers≈answers OK, but **match→offer max ~24s** (**YELLOW_slow**, drops=6). That is still #1 — see pending **`001b`**.
+Hub live (**2026-08-25 ~00:30 MDT**): 1v1 MTO **548–956ms** (green); **`YELLOW_slow`** is **1v2 extra-offer** max MTO **72466ms**, drops=0. That is #1 — see pending **`001-connect-yellow-party-mto.md`**. Historical **`001b`** (Aug 7 1v1 24s) stays COMPLETE — do not re-open.
 
 ## Safety (do not change)
 
@@ -27,7 +27,8 @@ Hub live (**2026-08-07 ~14:38**): offers≈answers OK, but **match→offer max ~
 | # | Task file | Outcome | Status |
 |---|-----------|---------|--------|
 | 1 | `001-connect-slow-offer.md` | Root cause + minimal fix for match→offer >> 2s | COMPLETE (audit; no residual stall) — **do not re-open** |
-| 1b | **`001b-connect-yellow-slow-mto.md`** | Live YELLOW max MTO ~24s: forensics + one fix or smoke handoff | **START for Claude** |
+| 1b | `001b-connect-yellow-slow-mto.md` | Live YELLOW max MTO ~24s (Aug 7 **1v1** offerKick) | COMPLETE — **do not re-open** |
+| 1c | **`001-connect-yellow-party-mto.md`** | 2026-08-25 YELLOW **72466ms** is **1v2 extra-offer**, not 1v1 | **START for Claude** |
 | 2 | `002-mobile-answer-path.md` | Phone answer/promote path not silent for 12s+ | COMPLETE — **human smoke** (superseded by ship; do not merge stale admin) |
 | 3 | `003-offer-thrash.md` | Fewer hub `offer dropped` / second-offer races | COMPLETE — **human smoke** (superseded by ship) |
 | 4 | `004-web-kicksolo-speed.md` | Browser warm-cam / kickSolo path fires offer fast | COMPLETE (audit) |
