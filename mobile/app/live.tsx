@@ -51,9 +51,13 @@ import {
 import { rememberSafetyLog } from "../src/safety/logStore";
 import {
   buildSafetyLog,
+  createFaceWatch,
   createSafetyDetector,
   createSafetySession,
+  faceForSelfCheck,
+  pushFaceSample,
   pushVerdict,
+  type FaceWatch,
   type SafetySession,
 } from "../src/safety/logic";
 import {
@@ -541,6 +545,8 @@ function LiveBody() {
   /** Partner incoming-video filter. Default on until prefs say false. */
   const safetyFilterOnRef = useRef(true);
   const safetySessionRef = useRef<SafetySession>(createSafetySession());
+  const faceWatchRef = useRef<FaceWatch>(createFaceWatch());
+  const [selfFaceHint, setSelfFaceHint] = useState(false);
   // Must stay defined — 0.1.388 crashed Live (`blurMode` missing).
   const [blurMode, setBlurMode] = useState<BlurStrangersMode>("intro");
   void blurMode;
@@ -7536,6 +7542,30 @@ function LiveBody() {
     // Re-bind when the match starts, not on every parent render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, isFriendCall]);
+  // Self-preview face hint before queueing. Unknown (stub) clears the
+  // warning and never blocks Start.
+  useEffect(() => {
+    if (phase === "matched") {
+      faceWatchRef.current = createFaceWatch();
+      setSelfFaceHint(false);
+      return;
+    }
+    const detector = createSafetyDetector();
+    let stopped = false;
+    const timer = setInterval(() => {
+      void detector.classify(null).then((verdict) => {
+        if (stopped) return;
+        const face = faceForSelfCheck(detector.ready, verdict.face);
+        const step = pushFaceSample(faceWatchRef.current, face, Date.now());
+        faceWatchRef.current = step.watch;
+        setSelfFaceHint((prev) => (prev === step.showHint ? prev : step.showHint));
+      });
+    }, 1000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [phase]);
   useFocusEffect(
     useCallback(() => {
       loadMatchPrefs()
@@ -8331,6 +8361,9 @@ function LiveBody() {
             {uiPhase === "matched" ? null : (
               <Text style={styles.stagePool}>{t("mobile.live.faceInFrame")}</Text>
             )}
+            {uiPhase !== "matched" && selfFaceHint ? (
+              <Text style={styles.stagePool}>{t("mobile.live.faceMissing")}</Text>
+            ) : null}
           </View>
           {/* Steps only while joining queue — hide once looking (less top stack) */}
           {uiPhase === "search" && !queueAcked ? (

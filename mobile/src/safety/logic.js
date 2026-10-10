@@ -13,6 +13,9 @@
 
 export const FACE_ABSENT_SUSPICION = 3;
 
+/** Self-preview: show the missing-face hint after this long, never block Start. */
+export const FACE_HINT_AFTER_MS = 3000;
+
 /** Web nsfwjs gates (ui/live.js). Explicit = confirmed class. */
 export function classifyScores(scores) {
   const porn = Number(scores?.porn) || 0;
@@ -119,6 +122,63 @@ export function buildSafetyLog(input) {
         : undefined,
     ts: Number(input?.ts) || Date.now(),
   };
+}
+
+export function createFaceWatch() {
+  return { absentSince: null, showHint: false };
+}
+
+/**
+ * Self-check before queueing.
+ * "unknown" (the stub) and "present" clear the hint.
+ * "absent" for FACE_HINT_AFTER_MS shows the hint.
+ * blocked is always false — a missing face does not stop Start.
+ */
+export function pushFaceSample(watch, face, nowMs) {
+  const now = Number(nowMs) || 0;
+  const kind = face === "absent" || face === "present" ? face : "unknown";
+  if (kind !== "absent") {
+    return {
+      watch: { absentSince: null, showHint: false },
+      showHint: false,
+      blocked: false,
+    };
+  }
+  const since = watch && watch.absentSince != null ? watch.absentSince : now;
+  const showHint = now - since >= FACE_HINT_AFTER_MS;
+  return {
+    watch: { absentSince: since, showHint },
+    showHint,
+    blocked: false,
+  };
+}
+
+/** A detector that is not ready cannot prove a face is missing. */
+export function faceForSelfCheck(detectorReady, face) {
+  if (!detectorReady) return "unknown";
+  if (face === "absent" || face === "present") return face;
+  return "unknown";
+}
+
+/**
+ * Send safety_log only when the hub flag is on.
+ * Default flag is false until bridge accepts the log-only message.
+ * Never sends report_user / explicit_ai.
+ */
+export function deliverSafetyLog(record, opts) {
+  const accept =
+    opts && Object.prototype.hasOwnProperty.call(opts, "accept")
+      ? !!opts.accept
+      : HUB_ACCEPTS_SAFETY_LOG;
+  if (!accept) return { sent: false, reason: "hub_log_disabled" };
+  if (!record || record.type !== "safety_log" || record.log_only !== true) {
+    return { sent: false, reason: "bad_record" };
+  }
+  if (record.reason === "explicit_ai" || record.type === "report_user") {
+    return { sent: false, reason: "not_a_report" };
+  }
+  if (opts && typeof opts.send === "function") opts.send(record);
+  return { sent: true, reason: "safety_log" };
 }
 
 export function createSafetyDetector(mode) {

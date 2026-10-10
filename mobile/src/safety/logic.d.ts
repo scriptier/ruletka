@@ -42,6 +42,24 @@ export type SafetyDetector = {
 };
 
 export const FACE_ABSENT_SUSPICION: number;
+export const FACE_HINT_AFTER_MS: number;
+
+export type FaceWatch = { absentSince: number | null; showHint: boolean };
+
+export function createFaceWatch(): FaceWatch;
+export function pushFaceSample(
+  watch: FaceWatch | null | undefined,
+  face: string | null | undefined,
+  nowMs: number
+): { watch: FaceWatch; showHint: boolean; blocked: false };
+export function faceForSelfCheck(
+  detectorReady: boolean,
+  face: string | null | undefined
+): FaceClass;
+export function deliverSafetyLog(
+  record: SafetyLogRecord | null | undefined,
+  opts?: { accept?: boolean; send?: (record: SafetyLogRecord) => void }
+): { sent: boolean; reason: string };
 export function classifyScores(scores: Partial<SafetyScores> | null | undefined): NsfwClass;
 export function createSafetySession(): SafetySession;
 export function pushVerdict(

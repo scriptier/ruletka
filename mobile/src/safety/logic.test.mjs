@@ -10,8 +10,13 @@ import {
   cancelDisableFilter,
   classifyScores,
   confirmDisableFilter,
+  createFaceWatch,
   createSafetyDetector,
   createSafetySession,
+  deliverSafetyLog,
+  FACE_HINT_AFTER_MS,
+  faceForSelfCheck,
+  pushFaceSample,
   pushVerdict,
   safetyFilterEnabled,
 } from "./logic.js";
@@ -92,5 +97,60 @@ assert.equal(log.log_only, true);
 assert.equal(log.reason, "explicit_shadow");
 assert.notEqual(log.reason, "explicit_ai");
 assert.equal(HUB_ACCEPTS_SAFETY_LOG, false);
+
+let face = createFaceWatch();
+let faceStep = pushFaceSample(face, "unknown", 0);
+assert.equal(faceStep.showHint, false);
+assert.equal(faceStep.blocked, false);
+face = faceStep.watch;
+faceStep = pushFaceSample(face, "unknown", 10_000);
+assert.equal(faceStep.showHint, false, "stub unknown never warns");
+assert.equal(faceStep.blocked, false);
+
+face = createFaceWatch();
+faceStep = pushFaceSample(face, "absent", 0);
+assert.equal(faceStep.showHint, false);
+face = faceStep.watch;
+faceStep = pushFaceSample(face, "absent", FACE_HINT_AFTER_MS - 1);
+assert.equal(faceStep.showHint, false);
+face = faceStep.watch;
+faceStep = pushFaceSample(face, "absent", FACE_HINT_AFTER_MS);
+assert.equal(faceStep.showHint, true, "no face for N ms shows the hint");
+assert.equal(faceStep.blocked, false, "missing face does not block Start");
+face = faceStep.watch;
+faceStep = pushFaceSample(face, "present", FACE_HINT_AFTER_MS + 50);
+assert.equal(faceStep.showHint, false);
+faceStep = pushFaceSample(faceStep.watch, "unknown", FACE_HINT_AFTER_MS + 100);
+assert.equal(faceStep.showHint, false);
+
+assert.equal(faceForSelfCheck(false, "absent"), "unknown");
+assert.equal(faceForSelfCheck(true, "absent"), "absent");
+assert.equal(faceForSelfCheck(true, "maybe"), "unknown");
+
+const shadow = buildSafetyLog({ targetUserId: "abc", nsfw: "explicit" });
+const held = deliverSafetyLog(shadow, {
+  send() {
+    throw new Error("must not send while the hub flag is off");
+  },
+});
+assert.equal(held.sent, false);
+assert.equal(held.reason, "hub_log_disabled");
+let sent = null;
+const passed = deliverSafetyLog(shadow, {
+  accept: true,
+  send(rec) {
+    sent = rec;
+  },
+});
+assert.equal(passed.sent, true);
+assert.equal(sent.type, "safety_log");
+assert.notEqual(sent.type, "report_user");
+assert.equal(sent.reason, "explicit_shadow");
+const banned = deliverSafetyLog(
+  { ...shadow, reason: "explicit_ai" },
+  { accept: true, send() {} }
+);
+assert.equal(banned.sent, false);
+assert.equal(banned.reason, "not_a_report");
 
 console.log("logic.test.mjs OK");
