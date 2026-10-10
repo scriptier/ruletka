@@ -413,3 +413,29 @@ Needs Anton:
 
 Signed Grok Build / ios. Stopping here.
 
+---
+
+## 2026-10-10 — Grok Build / store
+
+Local only on `polish/2026-10-10`. No push, no deploy, no APK/AAB, no Play Console, no RuStore console. Did not edit `ui/`, `bridge/`, or `mobile/` outside `mobile/assets/store/`. Title and short A/B are still open. Nothing uploaded.
+
+Commits:
+- `b97f5ba` Add optional listing blocks, release notes, and tag notes.
+
+What changed:
+- Extended `mobile/assets/store/LISTING-RU-2026-10.md` with §6–§8.
+- §6 optional paragraphs, RU and EN, for debate, gifts, and a 3–4 person stage. Not in the base paste. Base stays 1863/4000 RU and 1721/4000 EN. All three together: 2548 RU and 2429 EN, still under 4000. Every Russian add-on crosses the ~2000 fold (137 characters left). English debate, gifts, and the 3–4 block each still fit under 2000 with the English base.
+- §7 what’s-new draft, no version number. RU 211/500, EN 189/500 (Play’s cap). Does not claim on-device blur. `app.json` stays 0.1.471 / versionCode 479.
+- §8 tag note only: keep Общение, Социальные, Видеозвонки, and Обмен сообщениями. Recommend dropping Знакомства. Console not touched.
+
+Tests:
+- `SKIP_L2=1 ./scripts/verify-before-apk.sh` with `NODE_PATH` on the main checkout’s `mobile/node_modules`. L0 28 ok, L1 ok, `npm test` ok. Passed 12, failed 0. `SKIP_APK_HOOK=1`. No APK.
+
+Needs Anton:
+- Title and short A vs B, still open.
+- Paste or skip each optional block. Pasting the gifts block should drop the shorter stars sentence so it is not said twice.
+- Whether to drop the Знакомства tag when he next opens RuStore.
+- Release notes stay off the live 0.1.479 card until a new binary exists.
+
+Signed Grok Build / store. Stopping here.
+
