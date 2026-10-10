@@ -439,3 +439,27 @@ Needs Anton:
 
 Signed Grok Build / store. Stopping here.
 
+---
+
+## 2026-10-10 — Grok Build / mobile
+
+Local only on `polish/2026-10-10`. Did not touch `polish/ml-native` (`ef08f1e`, clean) or `~/freenet-roulette`. No push, no deploy, no prebuild, no APK/AAB. Did not install `react-native-fast-tflite`. Did not enable NudeNet. Did not change hub ban behaviour or resend `safety_log`.
+
+Commits:
+- `f7ffcb2` Cover the local preview when a ready face model sees no face.
+
+What changed:
+- `duringCallSelfCheck` sits next to the existing pre-queue gate. It reuses `faceForSelfCheck` and `pushFaceSample` (3 seconds). A stub (`ready: false`) does not toast, does not blur, and does not end the call. A ready model that reports no face for 3 seconds sets `selfBlur` and `toast` once. The next second keeps the blur and does not toast again. A face clears it. Friend calls reset the watch and do none of this. `hardBlock` stays false.
+- On a matched stranger call, `live.tsx` runs that check once a second. The toast is the existing line «Держите лицо в кадре» (`mobile.live.faceInFrame`). The flag covers the local tile, the self PiP, or the swapped self stage with the existing `PartnerBlurVeil`. The camera view stays mounted. This path does not call `setCamEnabled` and does not send `self_hide`.
+- The cover is local only. The partner still receives the real camera until a native frame tap exists. Anton decides when the sent track should be replaced.
+- The detector on this branch is still the stub, so a phone does not toast or cover today.
+- Russian packs: no remaining user-facing TURN, WebRTC, or pin strings outside `page.*` and `log.*`. «Спин» is the spin button. Visible name stays Ruletka.me. No pack edit this hop.
+
+Tests: `SKIP_L2=1 ./scripts/verify-before-apk.sh` with a symlink to the main checkout’s `mobile/node_modules` (removed before the commit). L0 28 ok, L1 ok, `npm test` ok. Passed 12, failed 0. `SKIP_APK_HOOK=1`. No APK process.
+
+Needs Anton:
+- The outgoing path is a local cover, not a replaced track. Say when the sent frames should actually be blurred.
+- No phone smoke. The stub cannot show the toast or the cover.
+
+Signed Grok Build / mobile. Stopping here.
+
