@@ -76,8 +76,8 @@ export async function requestHomePinOnce(opts?: {
 
   try {
     const ok = await m.requestPinHomeShortcut(
-      opts?.shortLabel || "ruletka",
-      opts?.longLabel || "ruletka — video chat"
+      opts?.shortLabel || "Ruletka.me",
+      opts?.longLabel || "Ruletka.me — video chat"
     );
     await markHomePinAsked();
     return { asked: true, supported: true, ok: !!ok };

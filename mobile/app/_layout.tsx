@@ -38,6 +38,7 @@ import {
   stopRingtone,
 } from "../src/feedback/sounds";
 import { HubProvider, useHub } from "../src/hub/HubProvider";
+import { HomeHeaderActions } from "../src/nav/HomeHeaderActions";
 import {
   loadOrCreateIdentity,
   rulesAccepted,
@@ -694,7 +695,13 @@ function StackNav() {
         navigationBarColor: "#07080c",
       }}
     >
-      <Stack.Screen name="index" options={{ title: "ruletka" }} />
+      <Stack.Screen
+        name="index"
+        options={{
+          title: "Ruletka.me",
+          headerRight: () => <HomeHeaderActions />,
+        }}
+      />
       <Stack.Screen name="rules" options={{ title: t("mobile.nav.rules") }} />
       <Stack.Screen
         name="live"

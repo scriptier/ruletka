@@ -24,7 +24,7 @@ const wantDevClient =
 /** @type {import('expo/config').ExpoConfig} */
 const expo = {
   ...base.expo,
-  name: friendsOnly ? "ruletka Friends" : base.expo.name,
+  name: friendsOnly ? "Ruletka.me Friends" : base.expo.name,
   plugins: [
     "expo-router",
     "expo-secure-store",
@@ -62,9 +62,9 @@ const expo = {
       "@config-plugins/react-native-webrtc",
       {
         cameraPermission:
-          "ruletka needs the camera for peer-to-peer video chat. Video goes device-to-device and is not uploaded to our servers.",
+          "Ruletka.me needs the camera for peer-to-peer video chat. Video goes device-to-device and is not uploaded to our servers.",
         microphonePermission:
-          "ruletka needs the microphone for peer-to-peer video chat.",
+          "Ruletka.me needs the microphone for peer-to-peer video chat.",
       },
     ],
   ],

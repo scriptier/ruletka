@@ -34,11 +34,17 @@ import {
 } from "../src/hubs/directory";
 import {
   LANG_LABELS,
-  SUPPORTED_LANGS,
   useI18n,
   useT,
   type LangCode,
 } from "../src/i18n";
+import { LanguagePickerModal } from "../src/i18n/LanguagePickerModal";
+import {
+  beginDisableFilter,
+  cancelDisableFilter,
+  confirmDisableFilter,
+  safetyFilterEnabled,
+} from "../src/safety/logic";
 import {
   buildPlainProfile,
   decryptProfile,
@@ -168,8 +174,6 @@ type SectionKey =
   | "safety"
   | "about";
 
-const PRIMARY_LANGS: LangCode[] = ["en", "ru", "uk", "de", "es"];
-
 export default function SettingsScreen() {
   const { rulesOk } = useApp();
   if (!rulesOk) return <Redirect href="/rules" />;
@@ -211,7 +215,7 @@ function SettingsBody() {
     { base: string; ok: boolean | null }[]
   >([]);
   const [hubBusy, setHubBusy] = useState(false);
-  const [moreLangs, setMoreLangs] = useState(false);
+  const [langOpen, setLangOpen] = useState(false);
   const [pcSheetOpen, setPcSheetOpen] = useState(false);
   const [lastConnect, setLastConnect] = useState<LastConnectStats | null>(
     null
@@ -237,21 +241,9 @@ function SettingsBody() {
     return t(key === "mobile.live.tierNew" ? "mobile.settings.tierNone" : key);
   }, [t, trust, trustEffective]);
 
-  const langChips = useMemo(() => {
-    const primary = PRIMARY_LANGS.filter((c) =>
-      (SUPPORTED_LANGS as readonly string[]).includes(c)
-    );
-    const rest = SUPPORTED_LANGS.filter(
-      (c) => !primary.includes(c as LangCode)
-    ) as LangCode[];
-    // Always show active pref language even if in "more"
-    const active = pref as LangCode;
-    const showRest =
-      moreLangs ||
-      (!!active && rest.includes(active)) ||
-      (!pref && !primary.includes(lang as LangCode));
-    return { primary, rest, showRest };
-  }, [moreLangs, pref, lang]);
+  const langLabel = pref
+    ? LANG_LABELS[pref as LangCode] || pref
+    : `${t("mobile.lang.auto")} → ${LANG_LABELS[lang]}`;
 
   useEffect(() => {
     loadMatchPrefs().then(setPrefs);
@@ -356,6 +348,50 @@ function SettingsBody() {
         on
           ? t("settings.hideIpOnStatus") || "Location hidden from partners"
           : t("settings.hideIpOffStatus") || "Location visible to partners"
+      );
+    } catch (e) {
+      showToast(`${t("mobile.common.offline")}: ${String(e)}`);
+    }
+  }
+
+  /** Two actions: tap Off, then confirm. Cancel leaves the filter on. */
+  function askDisableSafety() {
+    const asked = beginDisableFilter();
+    if (!asked.enabled || !asked.confirmPending) return;
+    Alert.alert(
+      t("mobile.settings.safetyOffTitle"),
+      t("mobile.settings.safetyOffBody"),
+      [
+        {
+          text: t("mobile.common.cancel"),
+          style: "cancel",
+          onPress: () => {
+            cancelDisableFilter();
+          },
+        },
+        {
+          text: t("mobile.settings.safetyOffConfirm"),
+          style: "destructive",
+          onPress: () => {
+            const done = confirmDisableFilter();
+            if (!done.enabled) void setSafetyFilter(false);
+          },
+        },
+      ]
+    );
+  }
+
+  async function setSafetyFilter(on: boolean) {
+    if (!prefs) return;
+    const next: MatchPrefs = { ...prefs, safetyFilter: on };
+    setPrefs(next);
+    try {
+      await saveMatchPrefs(next);
+      hapticLight();
+      showToast(
+        on
+          ? t("mobile.settings.safetyOnToast")
+          : t("mobile.settings.safetyOffToast")
       );
     } catch (e) {
       showToast(`${t("mobile.common.offline")}: ${String(e)}`);
@@ -569,6 +605,11 @@ function SettingsBody() {
                       profile.prefs.swipeSkip === undefined
                         ? true
                         : !!profile.prefs.swipeSkip,
+                    safetyFilter:
+                      (profile.prefs as { safetyFilter?: boolean })
+                        .safetyFilter === false
+                        ? false
+                        : true,
                   });
                 }
                 const next = await replaceIdentity(String(uid), newName);
@@ -612,6 +653,10 @@ function SettingsBody() {
   }
 
   const hubHost = (hubBaseUrl || hubBase()).replace(/^https?:\/\//, "");
+  const hubShown =
+    hubHost === "ruletka.vip" || hubHost === "ruletka.me"
+      ? "Ruletka.me"
+      : hubHost;
 
   return (
     <>
@@ -681,50 +726,18 @@ function SettingsBody() {
         onToggle={() => toggleSec("match")}
       >
         <Text style={styles.fieldLabel}>{t("mobile.lang")}</Text>
-        <View style={styles.row}>
-          <Chip
-            label={t("mobile.lang.system")}
-            active={!pref}
-            onPress={() => setPref("")}
-          />
-          {langChips.primary.map((code) => (
-            <Chip
-              key={code}
-              label={LANG_LABELS[code]}
-              active={pref === code}
-              onPress={() => setPref(code)}
-            />
-          ))}
-          {langChips.showRest
-            ? langChips.rest.map((code) => (
-                <Chip
-                  key={code}
-                  label={LANG_LABELS[code]}
-                  active={pref === code}
-                  onPress={() => setPref(code)}
-                />
-              ))
-            : null}
-        </View>
-        {!langChips.showRest && langChips.rest.length > 0 ? (
-          <Pressable
-            onPress={() => setMoreLangs(true)}
-            style={styles.moreLangsBtn}
-            accessibilityRole="button"
-            accessibilityLabel={t("mobile.settings.moreLangs", {
-              n: langChips.rest.length,
-            })}
-          >
-            <Text style={styles.moreLangsText} importantForAccessibility="no">
-              {t("mobile.settings.moreLangs", { n: langChips.rest.length })}
-            </Text>
-          </Pressable>
-        ) : null}
-        <Text style={styles.hint}>
-          {pref
-            ? LANG_LABELS[pref as LangCode] || pref
-            : `${t("mobile.lang.auto")} → ${LANG_LABELS[lang]}`}
-        </Text>
+        <Pressable
+          style={styles.langPick}
+          onPress={() => setLangOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel={t("mobile.lang")}
+        >
+          <Text style={styles.langPickText} numberOfLines={2}>
+            {langLabel}
+          </Text>
+          <Text style={styles.langPickChevron}>▾</Text>
+        </Pressable>
+        <Text style={styles.hint}>{t("mobile.settings.langPickHint")}</Text>
 
         <Text style={styles.fieldLabel}>{t("mobile.settings.iAm")}</Text>
         <View style={styles.row}>
@@ -881,6 +894,24 @@ function SettingsBody() {
           />
         </View>
         <Text style={styles.hint}>{t("mobile.settings.blurStrangersHint")}</Text>
+
+        <Text style={styles.fieldLabel}>{t("mobile.settings.safetyFilter")}</Text>
+        <View style={styles.row}>
+          <Chip
+            label={t("mobile.settings.safetyOn")}
+            active={safetyFilterEnabled(prefs.safetyFilter)}
+            onPress={() => void setSafetyFilter(true)}
+          />
+          <Chip
+            label={t("mobile.settings.safetyOff")}
+            active={!safetyFilterEnabled(prefs.safetyFilter)}
+            onPress={() => {
+              if (!safetyFilterEnabled(prefs.safetyFilter)) return;
+              askDisableSafety();
+            }}
+          />
+        </View>
+        <Text style={styles.hint}>{t("mobile.settings.safetyHint")}</Text>
 
         <Text style={styles.fieldLabel}>
           {t("mobile.settings.historySnaps")}
@@ -1052,7 +1083,7 @@ function SettingsBody() {
       {/* ── Hub ── */}
       <Section
         title={t("mobile.settings.hubSection")}
-        subtitle={`${hubHost} · ${
+        subtitle={`${hubShown} · ${
           connected
             ? t("mobile.settings.hubOnline")
             : t("mobile.settings.hubOffline")
@@ -1063,7 +1094,7 @@ function SettingsBody() {
       >
       <Text style={styles.hint}>
         {t("mobile.settings.hubHint", {
-          hub: hubHost,
+          hub: hubShown,
           status: connected
             ? t("mobile.settings.hubOnline")
             : t("mobile.settings.hubOffline"),
@@ -1104,6 +1135,8 @@ function SettingsBody() {
       </View>
       {hubRows.map((row) => {
         const host = row.base.replace(/^https?:\/\//, "");
+        const hostShown =
+          host === "ruletka.vip" || host === "ruletka.me" ? "Ruletka.me" : host;
         const active =
           normalizeBase(hubBaseUrl || hubBase()) === normalizeBase(row.base);
         const health =
@@ -1151,7 +1184,7 @@ function SettingsBody() {
               numberOfLines={1}
               importantForAccessibility="no"
             >
-              {host}
+              {hostShown}
               {active ? ` · ${t("mobile.settings.hubActive")}` : ""}
             </Text>
             <Text
@@ -1443,10 +1476,10 @@ function SettingsBody() {
           style={styles.linkRow}
           onPress={() => {
             const msg = t("mobile.settings.shareAppBody", {
-              url: "https://ruletka.vip",
+              url: "https://ruletka.me",
               code: friendCode || "…",
             });
-            Share.share({ message: msg, title: "ruletka" }).catch(() => {});
+            Share.share({ message: msg, title: "Ruletka.me" }).catch(() => {});
           }}
           accessibilityRole="button"
           accessibilityLabel={t("mobile.settings.shareApp")}
@@ -1501,7 +1534,7 @@ function SettingsBody() {
           <Text style={styles.buildText}>
             {t("mobile.settings.userMeta", {
               id: identity.user_id.slice(0, 12),
-              hub: hubHost,
+              hub: hubShown,
             })}
             {"\n"}
             {buildLabel()}
@@ -1532,9 +1565,10 @@ function SettingsBody() {
     <OpenOnPcSheet
       visible={pcSheetOpen}
       onClose={() => setPcSheetOpen(false)}
-      url="https://ruletka.vip"
+      url="https://ruletka.me"
       code={friendCode || undefined}
     />
+    <LanguagePickerModal visible={langOpen} onClose={() => setLangOpen(false)} />
     </>
   );
 }
@@ -1634,8 +1668,20 @@ const styles = StyleSheet.create({
   },
   chipText: { color: "#9aa8bc", fontWeight: "600", fontSize: 13 },
   chipTextOn: { color: "#fff" },
-  moreLangsBtn: { alignSelf: "flex-start", paddingVertical: 4 },
-  moreLangsText: { color: "#9ec5ff", fontWeight: "700", fontSize: 13 },
+  langPick: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    backgroundColor: "rgba(255,255,255,0.04)",
+  },
+  langPickText: { color: "#e8eef7", fontSize: 15, fontWeight: "700", flex: 1 },
+  langPickChevron: { color: "#9aa8bc", fontSize: 16, fontWeight: "700" },
   cta: {
     marginTop: 8,
     backgroundColor: "#ff2d55",

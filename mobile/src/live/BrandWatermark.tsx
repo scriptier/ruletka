@@ -193,7 +193,7 @@ export const BrandWatermark = memo(function BrandWatermark(props: {
       >
         <View style={styles.markWrap}>
           <Text style={styles.markText} numberOfLines={1} ellipsizeMode="clip">
-            ruletka.me
+            Ruletka.me
           </Text>
         </View>
       </Animated.View>

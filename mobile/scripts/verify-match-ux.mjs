@@ -153,12 +153,22 @@ if (!liveTsx) {
     }
   }
 
+  // 2026-08: stage painted partnerFlagChip. Later the chip was turned off
+  // because it doubled the dock flag. Dock owns identity; stage must not
+  // also paint showStageFlag. Either the old single chip or the off switch
+  // satisfies "one flag owner".
   if (stage && /partnerFlagChip/.test(stage) && /showStageFlag/.test(stage)) {
     ok("LiveStageVideo partnerFlagChip (single stage flag)");
+  } else if (
+    stage &&
+    /Stage flag chip OFF/.test(stage) &&
+    !/showStageFlag/.test(stage)
+  ) {
+    ok("stage flag chip off (dock owns identity, no dual flag)");
   } else {
     fail(
       "partnerFlagChip",
-      "stage must paint one flag chip when flag known"
+      "stage must paint one flag chip, or keep Stage flag chip OFF with no showStageFlag"
     );
   }
 }
@@ -240,10 +250,19 @@ if (liveTsx) {
   }
   if (/showPrivacyBlur\s*&&\s*Platform\.OS\s*===\s*"android"/.test(liveTsx)) {
     ok("Android privacy Modal only while showPrivacyBlur");
+  } else if (
+    /const showPrivacyBlur\s*=/.test(liveTsx) &&
+    /blurVeil=\{/.test(liveTsx) &&
+    stage &&
+    /softBlurNative/.test(stage) &&
+    !/<Modal\b/.test(liveTsx)
+  ) {
+    // Modal over an Android SurfaceView raced WebRTC. Blur stays in the stage.
+    ok("privacy blur is in-stage soft blur, not an Android Modal");
   } else {
     fail(
-      "Android privacy Modal while veiled",
-      "need showPrivacyBlur && Platform.OS === \"android\" ? <Modal opaque PartnerBlurVeil"
+      "Android privacy blur while veiled",
+      "need showPrivacyBlur wired to in-stage blurVeil (soft blur), or the old android Modal only while veiled"
     );
   }
   // Crash fix: <PartnerBlurVeil> JSX without import → ReferenceError on privacy path

@@ -461,7 +461,6 @@ const styles = StyleSheet.create({
     color: "#e0e8f8",
     fontSize: 10,
     fontWeight: "700",
-    letterSpacing: 0.4,
-    textTransform: "uppercase",
+    letterSpacing: 0.2,
   },
 });

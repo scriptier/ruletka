@@ -21,32 +21,24 @@ import {
 } from "../src/calls/matchHistory";
 import { track } from "../src/analytics/track";
 import { hubBase, isFriendsOnly } from "../src/config";
+import {
+  formatAgoSeconds,
+  formatDurationSeconds,
+  unitsFromTranslator,
+} from "../src/i18n/duration";
 import { loadUnreadMap, totalUnread } from "../src/friends/unread";
 import { useHub } from "../src/hub/HubProvider";
 import { useT } from "../src/i18n";
 import { maybeOfferNotifOptIn } from "../src/push/notifOptIn";
 import { useApp } from "./_layout";
 
-function formatMatchAgo(tMs: number, now = Date.now()): string {
-  const sec = Math.max(0, Math.floor((now - tMs) / 1000));
-  if (sec < 60) return `${sec}s`;
-  if (sec < 3600) return `${Math.floor(sec / 60)}m`;
-  if (sec < 86400) return `${Math.floor(sec / 3600)}h`;
-  return `${Math.floor(sec / 86400)}d`;
-}
-
-function formatDuration(secs?: number): string {
-  const s = Math.max(0, Math.floor(Number(secs) || 0));
-  if (s <= 0) return "";
-  if (s < 60) return `${s}s`;
-  return `${Math.floor(s / 60)}m ${s % 60}s`;
-}
-
 function hubHost(): string {
   try {
-    return new URL(hubBase()).host || "ruletka.vip";
+    const host = new URL(hubBase()).host || "Ruletka.me";
+    if (host === "ruletka.vip" || host === "ruletka.me") return "Ruletka.me";
+    return host;
   } catch {
-    return "ruletka.vip";
+    return "Ruletka.me";
   }
 }
 
@@ -127,7 +119,7 @@ function HomeBody() {
         accessibilityRole="button"
         accessibilityLabel={t("mobile.home.start")}
       >
-        <Text style={styles.brand}>ruletka</Text>
+        <Text style={styles.brand}>Ruletka.me</Text>
       </Pressable>
       <Text style={styles.tag}>{t("mobile.home.tag")}</Text>
       <Text style={styles.meta}>
@@ -435,8 +427,15 @@ function HomeBody() {
             </Text>
             <Text style={styles.lastMatchMeta}>
               {t("mobile.home.lastMatchMeta", {
-                ago: formatMatchAgo(lastMatch.t),
-                time: formatDuration(lastMatch.duration_secs) || "—",
+                ago: formatAgoSeconds(
+                  Math.floor((Date.now() - lastMatch.t) / 1000),
+                  unitsFromTranslator(t)
+                ),
+                time:
+                  formatDurationSeconds(
+                    lastMatch.duration_secs || 0,
+                    unitsFromTranslator(t)
+                  ) || "—",
               })}
             </Text>
           </Pressable>
@@ -873,8 +872,7 @@ const styles = StyleSheet.create({
     color: "#6b7a90",
     fontSize: 11,
     fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
+    letterSpacing: 0.2,
   },
   lastMatchName: {
     color: "#e8eef7",

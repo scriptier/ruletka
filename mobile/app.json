@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "ruletka",
+    "name": "Ruletka.me",
     "slug": "ruletka",
     "owner": "courtiers-team",
     "version": "0.1.471",
@@ -19,8 +19,8 @@
       "bundleIdentifier": "me.ruletka.app",
       "buildNumber": "1",
       "infoPlist": {
-        "NSCameraUsageDescription": "ruletka needs the camera for peer-to-peer video chat. Video goes device-to-device and is not uploaded to our servers.",
-        "NSMicrophoneUsageDescription": "ruletka needs the microphone for peer-to-peer video chat."
+        "NSCameraUsageDescription": "Ruletka.me needs the camera for peer-to-peer video chat. Video goes device-to-device and is not uploaded to our servers.",
+        "NSMicrophoneUsageDescription": "Ruletka.me needs the microphone for peer-to-peer video chat."
       }
     },
     "android": {

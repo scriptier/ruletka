@@ -102,7 +102,7 @@ export async function encryptProfile(
   return {
     format: PROFILE_FORMAT_ENC,
     v: 2,
-    software: "ruletka.vip",
+    software: "Ruletka.me",
     exported_at: new Date().toISOString(),
     kdf: "PBKDF2",
     hash: "SHA-256",
@@ -149,7 +149,7 @@ export function buildPlainProfile(opts: {
   return {
     format: PROFILE_FORMAT,
     exported_at: new Date().toISOString(),
-    software: "ruletka.vip",
+    software: "Ruletka.me",
     note:
       "Import restores identity. Stars are NOT in this file — hub-only for user_id.",
     identity: {
