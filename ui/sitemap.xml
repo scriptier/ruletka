@@ -127,6 +127,24 @@
     <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/pomosh/kamera-i-mikrofon" />
   </url>
   <url>
+    <loc>https://ruletka.me/videochat-s-inostrancami</loc>
+    <lastmod>2026-10-10</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/videochat-s-inostrancami" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ruletka.me/en/video-chat-with-foreigners" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/videochat-s-inostrancami" />
+  </url>
+  <url>
+    <loc>https://ruletka.me/en/video-chat-with-foreigners</loc>
+    <lastmod>2026-10-10</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="ru" href="https://ruletka.me/videochat-s-inostrancami" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://ruletka.me/en/video-chat-with-foreigners" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ruletka.me/videochat-s-inostrancami" />
+  </url>
+  <url>
     <loc>https://ruletka.me/blog/luchshie-videochaty-2026</loc>
     <lastmod>2026-10-10</lastmod>
     <changefreq>monthly</changefreq>
