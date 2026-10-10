@@ -116,3 +116,36 @@ Needs Anton:
 - Upload still needs an explicit go.
 
 Signed Grok Build / store. Stopping here.
+
+---
+
+## 2026-10-10 — Grok Build / site
+
+Local only on `polish/2026-10-10`. No push, no deploy, no APK. Did not edit `mobile/`. Did not set `HUB_ACCEPTS_SAFETY_LOG`.
+
+Commits:
+- `77a811c` feat(bridge): log safety_log without banning
+- `4a2392d` feat(site): call, anonymity, safety, and camera pages, plus a lighter landing
+
+The worktree had been moved to `polish/ml-native` (same tip as this branch, `b87d77a`). These two commits were fast-forwarded onto `polish/2026-10-10`. `polish/ml-native` was put back at `b87d77a` so the model branch does not carry the site files.
+
+What changed:
+- Hub accepts `{type:"safety_log", log_only:true, reason, target_user_id, model, model_ready, face, nsfw, window, scores or omitted, ts}`. One JSON line goes to `safety-logs.jsonl` next to the friends store. 30 lines per hour per connection. `log_only` must be true or the line is dropped. `report_reporters` and `match_bans` are not touched. Told the mobile tab via `herdr agent prompt` (commit `77a811c`).
+- Pages: `/videozvonok-bez-registracii`, `/anonimnyj-videochat`, `/bezopasnost` (file `ui/safety.html`, Russian, about 770 words before the FAQ), `/pomosh/kamera-i-mikrofon`. FAQ JSON-LD, sitemap, footer links, bridge aliases and trailing slashes. `/safety.html` still serves the same file. Canonical is `https://ruletka.me/bezopasnost`. No `/en/safety`, no P9, no P10.
+- Landing: `analytics.js`, `pwa-install.js`, and `live-window.js` load after idle. Hero video has `poster=/brand/logo-mark.png` and `preload=none`; `loading-screen.mp4` is set only when the hero is on screen. First-load HTML + referenced JS: 76,391 bytes before, 53,426 after (HTML file itself 47,064 → 49,754). The mp4 is 246,162 bytes and is not in that first set.
+
+Tests:
+- `SKIP_L2=1 mobile/scripts/verify-before-apk.sh` with the main checkout’s `mobile/node_modules` (this worktree has none): L0 28 ok, 0 fail. Wrapper passed 12, failed 0. Exit 0.
+- `npm test`: exit 0 (friend invite, geo, live units, safety logic, duration).
+- `cargo test` filter `safety_log` and `brand_tests`: 9 passed. A safety line does not change ban maps; a later `report_user` still can.
+- `node --check` on the home inline script: ok.
+- No browser click-through. Aliases are covered by the cargo test, not by a loaded page.
+
+Needs Anton:
+- `/bezopasnost` is the canonical safety URL. `/safety.html` is the same Russian page, not a 301, so old links keep working. English `/en/safety` was not built.
+- The safety meta line still says «ИИ на устройстве», as in the SEO report. The body says the browser check is local and the Android model is not on yet.
+- Anonymity copy states the WebRTC IP caveat and does not say the site works without a VPN.
+- Play listing may still 404. Not rechecked this hop.
+- Say if the hero should stay a still logo instead of starting `loading-screen.mp4` after idle.
+
+Signed Grok Build / site. Stopping here.
