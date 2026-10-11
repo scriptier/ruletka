@@ -663,3 +663,95 @@ Needs Anton:
 
 Signed Grok Build / mobile. Stopping here.
 
+---
+
+## 2026-10-10 — Grok Build / site
+
+Release prep only, in `~/freenet-roulette-release` on `release/2026-10-10`. Did not deploy. Did not push. Did not edit `~/freenet-roulette`. Did not edit mobile app source.
+
+Commit:
+- `547bf44` release: layer site polish on the live ui/bridge snapshot (parent `5059ed5`).
+
+What landed:
+- Conflicts resolved with the live snapshot as connect behavior and polish layered on top. `simple.rs` keeps both `ws_hold_tests` and `safety_log_hub_tests`. `safety_log` stays log-only.
+- `live.js` / `live-stage.css` clean apply kept after review: one 18+ Start (`#btn-age-yes` calls `acceptRulesAndEnter`, friend/room/invite skips auto-start), low-pool line when online &lt; 5, sentence-case side labels, no-cam mark, `Ruletka.me` fallback. No ICE, TURN, or match edits in those hunks. `main.rs` / `protocol.rs` are SEO aliases, 301s, brand collapse, and `SafetyLog` parse only.
+- `/` is the Russian home. `/en/` is the English twin. Browser language does not swap `/`.
+- Pins above the live snapshot: `live.js?v=986`, `live-stage.css?v=656`, `i18n.js?v=268`, language packs `?v=147`, `brand.js?v=3`, `home.css?v=102`, `site-i18n.js?v=145` with `PACK_V` 147. `webrtc.js` 356, `hubs.js` 157, `identity.js` 156, `live-brand.css` 24 unchanged. `meta.json` fetch stays `?v=137` (file not in the diff). Session pack key `ruletka-i18n-pack-v98-` → `v99`. `pwa-install.js` pin is 13 (snapshot live.html was 12); first visit skips the update banner.
+
+Tests:
+- `cargo test --manifest-path bridge/Cargo.toml`: 37 passed, 0 failed. Includes brand, `safety_log` parse, `safety_log` hub, and both ws-hold tests.
+- `cargo build -p freenet-roulette-bridge --release`: finished, exit 0.
+- `node --check`: `brand.js`, `i18n.js`, `live.js`, `pwa-install.js`, `site-i18n.js`, and inline scripts in the 33 changed HTML files. 0 failures.
+- `SKIP_L2=1 mobile/scripts/verify-before-apk.sh` with `NODE_PATH=~/freenet-roulette/mobile/node_modules`: pin asserts passed (`live.js` 986, `live-stage.css` 656, Russian home). L0 overall 136 ok, 4 fail, script exit 1. The four fails are AndroidManifest orientation, TapPressable, call avatar, and StarGiftPopup. This worktree’s `mobile/` app source does not contain the live dirty tree’s files, and I did not edit it. L1 ok. `npm test` ok (friend-invite, geo, live-units 11).
+- `verify-before-apk.sh` has no hardcoded 985/655. It reads `live.html` and runs `verify-match-ux.mjs`. Those expected numbers are now 986/656. The index check now requires canonical `https://ruletka.me/` plus a link to `/live.html`, because `/` is no longer a redirect stub.
+- Local bridge `127.0.0.1:18790` with `Host: ruletka.me` (redirects not followed): 200 `/` «Чат рулетка — бесплатный видеочат без регистрации | Ruletka.me»; 200 `/en/` «Ruletka.me — Free Random Video Chat Roulette, No Sign-Up (18+)»; 200 `/live.html` «Чат рулетка — живой видеочат | Ruletka.me»; 200 `/bezopasnost` «Безопасность в чат рулетке — правила, блок и жалобы | Ruletka.me»; 301 `/privacy.html` → `/legal/privacy.html`; 301 `/terms.html` → `/legal/terms.html`; 301 `/download` and `/download/android.html` → `/download/android`; 200 `/operators` «Операторам — Ruletka.me»; 200 `/sitemap.xml` first loc `https://ruletka.me/`. No browser click-through.
+
+Unsure hunks:
+- `contribute.html` consumer card no longer links `/hubs.json` directly. It points at `/operators`, which still links `/hubs.json`.
+- Sitemap is the polish `.me` file. It does not list `/home.html`, `/safety.html`, `/contribute.html`, `/updates.html`, `/donate.html`, or `/download/android.html`. No `.vip` URLs put back. `/safety.html` still returns 200; the SEO URL is `/bezopasnost`. `/download/android.html` 301s to the URL that is in the sitemap. `robots.txt` still `Disallow: /operators` (page is 200, noindex), same as polish.
+- Android page APK link kept `?v=475` and the snapshot line 0.1.475 / vc483. Session card says the disk APK is 0.1.480-vc488. I did not write 480 onto the page.
+- On the `.me` host, `brand_html` still rewrites `ruletka.vip` tokens in served HTML, including a changelog line that names the old opening of ruletka.vip.
+- Play URL is still on the Android page and may 404.
+
+Not deployed. You run the deploy.
+
+Signed Grok Build / site. Stopping here.
+
+
+---
+
+## 2026-10-10 17:00 — Ruletka Developer
+DEPLOYED to production (Anton: "go ahead and make it live"): release/2026-10-10 @ 547bf44 (live working-tree snapshot + site polish), local tag deployed-2026-10-10. Server backup: /opt/ruletka/backups/predeploy-20261010T225600Z (bin/ui/deploy). install-on-server.sh stopped at apt-get update (Caddy cloudsmith repo 402); bridge restarted manually; service file/Caddyfile only differ by comments so not reinstalled. Site APK and download files kept byte-identical from prod. App, store, and polish/ml-native NOT shipped. Not pushed to git. ~/freenet-roulette main tree untouched — connect: base future web work on release/2026-10-10 or merge it, or the next deploy from main will roll these back.
+
+---
+
+## 2026-10-11 13:40 MDT — Ruletka Developer
+Next assignments (prompts in ~/rustore-ru-work/prompts/site7.txt mobile8.txt): site — live idle self-preview + face/lighting hint on release/2026-10-10 in ~/freenet-roulette-release (P8 already present; skip rebuild). mobile — Start self-preview large + face hint on polish/2026-10-10 (stub-safe). ios/store left idle (Anton-blocked: A/B/C, ASC id, listing title/short, Data safety paste). Connect left alone. All local; no push/deploy/build/upload. No new review email this run (no fresh finished hops since prior batch).
+
+---
+
+## 2026-10-10 — Grok Build / site
+
+Local only on `release/2026-10-10` in `~/freenet-roulette-release`. Did not deploy. Did not push. Did not edit `~/freenet-roulette`. Did not rebuild `/pomosh/kamera-i-mikrofon`. Did not edit mobile app source.
+
+Commit:
+- `e634efd` feat(live): show your camera large on the idle start screen (parent of this hop is the deployed `547bf44`).
+
+What changed:
+- On the live idle screen, after the local camera is actually painting (`has-local-feed`, live track, decoded frames, and not the no-cam portrait), the existing `#tile-local` / `#local` fills the stage. The brand loop hides behind it. Start stays on top.
+- One hint, sentence case, via `idle.faceHint`: EN “Keep your face visible and well lit”; RU «Держите лицо в кадре и при хорошем свете». The line stays invisible until the camera is painting. No face circle. Start is not disabled and this path does not call match, ICE, or TURN.
+- No camera keeps the existing no-cam mark and the brand idle. `pendingInviteSkipsAutoStart` and `rulesGateEntered` are unchanged, so friend, room, and invite flows are not given a stranger-queue gate.
+- Pins: `live.js?v=987`, `live-stage.css?v=657`, `i18n.js?v=269`. `webrtc.js` 356, `hubs.js` 157, `identity.js` 156 unchanged. `verify-match-ux.mjs` and the comment in `verify-before-apk.sh` match 987/657.
+
+Tests:
+- `cargo test --manifest-path bridge/Cargo.toml`: 37 passed, 0 failed. Bridge source was not edited.
+- `node --check` on `live.js`, `i18n.js`, and `verify-match-ux.mjs`: ok.
+- `SKIP_L2=1 mobile/scripts/verify-before-apk.sh` with `NODE_PATH=~/freenet-roulette/mobile/node_modules`: pin asserts and the idle-preview assert passed. L0 137 ok, 4 fail, script exit 1. The four fails are the same pre-existing mobile checks (AndroidManifest orientation, TapPressable, call avatar, StarGiftPopup). L1 ok. `npm test` ok.
+- No browser click-through. A camera-permission layout needs a real grant; I did not verify the large preview visually.
+
+Needs Anton:
+- This commit is not on the server. Production is still `547bf44`. Say when to deploy `e634efd`.
+- The hint is text only. It does not check that a face is in frame.
+
+Signed Grok Build / site. Stopping here.
+
+---
+
+## 2026-10-11 — Grok Build / mobile
+
+Local only on `polish/2026-10-10`. Did not touch `polish/ml-native` (`ef08f1e`, clean) or `~/freenet-roulette`. No push, no deploy, no prebuild, no APK/AAB. Did not install `react-native-fast-tflite`. Did not enable NudeNet. Did not merge ml-native. Did not install a frame tap. Did not change hub ban behaviour. Did not open appeals. Did not change skip or report.
+
+Commit:
+- `ecf47f3` Show the local camera large on the idle Start screen.
+
+What changed:
+- On the idle Start screen, once the local camera is on, `LiveStageVideo` paints `localStream` large instead of the brand loop. Search still uses the brand loop, with self in the small preview. No camera, or the camera off, keeps the brand loop. The idle root is transparent while that preview is up so the surface is not buried. The surface stays at zOrder 0 so Start stays above it.
+- One hint, sentence case, text only, no face circle: `mobile.live.facePreviewHint`. EN “Make sure your face is visible and well lit”. RU «Лицо должно быть видно и хорошо освещено». It sits above Start on idle, and not on a friend call. `mobile.live.faceInFrame` is unchanged and still used on search and during a call.
+- Start stays tappable. The stub (`ready: false`) does not hard-block and does not invent a no-face toast. Friend calls stay out of the existing soft-gate hold. The preview does not wait on a face model.
+
+Tests: `SKIP_L2=1 ./scripts/verify-before-apk.sh` with a symlink to the main checkout’s `mobile/node_modules` (removed before the commit). L0 28 ok, L1 ok, `npm test` ok, including `logic.test.mjs`. Passed 12, failed 0. `SKIP_APK_HOOK=1`. No APK.
+
+Needs Anton:
+- No phone smoke. This checkout cannot show the large preview.
+
+Signed Grok Build / mobile. Stopping here.
