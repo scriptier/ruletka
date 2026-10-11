@@ -197,11 +197,19 @@
         </p>
 
         <div class="home-cta-row">
-          <!-- Hero “Start chatting” removed — keep header + footer CTAs; Join now stays in stats -->
+          <a class="home-cta" href="/live.html">
+            <span data-i18n="home.cta">Start chatting</span>
+            <span class="cta-arrow" aria-hidden="true">→</span>
+          </a>
           <button type="button" class="home-secondary home-invite-btn" id="btn-home-invite" data-i18n="home.invite">
             Invite friends
           </button>
         </div>
+        <ul class="home-trust" data-i18n-aria="home.trustLabel" aria-label="Before you start">
+          <li data-i18n="home.trustKind">Be kind</li>
+          <li data-i18n="home.trustFit">Keep it appropriate</li>
+          <li data-i18n="home.trustSafe">AI + reports keep it safe</li>
+        </ul>
 
         <div class="home-live-stats" id="home-live-stats" aria-live="polite">
           <span class="stat-pill">
@@ -360,6 +368,10 @@
           "home.lead":
             "Random video chat with strangers — or call friends when they’re online. Media stays between browsers. No account required.",
           "home.cta": "Start chatting",
+          "home.trustLabel": "Before you start",
+          "home.trustKind": "Be kind",
+          "home.trustFit": "Keep it appropriate",
+          "home.trustSafe": "AI + reports keep it safe",
           "home.share": "Share site",
           "home.shareOk": "Link copied",
           "home.invite": "Invite friends",
@@ -431,6 +443,10 @@
           "home.lead":
             "Случайный видеочат с незнакомцами — или звонок другу, если он онлайн. Видео идёт напрямую, браузер к браузеру. Без аккаунта.",
           "home.cta": "Начать чат",
+          "home.trustLabel": "Перед стартом",
+          "home.trustKind": "Будьте вежливы",
+          "home.trustFit": "Оставляйте разговор уместным",
+          "home.trustSafe": "ИИ и жалобы помогают держать чат безопасным",
           "home.share": "Поделиться",
           "home.shareOk": "Ссылка скопирована",
           "home.invite": "Пригласить друзей",
@@ -525,6 +541,11 @@
           var k = el.getAttribute("data-i18n");
           if (dict[k] != null) el.innerHTML = dict[k];
           else if (STR.en[k] != null) el.innerHTML = STR.en[k];
+        });
+        document.querySelectorAll("[data-i18n-aria]").forEach(function (el) {
+          var k = el.getAttribute("data-i18n-aria");
+          var v = dict[k] != null ? dict[k] : STR.en[k];
+          if (v != null) el.setAttribute("aria-label", String(v));
         });
         var sel = document.getElementById("home-lang");
         if (sel) sel.value = lang;
