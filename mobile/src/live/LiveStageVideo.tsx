@@ -853,8 +853,18 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
   // Aspect only (PiP / chrome). Multi tiles always stack — landscape is not a row.
   const splitWide = layoutW > 0 && layoutH > 0 && layoutW / layoutH >= 1.15;
 
-  // PC remote-empty parity: brand loop while idle/search with no partner
+  // Idle Start: own camera fills the stage. Search keeps the brand loop.
+  // Preview is camera UX — it does not wait on a face model.
+  // zOrder stays 0 so the surface stays behind Start and the dock hint.
+  const idleSelfPreview =
+    phase === "idle" &&
+    !multiRemote &&
+    !huntingThird &&
+    !hasRemote &&
+    !!localStream &&
+    camOn;
   const brandLoop =
+    !idleSelfPreview &&
     !multiRemote &&
     !huntingThird &&
     !hasRemote &&
@@ -894,6 +904,7 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
     (!camOn && swapViews) ||
     (outgoingSelfBlur && swapViews && !multiRemote) ||
     mainShowsPartner ||
+    idleSelfPreview ||
     phase === "matched"
       ? 0
       : 1;

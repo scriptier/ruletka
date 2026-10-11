@@ -669,6 +669,16 @@ export const liveStyles = StyleSheet.create({
     textShadowColor: "#000",
     textShadowRadius: 4,
   },
+  /** Idle Start hint above the bar. Text only — no face mark. */
+  facePreviewHint: {
+    color: "#e8eef7",
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "center",
+    textShadowColor: "#000",
+    textShadowRadius: 6,
+    paddingHorizontal: 8,
+  },
   stageQueueAck: {
     color: "#ffe9a0",
     fontSize: 11,

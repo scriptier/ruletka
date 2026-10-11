@@ -8128,7 +8128,11 @@ function LiveBody() {
       style={
         isBrowserLayout
           ? styles.rootBrowser
-          : uiPhase === "matched" || uiPhase === "search"
+          : uiPhase === "matched" ||
+              uiPhase === "search" ||
+              // Idle camera fills the stage at zOrder 0. An opaque root
+              // would bury that surface. No camera yet: keep the dark shell.
+              (uiPhase === "idle" && !!localStream && camOn)
             ? styles.rootMatched
             : styles.root
       }
@@ -8454,7 +8458,7 @@ function LiveBody() {
                 </Text>
               </View>
             )}
-            {uiPhase === "matched" ? null : (
+            {uiPhase === "matched" || uiPhase === "idle" ? null : (
               <Text style={styles.stagePool}>{t("mobile.live.faceInFrame")}</Text>
             )}
             {uiPhase !== "matched" && selfFaceHint ? (
@@ -8980,6 +8984,11 @@ function LiveBody() {
             : [styles.bar, { paddingBottom: Math.max(insets.bottom, 10) }]
         }
       >
+        {uiPhase === "idle" && !isFriendCall ? (
+          <Text style={styles.facePreviewHint} pointerEvents="none">
+            {t("mobile.live.facePreviewHint")}
+          </Text>
+        ) : null}
         {/* Call timer is on partner video (bottom-left), not above Stop bar */}
         <LiveBottomBar
           phase={uiPhase}

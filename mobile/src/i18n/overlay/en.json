@@ -705,6 +705,7 @@
   "mobile.time.d": "{n}d",
   "mobile.time.ms": "{m}m {s}s",
   "mobile.live.faceInFrame": "Keep your face in frame",
+  "mobile.live.facePreviewHint": "Make sure your face is visible and well lit",
   "mobile.live.faceMissing": "No face in frame — move so your face shows",
   "mobile.settings.safetyFilter": "Blur inappropriate video",
   "mobile.settings.safetyOn": "On",
