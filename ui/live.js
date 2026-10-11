@@ -13574,6 +13574,11 @@ function setNoCamPortrait(which, on, avatarUrl) {
     el.setAttribute("hidden", "");
     tile?.classList.remove("has-no-cam-portrait");
   }
+  if (which === "local") {
+    try {
+      syncIdleSelfPreview();
+    } catch (_) {}
+  }
 }
 
 /** Partner hid their camera (inbound self_hide) — frost remote tile, not pure black. */
@@ -22200,6 +22205,63 @@ function markLocalFeedActive(on) {
       $("local-empty")?.classList.add("hidden");
     } catch (_) {}
   }
+  try {
+    syncIdleSelfPreview();
+  } catch (_) {}
+}
+
+/**
+ * Idle start screen: once the local camera is painting, show that tile large
+ * with one text hint. No face outline and no Start block. No camera keeps
+ * the existing mark. Friend, room, and invite paths are not gated here.
+ */
+let idleSelfPreviewTimer = 0;
+let idleSelfPreviewTries = 0;
+let idleSelfPreviewWatching = false;
+
+function watchIdleSelfPreviewFrames() {
+  if (idleSelfPreviewWatching) return;
+  const local = $("local");
+  if (!local) return;
+  idleSelfPreviewWatching = true;
+  const kick = () => {
+    try {
+      syncIdleSelfPreview();
+    } catch (_) {}
+  };
+  local.addEventListener("playing", kick);
+  local.addEventListener("loadeddata", kick);
+  local.addEventListener("resize", kick);
+}
+
+function syncIdleSelfPreview() {
+  watchIdleSelfPreviewFrames();
+  const root = document.documentElement;
+  const idle = root.classList.contains("start-idle");
+  const tile = $("tile-local");
+  const noCam = !!tile?.classList.contains("has-no-cam-portrait");
+  const track = typeof localVideoTrackLive === "function" && localVideoTrackLive();
+  const frames = typeof localPreviewHasFrames === "function" && localPreviewHasFrames();
+  const painting = idle && !noCam && !!tile?.classList.contains("has-local-feed") && track && frames;
+  root.classList.toggle("idle-self-preview", painting);
+  const hint = $("idle-self-hint");
+  if (hint) hint.hidden = !idle;
+  if (idleSelfPreviewTimer) {
+    clearTimeout(idleSelfPreviewTimer);
+    idleSelfPreviewTimer = 0;
+  }
+  if (!track) idleSelfPreviewTries = 0;
+  if (idle && !painting && !noCam && track && idleSelfPreviewTries < 24) {
+    idleSelfPreviewTries += 1;
+    idleSelfPreviewTimer = setTimeout(() => {
+      idleSelfPreviewTimer = 0;
+      try {
+        syncIdleSelfPreview();
+      } catch (_) {}
+    }, 250);
+  } else if (!idle || painting) {
+    idleSelfPreviewTries = 0;
+  }
 }
 
 /** Live video tracks on partner surfaces (main remotes). */
@@ -23981,6 +24043,9 @@ function syncMatchChrome() {
 
   if (startBtn) startBtn.hidden = !isIdle;
   document.documentElement.classList.toggle("start-idle", isIdle);
+  try {
+    syncIdleSelfPreview();
+  } catch (_) {}
   if (isIdle) {
     try {
       window.__ruletPokeChrome?.("tile-remote");

@@ -581,11 +581,11 @@
     /* vol-hud-v2 look lives in live-stage.css */
 </style>
   <!-- Load stage CSS as all immediately — no media=print FOUC trick (was leaving rails opacity:0) -->
-  <link rel="preload" href="live-stage.css?v=656" as="style" />
-  <link rel="stylesheet" href="live-stage.css?v=656" />
+  <link rel="preload" href="live-stage.css?v=657" as="style" />
+  <link rel="stylesheet" href="live-stage.css?v=657" />
   <link rel="stylesheet" href="live-brand.css?v=24" />
-  <link rel="preload" href="live.js?v=986" as="script" />
-  <link rel="preload" href="i18n.js?v=268" as="script" />
+  <link rel="preload" href="live.js?v=987" as="script" />
+  <link rel="preload" href="i18n.js?v=269" as="script" />
   <script src="brand.js?v=3" defer></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -1103,6 +1103,7 @@
               <svg class="icon" aria-hidden="true"><use href="#i-play"/></svg>
               <span class="btn-label" data-i18n="btn.start">Start</span>
             </button>
+            <p class="idle-self-hint" id="idle-self-hint" data-i18n="idle.faceHint" hidden>Keep your face visible and well lit</p>
             <p class="empty-cam-why" id="empty-cam-why" hidden data-i18n="remote.camWhy">
               Camera is only used for live chat — video goes browser-to-browser. A report can include one still.
             </p>
@@ -3565,12 +3566,12 @@
   <script src="analytics.js?v=4" defer></script>
   <script src="pwa-install.js?v=13" defer></script>
   <script src="web-push.js?v=1" defer></script>
-  <script src="i18n.js?v=268" defer></script>
+  <script src="i18n.js?v=269" defer></script>
   <script src="geoLocalize.js?v=3" defer></script>
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=157" defer></script>
   <script src="webrtc.js?v=356" defer></script>
-  <script src="live.js?v=986" defer></script>
+  <script src="live.js?v=987" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

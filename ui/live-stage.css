@@ -26967,3 +26967,76 @@ html.start-idle.has-live-people .start-match-btn {
   height: 1.15rem;
   color: inherit;
 }
+
+/* Idle self-preview: own camera fills the stage after it paints. Start stays. No face ring. */
+html.start-idle #idle-self-hint {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 0.55rem);
+  top: auto;
+  transform: translateX(-50%);
+  margin: 0;
+  width: max-content;
+  max-width: min(26rem, 88vw);
+  text-align: center;
+  font-size: 0.92rem;
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #e8eef6;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  z-index: 6;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+}
+html.start-idle.idle-self-preview #idle-self-hint {
+  opacity: 1;
+  visibility: visible;
+}
+html:not(.start-idle) #idle-self-hint {
+  display: none !important;
+}
+html.start-idle.idle-self-preview .stage {
+  position: relative;
+}
+html.start-idle.idle-self-preview #tile-local {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+}
+html.start-idle.idle-self-preview #tile-remote {
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+  z-index: 2;
+  background: transparent !important;
+  border: none !important;
+  pointer-events: none;
+}
+html.start-idle.idle-self-preview #remote-empty,
+html.start-idle.idle-self-preview #tile-remote #remote-empty {
+  background: transparent !important;
+}
+html.start-idle.idle-self-preview #remote-empty .empty-bg-video,
+html.start-idle.idle-self-preview #remote-empty .empty-bg-scrim {
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+html.start-idle.idle-self-preview #remote-empty .empty-content,
+html.start-idle.idle-self-preview #btn-start-match {
+  pointer-events: auto;
+}
+html.start-idle.idle-self-preview #tile-local .tile-local-id,
+html.start-idle.idle-self-preview #tile-local .tile-avatar-stars-local,
+html.start-idle.idle-self-preview #tile-local .side-rail,
+html.start-idle.idle-self-preview #tile-local .stage-wm-local,
+html.start-idle.idle-self-preview #tile-local .tile-floor {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}

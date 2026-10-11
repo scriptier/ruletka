@@ -1740,16 +1740,30 @@ if (!liveHtml) {
     );
   }
   if (
-    /live-stage\.css\?v=656/.test(html) &&
-    /live\.js\?v=986/.test(html) &&
+    /live-stage\.css\?v=657/.test(html) &&
+    /live\.js\?v=987/.test(html) &&
     /webrtc\.js\?v=356/.test(html) &&
     /hubs\.js\?v=157/.test(html)
   ) {
-    ok("live.html pins stage 656 + live.js 986 + webrtc 356 + hubs 157");
+    ok("live.html pins stage 657 + live.js 987 + webrtc 356 + hubs 157");
   } else {
     fail(
       "Stop idle cache-bust",
-      "live.html must pin live-stage.css?v=656 and live.js?v=986 (webrtc 356, hubs 157)"
+      "live.html must pin live-stage.css?v=657 and live.js?v=987 (webrtc 356, hubs 157)"
+    );
+  }
+  const idlePreview =
+    /id="idle-self-hint"/.test(html) &&
+    /function syncIdleSelfPreview\(/.test(liveJs) &&
+    /idle-self-preview #tile-local/.test(stageCss) &&
+    /idle\.faceHint/.test(readRepo("ui/i18n.js") || "") &&
+    /pendingInviteSkipsAutoStart\(/.test(liveJs);
+  if (idlePreview) {
+    ok("idle self-preview is text-only and leaves invite skip in place");
+  } else {
+    fail(
+      "idle self-preview",
+      "need #idle-self-hint, syncIdleSelfPreview, large #tile-local, idle.faceHint, pendingInviteSkipsAutoStart"
     );
   }
 }
@@ -1825,16 +1839,16 @@ if (!liveHtml) {
   }
   if (
     /hubs\.js\?v=157/.test(html) &&
-    /live\.js\?v=986/.test(html) &&
+    /live\.js\?v=987/.test(html) &&
     /webrtc\.js\?v=356/.test(html) &&
-    /live-stage\.css\?v=656/.test(html) &&
+    /live-stage\.css\?v=657/.test(html) &&
     /identity\.js\?v=156/.test(html)
   ) {
-    ok("lockstep pins hubs 157 · live 986 · webrtc 356 · stage 656");
+    ok("lockstep pins hubs 157 · live 987 · webrtc 356 · stage 657");
   } else {
     fail(
       "sibling pin lockstep",
-      "live.html: hubs.js?v=157 live.js?v=986 webrtc.js?v=356 live-stage.css?v=656 (identity 156)"
+      "live.html: hubs.js?v=157 live.js?v=987 webrtc.js?v=356 live-stage.css?v=657 (identity 156)"
     );
   }
   {
