@@ -8985,9 +8985,18 @@ function LiveBody() {
         }
       >
         {uiPhase === "idle" && !isFriendCall ? (
-          <Text style={styles.facePreviewHint} pointerEvents="none">
-            {t("mobile.live.facePreviewHint")}
-          </Text>
+          <View style={styles.idleTrustBlock} pointerEvents="none">
+            <Text style={styles.facePreviewHint}>
+              {t("mobile.live.facePreviewHint")}
+            </Text>
+            <Text style={styles.trustStrip}>
+              {t("mobile.live.trustKind")}
+              {" · "}
+              {t("mobile.live.trustFit")}
+              {" · "}
+              {t("mobile.live.trustSafe")}
+            </Text>
+          </View>
         ) : null}
         {/* Call timer is on partner video (bottom-left), not above Stop bar */}
         <LiveBottomBar

@@ -679,6 +679,19 @@ export const liveStyles = StyleSheet.create({
     textShadowRadius: 6,
     paddingHorizontal: 8,
   },
+  /** Face hint plus the three trust bullets. Sits above Start, not over it. */
+  idleTrustBlock: {
+    gap: 4,
+    alignItems: "center",
+  },
+  trustStrip: {
+    color: "rgba(200, 210, 225, 0.72)",
+    fontSize: 11,
+    fontWeight: "500",
+    textAlign: "center",
+    lineHeight: 15,
+    paddingHorizontal: 8,
+  },
   stageQueueAck: {
     color: "#ffe9a0",
     fontSize: 11,
