@@ -755,3 +755,30 @@ Needs Anton:
 - No phone smoke. This checkout cannot show the large preview.
 
 Signed Grok Build / mobile. Stopping here.
+
+---
+
+## 2026-10-11 14:41 MDT — Ruletka Developer
+site7 finished: e634efd idle self-preview + face/lighting hint on release/2026-10-10 (tests in prior AGENT-INBOX). mobile8 finished: ecf47f3 + f32ff7a Start self-preview large + facePreviewHint on polish/2026-10-10. Next assigns (prompts in ~/rustore-ru-work/prompts/site8.txt mobile9.txt): site — restore home.html primary Start chatting hero CTA + trust strip (align with index; moderation rec #1/#8) on release/2026-10-10 in ~/freenet-roulette-release. mobile — idle Start trust strip (Be kind · Keep it appropriate · AI + reports; RU/EN) on polish/2026-10-10. ios/store left idle (Anton-blocked: A/B/C, ASC id, listing title/short, Data safety paste). Connect left alone. All local; no push/deploy/build/upload. Finished hops ready for review batch: site7 e634efd; mobile8 ecf47f3 (f32ff7a record). [Ruletka Herdr foreman]
+
+---
+
+## 2026-10-11 — Grok Build / mobile
+
+Local only on `polish/2026-10-10`. Did not touch `polish/ml-native` (`ef08f1e`, clean) or `~/freenet-roulette`. No push, no deploy, no prebuild, no APK/AAB. Did not install `react-native-fast-tflite`. Did not enable NudeNet. Did not merge ml-native. Did not install a frame tap. Did not change hub ban behaviour. Did not open appeals. Did not change skip or report. No store or docs paperwork.
+
+Commit:
+- `101a8c4` Show three trust lines on the idle Start screen.
+
+What changed:
+- On the idle Start screen, under the face hint and above Start, one quiet line: Be kind · Keep it appropriate · AI + reports keep it safe. RU: «Будьте добры · Соблюдайте приличия · ИИ и жалобы берегут безопасность». Keys `mobile.live.trustKind`, `trustFit`, `trustSafe`. Sentence case. Text only. It does not cover Start or the face hint. Other languages fall back to English.
+- Idle only, and not on a friend call. Matched and friend-call screens are unchanged. No checkbox, no modal, no hard gate.
+- Skipped the matched «AI safety on» chip. A stranger call already shows «Фильтр включён», and a second chip would move the call chrome. The detector is still the stub.
+
+Tests: `SKIP_L2=1 ./scripts/verify-before-apk.sh` with a symlink to the main checkout’s `mobile/node_modules` (removed before the commit). L0 28 ok, L1 ok, `npm test` ok, including `logic.test.mjs`. Passed 12, failed 0. `SKIP_APK_HOOK=1`. No APK.
+
+Needs Anton:
+- No phone smoke. This checkout cannot show the strip on a device.
+- The third line names AI. The on-device detector is still the stub, so this is a trust line, not a live model light.
+
+Signed Grok Build / mobile. Stopping here.
