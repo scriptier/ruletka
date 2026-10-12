@@ -858,3 +858,55 @@ Needs Anton:
 - No phone smoke. This checkout cannot show the new lines on a device.
 
 Signed Grok Build / mobile. Stopping here.
+
+---
+
+## 2026-10-12 11:46 MDT — Ruletka Developer
+Drakosik back online after unreachable streak (9:34 PM Oct 11 – 10:55 AM Oct 12). site9 finished: f95ec33 move operator chips off consumer home on release/2026-10-10. mobile10 finished: dff2812 + 192f689 plain overlay wording on polish/2026-10-10. Review batch self-email sent (subject [RuletkaDev↔GrokBuild] review batch 11:46 AM MT Oct 12, id 1a1313b66a162e08). Next assigns (prompts in ~/rustore-ru-work/prompts/site10.txt mobile11.txt): site — live arch/coach/brand plain-language P2P/TURN/hub pass (moderation rec #7 leftover) on release/2026-10-10 in ~/freenet-roulette-release. mobile — low-liquidity Searching worldwide + invite friend on Start (moderation rec #4) on polish/2026-10-10. ios/store left idle (Anton-blocked: A/B/C, ASC id, listing title/short, Data safety paste). Connect left alone. All local; no push/deploy/build/upload. [Ruletka Herdr foreman]
+
+---
+
+## 2026-10-12 — Grok Build / site
+
+Local only on `release/2026-10-10` in `~/freenet-roulette-release`. Did not deploy. Did not push. Did not edit `~/freenet-roulette`. Did not rebuild home CTA, trust strip, idle preview, low-pool line, first-visit update gate, or P1–P10. Did not edit `live.js`, ICE/TURN/match, nsfwjs, bans, `safety_log`, or the Stars sheet.
+
+Commit:
+- `15a9afd` feat(live): say direct video and our server in the chrome (parent `f95ec33`).
+
+What changed:
+- English and Russian packs, plus the same keys in `ui/i18n.js`, for the live chrome: `arch.*`, `brand.badgeTitle`, coach tips that named TURN / Prefer Direct / WebRTC, the ice-path titles (`sec.path*`), and the fed-chip title. Visible words are “direct video”, “our server”, “video call”. RU: «прямое видео», «наш сервер», «видеозвонок».
+- The Prefer Direct switch name stays (“Prefer Direct only” / «Только Direct»). The hint beside it, the Hide my IP hint, and the Connection intro are plain. Connection detail labels that still say TURN stay for that settings page.
+- The failure log line `log.webrtcFail` no longer says WebRTC. Other languages were not rewritten.
+- Pins: `i18n.js?v=270`, pack fetch `?v=148`, session pack key `v100`. `live.js?v=987` and `live-stage.css?v=657` unchanged. Verify does not assert the i18n pin.
+
+Tests:
+- `node --check ui/i18n.js`: ok. `en.json` and `ru.json` parse.
+- Pin asserts do not cover `i18n.js?v=`. Did not run `verify-before-apk.sh`. Did not run cargo.
+- Headless Chrome on a local static server, `live.html?lang=en` and `?lang=ru`: Start is present, the idle face hint is present, the arch pill and badge and coach tip use the plain lines, and the Prefer Direct name is unchanged. `home.html?lang=en` still leads with Start chatting and the trust strip. Not a click-through on the live host.
+
+Needs Anton:
+- Not on the server. Production is still `547bf44`. Local commits since then include `e634efd`, `affc1f8`, `f95ec33`, and `15a9afd`. Say when to deploy.
+- Ukrainian and the other packs still use the old TURN / P2P lines. This pass is English and Russian.
+
+Signed Grok Build / site. Stopping here.
+
+---
+
+## 2026-10-12 — Grok Build / mobile
+
+Local only on `polish/2026-10-10`. Did not touch `polish/ml-native` (`ef08f1e`, clean) or `~/freenet-roulette`. No push, no deploy, no prebuild, no APK/AAB. Did not install `react-native-fast-tflite`. Did not enable NudeNet. Did not merge ml-native. Did not install a frame tap. Did not change hub ban behaviour. Did not open appeals. Did not change skip or report. No store or docs paperwork. Live chrome layout is unchanged.
+
+Commit:
+- `b0b5d92` Hide tiny pool counts and invite a friend.
+
+What changed:
+- Same gate as the website: fewer than 5 people online hides the raw online and waiting numbers on home Start and on live search. The line is `mobile.home.lowPool`: “Searching worldwide… invite a friend” / «Ищем собеседника по всему миру… пригласите друга». Other languages fall back to English.
+- Home opens the existing Friends screen. Live Start and search share the existing friend invite. Friend calls and friends-only home stay on their own copy. A disconnected home does not claim a worldwide search.
+- Numbers that still show are the hub counts. The home line no longer prints a fake minimum of 1 online. The queue reducer floors were left so the lobby tests still pass, and those floors are not painted while the pool is quiet.
+
+Tests: `SKIP_L2=1 ./scripts/verify-before-apk.sh` with a symlink to the main checkout’s `mobile/node_modules` (removed before the commit). L0 28 ok, L1 ok, `hubLobby.test.mjs` ok, `npm test` ok, including `logic.test.mjs`. Passed 12, failed 0. `SKIP_APK_HOOK=1`. No APK.
+
+Needs Anton:
+- No phone smoke. This checkout cannot show the quiet-pool line or the invite tap on a device.
+
+Signed Grok Build / mobile. Stopping here.
