@@ -782,3 +782,79 @@ Needs Anton:
 - The third line names AI. The on-device detector is still the stub, so this is a trust line, not a live model light.
 
 Signed Grok Build / mobile. Stopping here.
+
+---
+
+## 2026-10-11 — Grok Build / site
+
+Local only on `release/2026-10-10` in `~/freenet-roulette-release`. Did not deploy. Did not push. Did not edit `~/freenet-roulette`. Did not rebuild P1–P8 or `/pomosh/kamera-i-mikrofon`. Did not edit `live.js`, ICE/TURN/match, nsfwjs, bans, `safety_log`, or the idle self-preview.
+
+Commit:
+- `affc1f8` feat(home): restore the hero Start chatting button and trust strip (parent `e634efd`).
+
+What changed:
+- `ui/home.html` hero again leads with a large «Start chatting» / «Начать чат» link to `/live.html` (`.home-cta`, existing `home.cta`). «Invite friends» stays beside it as the secondary action. Header and footer Start links are unchanged.
+- Under that row, `ul.home-trust` (existing CSS, `home.css?v=102` not bumped): Be kind · Keep it appropriate · AI + reports keep it safe. RU: «Будьте вежливы» · «Оставляйте разговор уместным» · «ИИ и жалобы помогают держать чат безопасным». Aria: “Before you start” / «Перед стартом». Sentence case. No face circle. Start is not blocked.
+- Strings live in the page’s inline en/ru packs. `applyDict` now copies `data-i18n-aria`. Other languages fall back to the English lines. JSON packs do not define these keys, so the fetch overlay does not drop them.
+
+Tests:
+- Inline script extracted and `node --check`: ok. No separate JS file changed.
+- Pin/home asserts: none in `mobile/scripts` (`home.html` / `home.css` / `home-trust` not referenced). Did not run `verify-before-apk.sh`. Did not run cargo. Bridge not touched.
+- Headless Chrome `file://` `?lang=ru` and `?lang=en`: the hero link is `/live.html` (RU adds `?lang=ru`) with «Начать чат» / “Start chatting”, Invite friends second, and the three trust lines plus aria-label. Not a click-through on the live host.
+
+Needs Anton:
+- Not on the server. Production is still `547bf44`. Local commits since then: `e634efd` (idle self-preview) and `affc1f8` (this hero). Say when to deploy.
+- The trust line names AI and reports. It does not add a gate.
+
+Signed Grok Build / site. Stopping here.
+
+---
+
+## 2026-10-11 20:40 MDT — Ruletka Developer
+Drakosik back online. site8 finished: affc1f8 home.html Start CTA + trust strip on release/2026-10-10. mobile9 finished: 101a8c4 + 5d6fcce idle Start trust strip on polish/2026-10-10. Review batch self-email sent (subject [RuletkaDev↔GrokBuild] review batch 8:40 PM MT Oct 11, id 1a12dfba8dd3a8ef). Next assigns (prompts in ~/rustore-ru-work/prompts/site9.txt mobile10.txt): site — move Run a helper / hubs.json off consumer path (moderation rec #7) on release/2026-10-10 in ~/freenet-roulette-release. mobile — plain-language leftover P2P/TURN/hub overlay RU+EN on polish/2026-10-10. ios/store left idle (Anton-blocked: A/B/C, ASC id, listing title/short, Data safety paste). Connect left alone. All local; no push/deploy/build/upload. [Ruletka Herdr foreman]
+
+---
+
+## 2026-10-11 — Grok Build / site
+
+Local only on `release/2026-10-10` in `~/freenet-roulette-release`. Did not deploy. Did not push. Did not edit `~/freenet-roulette`. Did not rebuild P1–P8, the idle self-preview, the low-pool line, or the first-visit update gate. Did not edit `live.js`, ICE/TURN/match, nsfwjs, bans, `safety_log`, or the home hero CTA and trust strip. Did not touch the Stars sheet on `live.html`.
+
+Commit:
+- `f95ec33` feat(home): move operator chips off the consumer page (parent `affc1f8`).
+
+What changed:
+- `ui/home.html` open section no longer shows «Run a helper», the hub directory, `hubs.json`, or `source.json`. The section stays a plain peer-to-peer line (`home.openPlain`), so the JSON pack cannot put the helper sentence back.
+- Footer has one quiet «For operators» / “For operators” link to `/operators`. `contribute.html` stays linked from that page, not beside Start.
+- The gifts card is one sentence: “Stars are gifts in chat, not money. You can’t buy or cash them out.” RU: «Звёзды — это подарки в чате, не деньги. Купить и вывести нельзя.» The old wallet / reputation line is gone from the card and from the “how we’re different” blurb.
+- `ui/index.html` already leads with Start and the trust strip, already uses that gifts sentence, and has no helper or hubs chips. Left it as it is. No pin bump. `home.css?v=102` unchanged.
+
+Tests:
+- Inline script extracted and `node --check`: ok.
+- No pin/home assert applies. Did not run `verify-before-apk.sh`. Did not run cargo.
+- Headless Chrome against a local static server, `home.html?lang=ru` and `?lang=en`, after the i18n pack loaded: hero is still «Начать чат» / “Start chatting” then Invite friends, then the three trust lines. The only operator link in the page is footer `/operators`. No `contribute.html`, `hubs.json`, `source.json`, or `/v1/directory` in the rendered body. `index.html?lang=ru` still leads with Start and the trust strip and has no operator chips. Not a click-through on the live host.
+
+Needs Anton:
+- Not on the server. Production is still `547bf44`. Local commits since then include `e634efd`, `affc1f8`, and `f95ec33`. Say when to deploy.
+
+Signed Grok Build / site. Stopping here.
+
+---
+
+## 2026-10-11 — Grok Build / mobile
+
+Local only on `polish/2026-10-10`. Did not touch `polish/ml-native` (`ef08f1e`, clean) or `~/freenet-roulette`. No push, no deploy, no prebuild, no APK/AAB. Did not install `react-native-fast-tflite`. Did not enable NudeNet. Did not merge ml-native. Did not install a frame tap. Did not change hub ban behaviour. Did not open appeals. Did not change skip or report. No store or docs paperwork. Did not add a matched «AI safety on» chip. Did not edit `page.*` or `log.*`.
+
+Commit:
+- `dff2812` Say server and direct video in the mobile overlay.
+
+What changed:
+- The phone reads `mobile/src/i18n/overlay/{en,ru}.json` only. Those consumer lines no longer say P2P, TURN, hub, or WebRTC. Home tag is “Direct video · 18+ · no account” / «Видео напрямую · 18+ · без аккаунта». Hide-IP chips are Off / On and Выкл / Вкл. The hint says video goes through our server. Safety tip 4, the camera permission line, the reconnect banner, and the live “trying the server” line use the same plain words.
+- Short labels that changed stay sentence case. Live chrome layout is unchanged. `{hub}` in a couple of templates is still the server address placeholder, not the word hub.
+- Web packs were left. `page.*` and `log.*` still keep the technical words.
+
+Tests: `SKIP_L2=1 ./scripts/verify-before-apk.sh` with a symlink to the main checkout’s `mobile/node_modules` (removed before the commit). L0 28 ok, L1 ok, `npm test` ok, including `logic.test.mjs`. Passed 12, failed 0. `SKIP_APK_HOOK=1`. No APK.
+
+Needs Anton:
+- No phone smoke. This checkout cannot show the new lines on a device.
+
+Signed Grok Build / mobile. Stopping here.
