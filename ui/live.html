@@ -581,11 +581,11 @@
     /* vol-hud-v2 look lives in live-stage.css */
 </style>
   <!-- Load stage CSS as all immediately — no media=print FOUC trick (was leaving rails opacity:0) -->
-  <link rel="preload" href="live-stage.css?v=657" as="style" />
-  <link rel="stylesheet" href="live-stage.css?v=657" />
+  <link rel="preload" href="live-stage.css?v=658" as="style" />
+  <link rel="stylesheet" href="live-stage.css?v=658" />
   <link rel="stylesheet" href="live-brand.css?v=24" />
-  <link rel="preload" href="live.js?v=987" as="script" />
-  <link rel="preload" href="i18n.js?v=270" as="script" />
+  <link rel="preload" href="live.js?v=988" as="script" />
+  <link rel="preload" href="i18n.js?v=271" as="script" />
   <script src="brand.js?v=3" defer></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -1123,6 +1123,7 @@
             <span class="loc-on-tile" id="remote-tag"></span>
             <span class="peer-who-sub" id="remote-who-sub" hidden></span>
             <span class="trust-tier-chip" id="remote-trust-chip" hidden title="Reputation tier"></span>
+            <span class="ai-safety-chip" id="ai-safety-chip" hidden></span>
             <span class="partner-praise-chip" id="remote-praise-chip" hidden title="Peer praise"></span>
             <span class="code-on-tile" id="remote-friend-code" hidden title="Friend code"></span>
             <span class="mutual-bond-chip" id="remote-mutual-chip" hidden title="Mutual friend">↔</span>
@@ -3566,12 +3567,12 @@
   <script src="analytics.js?v=4" defer></script>
   <script src="pwa-install.js?v=13" defer></script>
   <script src="web-push.js?v=1" defer></script>
-  <script src="i18n.js?v=270" defer></script>
+  <script src="i18n.js?v=271" defer></script>
   <script src="geoLocalize.js?v=3" defer></script>
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=157" defer></script>
   <script src="webrtc.js?v=356" defer></script>
-  <script src="live.js?v=987" defer></script>
+  <script src="live.js?v=988" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

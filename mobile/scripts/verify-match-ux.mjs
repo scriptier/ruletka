@@ -1740,16 +1740,16 @@ if (!liveHtml) {
     );
   }
   if (
-    /live-stage\.css\?v=657/.test(html) &&
-    /live\.js\?v=987/.test(html) &&
+    /live-stage\.css\?v=658/.test(html) &&
+    /live\.js\?v=988/.test(html) &&
     /webrtc\.js\?v=356/.test(html) &&
     /hubs\.js\?v=157/.test(html)
   ) {
-    ok("live.html pins stage 657 + live.js 987 + webrtc 356 + hubs 157");
+    ok("live.html pins stage 658 + live.js 988 + webrtc 356 + hubs 157");
   } else {
     fail(
       "Stop idle cache-bust",
-      "live.html must pin live-stage.css?v=657 and live.js?v=987 (webrtc 356, hubs 157)"
+      "live.html must pin live-stage.css?v=658 and live.js?v=988 (webrtc 356, hubs 157)"
     );
   }
   const idlePreview =
@@ -1839,16 +1839,16 @@ if (!liveHtml) {
   }
   if (
     /hubs\.js\?v=157/.test(html) &&
-    /live\.js\?v=987/.test(html) &&
+    /live\.js\?v=988/.test(html) &&
     /webrtc\.js\?v=356/.test(html) &&
-    /live-stage\.css\?v=657/.test(html) &&
+    /live-stage\.css\?v=658/.test(html) &&
     /identity\.js\?v=156/.test(html)
   ) {
-    ok("lockstep pins hubs 157 · live 987 · webrtc 356 · stage 657");
+    ok("lockstep pins hubs 157 · live 988 · webrtc 356 · stage 658");
   } else {
     fail(
       "sibling pin lockstep",
-      "live.html: hubs.js?v=157 live.js?v=987 webrtc.js?v=356 live-stage.css?v=657 (identity 156)"
+      "live.html: hubs.js?v=157 live.js?v=988 webrtc.js?v=356 live-stage.css?v=658 (identity 156)"
     );
   }
   {

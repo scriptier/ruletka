@@ -176,6 +176,10 @@
       "settings.profileHint": "Each browser is a separate identity until you export/import. Friends are stored on the hub under your user id.",
       "settings.secProfileData": "Profile transfer",
       "settings.safetyPage": "Safety & reports",
+      "safety.aiLoading": "Safety filter loading",
+      "safety.aiLoadingTitle": "The on-device check is still loading. It is not running yet.",
+      "safety.aiOn": "AI safety on",
+      "safety.aiOnTitle": "Checks their video on your device. The live video is not uploaded. A report can include one still.",
       "safety.autoNote": "Reports from many users auto-restrict matchmaking.",
       "conn.retry": "Retry",
       "conn.retrying": "Disconnected — retrying…",
@@ -1122,6 +1126,10 @@
       "settings.profileHint": "Каждый браузер — отдельная личность, пока не экспортируете/импортируете. Друзья на хабе привязаны к user id.",
       "settings.secProfileData": "Перенос профиля",
       "settings.safetyPage": "Безопасность и жалобы",
+      "safety.aiLoading": "Фильтр загружается",
+      "safety.aiLoadingTitle": "Проверка на устройстве ещё загружается. Она ещё не работает.",
+      "safety.aiOn": "AI-защита включена",
+      "safety.aiOnTitle": "Проверяет видео собеседника на вашем устройстве. Живое видео не загружается. Жалоба может отправить один кадр.",
       "safety.autoNote": "Жалобы от многих пользователей ограничивают матчмейкинг.",
       "settings.blurFirst": "Всегда блюрить новых собеседников",
       "settings.blurFirstHint": "Вкл: блюр, пока не нажмёте «Показать» · Выкл: только 3 с вступления",
@@ -2073,7 +2081,7 @@
     if (!BUNDLED.has(c) && STR[c]) return Promise.resolve(STR[c]);
     if (loading[c]) return loading[c];
     // Prefer sessionStorage pack cache (avoids re-downloading ~100KB JSON every navigation)
-    const packCacheKey = "ruletka-i18n-pack-v100-" + c;
+    const packCacheKey = "ruletka-i18n-pack-v101-" + c;
     try {
       const cached = sessionStorage.getItem(packCacheKey);
       if (cached) {
@@ -2088,7 +2096,7 @@
     } catch (_) {}
 
     // Always fetch /i18n/{code}.json and merge over built-ins (en/ru too)
-    loading[c] = fetch(`/i18n/${c}.json?v=148`, { cache: "force-cache" })
+    loading[c] = fetch(`/i18n/${c}.json?v=149`, { cache: "force-cache" })
       .then((r) => {
         if (!r.ok) throw new Error("lang pack " + c);
         return r.json();

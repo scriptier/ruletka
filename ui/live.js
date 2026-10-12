@@ -491,6 +491,8 @@ let nsfwModel = null;
 let nsfwLoadPromise = null;
 let nsfwTimer = 0;
 let nsfwHitCooldown = false;
+/** Bumps on every stop/start so a late model load cannot mark safety on. */
+let nsfwWatchGen = 0;
 /** Cached: weak GPU / Safari Iris — skip canvas FX + NSFW WebGL. */
 let _fxLite = null;
 
@@ -27817,26 +27819,77 @@ async function ensureNsfwModel() {
   return nsfwLoadPromise;
 }
 
+function syncAiSafetyChip() {
+  const el = $("ai-safety-chip");
+  if (!el) return;
+  const stranger =
+    !!matched && matchMode !== "friend" && nsfwAutoEnabled() && !isFxLite();
+  const running = !!(stranger && nsfwModel && nsfwTimer);
+  const loading = !!(stranger && !nsfwModel && nsfwLoadPromise);
+  if (running) {
+    el.hidden = false;
+    el.classList.add("is-on");
+    el.classList.remove("is-loading");
+    el.textContent = _t("safety.aiOn") || "AI safety on";
+    el.title =
+      _t("safety.aiOnTitle") ||
+      "Checks their video on your device. The live video is not uploaded. A report can include one still.";
+  } else if (loading) {
+    el.hidden = false;
+    el.classList.remove("is-on");
+    el.classList.add("is-loading");
+    el.textContent = _t("safety.aiLoading") || "Safety filter loading";
+    el.title =
+      _t("safety.aiLoadingTitle") ||
+      "The on-device check is still loading. It is not running yet.";
+  } else {
+    el.hidden = true;
+    el.classList.remove("is-on", "is-loading");
+    el.textContent = "";
+    el.removeAttribute("title");
+  }
+}
+
 function stopNsfwWatch() {
+  nsfwWatchGen++;
   if (nsfwTimer) {
     clearInterval(nsfwTimer);
     nsfwTimer = 0;
   }
   nsfwHitCooldown = false;
+  try {
+    syncAiSafetyChip();
+  } catch (_) {}
 }
 
 function startNsfwWatch() {
   stopNsfwWatch();
-  if (isFxLite()) return;
-  if (!nsfwAutoEnabled()) return;
-  // Only strangers (not confirmed friend 1:1)
-  if (matchMode === "friend") return;
-  // Warm model in background
-  ensureNsfwModel().then((m) => {
-    if (!m) return;
+  const gen = ++nsfwWatchGen;
+  if (isFxLite() || !nsfwAutoEnabled() || matchMode === "friend") {
+    try {
+      syncAiSafetyChip();
+    } catch (_) {}
+    return;
+  }
+  const pending = ensureNsfwModel();
+  try {
+    syncAiSafetyChip();
+  } catch (_) {}
+  pending.then((m) => {
+    if (gen !== nsfwWatchGen) return;
+    if (!m || !matched || matchMode === "friend" || !nsfwAutoEnabled() || isFxLite()) {
+      try {
+        syncAiSafetyChip();
+      } catch (_) {}
+      return;
+    }
+    if (nsfwTimer) return;
     nsfwTimer = setInterval(() => {
       scanRemoteForNsfw().catch(() => {});
     }, 2200);
+    try {
+      syncAiSafetyChip();
+    } catch (_) {}
   });
 }
 
@@ -47418,6 +47471,9 @@ window.addEventListener("nextface:lang", () => {
   rebuildSettingsLangList();
   syncSettingsSummary();
   maybeShowRuReachMeHint();
+  try {
+    syncAiSafetyChip();
+  } catch (_) {}
 });
 wireSettingsNav();
 
