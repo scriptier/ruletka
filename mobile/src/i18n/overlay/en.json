@@ -210,6 +210,7 @@
   "mobile.home.inviteCtaQuietOnline": "{n} online, nobody else waiting — share your code so a friend can join.",
   "mobile.home.quietOnlineStart": "Start matching — they may join the queue",
   "mobile.home.poolLine": "{online} online · {wait} waiting",
+  "mobile.home.lowPool": "Searching worldwide… invite a friend",
   "mobile.home.poolBusyTitle": "People are waiting",
   "mobile.home.poolBusyBody": "{n} in queue · {online} online — tap Start to match.",
   "mobile.notif.optInTitle": "Enable call alerts?",

@@ -152,4 +152,15 @@ function pickPrimaryPeerIndex(peerIds, opts) {
   assert.equal(p.waiting, 0);
 }
 
+// low pool matches web paintConnLobbyTicker: online < 5
+function isLowPool(online) {
+  const n = Number(online);
+  if (!Number.isFinite(n)) return true;
+  return n < 5;
+}
+assert.equal(isLowPool(0), true);
+assert.equal(isLowPool(4), true);
+assert.equal(isLowPool(5), false);
+assert.equal(isLowPool(Number.NaN), true);
+
 console.log("hubLobby.test.mjs ok");

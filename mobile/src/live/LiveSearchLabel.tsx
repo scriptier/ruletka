@@ -2,7 +2,7 @@
  * Stage header while searching — one tight line + optional pool meta.
  * Avoids the old 3-line stack under the status bar.
  */
-import { Text, View, type StyleProp, type ViewStyle } from "react-native";
+import { Pressable, Text, View, type StyleProp, type ViewStyle } from "react-native";
 import { liveStyles as styles } from "./liveStyles";
 
 export type LiveSearchLabelProps = {
@@ -20,6 +20,9 @@ export type LiveSearchLabelProps = {
   queueInPoolLabel: string;
   queueConfirmingLabel: string;
   reconnectingLabel: string;
+  /** When set, replaces the waiting/online count line. */
+  lowPoolLabel?: string;
+  onLowPoolPress?: () => void;
   /** Localized elapsed, e.g. "4 с". Falls back to "{n}s". */
   formatElapsed?: (secs: number) => string;
   style?: StyleProp<ViewStyle>;
@@ -39,6 +42,8 @@ export function LiveSearchLabel(props: LiveSearchLabelProps) {
     queueInPoolLabel,
     queueConfirmingLabel,
     reconnectingLabel,
+    lowPoolLabel,
+    onLowPoolPress,
     formatElapsed,
     style,
   } = props;
@@ -62,9 +67,11 @@ export function LiveSearchLabel(props: LiveSearchLabelProps) {
     ? connected
       ? queueConfirmingLabel
       : reconnectingLabel.replace(/^ · /, "")
-    : alone
-      ? firstInLineLabel
-      : waitLine || queueInPoolLabel;
+    : lowPoolLabel
+      ? lowPoolLabel
+      : alone
+        ? firstInLineLabel
+        : waitLine || queueInPoolLabel;
 
   const a11y = meta ? `${title}. ${meta}` : title;
 
@@ -83,13 +90,25 @@ export function LiveSearchLabel(props: LiveSearchLabelProps) {
         {title}
       </Text>
       {meta ? (
-        <Text
-          style={styles.stagePool}
-          numberOfLines={1}
-          importantForAccessibility="no"
-        >
-          {meta}
-        </Text>
+        lowPoolLabel && onLowPoolPress ? (
+          <Pressable
+            onPress={onLowPoolPress}
+            accessibilityRole="button"
+            accessibilityLabel={lowPoolLabel}
+          >
+            <Text style={styles.stagePool} numberOfLines={2}>
+              {meta}
+            </Text>
+          </Pressable>
+        ) : (
+          <Text
+            style={styles.stagePool}
+            numberOfLines={1}
+            importantForAccessibility="no"
+          >
+            {meta}
+          </Text>
+        )
       ) : null}
     </View>
   );

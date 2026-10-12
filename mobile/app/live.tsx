@@ -114,6 +114,7 @@ import {
   resolvePartnerDisplayNameWithSource,
   reduceLobbyInfoMsg,
   reduceStatusMsg,
+  isLowPool,
   isHubPartnerLeaveDetail,
   shouldApplyPartnerGeo,
   starNeedMinutes,
@@ -8436,6 +8437,16 @@ function LiveBody() {
                 })}
                 queueConfirmingLabel={t("mobile.live.queueConfirming")}
                 reconnectingLabel={t("mobile.live.reconnecting")}
+                lowPoolLabel={
+                  !isFriendCall && isLowPool(online)
+                    ? t("mobile.home.lowPool")
+                    : ""
+                }
+                onLowPoolPress={
+                  !isFriendCall && isLowPool(online)
+                    ? () => shareInvite("low_pool")
+                    : undefined
+                }
               />
             ) : (
               <View style={styles.stageLabelBlock}>
@@ -8444,18 +8455,20 @@ function LiveBody() {
                     ? t("mobile.live.preview")
                     : t("mobile.live.idle")}
                 </Text>
-                <Text style={styles.stagePool}>
-                  {connected
-                    ? t("mobile.live.idleHint", {
-                        online: Math.max(online, 0),
-                      }) ||
-                      (online > 0
-                        ? `${online} online · tap Start`
-                        : t("mobile.live.idleHintOffline") ||
-                          "Tap Start when ready")
-                    : t("mobile.live.reconnecting").replace(/^ · /, "") ||
-                      "Reconnecting…"}
-                </Text>
+                {connected && !isFriendCall && isLowPool(online) ? null : (
+                  <Text style={styles.stagePool}>
+                    {connected
+                      ? t("mobile.live.idleHint", {
+                          online: Math.max(online, 0),
+                        }) ||
+                        (online > 0
+                          ? `${online} online · tap Start`
+                          : t("mobile.live.idleHintOffline") ||
+                            "Tap Start when ready")
+                      : t("mobile.live.reconnecting").replace(/^ · /, "") ||
+                        "Reconnecting…"}
+                  </Text>
+                )}
               </View>
             )}
             {uiPhase === "matched" || uiPhase === "idle" ? null : (
@@ -8985,7 +8998,7 @@ function LiveBody() {
         }
       >
         {uiPhase === "idle" && !isFriendCall ? (
-          <View style={styles.idleTrustBlock} pointerEvents="none">
+          <View style={styles.idleTrustBlock} pointerEvents="box-none">
             <Text style={styles.facePreviewHint}>
               {t("mobile.live.facePreviewHint")}
             </Text>
@@ -8996,6 +9009,17 @@ function LiveBody() {
               {" · "}
               {t("mobile.live.trustSafe")}
             </Text>
+            {connected && isLowPool(online) ? (
+              <Pressable
+                onPress={() => shareInvite("low_pool")}
+                accessibilityRole="button"
+                accessibilityLabel={t("mobile.home.lowPool")}
+              >
+                <Text style={styles.lowPoolHint}>
+                  {t("mobile.home.lowPool")}
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
         {/* Call timer is on partner video (bottom-left), not above Stop bar */}

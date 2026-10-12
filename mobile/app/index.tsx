@@ -28,6 +28,7 @@ import {
 } from "../src/i18n/duration";
 import { loadUnreadMap, totalUnread } from "../src/friends/unread";
 import { useHub } from "../src/hub/HubProvider";
+import { isLowPool } from "../src/live/hubLobby";
 import { useT } from "../src/i18n";
 import { maybeOfferNotifOptIn } from "../src/push/notifOptIn";
 import { useApp } from "./_layout";
@@ -77,8 +78,9 @@ function HomeBody() {
   const friendsBadge = missed + unreadDmTotal + requestN;
   const onlineFriends = friends.filter((f) => f.online).length;
   const trustN = trustEffective || trust;
-  /** Busy = 2+ waiting in queue — soft nudge to Start. */
-  const poolBusy = poolWaiting >= 2;
+  /** Busy = 2+ waiting in queue — soft nudge to Start. Hidden while the pool is quiet. */
+  const lowPool = connected && isLowPool(poolOnline);
+  const poolBusy = !lowPool && poolWaiting >= 2;
   const appVer =
     Constants.expoConfig?.version ||
     Constants.nativeAppVersion ||
@@ -147,9 +149,11 @@ function HomeBody() {
                 total: friends.length,
               })
             : "",
-          connected && (poolOnline > 0 || poolWaiting > 0)
+          connected &&
+          !lowPool &&
+          (poolOnline > 0 || poolWaiting > 0)
             ? t("mobile.home.poolLine", {
-                online: Math.max(poolOnline, 1),
+                online: poolOnline,
                 wait: poolWaiting,
               })
             : "",
@@ -215,7 +219,21 @@ function HomeBody() {
         </Pressable>
       ) : null}
 
-      {/* Busy pool: nudge Start */}
+      {!friendsOnly && lowPool ? (
+        <Pressable
+          style={styles.lowPoolLine}
+          onPress={() => {
+            hapticLight();
+            router.push("/friends");
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={t("mobile.home.lowPool")}
+        >
+          <Text style={styles.lowPoolText}>{t("mobile.home.lowPool")}</Text>
+        </Pressable>
+      ) : null}
+
+      {/* Busy pool: nudge Start. Counts stay hidden while the pool is quiet. */}
       {!friendsOnly && connected && poolBusy ? (
         <Pressable
           style={styles.poolBusyCard}
@@ -963,6 +981,18 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     fontSize: 14,
     marginTop: 4,
+  },
+  lowPoolLine: {
+    alignSelf: "stretch",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  lowPoolText: {
+    color: "#9ec5ff",
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "center",
+    lineHeight: 18,
   },
   secondary: {
     borderWidth: 1,

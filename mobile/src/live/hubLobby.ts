@@ -5,6 +5,15 @@
 
 import { isQueuePhase } from "./useLiveQueue";
 
+/** Same gate as web live and home: hide raw counts when online is under 5. */
+export const LOW_POOL_ONLINE = 5;
+
+export function isLowPool(online: number): boolean {
+  const n = Number(online);
+  if (!Number.isFinite(n)) return true;
+  return n < LOW_POOL_ONLINE;
+}
+
 export type LobbyUiPatch = {
   phase?: "search";
   searching?: boolean;

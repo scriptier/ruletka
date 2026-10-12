@@ -692,6 +692,15 @@ export const liveStyles = StyleSheet.create({
     lineHeight: 15,
     paddingHorizontal: 8,
   },
+  /** Quiet pool line above Start. Tappable; does not cover the button. */
+  lowPoolHint: {
+    color: "#9ec5ff",
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "center",
+    lineHeight: 18,
+    paddingHorizontal: 8,
+  },
   stageQueueAck: {
     color: "#ffe9a0",
     fontSize: 11,

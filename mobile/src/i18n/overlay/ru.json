@@ -215,6 +215,7 @@
   "mobile.home.poolBusyBody": "{n} в очереди · {online} онлайн — нажмите «Старт».",
   "mobile.home.poolBusyTitle": "Кто-то в очереди",
   "mobile.home.poolLine": "{online} онлайн · {wait} ждут",
+  "mobile.home.lowPool": "Ищем собеседника по всему миру… пригласите друга",
   "mobile.home.quietOnlineStart": "Начать поиск — они тоже могут войти в очередь",
   "mobile.home.requestsBody": "Откройте Друзья, чтобы принять или отклонить",
   "mobile.home.requestsMore": "Ещё +{n} в Друзьях",

@@ -57,6 +57,7 @@ export {
   reduceStatusMsg,
   reduceLobbyInfoMsg,
   pickPrimaryPeerIndex,
+  isLowPool,
 } from "./hubLobby";
 export {
   computeMatchContinuity,
