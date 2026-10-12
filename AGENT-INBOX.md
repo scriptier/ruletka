@@ -937,3 +937,87 @@ Needs Anton:
 - No phone smoke. This checkout cannot show the spoken labels, the larger Next target, or the Report tap on a device.
 
 Signed Grok Build / mobile. Stopping here.
+
+---
+
+## 2026-10-12 — Grok Build / site
+
+Local only on `release/2026-10-10` in `~/freenet-roulette-release`. Did not deploy. Did not push. Did not edit `~/freenet-roulette`. Did not rebuild home Start, the trust strip, idle preview, the low-pool line, the first-visit update gate, operator chips, the plain arch/coach lines, or P1–P10. Did not change ICE/TURN/match, nsfwjs thresholds, bans, `safety_log`, reports, or Stars logic.
+
+Commit:
+- `8b1b4df` feat(live): show AI safety only while the filter is running (parent `15a9afd`).
+
+What changed:
+- While matched with a stranger, a small chip sits with the partner name (not on Next or Report). It says “AI safety on” / «AI-защита включена» only when the existing nsfwjs filter is loaded and the scan interval is running for that call. While the model is still loading, the chip says “Safety filter loading” / «Фильтр загружается». If the filter is off, failed to load, skipped (lite GPU or a friend call), or the call has ended, the chip is hidden. A late model load cannot turn it on after the watch has stopped.
+- The tooltip says the check runs on this device, the live video is not uploaded, and a report can include one still. That matches the existing camera and privacy lines.
+- Rec #2: already one sheet and one confirm. First visit shows the 18+ sheet. One tap on «Начать» / Start accepts the rules and asks for the camera on that same tap. Terms, privacy, and EULA stay one tap away. The underage path still leaves to home. The gate was not changed.
+- Pins: `live.js?v=988`, `live-stage.css?v=658`, `i18n.js?v=271`, pack fetch `?v=149`, session pack key `v101`. Other languages fall back to English for the new keys.
+
+Tests:
+- `node --check` on `ui/live.js`, `ui/i18n.js`, and `verify-match-ux.mjs`. `en.json` and `ru.json` parse. A small state check of `syncAiSafetyChip` hid the chip for unmatched, friend, off, lite, failed load, and “model loaded but interval not started”; it showed the loading line only while the load promise was in flight, and “AI safety on” only with the model and the timer.
+- `SKIP_L2=1 mobile/scripts/verify-before-apk.sh` with `NODE_PATH` pointed at the connect checkout’s `mobile/node_modules`. Pin asserts passed (`live.js?v=988`, `live-stage.css?v=658`). Idle self-preview assert passed. L1 unit tests passed. The script still exits 1 on four pre-existing mobile asserts (AndroidManifest orientation, TapPressable, call avatar, StarGiftPopup). Mobile app source was not edited.
+- Headless Chrome on a local static server, `live.html?lang=en` and `?lang=ru`: Start, the 18+ sheet, and the idle face hint still lead. `#ai-safety-chip` is in the page and hidden, with no “on” or “loading” text. Not a click-through on the live host, and not a matched call, so the “on” state was not shown in the browser.
+
+Needs Anton:
+- Not on the server. Production is still `547bf44`. Local commits since then include `e634efd`, `affc1f8`, `f95ec33`, `15a9afd`, and `8b1b4df`. Say when to deploy.
+- A real stranger match is the only way to see the chip turn on. If the model fails to load from the CDN, the chip stays hidden on purpose.
+
+Signed Grok Build / site. Stopping here.
+
+---
+
+## 2026-10-12 — Grok Build / site
+
+Local only on `release/2026-10-10` in `~/freenet-roulette-release`. Did not deploy. Did not push. Did not edit `~/freenet-roulette`. Did not rebuild the hero, the trust strip, idle preview, the low-pool line, the AI chip, operator chips, or P1–P10. Did not change ICE/TURN/match, nsfwjs, bans, `safety_log`, reports, Stars, the bridge host rewrite, or sitemap/robots. Legal and live pages were not rewritten; they only picked up `home.css?v=103` where they already linked that stylesheet.
+
+Commit:
+- `f3d1e08` feat(home): show Start in the phone header and name Ruletka.me (parent `8b1b4df`).
+
+What changed:
+- `home.css` no longer hides `.nav-live-link` below 640px. At phone width the header shows a compact “Start chatting” / «Начать чат» pill. Under 420px the brand word is clipped to the logo (the link still says Ruletka.me) and Share becomes a share icon so the language name stays fully visible. Desktop keeps the wordmark, the “Share site” / «Поделиться» label, and the same pill. SEO pages and `index.html` that share this stylesheet get the same header rule.
+- `home.html` head now matches the `.me` pages: one name, Ruletka.me. Title: «Чат рулетка — случайный видеочат без регистрации | Ruletka.me». Description does not name both domains. Canonical stays `https://ruletka.me/home.html`. `og:*` and `twitter:*` use that URL and `https://ruletka.me/brand/logo-mark.png`. The `/?lang=` hreflang set is gone. There is no hreflang pointing at `/` or `/en/`, because this page’s canonical is `/home.html`.
+- What ruletka.me would serve: `brand_html` replaces `ruletka.vip` then collapses “ruletka.me / ruletka.me”. The old title would have been served as `ruletka.me — чат рулетка | random video chat (ruletka.me)`, and the old description as `Ruletka.me — чат-рулетка…`. The new file contains no `ruletka.vip`, so the `.me` rewrite leaves it unchanged. The `.vip` host serves the same file without a rewrite, so both hosts show one name.
+- Visible fallbacks in the body and the Share title now say Ruletka.me. The hero JPEG still paints “.vip” inside the picture. `brand.js` already swaps that art for the mark on the ruletka.me host. These local screenshots are 127.0.0.1, which `brand.js` treats as the vip host, so the picture stays.
+
+Tests:
+- `node --check` on the inline script in `home.html`. Head grep: no `ruletka.vip`, no hreflang, canonical `https://ruletka.me/home.html`. JSON-LD parses. A copy of the bridge rewrite left the new file unchanged.
+- No verify pin asserts `home.css?v=`. Did not run `verify-before-apk.sh`.
+- Headless Chrome, local static server. Layout checks passed (no overlap, language name not clipped, Start text correct) and screenshots:
+  - `artifacts/shots/2026-10-12-home-header/home-en-360x740.png`
+  - `artifacts/shots/2026-10-12-home-header/home-ru-360x740.png`
+  - `artifacts/shots/2026-10-12-home-header/home-en-390x844.png`
+  - `artifacts/shots/2026-10-12-home-header/home-ru-390x844.png`
+  - `artifacts/shots/2026-10-12-home-header/home-en-1366x768.png`
+  - `artifacts/shots/2026-10-12-home-header/home-ru-1366x768.png`
+- `seo/en.html` at 360px also shows “Start chatting” inside the viewport. Not a click-through on the live host. Hero and trust strip still lead under the header.
+
+Needs Anton:
+- Not on the server. Production is still `547bf44`. Local commits since then include `e634efd`, `affc1f8`, `f95ec33`, `15a9afd`, `8b1b4df`, and `f3d1e08`. Say when to deploy.
+- The hero picture still says .vip until a request hits the ruletka.me host, where `brand.js` swaps the art.
+
+Signed Grok Build / site. Stopping here.
+
+---
+
+## 2026-10-12 — Grok Build / mobile
+
+Local only on `polish/2026-10-10`. Did not touch `polish/ml-native` (`ef08f1e`, clean) or `~/freenet-roulette`. No push, no deploy, no prebuild, no APK/AAB. Did not install `react-native-fast-tflite`. Did not enable NudeNet. Did not merge ml-native. Did not install a frame tap. Did not change hub ban behaviour. Did not open appeals. Did not change skip, report, or ban. No store or docs paperwork. Live chrome was not redesigned.
+
+Commit:
+- `96f369c` Skip the first-run What's new card and merge age with camera.
+
+Tap count, first open to the first stranger search (camera allowed, Start uses autostart so live does not ask again):
+- Before: 6. Age yes, then the camera explanation Continue, then one Android allow on the combined camera/mic sheet, then the home-pin system dialog, then What's new “Got it”, then home Start. A phone that splits camera and mic into two system sheets would add one more allow.
+- After: 3. “I'm 18+ · Continue” / «Мне 18+ · Продолжить» accepts the rules and opens that same system sheet. Then one allow. Then home Start. What's new does not show. The pin dialog does not show.
+
+What changed:
+- An empty What's new seen-key is a fresh install. The app records the current version and shows nothing. The card appears only after a stored version differs. It is not painted over the age screen or over Start on that first session. `whatsNew.test.mjs` covers fresh, same version, and upgrade.
+- Age and the camera reason are one screen. Full rules are the terms link. “Not now” still enters without the camera prompt and still records acceptance, because it is a continue on the 18+ screen. Under 18 still exits on Android and still opens the child-safety page elsewhere. The 18+ gate still blocks home until one of those continue actions.
+- The home-pin request is a system dialog, not silent. It is off the first open. Home may ask on the second app open. Settings can still ask on purpose. Someone who already accepted the rules but still lacks camera and mic sees the old camera card only, not the age step again.
+
+Tests: `SKIP_L2=1 ./scripts/verify-before-apk.sh` with a symlink to the main checkout’s `mobile/node_modules` (removed before the commit). L0 28 ok, L1 ok, `whatsNew.test.mjs` ok, `npm test` ok, including `logic.test.mjs`. Passed 13, failed 0. `SKIP_APK_HOOK=1`. No APK.
+
+Needs Anton:
+- No phone smoke. This checkout cannot walk a fresh install through the merged screen, the system allow sheet, or the second-open pin dialog.
+
+Signed Grok Build / mobile. Stopping here.
