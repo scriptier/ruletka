@@ -1021,3 +1021,44 @@ Needs Anton:
 - No phone smoke. This checkout cannot walk a fresh install through the merged screen, the system allow sheet, or the second-open pin dialog.
 
 Signed Grok Build / mobile. Stopping here.
+
+---
+
+## 2026-10-12 3:48 PM MT — Ruletka Developer (Herdr foreman)
+
+site12 finished: f3d1e08 phone header Start pill + home.html head on Ruletka.me (release/2026-10-10). mobile13 finished: 96f369c + 1270788 shorter first run (no What's new on fresh install, age + camera merged, 6 taps to 3) on polish/2026-10-10. Review batch self-email sent (subject [RuletkaDev↔GrokBuild] review batch 3:48 PM MT Oct 12, id 1a132180cb601f24). Next assigns (prompts in ~/rustore-ru-work/prompts/site13.txt mobile14.txt): site — plain-language stars sheet labels + closed "How stars work" section (moderation rec #7) and last ruletka.vip fallbacks in live.html (rec #9 / SEO T6) on release/2026-10-10 in ~/freenet-roulette-release. mobile — plain words for hub/P2P/TURN in consumer-visible app toasts and friend messages, EN + RU (rec #7) on polish/2026-10-10. ios/store left idle (Anton-blocked). Connect left alone. All local; no push/deploy/build/upload. [Ruletka Herdr foreman]
+
+---
+
+## 2026-10-12 — Grok Build / mobile
+
+Local only on `polish/2026-10-10`. Did not touch `polish/ml-native` (`ef08f1e`, clean) or `~/freenet-roulette`. No push, no deploy, no prebuild, no APK/AAB. Did not install `react-native-fast-tflite`. Did not enable NudeNet. Did not change hub ban behaviour. Did not open appeals. Did not change skip, report, or ban. No ICE, TURN, match, or Prefer Direct default change. No store or docs paperwork. Live chrome was not redesigned.
+
+Commit:
+- `5e8e6de` Say server in exported profile notes.
+
+What the app actually shows:
+- The phone reads `mobile/src/i18n/overlay/` only. A missing key falls back to the English overlay, then the raw key. It does not load `mobile/src/i18n/packs/`.
+- These example keys are in the web packs and are not passed to `t()` from `mobile/app` or `mobile/src`, so an app user never sees them. Left unchanged: `conn.backOnlineBody` (“Hub reconnected — you can search or call again.”), `conn.hubBlipKeepCall` (“Call continues (P2P) · hub reconnecting”), `friends.blockNeedConn` (“Not connected to hub…”), `friends.persistHint` (“Friends are saved on this hub…”), `chat.hubRelay`, `chat.p2pLive`, `conn.preferDirectAutoOff` / `conn.preferDirectAutoOffBody`, and the `coach.*` TURN lines. Same keys exist in the Russian pack and were left too.
+- English and Russian overlay values already say server, direct, or connection (from `dff2812`). This hop did not rewrite them again. Settings → Connection is already titled “Server connection” / «Подключение к серверу», with the hint “Tap a working server to switch.” There is no Prefer Direct control on the app screen, so nothing there gained a new subtitle and no default moved.
+- Grep of overlay `en.json` and `ru.json` values: no hub, P2P, TURN, Prefer Direct, helper, or WebRTC. `{hub}` remains only as the server-address placeholder (home meta and the server section). 740 keys each, no duplicate keys. Both files parse. Pack `en.json` and `ru.json` parse and were not edited.
+
+Keys / strings changed (the only app text an ordinary user could still read that said hub):
+- Encrypted backup `note`: “Stars are hub-only.” → “Stars stay on the server.”
+- Plain backup `note`: “Stars are NOT in this file — hub-only for user_id.” → “Stars are not in this file — they stay on the server for this account.”
+- The file note is English in both languages. The on-screen export toast was already `settings.exportStarsNote`: “Stars are not in this file (server-only).” / the Russian overlay equivalent. Import does not read the note.
+
+Locales that still carry the old wording (the phone loads these overlays and does not fall back to English while the key exists). Not rewritten this hop:
+- ar, bg, cs, de, es, fr, pl, pt, sr, tr, uk, zh.
+- Examples a user of that language still sees: home “Hub offline”, “Reconnecting to hub…”, “Switched hub”, safety tip “TURN relay”, Hide IP chips “Off (P2P OK)” / “On (TURN only)”, uk `mobile.home.tag` “P2P-відео”, es/pl/fr permission lines that still say P2P. Settings connection titles in de/cs/pt still say Hub. English and Russian for those same keys already say server / off / on.
+
+Code that still contains the words, and is not a consumer toast: the settings section id `"hub"`, debug-log lines in `live.tsx` (log panel is dev-only), the hub directory storage key, and `connectRetry` log “hard retry force TURN relay”. Left as-is.
+
+Tests: `SKIP_L2=1 ./scripts/verify-before-apk.sh` with a symlink to the main checkout’s `mobile/node_modules` (removed before the commit). L0 28 ok, L1 ok, `npm test` ok, including `logic.test.mjs`. Passed 13, failed 0. `SKIP_APK_HOOK=1`. No APK.
+
+Needs Anton:
+- No phone smoke. English and Russian consumer strings were already plain; this hop only aligns the backup file note.
+- If a non-English, non-Russian language should also drop hub / P2P / TURN, that is a separate pass. Those overlays still show the old wording.
+- The browser packs still say hub, P2P, and TURN. The site tab owns that surface.
+
+Signed Grok Build / mobile. Stopping here.
