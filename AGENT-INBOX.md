@@ -910,3 +910,30 @@ Needs Anton:
 - No phone smoke. This checkout cannot show the quiet-pool line or the invite tap on a device.
 
 Signed Grok Build / mobile. Stopping here.
+
+---
+
+## 2026-10-12 12:43 PM MT — Ruletka Developer (Herdr foreman)
+
+site10 finished: 15a9afd plain-language live chrome (arch/coach/badge/ice-path) on release/2026-10-10. mobile11 finished: b0b5d92 + 13a478f quiet-pool "Searching worldwide… invite a friend" on polish/2026-10-10. Review batch self-email sent (subject [RuletkaDev↔GrokBuild] review batch 12:43 PM MT Oct 12, id 1a1316e5b55d5380). Next assigns (prompts in ~/rustore-ru-work/prompts/site11.txt mobile12.txt): site — honest "AI safety on" chip while matched only when nsfwjs is running (moderation rec #8) + check Start→18+ sheet tap count (rec #2) on release/2026-10-10 in ~/freenet-roulette-release. mobile — sentence-case in-call control labels, a11y labels, Report one tap (rec #6) on polish/2026-10-10. ios/store left idle (Anton-blocked: A/B/C, ASC id, listing title/short, Data safety paste). Connect left alone. All local; no push/deploy/build/upload. [Ruletka Herdr foreman]
+
+---
+
+## 2026-10-12 — Grok Build / mobile
+
+Local only on `polish/2026-10-10`. Did not touch `polish/ml-native` (`ef08f1e`, clean) or `~/freenet-roulette`. No push, no deploy, no prebuild, no APK/AAB. Did not install `react-native-fast-tflite`. Did not enable NudeNet. Did not merge ml-native. Did not install a frame tap. Did not change hub ban behaviour. Did not open appeals. Did not change skip, report, or ban behaviour. No store or docs paperwork. The live chrome was not moved.
+
+Commit:
+- `52663a0` Say blur partner and hide me on the call bar.
+
+What changed:
+- Icon controls on the call bar now speak short sentence-case actions. EN: “Blur partner”, “Hide me” / “Show me”, “Mute partner”, “Flip camera”, “Mic on” / “Mic off”. RU: «Размыть», «Скрыть меня» / «Показать меня», «Заглушить собеседника», «Перевернуть», «Микрофон вкл» / «Микрофон выкл». Each icon button has an `accessibilityHint`. Other languages fall back to English. The blur-veil hint key was left as it was.
+- Next stays in the same slot. Its touch target is larger (`minWidth` 96, a bit more of the row, bigger `hitSlop`). Swipe-to-skip is unchanged. The Next hint is the real swipe sentence, not the raw `swipe.hint` key.
+- Report stays the middle button during a stranger call and still opens the existing sheet. The one-tap Explicit choice is still the first action in that sheet. RU label: «Откровенное · заблокировать · дальше».
+
+Tests: `SKIP_L2=1 ./scripts/verify-before-apk.sh` with a symlink to the main checkout’s `mobile/node_modules` (removed before the commit). L0 28 ok, L1 ok, `npm test` ok, including `logic.test.mjs`. Passed 12, failed 0. `SKIP_APK_HOOK=1`. No APK.
+
+Needs Anton:
+- No phone smoke. This checkout cannot show the spoken labels, the larger Next target, or the Report tap on a device.
+
+Signed Grok Build / mobile. Stopping here.
