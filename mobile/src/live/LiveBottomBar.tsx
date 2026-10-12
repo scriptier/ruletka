@@ -55,18 +55,31 @@ export type LiveBottomBarProps = {
     report?: string;
     micOn: string;
     micOff: string;
+    micOnHint?: string;
+    micOffHint?: string;
     camOn: string;
     camOff: string;
+    /** Spoken while they can see you. */
+    camOnHint?: string;
+    /** Spoken while your camera is hidden. */
+    camOffA11yHint?: string;
     /** Partner-facing promise when cam is off (web “Hidden from them”). */
     camOffHint?: string;
     youMutedBadge: string;
     flipCam: string;
+    flipHint?: string;
     partnerMuteShort: string;
     partnerUnmuteShort: string;
+    partnerMuteHint?: string;
+    partnerUnmuteHint?: string;
     /** Blur / unblur partner video */
     blurShort?: string;
     unblurShort?: string;
+    blurHint?: string;
+    unblurHint?: string;
     more: string;
+    moreHint?: string;
+    reportHint?: string;
     cancel: string;
     invite: string;
     friends: string;
@@ -214,8 +227,11 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
                 onPress={() => reportHandler?.()}
                 accessibilityRole="button"
                 accessibilityLabel={L.report || "Report"}
+                accessibilityHint={
+                  L.reportHint || "Report this person. Explicit is the first choice."
+                }
                 testID="live-report-btn"
-                hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
                 android_ripple={{ color: "rgba(255,120,90,0.25)" }}
               >
                 <Text style={styles.btnText} importantForAccessibility="no">
@@ -246,7 +262,7 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
                   L.nextHint || "Skip to next person · or swipe partner video"
                 }
                 testID="live-next-btn"
-                hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                hitSlop={{ top: 14, bottom: 16, left: 10, right: 10 }}
                 android_ripple={{ color: "rgba(255,255,255,0.2)" }}
               >
                 <Text style={styles.btnText} importantForAccessibility="no">
@@ -270,6 +286,9 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
           onPress={onToggleMic}
           accessibilityRole="button"
           accessibilityLabel={micLabel}
+          accessibilityHint={
+            micForcedOff ? undefined : micOn ? L.micOnHint : L.micOffHint
+          }
           accessibilityState={{
             selected: micOn && !micForcedOff,
             disabled: micForcedOff,
@@ -289,7 +308,9 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
           style={[styles.btnIcon, !camOn && styles.btnOff]}
           onPress={onToggleCam}
           accessibilityRole="button"
-          accessibilityLabel={camOn ? L.camOn : L.camOff}
+          // Action name, not the current state: Hide me while they can see you.
+          accessibilityLabel={camOn ? L.camOff : L.camOn}
+          accessibilityHint={camOn ? L.camOnHint : L.camOffA11yHint}
           accessibilityState={{ selected: camOn }}
           testID="live-cam-btn"
           hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
@@ -308,6 +329,7 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
             onPress={onFlipCam}
             accessibilityRole="button"
             accessibilityLabel={L.flipCam}
+            accessibilityHint={L.flipHint}
             testID="live-flip-btn"
             hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
             android_ripple={{ color: "rgba(255,255,255,0.12)", borderless: false }}
@@ -330,6 +352,9 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
             accessibilityRole="button"
             accessibilityLabel={
               partnerMuted ? L.partnerUnmuteShort : L.partnerMuteShort
+            }
+            accessibilityHint={
+              partnerMuted ? L.partnerUnmuteHint : L.partnerMuteHint
             }
             accessibilityState={{ selected: partnerMuted }}
             testID="live-partner-mute-btn"
@@ -358,8 +383,8 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
             accessibilityState={{ selected: remoteBlurred }}
             accessibilityHint={
               remoteBlurred
-                ? "Shows partner camera"
-                : "Hides partner camera behind privacy veil"
+                ? L.unblurHint || "Show their camera"
+                : L.blurHint || "Hide their camera behind a soft blur"
             }
             testID="live-blur-btn"
             hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
@@ -379,6 +404,7 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
             onPress={onToggleMore}
             accessibilityRole="button"
             accessibilityLabel={moreOpen ? L.cancel : L.more}
+            accessibilityHint={moreOpen ? undefined : L.moreHint}
             accessibilityState={{ expanded: moreOpen }}
             hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
           >

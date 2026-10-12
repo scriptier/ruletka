@@ -1943,9 +1943,12 @@ export const liveStyles = StyleSheet.create({
   },
   /** Next is the primary matched action — slightly wider / stronger than Stop. */
   btnNext: {
+    flex: 1.15,
     backgroundColor: "#ff2d55",
     paddingVertical: 12,
+    paddingHorizontal: 12,
     minHeight: 48,
+    minWidth: 96,
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
