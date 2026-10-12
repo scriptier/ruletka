@@ -112,7 +112,7 @@ export async function encryptProfile(
     iv: b64FromBytes(iv),
     ciphertext: b64FromBytes(ct),
     note:
-      "Encrypted profile backup. Import with the same password. Stars are hub-only.",
+      "Encrypted profile backup. Import with the same password. Stars stay on the server.",
   };
 }
 
@@ -151,7 +151,7 @@ export function buildPlainProfile(opts: {
     exported_at: new Date().toISOString(),
     software: "Ruletka.me",
     note:
-      "Import restores identity. Stars are NOT in this file — hub-only for user_id.",
+      "Import restores identity. Stars are not in this file — they stay on the server for this account.",
     identity: {
       user_id: opts.user_id,
       name: (opts.name || "anon").slice(0, 32),
