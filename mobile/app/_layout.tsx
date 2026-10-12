@@ -24,6 +24,7 @@ import {
 } from "react-native-safe-area-context";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { track } from "../src/analytics/track";
+import { noteAppOpen } from "../src/shortcuts/homePin";
 import { ErrorBoundary } from "../src/boot/ErrorBoundary";
 import {
   hapticMatch,
@@ -739,6 +740,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     track("app_open");
+    void noteAppOpen();
     (async () => {
       try {
         const id = await loadOrCreateIdentity();

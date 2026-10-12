@@ -31,6 +31,7 @@ import { useHub } from "../src/hub/HubProvider";
 import { isLowPool } from "../src/live/hubLobby";
 import { useT } from "../src/i18n";
 import { maybeOfferNotifOptIn } from "../src/push/notifOptIn";
+import { requestHomePinAfterFirstOpen } from "../src/shortcuts/homePin";
 import { useApp } from "./_layout";
 
 function hubHost(): string {
@@ -99,6 +100,11 @@ function HomeBody() {
       shouldShowWhatsNew()
         .then(setWhatsNew)
         .catch(() => setWhatsNew(false));
+      // Pin dialog is a system confirm. First open stays clear; second open may ask.
+      void requestHomePinAfterFirstOpen({
+        shortLabel: t("mobile.shortcut.short"),
+        longLabel: t("mobile.shortcut.long"),
+      });
       loadMatchHistory()
         .then((list) => setLastMatch(list[0] || null))
         .catch(() => setLastMatch(null));

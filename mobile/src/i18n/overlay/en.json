@@ -487,6 +487,8 @@
   "mobile.perm.title": "Camera & microphone",
   "mobile.reconnect": "Reconnecting…",
   "mobile.rules.badge": "18+ only",
+  "mobile.rules.continue18": "I'm 18+ · Continue",
+  "mobile.rules.fullRules": "Full rules",
   "mobile.rules.blockReport": "Use Block and Report on any bad partner — you can leave anytime.",
   "mobile.rules.noMinors": "No minors. Ever. Report underage concerns immediately.",
   "mobile.rules.under18": "I'm under 18 — leave",

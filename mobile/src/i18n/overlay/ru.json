@@ -505,6 +505,8 @@
   "mobile.perm.title": "Камера и микрофон",
   "mobile.reconnect": "Переподключение…",
   "mobile.rules.badge": "Только 18+",
+  "mobile.rules.continue18": "Мне 18+ · Продолжить",
+  "mobile.rules.fullRules": "Полные правила",
   "mobile.rules.blockReport": "Блок и Жалоба всегда под рукой — можно выйти в любой момент.",
   "mobile.rules.noMinors": "Без несовершеннолетних. Никогда. Сразу сообщайте.",
   "mobile.rules.under18": "Мне нет 18 — выйти",
