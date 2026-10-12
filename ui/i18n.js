@@ -10,8 +10,8 @@
   const STR = {
     en: {
       // meta / brand
-      "meta.title": "ruletka.vip — random video chat",
-      "brand.name": "ruletka.vip",
+      "meta.title": "Ruletka.me — random video chat",
+      "brand.name": "Ruletka.me",
       "brand.badge": "live",
       "brand.badgeTitle": "Finding a partner · video call",
       "brand.homeTitle": "Home",
@@ -964,8 +964,8 @@
     },
 
     ru: {
-      "meta.title": "ruletka.vip — случайный видеочат",
-      "brand.name": "ruletka.vip",
+      "meta.title": "Ruletka.me — случайный видеочат",
+      "brand.name": "Ruletka.me",
       "brand.badge": "онлайн",
       "brand.badgeTitle": "Подбор собеседника · видеозвонок",
       "brand.homeTitle": "На главную",
@@ -2081,7 +2081,7 @@
     if (!BUNDLED.has(c) && STR[c]) return Promise.resolve(STR[c]);
     if (loading[c]) return loading[c];
     // Prefer sessionStorage pack cache (avoids re-downloading ~100KB JSON every navigation)
-    const packCacheKey = "ruletka-i18n-pack-v101-" + c;
+    const packCacheKey = "ruletka-i18n-pack-v102-" + c;
     try {
       const cached = sessionStorage.getItem(packCacheKey);
       if (cached) {
@@ -2096,7 +2096,7 @@
     } catch (_) {}
 
     // Always fetch /i18n/{code}.json and merge over built-ins (en/ru too)
-    loading[c] = fetch(`/i18n/${c}.json?v=149`, { cache: "force-cache" })
+    loading[c] = fetch(`/i18n/${c}.json?v=150`, { cache: "force-cache" })
       .then((r) => {
         if (!r.ok) throw new Error("lang pack " + c);
         return r.json();

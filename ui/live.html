@@ -585,7 +585,7 @@
   <link rel="stylesheet" href="live-stage.css?v=658" />
   <link rel="stylesheet" href="live-brand.css?v=24" />
   <link rel="preload" href="live.js?v=988" as="script" />
-  <link rel="preload" href="i18n.js?v=271" as="script" />
+  <link rel="preload" href="i18n.js?v=272" as="script" />
   <script src="brand.js?v=3" defer></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -763,7 +763,7 @@
     <header class="stage-top" hidden aria-hidden="true">
       <a class="brand" href="/" title="Home" data-i18n-title="brand.homeTitle">
         <img class="brand-logo" src="/brand/logo-mark.png?v=10" width="28" height="28" alt="" />
-        <span data-i18n="brand.name">ruletka.vip</span>
+        <span data-i18n="brand.name">Ruletka.me</span>
         <span class="badge" data-i18n="brand.badge" data-i18n-title="brand.badgeTitle" title="Finding a partner · video call">live</span>
       </a>
       <div class="pool-bar" id="pool-bar">
@@ -893,7 +893,7 @@
                     <span class="stars-icon" aria-hidden="true">★</span>
                     <span class="stars-count" id="remote2-stars-count">0</span>
                   </button>
-                  <span class="stars-soft-rank-chip" id="remote2-soft-rank-chip" hidden title="Soft match rank on">↗</span>
+                  <span class="stars-soft-rank-chip" id="remote2-soft-rank-chip" hidden title="Easier matching is on">↗</span>
                   <span class="stars-goat-chip" id="remote2-goat-chip" hidden title="GOAT — 2500★">GOAT</span>
                 </div>
                 <span class="tile-avatar tile-avatar-remote" id="remote2-avatar" hidden title="Send ★1 · costs 3★" role="button">
@@ -1157,7 +1157,7 @@
               <span class="stars-icon" aria-hidden="true">★</span>
               <span class="stars-count" id="remote-stars-count">0</span>
             </button>
-            <span class="stars-soft-rank-chip" id="remote-soft-rank-chip" hidden title="Soft match rank on">↗</span>
+            <span class="stars-soft-rank-chip" id="remote-soft-rank-chip" hidden title="Easier matching is on">↗</span>
             <span class="stars-goat-chip" id="remote-goat-chip" hidden title="GOAT — 2500★">GOAT</span>
             <span class="flair-chip" id="remote-flair-chip" hidden title="Flair" aria-hidden="true"></span>
           </div>
@@ -1306,7 +1306,7 @@
               <span class="stars-icon" aria-hidden="true">★</span>
               <span class="stars-count" id="third-stars-count">0</span>
             </button>
-            <span class="stars-soft-rank-chip" id="third-soft-rank-chip" hidden title="Soft match rank on">↗</span>
+            <span class="stars-soft-rank-chip" id="third-soft-rank-chip" hidden title="Easier matching is on">↗</span>
             <span class="stars-goat-chip" id="third-goat-chip" hidden title="GOAT — 2500★">GOAT</span>
           </div>
           <span class="tile-avatar tile-avatar-remote" id="third-avatar" hidden title="Send ★1 · costs 3★" role="button">
@@ -1381,7 +1381,7 @@
               <span class="stars-icon" aria-hidden="true">★</span>
               <span class="stars-count" id="fourth-stars-count">0</span>
             </button>
-            <span class="stars-soft-rank-chip" id="fourth-soft-rank-chip" hidden title="Soft match rank on">↗</span>
+            <span class="stars-soft-rank-chip" id="fourth-soft-rank-chip" hidden title="Easier matching is on">↗</span>
             <span class="stars-goat-chip" id="fourth-goat-chip" hidden title="GOAT — 2500★">GOAT</span>
           </div>
           <span class="tile-avatar tile-avatar-remote" id="fourth-avatar" hidden title="Send ★1 · costs 3★" role="button">
@@ -1566,7 +1566,7 @@
               <span class="stars-icon" aria-hidden="true">★</span>
               <span class="stars-count" id="local-stars-count">0</span>
             </button>
-            <span class="stars-soft-rank-chip" id="local-soft-rank-chip" hidden title="Soft match rank on">↗</span>
+            <span class="stars-soft-rank-chip" id="local-soft-rank-chip" hidden title="Easier matching is on">↗</span>
             <span class="stars-goat-chip" id="local-goat-chip" hidden title="GOAT — 2500★">GOAT</span>
             <span class="flair-chip" id="local-flair-chip" hidden title="Flair" aria-hidden="true"></span>
           </div>
@@ -1993,7 +1993,7 @@
     <nav class="stars-tabs" id="stars-tabs" role="tablist" aria-label="Stars sections">
       <button type="button" class="stars-tab is-active" role="tab" id="stars-tab-overview" data-stars-tab="overview" aria-selected="true" data-i18n="stars.tabOverview">Overview</button>
       <button type="button" class="stars-tab" role="tab" id="stars-tab-gifts" data-stars-tab="gifts" aria-selected="false" data-i18n="stars.tabGifts">Gifts</button>
-      <button type="button" class="stars-tab" role="tab" id="stars-tab-power" data-stars-tab="power" aria-selected="false" data-i18n="stars.tabPower">Power</button>
+      <button type="button" class="stars-tab" role="tab" id="stars-tab-power" data-stars-tab="power" aria-selected="false" data-i18n="stars.tabPower">Status</button>
     </nav>
     <div class="sheet-body settings-body">
       <div class="stars-sheet-hero" id="stars-sheet-hero">
@@ -2005,18 +2005,18 @@
           </div>
         </div>
         <div class="stars-hero-meta">
-          <span class="stars-sheet-balance-sub" data-i18n="stars.walletHeroSub">Wallet to spend</span>
+          <span class="stars-sheet-balance-sub" data-i18n="stars.walletHeroSub">Stars you can spend</span>
           <span class="stars-meta-dot" aria-hidden="true">·</span>
           <span class="stars-tier-name" id="stars-tier-name">New</span>
         </div>
         <div class="stars-balance-trust-row" id="stars-balance-trust-row">
           <span class="stars-dual-chip is-balance">
-            <span class="stars-dual-lbl" data-i18n="stars.walletLabel">Wallet</span>
+            <span class="stars-dual-lbl" data-i18n="stars.walletLabel">Stars you can spend</span>
             <strong class="stars-dual-val">★ <span id="stars-sheet-balance-chip">0</span></strong>
             <span class="stars-dual-sub" data-i18n="stars.balanceSpends">for gifts</span>
           </span>
           <span class="stars-dual-chip is-trust">
-            <span class="stars-dual-lbl" data-i18n="stars.statusPointsLabel">Rep</span>
+            <span class="stars-dual-lbl" data-i18n="stars.statusPointsLabel">Reputation</span>
             <strong class="stars-dual-val">★ <span id="stars-sheet-trust">0</span></strong>
             <span class="stars-dual-sub"><span id="stars-sheet-gifters">0</span> <span data-i18n="stars.giftersLabelShort">praised</span></span>
           </span>
@@ -2033,7 +2033,7 @@
       <div class="stars-panel is-active" id="stars-panel-overview" role="tabpanel" data-stars-panel="overview">
         <div class="stars-progress-wrap" id="stars-progress-wrap">
           <div class="stars-progress-head">
-            <span class="stars-progress-label" id="stars-progress-label" data-i18n="stars.progressLabel">Trusted status</span>
+            <span class="stars-progress-label" id="stars-progress-label" data-i18n="stars.progressLabel">Trusted member</span>
             <span class="stars-progress-count" id="stars-progress-count">0 / 100</span>
           </div>
           <div class="stars-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="250" aria-valuenow="0" id="stars-progress-bar">
@@ -2045,7 +2045,7 @@
             <span>0</span><span>100</span><span>250</span>
           </div>
           <p class="stars-progress-hint" id="stars-progress-hint" data-i18n="stars.progressHint">
-            Trust from peer gifts · 100 trust → Trusted status.
+            Stars from people you chat with. 100 stars makes you a trusted member.
           </p>
           <p class="stars-progress-hint-sub" id="stars-progress-hint-sub" hidden></p>
         </div>
@@ -2056,11 +2056,11 @@
           </div>
           <div class="stars-rep-card-grid">
             <div class="stars-rep-stat">
-              <span class="stars-rep-stat-lbl" data-i18n="stars.walletLabel">Wallet</span>
+              <span class="stars-rep-stat-lbl" data-i18n="stars.walletLabel">Stars you can spend</span>
               <span class="stars-rep-stat-val" id="stars-rep-card-bal">★0</span>
             </div>
             <div class="stars-rep-stat">
-              <span class="stars-rep-stat-lbl" data-i18n="stars.statusPointsLabel">Rep</span>
+              <span class="stars-rep-stat-lbl" data-i18n="stars.statusPointsLabel">Reputation</span>
               <span class="stars-rep-stat-val" id="stars-rep-card-trust">0</span>
             </div>
             <div class="stars-rep-stat">
@@ -2078,7 +2078,7 @@
         </div>
         <div class="stars-gifters-overview" id="stars-gifters-overview">
           <div class="stars-gifters-overview-head">
-            <span data-i18n="stars.giftersStripTitle">Peer praise</span>
+            <span data-i18n="stars.giftersStripTitle">People who gifted you</span>
             <span class="stars-gifters-overview-count" id="stars-gifters-overview-count">0 / 12</span>
           </div>
           <div class="stars-giver-chips" id="stars-giver-chips" hidden aria-label="Recent gifters"></div>
@@ -2104,8 +2104,8 @@
           <div class="stars-earn-row">
             <span class="stars-earn-ico" aria-hidden="true">👑</span>
             <span class="stars-earn-copy">
-              <strong data-i18n="stars.earnSeniorTalkTitle">Talk to a senior</strong>
-              <span data-i18n="stars.earnSeniorTalkBody">Normals +3★ · trusted +2★/hour with 250+</span>
+              <strong data-i18n="stars.earnSeniorTalkTitle">Talk to an experienced member</strong>
+              <span data-i18n="stars.earnSeniorTalkBody">A long chat with them can earn extra stars.</span>
             </span>
           </div>
         </div>
@@ -2115,13 +2115,13 @@
           </summary>
           <div class="stars-about-panel">
             <p class="stars-about-lead" data-i18n="stars.sheetIntro">
-              Free reputation, not money. Earn from long chats, spend on gifts. Trust from peer praise unlocks status at 100 and 250.
+              Stars are a thank-you in chat, not money. You earn them in long chats and spend them on gifts.
             </p>
             <ul class="stars-about-list">
-              <li data-i18n="stars.aboutEarn">Balance: +1★ each after 1 hour (spendable). Trust: only peer post-chat gifts count. First 3 partners unlock gift after 5+ min (then 15+). Gift once per person — up to 2★ at Trusted, 3★ at Senior.</li>
-              <li data-i18n="stars.aboutSpend">Spend: Heart 1★ · Bars/Flowers/Balloons/Confetti 5★ · Fireworks 15★ · Please stay 30★ (they can’t Next for 15s).</li>
-              <li data-i18n="stars.aboutTrust">Trust (not balance): Trusted at 100 needs 5+ unique gifters; Senior at 250 needs 12+. Soft decay after 45 days idle. Soft match rank and gift limits — not ban artillery. Hour bonuses do not raise trust.</li>
-              <li data-i18n="stars.aboutHub">Safe: stars stay on the server for your account — profile export never includes them.</li>
+              <li data-i18n="stars.aboutEarn">After an hour together, you each get 1 star you can spend. A gift after a chat is separate: the first three people can receive one after 5 minutes, then it takes 15 minutes, and only once per person. A trusted member can give up to 2 stars, and an experienced member up to 3. A long chat with an experienced member can add extra stars: 3 per hour for most people, or 2 per hour once you have 250 stars.</li>
+              <li data-i18n="stars.aboutSpend">Heart costs 1 star. Bars, flowers, balloons, confetti, and pass the mic cost 5. Fireworks cost 15. Please stay costs 30, and they cannot skip you for 15 seconds. Bars are a mark, not a compliment. Pass the mic is a short nudge to let them speak.</li>
+              <li data-i18n="stars.aboutTrust">A trusted member needs 100 stars from at least 5 different people. An experienced member needs 250 stars from at least 12. If nobody gifts you for 45 days, this score slowly fades, and it can fade for up to 180 days. It can make matching a little easier, and it raises how large a gift you can send. It is not a ban. Stars from an hour together do not raise this score. Putting someone behind bars is only a mark, and abusing it stops affecting other people.</li>
+              <li data-i18n="stars.aboutHub">Stars stay on the server with your account. A profile export never includes them.</li>
             </ul>
           </div>
         </details>
@@ -2199,20 +2199,20 @@
       </div>
 
       <div class="stars-panel" id="stars-panel-power" role="tabpanel" data-stars-panel="power" hidden>
-        <p class="settings-section-label" data-i18n="stars.powerMapTitle">Social map</p>
+        <p class="settings-section-label" data-i18n="stars.powerMapTitle">Your stars</p>
         <div class="stars-power-map" id="stars-power-map">
           <div class="stars-map-row" data-map="balance">
             <span class="stars-map-ico" aria-hidden="true">★</span>
             <div class="stars-map-copy">
-              <strong data-i18n="stars.mapBalanceTitle">Wallet</strong>
-              <span id="stars-map-balance-body">Spend on gifts and FX</span>
+              <strong data-i18n="stars.mapBalanceTitle">Stars you can spend</strong>
+              <span id="stars-map-balance-body">Ready for gifts</span>
             </div>
           </div>
           <div class="stars-map-row" data-map="trust">
             <span class="stars-map-ico" aria-hidden="true">◆</span>
             <div class="stars-map-copy">
               <strong data-i18n="stars.mapTrustTitle">Status</strong>
-              <span id="stars-map-trust-body">Peer ★ after chats · soft bars stigma</span>
+              <span id="stars-map-trust-body">Stars people give you after a chat</span>
             </div>
           </div>
           <div class="stars-map-row" data-map="gifters">
@@ -2225,22 +2225,22 @@
           <div class="stars-map-row" data-map="bars" id="stars-map-bars-row">
             <span class="stars-map-ico" aria-hidden="true">🔒</span>
             <div class="stars-map-copy">
-              <strong data-i18n="stars.mapBarsTitle">Bars stigma</strong>
-              <span id="stars-map-bars-body">Soft mark if peers put you behind bars</span>
+              <strong data-i18n="stars.mapBarsTitle">Behind bars</strong>
+              <span id="stars-map-bars-body">A mark if people put you behind bars</span>
             </div>
           </div>
           <div class="stars-map-row" data-map="decay">
             <span class="stars-map-ico" aria-hidden="true">⏱</span>
             <div class="stars-map-copy">
-              <strong data-i18n="stars.mapDecayTitle">Active trust</strong>
+              <strong data-i18n="stars.mapDecayTitle">If you take a break</strong>
               <span id="stars-map-decay-body">Stays fresh with peer gifts</span>
             </div>
           </div>
           <div class="stars-map-row" data-map="rank" id="stars-map-rank-row" hidden>
             <span class="stars-map-ico" aria-hidden="true">↗</span>
             <div class="stars-map-copy">
-              <strong data-i18n="stars.mapRankTitle">Match soft-rank</strong>
-              <span id="stars-map-rank-body">On when Trusted or Senior</span>
+              <strong data-i18n="stars.mapRankTitle">Easier matching</strong>
+              <span id="stars-map-rank-body">On for a trusted or experienced member</span>
             </div>
           </div>
         </div>
@@ -2256,20 +2256,20 @@
           <div class="stars-ladder-step" data-tier="2" role="listitem">
             <span class="stars-ladder-dot" aria-hidden="true">2</span>
             <span class="stars-ladder-copy">
-              <strong data-i18n="stars.ladderTrustedTitle">Trusted · 100 trust</strong>
-              <span data-i18n="stars.ladderTrustedBody">Soft match rank · gift up to 2★ · needs 5+ gifters</span>
+              <strong data-i18n="stars.ladderTrustedTitle">Trusted member · 100 stars</strong>
+              <span data-i18n="stars.ladderTrustedBody">You can send a gift of up to 2 stars.</span>
             </span>
           </div>
           <div class="stars-ladder-step" data-tier="3" role="listitem">
             <span class="stars-ladder-dot" aria-hidden="true">3</span>
             <span class="stars-ladder-copy">
-              <strong data-i18n="stars.ladderSeniorTitle">Senior · 250 trust</strong>
-              <span data-i18n="stars.ladderSeniorBody">Stronger shield · gift up to 3★ · needs 12+ gifters</span>
+              <strong data-i18n="stars.ladderSeniorTitle">Experienced member · 250 stars</strong>
+              <span data-i18n="stars.ladderSeniorBody">You can send a gift of up to 3 stars.</span>
             </span>
           </div>
         </div>
         <p class="stars-ladder-note" id="stars-sheet-trust-body" data-i18n="stars.trustStepBody">
-          Balance spends on gifts. Trust is peer praise — unlocks status, gift limits, and soft match help. Reports use independent consensus, not star weight.
+          Stars you can spend go to gifts. Stars from chats show that people enjoyed talking with you, and they can make matching a little easier. Reports still need separate agreement, and they do not depend on stars.
         </p>
         <span id="stars-sheet-trust-title" hidden></span>
       </div>
@@ -2444,7 +2444,7 @@
     <div class="partner-menu-actions" id="partner-menu-report" hidden>
       <p class="partner-menu-hint" data-i18n="partnerMenu.reportHint">Pick a reason → we report and block them, skip, and you will not match them again. Multiple independent reports can restrict their matchmaking.</p>
       <p class="partner-menu-hint partner-menu-trusted" id="partner-menu-trusted-hint" hidden data-i18n="stars.trustedReporterHint">
-        You are Trusted — soft match rank and gift up to 2★. Reports still need independent consensus.
+        You are a trusted member, so you can send a gift of up to 2 stars. Reports still need separate agreement.
       </p>
       <button type="button" class="partner-menu-btn" data-report-reason="underage" data-i18n="partnerMenu.rUnderage">Underage concern</button>
       <button type="button" class="partner-menu-btn" data-report-reason="explicit" data-i18n="partnerMenu.rExplicit">Explicit content</button>
@@ -3064,7 +3064,7 @@
         <div class="about-hero" id="about-hero">
           <img class="about-hero-logo" src="/brand/logo-mark.png?v=10" width="48" height="48" alt="" />
           <div class="about-hero-text">
-            <div class="about-hero-name" data-i18n="brand.name">ruletka.vip</div>
+            <div class="about-hero-name" data-i18n="brand.name">Ruletka.me</div>
             <div class="about-hero-tag" data-i18n="settings.aboutTag">P2P video · 18+ · no classic account</div>
             <div class="about-hero-meta">
               <span class="about-meta-chip" id="about-version" title="Client">—</span>
@@ -3567,7 +3567,7 @@
   <script src="analytics.js?v=4" defer></script>
   <script src="pwa-install.js?v=13" defer></script>
   <script src="web-push.js?v=1" defer></script>
-  <script src="i18n.js?v=271" defer></script>
+  <script src="i18n.js?v=272" defer></script>
   <script src="geoLocalize.js?v=3" defer></script>
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=157" defer></script>
