@@ -464,9 +464,9 @@
       "chat.friendMsgFrom": "Message from {n}",
       "chat.needMatch": "Match someone or open Messages",
       "chat.clear": "Clear this chat",
-      "chat.p2pLive": "P2P · not via hub",
-      "chat.hubRelay": "via hub until P2P ready",
-      "chat.p2pReady": "Chat is peer-to-peer",
+      "chat.p2pLive": "Direct video",
+      "chat.hubRelay": "Through the server until direct video is ready",
+      "chat.p2pReady": "Chat is direct between you",
       "chat.sendFail": "Could not send — check connection",
       "friends.message": "Message",
       "friends.rename": "Rename",
@@ -479,7 +479,7 @@
       "friends.needCode": "Enter a friend code first",
       "friends.needConn": "Not connected — wait a moment, then try again",
       "friends.cannotSelf": "That’s your own code",
-      "friends.persistHint": "Friends are saved on this hub under your identity — no helper app needed. Export a profile backup before clearing browser data or switching devices.",
+      "friends.persistHint": "Friends are saved on this server with your account. No extra app is needed. Export a profile backup before clearing browser data or switching devices.",
       "settings.clearConfirmFriends": "Clearing local data creates a NEW identity. Friends stay on the server under the OLD id and will look empty here unless you import a profile backup first. Continue?",
       "msg.open": "Messages",
       "msg.openAll": "All messages",
@@ -496,7 +496,7 @@
       "match.foundTitle": "Partner found",
       "match.foundBody": "Connecting video…",
       "match.connectedTitle": "Connected",
-      "match.connectedBody": "Video is peer-to-peer",
+      "match.connectedBody": "Video goes directly between you",
       "msg.emptyMatches": "No match chats yet. Text during a call — it will show up here.",
       "msg.noMessages": "No messages yet — say hi",
       "msg.justNow": "now",
@@ -872,7 +872,7 @@
       "hub.runOwn": "Video stays peer-to-peer.",
       "hub.loading": "Loading directory…",
       "hub.empty": "No other hubs listed yet",
-      "hub.switched": "Switched hub → {h}",
+      "hub.switched": "Switched server → {h}",
       "hub.reset": "Using this page’s hub",
       "hub.gaveUp": "Hub unreachable — trying directory / reload",
       "hub.offline": "offline",
@@ -923,7 +923,7 @@
       "rules.title": "Before you start",
       "rules.age": "You must be 18+ to use ruletka.vip.",
       "rules.respect": "Be respectful. No harassment, hate, or illegal content.",
-      "rules.media": "Video is peer-to-peer. Use Block if someone is inappropriate.",
+      "rules.media": "Video goes directly between you. Use Block if someone is inappropriate.",
       "rules.privacy": "Do not share secrets; friends are stored on this server instance.",
       "rules.ageConfirm": "I am 18 or older",
       "rules.accept": "Accept",
@@ -940,7 +940,7 @@
       "rules.terms": "Terms of Service",
       "rules.privacyLink": "Privacy policy",
       "rules.agreeCommunity": "I will follow community rules: respect others, no illegal content, use Block/Report when needed.",
-      "rules.agreeMedia": "I understand video is peer-to-peer and partners may record — I will use Block/Report for abuse.",
+      "rules.agreeMedia": "I understand video goes directly between us and a partner may record. I will use Block or Report for abuse.",
 
       // server detail translations
       "srv.partnerNext": "partner hit Next — searching again",
@@ -1378,9 +1378,9 @@
       "chat.friendMsgFrom": "Сообщение от {n}",
       "chat.needMatch": "Найдите пару или откройте Сообщения",
       "chat.clear": "Очистить чат",
-      "chat.p2pLive": "P2P · не через хаб",
-      "chat.hubRelay": "через хаб, пока нет P2P",
-      "chat.p2pReady": "Чат идёт peer-to-peer",
+      "chat.p2pLive": "Прямое видео",
+      "chat.hubRelay": "Через сервер, пока не готово прямое видео",
+      "chat.p2pReady": "Чат идёт напрямую между вами",
       "chat.sendFail": "Не удалось отправить — проверьте связь",
       "friends.message": "Написать",
       "friends.rename": "Имя",
@@ -1393,7 +1393,7 @@
       "friends.needCode": "Сначала введите код друга",
       "friends.needConn": "Нет связи — подождите и попробуйте снова",
       "friends.cannotSelf": "Это ваш собственный код",
-      "friends.persistHint": "Друзья хранятся на хабе под вашей личностью — helper не нужен. Экспортируйте профиль перед очисткой данных браузера.",
+      "friends.persistHint": "Друзья хранятся на этом сервере вместе с вашим аккаунтом. Отдельное приложение не нужно. Экспортируйте копию профиля перед очисткой данных браузера или сменой устройства.",
       "settings.clearConfirmFriends": "Очистка создаёт НОВУЮ личность. Друзья останутся на сервере под старым id и список здесь опустеет, пока не импортируете резерв. Продолжить?",
       "msg.open": "Сообщения",
       "msg.openAll": "Все сообщения",
@@ -1410,7 +1410,7 @@
       "match.foundTitle": "Собеседник найден",
       "match.foundBody": "Подключаем видео…",
       "match.connectedTitle": "Соединено",
-      "match.connectedBody": "Видео идёт peer-to-peer",
+      "match.connectedBody": "Видео идёт напрямую между вами",
       "msg.emptyMatches": "Пока нет чатов. Напишите во время звонка — появится здесь.",
       "msg.noMessages": "Пока пусто — напишите первым",
       "msg.justNow": "сейчас",
@@ -1786,7 +1786,7 @@
       "hub.runOwn": "Видео остаётся peer-to-peer.",
       "hub.loading": "Загрузка каталога…",
       "hub.empty": "Других хабов пока нет",
-      "hub.switched": "Хаб → {h}",
+      "hub.switched": "Сервер → {h}",
       "hub.reset": "Используется хаб этой страницы",
       "hub.gaveUp": "Хаб недоступен — пробуем каталог / перезагрузку",
       "hub.offline": "офлайн",
@@ -1838,7 +1838,7 @@
       "rules.title": "Перед стартом",
       "rules.age": "Вам должно быть 18+ для ruletka.vip.",
       "rules.respect": "Уважайте других. Без травли, ненависти и незаконного контента.",
-      "rules.media": "Видео идёт P2P. Нажмите «В блок», если собеседник неадекватен.",
+      "rules.media": "Видео идёт напрямую между вами. Нажмите «В блок», если собеседник неадекватен.",
       "rules.privacy": "Не делитесь секретами; друзья хранятся на этом сервере.",
       "rules.ageConfirm": "Мне есть 18 лет",
       "rules.accept": "Принять",
@@ -1855,7 +1855,7 @@
       "rules.terms": "Условия использования",
       "rules.privacyLink": "Политику конфиденциальности",
       "rules.agreeCommunity": "Я буду соблюдать правила: уважение к другим, без незаконного контента, Block/Report при нарушениях.",
-      "rules.agreeMedia": "Я понимаю, что видео peer-to-peer и собеседник может записывать — при абьюзе использую Block/Report.",
+      "rules.agreeMedia": "Я понимаю, что видео идёт напрямую между нами и собеседник может записывать. При нарушении использую блок или жалобу.",
 
       "srv.partnerNext": "собеседник нажал «Далее» — снова ищем",
       "status.autoNextSkip": "Они нажали «Далее» — ищем следующего…",
@@ -2081,7 +2081,7 @@
     if (!BUNDLED.has(c) && STR[c]) return Promise.resolve(STR[c]);
     if (loading[c]) return loading[c];
     // Prefer sessionStorage pack cache (avoids re-downloading ~100KB JSON every navigation)
-    const packCacheKey = "ruletka-i18n-pack-v102-" + c;
+    const packCacheKey = "ruletka-i18n-pack-v103-" + c;
     try {
       const cached = sessionStorage.getItem(packCacheKey);
       if (cached) {
@@ -2096,7 +2096,7 @@
     } catch (_) {}
 
     // Always fetch /i18n/{code}.json and merge over built-ins (en/ru too)
-    loading[c] = fetch(`/i18n/${c}.json?v=150`, { cache: "force-cache" })
+    loading[c] = fetch(`/i18n/${c}.json?v=151`, { cache: "force-cache" })
       .then((r) => {
         if (!r.ok) throw new Error("lang pack " + c);
         return r.json();
