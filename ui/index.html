@@ -630,7 +630,7 @@
             online: 0,
           });
         } catch (_) {}
-        fetch("/i18n/" + lang + ".json?v=151", { cache: "force-cache" })
+        fetch("/i18n/" + lang + ".json?v=152", { cache: "force-cache" })
           .then(function (r) {
             if (!r.ok) throw new Error("pack");
             return r.json();
@@ -863,7 +863,7 @@
         var brand =
           (window.RuletBrand && RuletBrand.name && RuletBrand.name()) ||
           "Ruletka.me";
-        var title = brand + " — peer-to-peer chat roulette";
+        var title = brand + " — бесплатный видеочат без регистрации";
         var dict = packCache[getLang()] || STR[getLang()] || STR.en;
         var okLabel = (dict && dict["home.shareOk"]) || "Link copied";
         var n = homeOnlineCount();

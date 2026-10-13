@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Чат рулетка — случайный видеочат без регистрации | Ruletka.me</title>
   <meta name="description" content="Случайный видеочат без аккаунта. Видео идёт напрямую между браузерами. Друзья, блок, жалобы. 18+." />
-  <meta name="keywords" content="чат рулетка, video chat, chat roulette, peer-to-peer, p2p, видеочат, ruletka, случайный чат" />
+  <meta name="keywords" content="чат рулетка, случайный видеочат, video chat, chat roulette, видеочат, Ruletka.me" />
   <meta name="theme-color" content="#07080c" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="robots" content="index, follow, max-image-preview:large" />
@@ -573,7 +573,7 @@
             online: 0,
           });
         } catch (_) {}
-        fetch("/i18n/" + lang + ".json?v=151", { cache: "force-cache" })
+        fetch("/i18n/" + lang + ".json?v=152", { cache: "force-cache" })
           .then(function (r) {
             if (!r.ok) throw new Error("pack");
             return r.json();
@@ -783,7 +783,7 @@
         var brand =
           (window.RuletBrand && RuletBrand.name && RuletBrand.name()) ||
           "Ruletka.me";
-        var title = brand + " — peer-to-peer chat roulette";
+        var title = brand + " — случайный видеочат без регистрации";
         var dict = packCache[getLang()] || STR[getLang()] || STR.en;
         var okLabel = (dict && dict["home.shareOk"]) || "Link copied";
         var n = homeOnlineCount();

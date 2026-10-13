@@ -2065,7 +2065,7 @@
   "page.updates.uAug186": "<strong>Linking</strong> — still working on a faster “I see you” feel. Same-WiFi still uses relay. No “fixed connect” claim.",
   "page.updates.uAug21Title": "Groups of 4 · live as home",
   "page.updates.uAug211": "<strong>Groups</strong> — 3-way and 2v2 (two friend pairs). A 4th person joins only when someone in the group Calls a friend in. Never 5 people. Friend calls stay 1v1 until Find 3rd is accepted.",
-  "page.updates.uAug212": "<strong>Live is the site</strong> — opening ruletka.vip goes straight to chat. The old homepage is in Settings → About ruletka.",
+  "page.updates.uAug212": "<strong>Live is the site</strong> — opening Ruletka.me goes straight to chat. The old homepage is in Settings → About ruletka.",
   "page.updates.uAug213": "<strong>Friends</strong> — online-now strip (tap to Call); incoming requests at the top of the list; one Add-by-code path.",
   "page.updates.uAug214": "<strong>Settings</strong> — Lobby shows who’s online and who’s waiting. Hide / Blur them is the same glass frost over the live camera (not a pixel smear).",
   "page.updates.uAug215": "<strong>Disco</strong> — hanging ball, pulsing color beams, floor spots. Face stays a hole so you can still see them.",
@@ -2097,7 +2097,7 @@
   "page.updates.uAug234": "<strong>3-way</strong> — extra cameras kick sooner; gift effects stay on the person you gifted. Linking can still take a few seconds — no “fixed connect” claim.",
   "page.updates.uAug235": "<strong>Android 0.1.471</strong> — same 2v2 2×2, Stop→Next, Let’s Go. Sideload from Downloads. Play listing is a separate AAB.",
   "page.updates.uAug24Title": "Android 0.1.475 · Start diamond · Friends Blocked",
-  "page.updates.uAug241": "<strong>Start</strong> — sits on the gold diamond between ruletka.vip and Chat Roulette. Stop and Next stay hidden until you press Start.",
+  "page.updates.uAug241": "<strong>Start</strong> — sits on the gold diamond between Ruletka.me and Chat Roulette. Stop and Next stay hidden until you press Start.",
   "page.updates.uAug242": "<strong>Friends</strong> — Chats · Calls · Blocked. Calls: Add / Block / Report. Friends: Message. Blocked: on-device face thumbs, tap to unblock.",
   "page.updates.uAug243": "<strong>Android 0.1.475</strong> — sideload from Downloads. Play listing is a separate AAB you upload in Console."
 }
