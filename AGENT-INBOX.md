@@ -1184,3 +1184,53 @@ Needs Anton:
 - Native check of Arabic, Chinese, and the repaired Serbian placeholder lines before those languages are treated as done.
 
 Signed Grok Build / mobile. Stopping here.
+
+---
+
+## 2026-10-13 12:52 PM MT — Ruletka Developer (Herdr foreman)
+
+site14 finished: 25a41f2 plain words for connection toasts and chat status EN + RU on release/2026-10-10. mobile15 finished: 15a0b0b + 6655801 server / direct video / backup route in the 12 other app overlays on polish/2026-10-10. Review batch self-email sent (subject [RuletkaDev↔GrokBuild] review batch 12:52 PM MT Oct 13, id 1a1369d5aaa0910d). Next assigns (prompts in ~/rustore-ru-work/prompts/site15.txt mobile16.txt): site — same plain wording on the site14 keys in the other 14 web locales (uk, bg, sr, pl, cs first) + tab-title fallback / keywords meta peer-to-peer and ruletka.vip brand mentions in delete.html / updates.html on release/2026-10-10 in ~/freenet-roulette-release. mobile — plain stars wording for leftover wallet/status/trusted/senior jargon in app EN/RU, then reputationHint and those keys in the 12 overlays on polish/2026-10-10. ios/store left idle (Anton-blocked). Connect left alone. All local; no push/deploy/build/upload. [Ruletka Herdr foreman]
+
+---
+
+## 2026-10-13 — Grok Build / mobile
+
+Local only on `polish/2026-10-10` in `~/freenet-roulette-polish`. No push, no deploy, no prebuild, no APK. `~/freenet-roulette` and `polish/ml-native` / `~/freenet-roulette-ml` stay at their previous tips (`ef08f1e`, clean). `mobile/src/i18n/packs/` was not edited. No Stars logic, gift prices, ICE, TURN, match, Prefer Direct default, skip, report, ban, NudeNet, native frame tap, model install, or live-chrome change.
+
+Commit: `80eea5c` Say experienced member and stars from chats in the app. Parent `6655801`.
+
+Fourteen overlay files. Each still parses, has 740 keys, the same set as `en.json`, and no duplicate keys. Placeholders `{stars}`, `{trust}`, `{tier}`, and `{n}` stay. Values only.
+
+Home and Settings show these. `mobile.live.tierSenior` and `mobile.live.tierTrusted` are the chip. Settings uses `mobile.settings.tierNone` when the tier is new. `mobile.settings.reputation` is the section title. `mobile.settings.reputationHint` is the line under the chip.
+
+Before → after:
+- en `mobile.live.tierSenior` / `tierTrusted`: “Senior” / “Trusted” → “Experienced member” / “Trusted member”. `tierNone`: “new” → “New”.
+- en `mobile.settings.reputationHint`: “★{stars} to spend on gifts. Reputation {trust} ({tier}). …” → “★{stars} to spend on gifts. Stars from chats: {trust} ({tier}). Stars are thanks after a long chat — not money.”
+- ru `mobile.settings.reputation`: «Звёзды и репутация» → «Звёзды». `tierSenior`: «Старший» → «Опытный участник». `tierTrusted`: «Доверенный» → «Доверенный участник». `giftBars`: «За решёткой» → «За решётку» (same gift name as the site).
+- uk `mobile.settings.reputationHint`: «Гаманець ★ {stars} · довіра {trust} · {tier}» → «★{stars} на подарунки. Зірки від розмов: {trust} ({tier}). Зірки — подяка після довгої розмови, не гроші.» `tierSenior`: «Старший» → «Досвідчений учасник». `reputation`: «Зірки та довіра» → «Зірки».
+- The wallet line is now that same stars-from-chats sentence in bg (was Портфейл), sr (Новчаник), pl (Portfel), cs (Peněženka), es (Cartera), fr (Portefeuille), pt (Carteira), tr (Cüzdan), ar (المحفظة), and zh (钱包). de dropped “Ansehen” and now says “Sterne aus Gesprächen”. zh section title «明星与信任» → «星星».
+
+`mobile.home.trustN` and `mobile.live.trustN` now say “Stars from chats {n}” (the same phrase in each language). No screen calls `t()` on those two keys. The overlay file no longer says reputation there.
+
+What a grep still finds, and why:
+- After `{placeholders}` are stripped, the only wallet / reputation / senior / trusted / soft-bars hits are the kept name “Trusted member”: en “Trusted member”, ru «Доверенный участник», uk «Довірений учасник», bg «Доверен участник». That is the site name for this step. The one-word labels “Trusted” and “Senior” are gone. No wallet, no “reputation”, no “soft bars”.
+- `{status}` remains only inside `debate.incomingStatus` (a debate invite) and `mobile.settings.hubHint` (which server the app is on). Those lines are about the connection.
+- `mobile.live.tierKnown` stays “Known” / «Знакомый» / «Відомий» and the same short word in the other languages. The site ladder title is still “New / Known”. sr «Познато» → «Познат» and «Ново» → «Нови» so the chip agrees in gender. uk `tierNew` «новий» → «Новий».
+- Gift names stay: Fence / «Забор», and “Behind bars” in the other languages. Only the Russian bars name moved to «За решётку».
+- `mobile.live.trustKind`, `trustFit`, and `trustSafe` are the idle kindness lines. Left as they were.
+- `PartnerChrome.tsx` still has an English accessibility string with the words “status” and “spendable”. The matched stage does not mount that component. No overlay key was added. The file was not edited.
+
+Left for a native speaker:
+- Arabic and Chinese sentences for experienced member, trusted member, the Settings stars line, and “stars from chats”.
+- Serbian «Искусан учесник», «Поуздан учесник», «Познат», «Нови», and «Звездице».
+- Ukrainian «Досвідчений учасник» and the stars-from-chats sentence.
+- German “Erfahrenes Mitglied” and “Vertrauenswürdiges Mitglied”. Older German strings still use Sie.
+
+Tests: before `80eea5c`, `SKIP_L2=1 ./scripts/verify-before-apk.sh` with a symlink to the main checkout `mobile/node_modules`, then the symlink removed. L0 28 ok, 0 fail. L1 ok. `npm test` ok, including `logic.test.mjs`, `whatsNew.test.mjs`, and `duration.test.mjs`. Passed 13, failed 0. `SKIP_APK_HOOK=1`. No APK. Symlink is gone. Every overlay JSON parses, no duplicate keys, same key set as `en.json`.
+
+Needs Anton:
+- No phone smoke. Switch the app to Ukrainian, then one more language, and read the home star chip and the Settings stars row (stars to spend, stars from chats, experienced member or trusted member).
+- A native read of Arabic, Chinese, and Serbian before those three are treated as done.
+- “Trusted member” / «Доверенный участник» is the name kept from the site. Say if the app should use a different plain phrase.
+
+Signed Grok Build / mobile. Stopping here.
