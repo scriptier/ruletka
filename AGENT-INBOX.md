@@ -1234,3 +1234,102 @@ Needs Anton:
 - “Trusted member” / «Доверенный участник» is the name kept from the site. Say if the app should use a different plain phrase.
 
 Signed Grok Build / mobile. Stopping here.
+
+---
+
+## 2026-10-13 — Grok Build / site
+
+Local only on `release/2026-10-10` in `~/freenet-roulette-release`. No push, no deploy. Did not edit `~/freenet-roulette` or `mobile/`. No ICE, TURN, match, Prefer Direct default, skip, report, ban, nsfwjs, safety_log, Stars logic, bridge, or sitemap change.
+
+Commit: `f5196b9` feat(i18n): plain connection words in the other web languages. Parent `25a41f2`.
+
+Locales, in this order: uk, bg, sr, pl, cs, then de, es, fr, pt, tr, ar, zh, it, id. Each file still parses, has the same key set as before (2071 keys, or 2095 for it and id), and no duplicate keys. Thirty-three consumer keys now follow the current English meaning: server, direct video, backup route. `{h}`, `{brand}`, `{range}`, `{url}`, and `{code}` stay. The Prefer Direct control keeps each language’s existing name (`settings.preferDirect`): uk «Лише Direct», bg «Предпочитайте само Direct», sr «Радије само директно», pl «Tylko Direct», cs «Preferovat pouze přímé», de „Nur Direct“, es «Solo Direct», fr « Direct uniquement », pt «Somente Direct», tr «Yalnızca Direct», ar «تفضل المباشر فقط», zh 「仅直连」, it «Preferisci solo Diretto», id «Utamakan Langsung saja». The Settings → Connection path uses that pack’s `settings.title` and `settings.connTitle`.
+
+Before → after:
+- uk `conn.hubBlipKeepCall`: «Дзвінок продовжується (P2P) · концентратор відновлюється» → «Дзвінок іде прямим відео. Зв’язок відновлюється.»
+- uk `chat.p2pLive` / `chat.hubRelay`: «P2P · не через хаб» / «через хаб, поки немає P2P» → «Пряме відео» / «Через сервер, поки пряме відео не готове.»
+- sr `hub.switched`: «Промењено чвориште → __ПХ0__ {h}» → «Сервер је промењен → {h}». The broken `__ПХ0__` token is gone. `{h}` is the only placeholder.
+- de `conn.preferDirectAutoOff`: “Prefer Direct nicht… TURN…” → „Nur Direct“ hat sich nicht verbunden. Für das nächste Match ist die Ausweichroute an.
+- pl `home.statsOffline`: “Centrum offline” → “Serwer niedostępny”.
+
+What a grep still finds on these 33 keys: nothing. No hub, P2P, peer-to-peer, TURN, хаб, хъб, чвориште, П2П, 点对点, or نظير إلى نظير in those values. The toast’s Settings button is still `settings.secHub` (uk «Мережевий хаб», de “Netzwerk-Hub”). That is the hub-directory control and was not part of this set.
+
+Also in this commit:
+- Share title fallback: home.html “Ruletka.me — случайный видеочат без регистрации”; index.html “Ruletka.me — бесплатный видеочат без регистрации”. Same phrases as those pages’ `<title>`.
+- home.html keywords no longer list peer-to-peer or p2p. They use «случайный видеочат» and Ruletka.me.
+- Changelog brand name only: `page.updates.uAug241` and `page.updates.uAug212`, in the HTML fallback and in every pack that had the words, now say Ruletka.me. Not a URL rewrite.
+- `ui/legal/delete.html` still links `https://ruletka.vip` next to `https://ruletka.me`. That is a working hostname, so it stayed.
+
+Pins: `i18n.js?v=274`, pack `?v=152`, session `ruletka-i18n-pack-v104-`, `site-i18n.js` PACK_V `152`, and `updates.html` loads `site-i18n.js?v=146`. `live.js?v=988` and stage 658 unchanged. Other legal pages still request `site-i18n.js?v=145`; a fresh fetch of that URL now carries PACK_V 152 as well.
+
+Keys left for a native speaker: none were skipped. Worth a native read before treating them as finished: Arabic (فيديو مباشر بينكما, so it is not only “live video”), Serbian, and Bulgarian. Portuguese follows the settings labels Configurações → Conexão; older lines in that pack still say Definições → Ligação.
+
+Tests:
+- `node --check` on `ui/i18n.js` and `ui/site-i18n.js`: ok.
+- Every touched locale JSON parses, no duplicate keys, same key set as before.
+- Grep of the 33 keys in all 14 locales: 0 remaining hub / P2P / TURN / local spellings.
+- Headless Chrome, local static server, `live.html?lang=uk` and `?lang=de`, age gate hidden, `showHubSwitchedToast("https://ruletka.me")` and `setConnStrip` for `conn.hubBlipKeepCall`. Not a real reconnect. Shots: `artifacts/shots/2026-10-13-locale-plain/conn-uk-390x844.png`, `conn-uk-1366x768.png`, `conn-de-390x844.png`, `conn-de-1366x768.png`. Toast and strip show the new sentences. The button still says Мережевий хаб / Netzwerk-Hub.
+- `SKIP_L2=1 mobile/scripts/verify-before-apk.sh` with `NODE_PATH=~/freenet-roulette/mobile/node_modules`: exit 1. L0 137 ok, 4 fail, pre-existing and unrelated: AndroidManifest `screenOrientation=fullUser`, TapPressable `pressDelay 0` + `hapticLight`, CallPeerAvatar, StarGiftPopup. Pin asserts ok (`live.js?v=988`, stage 658, webrtc 356, hubs 157). L1 ok. L2 skipped.
+
+Needs Anton:
+- Production is still `547bf44`. This commit is local only.
+- `ui/legal/delete.html` still offers the working `https://ruletka.vip` link beside ruletka.me.
+- Settings → Connection, the hub directory, legal bodies, donate, safety, helper, and operator copy still use hub / P2P / TURN. `rules.ageGateSub` in it, id, and ar still says peer-to-peer. That subtitle was not in the site14 key set.
+- A native read of Arabic, Serbian, and Bulgarian.
+
+Signed Grok Build / site. Stopping here.
+
+---
+
+## 2026-10-13 1:42 PM MT — Ruletka Developer (Herdr foreman)
+
+site15 finished: f5196b9 plain connection words in the 14 other web locales + share title / keywords / changelog brand on release/2026-10-10. mobile16 finished: 80eea5c + 65318bc experienced member / stars from chats in all 14 app overlays on polish/2026-10-10. Review batch self-email sent (subject [RuletkaDev↔GrokBuild] review batch 1:42 PM MT Oct 13, id 1a136caa572464f7). Next assigns (prompts in ~/rustore-ru-work/prompts/site16.txt mobile17.txt): site — plain wording for Settings -> Connection and the server picker EN + RU, then the other 14 locales plus rules.ageGateSub in it/id/ar, on release/2026-10-10 in ~/freenet-roulette-release. mobile — same plain wording for the app's Settings connection/server section EN/RU then the 12 overlays, on polish/2026-10-10. ios/store left idle (Anton-blocked). Connect left alone. All local; no push/deploy/build/upload. [Ruletka Herdr foreman]
+
+---
+
+## 2026-10-13 — Grok Build / mobile
+
+Local only on `polish/2026-10-10` in `~/freenet-roulette-polish`. No push, no deploy, no prebuild, no APK. `~/freenet-roulette` and `polish/ml-native` / `~/freenet-roulette-ml` stay at their previous tips (`ef08f1e`, clean). `mobile/src/i18n/packs/` was not edited. No Stars logic, gift prices, ICE, TURN, match, Prefer Direct default, hub list, skip, report, ban, NudeNet, native frame tap, model install, or live-chrome change.
+
+Commit: `004ed42` Say when a server is down in the other app languages. Parent `65318bc`.
+
+English and Russian Settings connection strings already say Server / «Сервер». `mobile.settings.hubHint` is “Now: {hub} · {status}. Tap a working server to switch.” / «Сейчас: {hub} · {status}. Нажмите рабочий сервер, чтобы переключиться.» `{hub}` is the server address. `{status}` is online or offline. Those values have no hub, P2P, TURN, or relay word. Hide IP, reconnect, and backup already say the video goes through the server. No English or Russian value changed.
+
+The app has no Prefer Direct control. It never calls `t()` for `settings.preferDirect`. Those strings stay in the packs.
+
+Twelve overlays. Each still parses, has 740 keys, the same set as `en.json`, and no duplicate keys. The server row’s health chip had translated English “down” as the direction downward. It now means the server did not answer.
+
+Before → after, `mobile.settings.hubDown`:
+- uk «вниз» → «немає». bg «надолу» → «няма». sr «доле» → «нема».
+- pl “w dół” → “nie działa”. cs “dolů” → “nefunguje”. de “runter” → “keine Antwort”.
+- es “abajo” → “caído”. fr “vers le bas” → “hors service”. pt “abaixo” → “sem resposta”.
+- tr “aşağı” → “yanıt yok”. ar «تحت» → «لا يرد». zh “向下” → “无响应”.
+
+Where “ok” had become “good”, “yes”, or “I agree”: uk and bg «добре» → «ок»; cs “dobře” → “ok”; fr “d'accord” → “ok”; ar «نعم» → «يعمل»; zh “好的” → “正常”. zh `hubActive` “积极的” → “使用中”.
+
+`mobile.live.pathDirect` is not passed to `t()` on any screen. Three wrong words in that unused label: cs “řídit” → “přímo”, sr «директним» → «директно», zh “直接的” → “直接”.
+
+The only overlay values that still said “hub” were the Polish and Czech friend-alert lines, which Settings does show:
+- pl `mobile.settings.notifyHint`: “…powiadomień push na hubie.” → “Aplikacja otwarta → dzwonek. Zminimalizowana (jest połączenie) → powiadomienie systemu. Całkiem zamknięta → raz «Rejestracja» niżej i zezwól na powiadomienia.”
+- pl `mobile.settings.pushOk`: “Token push zarejestrowany w hubie” → “Alerty połączeń offline są zarejestrowane”.
+- cs `notifyHint` / `pushOk`: “na hubu” / “u hubu” → the same three-step alert and “Offline upozornění na hovory jsou zaregistrována”.
+
+What a grep still finds, and why:
+- After `{placeholders}` are stripped, no overlay value contains hub, P2P, TURN, or relay. `{hub}` remains the address placeholder in `hubHint`, `hubUnhealthyBody`, `userMeta`, `mobile.home.meta`, and `mobile.toast.hubSwitched`.
+- Debate lines say “turn” as a speaking turn. English and Russian `hubHealthy` stay the word “ok”.
+- `PartnerChrome.tsx` still has an English accessibility string with “status” and “spendable”. L0 says “single PartnerIdentityDock, no matched PartnerChrome”. The component is not mounted. The file was not edited.
+- `settings.hideIpOnStatus` and `settings.hideIpOffStatus` are not overlay keys, so the hide-IP toast shows the raw key name. They were not added. The key set has to stay identical to `en.json`.
+
+Left for a native speaker:
+- The new health chips, especially ar «لا يرد» / «يعمل», zh “无响应” / “正常” / “使用中”, de “keine Antwort”, and fr “hors service”.
+- The Polish and Czech alert sentences.
+- cs “přímo” and sr «директно». Those two path labels are not on screen.
+
+Tests: before `004ed42`, `SKIP_L2=1 ./scripts/verify-before-apk.sh` with a symlink to the main checkout `mobile/node_modules`, then the symlink removed. L0 28 ok, 0 fail. L1 ok. `npm test` ok, including `logic.test.mjs`, `whatsNew.test.mjs`, and `duration.test.mjs`. Passed 13, failed 0. `SKIP_APK_HOOK=1`. No APK. Symlink is gone.
+
+Needs Anton:
+- No phone smoke. Open Settings → Server connection in Ukrainian, then German or Polish. A server that does not answer should read as unavailable, not as “down” the direction.
+- A native read of Arabic, Chinese, French “hors service”, and the Polish and Czech alert lines.
+- Prefer Direct remains a website control. The app has no such toggle.
+
+Signed Grok Build / mobile. Stopping here.
