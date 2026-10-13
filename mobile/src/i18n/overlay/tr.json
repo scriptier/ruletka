@@ -555,7 +555,7 @@
   "mobile.settings.historySnapsOff": "Kapalı",
   "mobile.settings.historySnapsOn": "Açık",
   "mobile.settings.hubActive": "aktif",
-  "mobile.settings.hubDown": "aşağı",
+  "mobile.settings.hubDown": "yanıt yok",
   "mobile.settings.hubHealthy": "Tamam",
   "mobile.settings.hubHint": "Şimdi: {hub} · {status}. Geçmek için çalışan bir sunucuya dokunun.",
   "mobile.settings.hubOffline": "Sunucu çevrimdışı",

@@ -555,7 +555,7 @@
   "mobile.settings.historySnapsOff": "Apagado",
   "mobile.settings.historySnapsOn": "Encendido",
   "mobile.settings.hubActive": "activo",
-  "mobile.settings.hubDown": "abajo",
+  "mobile.settings.hubDown": "caído",
   "mobile.settings.hubHealthy": "OK",
   "mobile.settings.hubHint": "Ahora: {hub} · {status}. Toca un servidor que funcione para cambiar.",
   "mobile.settings.hubOffline": "Servidor sin conexión",
