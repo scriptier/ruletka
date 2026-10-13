@@ -1062,3 +1062,125 @@ Needs Anton:
 - The browser packs still say hub, P2P, and TURN. The site tab owns that surface.
 
 Signed Grok Build / mobile. Stopping here.
+
+---
+
+## 2026-10-12 — Grok Build / site
+
+Local only on `release/2026-10-10` in `~/freenet-roulette-release`. Did not deploy. Did not push. Did not edit `~/freenet-roulette`. Did not rebuild the home Start CTA, trust strip, idle preview, low-pool line, first-visit Update gate, operator chips, plain arch/coach lines, the AI chip, the phone header pill, or P1–P10. Did not change ICE/TURN/match, nsfwjs, bans, `safety_log`, reports, Stars balances or earning rules, the bridge host rewrite, sitemap/robots, the hero, or the AI chip.
+
+Commit:
+- `6bbd003` feat(live): plain stars labels and one Ruletka.me name (parent `f3d1e08`).
+
+What changed:
+- Stars sheet labels in `ui/live.html` plus `en.json` and `ru.json` are sentence case. “Wallet” / «Кошелёк» is “Stars you can spend” / «Звёзды, которые можно потратить». “Talk to a senior” is “Talk to an experienced member” / «Поговорите с опытным участником». “Bars stigma” and “Match soft-rank” are “Behind bars” and “Easier matching”. The existing `<details id="stars-about-details">` stays closed. Its summary is “How stars work” / «Как работают звёзды». The hour bonus, gift floors, 45-day fade, and 5-person / 12-person counts sit in that section. No new script. The native details control is the only open/close. Short video chips still say Senior / Trusted.
+- `brand.name` is `Ruletka.me` in `i18n.js` and every language pack. Both live.html fallbacks (header and about) say Ruletka.me. A copy of `brand_html` leaves the single token `Ruletka.me` unchanged on both hosts. Headless Chrome showed two elements, each exactly `Ruletka.me`, and the tab title `Ruletka.me — …`. No “Ruletka.me / Ruletka.me”.
+- Pins: `i18n.js?v=272`, pack fetch `?v=150`, session `ruletka-i18n-pack-v102-`. `live.js?v=988` and `live-stage.css?v=658` were not bumped. `live.js` was not edited.
+
+Tests:
+- `node --check ui/i18n.js`. `en.json` and `ru.json` parse.
+- Consumer `ui/*.html` grep for `ruletka.vip`: live, home, index, safety, and SEO landings are clean. Left as non-trivial: `ui/legal/delete.html` (both hosts as links) and `ui/updates.html` changelog lines 95 and 154 (`page.updates.uAug241` / `uAug212`, and the same keys in JSON). Also still in packs, not rewritten: `rules.age`, `friends.incomingNotifTitle`, `settings.exportShareTitle`, and the legal bodies that name both hosts. Other languages still have the old stars jargon; only en and ru were rewritten.
+- Headless Chrome on a local static server, stars sheet opened, explanation closed and opened. `127.0.0.1` still paints `.vip` inside the hero JPEG; `brand.js` swaps that art only on the ruletka.me host.
+  - `artifacts/shots/2026-10-12-stars-plain/stars-en-390x844-closed.png`
+  - `artifacts/shots/2026-10-12-stars-plain/stars-en-390x844-open.png`
+  - `artifacts/shots/2026-10-12-stars-plain/stars-en-1366x768-closed.png`
+  - `artifacts/shots/2026-10-12-stars-plain/stars-en-1366x768-open.png`
+  - `artifacts/shots/2026-10-12-stars-plain/stars-ru-390x844-closed.png`
+  - `artifacts/shots/2026-10-12-stars-plain/stars-ru-390x844-open.png`
+  - `artifacts/shots/2026-10-12-stars-plain/stars-ru-1366x768-closed.png`
+  - `artifacts/shots/2026-10-12-stars-plain/stars-ru-1366x768-open.png`
+- `SKIP_L2=1 mobile/scripts/verify-before-apk.sh` with `NODE_PATH=~/freenet-roulette/mobile/node_modules`. Exit 1. Pin asserts passed (`live.js?v=988`, stage 658, webrtc 356, hubs 157). The only failures are the four pre-existing L0 items: AndroidManifest `screenOrientation=fullUser`, TapPressable `pressDelay` 0 + `hapticLight`, CallPeerAvatar, StarGiftPopup. L1 unit tests passed. L2 skipped.
+
+Needs Anton:
+- Not on the server. Production is still `547bf44`. Local commits since then include `e634efd`, `affc1f8`, `f95ec33`, `15a9afd`, `8b1b4df`, `f3d1e08`, and `6bbd003`. Say when to deploy.
+- Changelog and legal pages still name ruletka.vip. Say if those should become Ruletka.me too.
+
+Signed Grok Build / site. Stopping here.
+
+---
+
+## 2026-10-13 11:50 AM MT — Ruletka Developer (Herdr foreman)
+
+Drakosik reachable again. No new finished hops since the 9:40 PM MT Oct 12 review batch (site13 6bbd003 and mobile14 5e8e6de + 302c21b were already emailed, id 1a1335a4ad272532), so no review email this run. Next assigns (prompts in ~/rustore-ru-work/prompts/site14.txt mobile15.txt): site — plain words for hub/P2P/TURN/Prefer Direct in consumer-visible live.html toasts, chat status and friend messages, EN + RU (moderation rec #7 web leftover) on release/2026-10-10 in ~/freenet-roulette-release. mobile — bring the 12 other app overlay locales (uk, bg, sr, pl, cs first) in line with the plain EN/RU wording and replace leftover English, key sets unchanged (rec #7 app side) on polish/2026-10-10. ios/store left idle (Anton-blocked). Connect left alone. All local; no push/deploy/build/upload. [Ruletka Herdr foreman]
+
+---
+
+## 2026-10-13 — Grok Build / site
+
+Local only on `release/2026-10-10` in `~/freenet-roulette-release`. No push, no deploy. Did not edit `~/freenet-roulette` or mobile app source. `live.js` behaviour is unchanged (no ICE/TURN/match, Prefer Direct defaults, skip/report/ban, nsfwjs, safety_log, Stars, bridge, or sitemap).
+
+Commit: `25a41f2` feat(live): plain words for connection toasts and chat status. Parent `6bbd003`.
+
+Shown to people, rewritten in `en.json` and `ru.json` (and `i18n.js` / home / index fallbacks where that string paints before the pack loads): chat status (`chat.p2pLive`, `chat.hubRelay`, `chat.p2pReady`), connection toasts and banners (`conn.gaveUp`, `conn.hubBlipKeepCall`, `conn.preferDirectAutoOff`, `conn.preferDirectAutoOffBody`, `conn.weakTipDirect`, `conn.pathStatsTip`, `status.hubBlipKeepCall`, `status.hubBackKeepCall`, `update.deferredBody`), hub-switch toast (`hub.switched`, `hub.switchedTitle`, `hub.switchedBody`), friends (`friends.blockNeedConn`, `friends.persistHint`, `friends.emptyLost` EN), home offline line, invite share text, export toasts, age-gate kicker, and the “how we’re different” parenthetical. Prefer Direct stays the toggle name. “Server” / «сервер» or “connection” / «связь» replaces hub. “Direct video” / «прямое видео» replaces P2P. “Backup route” / «резервный маршрут» replaces TURN relay. Video still goes directly between people; the server only matches.
+
+Before → after:
+- `conn.hubBlipKeepCall` EN: “Call continues (P2P) · hub reconnecting” → “The call continues on direct video. Reconnecting.” RU: “Звонок идёт (P2P) · хаб reconnect” → “Звонок идёт по прямому видео. Связь восстанавливается.”
+- `chat.p2pLive` / `chat.hubRelay` EN: “P2P · not via hub” / “via hub until P2P ready” → “Direct video” / “Through the server until direct video is ready.” RU: “P2P · не через хаб” / “через хаб, пока нет P2P” → “Прямое видео” / “Через сервер, пока не готово прямое видео.”
+- `conn.preferDirectAutoOffBody` EN: “Direct-only mode couldn’t connect. TURN relay is on again…” → “Direct video could not connect. The backup route is on for the next match. You can turn Prefer Direct back on in Settings.”
+- `hub.switchedTitle` EN: “Switched hub” → “Switched server.” RU: “Сменили хаб” → “Сервер сменён.”
+- `friends.blockNeedConn` EN: “Not connected to hub — wait for reconnect, then Block again” → “Not connected. Wait for the connection, then block again.”
+- `home.statsOffline` EN: “Hub offline” → “Server offline.” RU: “Хаб офлайн” → “Сервер недоступен.”
+- `conn.gaveUp` RU: “Не удалось переподключиться — повторите или смените хаб” → “Не удалось подключиться.” EN was already “Couldn’t connect.”
+
+Left as technical terms: Settings → Connection (`settings.connTurn`, `settings.connDirectStat`, `settings.connHub`, hide-IP / Prefer Direct detail). Prefer Direct already has a plain subtitle (`settings.preferDirectHintShort`). Hub directory stays, including the toast button `settings.secHub` (“Network hub” / «Сетевой хаб»). Unused and not rewritten: `conn.backOnlineBody` (the toast uses `conn.backOnline`), `conn.turnOn`, `conn.vpnRelayOnLog`. `hub.gaveUp` is only `log()`. Also left: `log.*`, `page.helper` / privacy / terms / eula / legal / community / safety / donate / updates, `seed.*`, `home.open*`, `nav.helper`, `flag.hint`.
+
+Pins: `i18n.js?v=273`, pack `?v=151`, session `ruletka-i18n-pack-v103-`. `live.js?v=988` and `live-stage.css?v=658` unchanged. `site-i18n.js` PACK_V stays 147 (legal, donate, updates do not show these toasts).
+
+Tests:
+- `node --check ui/i18n.js`: ok.
+- `en.json` 2101 keys, `ru.json` 2091 keys, no duplicate keys.
+- Remaining hub / P2P / TURN / «хаб» / helper in en and ru values are only Settings/connection, the hub directory, `log.*`, `page.*`, `seed.*`, `home.open*`, `nav.helper`, `flag.hint`, the three unused `conn.*` strings, and log-only `hub.gaveUp`.
+- Headless Chrome on a local static server, `live.html?lang=en` and `?lang=ru`, after hiding the age gate and calling `showHubSwitchedToast` plus `setConnStrip` for `conn.hubBlipKeepCall`. Not a real reconnect. Shots: `artifacts/shots/2026-10-13-plain-conn/conn-en-1366x768.png`, `conn-en-390x844.png`, `conn-ru-1366x768.png`, `conn-ru-390x844.png`. Toast bodies are the new sentences. The button still says Network hub / Сетевой хаб. The phone EN strip sometimes showed “Retry in 1s…” (reconnect countdown); the wide EN strip showed the new sentence.
+- `SKIP_L2=1 mobile/scripts/verify-before-apk.sh` with `NODE_PATH=~/freenet-roulette/mobile/node_modules`: exit 1. L0 137 ok, 4 fail, all pre-existing and unrelated: AndroidManifest `screenOrientation=fullUser`, TapPressable `pressDelay 0` + `hapticLight`, CallPeerAvatar, StarGiftPopup. Pin asserts ok (`live.js?v=988`, stage 658, webrtc 356, hubs 157). L1 unit tests ok. L2 skipped.
+
+Other locales do not fall back to English while the key exists. `uk`, `de`, `es`, `fr`, `pl`, `pt`, `cs`, `bg`, `tr`, `ar`, `zh`, `it`, and `id` still carry hub / P2P / TURN (or a translation of them) on these keys. `sr` uses чвориште / П2П / Хуб. Those packs were not edited.
+
+Needs Anton:
+- Production is still `547bf44`. This commit is local only.
+- Legal, changelog, donate, safety, helper, and operator copy still say hub / P2P / TURN (`page.privacy`, `page.terms`, `page.eula`, `page.donate`, `page.updates`, `page.safety`, `page.helper`, `seed.*`, `home.open*`).
+- Unused strings still jargon: `conn.backOnlineBody`, `conn.turnOn`, `conn.vpnRelayOnLog`. `hub.gaveUp` is log-only.
+- Tab-title fallback in `home.html` (~786) and `index.html` (~866) is still “peer-to-peer chat roulette.” `home.html` keywords meta still lists peer-to-peer, p2p.
+- `ui/legal/delete.html` and `ui/updates.html` still name ruletka.vip (same as the previous site note).
+- The other 14 locales still use the old words.
+
+Signed Grok Build / site. Stopping here.
+
+---
+
+## 2026-10-13 — Grok Build / mobile
+
+Local only on `polish/2026-10-10` in `~/freenet-roulette-polish`. No push, no deploy, no prebuild, no APK. Did not edit `~/freenet-roulette`, `polish/ml-native`, or `~/freenet-roulette-ml` (still `ef08f1e`, clean). Did not edit `mobile/src/i18n/packs/`, `en.json`, or `ru.json`. No ICE, TURN, match, Prefer Direct default, skip, report, ban, NudeNet, or live-chrome change.
+
+Commit: `15a0b0b` Say server, direct video, and backup route in the other app languages. Parent `302c21b`.
+
+Locales: uk, bg, sr, pl, cs, de, es, fr, pt, tr, ar, zh. Each overlay parses, has 740 keys, the same set as `en.json`, and no duplicate keys. Twenty-one keys that existed in English and Russian and were missing here are now filled (call-bar hints, trust lines, low-pool line, 18+ continue, swipe hint, and the rest of that gap). `{placeholders}` stay. `{hub}` stays as the server-address placeholder in `mobile.home.meta` and `mobile.settings.userMeta`, with the words “User” and “hub” removed from those lines.
+
+Before → after:
+- uk `mobile.home.tag`: «P2P-відео · 18+ · без класичного акаунта» → «Пряме відео · 18+ · без акаунта»
+- uk `mobile.home.hubOffline`: «Хаб офлайн» → «Сервер недоступний». `mobile.settings.hubSection`: «Підключення хаба» → «Підключення до сервера»
+- uk Hide IP: «Вимк (P2P ОК)» / «Увімк (лише TURN)» → «Вимк» / «Увімк». `mobile.live.pathRelay`: «реле» → «сервер». `mobile.live.camOff`: «Кам викл» → «Сховати мене». `mobile.live.peer2`: «Одноліток 2» → «Людина 2»
+- uk `mobile.safety.tip4`: ««Приховати IP» використовує TURN, якщо хаб його дає.» → ««Сховати IP» ховає вашу адресу, якщо сервер це може.»
+- bg `mobile.home.tag`: “Peer-to-peer video…” → «Директно видео · 18+ · без акаунт». `mobile.home.hubOffline`: «Хъб офлайн» → «Сървърът е недостъпен». `mobile.settings.hubSection`: «Хъб връзка» → «Връзка със сървъра»
+- pl `mobile.home.tag`: “Wideo P2P…” → “Wideo bezpośrednie · 18+ · bez konta”. `mobile.settings.hubSection`: “Połączenie koncentratora” → “Połączenie z serwerem”. `mobile.safety.tip4` and `mobile.safety.deleteBody` were English and are now Polish.
+- de `mobile.settings.hubSection`: “Hub-Verbindung” → “Serververbindung”. es `mobile.settings.hubSection`: “Conexión del concentrador” → “Conexión al servidor”. Same plain meaning in fr, pt, cs, tr, ar, zh.
+
+What a grep still finds, and why:
+- `{hub}` only, as the address placeholder. No hub / P2P / TURN / WebRTC / хаб / хъб / реле / Relais word in these twelve value sets.
+- Left in English on purpose: `mobile.live.hideLog` / `mobile.live.showLog` (debug log). Also OK, LTE, Ruletka.me, `{s}s`, `★ {n}`, `{name}: {body}`.
+- Cognates left as the same word as English: pl Start / Stop; online / offline in pl, cs, de, pt; de Chat, Code, Live, System, Community, “Server offline”, “Person 2”; cs Chat and “Server online”; es Debate / Chat; fr Code, direct, Senior, Site, Photo, Message…, Actions; pt Debate / Site.
+
+Left for a native speaker:
+- Serbian had about 60 strings where `{placeholders}` had been saved as `__ПХ0__`. The tokens are restored in English placeholder order. Those sentences are still the old wording, not a new translation. `mobile.live.addFriendAfter` and `mobile.openOnPc.shareBody` also got their line breaks back.
+- `debate.pass` was a road-turn mistranslation in bg («Преминете завой»), sr («Прођите скретање»), and cs («Průjezdová zatáчка»). They now say «Предайте хода», «Предајте потез», and «Předejte tah». `debate.turnLength` and `debate.incomingMeta` in those three were the same error and now say “move / turn” in the debate sense. Please confirm.
+- Arabic and Chinese had large blocks that were still English. They are translated. A native read is the right check.
+- `mobile.settings.reputationHint` still says “wallet” in uk, bg, sr, pl, cs, es, fr, pt, tr, ar, and zh (Гаманець, Портфейл, Новчаник, Portfel, Peněženka, Cartera, Portefeuille, Carteira, Cüzdan, المحفظة, 钱包). German was still the English word Wallet and now follows the current stars sentence. English and Russian already say stars for gifts (`a296d97`). This hop did not rewrite the native wallet lines.
+- Older German strings still use Sie. New strings in this commit use du, like the newer debate lines.
+- `stars.unlockEasterEgg` follows the English meaning (unlock timer, surprise, double-tap hides it). `mobile.whatsNew.b2` names a “let’s go” tap; there is no separate overlay key for that button.
+
+Tests: `SKIP_L2=1 ./scripts/verify-before-apk.sh` with a symlink to the main checkout `mobile/node_modules`, removed before commit. L0 28 ok, 0 fail. L1 ok. `npm test` ok, including `logic.test.mjs`, `whatsNew.test.mjs`, and `duration.test.mjs`. Passed 13, failed 0. `SKIP_APK_HOOK=1`. No APK. Symlink is gone.
+
+Needs Anton:
+- No phone smoke. Switch the app to Ukrainian, then Bulgarian or Polish, and check home (server offline / direct video), Settings connection, Hide IP off/on, and the call-bar names.
+- Native check of Arabic, Chinese, and the repaired Serbian placeholder lines before those languages are treated as done.
+
+Signed Grok Build / mobile. Stopping here.
