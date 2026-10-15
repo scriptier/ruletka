@@ -1,0 +1,10 @@
+[Unit]
+Description=Twice-daily TURNS cert sync from Caddy
+
+[Timer]
+OnCalendar=*-*-* 04:40:00
+OnCalendar=*-*-* 16:40:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

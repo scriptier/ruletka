@@ -1,0 +1,47 @@
+# ruletka.me HTTPS-only front (Russia / Yandex Cloud / Timeweb / Selectel).
+# RU ISPs that block Hetzner+DO hit this IP. Hub + coturn stay FRA.
+# Same pattern as caddy-me-front.Caddyfile. No TURNS. No .vip.
+
+{
+	email support@ruletka.me
+	servers {
+		protocols h1 h2
+	}
+}
+
+www.ruletka.me {
+	redir https://ruletka.me{uri} permanent
+}
+
+ruletka.me {
+	encode gzip zstd
+
+	@ws {
+		path /ws
+		header Connection *Upgrade*
+		header Upgrade websocket
+	}
+	handle @ws {
+		reverse_proxy https://209.38.204.153 {
+			header_up Host ruletka.me
+			header_up X-Forwarded-Proto https
+			header_up X-Forwarded-For {http.request.remote.host}
+			header_up X-Real-IP {http.request.remote.host}
+			transport http {
+				tls_server_name ruletka.me
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy https://209.38.204.153 {
+			header_up Host ruletka.me
+			header_up X-Forwarded-Proto https
+			header_up X-Forwarded-For {http.request.remote.host}
+			header_up X-Real-IP {http.request.remote.host}
+			transport http {
+				tls_server_name ruletka.me
+			}
+		}
+	}
+}

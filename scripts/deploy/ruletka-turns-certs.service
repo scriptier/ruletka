@@ -1,0 +1,7 @@
+[Unit]
+Description=Refresh coturn TLS certs from Caddy (TURNS 5349)
+After=caddy.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/ruletka/bin/setup-turns-tls.sh
