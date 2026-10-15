@@ -6,9 +6,11 @@
 
 **Update (manager ~14:40, YELLOW live):** Hub metrics now **live** — `YELLOW_slow`, max MTO **24300ms**, drops=6, slow=5. New forensics ticket **`pending/001b-connect-yellow-slow-mto.md`**. Prefer Direct remains **blocked**. Do **not** pull 034 for Claude overnight.
 
+**Update (manager 2026-08-25 ~00:30 MDT):** Hub again **`YELLOW_slow`**, max MTO **72466ms**, drops=**0**. Class is **1v2 extra-offer**, not 1v1. Real ticket **`pending/001-connect-yellow-party-mto.md`**. 001b (Aug 7 1v1) stays COMPLETE in done. Prefer Direct **still blocked**. Disk APK pin **0.1.477 / vc485**.
+
 **Unblock when:**
-1. Human Play↔PC smoke green on lock baseline (APK **0.1.126-vc134**+, browser hard-refresh; both cams, 1 offer + 1 answer, no debounce thrash, `force_relay=false` on LAN)
-2. Hub verdict PASS or at least max MTO &lt; 2000 on a clean **live** run (not idle zeros)
+1. Human Play↔PC **1v1** smoke green on current pin (APK **0.1.477-vc485**+, browser hard-refresh; both cams, 1 offer + 1 answer, no debounce thrash)
+2. Hub 1v1 `solo matched` max MTO &lt; 2000 on a clean live run (ignore 1v2 extra-offer YELLOW until `001` RESULT)
 3. Prefer **option B** (quality labels only) unless human explicitly OK’s Prefer Direct
 
 **Then move back to** `tasks/admin-queue/pending/` (keep 034 prefix or renumber under P2).

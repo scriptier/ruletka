@@ -1,0 +1,77 @@
+# L86 multi-party residual stamp — RESULT
+
+## Status
+**COMPLETE**
+
+## OWN
+- `knowledge/specs/current-multi-party.md` only (residual stamp)
+- RESULT: this file
+- Card: `tasks/grok-loop/running/L86-multi-party-residual-stamp.md` → `done/`
+
+## Goal
+Stamp residual honesty on the multi-party product spec (docs only):
+- multi SoftBlur device still **OPEN / NOT claimed** (keyguard chain **F17–F68**)
+- harness **SCAFFOLD_DONE ≠ MULTI_PASS** (≠ human multi GOAL_MET)
+- **F69 unlock recheck ≥ ~09:08 MDT** (or human unlock)
+- **No invent multi SoftBlur PASS / MULTI_PASS**
+
+## Sources read (cite only)
+
+| Source | Taken honesty |
+|--------|----------------|
+| Prior residual on `current-multi-party.md` (L84) | Same OPEN / NOT claimed table; stamp reconfirmed as L86 |
+| `BLUR-F68-multi-soft-unlock-retry-RESULT.md` | **BLOCKED COMPLETE (keyguard)** · multi SoftBlur **device NOT claimed** · serial **`192.168.1.94:43343`** · tip **0.1.374-vc382** · gate fail · **no** Hold / multi / softNative / Sink |
+| `BM60-plan-F68-stamp-RESULT.md` | Plan §F **F1–F68** · multi SoftBlur device still **OPEN** · F19s static only · F17 SCAFFOLD only · **no invent MULTI_PASS / F69** |
+| `L84-multi-pair-find3rd-RESULT.md` | web2 find-3rd **SCAFFOLD_DONE** (exit 0) · third_tile **false** · multi_pc **false** · **≠ MULTI_PASS** / **≠ product PASS** |
+| `artifacts/overnight/STOP-KEYGUARD-SPAM.md` | No unlock spam · burns F63@07:16 … **F68@08:08** · next unlock recheck **≥ ~09:08 MDT** unless human unlock · F69+ stay backlog |
+| Clock this hop | ~**09:06 MDT** (2026-08-12) — still **before** F69 window ≥ ~09:08 MDT |
+
+**Not edited (card forbid):** `BLUR-MULTI-FINISH-PLAN.md`, `SMOKE-NEXT.md`, `CONNECT-IMPROVE-PLAN.md` / CONNECT locks. No product code, no adb.
+
+## Edit
+
+Updated residual header **L84 → L86** on `knowledge/specs/current-multi-party.md`; reconfirm line notes L86 stamp + clock ~09:06 MDT still before F69 window; harness row keeps L84 multi-pair **SCAFFOLD_DONE only** (does not invent L86 multi-pair product PASS). Table honesty body **unchanged**:
+
+| Point stamped | Content |
+|---------------|---------|
+| Multi SoftBlur device | **OPEN / NOT claimed** — F17–F68 keyguard BLOCKED |
+| Tip / serial | **0.1.374-vc382** · **`192.168.1.94:43343`** |
+| F68 | BLOCKED COMPLETE (keyguard) · no Hold/multi · link RESULT |
+| BM60 | §F F1–F68 · device still open · link RESULT |
+| Static | F9/F16/F19s only · static ≠ device PASS |
+| Harness | **SCAFFOLD_DONE ≠ MULTI_PASS** · **≠ human multi GOAL_MET** · L84 web2 scaffold cited |
+| STOP | STOP-KEYGUARD-SPAM · **F69 unlock recheck ≥ ~09:08 MDT** |
+| Explicit non-claims | multi SoftBlur PASS · MULTI_PASS · multi GOAL_MET · invent F69 |
+
+## Explicit non-claims (this hop)
+
+| Claim | Verdict |
+|-------|---------|
+| Multi SoftBlur device PASS | **NOT claimed** |
+| MULTI_PASS / human multi GOAL_MET | **NOT claimed** (L84 multi-pair = SCAFFOLD_DONE only) |
+| F69 unlock / multi outcomes | **not invented** |
+| Product code / adb / APK / force-push | **none** — docs stamp only |
+
+## Verify (stamp fidelity)
+
+| Check | Result |
+|-------|--------|
+| Residual block present · labeled **L86** | **yes** |
+| OPEN / NOT claimed · F17–F68 · tip 374 · serial 43343 | **yes** |
+| SCAFFOLD_DONE ≠ MULTI_PASS / multi GOAL_MET | **yes** |
+| L84 multi-pair SCAFFOLD_DONE cited (not MULTI_PASS) | **yes** |
+| STOP F69 ≥ ~09:08 MDT | **yes** |
+| No invent multi SoftBlur PASS | **honored** |
+| Only OWN file edited (+ RESULT/card) | **yes** |
+| BLUR-MULTI / SMOKE-NEXT / CONNECT untouched | **yes** |
+
+## Files
+
+| Path | Change |
+|------|--------|
+| `knowledge/specs/current-multi-party.md` | Residual honesty block L84 → **L86** reconfirm |
+| `tasks/grok-loop/done/L86-multi-party-residual-stamp-RESULT.md` | this RESULT |
+| Card | `running/L86-multi-party-residual-stamp.md` → `done/` |
+
+## COMPLETE
+**COMPLETE.** Multi-party spec residual honesty re-stamped **L86**: multi SoftBlur device **OPEN / NOT claimed** (F17–F68 keyguard); harness **SCAFFOLD_DONE ≠ MULTI_PASS** (L84 web2 multi-pair scaffold only); STOP **F69 ≥ ~09:08 MDT** (clock ~09:06 still before window). **No invent multi SoftBlur PASS.** Docs only.
