@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Local pair smoke: two headless Chromium processes + local roulette-bridge
- * (simple mode, TURN off). Proves wire SDP hygiene + connect budgets.
+ * (simple mode, TURN off by default — gotcha 24). Wire SDP hygiene + connect
+ * budgets when TURN is available; TURN=off wire 0/0 is SKIP, not product FAIL.
  *
  * Checks (per match):
  *   - exactly 1 wire offer + 1 wire answer
@@ -24,8 +25,11 @@
  *   PAIR_SMOKE_ATTEMPTS        glare retries (default 5)
  *   PAIR_SMOKE_REMATCH         1=second match (default 1)
  *   PAIR_SMOKE_SCORECARD       path for JSONL (default artifacts/connect-scorecard.jsonl)
+ *   ROULETTE_TURN              off (default) | on | turn:…  — see gotcha 24
+ *   PAIR_SMOKE_REQUIRE_WIRE    1=fail on wire 0/0 even when TURN=off
  *
- * Exit: 0 pass, 2 assertion fail, 1 unexpected, 0 skip (no chrome/bridge)
+ * Exit: 0 pass, 2 assertion fail, 1 unexpected, 0 skip (no chrome/bridge
+ *   or gotcha 24: TURN=off wire 0/0 / mto-mta null — not product FAIL)
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -57,6 +61,39 @@ const BUDGET_TRACK = Number(process.env.PAIR_SMOKE_MATCH_TO_TRACK_MS || 15_000);
 const SCORECARD_PATH =
   process.env.PAIR_SMOKE_SCORECARD ||
   path.join(ROOT, "artifacts/connect-scorecard.jsonl");
+
+/**
+ * gotcha 24: this harness has no local coturn. Default TURN=off.
+ * Same-IP match still wants force_relay → clients fail-open and never
+ * emit wsOut offer/answer (wire 0/0, hub mto/mta null). That is harness
+ * residual, not product FAIL. Strict path:
+ *   ROULETTE_TURN=on          — do not force off (bridge Open Relay / env)
+ *   ROULETTE_TURN=turn:…      — pass URL through
+ *   PAIR_SMOKE_REQUIRE_WIRE=1 — fail wire budgets even with TURN=off
+ */
+const TURN_RAW = process.env.ROULETTE_TURN;
+const TURN_NORM = String(TURN_RAW ?? "off").trim().toLowerCase();
+const TURN_ENABLE_TOKEN = ["on", "true", "1", "yes"].includes(TURN_NORM);
+const TURN_OFF =
+  TURN_RAW === undefined ||
+  ["off", "none", "false", "0", "stun", ""].includes(TURN_NORM);
+const REQUIRE_WIRE =
+  String(process.env.PAIR_SMOKE_REQUIRE_WIRE ?? "0") === "1" || !TURN_OFF;
+
+function bridgeTurnEnv() {
+  const env = { ...process.env, RUST_LOG: "info" };
+  if (TURN_ENABLE_TOKEN) {
+    // "on" is not a TURN URL — drop so the bridge can use Open Relay
+    delete env.ROULETTE_TURN;
+    return env;
+  }
+  if (TURN_OFF) {
+    env.ROULETTE_TURN = "off";
+    return env;
+  }
+  env.ROULETTE_TURN = TURN_RAW;
+  return env;
+}
 
 const stamp = () => new Date().toISOString().slice(11, 23);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -591,6 +628,37 @@ function analyzeMatch(label, snapA, snapB, hub) {
   return { pass: fails.length === 0, fails, metrics };
 }
 
+/**
+ * gotcha 24 signature: matched (or at least not "never matched") with wire
+ * 0/0 and/or missing hub mto/mta — expected when TURN=off + force_relay.
+ * Dual-offer, never-matched, or 1/1-but-slow remain real fails.
+ */
+function isGotcha24WireResidual(result) {
+  const m = result?.metrics || {};
+  if (m.offers !== 0 || m.answers !== 0) return false;
+  const fails = result?.fails || [];
+  if (fails.length === 0) return false;
+  if (fails.some((f) => /: never matched\b/.test(f))) return false;
+  const allowed = [
+    /expected 1 wire offer, got 0/,
+    /expected 1 wire answer, got 0/,
+    /hub missing "first offer after match"/,
+    /hub missing "first answer after match"/,
+    /no remote track within budget/,
+  ];
+  return fails.every((f) => allowed.some((re) => re.test(f)));
+}
+
+function gotcha24SkipReason(metrics) {
+  const m = metrics || {};
+  return (
+    `gotcha 24: ROULETTE_TURN=off wire ${m.offers ?? 0}/${m.answers ?? 0} ` +
+    `mto=${m.mto_ms ?? "null"} mta=${m.mta_ms ?? "null"} — same-IP force_relay ` +
+    `fail-open, not product FAIL. Set ROULETTE_TURN=on or PAIR_SMOKE_REQUIRE_WIRE=1 ` +
+    `for a strict wire path.`
+  );
+}
+
 function writeScorecard(row) {
   try {
     const dir = path.dirname(SCORECARD_PATH);
@@ -608,6 +676,10 @@ async function main() {
   );
   log(
     `budgets MTO=${BUDGET_MTO} MTA=${BUDGET_MTA} OTA=${BUDGET_OTA} TRACK=${BUDGET_TRACK} wall=${OVERALL_BUDGET_MS}`
+  );
+  log(
+    `turn=${TURN_OFF ? "off" : TURN_ENABLE_TOKEN ? "on(open-relay)" : TURN_RAW} ` +
+      `require_wire=${REQUIRE_WIRE ? 1 : 0} (gotcha 24: TURN=off wire 0/0 is SKIP)`
   );
 
   const bridge = spawn(
@@ -628,7 +700,9 @@ async function main() {
     ],
     {
       cwd: ROOT,
-      env: { ...process.env, RUST_LOG: "info", ROULETTE_TURN: "off" },
+      // gotcha 24: default ROULETTE_TURN=off (no local coturn). Same-IP
+      // force_relay then fail-open + wire 0/0 — SKIP, not product FAIL.
+      env: bridgeTurnEnv(),
       stdio: ["ignore", bridgeLogFd, bridgeLogFd],
     }
   );
@@ -688,6 +762,10 @@ async function main() {
     match1: null,
     match2: null,
     fails: [],
+    skip: false,
+    skip_reason: null,
+    require_wire: REQUIRE_WIRE,
+    turn_off: TURN_OFF,
   };
 
   try {
@@ -761,6 +839,11 @@ async function main() {
         );
         break;
       }
+      if (!REQUIRE_WIRE && isGotcha24WireResidual(result)) {
+        // TURN=off + force_relay fail-open — further attempts will 0/0 too
+        log(`attempt ${attempt} gotcha 24 residual (no more retries):`, result.fails.join("; "));
+        break;
+      }
       log(`attempt ${attempt} failed:`, result.fails.join("; "));
       if (attempt < MAX_ATTEMPTS) {
         // Glare/scheduler flake — retry fresh match
@@ -769,15 +852,23 @@ async function main() {
     }
 
     if (!match1 || !match1.pass) {
-      for (const f of match1?.fails || ["match1 never passed"]) {
-        console.error(`[pair-smoke] FAIL: ${f}`);
-        score.fails.push(f);
+      if (!REQUIRE_WIRE && match1 && isGotcha24WireResidual(match1)) {
+        const reason = gotcha24SkipReason(match1.metrics);
+        score.skip = true;
+        score.skip_reason = reason;
+        console.log(`[pair-smoke] SKIP: ${reason}`);
+        // exit 0 — not product FAIL
+      } else {
+        for (const f of match1?.fails || ["match1 never passed"]) {
+          console.error(`[pair-smoke] FAIL: ${f}`);
+          score.fails.push(f);
+        }
+        exitCode = 2;
       }
-      exitCode = 2;
     }
 
     // --- rematch (2nd match speed) ---
-    if (exitCode === 0 && DO_REMATCH) {
+    if (exitCode === 0 && !score.skip && DO_REMATCH) {
       log("--- rematch (match2) ---");
       // Product: fat-finger Next grace ~2s after match — wait it out or Next is no-op
       log("waiting 2.2s for nextGrace…");
@@ -860,17 +951,22 @@ async function main() {
       }
     }
 
-    // Gate = match1 only unless rematch strict
-    score.pass =
-      exitCode === 0 &&
-      !!score.match1 &&
-      (score.fails.length === 0 ||
-        (!REMATCH_STRICT &&
-          score.fails.every((f) => String(f).includes("match2"))));
-    if (exitCode === 0 && score.match1) {
-      // Recover pass flag when only soft rematch warns
-      if (!REMATCH_STRICT) score.pass = true;
-      log("PASS overall (match1 gate)");
+    // Gate = match1 only unless rematch strict. Skip is not product PASS.
+    if (score.skip) {
+      score.pass = false;
+      log("SKIP overall (gotcha 24 — not product PASS)");
+    } else {
+      score.pass =
+        exitCode === 0 &&
+        !!score.match1 &&
+        (score.fails.length === 0 ||
+          (!REMATCH_STRICT &&
+            score.fails.every((f) => String(f).includes("match2"))));
+      if (exitCode === 0 && score.match1) {
+        // Recover pass flag when only soft rematch warns
+        if (!REMATCH_STRICT) score.pass = true;
+        log("PASS overall (match1 gate)");
+      }
     }
   } catch (e) {
     console.error("[pair-smoke] unexpected error", e);
@@ -883,6 +979,8 @@ async function main() {
       "[pair-smoke] SCORECARD",
       JSON.stringify({
         pass: score.pass,
+        skip: score.skip,
+        skip_reason: score.skip_reason,
         attempt: score.attempt,
         m1: score.match1,
         m2: score.match2,
