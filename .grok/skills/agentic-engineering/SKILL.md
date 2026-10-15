@@ -11,13 +11,13 @@ metadata:
 # Agentic engineering (this repo)
 
 1. Follow user skill **agentic-engineering** (global protocol).  
-2. Read **`docs/AGENTIC_ENGINEERING.md`** (full map).  
-3. Preflight: `./scripts/agentic-check.sh` (add `--connect` for A/V).  
-4. Before multi-step work: list active `knowledge/specs/current-*.md` and read any that apply.
+2. Read **`.grok/session-card.txt`** then **`knowledge/wiki/now.md`** (picture).  
+3. Open **only** the spec that matches the ask. Do not glob every `current-*.md`. Do not load SMOKE-NEXT at session start.  
+4. Preflight: `./scripts/agentic-check.sh` (add `--connect` for A/V). Paint-only HUD (one CSS / pin) skips spec, wiki, and this map.
 
 | Step | Here |
 |------|------|
-| Spec | `knowledge/specs/` · `/spec` · EVAL + CHECKPOINTS (Marchese); list `current-*.md` first |
+| Spec | `knowledge/specs/` · `/spec` · EVAL + CHECKPOINTS (Marchese); one matching spec |
 | Baseline | `./scripts/av-loop.sh` or av-verify |
 | Route | `artifacts/av-loop/NEXT_ROLE` + director.md |
 | One writer | grok-job **or** claude-job (never both same OWN) |

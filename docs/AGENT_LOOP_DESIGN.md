@@ -29,6 +29,7 @@ GOAL (one-line DONE WHEN)          # Layer 1 Spec
 | `artifacts/av-loop/director.md` | Parent spawn protocol |
 | Plugin `/av-loop` + agent `director` | Director instructions |
 | Agents diagnose / verify-only / client-ice / turn-media / director | Contracts |
+| **`scripts/herd/*` + `docs/HERD.md`** | Multi-lane shepherd: OWN locks, lane cards, status/wait (general; not A/V director) |
 
 ## Grok subagents
 

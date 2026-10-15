@@ -67,3 +67,66 @@ if [[ -n "${latest:-}" ]]; then
 else
   echo "(no logs)"
 fi
+echo ""
+
+# ── Herd (additive; does not break queue status above) ──
+echo "── Herd ──"
+HERD_STATUS="$ROOT/scripts/herd/status.sh"
+HERD_CUR="$ROOT/artifacts/herd/CURRENT"
+if [[ -x "$HERD_STATUS" ]] || [[ -f "$HERD_STATUS" ]]; then
+  if bash "$HERD_STATUS" 2>/dev/null; then
+    :
+  else
+    # status.sh exits 1 when no CURRENT — print brief idle hint
+    if [[ ! -e "$HERD_CUR" ]]; then
+      echo "no active herd (no artifacts/herd/CURRENT)"
+      echo "  docs: docs/HERD.md · skill: .grok/skills/herd · smoke: ./scripts/herd/smoke-test.sh"
+    else
+      echo "herd status failed (see ./scripts/herd/status.sh)"
+    fi
+  fi
+elif [[ -e "$HERD_CUR" ]]; then
+  # Brief fallback if herd/status.sh missing
+  run_dir=""
+  if [[ -L "$HERD_CUR" || -d "$HERD_CUR" ]]; then
+    run_dir=$(cd "$HERD_CUR" 2>/dev/null && pwd || true)
+  elif [[ -f "$HERD_CUR" ]]; then
+    rid=$(tr -d '[:space:]' <"$HERD_CUR" 2>/dev/null || true)
+    if [[ -n "$rid" ]]; then
+      if [[ -d "$ROOT/artifacts/herd/$rid" ]]; then
+        run_dir="$ROOT/artifacts/herd/$rid"
+      elif [[ -d "$ROOT/artifacts/herd/runs/$rid" ]]; then
+        run_dir="$ROOT/artifacts/herd/runs/$rid"
+      fi
+    fi
+  fi
+  if [[ -n "${run_dir:-}" && -d "$run_dir" ]]; then
+    echo "CURRENT=$(basename "$run_dir") → $run_dir"
+    if [[ -f "$run_dir/run.json" ]]; then
+      python3 - "$run_dir/run.json" <<'PY' 2>/dev/null || true
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    d = json.load(f)
+print(f"goal:    {d.get('goal') or '(none)'}")
+print(f"status:  {d.get('status') or '?'}")
+PY
+    fi
+    if [[ -d "$run_dir/lanes" ]]; then
+      for jf in "$run_dir/lanes"/*.json; do
+        [[ -f "$jf" ]] || continue
+        python3 - "$jf" <<'PY' 2>/dev/null || true
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    d = json.load(f)
+own = ", ".join(d.get("own") or [])
+print(f"  lane {d.get('id','?'):<14} status={d.get('status','?'):<10} own={own or '(none)'}")
+PY
+      done
+    fi
+  else
+    echo "CURRENT present but unreadable: $HERD_CUR"
+  fi
+else
+  echo "no active herd (no artifacts/herd/CURRENT)"
+  echo "  docs: docs/HERD.md · skill: .grok/skills/herd · smoke: ./scripts/herd/smoke-test.sh"
+fi

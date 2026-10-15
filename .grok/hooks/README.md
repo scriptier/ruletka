@@ -6,7 +6,7 @@ Requires **folder trust**: run `/hooks-trust` once in this repo (or `grok --trus
 |------|------|
 | `never-rules.json` | PreToolUse Never walls + SessionStart reminder |
 | `scripts/pretool-never.sh` | Deny: `push.sh`, `iceCandidatePoolSize>0`, unprompted git APK hook install |
-| `scripts/session-start-agentic.sh` | Remind agentic loop + active A/V spec |
+| `scripts/session-start-agentic.sh` | SessionStart **and** PostCompact: write `.grok/session-card.txt` from live pins (stdout is ignored) |
 
 ## Verify
 
@@ -18,4 +18,4 @@ python3 -c 'print("hooks present")' && ls .grok/hooks/
 
 Soft preflight remains: `./scripts/agentic-check.sh`.
 
-**Not blocked (Ask first, human may authorize):** site APK upload, coturn conf, hub force_relay policy — still in AGENTS Ask-first.
+**Not blocked by hook (AGENTS Never / Ask):** site APK upload is **human-gated in AGENTS** (do not rsync APK to `/download/` unless they say **put apk on the site**). Coturn conf, hub force_relay policy — Ask first.
