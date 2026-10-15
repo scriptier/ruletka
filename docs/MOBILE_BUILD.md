@@ -34,6 +34,18 @@ cd /home/drakosik/freenet-roulette/mobile
 
 Report the artifact path under `mobile/artifacts/`.
 
+## Local emulator (optional)
+
+SDK: `$HOME/Android/Sdk`. Launch:
+
+```bash
+./scripts/emu-ruletka.sh            # ruletka_api34 (API 34, host webcam = front)
+./scripts/emu-ruletka.sh --play     # ruletka_api34_play (Play Store image)
+./scripts/emu-ruletka.sh --kill
+```
+
+Useful for crash / Friends / Settings / deeplink. **Not** a Pixel stand-in for product.ok, SoftBlur, or same-WiFi A/V. KVM already works via ACL; optional permanence: `sudo usermod -aG kvm,video $USER` then re-login.
+
 `build-apk-local.sh` auto-pushes the APK to phone `Download/` when a device is on adb (prefers Pixel 9 Pro; use `--no-push` to skip).  
 Re-push without rebuild: `./scripts/push-apk-to-phone.sh` (optional path; `--install` also runs `adb install -r`).  
 Detail paths: `mobile/artifacts/ruletka-0*.apk` → `/sdcard/Download/<basename>` and `ruletka-latest.apk`.
@@ -41,7 +53,7 @@ Detail paths: `mobile/artifacts/ruletka-0*.apk` → `/sdcard/Download/<basename>
 ### Never auto (agents)
 
 - Play Console upload  
-- Bulk APK to public site download tree  
+- **Website APK** — do not copy/rsync `*.apk` to `ui/download/` or prod `/opt/ruletka/ui/download/` after a local bump. Human says **put apk on the site** / **update website apk** when they want `/download/android.html` refreshed. Sideload for smoke is `adb` / phone `Download/` only.  
 - `push.sh` unless human authorized deploy  
 - Unprompted `--bump` after every MediaSession tweak  
 

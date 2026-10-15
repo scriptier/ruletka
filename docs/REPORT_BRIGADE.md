@@ -1,16 +1,17 @@
-# Brigade-resistant reporting (v1)
+# Brigade-resistant reporting (v2)
 
 Goal: keep **real abuse** bans working while making **info-war / stream raids** expensive to turn into permanent death of an identity.
 
 ## Design principles
 
-1. **Stars ≠ ban artillery.** Trust/senior labels remain for UI and soft rank, but non-underage auto-ban score is **1 per independent reporter**.
-2. **Independence required.** Explicit needs **3** distinct reporters; spam/other need **4**. Underage stays **1** (safety).
-3. **Mutual feuds don’t auto-ban.** If A already reported B, B’s report on A adds **0** ban score (still logged).
-4. **Raid spikes soft-handle.** ≥6 reports on one target within 15 minutes → no permanent escalate; ban length capped at **48h** if a ban still fires; ops webhook `raid_spike` / `auto_ban_raid`.
-5. **Permanent escalate** only when explicit strikes again with **≥3** unique reporters and **not** during a raid spike (admin can still permanent ban).
-6. **Politics / flags / language** are not ban categories. Clients should use **Next** or **Block**. Report reasons remain underage / explicit / harassment / hate / spam / other.
-7. **Export cannot mint stars** (unchanged) — reputation ledger is hub-side.
+1. **Zero-rep / 1★ / one-friend praise don’t auto-ban.** Count only if **wallet ★ ≥ 5** or **trust from ≥2 unique gifters**. Hour bonus (+1) is not a vote. Underage still counts.
+2. **Same /24 = one vote.** Counting reporters collapse by IPv4 /24 (or uid if IP unknown). Established still **1 each**; no ×2/×3. Explicit/hate at **3 clusters**. Spam/other **4**.
+4. **Independence required.** `min_unique_reporters` uses **counting** reporters only, not raw rows.
+5. **Mutual feuds don’t auto-ban.** If A already reported B, B’s report on A adds **0** ban score (still logged).
+6. **Raid spikes soft-handle.** ≥6 reports on one target within 15 minutes → no permanent escalate; ban length capped at **48h** if a ban still fires; ops webhook `raid_spike` / `auto_ban_raid`.
+7. **Permanent escalate** only when explicit strikes again with **≥3 counting** reporters and **not** during a raid spike (admin can still permanent ban).
+8. **Politics / flags / language** are not ban categories. Clients should use **Next** or **Block**.
+9. **Export cannot mint stars** (unchanged) — reputation ledger is hub-side.
 
 ## Code
 

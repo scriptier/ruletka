@@ -1,14 +1,17 @@
 # Play internal-test readiness (human handoff)
 
 **Package:** `me.ruletka.app`  
-**Ship tip (sideload / Internal):** **0.1.283 / versionCode 291**  
+**Ship tip (sideload):** **0.1.386 / versionCode 394**  
+**AAB for tip:** `mobile/artifacts/ruletka-0.1.386-vc394.aab` — **not** uploaded  
 **Lock:** [`CONNECTIVITY_LOCK.md`](CONNECTIVITY_LOCK.md) · smoke: [`DEVICE_SMOKE.md`](DEVICE_SMOKE.md) · monitor: [`CONNECT_MONITOR.md`](CONNECT_MONITOR.md)
 
-> Ship from **working tree** `app.json` (**0.1.283** / vc291) + APK under `mobile/artifacts/`.  
-> Web: hard-refresh → **`webrtc.js?v=285`**.  
-> Same public IP → hub `force_relay=true` → clients pure TURN relay (not hybrid host-hang).
+> Ship from **working tree** `app.json` (**0.1.386** / vc394) + APK under `mobile/artifacts/`.  
+> Sideload: `mobile/artifacts/ruletka-0.1.386-vc394.apk` · `ruletka-latest.apk`  
+> Web: hard-refresh `https://ruletka.vip/live.html` before smoke.  
+> Same public IP → hub `force_relay=true` → clients pure TURN relay (not hybrid host-hang) — see CONNECTIVITY_LOCK.
 
-**Out of scope for this checklist:** Play Console upload, bulk APK on website, production deploy.
+**Out of scope for this checklist:** Play Console upload, bulk APK on website, production deploy.  
+**Console / Internal track:** human open — no agent claim of Console PASS.
 
 ---
 
@@ -22,9 +25,9 @@ cd mobile
 
 | Check | Done |
 |-------|------|
-| `app.json` versionName / versionCode match intended release | ☐ |
-| APK exists: `mobile/artifacts/ruletka-<ver>-vc<code>.apk` | ☐ |
-| AAB exists (for Console): `./scripts/build-aab-local.sh` if missing | ☐ |
+| `app.json` versionName / versionCode match intended release (**0.1.386** / **394**) | ☐ |
+| APK exists: `mobile/artifacts/ruletka-0.1.386-vc394.apk` · `ruletka-latest.apk` | ☐ |
+| AAB on disk: `mobile/artifacts/ruletka-0.1.386-vc394.aab` (not uploaded) | ☐ |
 | Keystore present (`mobile/secrets/`) — no upload without it | ☐ |
 
 ---
@@ -42,7 +45,7 @@ cd mobile
 | 6 | Optional: mute partner → other side sees mute visuals | ☐ |
 | 7 | Optional: friend Call ring / Accept path | ☐ |
 | 8 | **Stop** one-tap ends chat, no confirm dialog | ☐ |
-| 9 | Mid-chat gift chips spend + soft toasts (mute/pass-mic/cam) auto-dismiss | ☐ |
+| 9 | Mid-chat gift chips spend + status toasts (mute/pass-mic/cam) auto-dismiss | ☐ |
 | 10 | Friends row: **Online** dot, **Call**, **Chat** (unread badge) | ☐ |
 
 ```bash
@@ -84,7 +87,8 @@ cd mobile
 | Step | Done |
 |------|------|
 | Testing → Internal testing → Create release | ☐ |
-| Upload AAB (versionCode **>** last published) | ☐ |
+| Build AAB first (`ruletka-0.1.386-vc394.aab` on disk) | ☐ |
+| Upload AAB (versionCode **>** last published; tip is **394**) | ☐ |
 | Release notes from `./scripts/play-status.sh --notes` | ☐ |
 | Start rollout to Internal testing | ☐ |
 | Testers list / opt-in link opened on each device | ☐ |
@@ -99,3 +103,4 @@ Ops detail: [`PLAY_UPLOAD.md`](PLAY_UPLOAD.md) · [`PLAY_OPS.md`](PLAY_OPS.md)
 - Bulk APK dump to public site download tree  
 - Claiming “Prefer Direct” as default (CONNECTIVITY_LOCK)  
 - Always-on `force_relay` / SFU as default media path  
+- Claiming Console PASS without human confirmation  

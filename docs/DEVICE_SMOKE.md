@@ -73,7 +73,8 @@ cp app/build/outputs/apk/release/app-release.apk \
 # cp …/app-release.apk ../../ui/download/ruletka-android-latest.apk
 ```
 
-Host: `ui/download/ruletka-android-latest.apk` and `ui/download/android.html`.
+Host (human only): `ui/download/ruletka-android-latest.apk` and `ui/download/android.html`.  
+Agents must **not** refresh the public APK after a local `--bump`. Human: **put apk on the site**.
 
 ## Smoke matrix
 
