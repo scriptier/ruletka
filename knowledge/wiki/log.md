@@ -2,6 +2,283 @@
 
 Parse tip: `grep '^## \[' knowledge/wiki/log.md | tail -10`
 
+## [2026-10-07] hop | SMOKE-NEXT slim + archive two current specs
+- Live `SMOKE-NEXT.md` is A–F checklists + pins from `now.md` (APK **0.1.480-vc488** · live.js **985** · stage **655** · webrtc **356** · brand **24** · i18n **267**). F17–F70 keyguard dump → `specs/archive/SMOKE-NEXT-F17-F70-dump.md`. Archived `current-ship-ux.md` + `current-ui-dedupe-connect-cleanup.md`. `current-av.md` stub stays live. `python3 scripts/test_session_brief.py`.
+
+## [2026-10-05] hop | token thin session start (ShopOps pattern)
+- Session card newest 5 `current-*.md` + count. AGENTS/CLAUDE do not open every spec or SMOKE-NEXT at start. Paint-only HUD skip. Dated hops + plans → `knowledge/specs/archive/` (39). Vercel plugin disabled in `.grok/config.toml`. `python3 scripts/test_session_brief.py`.
+
+## [2026-10-05] resource | idle empty-tile online/queue chip
+- Raw: `raw/2026-10-05-empty-online-chip.md`
+- Wiki: `resources.md` — human wants `#empty-online-chip` gone (`1 В сети · 0 В очереди`)
+
+## [2026-10-02] hop | ruletka.me DNS back to DigitalOcean
+- Human saved GoDaddy A `@` `209.38.204.153`. Auth NS single A. Public `https://ruletka.me` **200** on that IP; `/health` ok; `/live.html` 200; `.vip` unchanged. FRA Caddy dropped `trusted_proxies 78.47.217.35/32`. Human deleted CX23 `ubuntu-4gb-fsn1-1`: SSH to `78.47.217.35` times out. Two DO droplets only (ruletka `209.38.204.153`, ShopOps `134.122.36.120`). **No GOAL_MET.**
+
+## [2026-09-18] hop | tiny `/` boot 2.9k
+- Human: do **3** (tiny HTML) then **1** (Moscow reach). Caddy no longer rewrites `/` → live.html. `ui/index.html` **2890 B**. FRA+`.me` `/` **200**. check-host **ru1/ru2/ru3 200** (~180–540ms). Chat still `/live.html`. **No GOAL_MET.** Moscow IP still missing.
+
+
+## [2026-08-31] human | Play AAB 0.1.479 vc487 uploaded
+- Human: **i uploaded new aab**. Local `ruletka-0.1.479-vc487.aab` targetSdk **36**. Wait Play processing + internal/production rollout. Warning mail clears after Google confirms. Site APK still old. **No GOAL_MET.**
+
+## [2026-08-29] hop | Hetzner h3 off + MSS; ru1 `/` still timeout
+- Human: **proceed** (RU double-check). Front: `protocols h1 h2` (no Alt-Svc). `tcp_mtu_probing=1`, TCPMSS 1360 persist. `/health` ru1/2/3 **200**. `/` ru2+ru3 **200**; ru1 AS14576 still **25s timeout** (223k HTML vs 1k health). Not IP block. **No GOAL_MET.**
+
+## [2026-08-29] measure | RU check-host vs camble (DC, not residential)
+- DNS RU ru1/2/3: `ruletka.me` → `78.47.217.35`. TCP 443 Hetzner **and** DO OK all 3.
+- HTTPS `ruletka.me/health`: ru1/ru2/ru3 **200**. `/`: ru2+ru3 **200**; ru1 AS14576 **timeout** (same node `/health` 129ms — not an IP ban).
+- `ruletka.vip` HTTPS: all 3 **Broken pipe** (HAProxy mux, expected).
+- camble: ru2/ru3 Hetzner `178.105.212.245` **200**; ru1 A **51.250.97.234 Yandex.Cloud Moscow** **200** (they have RU geo-DNS; we do not).
+- Voidly: no samples. **No GOAL_MET.** DC ≠ Rostelecom phone.
+
+## [2026-08-29] hop | Hetzner XFF geo (Calgary not Falkenstein)
+- Human: **proceed** after iOS submit. Hetzner `X-Forwarded-For`/`X-Real-IP` = visitor. FRA `trusted_proxies` **only** `78.47.217.35/32`. Verify WS via `.me` → `162.157.227.46` **CA/Calgary**. First FRA WS `header_up {client_ip}` leaked **127.0.0.1** — reverted. Ildar Kazan IP still correct. **No GOAL_MET.**
+
+## [2026-08-28] hop | iOS 478 b6 submitted TestFlight
+- Human: **proceed** (director: submit ios). EAS submit **536be5ae** IPA `d5748cd6` 0.1.478 build 6 → ASC **6804910924**. Apple processing 5–10 min. GF TestFlight smoke next. **No GOAL_MET.** **No App Store review** until smoke.
+
+## [2026-08-28] human | Ildar Kazan 1v1 dual (not camble proof)
+- Courtier `cb93902e` via **Hetzner** `78.47.217.35` (geo wrongly DE/Falkenstein, flag AQ) ↔ Ildar `9b20fb97` **176.52.104.175** Kazan (same IP as 2026-08-25). Match 22:52:49–23:01:04. sendrecv both, mto 392 / mta 1132, ICE ~1.5s, then **srflx↔srflx** dual frames ~13k / ~54MB, audio both. force_relay=false. av-verify **one-way** is web↔web (no android) — not a product fail. Ildar WS is **FRA-direct**, so this does **not** prove RKN-blocked ISPs can open `.me`. Geo leak: me-front Caddy does not pass real client IP. **No GOAL_MET.**
+
+## [2026-08-28] human | ruletka.me Starts (Calgary)
+- Human: **ruletka.me starts for me**. Front is Hetzner `78.47.217.35`; public 200 held. Camble hop still needs **RU phone, no VPN**, page+Start. **No GOAL_MET.**
+
+## [2026-08-28] hop | Hetzner me-front public 200
+- Human: **firewall open**. Calgary+FRA: TCP 80/443; `https://ruletka.me` **200** via 2.0 Caddy + origin. www 301. vip stays DO. **No GOAL_MET** until RU phone no-VPN page+Start.
+
+## [2026-08-25] human | Jackson left — one-way recvonly
+- Human: can't see/hear Jackson; then conversationalist gave up and left.
+- Hub **matched** Courtier↔Jackson (07:07–07:10). Jackson offer **video recvonly**, frames_in growing **frames_out=0**. Courtier sendonly. Jackson RU→Frankfurt VPN, WS drop 07:07:14, call_friend offline. Not ICE policy. **No GOAL_MET.**
+
+## [2026-08-28] hop | iOS 478 b6 queued
+- Human: proceed (Hetzner still no token). EAS iOS **d5748cd6** 0.1.478 **build 6** (duo + Find-3rd Modal). Pixel already 478. Submit when green. **No GOAL_MET.**
+
+## [2026-08-28] hop | Hetzner me-front Caddy up
+- Human: CX23 Falkenstein **78.47.217.35**. SSH + Caddy 80/443. Cert waits on GoDaddy **A ruletka.me → 78.47.217.35**. vip stays 209.38.204.153. **No GOAL_MET.**
+
+## [2026-08-28] hop | Hetzner me-front (blocked on token)
+- Human: proceed RU front like camble.
+- **hcloud 1.67** installed. No `HCLOUD_TOKEN`. Wrote `scripts/deploy/caddy-me-front.Caddyfile` + `docs/HETZNER_ME_FRONT.md`. DNS/GoDaddy + CX22 Falkenstein need human. **No GOAL_MET.**
+
+## [2026-08-25] hop | iOS store paste harvested
+- Claude 863–865 COMPLETE. Landed AGE-RATING, EXPORT-COMPLIANCE, APP-PRIVACY, REVIEW-NOTES under `mobile/assets/store/ios/`. Human: TestFlight 5 + screenshots. **No GOAL_MET.**
+
+## [2026-08-25] hop | iOS proceed store docs
+- Human: proceed (Claude idle). Recovered `AGE-RATING.md`. Claude **863–865** privacy/review/export paste. Loop 5. Human still: TestFlight **5** smoke, screenshots, Submit for Review. **No GOAL_MET.**
+
+## [2026-08-25] hop | iOS leftover + Claude unstuck
+- Human: what’s left on iOS; assign all Claude; Grok director. Think on diagnostics later.
+- Unstuck 14 iOS cards stuck in running/. Loop 6. Backlog 861–862. Human still: GF TestFlight **5**, screenshots, 17+, Submit for Review. **No GOAL_MET.**
+
+## [2026-08-25] hop | Claude 850 connect diagnostics
+- Human: get Claude to find tools for better diagnostics.
+- Task **850** running: `docs/CONNECT_DIAGNOSTICS.md` — recvonly, ghost no-answer, extra tabs, one-way frames, Call offline. No ICE. **No GOAL_MET.**
+
+## [2026-08-25] hop | hub ignore-spin-while-matched LIVE
+- Human: not linking with friend they already talked to.
+- Hub **was matching** them every ~20s then leftover Start tore ICE. Deployed ignore spin while Matched. Both: one tab, hard-refresh, Call or Start once. **No GOAL_MET.**
+
+## [2026-08-25] hop | iOS 0.1.477 b5 TestFlight
+- Human: submit ios. `eas submit` **963014fd** 0.1.477 **build 5** (duo TB/LR) → ASC processing. https://appstoreconnect.apple.com/apps/6804910924/testflight/ios **No GOAL_MET.**
+
+## [2026-08-25] hop | iOS EAS b5 + Claude duo
+- Human: proceed + Claude. EAS iOS **963014fd** buildNumber **5** (duo TB/LR) queued. Claude **840–842** pending (TestFlight notes, mic-rail gap, critic). Submit when green. **No GOAL_MET.**
+
+## [2026-08-25] hop | APK 0.1.477 browser-duo
+- Human: proceed — Pixel install. **0.1.477 / vc485** adb install. Portrait partner top / you bottom; landscape L|R. Site 475. iOS still TestFlight b4. **No GOAL_MET.**
+
+## [2026-08-25] hop | browser-duo default Android+iOS
+- Human: make browser style default for Android and iOS.
+- Prefs default + migrate unless user explicitly picked Native. Same Expo `browserDuo` (no Platform gate). Need new APK / TestFlight. **No GOAL_MET.**
+
+## [2026-08-25] hop | Android duo 2-tile + rotate
+- Human: 2 tiles when connected — portrait partner top / you bottom; landscape partner left / you right; Claude same for iOS.
+- `youTileDock` 50% + `youTileDockWide` right 50%. Partner RTCView not remounted. Claude **836–838** backlog (iOS dock/watermark/critic). **No APK.** **No GOAL_MET.**
+
+## [2026-08-25] hop | Android 1v1 like mobile web
+- Human: like mobile-browser layout more than Android; try on Android first then iOS.
+- Default `liveLayout=browser`. 1v1: you bottom 44% (RTCView unmoved), Next/Report/Stop/Friends on partner. Native PiP still in Settings. **No APK.** **No GOAL_MET.**
+
+## [2026-08-25] hop | iOS polish proceed
+- Human: proceed polishing.
+- Harvested 820–823 onto main. Wrote `WHAT-TO-TEST.md` + `SCREENSHOTS.md`. Claude **824** friends still running; backlog 825–834. L0 139 ok. No new IPA. **No GOAL_MET.**
+
+## [2026-08-25] hop | iOS leftover + Claude loop refill
+- Human: what’s left for iOS; keep Claude looping; Grok director.
+- Harvested 820–823 (bar, brand, blur, dock). **824** friends running. Backlog **825–835**. Human still owns: GF TestFlight 1v1, screenshots, 17+, privacy, Submit for Review. Next IPA after smoke. **No GOAL_MET.**
+
+## [2026-08-25] hop | iOS b4 submitted (SDK 26)
+- Human: `eas submit` **6d95aee7** 0.1.476 **build 4** (macos-sequoia-15.6-xcode-26.2). ASC processing. Not Review. **No GOAL_MET.**
+
+## [2026-08-25] hop | iOS 26 SDK (ITMS-90725)
+- Human: Apple rejected 0.1.476 b3 — built with iOS 18.2 SDK; need iOS 26 / Xcode 26.
+- **eas.json** production+dev `ios.image`: `macos-sequoia-15.6-xcode-26.2`. Human: rebuild + resubmit. Expo 52 may fail on that Xcode — then SDK 54. **No GOAL_MET.**
+
+## [2026-08-25] hop | Claude iOS-parity loop
+- Human: keep all Claude on iOS looking like Android; Grok directs; loop.
+- Spec `knowledge/specs/current-ios-parity.md`. Pending **820–823** (bar, brand, blur, dock). Backlog **824–828** (friends, settings, banners, gifts, critic) for AUTO_REFILL. Continuous shift already on. Grok does not dual-write live.tsx. **No GOAL_MET.**
+
+## [2026-08-25] hop | iOS submitted TestFlight
+- Human: `eas submit` OK. ASC API key `7AM77W684Z`. Build **0.1.476 (3)** → App Store Connect processing. https://appstoreconnect.apple.com/apps/6804910924/testflight/ios — wait 5–10 min email. **Not App Store Review.** **No GOAL_MET.**
+
+## [2026-08-25] hop | first iOS EAS IPA
+- Human: Apple login anton@shopops.ca; push key; build finished 7m48s.
+- EAS `5cb83fad-c485-4af4-8ae8-c08ed427dcfc` IPA https://expo.dev/artifacts/eas/qCfhG5SqVuSKEDuw_ytS0k4Efl-i0lq4EKiWDbO5HXg.ipa Bundle `me.ruletka.app` ASC **6804910924**. **Not TestFlight until eas submit.** **No GOAL_MET.**
+
+## [2026-08-25] hop | iOS EAS build blocked on credentials
+- Human: build ios + assign all Claude.
+- Claude **810–813** queued (preflight, privacy, speaker research, critic). **811** running. Grok `eas build --platform ios --non-interactive` **FAIL**: iOS credentials not set up — needs interactive Apple 2FA. Harvested 802 audio/push. **No IPA. No GOAL_MET.**
+
+## [2026-08-25] hop | iOS ascAppId
+- Human: Apple ID **6804910924**. Written to `mobile/eas.json` submit.production.ios.ascAppId. Bundle `me.ruletka.app`. No EAS build yet. **No GOAL_MET.**
+
+## [2026-08-25] hop | iOS Claude harvest
+- 800 runbook `docs/IOS_APP_STORE.md` · 801 eas/app.json already ok · 803 critic: LISTING.md gitignored (`ios/`). Grok fixed `/ios/` `/android/` + wrote `mobile/assets/store/ios/LISTING.md`. **802** audio/push still running. **No GOAL_MET.**
+
+## [2026-08-25] hop | iOS tools (eas-cli)
+- Human: download software for iOS App Store task.
+- **eas-cli 22.4.0** global; 16.28.0 in `mobile/` devDep; scripts `build:ios` / `submit:ios`. Expo account **courtier**. No Xcode on Linux. No IPA yet. **No GOAL_MET.**
+
+## [2026-08-25] hop | iOS App Store — Claude factory
+- Human: native iOS App Store same as Android; assign all Claude.
+- Spec `knowledge/specs/current-ios-app-store.md` — **Expo, not Swift**. Claude sequential: **800** runbook+listing · **801** eas/app.json · **802** audio/push · **803** critic. OWN non-overlap. No IPA on this Linux box. Human: Apple Developer + TestFlight. **No GOAL_MET.**
+
+## [2026-08-25] diag | GF 1v1 drop (Newton↔Calgary)
+- Human: dropping with GF; didn’t before.
+- **02:12:01 we restarted hub** (10s ping deploy) — first dump. Rematch 02:13:30 ICE `connected` + fence gift. **02:14:09** GF spin/enqueue while media up. Courtier WS swap hold+**adopt 02:14:28** then leftover spin **02:14:58** rematched (new offer). Not ICE. Hub: ignore spin while Matched (disk, no restart while they talk). **No GOAL_MET.**
+
+## [2026-08-24] hop | WS Hello-fast + 10s ping
+- Human: proceed stay-up (Hello on reopen + background ping).
+- **live 979:** Worker ping 10s; reconnect delay 0 in-call. **Hub:** protocol Ping 10s. **Android:** Hello before prefs I/O; ping 10s + delay 0 (disk, not 475). Hub restarted. Hard-refresh. **No GOAL_MET.**
+
+## [2026-08-24] hop | Android praised-by + extra gift FX
+- Human: pick 3 — native gifts / praised-by HUD.
+- **live.tsx** passes `partnerTrustGifters` to dock; dock paints “praised by N”. Extra-tile gifts no longer skip when someone else spends. L0 ok. **No APK.** **No GOAL_MET.**
+
+## [2026-08-24] human | portrait Next cluster right
+- Human: **nice you got it** — mobile browser portrait Next/Block/Stop/Friends on conversationalist **bottom-right**. Stage **644**. Not product.ok.
+
+## [2026-08-24] hop | Android cold start → Live
+- Human: app start goes to Start screen; Back to first (home) screen.
+- `_layout.tsx` BootToLiveOnce: `router.push("/live")` once after rules. Idle live Back pops to index. **No APK.** **No GOAL_MET.**
+
+## [2026-08-24] hop | WS hold 45s + rematch after drop
+- Human: why last chats dropped; stop dropping conversationalists.
+- **Measure (22:12–22:31):** ICE **connected** + frames when sockets died. Android Calgary FRA 30–56s; web Calgary same-LAN hold 18–29s **never adopted**; RU Saratov hold 42s no Hello-back; AM Yerevan 6s. **Not 480/pool.** Hold 20s too short + 12s same-pair skip blocked rematch. **Hub now 45s hold, WS-expire does not 12s-block rematch.** Restarted. **No GOAL_MET.**
+
+## [2026-08-24] hop | partner-menu above tile chrome
+- Human: tap-face sheet covered by volume/flag/avatar (shot 16:24).
+- **live 978 · stage 641:** menu z 231; `html.partner-menu-open` hides rails/name/loc/avatars/floors. Hard-refresh. **No GOAL_MET.**
+
+## [2026-08-24] hop | mobile browser seam watermark + actions right
+- Human: screenshot portrait 1v1; rotate ruletka.me between tiles; Friends/Stop/Block/Next to the right.
+- **stage 640 · brand 24:** portrait 1v1 horizontal `ruletka.me` on 56% seam; match tray flex-end. Landscape L|R held. Hard-refresh. **No GOAL_MET.**
+
+## [2026-08-24] hop | APK/AAB 0.1.475 site + Pixel
+- Human: update website APK, phone, new AAB.
+- **0.1.475 / vc483:** Start diamond · Stop/Next after Start · Friends Blocked tab. Pixel `adb install`. Site `ruletka-android-latest.apk` 60M. AAB `mobile/artifacts/ruletka-0.1.475-vc483.aab` — you upload Play Console. **No GOAL_MET.**
+
+## [2026-08-24] hop | Android friends Blocked tab
+- Human: proceed leftover native friends (web 974/975).
+- **friends.tsx:** Chats | Calls | Blocked. Blocked grid uses on-device thumbs, tap Unblock. Calls strangers Add·Block·Report; friends Message. Friend long-press no Block. L0 ok. **No APK** (474 on Pixel). **No GOAL_MET.**
+
+## [2026-08-24] hop | APK 0.1.474 idle Start diamond
+- Human: phone plugged in (after idle Start FAIL shot).
+- **0.1.474 / vc482:** Start on gold diamond (~70%); Stop/Next hidden until Start. adb install Pixel 9 Pro. Site still **0.1.471**. **No GOAL_MET.**
+
+## [2026-08-24] resource | Android idle Start diamond
+- Raw: `raw/2026-08-24-android-idle-start.md`
+- Wiki: `resources.md` — Start on diamond; hide Stop/Next until Start
+
+## [2026-08-24] hop | RU WS hold + hub ping (977)
+- Human: proceed — RU no-VPN drops while ICE healthy.
+- **Hub:** protocol Ping every 20s; 1v1 WS drop holds match 20s; Hello same user_id adopts (keeps peer_id); reload Spin in 4s = Next. Tests `ws_hold` ok. Restarted. **live.js 977:** skip vip↔me while `matched`. Android HubClient skip sibling after live open (disk, no APK). Hard-refresh. **No GOAL_MET / no RU reach PASS.**
+
+## [2026-08-24] diag | RU no-VPN A/V ok, WS drop
+- Human: connected to someone in Russia without VPN; works; keeps dropping.
+- **Measure:** same RU user `b2505428` Saratov `95.26.112.238` ↔ Courtier Calgary `162.157.227.46` web↔web. `force_relay=false` **srflx→srflx** frames both ways (`ok:true`) until **browser disconnected**. ICE never failed on the long 1v1 (`ab3ae31d` 6.5min, last beacon 10595/6883 then WS gone 8s later). Rematch new client_id: 59s, 38s, then another live pair. No “opened elsewhere” kick. Product one-way in av-verify is **no Android in that window**, not this pair. **Not ICE/480/pool.** Next: server WS ping + skip sibling failover while matched + optional Hello reattach. Needs hub restart / rsync. **No GOAL_MET / no RU reach PASS.**
+
+## [2026-08-24] hop | APK 0.1.473 ban toast + Looking
+- Human: proceed Android leftover ship (Pixel).
+- **0.1.473 / vc481:** Start on banned identity toasts then idle; Looking title no wait/online; keep-alive skip if already waiting; matchBanned overlays. Pushed Pixel Download. Site still **0.1.471**. **No GOAL_MET.**
+
+## [2026-08-24] hop | admin report face thumbs
+- Human: admin should show little screenshots of reported/banned people. Hub already stored JPEG evidence; clients never sent it; admin table had no Face column.
+- **live 976:** report attaches `screenshot_jpeg_b64`. **Admin:** Face column + `/v1/admin/evidence/:name` (token). Bans reuse last report snap. Old rows stay — until new reports. Hub restart.
+
+## [2026-08-24] hop | mobile friends btn on top tile (639)
+- Human: phone browser — move Friends to top (partner/Start) tile, bottom corner.
+- **639:** portrait partner floor covers top 56% of stage; idle/search tray is just the friends chip, bottom-right. Landscape unchanged.
+
+## [2026-08-24] hop | Calls Add/Block/Report · friends Message only (975)
+- Human: in Calls add Report; friends only Message (no block/report).
+- **975:** history strangers Add·Block·Report; friends Message. Live partner menu same split. Hard-refresh.
+
+## [2026-08-24] hop | Friends Blocked tab + thumbs (974)
+- Human: friends sheet Chats | Calls; want **Blocked** to the right with little snapshots of blocked faces.
+- **974/638:** tab always visible after Calls. Grid of device-only thumbs (blurred). Capture on Block. Tap to unblock.
+
+## [2026-08-24] hop | smaller mobile-browser buttons (637)
+- Human: phone Chrome rails + Start too big. **637:** side-btn 34px, tiny labels; Start ~0.92rem. Landscape 1v1 L|R kept.
+
+## [2026-08-24] hop | phone portrait 1v1 stack (636)
+- Human: mobile browser 1v1 was partner|you **columns**. Want **top partner / bottom you**; flip landscape keep L|R.
+- **stage 636:** portrait `grid-template-rows` 1fr/1fr; landscape 2-col. 3-way/4-way unchanged. Hard-refresh phone.
+
+## [2026-08-24] hop | auto-ban ★≥5 / 2 gifters + /24 cluster
+- Human proceed: 1★ throwaways + same-IP raids. **Count** only wallet ★≥5 **or** praise from ≥2 gifters. Same IPv4 **/24** = 1 vote. Underage unchanged. Test `ipv4_slash24`. Bridge deployed + restart.
+
+## [2026-08-24] hop | auto-ban ignores 0★ unpraised reports
+- Human: banned by **3 unique reporters**; wants higher bar; ★/praised can still ban at 3; **anon + 0★ + no praise should not count**.
+- **Bridge:** `reporter_counts_toward_ban` = stars>0 **or** trust>0 (underage always). Weight 0 otherwise. `diversity_ok` uses **counting** reporters. Trusted still 1 each at 3. Not ×2/×3. Deployed + restart. **No GOAL_MET.**
+
+## [2026-08-24] hop | 973 banned Start toast
+- Human: imported banned identity; Start looked like Looking with no match. Hub already Error `restricted due to multiple reports` + status `cannot match`.
+- **973:** `applyMatchBannedUi` — toast **You're banned from matching**, idle Start again. Android toast on disk. Hard-refresh. **No GOAL_MET.**
+
+## [2026-08-24] smoke | Chrome Start works (971)
+- Human: **okay i tried on chrome browser and its working** — Start → waiting + match Android (same as Firefox). 971 sendSpinRaw + pointerdown + SW v26. Hub keep-alive ignore still on. **No GOAL_MET.**
+
+## [2026-08-24] hop | 971 Chrome sendSpinRaw + pointerdown
+- Human: Firefox Start waits + matches Android; Chrome still Looking, no waiting. Hub: Firefox `platform=web` matched 20:27:55; Chrome never enqueued. `send(spin)` still skipped leftover friend flags; Chrome SW/cache; click swallowed after cam prompt.
+- **971/635:** `sendSpinRaw()` (direct `ws.send`); Start `pointerdown`; spin retries 200–4000ms; SW cache **v26** (no `/` precache). Chrome: hard-reload (Ctrl+Shift+R). **No GOAL_MET.**
+
+## [2026-08-24] hop | 970 Chrome Start spin
+- Human: Firefox Start → waiting + match Android. Chrome Looking, no waiting, no match. `send(spin)` skipped leftover `inFriendCall` / friend guard (Chrome session, Firefox clean). WS CONNECTING on first click also dropped spin.
+- **live 970:** idle Start clears friend flags; skip spin only if *matched* friend; retry spin 250/800/1600ms. Hard-refresh Chrome. **No GOAL_MET.**
+
+## [2026-08-24] hop | hub ignore keep-alive spin (tore 1v1)
+- Human: still not connecting. Hub **solo matched** android↔web 20:22:47 (offer 1.1s, answer 1.8s, ICE connected, frames). At **20:22:53** Android keep-alive `spin` re-enqueued and **unmatched**. Then 12s rematch lock + only android in queue.
+- **Bridge:** `enter_waiting_solo` if already Waiting → `try_match` only; if Matched in settle window → ignore. Deployed + restart. Android keep-alive skip if `queueAcked` (disk; 472 still spins, hub ignores). Both Start again. **No GOAL_MET.**
+
+## [2026-08-24] hop | 969 Start send spin (PC was never in queue)
+- Human: PC + Android both Looking, no match. Hub still **only android** enqueue (`waiting_solo=1`). PC Start painted Looking via `wantSearch` but `#btn-spin` click still skipped (zombie matched/party).
+- **live 969:** idle Start `send(spinPayload())` directly. deploy stamp auto-reload. Phone keep Looking; PC refresh/Start. **No MULTI_PASS.**
+
+## [2026-08-24] hop | 968 lobby chip top; looking text clean
+- Human shot: green **2 online · 0 waiting** over the cylinder; center “Ищем собеседника… · 1 waiting · 2 online”.
+- **stage 634:** chip `top: 10px` center. **live 968:** searching title is only “Looking for a partner…”. Hard-refresh.
+
+## [2026-08-24] hop | 967 idle Start always hub spin
+- Human: Android Looking, PC Start, no match. Hub: android `solo enqueued` every 6s `waiting_solo=1`; **zero browser enqueue**. `shouldSkipHuntLobbySpin` (leftover party_browse / PC) swallowed Start so PC never entered the lobby.
+- **live 967:** skip hunt-spin only when **matched**. Idle Start clears hunt flags then spin. Hard-refresh PC. Close extra ruletka tabs. **No MULTI_PASS.**
+
+## [2026-08-24] hop | Looking line includes waiting count
+- Human: Start shows **Looking** but not lobby. Hub android `solo enqueued` every ~6s. 965 chip is web-only; phone search title was just “Looking…”.
+- **live 966:** search title `Looking · N waiting · M online`. **Android:** same in `LiveSearchLabel` + overlay elevation 2000. APK bump for Pixel.
+
+## [2026-08-24] hop | 965 lobby chip on empty tile
+- Human: Start, not shown waiting in lobby. Hub **did** enqueue (android solo waiting_solo=1). Header Online/Waiting is `hidden`; `#empty-online-chip` was forced `display:none`.
+- **live 965 / stage 633**: empty tile chip **N online · M waiting** (idle + search). Hard-refresh. **No MULTI_PASS.**
+
+## [2026-08-24] hop | `/` HTTPS 200 (no 302 to live.html)
+- Human: dostupno.net scored ruletka.me **302** vs camble.online **200**. Caddy `redir /live.html 302` on `/`.
+- **Caddy:** rewrite `/` and `/index.html` → `/live.html` + proxy (200, query kept). Validated + reload. curl `https://ruletka.me/` **200**. HTTP :80 still **308** to HTTPS. Not RU GOAL_MET.
+
+## [2026-08-23] ops | Play Internal blocked (no API key)
+- Proceed after 471 ship: `play-status` 19 OK / 1 WARN. No `mobile/secrets/google-play.json`. Notes: `mobile/artifacts/PLAY-NOTES-0.1.471.txt`. Human: Console Internal → upload AAB. **No Console PASS.**
+
 ## [2026-08-23] ship | 0.1.471 site APK + AAB + updates
 - Human: update page, wiki/GitHub, website APK, produce AAB.
 - **0.1.471 / vc479** sideload + `/download/ruletka-android-latest.apk`. AAB `mobile/artifacts/ruletka-0.1.471-vc479.aab` (**not** Console). Updates 2026-08-23. 2v2 2×2 · Stop→Next · Let’s Go. **No MULTI_PASS.**

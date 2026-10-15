@@ -1,6 +1,6 @@
 # Gotchas (connect thrash)
 
-Canonical: `.grok/skills/av-fix-loop/references/GOTCHAS.md` (17 items after 2026-08-10). Wiki thrash list through **75**.
+Canonical: `.grok/skills/av-fix-loop/references/GOTCHAS.md` (17 items after 2026-08-10). Wiki thrash list through **78**.
 
 Highest signal from the PC-black saga:
 
@@ -88,11 +88,18 @@ Highest signal from the PC-black saga:
 73. **Find-3rd hunt is 2v1 or 2v2.** Two 1v1s that both accept Find 3rd enqueue as party2; they **must** match (`stranger_party_blocks_2v2` now only blocks Party3). Solo still joins as 2v1. Live 3-way still does not queue a random 4th (Call / Invite 4th). Same-LAN 2v2 uses `pair_force_relay` — never hardcode `force_relay: false` in `start_party_vs_party`. Spec [`2026-08-21-party-shapes.md`](../specs/2026-08-21-party-shapes.md). Hub binary `boot_id` 543d8f70+. **No MULTI_PASS.**
 74. **TURNS 443 mux: `sslh --tls` matches ALL TLS (including TURNS) → Caddy.** Use `/etc/sslh.cfg` ALPN `h2`/`http/1.1` → Caddy **8443**, other TLS → coturn **5349**. Never `tls-listening-port=443` on coturn. Never enable sslh on the workstation (`Drakosik`). Order: Caddy `https_port 8443` then sslh `:443`. Verify: curl+ALPN HTTP 200; no-ALPN GET empty. Check-host “broken pipe” from RU DC is often **no ALPN**, not RKN. Residential phone ISP is the product gate. Spec [`2026-08-20-ru-reach.md`](../specs/2026-08-20-ru-reach.md). **No invent GOAL_MET.**
 75. **2v2 per-person actions are PARTIAL.** PC `#remote2` (top-right) has mute/blur but **no tap → partner menu**. Floor chat is room-wide. Debate roster is everyone. Android Add-friend gated on **primary** partnerCode. Gifts work when the action target is set. Distinct from **64** (laptop debate). **No MULTI_PASS.**
+76. **White screen on ruletka.me ≠ RKN.** HAProxy 443 default (no HTTP ALPN) was **coturn**. Browser on **.me** without `h2`/`http/1.1` got coturn’s **ruletka.vip** cert → blank / not-private. ICE TURNS is `turns:ruletka.vip:443` only. **Lock:** SNI `ruletka.me` → always Caddy; ALPN h2/http/1.1 → Caddy; else SNI vip → coturn. Also: `/` was a 637-byte JS stub on a **white** body — 302 `/live.html` + dark stub. Distinct from **74** (sslh `--tls` ate TURNS). **No invent GOAL_MET.**
+77. **3rd conversationalist no A/V = 1v2 rematch + dual-offer, not missing tiles.** Hub kept `start_party_vs_solo` while the pair already had a 3rd (or Next @12s settle) → new Matched, `last_offer_at` clear, debounce drops, 2-of-3 see 2 tiles. Web-web `is_offerer` from wait_started made **both** sides offer. **Lock:** pair offers to 3rd, 3rd answers (`lock_1v2_offerer_roles`); skip 1v2 if party already has a stranger; settle **25s** on 1v2; client **917** answers inbound (no late dual-offer). Distinct from **40** (debounce) / **50** (role 2-col). **No MULTI_PASS.**
+78. **Auto-ban:** 0★/1★/one-friend praise = weight 0. Need ★≥5 or ≥2 gifters. Same /24 = 1 vote. Wiki: `stars-reputation.md`.
 
 70. **1v1 PC↔Android stuck relay wait = android never answers, not the 480 budget.** `20260820T203346Z` FAIL: matches=3 offers=2 **answers=0** — phone never sent an SDP answer. Android av_path pinned `ice=new` / `cs=new` / `sig=stable` the whole window (0/0 both ways), `force_relay_hub=true`, `bind_v=0`, `app_vc=464` (current tip). PC tile read **ruletka.vip loading / linking cameras**; Android UI **Trying relay… 122s** Retry/Rebuild. TURN itself was HOT (`max_rb=641559 peer_hot=61`) — infra fine, only the phone's answer leg is dead. **Do not** read a stuck relay wait like this as the `relayWaitBudgetMs` **480** tuning question (see [linking-speed](linking-speed.md) "do not cut 480") — that lock is about trimming a *working* wait; here there is no answer to wait for. Shots `20260820T203320Z-android-1v1.png` / `-pc-1v1.png`. Raw `20260820T203320Z-1v1-linking.md`. **No product.ok invent.**
 
 ### Log
 
+- 2026-08-23: measure (gotcha **76** still holds) — check-host RU DC: `.me/health` ru1/ru2/ru3 **200**; `.me/live.html` ru2 Moscow **200**; `.vip/health` ru1/ru2/ru3 **Broken pipe** (no ALPN → coturn). Droplet no public IPv6. Do not buy 2nd droplet from DC. Residential ISP still the gate. Raw `2026-08-23-ru-reach-checkhost.md`. **No invent GOAL_MET.**
+- 2026-08-22: gotcha **78** — stars cannot buy non-underage auto-ban; praise skip starves tiers. Wiki `stars-reputation.md`. **Unverified** feel hop.
+- 2026-08-22: gotcha **77** — 3rd no A/V = 1v2 rematch + dual-offer. Hub lock pair-offers/3rd-answers; skip busy party; 25s settle. live.js **917**. **No MULTI_PASS.**
+- 2026-08-22: gotcha **76** — ruletka.me white screen = 443 mux no-ALPN → coturn vip cert; SNI .me always Caddy. `/` 302 to live.html. **No invent GOAL_MET.**
 - 2026-08-22: gotchas **72–75** — Stop idle leftover inline paint (**897/597**); Find-3rd 2v1 or 2v2; TURNS 443 sslh ALPN mux; 2v2 tap-menu PARTIAL. **No product.ok / MULTI_PASS invent.**
 - 2026-08-21: gotcha **71** — Hide + Blur them = live video + backdrop-filter veil (not canvas frost / not `filter` on `<video>`). Human **nice blur is good now**. Pins **865/581**. **No product.ok invent.**
 - 2026-08-20 later2: gotcha **70** — 1v1 PC↔Android FAIL, android answers=0 / ice=new for full window, `20260820T203346Z`. Distinct from **480** relay-wait-budget tuning. **No product.ok invent.**

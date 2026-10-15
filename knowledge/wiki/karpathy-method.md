@@ -33,6 +33,8 @@ Do not treat the model like an animal (yelling). Treat it like a ghost: **verifi
 | Piece | Path |
 |-------|------|
 | Instruction file | `AGENTS.md` (Always / Ask / Never) |
+| Working memory | `.grok/session-card.txt` (generated) + [now.md](now.md) |
+| Grok experimental memory | `~/.grok/memory/` **pointers only** — not a second wiki |
 | Wiki schema | `knowledge/SCHEMA.md` |
 | Compiled knowledge | `knowledge/wiki/` |
 | Immutable sources | `knowledge/raw/` |

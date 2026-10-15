@@ -1,11 +1,14 @@
 # Specs (agentic engineering — Layer 1)
 
-Active DONE WHEN goals for agents. Not chat folklore.
+Live Layer-1 specs are `current-*.md` in **this folder**. Closed dated hops and plans live in `archive/`. Do not open the archive unless you are looking up a finished hop.
+
+Session start reads at most the newest five live specs (see `AGENTS.md`). Do not load `SMOKE-NEXT.md` unless the human is pasting smoke.
 
 | File | Role |
 |------|------|
 | `_TEMPLATE.md` | Copy for new goals |
-| `current-av.md` | Product A/V both faces (active) |
+| `current-*.md` | Open DONE WHEN hops |
+| `SMOKE-NEXT.md` | Human paste-back only |
 
 ## Rules
 

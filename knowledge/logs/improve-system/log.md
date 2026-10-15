@@ -1,3 +1,8 @@
+## [2026-10-05] improve | token thin session start
+REVIEWED: ShopOps 2026-09-28 token thin (session-brief 5 specs, no glob current-*, paint-only skip, archive closed hops)
+APPLIED: session-start-agentic.sh · AGENTS.md · CLAUDE.md · agentic-engineering skills · specs archive (39) · `.grok/config.toml` vercel off · `scripts/test_session_brief.py`
+NEXT: new session to drop Vercel skills from the prompt
+
 ## [2026-08-20] PROPOSED | 2026-08-20-browser-deploy-fx.md
 REVIEWED: LAST_RUN 08-16, gotchas 66–68, this session balloons/avatar-gift/deploy loop
 PROPOSALS: P1–P5 pending (chat)

@@ -1,42 +1,63 @@
 # LAST_RUN — improve-system
 
-timestamp: 2026-08-11T06:30:00Z
+timestamp: 2026-08-16T04:00:00Z
 areas_reviewed:
-  - proposals 2026-08-11-0601-ux-thrash-process.md
-  - AGENTS.md Always/Never + Knowledge + Mobile APK
-  - agentic-engineering + knowledge-compound skills
-  - pre-apk-verify wiki + verify-before-apk.sh L2
-  - av-fix-loop GOTCHAS.md
-  - build-apk-local.sh post-build echoes
+  - now.md / index / live-chrome / linking-speed (compound herd)
+  - updates.html + 14 i18n packs
+  - session-card pins
+proposals:
+  - id: env-2026-08-16
+    title: Compound wiki + updates + i18n after chrome/mute/hop A
+    decision: approved (human: organize project)
+applied:
+  - knowledge/wiki/now.md slim
+  - ui/updates.html 2026-08-16 block
+  - ui/i18n 14 langs uAug16*
+  - UPDATES_PAGE_STAMP + live.js?v=675
+next_focus: Human clock hop A (3s feel). Do not cut 480. Slim SMOKE-NEXT still deferred.
+notes: Laptop 3rd PARKED. First-offer recvonly OPEN.
+
+---
+
+# prior LAST_RUN (2026-08-14)
+
+timestamp: 2026-08-14T12:00:00Z
+areas_reviewed:
+  - LAST_RUN 2026-08-11 + log.md
+  - AGENTS / CLAUDE / agentic-engineering
+  - SessionStart hook (stale 0.1.295, stdout ignored)
+  - ~/.grok/config.toml memory on; only shopops MEMORY.md existed
+  - ShopOps session-card pattern + current-grok-familiarity.md
+  - Grok user-guide 13-memory + 10-hooks (SessionStart stdout ignored; PostCompact exists)
+  - wiki index / now gap / SMOKE-NEXT F-spam
+  - explore agents: popular agentic memory; cold-start scan
 proposals:
   - id: P1
-    title: No APK flood without smoke gate
+    title: Live session card SessionStart+PostCompact
     decision: approved
   - id: P2
-    title: SMOKE-NEXT version lockstep on bump
+    title: knowledge/wiki/now.md
     decision: approved
   - id: P3
-    title: PartnerIdentityDock L0 when matched
-    decision: pending
-    note: other agent owns dock code; not applied
+    title: Session-start ritual AGENTS+CLAUDE
+    decision: approved
   - id: P4
-    title: One implementer + verify-only default
+    title: Seed ruletka Grok MEMORY.md pointers
     decision: approved
   - id: P5
-    title: Compound after thrash (≥3 APKs / multi-day stuck)
+    title: two_pass_compaction + memory knobs
     decision: approved
   - id: P6
-    title: max_mto≥20s → web first (L2 + GOTCHAS)
-    decision: approved
+    title: Slim SMOKE-NEXT F-spam
+    decision: deferred
 applied:
-  - AGENTS.md — Never APK flood; Always UX one-writer + SMOKE-NEXT lockstep; Knowledge thrash compound; Mobile smoke gate
-  - .grok/skills/agentic-engineering/SKILL.md — UX default one implementer; compound thrash note
-  - .grok/skills/knowledge-compound/SKILL.md — thrash trigger ≥3 APKs / multi-day
-  - mobile/scripts/build-apk-local.sh — REMINDER update SMOKE-NEXT version after bump
-  - mobile/scripts/verify-before-apk.sh — louder L2 WARN mto≥20s + no mobile HUD for linking lag
-  - knowledge/wiki/pre-apk-verify.md — smoke gate + web-first
-  - .grok/skills/av-fix-loop/references/GOTCHAS.md — item 18 mto web-first
-  - proposals 2026-08-11-0601 — P1/P2/P4/P5/P6 approved; P3 pending
-  - knowledge/logs/improve-system/log.md + LAST_RUN.md
-next_focus: Human smoke 0.1.329; P3 dock only if other agent / explicit approve; no product thrash until paste.
-notes: Human said proceed with improvements — process/docs only; no deploy, ICE, or APK build.
+  - .grok/hooks/scripts/session-start-agentic.sh
+  - .grok/hooks/never-rules.json PostCompact
+  - knowledge/wiki/now.md + index + karpathy-method Environment
+  - AGENTS.md + CLAUDE.md session start
+  - agentic-engineering skill (project + plugin)
+  - .gitignore session-card
+  - ~/.grok/config.toml two_pass + memory subsections
+  - ~/.grok/memory/ruletka-ba28efda/MEMORY.md
+next_focus: Human /new smoke — first turn cites card APK/pins without paste. Slim SMOKE-NEXT F-spam later. Confirm /memory sees ruletka-ba28efda. Face-then-gone ~3s → skill android-partner-paint (not ICE).
+notes: Memory was already enabled; ruletka workspace was empty. Do not dual-write a Memory Bank. P3 dock from 2026-08-11 still pending (unrelated).
