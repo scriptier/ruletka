@@ -23,7 +23,7 @@ use axum::{
     body::Body,
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        ConnectInfo, State,
+        ConnectInfo, Path, State,
     },
     http::{header, HeaderMap, HeaderValue, Method, StatusCode, Uri},
     response::{Html, IntoResponse, Response},
@@ -608,9 +608,22 @@ async fn ws_handler(
         .into_response()
 }
 
-async fn config_handler(State(state): State<AppState>) -> Json<PublicConfig> {
+async fn config_handler(
+    State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> Json<PublicConfig> {
     // Fresh TURN credentials when ROULETTE_TURN_SECRET is set + optional analytics ids
-    Json(state.ice_config())
+    let mut cfg = state.ice_config();
+    let ip = geo::client_ip_from_headers(&headers, addr);
+    if let Ok(Some(loc)) =
+        tokio::time::timeout(std::time::Duration::from_millis(400), geo::lookup(ip)).await
+    {
+        if geo::ice_prefer_turns(&loc.code) {
+            config::prefer_turns_ice_first(&mut cfg.ice_servers);
+        }
+    }
+    Json(cfg)
 }
 
 /// Process boot stamp — changes when bridge binary restarts (deploy).
@@ -895,6 +908,46 @@ fn read_seeders_unique(path: &std::path::Path, limit: usize) -> Vec<serde_json::
         }
     }
     out
+}
+
+async fn admin_evidence_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+) -> impl IntoResponse {
+    if !admin_token_ok(&state, &headers) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    let ok = name.starts_with("r_")
+        && name.ends_with(".jpg")
+        && !name.contains("..")
+        && !name.contains('/')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.');
+    if !ok {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    let hub = state.hub.lock().await;
+    let reports = hub.reports_file_path();
+    drop(hub);
+    let file = reports
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("data"))
+        .join("report-evidence")
+        .join(&name);
+    match tokio::fs::read(&file).await {
+        Ok(bytes) if bytes.len() >= 24 => (
+            [
+                (header::CONTENT_TYPE, "image/jpeg"),
+                (header::CACHE_CONTROL, "private, max-age=3600"),
+            ],
+            bytes,
+        )
+            .into_response(),
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 async fn admin_reports_handler(
@@ -1196,9 +1249,9 @@ async fn admin_stars_handler(
     }
     let mut hub = state.hub.lock().await;
     match hub.admin_grant_stars(&body.user_id, body.amount, &body.reason) {
-        Ok(bal) => Json(serde_json::json!({
+        Ok((uid, bal)) => Json(serde_json::json!({
             "ok": true,
-            "user_id": body.user_id.trim(),
+            "user_id": uid,
             "amount": body.amount,
             "stars": bal,
             "ledger": hub.stars_ledger_snapshot(),
@@ -1552,10 +1605,23 @@ async fn client_connection(
     tracing::info!(%client_id, %client_ip, "browser connected");
 
     let writer = tokio::spawn(async move {
-        while let Some(msg) = rx.recv().await {
-            let Ok(json) = serde_json::to_string(&msg) else { break };
-            if sink.send(Message::Text(json)).await.is_err() {
-                break;
+        // Protocol Ping so RU/mobile NATs do not wait on JS setInterval (tab freeze).
+        let mut ticker = tokio::time::interval(Duration::from_secs(10));
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            tokio::select! {
+                msg = rx.recv() => {
+                    let Some(msg) = msg else { break };
+                    let Ok(json) = serde_json::to_string(&msg) else { break };
+                    if sink.send(Message::Text(json)).await.is_err() {
+                        break;
+                    }
+                }
+                _ = ticker.tick() => {
+                    if sink.send(Message::Ping(Default::default())).await.is_err() {
+                        break;
+                    }
+                }
             }
         }
     });
@@ -1944,6 +2010,7 @@ async fn main() {
         .route("/v1/federation/claim", post(federation_claim_handler))
         .route("/v1/federation/relay", post(federation_relay_handler))
         .route("/v1/admin/reports", get(admin_reports_handler))
+        .route("/v1/admin/evidence/:name", get(admin_evidence_handler))
         .route("/v1/admin/metrics", get(admin_metrics_handler))
         .route("/v1/admin/seeders", get(admin_seeders_handler))
         .route("/v1/admin/mesh", get(admin_mesh_handler))

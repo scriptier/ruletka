@@ -57,6 +57,14 @@ pub fn is_non_public_ip(ip: IpAddr) -> bool {
     }
 }
 
+/// ISO codes where UDP 3478 is often DPI-blocked; TURNS should be tried first.
+pub fn ice_prefer_turns(code: &str) -> bool {
+    matches!(
+        code.trim().to_ascii_uppercase().as_str(),
+        "RU" | "BY" | "IR" | "CN"
+    )
+}
+
 /// Best-effort geo lookup. Cached; returns None for private IPs or failures.
 pub async fn lookup(ip: IpAddr) -> Option<GeoLoc> {
     if is_non_public_ip(ip) {
@@ -525,6 +533,14 @@ mod tests {
     fn telus_calgary_org_hint() {
         let c = hint_city_from_blob("TELUS-FIBRE-CLGRAB13 AS852 TELUS Communications");
         assert_eq!(c.as_deref(), Some("Calgary"));
+    }
+
+    #[test]
+    fn ice_prefer_turns_ru_not_ca() {
+        assert!(super::ice_prefer_turns("RU"));
+        assert!(super::ice_prefer_turns("ru"));
+        assert!(!super::ice_prefer_turns("CA"));
+        assert!(!super::ice_prefer_turns(""));
     }
 
     #[test]

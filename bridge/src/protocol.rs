@@ -164,7 +164,7 @@ pub enum ClientMsg {
         thanks: bool,
     },
     /// Spend reputation stars on a live effect for another user (no money).
-    /// effect: "heart"(1★) | "bars"|"flowers"|"balloons"|"confetti"|"pass_mic"(5★)
+    /// effect: "heart"(5★ pop) | "bars"|"flowers"|"balloons"|"confetti"|"pass_mic"(5★)
     /// | "fireworks"(15★) | "please_stay"(30★, 15s no-Next, once/month per pair).
     /// pass_mic: 5s cosmetic “give them a chance to speak” (pass the mic).
     /// op_id: optional client idempotency key — same op_id is applied at most once (anti double-spend on retry).
@@ -591,6 +591,9 @@ pub enum ServerMsg {
         /// Score needed for auto match-ban
         #[serde(default)]
         threshold: u32,
+        /// Distinct reporters on this target (this reporter included).
+        #[serde(default)]
+        unique_reporters: u32,
         #[serde(default)]
         message: String,
     },

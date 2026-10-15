@@ -31,6 +31,8 @@ pub fn is_trust_mint_reason(reason: &str) -> bool {
         || r == "rate_partner"
         // Optional admin path to restore trust after investigation
         || r.starts_with("admin:trust")
+        // Live gift (shooting star / flowers / …): +1 wallet and trust
+        || r.starts_with("gift:")
 }
 
 /// Parse `trust:N` from clawback session field.

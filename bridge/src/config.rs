@@ -314,3 +314,57 @@ pub fn build_public_config(
         vapid_public_key: None,
     }
 }
+
+/// DPI-heavy nets (e.g. RU): try TURNS before UDP 3478. Stun stays first.
+pub fn prefer_turns_ice_first(servers: &mut Vec<IceServer>) {
+    servers.sort_by_key(|s| {
+        let u = s
+            .urls
+            .first()
+            .map(|x| x.to_ascii_lowercase())
+            .unwrap_or_default();
+        if u.starts_with("stun:") {
+            0
+        } else if u.starts_with("turns:") {
+            1
+        } else if u.starts_with("turn:") && !u.contains("transport=tcp") {
+            2
+        } else {
+            3
+        }
+    });
+}
+
+#[cfg(test)]
+mod ice_order_tests {
+    use super::{prefer_turns_ice_first, IceServer};
+
+    fn s(url: &str) -> IceServer {
+        IceServer {
+            urls: vec![url.into()],
+            username: None,
+            credential: None,
+        }
+    }
+
+    #[test]
+    fn turns_before_udp_after_stun() {
+        let mut v = vec![
+            s("stun:stun.l.google.com:19302"),
+            s("turn:ruletka.vip:3478"),
+            s("turn:ruletka.vip:3478?transport=tcp"),
+            s("turns:ruletka.vip:5349?transport=tcp"),
+        ];
+        prefer_turns_ice_first(&mut v);
+        let urls: Vec<_> = v.iter().map(|x| x.urls[0].as_str()).collect();
+        assert_eq!(
+            urls,
+            [
+                "stun:stun.l.google.com:19302",
+                "turns:ruletka.vip:5349?transport=tcp",
+                "turn:ruletka.vip:3478",
+                "turn:ruletka.vip:3478?transport=tcp",
+            ]
+        );
+    }
+}

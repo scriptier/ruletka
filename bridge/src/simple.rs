@@ -240,6 +240,10 @@ pub struct Client {
     pending_rate_uid: Option<String>,
     pending_rate_name: String,
     pending_rate_secs: u64,
+    /// 1v1 WS drop: keep match until this instant so Hello can reattach.
+    ws_hold_until: Option<Instant>,
+    /// Set when a reconnect Hello adopted a hold (reload Spin in a few seconds = Next).
+    ws_adopted_at: Option<Instant>,
 }
 
 /// Daily hub counters (persisted as JSONL under data/metrics.jsonl).
@@ -3298,12 +3302,91 @@ impl SimpleHub {
         }
     }
 
+    /// Wallet ★ needed to vote without peer praise (hour bonus is +1 — not enough).
+    const REPORT_MIN_WALLET_STARS: u64 = 5;
+    /// Distinct gifters needed for praise to count as a ban vote (one friend ≠ vote).
+    const REPORT_MIN_GIFTERS: u32 = 2;
+
+    /// Established reporter: peer praise from ≥2 gifters, **or** wallet ★ ≥ 5.
+    /// 0★ unpraised / 1★ throwaway / one-friend praise → no non-underage vote.
+    fn reporter_counts_toward_ban(&self, reporter_uid: &str, underage: bool) -> bool {
+        if underage {
+            return true;
+        }
+        if reporter_uid.is_empty() {
+            return false;
+        }
+        let gifters = self.trust_gifters_for(reporter_uid);
+        let trust = self.effective_trust_for(reporter_uid);
+        if trust > 0 && gifters >= Self::REPORT_MIN_GIFTERS {
+            return true;
+        }
+        self.stars_for(reporter_uid) >= Self::REPORT_MIN_WALLET_STARS
+    }
+
+    /// /24 for IPv4, otherwise full string. Empty if unknown / private.
+    fn reporter_ip_cluster(ip: &str) -> String {
+        let ip = ip.trim().split('%').next().unwrap_or("").trim();
+        if ip.is_empty()
+            || ip.starts_with("10.")
+            || ip.starts_with("192.168.")
+            || ip.starts_with("127.")
+            || ip == "::1"
+        {
+            return String::new();
+        }
+        if ip.contains('.') {
+            let p: Vec<&str> = ip.split('.').collect();
+            if p.len() == 4 {
+                return format!("{}.{}.{}", p[0], p[1], p[2]);
+            }
+        }
+        ip.to_string()
+    }
+
+    fn reporter_cluster_key(&self, reporter_uid: &str) -> String {
+        let ip = self
+            .by_user
+            .get(reporter_uid)
+            .and_then(|cid| self.clients.get(cid))
+            .map(|c| c.client_ip.clone())
+            .or_else(|| self.user_last_ip.get(reporter_uid).cloned())
+            .unwrap_or_default();
+        let prefix = Self::reporter_ip_cluster(&ip);
+        if prefix.is_empty() {
+            format!("uid:{reporter_uid}")
+        } else {
+            format!("net:{prefix}")
+        }
+    }
+
+    /// Distinct *clusters* (user or /24) whose reports score > 0.
+    /// Same LAN /24 = one vote. Underage: no clustering.
+    fn counting_reporters_for_target(&self, target_uid: &str, underage: bool) -> usize {
+        let Some(set) = self.report_reporters.get(target_uid) else {
+            return 0;
+        };
+        if underage {
+            return set
+                .iter()
+                .filter(|uid| self.report_weight_against(uid, target_uid, true) > 0)
+                .count();
+        }
+        let mut seen = std::collections::HashSet::new();
+        for uid in set {
+            if self.report_weight_against(uid, target_uid, false) == 0 {
+                continue;
+            }
+            seen.insert(self.reporter_cluster_key(uid));
+        }
+        seen.len()
+    }
+
     /// Weight this reporter contributes toward auto-banning this target.
-    /// Brigade-resistant v1:
     /// - Underage: full tier weight (1–3) — safety first.
-    /// - Other reasons: **max 1** per reporter (stars cannot buy ban power).
-    /// - Mutual feud (they already reported you): **0** toward auto-ban.
-    /// - Two seniors still cannot cancel each other via auto-ban (0).
+    /// - Other: 0 if reporter has no ★ and no praise; else **1** (stars still
+    ///   don't buy ×2/×3). Trusted/praised can still auto-ban at 3 independent.
+    /// - Mutual feud: **0**. Two seniors cannot auto-ban each other.
     fn report_weight_against(
         &self,
         reporter_uid: &str,
@@ -3316,6 +3399,9 @@ impl SimpleHub {
         let base = self.report_weight_for(reporter_uid);
         if underage {
             return base;
+        }
+        if !self.reporter_counts_toward_ban(reporter_uid, false) {
+            return 0;
         }
         // Mutual report war: if target already reported this reporter, no ban ammo
         if self
@@ -3332,7 +3418,6 @@ impl SimpleHub {
         if r_trust >= Self::SENIOR_REPORTER_STARS && t_trust >= Self::SENIOR_REPORTER_STARS {
             return 0;
         }
-        // Flat weight: trust is not ban artillery
         1
     }
 
@@ -3362,16 +3447,20 @@ impl SimpleHub {
             .unwrap_or(false)
     }
 
-    /// Sum of unique reporters' effective weights against this target.
+    /// Ban score = counting clusters (1 each) for non-underage; underage = sum of tier weights.
     fn report_score_for_target(&self, target_uid: &str, underage: bool) -> u32 {
-        self.report_reporters
-            .get(target_uid)
-            .map(|set| {
-                set.iter()
-                    .map(|uid| self.report_weight_against(uid, target_uid, underage))
-                    .sum()
-            })
-            .unwrap_or(0)
+        if underage {
+            return self
+                .report_reporters
+                .get(target_uid)
+                .map(|set| {
+                    set.iter()
+                        .map(|uid| self.report_weight_against(uid, target_uid, true))
+                        .sum()
+                })
+                .unwrap_or(0);
+        }
+        self.counting_reporters_for_target(target_uid, false) as u32
     }
 
     fn is_blocked_pair_conn(&self, a: Uuid, b: Uuid) -> bool {
@@ -4313,6 +4402,7 @@ impl SimpleHub {
         out: mpsc::UnboundedSender<ServerMsg>,
         client_ip: String,
     ) -> Result<ServerMsg, String> {
+        self.expire_ws_holds();
         if self.clients.len() >= self.limits.max_clients {
             return Err(format!(
                 "server full (max {} clients)",
@@ -4364,6 +4454,8 @@ impl SimpleHub {
                 pending_rate_uid: None,
                 pending_rate_name: String::new(),
                 pending_rate_secs: 0,
+                ws_hold_until: None,
+                ws_adopted_at: None,
             },
         );
         // by_user/code_index set on Hello with persistent user_id (not ephemeral uuid)
@@ -4475,7 +4567,149 @@ impl SimpleHub {
         self.broadcast_lobby_info();
     }
 
+    const WS_HOLD_SECS: u64 = 45;
+    const WS_ADOPT_SPIN_SECS: u64 = 4;
+
+    fn expire_ws_holds(&mut self) {
+        let now = Instant::now();
+        let expired: Vec<Uuid> = self
+            .clients
+            .iter()
+            .filter(|(_, c)| c.ws_hold_until.map(|t| now >= t).unwrap_or(false))
+            .map(|(id, _)| *id)
+            .collect();
+        for id in expired {
+            let partner = self.clients.get(&id).and_then(|c| c.partner);
+            // Leave ws_hold_until in the past so should_keep_ws_hold does not re-arm.
+            self.remove_client(id);
+            // WS drop ≠ Next: allow the same pair to rematch immediately.
+            if let Some(p) = partner {
+                if let Some(c) = self.clients.get_mut(&p) {
+                    c.last_unmatch_at = None;
+                }
+            }
+        }
+    }
+
+    /// Park a 1v1 match when the socket dies so Hello can reattach (RU WS blips).
+    /// Skip 3-way / party — those have more session pointers.
+    fn should_keep_ws_hold(&mut self, id: Uuid) -> bool {
+        let Some(c) = self.clients.get(&id) else {
+            return false;
+        };
+        if let Some(until) = c.ws_hold_until {
+            return Instant::now() < until;
+        }
+        if c.phase != Phase::Matched {
+            return false;
+        }
+        if c.party_with.is_some() || c.session_peers.len() > 1 {
+            return false;
+        }
+        let Some(pid) = c.partner else {
+            return false;
+        };
+        if pid == id || !self.clients.contains_key(&pid) {
+            return false;
+        }
+        if self
+            .clients
+            .get(&pid)
+            .map(|p| p.phase != Phase::Matched)
+            .unwrap_or(true)
+        {
+            return false;
+        }
+        if let Some(c) = self.clients.get_mut(&id) {
+            c.ws_hold_until = Some(Instant::now() + Duration::from_secs(Self::WS_HOLD_SECS));
+        }
+        true
+    }
+
+    /// Move a parked 1v1 onto the new socket. Keep old `peer_id` so the partner's
+    /// `to=` still routes. Does not emit a new Matched (would rebuild ICE).
+    fn adopt_ws_hold(&mut self, old: Uuid, new: Uuid) -> bool {
+        if old == new {
+            return false;
+        }
+        let Some(oldc) = self.clients.get(&old) else {
+            return false;
+        };
+        let Some(until) = oldc.ws_hold_until else {
+            return false;
+        };
+        if Instant::now() >= until {
+            return false;
+        }
+        if oldc.phase != Phase::Matched {
+            return false;
+        }
+        if oldc.party_with.is_some() || oldc.session_peers.len() > 1 {
+            return false;
+        }
+        let Some(partner) = oldc.partner else {
+            return false;
+        };
+        if partner == new || !self.clients.contains_key(&partner) {
+            return false;
+        }
+        let peer_id = oldc.peer_id.clone();
+        let short_id = oldc.short_id.clone();
+        let match_started = oldc.match_started;
+        let session_id = oldc.session_id.clone();
+        let friend_call = oldc.friend_call;
+        let last_offer_at = oldc.last_offer_at.clone();
+        let last_answer_at = oldc.last_answer_at.clone();
+        let session_peers = oldc.session_peers.clone();
+
+        if let Some(p) = self.clients.get_mut(&partner) {
+            if p.partner == Some(old) {
+                p.partner = Some(new);
+            }
+            if p.session_peers.remove(&old) {
+                p.session_peers.insert(new);
+            }
+            if p.friend_call == Some(old) {
+                p.friend_call = Some(new);
+            }
+        }
+        if let Some(n) = self.clients.get_mut(&new) {
+            n.phase = Phase::Matched;
+            n.partner = Some(partner);
+            n.peer_id = peer_id;
+            n.short_id = short_id;
+            n.match_started = Some(Instant::now());
+            n.session_id = session_id;
+            n.friend_call = friend_call;
+            n.last_offer_at = last_offer_at;
+            n.last_answer_at = last_answer_at;
+            n.session_peers = session_peers;
+            n.session_peers.remove(&new);
+            n.ws_hold_until = None;
+            n.ws_adopted_at = Some(Instant::now());
+        }
+        if let Some(c) = self.clients.get_mut(&old) {
+            c.partner = None;
+            c.session_peers.clear();
+            c.phase = Phase::Idle;
+            c.ws_hold_until = None;
+            c.friend_call = None;
+            c.party_with = None;
+            c.peer_id.clear();
+            c.short_id.clear();
+        }
+        self.remove_client(old);
+        self.status(new, "still chatting");
+        self.status(partner, "still chatting");
+        tracing::info!(%old, %new, %partner, "ws hold adopted — 1v1 kept");
+        true
+    }
+
     pub fn remove_client(&mut self, id: Uuid) {
+        if self.should_keep_ws_hold(id) {
+            tracing::info!(%id, "ws hold 45s — 1v1 reconnect window");
+            return;
+        }
         self.dequeue_client(id);
         self.clear_fed_for_client(id);
         // Pending find-third invites involving this client
@@ -5116,6 +5350,38 @@ impl SimpleHub {
         }
     }
 
+    /// 1v2: pair always offers to the 3rd; 3rd always answers. Dual-offer = no A/V.
+    fn lock_1v2_offerer_roles(
+        solo_peers: &mut [MatchPeer],
+        a_peers: &mut [MatchPeer],
+        b_peers: &mut [MatchPeer],
+    ) {
+        for p in solo_peers.iter_mut() {
+            p.is_offerer = false;
+        }
+        for peers in [&mut *a_peers, &mut *b_peers] {
+            for p in peers.iter_mut() {
+                p.is_offerer = p.role == "stranger";
+            }
+        }
+    }
+
+    /// True when this pair already has a live 3rd (do not attach another / rematch).
+    fn party_already_in_1v2(&self, a: Uuid, b: Uuid) -> bool {
+        for id in [a, b] {
+            let Some(c) = self.clients.get(&id) else {
+                continue;
+            };
+            if c.phase != Phase::Matched {
+                continue;
+            }
+            if c.session_peers.iter().any(|p| *p != a && *p != b) {
+                return true;
+            }
+        }
+        false
+    }
+
     /// Display name on MatchPeer: live name if real; else known_names[user_id].
     /// Never falls back to short_id / peer hex — clients paint friend_code or "Partner".
     fn resolve_match_peer_name(&self, to: &Client) -> String {
@@ -5172,10 +5438,11 @@ impl SimpleHub {
         if c.hide_ip {
             (c.flag.clone(), String::new(), String::new(), true)
         } else {
-            let flag = if !c.geo_code.is_empty() {
+            let flag = if !c.flag.is_empty() {
+                c.flag.clone()
+            } else if !c.geo_code.is_empty() {
                 c.geo_code.clone()
             } else {
-                // No ISO yet — still pass country/city if lookup filled them.
                 String::new()
             };
             let country = c.geo_country.clone();
@@ -5297,6 +5564,28 @@ impl SimpleHub {
             ]
         };
 
+        // 1v2 glare lock: pair always offers to the 3rd; 3rd always answers.
+        // wait_started/peer_id used to make both sides offer → 2 tiles / no A/V.
+        let mut solo_peers = solo_peers;
+        let mut a_peers = a_peers;
+        let mut b_peers = b_peers;
+        Self::lock_1v2_offerer_roles(&mut solo_peers, &mut a_peers, &mut b_peers);
+
+        self.dequeue_client(solo);
+        self.dequeue_client(a);
+        self.dequeue_client(b);
+
+        let same_trio = self
+            .clients
+            .get(&a)
+            .map(|c| c.session_peers.contains(&solo) && c.session_peers.contains(&b))
+            .unwrap_or(false)
+            && self
+                .clients
+                .get(&b)
+                .map(|c| c.session_peers.contains(&solo))
+                .unwrap_or(false);
+
         let set_matched = |clients: &mut HashMap<Uuid, Client>,
                            id: Uuid,
                            peers: &[Uuid],
@@ -5308,9 +5597,11 @@ impl SimpleHub {
                 c.partner = peers.first().copied();
                 c.party_with = party;
                 c.match_started = Some(Instant::now());
-            c.last_offer_at.clear();
-            c.last_answer_at.clear();
-            c.last_ice_at = None;
+                if !same_trio {
+                    c.last_offer_at.clear();
+                    c.last_answer_at.clear();
+                    c.last_ice_at = None;
+                }
             }
         };
         set_matched(&mut self.clients, solo, &[a, b], None);
@@ -6135,13 +6426,28 @@ impl SimpleHub {
             to: partner,
             expires: Instant::now() + Duration::from_secs(Self::FIND_THIRD_TTL_SECS),
         });
-        self.send(
-            partner,
-            ServerMsg::FindThirdIncoming {
-                from_user_id: from_uid,
-                from_name,
-            },
-        );
+        let incoming = ServerMsg::FindThirdIncoming {
+            from_user_id: from_uid,
+            from_name,
+        };
+        self.send(partner, incoming.clone());
+        // Extra Chrome/Android tabs of the same user (Calgary dual-device).
+        let partner_uid = self
+            .clients
+            .get(&partner)
+            .map(|c| c.user_id.clone())
+            .unwrap_or_default();
+        if !partner_uid.is_empty() {
+            let extra: Vec<Uuid> = self
+                .clients
+                .iter()
+                .filter(|(cid, c)| **cid != partner && c.user_id == partner_uid)
+                .map(|(cid, _)| *cid)
+                .collect();
+            for cid in extra {
+                self.send(cid, incoming.clone());
+            }
+        }
         self.status(id, "find-third invite sent — waiting");
         tracing::info!(%id, %partner, "find_third invite");
     }
@@ -6290,6 +6596,7 @@ impl SimpleHub {
     }
 
     fn try_match(&mut self) {
+        self.expire_ws_holds();
         let mut steps = self.queue.len().saturating_mul(4).max(8);
         while self.queue.len() >= 1 && steps > 0 {
             steps -= 1;
@@ -6410,6 +6717,19 @@ impl SimpleHub {
                 }
                 (QueueEntry::Solo(s), QueueEntry::Party { a, b })
                 | (QueueEntry::Party { a, b }, QueueEntry::Solo(s)) => {
+                    if self.party_already_in_1v2(a, b) {
+                        tracing::info!(
+                            %s, %a, %b,
+                            "try_match skip 1v2 — party already has a 3rd"
+                        );
+                        if matches!(
+                            self.clients.get(&s).map(|c| c.phase),
+                            Some(Phase::Waiting)
+                        ) {
+                            self.enqueue_solo(s);
+                        }
+                        continue;
+                    }
                     let ws = self.take_wait_started(s);
                     let wa = self.take_wait_started(a);
                     let wb = self.take_wait_started(b);
@@ -6445,6 +6765,22 @@ impl SimpleHub {
     }
 
     fn enter_waiting_solo(&mut self, id: Uuid, room: String, detail: &str) {
+        // Android keep-alive spin every 6s. If already Waiting, only try_match.
+        // If Matched (settle window), ignore — keep-alive was tearing 1v1
+        // ~6s after match (20:22:47 matched, 20:22:53 android re-enqueued).
+        if let Some(c) = self.clients.get(&id) {
+            if c.phase == Phase::Waiting {
+                tracing::info!(%id, "spin while waiting — try_match only");
+                self.try_match();
+                return;
+            }
+            if c.phase == Phase::Matched {
+                // Keep-alive / leftover Start must not tear a live 1v1.
+                // Next still uses ClientMsg::Next. Reload-with-no-media: press Next.
+                tracing::info!(%id, "ignore spin — already matched");
+                return;
+            }
+        }
         // Accept used to stop_matchmaking ("partner stopped") → clients auto-Spin
         // and tore a friend call that started <3s ago (2026-08-16T21:05 Vadimovich).
         if let Some(started) = self.clients.get(&id).and_then(|c| {
@@ -6595,6 +6931,7 @@ impl SimpleHub {
     }
 
     pub fn handle(&mut self, id: Uuid, msg: ClientMsg) {
+        self.expire_ws_holds();
         if let Some(c) = self.clients.get_mut(&id) {
             if !c.limiter.allow_message(&self.limits) {
                 let _ = c.out.send(ServerMsg::Error {
@@ -6678,8 +7015,8 @@ impl SimpleHub {
                 if self.deny_if_match_banned(id) {
                     return;
                 }
-                // Hold Next for a few seconds after match so phone↔browser media can land.
-                if self.refuse_if_match_settling(id) {
+                // 4s only — 12s settle left testers stuck on unanswered ghosts.
+                if self.refuse_if_next_settling(id) {
                     return;
                 }
                 if !self.allow_match_cmd(id) {
@@ -6867,6 +7204,8 @@ impl SimpleHub {
     /// both sides stay “connected” with black video (SDP never finishes).
     /// 12s: phone↔browser ICE + first frames often need >8s; early Next rematch thrash.
     const MATCH_SETTLE_SECS: u64 = 12;
+    /// 1v2 mesh needs longer than 1v1 before Next steals the 3rd.
+    const MATCH_SETTLE_1V2_SECS: u64 = 25;
 
     fn match_settle_remaining(&self, id: Uuid) -> Option<u64> {
         let c = self.clients.get(&id)?;
@@ -6875,10 +7214,38 @@ impl SimpleHub {
         }
         let started = c.match_started?;
         let elapsed = started.elapsed().as_secs();
-        if elapsed >= Self::MATCH_SETTLE_SECS {
+        let budget = if c.session_peers.len() >= 2 {
+            Self::MATCH_SETTLE_1V2_SECS
+        } else {
+            Self::MATCH_SETTLE_SECS
+        };
+        if elapsed >= budget {
             return None;
         }
-        Some(Self::MATCH_SETTLE_SECS.saturating_sub(elapsed).max(1))
+        Some(budget.saturating_sub(elapsed).max(1))
+    }
+
+    const NEXT_SETTLE_SECS: u64 = 4;
+
+    /// Next: short settle so a no-answer ghost can be skipped.
+    fn refuse_if_next_settling(&mut self, id: Uuid) -> bool {
+        let Some(c) = self.clients.get(&id) else {
+            return false;
+        };
+        let Some(t0) = c.match_started else {
+            return false;
+        };
+        let elapsed = t0.elapsed().as_secs();
+        if elapsed >= Self::NEXT_SETTLE_SECS {
+            return false;
+        }
+        let left = Self::NEXT_SETTLE_SECS.saturating_sub(elapsed).max(1);
+        tracing::info!(%id, left_secs = left, "match settle — refuse Next");
+        self.status(
+            id,
+            format!("connecting — wait {left}s before Next (media settling)"),
+        );
+        true
     }
 
     /// Returns true if the command was refused (caller should return).
@@ -7038,19 +7405,22 @@ impl SimpleHub {
         // Kick previous connection for same user (one live tab per identity).
         // Opening live.html twice / two browsers with the same export causes the
         // old tab to drop mid-call — looks like “one person in one browser, 3rd in another”.
+        // Exception: WS blip hold — reattach 1v1 instead of unmatching the partner.
         if let Some(old) = self.by_user.get(&user_id).copied() {
             if old != id {
-                self.send(
-                    old,
-                    ServerMsg::Error {
-                        message: "session opened in another tab or browser — this tab was disconnected. Use only one live window per identity.".into(),
-                    },
-                );
-                self.status(
-                    old,
-                    "disconnected — opened elsewhere",
-                );
-                self.remove_client(old);
+                if !self.adopt_ws_hold(old, id) {
+                    self.send(
+                        old,
+                        ServerMsg::Error {
+                            message: "session opened in another tab or browser — this tab was disconnected. Use only one live window per identity.".into(),
+                        },
+                    );
+                    self.status(
+                        old,
+                        "disconnected — opened elsewhere",
+                    );
+                    self.remove_client(old);
+                }
             }
         }
 
@@ -7621,8 +7991,10 @@ impl SimpleHub {
                 .saturating_add(Self::target_reputation_shield(target_stars));
         }
         let min_reps = Self::min_unique_reporters(&reason_s);
+        let counting_reps = self.counting_reporters_for_target(&user_id, is_underage);
         let score_ok = report_score as usize >= effective_threshold;
-        let diversity_ok = report_count >= min_reps;
+        // Only ★/praised reporters count toward the 3-person bar (not anons).
+        let diversity_ok = counting_reps >= min_reps;
         let mut banned = false;
         let mut escalate_permanent = false;
         let mut ban_until: u64 = 0;
@@ -7634,7 +8006,7 @@ impl SimpleHub {
                 || reason_s.eq_ignore_ascii_case("explicit_ai");
             escalate_permanent = is_explicit_kind
                 && prev > 0
-                && report_count >= Self::REPORT_PERMANENT_MIN_REPORTERS
+                && counting_reps >= Self::REPORT_PERMANENT_MIN_REPORTERS
                 && !raid_spike;
             if raid_spike {
                 ban_secs = ban_secs.min(Self::REPORT_RAID_BAN_CAP_SECS);
@@ -7652,7 +8024,8 @@ impl SimpleHub {
                 self.clawback_on_ban(&user_id, &reason_s);
                 tracing::warn!(
                     target = %user_id,
-                    reporters = report_count,
+                    reporters = counting_reps,
+                    logged_reporters = report_count,
                     score = report_score,
                     threshold = effective_threshold,
                     min_reps,
@@ -7678,7 +8051,8 @@ impl SimpleHub {
                     "target_name": target_name,
                     "target_stars": target_stars,
                     "reason": reason_s,
-                    "unique_reporters": report_count,
+                    "unique_reporters": counting_reps,
+                    "logged_reporters": report_count,
                     "report_score": report_score,
                     "threshold": effective_threshold,
                     "min_unique_reporters": min_reps,
@@ -7716,7 +8090,8 @@ impl SimpleHub {
                 "target_user_id": user_id,
                 "target_name": target_name,
                 "reason": reason_s,
-                "unique_reporters": report_count,
+                "unique_reporters": counting_reps,
+                "logged_reporters": report_count,
                 "report_score": report_score,
                 "threshold": effective_threshold,
                 "min_unique_reporters": min_reps,
@@ -7743,7 +8118,8 @@ impl SimpleHub {
             "target_stars": target_stars,
             "target_shield": if is_underage { 0 } else { Self::target_reputation_shield(target_stars) },
             "reason": reason_s,
-            "unique_reporters": report_count,
+            "unique_reporters": counting_reps,
+            "logged_reporters": report_count,
             "min_unique_reporters": min_reps,
             "report_score": report_score,
             "threshold": effective_threshold,
@@ -7785,6 +8161,8 @@ impl SimpleHub {
             "report received — user restricted (short; raid-like spike)"
         } else if banned {
             "report received — user restricted"
+        } else if applied_weight == 0 && !is_underage && !mutual_feud && !peer_blocked {
+            "report received — logged; need ★≥5 or praise from 2+ people to count toward auto-ban"
         } else if mutual_feud {
             "report received — mutual reports don't auto-ban either side"
         } else if peer_blocked {
@@ -7807,6 +8185,7 @@ impl SimpleHub {
                 applied_weight,
                 report_score,
                 threshold: effective_threshold as u32,
+                unique_reporters: counting_reps as u32,
                 message: status_msg.into(),
             },
         );
@@ -10151,6 +10530,23 @@ pub(crate) fn pair_force_relay_decision(
 }
 
 #[cfg(test)]
+mod report_cluster_tests {
+    use super::SimpleHub;
+
+    #[test]
+    fn ipv4_slash24_and_private_empty() {
+        assert_eq!(
+            SimpleHub::reporter_ip_cluster("162.157.227.46"),
+            "162.157.227"
+        );
+        assert_eq!(SimpleHub::reporter_ip_cluster("10.1.2.3"), "");
+        assert_eq!(SimpleHub::reporter_ip_cluster("192.168.0.9"), "");
+        assert_eq!(SimpleHub::reporter_ip_cluster(""), "");
+        assert_eq!(SimpleHub::reporter_ip_cluster("127.0.0.1"), "");
+    }
+}
+
+#[cfg(test)]
 mod party_shape_tests {
     use super::{queue_shape_ok, QueueEntry};
     use uuid::Uuid;
@@ -10381,6 +10777,95 @@ mod offer_pair_debounce_tests {
         assert_eq!(
             offer_drop_reason(None, true, false, Some(Duration::from_secs(30))),
             None
+        );
+    }
+}
+
+#[cfg(test)]
+mod ws_hold_tests {
+    use super::*;
+    use tokio::sync::mpsc;
+    use uuid::Uuid;
+
+    fn hub() -> SimpleHub {
+        let p = std::env::temp_dir().join(format!("ruletka-ws-hold-{}.json", Uuid::new_v4()));
+        SimpleHub::with_limits_and_store(LimitConfig::default(), p)
+    }
+
+    fn add(hub: &mut SimpleHub, ip: &str) -> Uuid {
+        let id = Uuid::new_v4();
+        let (tx, _rx) = mpsc::unbounded_channel();
+        hub.try_add_client(id, tx, ip.into()).unwrap();
+        id
+    }
+
+    fn hello(hub: &mut SimpleHub, id: Uuid, uid: &str) {
+        hub.handle(
+            id,
+            ClientMsg::Hello {
+                user_id: uid.into(),
+                name: "T".into(),
+                gender: String::new(),
+                looking: "any".into(),
+                flag: String::new(),
+                avatar: String::new(),
+                tags: vec![],
+                hide_ip: false,
+                platform: "web".into(),
+            },
+        );
+    }
+
+    #[test]
+    fn ws_drop_holds_1v1_then_hello_adopts() {
+        let mut hub = hub();
+        let a = add(&mut hub, "95.26.112.238");
+        let b = add(&mut hub, "162.157.227.46");
+        hello(&mut hub, a, "user-ru");
+        hello(&mut hub, b, "user-ca");
+        hub.handle(a, ClientMsg::Spin { room: String::new() });
+        hub.handle(b, ClientMsg::Spin { room: String::new() });
+        assert_eq!(hub.clients.get(&a).unwrap().phase, Phase::Matched);
+        assert_eq!(hub.clients.get(&b).unwrap().phase, Phase::Matched);
+        let peer_a = hub.clients.get(&a).unwrap().peer_id.clone();
+
+        hub.remove_client(a);
+        assert!(hub.clients.contains_key(&a), "ghost stays during hold");
+        assert_eq!(hub.clients.get(&b).unwrap().phase, Phase::Matched);
+        assert_eq!(hub.clients.get(&b).unwrap().partner, Some(a));
+
+        let a2 = add(&mut hub, "95.26.112.238");
+        hello(&mut hub, a2, "user-ru");
+        assert!(!hub.clients.contains_key(&a), "ghost gone after adopt");
+        assert_eq!(hub.clients.get(&a2).unwrap().phase, Phase::Matched);
+        assert_eq!(hub.clients.get(&a2).unwrap().partner, Some(b));
+        assert_eq!(hub.clients.get(&b).unwrap().partner, Some(a2));
+        assert_eq!(
+            hub.clients.get(&a2).unwrap().peer_id,
+            peer_a,
+            "keep peer_id so partner to= still routes"
+        );
+    }
+
+    #[test]
+    fn ws_hold_expire_unmatches_partner() {
+        let mut hub = hub();
+        let a = add(&mut hub, "95.26.112.238");
+        let b = add(&mut hub, "162.157.227.46");
+        hello(&mut hub, a, "user-ru");
+        hello(&mut hub, b, "user-ca");
+        hub.handle(a, ClientMsg::Spin { room: String::new() });
+        hub.handle(b, ClientMsg::Spin { room: String::new() });
+        hub.remove_client(a);
+        if let Some(c) = hub.clients.get_mut(&a) {
+            c.ws_hold_until = Some(Instant::now() - Duration::from_secs(1));
+        }
+        hub.expire_ws_holds();
+        assert!(!hub.clients.contains_key(&a));
+        assert_ne!(hub.clients.get(&b).unwrap().phase, Phase::Matched);
+        assert!(
+            hub.clients.get(&b).unwrap().last_unmatch_at.is_none(),
+            "WS-drop expire must not 12s-block rematching the same person"
         );
     }
 }
