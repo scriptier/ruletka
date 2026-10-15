@@ -82,3 +82,40 @@ tasks/admin-queue/reports/
 # Local pre-sleep snapshot metadata (git branches backup/* hold the real restore)
 backups/
 artifacts/connect-scorecard.jsonl
+
+# Token diet. Instruction discovery skips gitignored paths.
+# Search and read skip them only when tools.respect_gitignore = true
+# in ~/.grok/config.toml (default is false). Project .grok/config.toml
+# cannot set that key. Already tracked files stay in git.
+
+# Builds
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+coverage/
+mobile/android/**/build/
+mobile/android/**/.gradle/
+mobile/ios/build/
+mobile/ios/Pods/
+
+# Minified and vendor JS
+**/*.min.js
+**/*.min.css
+**/*.bundle.js
+**/*.js.map
+**/*.css.map
+
+# Images, video dumps, backups, logs, bulky data
+knowledge/raw/**/*.png
+knowledge/raw/**/*.jpg
+knowledge/raw/**/*.jpeg
+knowledge/raw/**/*.webp
+knowledge/raw/**/*.gif
+knowledge/raw/**/*.mp4
+*.bak
+*.orig
+*.dump
+*.sqlite
+*.sqlite3
