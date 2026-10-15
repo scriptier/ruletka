@@ -1,3 +1,3 @@
-0.1.471 vc479 2026-08-23
-2v2 default 2×2 · Stop/refresh leave · Let’s Go instant · extra cameras kick sooner
+0.1.475 vc483 2026-08-24
+Start on diamond · Stop/Next after Start · Friends Chats|Calls|Blocked · ban toast
 https://ruletka.vip/download/ruletka-android-latest.apk

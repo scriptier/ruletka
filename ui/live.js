@@ -445,6 +445,8 @@ let intentionalClose = false;
 let reconnectAttempt = 0;
 let reconnectTimer = 0;
 let pingTimer = 0;
+/** Background-tab ping (page setInterval freezes; Worker is less throttled). */
+let pingWorker = null;
 let statsTimer = 0;
 let micMuted = false;
 let camOff = false;
@@ -11835,7 +11837,12 @@ function submitPostCallReport(opts) {
       friend_code: opts?.code || "",
       reason,
     });
-    send({ type: "report_user", user_id: uid, reason });
+    send({
+      type: "report_user",
+      user_id: uid,
+      reason,
+      screenshot_jpeg_b64: captureReportEvidenceB64(uid),
+    });
     blockUserId(uid, {
       silent: true,
       skipToast: false,
@@ -15403,7 +15410,6 @@ function updateConnFromState() {
     phase.includes("claiming") ||
     !!(wantSearch || inQueue);
   if (searching) {
-    // Center of footer after Start — not header
     setFooterSearchStatus(true, _t("conn.searching"));
     setConnStrip("idle", "", "");
     return;
@@ -17552,6 +17558,9 @@ function isPartyJoinOrHunt() {
  * Hub Spin while still 1v1 → "spun into lobby" + unmatch (tears the pair).
  */
 function shouldSkipHuntLobbySpin() {
+  // Idle Start must always spin. Leftover party_browse / yourRole after Stop
+  // was swallowing Start → Looking UI, no hub enqueue (PC never matched phone).
+  if (!matched) return false;
   try {
     if (peerPcs.size < 1) return false;
   } catch (_) {
@@ -21355,6 +21364,9 @@ function setPool({ online, waiting, offers, room }) {
   updateEmptyShareVisibility();
   if ((inQueue || wantSearch) && !matched) {
     setSearchingEmptyCopy();
+    try {
+      updateConnFromState();
+    } catch (_) {}
   }
 }
 
@@ -21419,12 +21431,20 @@ function updatePoolHint() {
   hint.hidden = !hint.textContent;
 }
 
-/** Empty-card online chip removed for cleaner UI (pool stays in header). */
+/** Lobby counts still update Settings; idle empty-tile chip stays off. */
 function updateEmptySharePresence() {
   const chip = $("empty-online-chip");
-  if (chip) chip.hidden = true;
-  const n = Number(lastOnlineCount) || 0;
-  document.documentElement.classList.toggle("has-live-people", n > 1);
+  const onEl = $("empty-online-n");
+  const waitEl = $("empty-waiting-n");
+  const online = Math.max(0, Number(lastOnlineCount) || 0);
+  const waiting = Math.max(0, Number(lastWaitingCount) || 0);
+  if (onEl) onEl.textContent = String(online);
+  if (waitEl) waitEl.textContent = String(waiting);
+  if (chip) {
+    chip.hidden = true;
+    chip.setAttribute("hidden", "");
+  }
+  document.documentElement.classList.toggle("has-live-people", online > 1);
 }
 
 /** Clipboard only (never opens share sheet). */
@@ -24186,11 +24206,30 @@ function startMatchFromIdle() {
   );
   startSession({ forceMedia: true });
   showStartButton(false);
-  // Brand loop behind “Looking for a partner…” (user gesture from Start click)
   showPartnerEmptyWithBrand({ searching: true });
   setSearchingEmptyCopy();
-  // Reuse Spin path
-  $("btn-spin")?.click();
+  matched = false;
+  hubSignalOrphanCall = false;
+  inFriendCall = false;
+  friendCallAcceptGuardUntil = 0;
+  matchMode = "solo";
+  yourRole = "solo";
+  trioBrowse = false;
+  findThirdPending = "";
+  wantSearch = true;
+  inQueue = false;
+  const kickSpin = () => {
+    try {
+      if (!wantSearch || matched) return;
+      sendSpinRaw();
+    } catch (_) {}
+  };
+  kickSpin();
+  // Chrome: WS often still CONNECTING; leftover skip used to eat send(spin).
+  [200, 500, 1000, 2000, 4000].forEach((ms) => setTimeout(kickSpin, ms));
+  try {
+    updateConnFromState();
+  } catch (_) {}
 }
 
 /**
@@ -24317,14 +24356,11 @@ function send(obj) {
       } catch (_) {}
       return false;
     }
-    // Accept rematch race: leftover Spin ends a friend call that just started.
-    if (
-      inFriendCall ||
-      matchMode === "friend" ||
-      Date.now() < friendCallAcceptGuardUntil
-    ) {
+    // Only skip during a *live* friend call. Leftover inFriendCall on Chrome
+    // was dropping idle Start spin (Firefox clean profile still enqueued).
+    if (matched && (inFriendCall || matchMode === "friend")) {
       try {
-        log("skip spin — friend call");
+        log("skip spin — live friend call");
       } catch (_) {}
       return false;
     }
@@ -24481,6 +24517,63 @@ function syncRoomInputs(value) {
 function spinPayload() {
   const room = currentRoom();
   return { type: "spin", room };
+}
+
+/** Idle Start: write spin on the socket. Bypasses leftover friend/hunt skip
+ *  that was dropping Chrome Start while Firefox still enqueued. */
+function isMatchBanMessage(s) {
+  return /restricted|banned from matching|cannot match right now|cannot match/i.test(
+    String(s || "")
+  );
+}
+
+/** Hub refused Spin because this identity/IP is match-banned. */
+function applyMatchBannedUi(detail) {
+  wantSearch = false;
+  inQueue = false;
+  try {
+    setFooterSearchStatus(false);
+  } catch (_) {}
+  showStartButton(true);
+  try {
+    setPhase("idle");
+  } catch (_) {}
+  const title =
+    _t("status.matchBannedTitle") || "You're banned from matching";
+  const body =
+    _t("status.matchBannedBody") ||
+    "This account can't search until a moderator unbans you.";
+  setStatus(title);
+  try {
+    showStarFeedbackToast("gift", {
+      title,
+      body: detail ? `${body}\n${detail}` : body,
+    });
+  } catch (_) {}
+  try {
+    syncMatchChrome();
+  } catch (_) {}
+  try {
+    log("match banned — search blocked");
+  } catch (_) {}
+}
+
+function sendSpinRaw() {
+  // User tapping Start (wantSearch) must enqueue even if orphan-keep is set.
+  if (matched && !wantSearch) return false;
+  if (hubSignalOrphanCall && !wantSearch) return false;
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    try {
+      if (typeof connect === "function") connect(true);
+    } catch (_) {}
+    return false;
+  }
+  try {
+    ws.send(JSON.stringify(spinPayload()));
+    return true;
+  } catch (_) {
+    return false;
+  }
 }
 
 function nextPayload() {
@@ -27703,7 +27796,12 @@ async function handleNsfwDetected(scores) {
   const uid = primaryPartnerUserId;
   if (uid) {
     // AI-assisted hub report (needs more unique signals than pure human "explicit")
-    send({ type: "report_user", user_id: uid, reason: "explicit_ai" });
+    send({
+      type: "report_user",
+      user_id: uid,
+      reason: "explicit_ai",
+      screenshot_jpeg_b64: captureReportEvidenceB64(uid),
+    });
     saveLocalReport({
       t: Date.now(),
       user_id: uid,
@@ -32583,13 +32681,36 @@ function toggleMessages(tab) {
   else openMessages(tab);
 }
 
+function sendHubPing() {
+  try {
+    if (isWsOpen()) send({ type: "ping" });
+  } catch (_) {}
+}
 function startPing() {
   stopPing();
-  pingTimer = setInterval(() => send({ type: "ping" }), 15000);
+  sendHubPing();
+  pingTimer = setInterval(sendHubPing, 10000);
+  try {
+    if (typeof Worker === "undefined") return;
+    const blob = new Blob(
+      ["setInterval(function(){ postMessage('p'); }, 10000);"],
+      { type: "text/javascript" }
+    );
+    const url = URL.createObjectURL(blob);
+    pingWorker = new Worker(url);
+    URL.revokeObjectURL(url);
+    pingWorker.onmessage = sendHubPing;
+  } catch (_) {}
 }
 function stopPing() {
   if (pingTimer) clearInterval(pingTimer);
   pingTimer = 0;
+  if (pingWorker) {
+    try {
+      pingWorker.terminate();
+    } catch (_) {}
+    pingWorker = null;
+  }
 }
 
 const MAX_RECONNECT = 8;
@@ -32904,6 +33025,9 @@ function watchOrphanCallMedia() {
 
 function tryImmediateSiblingReconnect() {
   if (reconnectAttempt !== 0) return false;
+  // Mid-call WS blip: stay on this hub. vip↔me swap was a new client_id
+  // that unmatched the partner while ICE was still up (RU Saratov 2026-08-24).
+  if (matched) return false;
   if (
     typeof RuletHub === "undefined" ||
     typeof RuletHub.trySiblingFailover !== "function"
@@ -32945,7 +33069,15 @@ function scheduleReconnect() {
     return;
   }
   const attempt = reconnectAttempt;
-  const delay = Math.min(12000, 600 * Math.pow(1.7, reconnectAttempt++));
+  const inCall =
+    !!matched ||
+    !!hubSignalOrphanCall ||
+    (typeof peerPcs !== "undefined" && peerPcs.size > 0);
+  const delay =
+    inCall && reconnectAttempt === 0
+      ? 0
+      : Math.min(12000, 600 * Math.pow(1.7, reconnectAttempt));
+  reconnectAttempt++;
   const secs = Math.round(delay / 100) / 10;
   setStatus(_t("log.reconnectIn", { s: secs }));
   setConnStrip(
@@ -34227,6 +34359,9 @@ function handleServer(msg) {
       });
       const detailRaw = msg.detail || "";
       const detailRu = _srv(detailRaw);
+      if (isMatchBanMessage(detailRaw) || isMatchBanMessage(detailRu)) {
+        applyMatchBannedUi(detailRu || detailRaw);
+      }
       if (pendingNextTear) {
         const refused =
           /wait .* before Next|media settling|please stay active/i.test(
@@ -34736,7 +34871,11 @@ function handleServer(msg) {
           } catch (_) {}
         }
         log(_t("log.error", { e: _srv(em) || em }));
-        setStatus(_srv(em) || em);
+        if (isMatchBanMessage(em)) {
+          applyMatchBannedUi(_srv(em) || em);
+        } else {
+          setStatus(_srv(em) || em);
+        }
       }
       break;
     default:
@@ -40491,7 +40630,6 @@ function renderFriendsList() {
         _t("friends.blockedEmpty") || "No blocked users"
       )}</p>`;
     } else {
-      // Names from local history (device only); thumbs from local snapshots
       let histByUid = {};
       try {
         for (const h of loadHistory()) {
@@ -40501,45 +40639,42 @@ function renderFriendsList() {
         histByUid = {};
       }
       bl.innerHTML =
-        `<div class="hint-inline"><strong>${escapeHtml(
-          _t("friends.blockedTitle") || "Blocked"
-        )}</strong>
-          <span class="muted"> · ${escapeHtml(
-            _t("friends.blockedThumbHint") ||
-              "Snapshots stay on this device (blurred)"
-          )}</span></div>` +
+        `<p class="hint-inline muted blocked-grid-hint">${escapeHtml(
+          _t("friends.blockedThumbHint") ||
+            "Snapshots stay on this device. Tap to unblock."
+        )}</p><div class="blocked-grid">` +
         blockedCache
           .map((uid) => {
             const h = histByUid[uid];
             const display =
               (h && (h.name || h.short_id || h.friend_code)) ||
-              `${String(uid).slice(0, 12)}…`;
+              `${String(uid).slice(0, 8)}…`;
             const thumb = getHistoryThumb(uid);
             const letter =
               String(display || "?").trim().charAt(0).toUpperCase() || "?";
             const avHtml = thumb
-              ? `<span class="friend-avatar hist-thumb hist-thumb-blurred" title="${escapeAttr(
-                  _t("friends.blockedThumbHint") ||
-                    "Snapshot on this device (blurred)"
-                )}"><img src="${escapeAttr(
+              ? `<span class="friend-avatar hist-thumb hist-thumb-blurred"><img src="${escapeAttr(
                   thumb
                 )}" alt="" loading="lazy" decoding="async" /></span>`
               : `<span class="friend-avatar hist-thumb hist-thumb-blurred letter" aria-hidden="true">${escapeHtml(
                   letter
                 )}</span>`;
-            return `<div class="friend-row is-blocked">
-          ${avHtml}
-          <div class="meta"><strong>${escapeHtml(display)}</strong>
-            <span>${escapeHtml(_t("friends.blocked") || "Blocked")}</span></div>
-          <button type="button" class="pill tight btn-unblock" data-uid="${escapeAttr(
-            uid
-          )}">${escapeHtml(_t("friends.unblock") || "Unblock")}</button>
-        </div>`;
+            return `<button type="button" class="blocked-tile btn-unblock" data-uid="${escapeAttr(
+              uid
+            )}" title="${escapeAttr(
+              (_t("friends.unblock") || "Unblock") + " " + display
+            )}">${avHtml}<span class="blocked-tile-name">${escapeHtml(
+              display
+            )}</span></button>`;
           })
-          .join("");
+          .join("") +
+        `</div>`;
       bl.querySelectorAll(".btn-unblock").forEach((btn) => {
         btn.addEventListener("click", () => {
-          send({ type: "unblock_user", user_id: btn.getAttribute("data-uid") });
+          const uid = btn.getAttribute("data-uid");
+          if (!uid) return;
+          if (!confirm(_t("friends.unblock") || "Unblock")) return;
+          send({ type: "unblock_user", user_id: uid });
         });
       });
     }
@@ -40605,6 +40740,9 @@ function blockUserId(uid, opts = {}) {
     );
     return false;
   }
+  try {
+    capturePartnerHistoryThumb(uid, { force: true });
+  } catch (_) {}
   // Optimistic local cache so History / Blocked tab update immediately
   try {
     if (!blockedCache.includes(uid)) {
@@ -40808,6 +40946,42 @@ function capturePartnerHistoryThumb(userId, opts = {}) {
   return "";
 }
 
+/** JPEG base64 (no data-url prefix) for hub report evidence. */
+function captureReportEvidenceB64(userId) {
+  const uid = String(userId || "").trim();
+  try {
+    capturePartnerHistoryThumb(uid, { force: true });
+  } catch (_) {}
+  const dataUrl =
+    (typeof getHistoryThumb === "function" && uid
+      ? getHistoryThumb(uid)
+      : "") || "";
+  if (dataUrl.startsWith("data:image/jpeg")) {
+    const b64 = dataUrl.split(",")[1] || "";
+    if (b64.length > 24 && b64.length < 100000) return b64;
+  }
+  try {
+    const video = $("remote");
+    if (!video || video.readyState < 2) return "";
+    const w = video.videoWidth || 0;
+    const h = video.videoHeight || 0;
+    if (w < 32 || h < 32) return "";
+    const side = Math.floor(Math.min(w, h) * 0.9);
+    const sx = Math.floor((w - side) / 2);
+    const sy = Math.max(0, Math.floor((h - side) / 2 - side * 0.08));
+    const canvas = document.createElement("canvas");
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return "";
+    ctx.drawImage(video, sx, sy, side, side, 0, 0, 128, 128);
+    const data = canvas.toDataURL("image/jpeg", 0.55);
+    const b64 = (data.split(",")[1] || "").trim();
+    if (b64.length > 24 && b64.length < 100000) return b64;
+  } catch (_) {}
+  return "";
+}
+
 /** Periodic grab while live so history has a face crop (device only). */
 let historyThumbTimer = 0;
 function clearHistoryThumbWatch() {
@@ -40916,7 +41090,12 @@ function banLastStrangersFromHistory(n = 1) {
         friend_code: h.friend_code || "",
         reason: "explicit",
       });
-      send({ type: "report_user", user_id: uid, reason: "explicit" });
+      send({
+        type: "report_user",
+        user_id: uid,
+        reason: "explicit",
+        screenshot_jpeg_b64: captureReportEvidenceB64(uid),
+      });
       blockUserId(uid, {
         silent: true,
         skipToast: true,
@@ -41213,12 +41392,7 @@ let friendsSheetTab = "list";
 function setFriendsSheetTab(tab) {
   const next =
     tab === "history" || tab === "blocked" || tab === "list" ? tab : "list";
-  // Blocked tab only when there are blocks
-  if (next === "blocked" && !(blockedCache && blockedCache.length)) {
-    friendsSheetTab = "list";
-  } else {
-    friendsSheetTab = next;
-  }
+  friendsSheetTab = next;
   const tabs = document.querySelectorAll("[data-friends-tab]");
   tabs.forEach((btn) => {
     const on = btn.getAttribute("data-friends-tab") === friendsSheetTab;
@@ -41261,7 +41435,7 @@ function syncFriendsTabCounts() {
   setCount("friends-tab-count-history", nHist);
   setCount("friends-tab-count-blocked", nBlock);
   const blockedTab = $("friends-tab-blocked");
-  if (blockedTab) blockedTab.hidden = nBlock === 0;
+  if (blockedTab) blockedTab.hidden = false;
 }
 
 function wireFriendsTabsOnce() {
@@ -41423,42 +41597,35 @@ function renderHistoryList() {
           .join(" · ");
         const isBlocked =
           !!(h.user_id && (blockedCache || []).includes(h.user_id));
-        // Call / Message only for mutual friends. Past strangers: Add friend or Block — never ring.
+        // Friends: Message only (no block/report). Strangers: Add · Block · Report.
         let actions = "";
-        if (isFriend && onlineFriend) {
-          actions = `<button type="button" class="pill tight accent btn-hist-call hist-call-primary" data-uid="${escapeAttr(
-            h.user_id
-          )}">${escapeHtml(
-            _t("friends.call") || "Call"
-          )}</button>`;
-        } else if (isFriend && h.user_id) {
-          // Offline friend: Message + muted wait hint (ring when they come online)
-          actions = `<button type="button" class="pill tight ghost btn-hist-msg" data-uid="${escapeAttr(
+        if (isFriend && h.user_id) {
+          actions = `<button type="button" class="pill tight accent btn-hist-msg" data-uid="${escapeAttr(
             h.user_id
           )}" data-name="${escapeAttr(display)}">${escapeHtml(
             _t("friends.message") || "Message"
-          )}</button><button type="button" class="pill tight ghost btn-hist-wait" data-uid="${escapeAttr(
-            h.user_id
-          )}" title="${escapeAttr(
-            _t("friends.callWhenOnline") || "Call when they come online"
-          )}">${escapeHtml(
-            _t("friends.offline") || "Offline"
           )}</button>`;
-        } else if (h.friend_code && !isFriend && !isBlocked) {
-          actions = `<button type="button" class="pill tight accent btn-hist-add" data-code="${escapeAttr(
-            h.friend_code
-          )}">${escapeHtml(
-            _t("friends.addFromHistory") || "Add friend"
-          )}</button>`;
-        }
-        // Block past partners (hub stores block; matchmaking will never pair you again)
-        if (h.user_id && !isBlocked) {
-          actions += `<button type="button" class="pill tight danger btn-hist-block" data-uid="${escapeAttr(
-            h.user_id
-          )}" title="${escapeAttr(
-            _t("friends.blockNeverAgain") ||
-              "You will not match them again"
-          )}">${escapeHtml(_t("friends.block") || "Block")}</button>`;
+        } else if (!isBlocked) {
+          if (h.friend_code) {
+            actions = `<button type="button" class="pill tight accent btn-hist-add" data-code="${escapeAttr(
+              h.friend_code
+            )}">${escapeHtml(
+              _t("friends.addFromHistory") || "Add"
+            )}</button>`;
+          }
+          if (h.user_id) {
+            actions += `<button type="button" class="pill tight danger btn-hist-block" data-uid="${escapeAttr(
+              h.user_id
+            )}" title="${escapeAttr(
+              _t("friends.blockNeverAgain") ||
+                "You will not match them again"
+            )}">${escapeHtml(_t("friends.block") || "Block")}</button>`;
+            actions += `<button type="button" class="pill tight danger btn-hist-report" data-uid="${escapeAttr(
+              h.user_id
+            )}" data-name="${escapeAttr(display)}">${escapeHtml(
+              _t("friends.report") || "Report"
+            )}</button>`;
+          }
         } else if (h.user_id && isBlocked) {
           actions += `<span class="pill tight ghost hist-blocked-label">${escapeHtml(
             _t("friends.alreadyBlocked") || "Blocked"
@@ -41539,6 +41706,19 @@ function renderHistoryList() {
       if (!code) return;
       trackEvent("history_add_friend");
       requestAddFriend(code);
+    });
+  });
+  el.querySelectorAll(".btn-hist-report").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const uid = (btn.getAttribute("data-uid") || "").trim();
+      const name = btn.getAttribute("data-name") || "";
+      if (!uid) return;
+      const toast = document.createElement("div");
+      toast.className = "post-call-toast";
+      document.body.appendChild(toast);
+      showPostCallReportReasons(toast, { uid, name });
     });
   });
   el.querySelectorAll(".btn-hist-block").forEach((btn) => {
@@ -44414,6 +44594,9 @@ function closePartnerMenu() {
   const menu = $("partner-menu");
   const bd = $("partner-menu-backdrop");
   releaseSheetFocusTrap(menu);
+  try {
+    document.documentElement.classList.remove("partner-menu-open");
+  } catch (_) {}
   if (menu) {
     menu.hidden = true;
     menu.setAttribute("hidden", "");
@@ -44691,28 +44874,42 @@ function openPartnerMenu(opts) {
     else menuMuteIco.setAttribute("hidden", "");
   }
 
+  const already = isPartnerAlreadyFriend(
+    targetUid,
+    partnerMenuTarget?.friend_code || lastMatchMeta?.friend_code
+  );
+  const pending = isPartnerRequestPending(
+    targetUid,
+    partnerMenuTarget?.friend_code || lastMatchMeta?.friend_code
+  );
+  const isFriendCall = matchMode === "friend" || inFriendCall;
+  const isFriend = already || isFriendCall;
   const friendBtn = $("btn-partner-friend");
   if (friendBtn) {
-    const already = isPartnerAlreadyFriend(
-      targetUid,
-      partnerMenuTarget?.friend_code || lastMatchMeta?.friend_code
-    );
-    const pending = isPartnerRequestPending(
-      targetUid,
-      partnerMenuTarget?.friend_code || lastMatchMeta?.friend_code
-    );
-    const isFriendCall = matchMode === "friend" || inFriendCall;
-    friendBtn.disabled = already || pending || isFriendCall;
-    const lbl = friendBtn.querySelector("[data-i18n], span:not(.pm-ico)") || friendBtn;
-    // Keep icon; set label via last text span
+    friendBtn.hidden = isFriend;
+    friendBtn.disabled = pending || isFriend;
     const textSpan = [...friendBtn.querySelectorAll("span")].find(
       (s) => !s.classList.contains("pm-ico")
     );
     if (textSpan) {
-      if (already || isFriendCall) textSpan.textContent = _t("partnerMenu.alreadyFriend");
-      else if (pending) textSpan.textContent = _t("partnerMenu.pendingFriend");
+      if (pending) textSpan.textContent = _t("partnerMenu.pendingFriend");
       else textSpan.textContent = _t("partnerMenu.addFriend");
     }
+  }
+  const msgBtn = $("btn-partner-message");
+  if (msgBtn) {
+    msgBtn.hidden = !isFriend;
+    if (isFriend) msgBtn.removeAttribute("hidden");
+  }
+  const blockBtn = $("btn-partner-block");
+  if (blockBtn) {
+    blockBtn.hidden = isFriend;
+    if (!isFriend) blockBtn.removeAttribute("hidden");
+  }
+  const reportBtn = $("btn-partner-report");
+  if (reportBtn) {
+    reportBtn.hidden = isFriend;
+    if (!isFriend) reportBtn.removeAttribute("hidden");
   }
 
   // Find 3rd: stranger 1v1 or friend call (same as dock)
@@ -44866,6 +45063,9 @@ function openPartnerMenu(opts) {
     bd.hidden = false;
     bd.removeAttribute("hidden");
   }
+  try {
+    document.documentElement.classList.add("partner-menu-open");
+  } catch (_) {}
   bindSheetFocusTrap(menu);
   // Focus close for accessibility
   setTimeout(() => $("btn-partner-menu-close")?.focus?.(), 30);
@@ -44984,6 +45184,7 @@ function reportPartner(reason) {
     type: "report_user",
     user_id: uid,
     reason: entry.reason,
+    screenshot_jpeg_b64: captureReportEvidenceB64(uid),
   });
   // Report · Next: block + requeue + never rematch certainty
   const msg =
@@ -45154,6 +45355,14 @@ on("btn-grid-2x2", "click", (e) => {
 document.addEventListener("enterpictureinpicture", () => updatePipButton());
 document.addEventListener("leavepictureinpicture", () => updatePipButton());
 on("btn-partner-friend", "click", () => invitePartnerFriend());
+on("btn-partner-message", "click", () => {
+  const uid = partnerMenuTargetUserId() || primaryPartnerUserId;
+  closePartnerMenu();
+  if (!uid) return;
+  openFriendChat(uid, {
+    name: partnerMenuTarget?.name || lastMatchMeta?.name || "",
+  });
+});
 on("btn-partner-shooting-star", "click", () =>
   spendEffectOnPartner("shooting_star")
 );
@@ -46177,18 +46386,8 @@ on("btn-next", "click", () => {
     } catch (_) {}
     return;
   }
-  // Fresh match — hub refuses Next for MATCH_SETTLE_SECS (12s).
-  if (matched && Date.now() < nextGraceUntil) {
-    const left = Math.max(1, Math.ceil((nextGraceUntil - Date.now()) / 1000));
-    setStatus(
-      _t("conn.nextGrace") ||
-        `Just matched — wait ${left}s before Next so video can connect`
-    );
-    try {
-      navigator.vibrate?.(12);
-    } catch (_) {}
-    return;
-  }
+  // Next must always send type "next" (not spin). Ghost matches (no answer)
+  // used to look like a dead Next because we swallowed the click for 12s.
   try {
     maybeAlmostGiftUnlockOnLeave("next");
   } catch (_) {}
@@ -46328,6 +46527,12 @@ function doStopMatchmaking() {
 }
 on("btn-stop", "click", () => doStopMatchmaking());
 on("btn-start-match", "click", () => startMatchFromIdle());
+on("btn-start-match", "pointerdown", (e) => {
+  // Chrome: camera-permission prompt can swallow the following click.
+  if (e && e.button != null && e.button !== 0) return;
+  if (inQueue || wantSearch || matched) return;
+  startMatchFromIdle();
+});
 
 function onRoomInput(e) {
   const raw = (e?.target?.value != null ? e.target.value : currentRoom()).trim();
@@ -47109,44 +47314,9 @@ function hideRuReachMeHint() {
   } catch (_) {}
 }
 
-/**
- * RU UI on ruletka.vip: non-blocking hint to open ruletka.me (no auto-redirect —
- * that would drop WSS/session). Hidden on .me and non-ru langs.
- */
+/** .me and .vip share one DO IP; do not show the old RU VPN banner. */
 function maybeShowRuReachMeHint() {
-  try {
-    if (
-      isRuletkaMeHost() ||
-      !isRuletkaVipHost() ||
-      !isRuUiLang() ||
-      reachMeHintDismissed
-    ) {
-      hideRuReachMeHint();
-      return;
-    }
-    const href = ruReachMeLiveUrl();
-    const msg = reachUseMeNoVpnText();
-    let tip = $("reach-me-hint");
-    if (!tip) {
-      tip = document.createElement("div");
-      tip.id = "reach-me-hint";
-      tip.className = "weak-conn-tip unblur-coach-tip reach-me-hint";
-      tip.setAttribute("role", "status");
-      tip.style.pointerEvents = "auto";
-      document.body.appendChild(tip);
-    }
-    tip.innerHTML = `<a href="${escapeAttr(
-      href
-    )}" data-reach-me-link style="color:inherit;text-decoration:underline">${escapeHtml(
-      msg
-    )}</a><button type="button" class="pill tight ghost" id="btn-reach-me-dismiss" aria-label="OK">×</button>`;
-    $("btn-reach-me-dismiss")?.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      reachMeHintDismissed = true;
-      hideRuReachMeHint();
-    });
-  } catch (_) {}
+  hideRuReachMeHint();
 }
 
 window.addEventListener("nextface:lang", () => {
@@ -47562,6 +47732,7 @@ window.addEventListener("offline", () => {
 });
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible") {
+    sendHubPing();
     maybeAutoPipOnHide();
     // Stop looping brand video while tab is backgrounded
     syncEmptyBrandMedia(false);

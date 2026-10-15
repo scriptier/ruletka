@@ -219,7 +219,7 @@
     <p class="hint">
       Pair phone + browser while this page is open. Auto-refresh every 5s.
       CLI (hub + coturn): <code>./scripts/connect-monitor.sh</code>
-      · API: <code>GET /v1/admin/connect_live</code>
+      · API: <code>GET /v1/admin/connect_live</code> with <code>X-Admin-Token</code> (browser — do not send Bearer; it overwrites Caddy Basic)
     </p>
     <div class="err" id="err" hidden></div>
 
@@ -277,18 +277,29 @@
         else localStorage.removeItem(KEY);
       } catch (_) {}
     }
+    function stripTokenQuery() {
+      try {
+        const u = new URL(location.href);
+        if (!u.searchParams.has("token")) return;
+        u.searchParams.delete("token");
+        const q = u.searchParams.toString();
+        history.replaceState({}, "", u.pathname + (q ? "?" + q : "") + u.hash);
+      } catch (_) {}
+    }
     function loadSaved() {
       try {
         const t = localStorage.getItem(KEY) || "";
         if (t) $("token").value = t;
         const q = new URLSearchParams(location.search).get("token");
         if (q) $("token").value = q;
+        stripTokenQuery();
       } catch (_) {}
     }
     function headers() {
       const t = token();
       return {
-        Authorization: "Bearer " + t,
+        // Do not set Authorization: Bearer — that overwrites Caddy HTTP Basic
+        // and the browser pops the sign-in dialog again on Load.
         "X-Admin-Token": t,
         "Content-Type": "application/json",
       };
@@ -331,8 +342,12 @@
         const r = await fetch("/v1/admin/connect_live", {
           headers: headers(),
           cache: "no-store",
+          credentials: "same-origin",
         });
-        if (r.status === 401) throw new Error("Unauthorized — check admin token");
+        if (r.status === 401)
+          throw new Error(
+            "401 — admin token rejected. Caddy Basic can still be ok. Paste ROULETTE_ADMIN_TOKEN (X-Admin-Token). Do not send Bearer."
+          );
         const data = await r.json();
         if (!r.ok) throw new Error(data.error || r.statusText || "failed");
         const s = data.summary || {};
@@ -414,6 +429,12 @@
       $("token").value = "";
       saveToken("");
       showErr("");
+      if (timer) {
+        clearInterval(timer);
+        timer = 0;
+      }
+      setVerdict("IDLE");
+      if ($("reason")) $("reason").textContent = "Token cleared — poll stopped";
     });
     $("auto").addEventListener("change", () => startPoll());
     $("token").addEventListener("keydown", (e) => {

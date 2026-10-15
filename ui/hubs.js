@@ -127,6 +127,46 @@
     }
   }
 
+  /** Same FRA seed, other TLD: ruletka.vip ↔ ruletka.me (www stripped). */
+  function siblingSeed(base) {
+    const b = normalizeBase(base);
+    if (!b) return "";
+    try {
+      const u = new URL(b);
+      let host = (u.hostname || "").toLowerCase();
+      if (host.startsWith("www.")) host = host.slice(4);
+      let other = "";
+      if (host === "ruletka.vip") other = "ruletka.me";
+      else if (host === "ruletka.me") other = "ruletka.vip";
+      else return "";
+      u.hostname = other;
+      return u.origin;
+    } catch {
+      return "";
+    }
+  }
+
+  let lastSiblingFailoverAt = 0;
+  const SIBLING_FAILOVER_MS = 20_000;
+
+  /** Switch vip↔me once per 20s when auto-failover is on. Same hub, other SNI. */
+  function trySiblingFailover() {
+    if (!autoFailoverEnabled()) return false;
+    const cur = base();
+    const sib = siblingSeed(cur);
+    if (!sib || sib === cur) return false;
+    const now = Date.now();
+    if (
+      lastSiblingFailoverAt &&
+      now - lastSiblingFailoverAt < SIBLING_FAILOVER_MS
+    ) {
+      return false;
+    }
+    lastSiblingFailoverAt = now;
+    setBase(sib, { persist: true });
+    return true;
+  }
+
   async function fetchJson(url, ms = 4000) {
     const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
     const t = ctrl ? setTimeout(() => ctrl.abort(), ms) : 0;
@@ -344,6 +384,8 @@
     PREF_KEY,
     base,
     setBase,
+    siblingSeed,
+    trySiblingFailover,
     clearPreference,
     wsUrlFor,
     resolveBaseSync,

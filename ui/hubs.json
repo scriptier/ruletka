@@ -1,9 +1,7 @@
 {
   "protocol": "ruletka-directory/1",
   "updated": "2026-07-31",
-  "repository": "https://github.com/scriptier/ruletka",
-  "license": "LGPL-2.1-only",
-  "notes": "Public bootstrap list. Anyone can run a hub; this file is only a seed. Prefer same-origin when you open a hub's own URL. ruletka.me and ruletka.vip are alternate DNS names for the seed operator (failover if one TLD/DNS path fails). Add community hubs via PRs or ROULETTE_DIRECTORY_HUBS on your bridge.",
+  "notes": "Public bootstrap list for the seed operator. Prefer same-origin when you open a hub's own URL. ruletka.me and ruletka.vip are alternate DNS names (failover if one TLD/DNS path fails).",
   "hubs": [
     {
       "base": "https://ruletka.vip",

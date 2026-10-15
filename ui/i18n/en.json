@@ -427,6 +427,8 @@
   "friends.sentToast": "Request sent — waiting for them to Accept",
   "friends.shareInvite": "Share",
   "friends.tabBlocked": "Blocked",
+  "friends.report": "Report",
+  "friends.blockedThumbHint": "Snapshots stay on this device. Tap to unblock.",
   "friends.tabHistory": "Calls",
   "friends.tabCalls": "Calls",
   "friends.searchChats": "Search",
@@ -1090,7 +1092,7 @@
   "page.updates.uStarFound5": "<strong>Soft match rank</strong> — Trusted/Senior lightly preferred when the lobby is busy.",
   "page.updates.uStarFound6": "<strong>Never for sale</strong> — stars stay hub-side; profile export never includes balances.",
   "page.updates.uStarFoundTitle": "Stars foundation",
-  "page.updates.updated": "Last updated: 2026-08-23 · 2v2 2×2 · Android 0.1.471",
+  "page.updates.updated": "Last updated: 2026-08-24 · Android 0.1.475",
   "partnerMenu.addFriend": "Add friend",
   "partnerMenu.alreadyFriend": "Already friends",
   "partnerMenu.back": "Back",
@@ -1572,6 +1574,8 @@
   "srv.reportRate": "too many reports — try again later",
   "srv.reportRestricted": "report received — user restricted",
   "srv.restricted": "temporarily restricted due to reports",
+  "status.matchBannedTitle": "You're banned from matching",
+  "status.matchBannedBody": "This account can't search until a moderator unbans you.",
   "srv.serverFull": "server full",
   "srv.signalLarge": "signal too large",
   "srv.spun": "spun into lobby",
@@ -2085,5 +2089,9 @@
   "page.updates.uAug232": "<strong>Stop / refresh</strong> — Stop or closing the tab tells the others you left. On Android, partner Stop goes to Next instead of a frozen last frame.",
   "page.updates.uAug233": "<strong>Let’s Go</strong> — Find-3rd invite taps immediately (was eating the first press).",
   "page.updates.uAug234": "<strong>3-way</strong> — extra cameras kick sooner; gift effects stay on the person you gifted. Linking can still take a few seconds — no “fixed connect” claim.",
-  "page.updates.uAug235": "<strong>Android 0.1.471</strong> — same 2v2 2×2, Stop→Next, Let’s Go. Sideload from Downloads. Play listing is a separate AAB."
+  "page.updates.uAug235": "<strong>Android 0.1.471</strong> — same 2v2 2×2, Stop→Next, Let’s Go. Sideload from Downloads. Play listing is a separate AAB.",
+  "page.updates.uAug24Title": "Android 0.1.475 · Start diamond · Friends Blocked",
+  "page.updates.uAug241": "<strong>Start</strong> — sits on the gold diamond between ruletka.vip and Chat Roulette. Stop and Next stay hidden until you press Start.",
+  "page.updates.uAug242": "<strong>Friends</strong> — Chats · Calls · Blocked. Calls: Add / Block / Report. Friends: Message. Blocked: on-device face thumbs, tap to unblock.",
+  "page.updates.uAug243": "<strong>Android 0.1.475</strong> — sideload from Downloads. Play listing is a separate AAB you upload in Console."
 }
