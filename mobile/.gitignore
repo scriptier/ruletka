@@ -8,8 +8,8 @@ web-build/
 *.key
 *.mobileprovision
 *.orig.*
-ios/
-android/
+/ios/
+/android/
 .env
 .env.*
 !.env.example

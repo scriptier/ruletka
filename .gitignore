@@ -68,6 +68,9 @@ mobile/node_modules/
 # i18n machine-translation cache
 ui/i18n/.mt-cache/
 
+# Generated session brief (SessionStart / PostCompact)
+.grok/session-card.txt
+
 # Overnight admin-agent isolation + runtime noise
 .admin-worktrees/
 scripts/admin-agent/logs/
