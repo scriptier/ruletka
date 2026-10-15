@@ -7,6 +7,7 @@ import { memo, useEffect, useMemo, useRef } from "react";
 import {
   Animated,
   Easing,
+  Image,
   Platform,
   StyleSheet,
   Text,
@@ -17,17 +18,20 @@ import { GIFTS, type GiftKind } from "./gifts";
 
 /** Hold times aligned with web STAR_GIFT_SECS (ms). */
 export const GIFT_FX_HOLD_MS: Record<string, number> = {
-  heart: 2200,
-  // Hub bars duration 15s — keep full jail visual for sender + target
+  heart: 3000,
   bars: 15500,
-  flowers: 2800,
-  balloons: 3800,
-  confetti: 4000,
-  // Matches hub 5s duration (keep UI a beat longer for the handoff)
+  fence: 15000,
+  flowers: 15000,
+  balloons: 15000,
+  confetti: 15000,
+  shooting_star: 15000,
+  snow: 15000,
+  spotlight: 15000,
+  crown: 12000,
+  disco: 12000,
   pass_mic: 5200,
-  // Longer hold so multi-burst fireworks + spark trails finish on screen
-  fireworks: 5200,
-  please_stay: 3500,
+  fireworks: 20000,
+  please_stay: 15000,
 };
 
 export function giftFxHoldMs(effect: string | null | undefined): number {
@@ -158,25 +162,80 @@ function confettiSpecs(seed: number): ConfettiSpec[] {
     "circle",
     "ribbon",
   ];
-  const n = 72;
-  return Array.from({ length: n }, (_, i) => ({
-    key: `c-${i}`,
-    left: 1 + ((seedN(seed, i + 1) * 1.25) % 96),
-    size: 5 + (i % 9) * 1.55,
-    color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
-    delay: (i % 16) * 65,
-    // Slightly longer fall so denser field stays visible
-    dur: 2300 + (i % 9) * 280,
-    shape: shapes[i % shapes.length],
-    rot: (i * 47) % 360,
-  }));
+  const n = 96;
+  return Array.from({ length: n }, (_, i) => {
+    const near = i % 3 !== 0;
+    let left = 1 + ((seedN(seed, i + 1) * 1.25) % 96);
+    if (near && left > 26 && left < 74) {
+      left = i % 2 === 0 ? 4 + (i % 20) : 78 + (i % 18);
+    }
+    return {
+      key: `c-${i}`,
+      left,
+      size: 5 + (i % 9) * 1.55,
+      color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+      delay: (i % 16) * 65,
+      dur: 2300 + (i % 9) * 280,
+      shape: shapes[i % shapes.length],
+      rot: (i * 47) % 360,
+    };
+  });
+}
+
+type SnowBand = "far" | "mid" | "near";
+type SnowShape = "dot" | "needle" | "plate" | "dendrite";
+type SnowSpec = {
+  key: string;
+  left: number;
+  size: number;
+  delay: number;
+  dur: number;
+  drift: number;
+  band: SnowBand;
+  shape: SnowShape;
+};
+
+/** Transform-only full-tile travel (px). Never animate layout `top`/`bottom`. */
+export const SNOW_FALL_Y = [-80, 680] as const;
+export const BALLOON_RISE_Y = [96, -640] as const;
+
+function snowSpecs(seed: number): SnowSpec[] {
+  // Web snow-v4: ~28 crystals, near flakes stay off the face.
+  const n = 28;
+  return Array.from({ length: n }, (_, i) => {
+    const band: SnowBand = i % 5 === 0 ? "far" : i % 3 === 0 ? "mid" : "near";
+    let left = 1 + ((seedN(seed, i + 3) * 1.25) % 96);
+    if (band === "near" && left > 22 && left < 78) {
+      left = i % 2 === 0 ? 6 + (i % 16) : 82 + (i % 14);
+    }
+    const shape: SnowShape =
+      band === "far" && i % 4 === 0
+        ? "dot"
+        : band === "far"
+          ? "needle"
+          : i % 2 === 0
+            ? "dendrite"
+            : "plate";
+    return {
+      key: `sn-${i}`,
+      left,
+      size:
+        band === "far" ? 6 + (i % 3) : band === "mid" ? 10 + (i % 4) : 15 + (i % 5),
+      delay: (i % 18) * 70,
+      dur: band === "far" ? 4200 + (i % 5) * 280 : 2800 + (i % 9) * 280,
+      drift: ((i * 17) % 36) - 18,
+      band,
+      shape,
+    };
+  });
 }
 
 function balloonSpecs(seed: number): BalloonSpec[] {
-  const n = 20;
+  // Web balloons-v6: side columns only so the face stays open.
+  const n = 18;
   return Array.from({ length: n }, (_, i) => ({
     key: `b-${i}`,
-    left: 2 + ((seedN(seed, i) * 1.1) % 94),
+    left: i % 2 === 0 ? 6 + ((i * 5) % 16) : 80 + ((i * 7) % 16),
     size: 24 + (i % 7) * 4,
     color: BALLOON_COLORS[i % BALLOON_COLORS.length],
     delay: (i % 10) * 150,
@@ -188,15 +247,16 @@ function balloonSpecs(seed: number): BalloonSpec[] {
 function fireworkBursts(seed: number): BurstSpec[] {
   // 5 staggered bursts across the stage (web-canvas density, RN Animated only)
   const centers = [
-    { cx: 50, cy: 38 },
-    { cx: 28, cy: 48 },
-    { cx: 72, cy: 42 },
-    { cx: 42, cy: 28 },
-    { cx: 62, cy: 55 },
+    { cx: 16, cy: 22 },
+    { cx: 84, cy: 20 },
+    { cx: 12, cy: 42 },
+    { cx: 88, cy: 38 },
+    { cx: 22, cy: 14 },
+    { cx: 78, cy: 12 },
   ];
   return centers.map((c, bi) => {
     // 20–28 sparks per burst for richer radial fans
-    const nSparks = 20 + (bi % 5) * 2;
+    const nSparks = 26 + (bi % 5) * 2;
     const color = FW_COLORS[bi % FW_COLORS.length];
     const sparks: SparkSpec[] = Array.from({ length: nSparks }, (_, si) => ({
       key: `s-${bi}-${si}`,
@@ -279,7 +339,65 @@ function FloatingEmoji(props: { spec: FloatSpec; mode?: "rise" | "drift" }) {
   );
 }
 
-function HeroPulse(props: { emoji: string; size?: number }) {
+function GlowOrb(props: {
+  left: number;
+  top: number;
+  size: number;
+  color: string;
+  delay: number;
+}) {
+  const t = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(props.delay),
+        Animated.timing(t, {
+          toValue: 1,
+          duration: 1400,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(t, {
+          toValue: 0,
+          duration: 1400,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [props.delay, t]);
+  const scale = t.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1.25] });
+  const opacity = t.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.22, 0.55],
+  });
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={{
+        position: "absolute",
+        left: `${props.left}%`,
+        top: `${props.top}%`,
+        width: props.size,
+        height: props.size,
+        marginLeft: -props.size / 2,
+        marginTop: -props.size / 2,
+        borderRadius: props.size,
+        backgroundColor: props.color,
+        opacity,
+        transform: [{ scale }],
+        elevation: 6,
+        shadowColor: props.color,
+        shadowOpacity: 0.9,
+        shadowRadius: 16,
+      }}
+    />
+  );
+}
+
+function HeroPulse(props: { emoji: string; size?: number; chest?: boolean }) {
   const pulse = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const loop = Animated.loop(
@@ -313,6 +431,7 @@ function HeroPulse(props: { emoji: string; size?: number }) {
     <Animated.Text
       style={[
         styles.heroEmoji,
+        props.chest ? styles.heroEmojiChest : null,
         {
           fontSize: props.size ?? 56,
           opacity,
@@ -479,66 +598,191 @@ function FireworkBurst(props: { burst: BurstSpec }) {
 
 function FireworksLayer({ seed }: { seed: number }) {
   const bursts = useMemo(() => fireworkBursts(seed), [seed]);
-  const emojis = useMemo(
-    () => floatSpecs(["✨", "✦", "★", "💫"], 14, seed + 3, 12),
-    [seed]
-  );
   return (
     <View style={styles.layer} pointerEvents="none">
       {bursts.map((b) => (
         <FireworkBurst key={b.key} burst={b} />
-      ))}
-      {emojis.map((s) => (
-        <FloatingEmoji key={s.key} spec={s} mode="drift" />
       ))}
       <View style={styles.fwEdge} />
     </View>
   );
 }
 
-function HeartLayer({ seed }: { seed: number }) {
-  const specs = useMemo(
-    () => floatSpecs(["💖", "💗", "❤️", "💕", "💓"], 22, seed, 16),
-    [seed]
-  );
+function HeartLayer() {
+  const scale = useRef(new Animated.Value(0.16)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const grow = Animated.parallel([
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+      Animated.timing(scale, {
+        toValue: 3.4,
+        duration: 1650,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]);
+    const swell = Animated.timing(scale, {
+      toValue: 3.9,
+      duration: 180,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    });
+    const pop = Animated.parallel([
+      Animated.timing(scale, {
+        toValue: 0.05,
+        duration: 160,
+        easing: Easing.in(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacity, {
+        toValue: 0,
+        duration: 160,
+        useNativeDriver: true,
+      }),
+    ]);
+    const loop = Animated.sequence([grow, swell, pop]);
+    loop.start();
+    return () => loop.stop();
+  }, [opacity, scale]);
   return (
     <View style={styles.layer} pointerEvents="none">
-      {specs.map((s) => (
-        <FloatingEmoji key={s.key} spec={s} />
+      <Animated.Text
+        style={[
+          styles.heroEmoji,
+          styles.heroEmojiCenter,
+          styles.heroEmojiDepth,
+          {
+            fontSize: 168,
+            opacity,
+            transform: [{ scale }, { translateX: 5 }, { translateY: 7 }],
+          },
+        ]}
+        importantForAccessibility="no"
+      >
+        💖
+      </Animated.Text>
+      <Animated.Text
+        style={[
+          styles.heroEmoji,
+          styles.heroEmojiCenter,
+          {
+            fontSize: 168,
+            opacity,
+            transform: [{ scale }],
+            textShadowColor: "rgba(255,240,246,0.55)",
+            textShadowRadius: 18,
+            textShadowOffset: { width: -4, height: -6 },
+          },
+        ]}
+        importantForAccessibility="no"
+      >
+        💖
+      </Animated.Text>
+    </View>
+  );
+}
+
+function BloomView({ color, size }: { color: string; size: number }) {
+  const pw = size * 0.34;
+  const ph = size * 0.52;
+  const petal = (deg: number, under?: boolean) => ({
+    position: "absolute" as const,
+    width: pw,
+    height: ph,
+    borderRadius: size,
+    backgroundColor: under ? "#5a1830" : color,
+    opacity: under ? 0.4 : 1,
+    left: size / 2 - pw / 2,
+    top: size / 2 - ph / 2,
+    transform: [
+      { rotate: `${deg}deg` },
+      { translateY: -size * (under ? 0.16 : 0.22) },
+      { translateX: under ? 1.4 : 0 },
+    ],
+  });
+  return (
+    <View style={{ width: size, height: size }}>
+      {[0, 72, 144, 216, 288].map((deg) => (
+        <View key={`u${deg}`} style={petal(deg, true)} />
       ))}
-      <HeroPulse emoji="💖" size={58} />
-      <View style={styles.heartEdge} />
+      {[0, 72, 144, 216, 288].map((deg) => (
+        <View key={deg} style={petal(deg, false)} />
+      ))}
+      <View
+        style={{
+          position: "absolute",
+          width: size * 0.28,
+          height: size * 0.28,
+          borderRadius: size,
+          backgroundColor: "#ffe08a",
+          left: size * 0.36,
+          top: size * 0.36,
+        }}
+      />
     </View>
   );
 }
 
 function FlowersLayer({ seed }: { seed: number }) {
-  const specs = useMemo(
-    () => floatSpecs(["🌸", "🌺", "🌼", "🌷", "💮", "🏵️"], 20, seed, 15),
-    [seed]
-  );
+  const hues = ["#ff8ab8", "#ff5a9a", "#ffc2d4", "#e85a8a"];
+  const wreath = useMemo(() => {
+    const n = 16;
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const t = (i / n) * Math.PI * 2;
+      const st = Math.sin(t);
+      const x = 16 * st * st * st;
+      const y = -(
+        13 * Math.cos(t) -
+        5 * Math.cos(2 * t) -
+        2 * Math.cos(3 * t) -
+        Math.cos(4 * t)
+      );
+      out.push({
+        key: `w${i}`,
+        left: 50 + x * 2.1,
+        top: 48 + y * 1.7,
+        color: hues[i % hues.length],
+        size: 22 + (i % 3) * 3,
+      });
+    }
+    return out;
+  }, [seed]);
   return (
     <View style={styles.layer} pointerEvents="none">
-      {specs.map((s) => (
-        <FloatingEmoji key={s.key} spec={s} />
+      {wreath.map((b) => (
+        <View
+          key={b.key}
+          style={{
+            position: "absolute",
+            left: `${b.left}%`,
+            top: `${b.top}%`,
+            marginLeft: -b.size / 2,
+            marginTop: -b.size / 2,
+          }}
+        >
+          <BloomView color={b.color} size={b.size} />
+        </View>
       ))}
-      <HeroPulse emoji="🌸" size={48} />
       <View style={styles.flowerEdge} />
     </View>
   );
 }
 
 function PleaseStayLayer({ seed }: { seed: number }) {
-  const specs = useMemo(
-    () => floatSpecs(["🙏", "💛", "✨", "🤝"], 14, seed, 16),
-    [seed]
-  );
+  void seed;
   return (
     <View style={styles.layer} pointerEvents="none">
-      {specs.map((s) => (
-        <FloatingEmoji key={s.key} spec={s} mode="drift" />
-      ))}
-      <HeroPulse emoji="🙏" size={52} />
+      <View style={styles.stayLock} pointerEvents="none">
+        <View style={styles.stayShackle} />
+        <View style={styles.stayBody}>
+          <View style={styles.stayKeyhole} />
+        </View>
+      </View>
       <View style={styles.stayLabelWrap} pointerEvents="none">
         <Text style={styles.stayLabel}>Please stay</Text>
       </View>
@@ -672,23 +916,19 @@ function PassMicLayer(props: { caption?: string }) {
 
   return (
     <View style={styles.passMicRoot} pointerEvents="none">
-      <Animated.Text
+      <Animated.View
         style={[
           styles.passMicBubble,
           { opacity: bubbleOp, left: "16%", top: "26%" },
         ]}
-      >
-        …
-      </Animated.Text>
-      <Animated.Text
+      />
+      <Animated.View
         style={[
           styles.passMicBubble,
           { opacity: bubbleOp, left: "28%", top: "38%" },
         ]}
-      >
-        💬
-      </Animated.Text>
-      <Animated.Text
+      />
+      <Animated.View
         style={[
           styles.passMicMic,
           {
@@ -701,9 +941,11 @@ function PassMicLayer(props: { caption?: string }) {
           },
         ]}
       >
-        🎤
-      </Animated.Text>
-      <Animated.Text
+        <View style={styles.passMicHead} />
+        <View style={styles.passMicStem} />
+        <View style={styles.passMicBase} />
+      </Animated.View>
+      <Animated.View
         style={[
           styles.passMicHand,
           {
@@ -712,8 +954,8 @@ function PassMicLayer(props: { caption?: string }) {
           },
         ]}
       >
-        ✋
-      </Animated.Text>
+        <View style={styles.passMicPalm} />
+      </Animated.View>
       <Animated.View style={[styles.passMicLabelWrap, { opacity: labelOp }]}>
         <Text style={styles.passMicLabel}>Pass the mic</Text>
         <Text style={styles.passMicSub}>
@@ -752,13 +994,25 @@ function RisingBalloon(props: { spec: BalloonSpec }) {
           Animated.sequence([
             Animated.timing(x, {
               toValue: 1,
-              duration: spec.dur * 0.45,
+              duration: spec.dur * 0.28,
+              easing: Easing.inOut(Easing.sin),
+              useNativeDriver: true,
+            }),
+            Animated.timing(x, {
+              toValue: -1,
+              duration: spec.dur * 0.32,
+              easing: Easing.inOut(Easing.sin),
+              useNativeDriver: true,
+            }),
+            Animated.timing(x, {
+              toValue: 0.4,
+              duration: spec.dur * 0.24,
               easing: Easing.inOut(Easing.sin),
               useNativeDriver: true,
             }),
             Animated.timing(x, {
               toValue: 0,
-              duration: spec.dur * 0.55,
+              duration: spec.dur * 0.16,
               easing: Easing.inOut(Easing.sin),
               useNativeDriver: true,
             }),
@@ -769,6 +1023,8 @@ function RisingBalloon(props: { spec: BalloonSpec }) {
           duration: 1,
           useNativeDriver: true,
         }),
+        Animated.timing(y, { toValue: 0, duration: 1, useNativeDriver: true }),
+        Animated.timing(x, { toValue: 0, duration: 1, useNativeDriver: true }),
       ])
     );
     rise.start();
@@ -777,43 +1033,57 @@ function RisingBalloon(props: { spec: BalloonSpec }) {
 
   const translateY = y.interpolate({
     inputRange: [0, 1],
-    outputRange: [40, -460],
+    outputRange: [...BALLOON_RISE_Y],
   });
   const translateX = x.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, spec.drift],
+    inputRange: [-1, 0, 1],
+    outputRange: [-Math.abs(spec.drift) * 0.7, 0, Math.abs(spec.drift)],
   });
 
-  const bodyH = spec.size * 1.2;
+  const bodyH = spec.size * 1.35;
   const bodyW = spec.size;
 
   return (
-    <Animated.View
-      style={[
-        styles.balloonWrap,
-        {
-          left: `${spec.left}%`,
+    <View
+      pointerEvents="none"
+      style={[styles.balloonWrap, { left: `${spec.left}%` }]}
+    >
+      <Animated.View
+        renderToHardwareTextureAndroid
+        collapsable={false}
+        style={{
+          alignItems: "center",
           opacity,
           transform: [{ translateY }, { translateX }],
-        },
-      ]}
-    >
-      <View
-        style={[
-          styles.balloonBody,
-          {
-            width: bodyW,
-            height: bodyH,
-            backgroundColor: spec.color,
-            borderColor: "rgba(255,255,255,0.4)",
-          },
-        ]}
+        }}
       >
-        <View style={styles.balloonShine} />
-      </View>
-      <View style={[styles.balloonKnot, { backgroundColor: spec.color }]} />
-      <View style={styles.balloonString} />
-    </Animated.View>
+        <View
+          style={[
+            styles.balloonBody,
+            {
+              width: bodyW,
+              height: bodyH,
+              backgroundColor: spec.color,
+              borderColor: "rgba(255,255,255,0.28)",
+              borderTopLeftRadius: bodyW * 0.5,
+              borderTopRightRadius: bodyW * 0.5,
+              borderBottomLeftRadius: bodyW * 0.42,
+              borderBottomRightRadius: bodyW * 0.42,
+            },
+          ]}
+        >
+          <View style={styles.balloonShade} />
+          <View style={styles.balloonShine} />
+        </View>
+        <View style={[styles.balloonKnot, { backgroundColor: spec.color }]} />
+        <View
+          style={[
+            styles.balloonString,
+            { transform: [{ rotate: spec.drift >= 0 ? "10deg" : "-10deg" }] },
+          ]}
+        />
+      </Animated.View>
+    </View>
   );
 }
 
@@ -894,18 +1164,23 @@ function FallingConfetti(props: { spec: ConfettiSpec }) {
           };
 
   return (
-    <Animated.View
-      style={[
-        styles.confettiBit,
-        shapeStyle,
-        {
-          left: `${spec.left}%`,
-          backgroundColor: spec.color,
-          opacity,
-          transform: [{ translateY }, { translateX }, { rotate }, { scale }],
-        },
-      ]}
-    />
+    <View
+      pointerEvents="none"
+      collapsable={false}
+      style={[styles.confettiBit, { left: `${spec.left}%` }]}
+    >
+      <Animated.View
+        renderToHardwareTextureAndroid
+        style={[
+          shapeStyle,
+          {
+            backgroundColor: spec.color,
+            opacity,
+            transform: [{ translateY }, { translateX }, { rotate }, { scale }],
+          },
+        ]}
+      />
+    </View>
   );
 }
 
@@ -946,28 +1221,105 @@ export function BarsOverlay() {
     outputRange: [-80, 80],
   });
 
-  const barCount = 9;
+  const barCount = 7;
   return (
-    <Animated.View style={[styles.barsRoot, { transform: [{ scale: slam }] }]}>
-      <View style={styles.barsShade} />
+    <Animated.View
+      style={[styles.barsRoot, { transform: [{ scale: slam }] }]}
+      pointerEvents="none"
+    >
+      <View style={styles.barsShade} pointerEvents="none">
+        <View style={styles.barsShadeFill} />
+        <View style={styles.barsShadeTop} />
+        <View style={styles.barsShadeBottom} />
+        <View style={[styles.barsShadeCorner, styles.barsShadeTL]} />
+        <View style={[styles.barsShadeCorner, styles.barsShadeTR]} />
+        <View style={[styles.barsShadeCorner, styles.barsShadeBL]} />
+        <View style={[styles.barsShadeCorner, styles.barsShadeBR]} />
+      </View>
       <View style={styles.barsRow}>
         {Array.from({ length: barCount }).map((_, i) => (
           <View key={`v-${i}`} style={styles.barsCol}>
+            <View style={styles.barCastShadow} />
             <View style={styles.barMetalV} />
+            <View style={styles.barUmbraV} />
             <View style={styles.barHighlightV} />
           </View>
         ))}
       </View>
-      <View style={[styles.barMetalH, { top: "18%" }]} />
-      <View style={[styles.barMetalH, { top: "52%" }]} />
-      <View style={[styles.barMetalH, { top: "82%" }]} />
+      <View style={[styles.barMetalH, { top: "22%" }]}>
+        <View style={styles.barMetalHHighlight} />
+        <View style={styles.barMetalHUmbra} />
+      </View>
+      <View style={[styles.barMetalH, { top: "76%" }]}>
+        <View style={styles.barMetalHHighlight} />
+        <View style={styles.barMetalHUmbra} />
+      </View>
       <Animated.View
         style={[styles.barsSheen, { transform: [{ translateX: sheenX }] }]}
       />
       <View style={styles.barsFrame} />
-      <View style={styles.lockBadge}>
-        <Text style={styles.lockEmoji}>🔒</Text>
+    </Animated.View>
+  );
+}
+
+/**
+ * Chain-link like browser: one repeating PNG (no 4×4 stretch tiles).
+ * Stretching 16 cells made huge diamonds + seams. No ⛓️ badge.
+ */
+export function FenceOverlay() {
+  const fade = useRef(new Animated.Value(0)).current;
+  const sheen = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(fade, {
+      toValue: 1,
+      duration: 280,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start();
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(sheen, {
+          toValue: 1,
+          duration: 4200,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(sheen, {
+          toValue: 0,
+          duration: 4200,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [sheen, fade]);
+  const sheenX = sheen.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-70, 70],
+  });
+  return (
+    <Animated.View
+      style={[styles.fenceRoot, { opacity: fade }]}
+      pointerEvents="none"
+    >
+      <Image
+        source={require("../../assets/fx/fence-mesh.png")}
+        style={StyleSheet.absoluteFill}
+        resizeMode="repeat"
+      />
+      <View style={styles.fenceLight} pointerEvents="none">
+        <View style={styles.fenceLightTL} />
+        <View style={styles.fenceLightTLCore} />
+        <View style={styles.fenceShadeBottom} />
+        <View style={styles.fenceShadeBottomCore} />
       </View>
+      <View style={styles.fenceFrame} pointerEvents="none" />
+      <View style={styles.fenceFrameInner} pointerEvents="none" />
+      <Animated.View
+        style={[styles.fenceSheen, { transform: [{ translateX: sheenX }] }]}
+      />
     </Animated.View>
   );
 }
@@ -991,70 +1343,587 @@ function ConfettiLayer({ seed }: { seed: number }) {
       {specs.map((s) => (
         <FallingConfetti key={s.key} spec={s} />
       ))}
-      {["🎊", "🎉", "✨", "★", "💫", "💖", "✦"].map((em, i) => (
-        <ConfettiEmoji
-          key={em + i}
-          emoji={em}
-          left={5 + i * 13}
-          delay={i * 120}
-        />
-      ))}
       <View style={styles.confettiEdge} />
     </View>
   );
 }
 
-function ConfettiEmoji(props: {
-  emoji: string;
-  left: number;
-  delay: number;
-}) {
+function ShootingStarLayer() {
   const t = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.delay(props.delay),
         Animated.timing(t, {
           toValue: 1,
-          duration: 3200,
-          easing: Easing.linear,
+          duration: 1850,
+          easing: Easing.in(Easing.quad),
           useNativeDriver: true,
         }),
-        Animated.timing(t, { toValue: 0, duration: 1, useNativeDriver: true }),
+        Animated.timing(t, { toValue: 0, duration: 0, useNativeDriver: true }),
+        Animated.delay(1400),
       ])
     );
     loop.start();
     return () => loop.stop();
-  }, [props.delay, t]);
-  const translateY = t.interpolate({
+  }, [t]);
+  const tx = t.interpolate({
     inputRange: [0, 1],
-    outputRange: [-24, 520],
+    outputRange: [-120, 420],
   });
-  const rotate = t.interpolate({
+  const ty = t.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [8, 28, 72],
+  });
+  const rot = t.interpolate({
     inputRange: [0, 1],
-    outputRange: ["0deg", "360deg"],
+    outputRange: ["16deg", "40deg"],
   });
-  const opacity = t.interpolate({
-    inputRange: [0, 0.08, 0.9, 1],
+  const op = t.interpolate({
+    inputRange: [0, 0.08, 0.86, 1],
     outputRange: [0, 1, 1, 0],
   });
   return (
-    <Animated.Text
-      style={[
-        styles.confettiEmoji,
-        {
-          left: `${props.left}%`,
-          opacity,
-          transform: [{ translateY }, { rotate }],
-        },
-      ]}
-    >
-      {props.emoji}
-    </Animated.Text>
+    <View style={styles.layer} pointerEvents="none">
+      <Animated.View
+        style={[
+          styles.ssHero,
+          { opacity: op, transform: [{ translateX: tx }, { translateY: ty }, { rotate: rot }] },
+        ]}
+      >
+        <View style={styles.ssPlume} />
+        <View style={styles.ssStar}>
+          <View style={styles.ssStarArmH} />
+          <View style={styles.ssStarArmV} />
+        </View>
+      </Animated.View>
+    </View>
   );
 }
 
-/** Soft edge vignette — web uses radial transparent center so faces stay clear. */
+function FallingCrystal(props: { spec: SnowSpec }) {
+  const { spec } = props;
+  const t = useRef(new Animated.Value(0)).current;
+  const rot = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    t.setValue(0);
+    rot.setValue(0);
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(spec.delay),
+        Animated.parallel([
+          Animated.timing(t, {
+            toValue: 1,
+            duration: spec.dur,
+            easing: Easing.linear,
+            useNativeDriver: true,
+          }),
+          Animated.timing(rot, {
+            toValue: 1,
+            duration: spec.dur,
+            easing: Easing.linear,
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.parallel([
+          Animated.timing(t, { toValue: 0, duration: 1, useNativeDriver: true }),
+          Animated.timing(rot, { toValue: 0, duration: 1, useNativeDriver: true }),
+        ]),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [spec.delay, spec.dur, spec.key, rot, t]);
+
+  const translateY = t.interpolate({
+    inputRange: [0, 1],
+    outputRange: [...SNOW_FALL_Y],
+  });
+  const translateX = t.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [0, spec.drift, spec.drift * 1.35],
+  });
+  const rotate = rot.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", spec.band === "far" ? "80deg" : "200deg"],
+  });
+  const opacity = t.interpolate({
+    inputRange: [0, 0.08, 0.9, 1],
+    outputRange: [
+      0,
+      spec.band === "far" ? 0.28 : spec.band === "mid" ? 0.58 : 0.94,
+      spec.band === "far" ? 0.2 : 0.85,
+      0,
+    ],
+  });
+  const s = spec.size;
+
+  return (
+    <View
+      pointerEvents="none"
+      style={[styles.snowBit, { left: `${spec.left}%` }]}
+    >
+      <Animated.View
+        renderToHardwareTextureAndroid
+        collapsable={false}
+        style={{
+          opacity,
+          transform: [{ translateY }, { translateX }, { rotate }],
+        }}
+      >
+        {spec.shape === "dot" ? (
+          <View style={[styles.snowDot, { width: s, height: s, borderRadius: s / 2 }]} />
+        ) : spec.shape === "needle" ? (
+          <View style={[styles.snowNeedle, { width: Math.max(3, s * 0.28), height: s }]} />
+        ) : spec.shape === "plate" ? (
+          <View style={[styles.snowPlate, { width: s, height: s }]} />
+        ) : (
+          <View style={[styles.snowDendrite, { width: s, height: s }]}>
+            <View style={[styles.snowArmH, { width: s, top: s / 2 - 0.75 }]} />
+            <View style={[styles.snowArmV, { height: s, left: s / 2 - 0.75 }]} />
+          </View>
+        )}
+      </Animated.View>
+    </View>
+  );
+}
+
+function SnowLayer({ seed }: { seed: number }) {
+  const specs = useMemo(() => snowSpecs(seed), [seed]);
+  return (
+    <View style={styles.layer} pointerEvents="none">
+      {specs.map((s) => (
+        <FallingCrystal key={s.key} spec={s} />
+      ))}
+      <View style={styles.snowEdge} />
+    </View>
+  );
+}
+
+/** Top-down follow-spot. No yellow face ring. Never filter the RTC SurfaceView. */
+function SpotlightLayer() {
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 1700,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 0,
+          duration: 1700,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+  const beamOp = pulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.42, 0.78],
+  });
+  return (
+    <View style={styles.layer} pointerEvents="none">
+      <View style={styles.spotEdgeTop} />
+      <View style={styles.spotEdgeLeft} />
+      <View style={styles.spotEdgeRight} />
+      <View style={styles.spotCan} />
+      <Animated.View style={[styles.spotBeam, { opacity: beamOp }]} />
+      <Animated.View style={[styles.spotShaft, { opacity: beamOp }]} />
+    </View>
+  );
+}
+
+/** 5-spike gold circlet at the top of the tile (on their head). No video filter. */
+function CrownLayer() {
+  const drop = useRef(new Animated.Value(0)).current;
+  const bob = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    drop.setValue(0);
+    const enter = Animated.spring(drop, {
+      toValue: 1,
+      friction: 7,
+      tension: 68,
+      useNativeDriver: true,
+    });
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(bob, {
+          toValue: 1,
+          duration: 1400,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(bob, {
+          toValue: 0,
+          duration: 1400,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    enter.start(() => loop.start());
+    return () => {
+      enter.stop();
+      loop.stop();
+    };
+  }, [drop, bob]);
+  const ty = drop.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-72, 0],
+  });
+  const bobY = bob.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 3],
+  });
+  // Web svg-v8: taller center spike. No traveling sheen.
+  const spikes = [22, 30, 42, 30, 22];
+  return (
+    <View style={styles.layer} pointerEvents="none">
+      <View style={styles.crownHalo} />
+      <Animated.View
+        style={[
+          styles.crownHero,
+          { transform: [{ translateY: ty }, { translateY: bobY }] },
+        ]}
+      >
+        <View style={styles.crownBack} pointerEvents="none">
+          {spikes.map((h, i) => (
+            <View key={`b-${i}`} style={styles.crownSpikeCol}>
+              <View
+                style={[
+                  styles.crownSpike,
+                  {
+                    borderBottomWidth: h,
+                    borderLeftWidth: 8,
+                    borderRightWidth: 8,
+                    borderBottomColor: "#4a2808",
+                  },
+                ]}
+              />
+            </View>
+          ))}
+        </View>
+        <View style={styles.crownSpikes}>
+          {spikes.map((h, i) => (
+            <View key={i} style={styles.crownSpikeCol}>
+              <View
+                style={[
+                  styles.crownOrb,
+                  i === 2 ? styles.crownOrbKing : null,
+                ]}
+              />
+              <View
+                style={[
+                  styles.crownSpike,
+                  {
+                    borderBottomWidth: h,
+                    borderLeftWidth: 8,
+                    borderRightWidth: 8,
+                  },
+                ]}
+              />
+            </View>
+          ))}
+        </View>
+        <View style={styles.crownBand}>
+          <View style={styles.crownBandLit} />
+        </View>
+      </Animated.View>
+    </View>
+  );
+}
+
+const DISCO_FACETS = [
+  "#f6f8ff",
+  "#c8d0e0",
+  "#7a8498",
+  "#eef2fa",
+  "#9aa4b8",
+  "#5e6678",
+];
+/** magenta, cyan, gold, lime, orange */
+const DISCO_ORB_HUES = ["#ff2bd6", "#22d3ee", "#fbbf24", "#84cc16", "#fb923c"];
+/** Club beams (browser canvas 855 hues). */
+const DISCO_BEAM_COLORS = [
+  "#FF2EA6",
+  "#22D3EE",
+  "#FFD14A",
+  "#FF6B1A",
+  "#A78BFA",
+  "#7CFF4A",
+  "#C026D3",
+  "#FF4D6A",
+];
+
+type DiscoOrbSpec = {
+  key: string;
+  left: number;
+  top: number;
+  size: number;
+  color: string;
+  delay: number;
+  travelX: number;
+  travelY: number;
+  dur: number;
+};
+
+/** Rim DiscoOrb lights (replaces discoFlash sparkles). Edges only — not the face center. */
+const DISCO_ORBS: DiscoOrbSpec[] = [
+  { key: "o0", left: 6, top: 10, size: 14, color: DISCO_ORB_HUES[0], delay: 0, travelX: 56, travelY: 22, dur: 1300 },
+  { key: "o1", left: 86, top: 12, size: 13, color: DISCO_ORB_HUES[1], delay: 80, travelX: -58, travelY: 24, dur: 1500 },
+  { key: "o2", left: 6, top: 22, size: 11, color: DISCO_ORB_HUES[2], delay: 40, travelX: 48, travelY: -18, dur: 1400 },
+  { key: "o3", left: 90, top: 20, size: 12, color: DISCO_ORB_HUES[3], delay: 120, travelX: -50, travelY: 18, dur: 1600 },
+  { key: "o4", left: 14, top: 6, size: 12, color: DISCO_ORB_HUES[4], delay: 60, travelX: 62, travelY: 14, dur: 1450 },
+  { key: "o5", left: 78, top: 7, size: 11, color: DISCO_ORB_HUES[0], delay: 160, travelX: -54, travelY: 16, dur: 1350 },
+  { key: "o6", left: 4, top: 16, size: 10, color: DISCO_ORB_HUES[1], delay: 200, travelX: 44, travelY: 28, dur: 1200 },
+  { key: "o7", left: 92, top: 15, size: 10, color: DISCO_ORB_HUES[2], delay: 100, travelX: -40, travelY: 20, dur: 1550 },
+  { key: "o8", left: 18, top: 5, size: 13, color: DISCO_ORB_HUES[3], delay: 220, travelX: 70, travelY: 10, dur: 1700 },
+  { key: "o9", left: 74, top: 5, size: 12, color: DISCO_ORB_HUES[4], delay: 140, travelX: -64, travelY: 12, dur: 1250 },
+];
+
+function DiscoOrb(props: { spec: DiscoOrbSpec }) {
+  const { spec } = props;
+  const t = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    t.setValue(0);
+    // ping-pong translate along the rim (out then BACK)
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(spec.delay),
+        Animated.timing(t, {
+          toValue: 1,
+          duration: spec.dur,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(t, {
+          toValue: 0,
+          duration: spec.dur,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [spec.delay, spec.dur, spec.key, t]);
+
+  const translateX = t.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, spec.travelX],
+  });
+  const translateY = t.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, spec.travelY],
+  });
+  const opacity = t.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [0.55, 1, 0.55],
+  });
+  const scale = t.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.86, 1.14],
+  });
+
+  return (
+    <View
+      pointerEvents="none"
+      collapsable={false}
+      style={[
+        styles.discoOrb,
+        {
+          left: `${spec.left}%`,
+          top: `${spec.top}%`,
+          width: spec.size,
+          height: spec.size,
+        },
+      ]}
+    >
+      <Animated.View
+        renderToHardwareTextureAndroid
+        style={{
+          width: spec.size,
+          height: spec.size,
+          borderRadius: spec.size,
+          backgroundColor: spec.color,
+          opacity,
+          transform: [{ translateX }, { translateY }, { scale }],
+          shadowColor: spec.color,
+        }}
+      >
+        <View style={styles.discoOrbCore} />
+      </Animated.View>
+    </View>
+  );
+}
+
+/**
+ * Club beam from the hanging ball. Outer View holds layout; inner Animated
+ * rotates only (Android will not run native transform if left/top is on the same node).
+ */
+function DiscoBeam(props: { index: number }) {
+  const { index } = props;
+  const spin = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    spin.setValue(0);
+    const loop = Animated.loop(
+      Animated.timing(spin, {
+        toValue: 1,
+        duration: 6000,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      })
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [index, spin]);
+  const rotate = spin.interpolate({
+    inputRange: [0, 1],
+    outputRange: [`${index * 45}deg`, `${index * 45 + 360}deg`],
+  });
+  const width = 26 + (index % 4) * 2;
+  const opacity = 0.32 + (index % 6) * 0.03;
+  return (
+    <View
+      pointerEvents="none"
+      collapsable={false}
+      style={[
+        styles.discoBeam,
+        {
+          width,
+          marginLeft: -(width / 2),
+          opacity,
+        },
+      ]}
+    >
+      <Animated.View
+        renderToHardwareTextureAndroid
+        style={[
+          styles.discoBeamRay,
+          {
+            backgroundColor: DISCO_BEAM_COLORS[index % DISCO_BEAM_COLORS.length],
+            transform: [{ rotate }],
+          },
+        ]}
+      />
+    </View>
+  );
+}
+
+/** Hanging 96px ball + 8 rotating color beams + rim orbs. Wash is a RING (face stays a hole). */
+function DiscoLayer() {
+  const spin = useRef(new Animated.Value(0)).current;
+  const washSpin = useRef(new Animated.Value(0)).current;
+  const lit = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const ballLoop = Animated.loop(
+      Animated.timing(spin, {
+        toValue: 1,
+        duration: 1800,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      })
+    );
+    const washLoop = Animated.loop(
+      Animated.timing(washSpin, {
+        toValue: 1,
+        duration: 5500,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      })
+    );
+    const litLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(lit, {
+          toValue: 1,
+          duration: 900,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(lit, {
+          toValue: 0,
+          duration: 900,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    ballLoop.start();
+    washLoop.start();
+    litLoop.start();
+    return () => {
+      ballLoop.stop();
+      washLoop.stop();
+      litLoop.stop();
+    };
+  }, [spin, washSpin, lit]);
+  const rot = spin.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "360deg"],
+  });
+  const washRot = washSpin.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "360deg"],
+  });
+  const litX = lit.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-8, 16],
+  });
+  const litY = lit.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-4, 10],
+  });
+  const litOp = lit.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.38, 0.88],
+  });
+  return (
+    <View style={styles.layer} pointerEvents="none">
+      <Animated.View
+        style={[styles.discoWash, { transform: [{ rotate: washRot }] }]}
+      />
+      {DISCO_BEAM_COLORS.map((_, i) => (
+        <DiscoBeam key={`beam-${i}`} index={i} />
+      ))}
+      <View style={styles.discoStem} />
+      <View style={styles.discoBall}>
+        <Animated.View
+          style={[styles.discoFacetGrid, { transform: [{ rotate: rot }] }]}
+        >
+          {Array.from({ length: 64 }, (_, i) => (
+            <View
+              key={i}
+              style={[
+                styles.discoFacet,
+                { backgroundColor: DISCO_FACETS[i % DISCO_FACETS.length] },
+              ]}
+            />
+          ))}
+        </Animated.View>
+        <View style={styles.discoShade} />
+        <Animated.View
+          style={[
+            styles.discoLit,
+            {
+              opacity: litOp,
+              transform: [{ translateX: litX }, { translateY: litY }],
+            },
+          ]}
+        />
+      </View>
+      {DISCO_ORBS.map((o) => (
+        <DiscoOrb key={o.key} spec={o} />
+      ))}
+    </View>
+  );
+}
+
 function SoftTint(props: { kind: string }) {
   const edge =
     props.kind === "heart"
@@ -1069,8 +1938,16 @@ function SoftTint(props: { kind: string }) {
               ? "rgba(255,120,200,0.14)"
               : props.kind === "confetti"
                 ? "rgba(255,200,80,0.12)"
-                : props.kind === "pass_mic"
+                : props.kind === "shooting_star"
+                  ? "rgba(255,200,80,0.16)"
+                  : props.kind === "snow"
+                    ? "rgba(180,210,255,0.12)"
+                    : props.kind === "crown"
+                      ? "rgba(255,210,80,0.16)"
+                    : props.kind === "pass_mic"
                   ? "rgba(255,180,60,0.16)"
+                  : props.kind === "fence"
+                    ? "rgba(40,50,40,0.14)"
                   : props.kind === "bars"
                     ? "rgba(0,0,0,0.2)"
                     : "rgba(0,0,0,0.12)";
@@ -1097,6 +1974,7 @@ export const GiftFxOverlay = memo(function GiftFxOverlay(props: {
   const kind = (effect || "") as GiftKind | string;
 
   const isBars = kind === "bars";
+  const isFence = kind === "fence";
   const isBalloons = kind === "balloons";
   const isConfetti = kind === "confetti";
   const isPassMic = kind === "pass_mic";
@@ -1104,6 +1982,11 @@ export const GiftFxOverlay = memo(function GiftFxOverlay(props: {
   const isFlowers = kind === "flowers";
   const isFireworks = kind === "fireworks";
   const isStay = kind === "please_stay";
+  const isShootingStar = kind === "shooting_star";
+  const isSnow = kind === "snow";
+  const isSpotlight = kind === "spotlight";
+  const isCrown = kind === "crown";
+  const isDisco = kind === "disco";
 
   const a11y =
     label ||
@@ -1115,6 +1998,7 @@ export const GiftFxOverlay = memo(function GiftFxOverlay(props: {
       style={[
         styles.root,
         Platform.OS === "android" ? styles.rootAndroid : null,
+        Platform.OS === "ios" ? styles.rootIOS : null,
       ]}
       pointerEvents="none"
       accessible
@@ -1122,29 +2006,44 @@ export const GiftFxOverlay = memo(function GiftFxOverlay(props: {
       accessibilityLiveRegion="polite"
       accessibilityLabel={a11y}
     >
-      {/* Soft edge only — avoid full-screen mud that made Android FX feel cheap */}
-      {!isBars ? <SoftTint kind={kind || "heart"} /> : null}
+      {/* Soft edge only — avoid full-screen mud that made Android FX feel cheap.
+          Spotlight paints its own radial hole; skip extra tint. */}
+      {!isBars && !isFence && !isSpotlight ? (
+        <SoftTint kind={kind || "heart"} />
+      ) : null}
 
       {isBars ? <BarsOverlay /> : null}
+      {isFence ? <FenceOverlay /> : null}
       {isBalloons ? <BalloonsLayer seed={seed} /> : null}
       {isConfetti ? <ConfettiLayer seed={seed} /> : null}
       {isPassMic ? (
         <PassMicLayer caption={barsCaption || undefined} />
       ) : null}
-      {isHeart ? <HeartLayer seed={seed} /> : null}
+      {isHeart ? <HeartLayer /> : null}
       {isFlowers ? <FlowersLayer seed={seed} /> : null}
       {isFireworks ? <FireworksLayer seed={seed} /> : null}
       {isStay ? <PleaseStayLayer seed={seed} /> : null}
+      {/* shooting_star is wallet-only — no overlay */}
+      {isSnow ? <SnowLayer seed={seed} /> : null}
+      {isSpotlight ? <SpotlightLayer /> : null}
+      {isCrown ? <CrownLayer /> : null}
+      {isDisco ? <DiscoLayer /> : null}
 
       {/* Unknown effect fallback — still animate stars */}
       {!isBars &&
+      !isFence &&
       !isBalloons &&
       !isConfetti &&
       !isPassMic &&
       !isHeart &&
       !isFlowers &&
       !isFireworks &&
-      !isStay ? (
+      !isStay &&
+      !isShootingStar &&
+      !isSnow &&
+      !isSpotlight &&
+      !isCrown &&
+      !isDisco ? (
         <View style={styles.layer} pointerEvents="none">
           {floatSpecs(["★", "✨", "💫"], 16, seed, 14).map((s) => (
             <FloatingEmoji key={s.key} spec={s} />
@@ -1180,6 +2079,19 @@ const styles = StyleSheet.create({
   rootAndroid: {
     elevation: 32,
   },
+  /**
+   * iOS has no SurfaceView hole-punch so the FX layer already paints above
+   * the video by subview order alone, but on extra (multi-remote) tiles it
+   * otherwise reads as flat/empty next to Android's elevated shadow — give
+   * it the shadow* depth cue this file already uses elsewhere (fwCoreBloom)
+   * as the iOS analog of elevation.
+   */
+  rootIOS: {
+    shadowColor: "#000",
+    shadowOpacity: 0.35,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 0 },
+  },
   layer: {
     ...StyleSheet.absoluteFillObject,
     overflow: "hidden",
@@ -1211,6 +2123,54 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 4 },
     zIndex: 5,
   },
+  heroEmojiChest: {
+    top: "auto",
+    bottom: "10%",
+  },
+  heroEmojiCenter: {
+    top: "42%",
+    bottom: "auto",
+    marginLeft: -56,
+  },
+  heroEmojiDepth: {
+    color: "#4a0818",
+    textShadowColor: "rgba(20,4,10,0.55)",
+    textShadowRadius: 8,
+  },
+  heartHeroWrap: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  stayLock: {
+    position: "absolute",
+    bottom: "24%",
+    alignSelf: "center",
+    alignItems: "center",
+    zIndex: 5,
+  },
+  stayShackle: {
+    width: 22,
+    height: 16,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    borderWidth: 4,
+    borderBottomWidth: 0,
+    borderColor: "#ffd0de",
+    marginBottom: -2,
+  },
+  stayBody: {
+    width: 40,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: "#ef2b6a",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stayKeyhole: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#fff6f8",
+  },
   stayLabelWrap: {
     position: "absolute",
     bottom: "16%",
@@ -1236,25 +2196,49 @@ const styles = StyleSheet.create({
   },
   passMicMic: {
     position: "absolute",
-    fontSize: 56,
-    textShadowColor: "#000",
-    textShadowRadius: 12,
+    alignItems: "center",
     zIndex: 4,
+  },
+  passMicHead: {
+    width: 28,
+    height: 36,
+    borderRadius: 14,
+    backgroundColor: "#d8dee8",
+    borderWidth: 1,
+    borderColor: "#2a3038",
+  },
+  passMicStem: {
+    width: 5,
+    height: 16,
+    backgroundColor: "#c8c0b0",
+    marginTop: -1,
+  },
+  passMicBase: {
+    width: 22,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "#c8c0b0",
   },
   passMicHand: {
     position: "absolute",
     right: "14%",
     top: "16%",
-    fontSize: 40,
-    textShadowColor: "#000",
-    textShadowRadius: 8,
     zIndex: 3,
+  },
+  passMicPalm: {
+    width: 34,
+    height: 28,
+    borderRadius: 12,
+    backgroundColor: "#f3c49a",
+    borderWidth: 1,
+    borderColor: "#8a5a38",
   },
   passMicBubble: {
     position: "absolute",
-    fontSize: 22,
-    textShadowColor: "#000",
-    textShadowRadius: 6,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "rgba(255,246,224,0.9)",
     zIndex: 2,
   },
   passMicLabelWrap: {
@@ -1366,14 +2350,106 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   /* ── Bars ── */
+  fenceRoot: {
+    ...StyleSheet.absoluteFillObject,
+    overflow: "hidden",
+    zIndex: 1,
+  },
+  fenceLight: {
+    ...StyleSheet.absoluteFillObject,
+    overflow: "hidden",
+  },
+  fenceLightTL: {
+    position: "absolute",
+    top: -48,
+    left: -40,
+    width: 240,
+    height: 180,
+    borderRadius: 120,
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
+  },
+  fenceLightTLCore: {
+    position: "absolute",
+    top: -18,
+    left: -14,
+    width: 132,
+    height: 96,
+    borderRadius: 72,
+    backgroundColor: "rgba(255, 255, 255, 0.03)",
+  },
+  fenceShadeBottom: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: "30%",
+    backgroundColor: "rgba(4, 5, 8, 0.26)",
+  },
+  fenceShadeBottomCore: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: "14%",
+    backgroundColor: "rgba(4, 5, 8, 0.2)",
+  },
+  fenceFrame: {
+    ...StyleSheet.absoluteFillObject,
+    borderWidth: 5,
+    borderColor: "#120e0c",
+  },
+  fenceFrameInner: {
+    ...StyleSheet.absoluteFillObject,
+    margin: 3,
+    borderWidth: 2,
+    borderColor: "rgba(168, 152, 132, 0.34)",
+  },
+  fenceSheen: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    width: 36,
+    backgroundColor: "rgba(210, 220, 230, 0.05)",
+  },
   barsRoot: {
     ...StyleSheet.absoluteFillObject,
+    overflow: "hidden",
     zIndex: 1,
   },
   barsShade: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.28)",
   },
+  barsShadeFill: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(8, 6, 4, 0.14)",
+  },
+  barsShadeTop: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: "16%",
+    backgroundColor: "rgba(4, 5, 8, 0.3)",
+  },
+  barsShadeBottom: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: "20%",
+    backgroundColor: "rgba(4, 5, 8, 0.36)",
+  },
+  barsShadeCorner: {
+    position: "absolute",
+    width: 128,
+    height: 128,
+    borderRadius: 64,
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
+  },
+  barsShadeTL: { top: -44, left: -44 },
+  barsShadeTR: { top: -44, right: -44 },
+  barsShadeBL: { bottom: -44, left: -44 },
+  barsShadeBR: { bottom: -44, right: -44 },
   barsRow: {
     ...StyleSheet.absoluteFillObject,
     flexDirection: "row",
@@ -1381,43 +2457,80 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   barsCol: {
-    width: 14,
+    width: 22,
     height: "100%",
     position: "relative",
+    overflow: "visible",
+  },
+  barCastShadow: {
+    position: "absolute",
+    left: 5,
+    top: 3,
+    bottom: -2,
+    width: 18,
+    borderRadius: 9,
+    backgroundColor: "rgba(0, 0, 0, 0.42)",
   },
   barMetalV: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 3,
-    backgroundColor: "#3a424c",
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 18,
+    borderRadius: 9,
+    backgroundColor: "#3a2418",
     borderWidth: 1,
-    borderColor: "rgba(10,12,14,0.9)",
-    shadowColor: "#000",
-    shadowOpacity: 0.55,
-    shadowRadius: 3,
-    shadowOffset: { width: 1, height: 0 },
+    borderColor: "#120e0c",
+  },
+  barUmbraV: {
+    position: "absolute",
+    left: 10,
+    top: 1,
+    bottom: 1,
+    width: 7,
+    borderRadius: 9,
+    backgroundColor: "rgba(10, 6, 4, 0.5)",
   },
   barHighlightV: {
     position: "absolute",
     left: 3,
-    top: 0,
-    bottom: 0,
-    width: 3,
+    top: 4,
+    bottom: 4,
+    width: 4,
     borderRadius: 2,
-    backgroundColor: "rgba(210,220,230,0.28)",
+    backgroundColor: "rgba(176, 140, 104, 0.62)",
   },
   barMetalH: {
     position: "absolute",
     left: 0,
     right: 0,
-    height: 10,
-    backgroundColor: "#4a525c",
+    height: 14,
+    backgroundColor: "#5a4030",
     borderTopWidth: 1,
     borderBottomWidth: 1,
     borderColor: "rgba(8,10,12,0.85)",
     zIndex: 2,
     shadowColor: "#000",
-    shadowOpacity: 0.4,
-    shadowRadius: 2,
+    shadowOpacity: 0.55,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 8,
+  },
+  barMetalHHighlight: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 1,
+    height: 4,
+    backgroundColor: "rgba(176, 140, 104, 0.42)",
+  },
+  barMetalHUmbra: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 4,
+    backgroundColor: "rgba(12, 8, 6, 0.52)",
   },
   barsSheen: {
     position: "absolute",
@@ -1434,24 +2547,6 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     zIndex: 4,
   },
-  lockBadge: {
-    position: "absolute",
-    alignSelf: "center",
-    top: "42%",
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "rgba(12,14,18,0.82)",
-    borderWidth: 1.5,
-    borderColor: "rgba(160,170,180,0.45)",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 6,
-    shadowColor: "#000",
-    shadowOpacity: 0.5,
-    shadowRadius: 8,
-  },
-  lockEmoji: { fontSize: 28 },
   /* ── Balloons ── */
   balloonWrap: {
     position: "absolute",
@@ -1459,6 +2554,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     width: 40,
     marginLeft: -20,
+    overflow: "visible",
   },
   balloonBody: {
     borderRadius: 999,
@@ -1476,7 +2572,15 @@ const styles = StyleSheet.create({
     width: "32%",
     height: "28%",
     borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.55)",
+    backgroundColor: "rgba(255,255,255,0.32)",
+  },
+  balloonShade: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: "38%",
+    backgroundColor: "rgba(20, 6, 10, 0.28)",
   },
   balloonKnot: {
     width: 7,
@@ -1516,5 +2620,331 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "rgba(255,200,80,0.2)",
     borderRadius: 4,
+  },
+  ssHero: {
+    position: "absolute",
+    width: 260,
+    height: 56,
+    justifyContent: "center",
+    alignItems: "flex-end",
+  },
+  ssPlume: {
+    position: "absolute",
+    right: 22,
+    width: 210,
+    height: 16,
+    borderRadius: 999,
+    backgroundColor: "rgba(255, 210, 90, 0.55)",
+  },
+  ssCore: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: "#fff6c2",
+    shadowColor: "#ffd14a",
+    shadowOpacity: 0.95,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  ssStar: {
+    width: 24,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ssStarArmH: {
+    position: "absolute",
+    width: 24,
+    height: 6,
+    borderRadius: 2,
+    backgroundColor: "#fff6c8",
+  },
+  ssStarArmV: {
+    position: "absolute",
+    width: 6,
+    height: 24,
+    borderRadius: 2,
+    backgroundColor: "#fff6c8",
+  },
+  starEdge: {
+    ...StyleSheet.absoluteFillObject,
+    borderWidth: 2,
+    borderColor: "rgba(255,210,80,0.28)",
+    borderRadius: 4,
+  },
+  discoWash: {
+    position: "absolute",
+    width: "140%",
+    height: "140%",
+    left: "-20%",
+    top: "-20%",
+    borderWidth: 72,
+    borderColor: "rgba(180, 40, 220, 0.12)",
+    backgroundColor: "transparent",
+    borderRadius: 999,
+  },
+  discoBall: {
+    position: "absolute",
+    top: 8,
+    alignSelf: "center",
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    backgroundColor: "#8a93a8",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.45)",
+    overflow: "hidden",
+    elevation: 8,
+    shadowColor: "#dce6ff",
+    shadowOpacity: 0.55,
+    shadowRadius: 12,
+  },
+  discoFacetGrid: {
+    position: "absolute",
+    width: "170%",
+    height: "170%",
+    left: "-35%",
+    top: "-35%",
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  discoFacet: {
+    width: "12.5%",
+    height: "12.5%",
+  },
+  discoShade: {
+    position: "absolute",
+    right: 0,
+    bottom: 0,
+    width: "72%",
+    height: "72%",
+    borderTopLeftRadius: 48,
+    backgroundColor: "rgba(12, 16, 28, 0.32)",
+  },
+  discoLit: {
+    position: "absolute",
+    width: 22,
+    height: 16,
+    left: 8,
+    top: 6,
+    borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.72)",
+  },
+  discoStem: {
+    position: "absolute",
+    top: 0,
+    alignSelf: "center",
+    width: 2,
+    height: 16,
+    backgroundColor: "#c8d0e0",
+  },
+  discoBeam: {
+    position: "absolute",
+    top: 48,
+    left: "50%",
+    width: 28,
+    height: "85%",
+    marginLeft: -13,
+    overflow: "visible",
+  },
+  discoBeamRay: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 3,
+    transformOrigin: "50% 0%",
+  },
+  discoOrb: {
+    position: "absolute",
+    elevation: 8,
+    shadowOpacity: 0.95,
+    shadowRadius: 10,
+  },
+  discoOrbCore: {
+    position: "absolute",
+    width: "42%",
+    height: "42%",
+    left: "16%",
+    top: "14%",
+    borderRadius: 99,
+    backgroundColor: "rgba(255,255,255,0.78)",
+  },
+  crownHalo: {
+    position: "absolute",
+    top: 0,
+    left: "18%",
+    right: "18%",
+    height: 64,
+    borderBottomLeftRadius: 80,
+    borderBottomRightRadius: 80,
+    backgroundColor: "rgba(255, 214, 90, 0.12)",
+  },
+  crownHero: {
+    position: "absolute",
+    top: 10,
+    alignSelf: "center",
+    alignItems: "center",
+    width: 148,
+  },
+  crownBack: {
+    position: "absolute",
+    top: 10,
+    left: 4,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "center",
+    gap: 2,
+  },
+  crownSpikes: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "center",
+    gap: 2,
+  },
+  crownSpikeCol: {
+    alignItems: "center",
+  },
+  crownSpike: {
+    width: 0,
+    height: 0,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderBottomColor: "#ffd54a",
+  },
+  crownJewel: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: "rgba(255,252,232,0.85)",
+  },
+  crownOrb: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginBottom: -3,
+    backgroundColor: "#ffd54a",
+    borderWidth: 1,
+    borderColor: "#8a5a08",
+  },
+  crownOrbKing: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  crownBand: {
+    width: 132,
+    height: 14,
+    marginTop: -2,
+    borderRadius: 4,
+    backgroundColor: "#e8b42a",
+    borderWidth: 1,
+    borderColor: "#8a5a08",
+    overflow: "hidden",
+  },
+  crownBandLit: {
+    position: "absolute",
+    left: 10,
+    top: 2,
+    width: 36,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "rgba(255,255,255,0.28)",
+  },
+  snowBit: {
+    position: "absolute",
+    top: 0,
+    marginLeft: -6,
+    zIndex: 2,
+    overflow: "visible",
+  },
+  snowDot: {
+    backgroundColor: "rgba(230,240,255,0.85)",
+  },
+  snowNeedle: {
+    backgroundColor: "rgba(220,236,255,0.88)",
+    borderRadius: 2,
+  },
+  snowPlate: {
+    backgroundColor: "rgba(216,238,254,0.82)",
+    transform: [{ rotate: "45deg" }],
+    borderRadius: 2,
+  },
+  snowDendrite: {
+    position: "relative",
+  },
+  snowArmH: {
+    position: "absolute",
+    left: 0,
+    height: 1.5,
+    backgroundColor: "#e8f2ff",
+  },
+  snowArmV: {
+    position: "absolute",
+    top: 0,
+    width: 1.5,
+    backgroundColor: "#e8f2ff",
+  },
+  snowEdge: {
+    ...StyleSheet.absoluteFillObject,
+    borderWidth: 2,
+    borderColor: "rgba(200,220,255,0.2)",
+    borderRadius: 4,
+  },
+  /* Edge shade only — no circular hole (read as a yellow ring on web). */
+  spotCan: {
+    position: "absolute",
+    top: 8,
+    alignSelf: "center",
+    width: 46,
+    height: 12,
+    borderRadius: 4,
+    backgroundColor: "#3a4254",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.28)",
+    zIndex: 4,
+  },
+  spotEdgeTop: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: "22%",
+    backgroundColor: "rgba(0,0,0,0.36)",
+  },
+  spotEdgeLeft: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    width: "18%",
+    backgroundColor: "rgba(0,0,0,0.4)",
+  },
+  spotEdgeRight: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    right: 0,
+    width: "18%",
+    backgroundColor: "rgba(0,0,0,0.4)",
+  },
+  spotBeam: {
+    position: "absolute",
+    top: "-10%",
+    left: "16%",
+    width: "68%",
+    height: "58%",
+    borderBottomLeftRadius: 120,
+    borderBottomRightRadius: 120,
+    backgroundColor: "rgba(255,250,236,0.16)",
+  },
+  spotShaft: {
+    position: "absolute",
+    top: "-6%",
+    left: "40%",
+    width: "20%",
+    height: "52%",
+    borderBottomLeftRadius: 40,
+    borderBottomRightRadius: 40,
+    backgroundColor: "rgba(255,255,248,0.18)",
   },
 });

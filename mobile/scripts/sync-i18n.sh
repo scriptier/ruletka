@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 DEST="$ROOT/mobile/src/i18n/packs"
 mkdir -p "$DEST"
-for c in en ru de es fr pl pt tr uk zh cs bg sr ar; do
+for c in en ru de es fr it pl pt tr uk zh cs bg sr ar id; do
   cp "$ROOT/ui/i18n/$c.json" "$DEST/$c.json"
   echo "synced $c"
 done

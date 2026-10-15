@@ -1,4 +1,4 @@
-import { configUrl, hubBase, wsUrl } from "../config";
+import { configUrl, hubBase, siblingHubBase, wsUrl } from "../config";
 import type { ClientMsg, IceConfig, ServerMsg } from "./types";
 
 export type HubClientHandlers = {
@@ -17,6 +17,10 @@ export class HubClient {
   private shouldReconnect = false;
   private reconnectAttempt = 0;
   private intentionalClose = false;
+  /** Last vip↔me swap; min 20s between flips. */
+  private lastSiblingSwapAt = 0;
+  /** After a live open, retry the same hub — do not vip↔me mid-call. */
+  private sessionOpened = false;
   /** Short-lived /config.json cache so match path never blocks on HTTP. */
   private iceCache: { at: number; cfg: IceConfig } | null = null;
   private iceInflight: Promise<IceConfig> | null = null;
@@ -107,6 +111,7 @@ export class HubClient {
 
     ws.onopen = () => {
       this.reconnectAttempt = 0;
+      this.sessionOpened = true;
       this.startPing();
       this.handlers.onOpen?.();
     };
@@ -131,9 +136,32 @@ export class HubClient {
     };
   }
 
+  /**
+   * First WS close/error (reconnectAttempt===0): swap vip↔me then reopen.
+   * Same hub; no /health. Rate-limit 20s so a double error+close cannot flip back.
+   * After a live session opened, stay on this hub (mid-call blip).
+   */
+  private maybeSwapSiblingHub(): boolean {
+    if (this.sessionOpened) return false;
+    if (this.reconnectAttempt !== 0) return false;
+    const now = Date.now();
+    if (now - this.lastSiblingSwapAt < 20_000) return false;
+    const sibling = siblingHubBase(this.base);
+    if (!sibling || sibling === this.base) return false;
+    this.setBase(sibling);
+    this.lastSiblingSwapAt = now;
+    return true;
+  }
+
   private scheduleReconnect() {
     this.clearReconnect();
-    const delay = Math.min(15000, 800 * Math.pow(1.6, this.reconnectAttempt++));
+    const swapped = this.maybeSwapSiblingHub();
+    const delay = swapped
+      ? 0
+      : this.sessionOpened && this.reconnectAttempt === 0
+        ? 0
+        : Math.min(15000, 800 * Math.pow(1.6, this.reconnectAttempt));
+    this.reconnectAttempt++;
     this.reconnectTimer = setTimeout(() => {
       if (this.shouldReconnect && !this.intentionalClose) this.openSocket();
     }, delay);
@@ -149,6 +177,7 @@ export class HubClient {
   disconnect(): void {
     this.intentionalClose = true;
     this.shouldReconnect = false;
+    this.sessionOpened = false;
     this.clearReconnect();
     this.stopPing();
     if (this.ws) {
@@ -184,6 +213,7 @@ export class HubClient {
     looking?: string;
     flag?: string;
     hide_ip?: boolean;
+    avatar?: string;
   }): void {
     this.send({
       type: "hello",
@@ -191,8 +221,8 @@ export class HubClient {
       name: opts.name || "anon",
       gender: opts.gender || "",
       looking: opts.looking || "any",
-      flag: opts.hide_ip ? String(opts.flag || "").toUpperCase().slice(0, 2) : "",
-      avatar: "",
+      flag: String(opts.flag || "").toUpperCase().slice(0, 2),
+      avatar: opts.avatar ?? "",
       tags: [],
       platform: "android",
       hide_ip: !!opts.hide_ip,
@@ -204,13 +234,14 @@ export class HubClient {
     looking?: string;
     flag?: string;
     hide_ip?: boolean;
+    avatar?: string;
   }): void {
     this.send({
       type: "set_prefs",
       gender: opts.gender || "",
       looking: opts.looking || "any",
-      flag: opts.hide_ip ? String(opts.flag || "").toUpperCase().slice(0, 2) : "",
-      avatar: "",
+      flag: String(opts.flag || "").toUpperCase().slice(0, 2),
+      avatar: opts.avatar ?? "",
       tags: [],
       hide_ip: !!opts.hide_ip,
     });
@@ -356,13 +387,18 @@ export class HubClient {
 
   private startPing() {
     this.stopPing();
+    try {
+      if (this.connected) this.send({ type: "ping" });
+    } catch {
+      /* ignore */
+    }
     this.pingTimer = setInterval(() => {
       try {
         if (this.connected) this.send({ type: "ping" });
       } catch {
         /* ignore */
       }
-    }, 20000);
+    }, 10000);
   }
 
   private stopPing() {

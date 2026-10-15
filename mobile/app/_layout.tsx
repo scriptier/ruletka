@@ -1,12 +1,13 @@
 // Must be first — enables react-navigation / expo-router gestures
 import "react-native-gesture-handler";
 
-import { Stack, router } from "expo-router";
+import { Stack, router, usePathname } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -17,6 +18,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { CallPeerAvatar, resolveFriendAvatar } from "../src/friends/CallPeerAvatar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import {
   SafeAreaProvider,
@@ -44,6 +46,7 @@ import {
   type LocalIdentity,
 } from "../src/identity/store";
 import { I18nProvider, useI18n, useT } from "../src/i18n";
+import { shouldNavigateToLive } from "../src/live/matchContinuity";
 import { FriendInviteHandler } from "../src/linking/FriendInviteHandler";
 import { dismissLocalCallAlert } from "../src/push/localCallAlert";
 import { attachPushResponseListener } from "../src/push/listeners";
@@ -101,6 +104,21 @@ export function useApp(): AppContext {
 
 function CallBanners() {
   const t = useT();
+  const pathname = usePathname();
+  const pathRef = useRef(pathname);
+  pathRef.current = pathname;
+  const goLiveIfNeeded = () => {
+    if (!shouldNavigateToLive(pathRef.current)) return;
+    try {
+      router.replace("/live");
+    } catch {
+      try {
+        router.push("/live");
+      } catch {
+        /* ignore */
+      }
+    }
+  };
   const insets = useSafeAreaInsets();
   const topPad = Math.max(insets.top, 12) + 8;
   const {
@@ -108,7 +126,10 @@ function CallBanners() {
     outboundCall,
     hub,
     clearIncomingCall,
+    incomingFriendReq,
+    clearIncomingFriendReq,
     setOutboundCall,
+    showToast,
     toast,
     toastOpenUserId,
     clearToast,
@@ -153,6 +174,11 @@ function CallBanners() {
       setPendingPush(null);
     }
   }, [incomingCall?.from_user_id]);
+
+  useEffect(() => {
+    if (!incomingFriendReq?.user_id) return;
+    hapticMatch();
+  }, [incomingFriendReq?.user_id]);
 
   // Repeating ring vibe while friend is calling
   useEffect(() => {
@@ -264,6 +290,12 @@ function CallBanners() {
       {/* Waiting for hub ring after opening from offline push */}
       {pendingPush && !incomingCall && !outboundCall ? (
         <View style={[bannerStyles.outgoing, { top: topPad }]}>
+          <CallPeerAvatar
+            name={pendingPush.fromName}
+            userId={pendingPush.fromUserId}
+            avatar={resolveFriendAvatar(friends, pendingPush.fromUserId)}
+            size={64}
+          />
           <Text style={bannerStyles.incomingTitle}>
             {t("mobile.call.pushWaitingTitle")}
           </Text>
@@ -301,10 +333,81 @@ function CallBanners() {
         </View>
       ) : null}
 
+      {incomingFriendReq && !incomingCall ? (
+        <View style={bannerStyles.incomingScrim} pointerEvents="box-none">
+          <View style={[bannerStyles.incoming, { marginTop: topPad }]}>
+            <Text style={bannerStyles.incomingTitle}>
+              {t("friends.incomingTitle")}
+            </Text>
+            <Text style={bannerStyles.incomingBody}>
+              {incomingFriendReq.name ||
+                incomingFriendReq.friend_code ||
+                "Friend"}
+            </Text>
+            {incomingFriendReq.friend_code ? (
+              <Text style={bannerStyles.incomingCode}>
+                {incomingFriendReq.friend_code}
+              </Text>
+            ) : null}
+            <Text style={bannerStyles.incomingHint}>
+              {t("friends.mutualHint")}
+            </Text>
+            <View style={bannerStyles.row}>
+              <Pressable
+                style={bannerStyles.decline}
+                onPress={() => {
+                  try {
+                    hub.declineFriend(incomingFriendReq.user_id);
+                  } catch {
+                    /* ignore */
+                  }
+                  clearIncomingFriendReq();
+                }}
+              >
+                <Text style={bannerStyles.btnText}>
+                  {t("friends.declineReq")}
+                </Text>
+              </Pressable>
+              <Pressable
+                style={bannerStyles.accept}
+                onPress={() => {
+                  try {
+                    hub.acceptFriend(incomingFriendReq.user_id);
+                    track("funnel_invite_connected", {
+                      via: "live_friend_req",
+                    });
+                  } catch {
+                    /* ignore */
+                  }
+                  clearIncomingFriendReq();
+                  showToast(t("friends.acceptedToast"));
+                }}
+              >
+                <Text style={bannerStyles.btnText}>
+                  {t("friends.acceptReq")}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      ) : null}
+
       {incomingCall ? (
         <View style={bannerStyles.incomingScrim} pointerEvents="box-none">
           <View style={[bannerStyles.incoming, { marginTop: topPad }]}>
             <Text style={bannerStyles.incomingPulse}>●</Text>
+            <CallPeerAvatar
+              name={
+                incomingCall.from_name || incomingCall.from_short || "Friend"
+              }
+              userId={incomingCall.from_user_id}
+              avatar={resolveFriendAvatar(
+                friends,
+                incomingCall.from_user_id,
+                incomingCall.avatar
+              )}
+              size={88}
+            />
             <Text style={bannerStyles.incomingTitle}>
               {incomingCall.join
                 ? t("mobile.call.joinTitle")
@@ -320,12 +423,19 @@ function CallBanners() {
             ) : null}
             {incomingCall.join ? (
               <Text style={bannerStyles.incomingHint}>
-                {t("mobile.call.joinHint", {
-                  with:
+                {(() => {
+                  const withName =
                     incomingCall.with_name ||
                     (incomingCall.with_user_id || "").slice(0, 8) ||
-                    "…",
-                })}
+                    "…";
+                  const group = t("mobile.call.joinGroupHint", {
+                    with: withName,
+                  });
+                  if (group && group !== "mobile.call.joinGroupHint") {
+                    return group;
+                  }
+                  return t("mobile.call.joinHint", { with: withName });
+                })()}
               </Text>
             ) : (
               <Text style={bannerStyles.incomingHint}>
@@ -373,16 +483,9 @@ function CallBanners() {
                     /* ignore */
                   }
                   clearIncomingCall();
-                  // MediaSession only mounts on Live — open it so A/V starts
-                  try {
-                    router.replace("/live");
-                  } catch {
-                    try {
-                      router.push("/live");
-                    } catch {
-                      /* ignore */
-                    }
-                  }
+                  // MediaSession only mounts on Live — open it so A/V starts.
+                  // Skip if already on /live (replace remounts + media.close).
+                  goLiveIfNeeded();
                 }}
               >
                 <Text style={bannerStyles.btnText}>
@@ -399,6 +502,16 @@ function CallBanners() {
       {outboundCall && !incomingCall ? (
         <View style={[bannerStyles.outgoing, { top: topPad }]}>
           <Text style={bannerStyles.incomingPulse}>●</Text>
+          <CallPeerAvatar
+            name={outboundCall.name || "Friend"}
+            userId={outboundCall.user_id}
+            avatar={resolveFriendAvatar(
+              friends,
+              outboundCall.user_id,
+              outboundCall.avatar
+            )}
+            size={72}
+          />
           <Text style={bannerStyles.incomingTitle}>
             {outboundCall.join
               ? t("mobile.call.invitingJoin")
@@ -432,6 +545,16 @@ function CallBanners() {
       {/* No answer — Call back (web parity) */}
       {noAnswerPrompt && !outboundCall && !incomingCall ? (
         <View style={[bannerStyles.outgoing, bannerStyles.noAnswer, { top: topPad }]}>
+          <CallPeerAvatar
+            name={noAnswerPrompt.name || "Friend"}
+            userId={noAnswerPrompt.user_id}
+            avatar={resolveFriendAvatar(
+              friends,
+              noAnswerPrompt.user_id,
+              noAnswerPrompt.avatar
+            )}
+            size={64}
+          />
           <Text style={bannerStyles.incomingTitle}>
             {t("mobile.call.noAnswerTitle")}
           </Text>
@@ -464,6 +587,7 @@ function CallBanners() {
                 setOutboundCall({
                   user_id: peer.user_id,
                   name: peer.name,
+                  avatar: peer.avatar || "",
                   join: false,
                 });
                 try {
@@ -514,18 +638,17 @@ function CallBanners() {
               </Pressable>
               <Pressable
                 style={bannerStyles.accept}
-                onPress={() => {
+                unstable_pressDelay={0}
+                onPressIn={() => {
                   try {
                     hub.findThirdRespond(true);
                   } catch {
                     /* ignore */
                   }
                   clearFindThirdIncoming();
-                  try {
-                    router.push("/live");
-                  } catch {
-                    /* ignore */
-                  }
+                  // Already on Live during 1v1 — push remounts and media.close()
+                  // freezes Courtier + solo queue (401 Let's go).
+                  goLiveIfNeeded();
                 }}
               >
                 <Text style={bannerStyles.btnText}>
@@ -597,22 +720,24 @@ function CallBanners() {
                   {t("mobile.live.rateThanks")}
                 </Text>
               </Pressable>
-              <Pressable
-                style={bannerStyles.decline}
-                onPress={() => {
-                  try {
-                    hub.ratePartner(ratePrompt.user_id, false, 0);
-                  } catch {
-                    /* ignore */
-                  }
-                  clearRatePrompt();
-                }}
-              >
-                <Text style={bannerStyles.btnText}>
-                  {t("mobile.common.skip")}
-                </Text>
-              </Pressable>
             </View>
+            <Pressable
+              style={bannerStyles.rateSkip}
+              onPress={() => {
+                try {
+                  hub.ratePartner(ratePrompt.user_id, false, 0);
+                } catch {
+                  /* ignore */
+                }
+                clearRatePrompt();
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={t("mobile.common.skip")}
+            >
+              <Text style={bannerStyles.rateSkipText}>
+                {t("mobile.common.skip")}
+              </Text>
+            </Pressable>
           </View>
         </View>
       ) : null}
@@ -626,13 +751,18 @@ function CallBanners() {
  */
 function MatchLiveNavigator() {
   const { addMessageListener } = useHub();
+  const pathname = usePathname();
+  const pathRef = useRef(pathname);
+  pathRef.current = pathname;
   useEffect(() => {
     return addMessageListener((msg) => {
       if (msg.type !== "matched") return;
       stopRing();
       void enterCallAudio();
+      // find-3rd Let's go re-sends Matched party_browse. replace("/live")
+      // remounts Live → media.close() → Courtier freeze + solo search.
+      if (!shouldNavigateToLive(pathRef.current)) return;
       try {
-        // push is fine even if already on Live (stack may duplicate; replace is safer)
         router.replace("/live");
       } catch {
         try {
@@ -643,6 +773,31 @@ function MatchLiveNavigator() {
       }
     });
   }, [addMessageListener]);
+  return null;
+}
+
+/**
+ * Cold start: open the live Start screen. Hardware back pops to Home (index).
+ * Module flag so React remounts do not bounce the user back to Live.
+ */
+let bootToLiveDone = false;
+function BootToLiveOnce() {
+  const { rulesOk } = useApp();
+  const pathname = usePathname();
+  useEffect(() => {
+    if (!rulesOk || bootToLiveDone) return;
+    const onHome = pathname === "/" || pathname === "/index" || pathname === "";
+    if (!onHome) {
+      bootToLiveDone = true;
+      return;
+    }
+    bootToLiveDone = true;
+    try {
+      router.push("/live");
+    } catch {
+      /* ignore */
+    }
+  }, [rulesOk, pathname]);
   return null;
 }
 
@@ -669,6 +824,7 @@ function Shell({
     <HubProvider key={identity.user_id} identity={identity}>
       <FriendInviteHandler />
       <MatchLiveNavigator />
+      <BootToLiveOnce />
       <CallBanners />
       {children}
     </HubProvider>
@@ -706,6 +862,17 @@ function StackNav() {
           contentStyle: { backgroundColor: "transparent" },
           statusBarBackgroundColor: "#050608",
           navigationBarColor: "#050608",
+          // iOS: headerShown:false means no header back button, and live.tsx
+          // has no in-UI Home button — the edge-swipe gesture is the ONLY way
+          // back to Home on iOS, so it must stay enabled (default here, kept
+          // explicit so it isn't disabled by accident later). Android instead
+          // uses hardwareBackPress (live.tsx's onBack), which is a no-op API
+          // on iOS: it first stops an active/matched call and only leaves to
+          // Home on a second press once idle. The iOS swipe has no such
+          // two-step grace — it pops straight to Home even mid-call. Closing
+          // that gap needs a beforeRemove listener wired to live.tsx's call
+          // phase, which is out of scope here (Must not: live.tsx).
+          gestureEnabled: true,
         }}
       />
       <Stack.Screen
@@ -846,7 +1013,8 @@ const bannerStyles = StyleSheet.create({
   },
   incomingScrim: {
     ...StyleSheet.absoluteFillObject,
-    zIndex: 120,
+    zIndex: 2000,
+    elevation: 2000,
     backgroundColor: "rgba(0,0,0,0.55)",
     justifyContent: "flex-start",
     paddingHorizontal: 16,
@@ -943,6 +1111,18 @@ const bannerStyles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 999,
     alignItems: "center",
+  },
+  /** Ghost skip — not in the ★ equal row; quieter than decline (red). */
+  rateSkip: {
+    alignSelf: "center",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    marginTop: 2,
+  },
+  rateSkipText: {
+    color: "rgba(200, 210, 220, 0.55)",
+    fontSize: 13,
+    fontWeight: "600",
   },
   row: { flexDirection: "row", gap: 10, marginTop: 4 },
   accept: {

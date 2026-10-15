@@ -1,10 +1,12 @@
 /**
  * Match-stage brand mark: full "ruletka.me" starts center (readable),
- * soft-drifts all the way to bottom-middle of the partner (conversationalist)
- * tile, then every 15s does a soft full 360° spin (always ends upright).
+ * soft-drifts to the partner|you seam — mobile web parity:
+ *   portrait (tiles stack)   → horizontal seam, ~56% down the stage
+ *   landscape (tiles side by side) → vertical seam, stays at mid-height
+ * — then glows and does one quick 360° every 20s (always ends upright).
  *
  * Cycle (after settle, while matched):
- *   soft spin 360° (~1.3s, scale 1→1.06→1) → hold upright 15s → repeat
+ *   still → glow (~0.8s) → one quick 360° (~0.7s) → hold 20s → repeat
  */
 import { memo, useCallback, useEffect, useRef } from "react";
 import {
@@ -19,34 +21,39 @@ import {
 
 const SETTLE_HOLD_MS = 1200;
 const SETTLE_MS = 1100;
-/** One full 360° revolution — slightly longer for smoother ease */
-const SPIN_MS = 1300;
-/** Upright rest between spins */
-const HOLD_BETWEEN_SPINS_MS = 15_000;
+/** Halo before the spin — still upright */
+const GLOW_IN_MS = 450;
+const GLOW_HOLD_MS = 350;
+/** One quick 360° (parity with PC ~0.7s) */
+const SPIN_MS = 700;
+/** Upright rest after spin before the next glow+spin */
+const HOLD_BETWEEN_SPINS_MS = 20_000;
 const IDLE_OPACITY = 0.54;
 const SPIN_OPACITY = 0.78;
 const EDGE_SCALE = 0.72;
 const CENTER_SCALE = 1.15;
 /** Peak scale mid-spin (PC-feel pulse) */
 const SPIN_PEAK_SCALE = 1.06;
-/** Approx half-height of pill (for bottom park); refined on mark layout if needed */
-const MARK_HALF_H = 22;
-/** Gap from bottom edge of partner video — true bottom-middle of conversationalist window */
-const BOTTOM_PAD = 14;
+/** Portrait: tiles stack (partner top / you bottom) — seam sits ~56% down (web parity) */
+const PORTRAIT_SEAM_FRACTION = 0.56;
+/** Landscape: tiles sit side by side — seam is vertical, mark stays at mid-height */
+const LANDSCAPE_SEAM_FRACTION = 0.5;
 
 /**
- * Distance from vertical center down so the mark center sits near the bottom
- * of the partner tile (all the way down, horizontally middle).
+ * Distance from vertical center down so the mark settles on the partner|you
+ * seam: near mid-height in landscape (vertical seam), a touch below mid in
+ * portrait (horizontal seam between stacked tiles) — mirrors mobile web.
  */
-function settleTyForHeight(h: number): number {
+function settleTyForStage(w: number, h: number): number {
   if (h <= 0) return 0;
+  const isLandscape = w > h;
+  const seamFraction = isLandscape
+    ? LANDSCAPE_SEAM_FRACTION
+    : PORTRAIT_SEAM_FRACTION;
   // Root justifyContent:center → start at h/2.
-  // Target mark center: BOTTOM_PAD + MARK_HALF_H from bottom.
-  const targetFromTop = h - BOTTOM_PAD - MARK_HALF_H;
+  const targetFromTop = h * seamFraction;
   const startFromTop = h / 2;
-  const ty = targetFromTop - startFromTop;
-  // Floor so short stages still leave face center
-  return Math.max(120, ty);
+  return targetFromTop - startFromTop;
 }
 
 export const BrandWatermark = memo(function BrandWatermark(props: {
@@ -57,19 +64,27 @@ export const BrandWatermark = memo(function BrandWatermark(props: {
   // Rotation degrees: 0 → 360 per spin, then reset to 0
   const rotate = useRef(new Animated.Value(0)).current;
   const spinBoost = useRef(new Animated.Value(0)).current;
+  const glow = useRef(new Animated.Value(0)).current;
   const settleDistance = useRef(
-    new Animated.Value(settleTyForHeight(640))
+    new Animated.Value(settleTyForStage(360, 640))
   ).current;
+  const containerW = useRef(0);
   const containerH = useRef(0);
   const loopActive = useRef(false);
 
   const onRootLayout = useCallback(
     (e: LayoutChangeEvent) => {
-      const h = e.nativeEvent.layout.height;
+      const { width: w, height: h } = e.nativeEvent.layout;
       if (h < 1) return;
-      if (Math.abs(h - containerH.current) < 2) return;
+      if (
+        Math.abs(h - containerH.current) < 2 &&
+        Math.abs(w - containerW.current) < 2
+      ) {
+        return;
+      }
+      containerW.current = w;
       containerH.current = h;
-      settleDistance.setValue(settleTyForHeight(h));
+      settleDistance.setValue(settleTyForStage(w, h));
     },
     [settleDistance]
   );
@@ -78,9 +93,12 @@ export const BrandWatermark = memo(function BrandWatermark(props: {
     progress.setValue(0);
     rotate.setValue(0);
     spinBoost.setValue(0);
+    glow.setValue(0);
     loopActive.current = true;
     if (containerH.current > 0) {
-      settleDistance.setValue(settleTyForHeight(containerH.current));
+      settleDistance.setValue(
+        settleTyForStage(containerW.current, containerH.current)
+      );
     }
 
     const easeInOut = Easing.inOut(Easing.cubic);
@@ -116,11 +134,19 @@ export const BrandWatermark = memo(function BrandWatermark(props: {
         }),
       ]);
 
-    /** Soft full 360° then rest upright 15s; repeat while matched */
+    /** Still → glow → one quick 360° → 20s rest; repeat while matched */
     const runSpinLoop = () => {
       if (!loopActive.current) return;
       rotate.setValue(0);
+      glow.setValue(0);
       Animated.sequence([
+        Animated.timing(glow, {
+          toValue: 1,
+          duration: GLOW_IN_MS,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.delay(GLOW_HOLD_MS),
         Animated.parallel([
           Animated.timing(rotate, {
             toValue: 360,
@@ -129,6 +155,12 @@ export const BrandWatermark = memo(function BrandWatermark(props: {
             useNativeDriver: true,
           }),
           spinPulse(),
+          Animated.timing(glow, {
+            toValue: 0,
+            duration: SPIN_MS,
+            easing: Easing.in(Easing.cubic),
+            useNativeDriver: true,
+          }),
         ]),
         Animated.delay(HOLD_BETWEEN_SPINS_MS),
       ]).start(({ finished }) => {
@@ -148,8 +180,9 @@ export const BrandWatermark = memo(function BrandWatermark(props: {
       progress.stopAnimation();
       rotate.stopAnimation();
       spinBoost.stopAnimation();
+      glow.stopAnimation();
     };
-  }, [props.animKey, progress, rotate, spinBoost, settleDistance]);
+  }, [props.animKey, progress, rotate, spinBoost, glow, settleDistance]);
 
   const settleScale = progress.interpolate({
     inputRange: [0, 0.55, 1],
@@ -192,6 +225,23 @@ export const BrandWatermark = memo(function BrandWatermark(props: {
         }}
       >
         <View style={styles.markWrap}>
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.glowHalo,
+              {
+                opacity: glow,
+                transform: [
+                  {
+                    scale: glow.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [1, 1.45],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          />
           <Text style={styles.markText} numberOfLines={1} ellipsizeMode="clip">
             ruletka.me
           </Text>
@@ -218,6 +268,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 999,
+    overflow: "visible",
+    position: "relative",
     // Richer glass pill (parity with PC stage-brand-spin depth)
     backgroundColor: "rgba(12, 16, 26, 0.58)",
     borderWidth: StyleSheet.hairlineWidth * 2,
@@ -233,6 +285,21 @@ const styles = StyleSheet.create({
       android: {
         elevation: 4,
       },
+      default: {},
+    }),
+  },
+  glowHalo: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 999,
+    backgroundColor: "rgba(170, 205, 255, 0.28)",
+    borderWidth: 1,
+    borderColor: "rgba(200, 220, 255, 0.55)",
+    shadowColor: "#b8d0ff",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.95,
+    shadowRadius: 18,
+    ...Platform.select({
+      android: { elevation: 10 },
       default: {},
     }),
   },

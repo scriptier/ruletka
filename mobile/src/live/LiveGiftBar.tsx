@@ -4,9 +4,11 @@
  * Gift effects match web: available in a live match when you can afford them.
  * Unlock bar tracks post-chat ★ rating eligibility only (not gift lock).
  */
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useT } from "../i18n";
 import type { GiftDef } from "../stars/gifts";
+import { TapPressable } from "../ui/TapPressable";
 import { liveStyles as styles } from "./liveStyles";
 
 export type LiveGiftBarProps = {
@@ -29,6 +31,11 @@ export type LiveGiftBarProps = {
    * Frees vertical space so partner face fills more of the stage.
    */
   compact?: boolean;
+  /**
+   * Show post-chat ★ unlock countdown (default false — easter egg / clean UI).
+   * Gifts stay available; only the progress bar is hidden.
+   */
+  showUnlockBar?: boolean;
   /** Called when user taps a gift they cannot afford. */
   onCantAfford?: (cost: number, have: number) => void;
   onSpend: (id: string, cost: number) => void;
@@ -45,10 +52,12 @@ export function LiveGiftBar(props: LiveGiftBarProps) {
     giftsTitle,
     partnerLine,
     compact = false,
+    showUnlockBar = false,
     onCantAfford,
     onSpend,
   } = props;
   const t = useT();
+  const insets = useSafeAreaInsets();
 
   const balance = Math.max(0, Math.floor(Number(stars) || 0));
   const cheapest = gifts.length
@@ -56,8 +65,20 @@ export function LiveGiftBar(props: LiveGiftBarProps) {
     : null;
   const allLocked = cheapest !== null && balance < cheapest;
 
+  // Self-contained iOS safe-area guard: LiveGiftBar owns its own bottom
+  // clearance so it is never flush with the home-indicator gesture bar,
+  // regardless of what container mounts it (no reliance on a caller's inset math).
+  const iosHomeIndicatorPad =
+    Platform.OS === "ios" ? { paddingBottom: Math.max(insets.bottom, 8) } : null;
+
   return (
-    <View style={[styles.giftSection, compact && styles.giftSectionCompact]}>
+    <View
+      style={[
+        styles.giftSection,
+        compact && styles.giftSectionCompact,
+        iosHomeIndicatorPad,
+      ]}
+    >
       <View style={styles.giftSectionHead}>
         {giftsTitle ? (
           <Text style={styles.giftSectionTitle} accessibilityRole="header">
@@ -97,8 +118,8 @@ export function LiveGiftBar(props: LiveGiftBarProps) {
         </Text>
       ) : null}
 
-      {/* Compact: thin unlock track only (no tall copy). Full: track + label. */}
-      {!starReady ? (
+      {/* ★ unlock countdown: off by default (clean UI / easter egg via showUnlockBar). */}
+      {showUnlockBar && !starReady ? (
         <View
           style={[styles.giftUnlockBar, compact && styles.giftUnlockBarCompact]}
           accessibilityRole="progressbar"
@@ -127,7 +148,7 @@ export function LiveGiftBar(props: LiveGiftBarProps) {
             </Text>
           ) : null}
         </View>
-      ) : !compact ? (
+      ) : showUnlockBar && starReady && !compact ? (
         <Text
           style={styles.giftUnlockReady}
           numberOfLines={1}
@@ -160,11 +181,16 @@ export function LiveGiftBar(props: LiveGiftBarProps) {
             {gifts.map((g) => {
               const afford = balance >= g.cost;
               return (
-                <Pressable
+                <TapPressable
                   key={g.id}
                   style={[
                     styles.giftChip,
                     compact && styles.giftChipCompact,
+                    // giftChipCompact's own padding/content is ~42pt tall —
+                    // bump the actual box (not just hitSlop) to the 44pt
+                    // Apple HIG minimum so adjacent chips in the tight
+                    // horizontal row don't rely on overlapping hit areas.
+                    compact && local.giftChipTapMin,
                     !afford && styles.giftChipDisabled,
                     afford && styles.giftChipReady,
                   ]}
@@ -204,7 +230,7 @@ export function LiveGiftBar(props: LiveGiftBarProps) {
                   >
                     {g.cost}★
                   </Text>
-                </Pressable>
+                </TapPressable>
               );
             })}
           </ScrollView>
@@ -225,6 +251,11 @@ export function LiveGiftBar(props: LiveGiftBarProps) {
 
 /** Local high-contrast spendable ★ pill (over video / dark dock). */
 const local = StyleSheet.create({
+  /** ≥44pt tap target floor for the compact chip (44x44 Apple HIG min). */
+  giftChipTapMin: {
+    minHeight: 44,
+    justifyContent: "center",
+  },
   balancePill: {
     paddingVertical: 4,
     paddingHorizontal: 10,

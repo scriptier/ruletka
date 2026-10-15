@@ -292,6 +292,7 @@
   "mobile.live.longSearchBody": "Sıra sessiz olabilir. Bir arkadaşınızı davet edin veya durup daha sonra deneyin.",
   "mobile.live.longSearchTitle": "Hala bakıyorum… ( {s} s)",
   "mobile.live.looking": "Aranıyor…",
+  "mobile.live.matchBanned": "Eşleşmeniz yasaklandı",
   "mobile.live.matched": "Eşleşti",
   "mobile.live.mediaResumed": "Arka plandan sonra kamera ve mikrofon tekrar açılıyor",
   "mobile.live.meta": "★ {stars} · çevrimiçi {online} · bekleyen {wait}",

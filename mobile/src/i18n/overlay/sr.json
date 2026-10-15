@@ -292,6 +292,7 @@
   "mobile.live.longSearchBody": "Ред може бити тих. Позовите пријатеља или престаните и покушајте касније.",
   "mobile.live.longSearchTitle": "Још увек тражим... ( __ПХ0__ с) {s}",
   "mobile.live.looking": "Тражење…",
+  "mobile.live.matchBanned": "Забрањено вам је повезивање",
   "mobile.live.matched": "Matched",
   "mobile.live.mediaResumed": "Камера и микрофон се поново укључују након позадине",
   "mobile.live.meta": "★ {stars} · online {online} · wait {wait}",

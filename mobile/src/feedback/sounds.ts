@@ -18,7 +18,27 @@ type SoundLike = {
   getStatusAsync?: () => Promise<{ isLoaded?: boolean }>;
 };
 
-type Kind = "match" | "turn" | "urgent" | "gift" | "ring";
+type Kind =
+  | "match"
+  | "turn"
+  | "urgent"
+  | "gift"
+  | "wish"
+  | "oops"
+  | "starClick"
+  | "debateBell"
+  | "debateTick"
+  | "debatePress"
+  | "repair"
+  | "goodJob"
+  | "legendaryDrop"
+  | "itemUsed"
+  | "royal"
+  | "riz"
+  | "portalEnter"
+  | "flame"
+  | "ring"
+  | "identify";
 
 const cache: Partial<Record<Kind, SoundLike>> = {};
 let preloadDone = false;
@@ -26,11 +46,26 @@ let preloadDone = false;
 function asset(kind: Kind): unknown {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const map: Record<Kind, unknown> = {
-    match: require("../../assets/sounds/match.wav"),
+    match: require("../../assets/sounds/match.mp3"),
     turn: require("../../assets/sounds/turn.wav"),
     urgent: require("../../assets/sounds/urgent.wav"),
     gift: require("../../assets/sounds/gift.wav"),
+    wish: require("../../assets/sounds/wish.mp3"),
+    oops: require("../../assets/sounds/oops.mp3"),
+    starClick: require("../../assets/sounds/star-click.mp3"),
+    debateBell: require("../../assets/sounds/undertaker-bell.mp3"),
+    debateTick: require("../../assets/sounds/ticktock.mp3"),
+    debatePress: require("../../assets/sounds/pressing.mp3"),
+    repair: require("../../assets/sounds/repair.mp3"),
+    goodJob: require("../../assets/sounds/good-job.mp3"),
+    legendaryDrop: require("../../assets/sounds/legendary-drop.mp3"),
+    itemUsed: require("../../assets/sounds/item-used.mp3"),
+    royal: require("../../assets/sounds/royal.mp3"),
+    riz: require("../../assets/sounds/riz.mp3"),
+    portalEnter: require("../../assets/sounds/portalenter.wav"),
+    flame: require("../../assets/sounds/flame.mp3"),
     ring: require("../../assets/sounds/ring.wav"),
+    identify: require("../../assets/sounds/identify.wav"),
   };
   return map[kind];
 }
@@ -72,9 +107,30 @@ export async function preloadUiSounds(): Promise<void> {
   try {
     await setAudioSession("ui");
     await Promise.all(
-      (["match", "turn", "urgent", "gift", "ring"] as Kind[]).map((k) =>
-        getSound(k)
-      )
+      (
+        [
+          "match",
+          "turn",
+          "urgent",
+          "gift",
+          "wish",
+          "oops",
+          "starClick",
+          "debateBell",
+          "debateTick",
+          "debatePress",
+          "repair",
+          "goodJob",
+          "legendaryDrop",
+          "itemUsed",
+          "royal",
+          "riz",
+          "portalEnter",
+          "flame",
+          "ring",
+          "identify",
+        ] as Kind[]
+      ).map((k) => getSound(k))
     );
   } catch {
     /* ignore */
@@ -102,7 +158,12 @@ async function playOnce(
 }
 
 export async function playMatchChime(): Promise<void> {
-  await playOnce("match", 0.55);
+  await playOnce("match", 0.05);
+}
+
+/** Mutual friend accept — both sides. 10% like gifts. */
+export async function playFriendIdentifyChime(): Promise<void> {
+  await playOnce("identify", 0.1);
 }
 
 export async function playTurnChime(): Promise<void> {
@@ -113,7 +174,69 @@ export async function playUrgentChime(): Promise<void> {
   await playOnce("urgent", 0.48);
 }
 
-export async function playGiftChime(): Promise<void> {
+export async function playStarGiftClick(amount?: number): Promise<void> {
+  const n = Number(amount) || 0;
+  if (n > 3) {
+    await playOnce("legendaryDrop", 0.1);
+    return;
+  }
+  await playOnce("starClick", 0.1);
+}
+
+export async function playDebateBell(): Promise<void> {
+  await playOnce("debateBell", 0.1);
+}
+
+export async function playDebateTickTock(): Promise<void> {
+  await playOnce("debateTick", 0.1);
+}
+
+export async function playDebatePress(): Promise<void> {
+  await playOnce("debatePress", 0.1);
+}
+
+export async function playGiftChime(kind?: string): Promise<void> {
+  const k = String(kind || "");
+  if (k === "heart" || k === "flowers") {
+    await playOnce("wish", 0.1);
+    return;
+  }
+  if (k === "fence") {
+    await playOnce("oops", 0.1);
+    return;
+  }
+  if (k === "bars") {
+    await playOnce("repair", 0.1);
+    return;
+  }
+  if (k === "balloons") {
+    await playOnce("goodJob", 0.1);
+    return;
+  }
+  if (k === "confetti") {
+    await playOnce("itemUsed", 0.1);
+    return;
+  }
+  if (k === "crown") {
+    await playOnce("royal", 0.1);
+    return;
+  }
+  if (k === "spotlight") {
+    await playOnce("riz", 0.1);
+    return;
+  }
+  if (k === "snow") {
+    await playOnce("portalEnter", 0.1);
+    return;
+  }
+  if (k === "fireworks") {
+    await playOnce("flame", 0.1);
+    return;
+  }
+  if (k === "disco") {
+    await playOnce("riz", 0.1);
+    return;
+  }
   await playOnce("gift", 0.52);
 }
 

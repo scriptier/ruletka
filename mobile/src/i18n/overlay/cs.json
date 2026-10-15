@@ -292,6 +292,7 @@
   "mobile.live.longSearchBody": "Fronta může být klidná. Pozvěte přítele nebo se zastavte a zkuste to později.",
   "mobile.live.longSearchTitle": "Stále hledám… ( {s} s)",
   "mobile.live.looking": "Hledání…",
+  "mobile.live.matchBanned": "Máte zákaz párování",
   "mobile.live.matched": "Matched",
   "mobile.live.mediaResumed": "Kamera a mikrofon se znovu zapnou po pozadí",
   "mobile.live.meta": "★ {stars} · online {online} · wait {wait}",

@@ -15,30 +15,57 @@ cp -a "$PATCHES/RuletkaShortcutsModule.kt" "$APP_JAVA/"
 cp -a "$PATCHES/RuletkaShortcutsPackage.kt" "$APP_JAVA/"
 echo "copied RuletkaShortcuts Module+Package"
 
-# Register package in MainApplication.kt if missing
+# SoftBlurVideoView (BLUR-F2) — package com.oney.WebRTCModule for getStreamForReactTag
+WEBRTC_JAVA="$ROOT/android/app/src/main/java/com/oney/WebRTCModule"
+if [[ -d "$PATCHES/SoftBlur" ]]; then
+  mkdir -p "$WEBRTC_JAVA"
+  cp -a "$PATCHES/SoftBlur/SoftBlurVideoView.java" "$WEBRTC_JAVA/"
+  cp -a "$PATCHES/SoftBlur/SoftBlurVideoViewManager.java" "$WEBRTC_JAVA/"
+  cp -a "$PATCHES/SoftBlurVideoViewPackage.java" "$APP_JAVA/"
+  echo "copied SoftBlurVideoView + Manager + Package"
+fi
+
+# Register packages in MainApplication.kt if missing
 MAIN="$APP_JAVA/MainApplication.kt"
-if [[ -f "$MAIN" ]] && ! grep -q 'RuletkaShortcutsPackage' "$MAIN"; then
+if [[ -f "$MAIN" ]]; then
   python3 - "$MAIN" <<'PY'
 from pathlib import Path
 import sys
 p = Path(sys.argv[1])
 t = p.read_text()
 needle = "val packages = PackageList(this).packages"
-if needle in t and "RuletkaShortcutsPackage" not in t:
-    t = t.replace(
-        needle,
-        needle + "\n            packages.add(RuletkaShortcutsPackage())",
-    )
-    p.write_text(t)
-    print("MainApplication: registered RuletkaShortcutsPackage")
+changed = False
+if needle in t:
+    if "RuletkaShortcutsPackage" not in t:
+        t = t.replace(
+            needle,
+            needle + "\n            packages.add(RuletkaShortcutsPackage())",
+        )
+        changed = True
+        print("MainApplication: registered RuletkaShortcutsPackage")
+    else:
+        print("MainApplication: RuletkaShortcutsPackage already registered")
+    # SoftBlur after shortcuts (or after PackageList if shortcuts already present)
+    if "SoftBlurVideoViewPackage" not in t:
+        if "packages.add(RuletkaShortcutsPackage())" in t:
+            t = t.replace(
+                "packages.add(RuletkaShortcutsPackage())",
+                "packages.add(RuletkaShortcutsPackage())\n            packages.add(SoftBlurVideoViewPackage())",
+            )
+        else:
+            t = t.replace(
+                needle,
+                needle + "\n            packages.add(SoftBlurVideoViewPackage())",
+            )
+        changed = True
+        print("MainApplication: registered SoftBlurVideoViewPackage")
+    else:
+        print("MainApplication: SoftBlurVideoViewPackage already registered")
 else:
-    print(
-        "MainApplication: skip register",
-        "already" if "RuletkaShortcutsPackage" in t else "no needle",
-    )
+    print("MainApplication: skip register — no PackageList needle")
+if changed:
+    p.write_text(t)
 PY
-elif [[ -f "$MAIN" ]]; then
-  echo "MainApplication: RuletkaShortcutsPackage already registered"
 else
   echo "WARN: MainApplication.kt missing" >&2
 fi
@@ -98,6 +125,26 @@ MAN="$ROOT/android/app/src/main/AndroidManifest.xml"
 if [[ -f "$MAN" ]] && ! grep -q 'extractNativeLibs' "$MAN"; then
   sed -i 's/<application /<application android:extractNativeLibs="true" /' "$MAN"
   echo "manifest extractNativeLibs=true"
+fi
+
+# Follow the phone auto-rotate switch (fullUser). Portrait lock blocked
+# 3-way landscape split. Do not remount RTC on rotate (layout only).
+if [[ -f "$MAN" ]]; then
+  python3 - "$MAN" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+t = p.read_text()
+old = 'android:screenOrientation="portrait"'
+new = 'android:screenOrientation="fullUser"'
+if old in t:
+    p.write_text(t.replace(old, new))
+    print("manifest screenOrientation=fullUser (auto-rotate)")
+elif new in t:
+    print("manifest screenOrientation already fullUser")
+else:
+    print("WARN: MainActivity screenOrientation not found")
+PY
 fi
 
 # Dark theme (Expo prebuild defaults to Theme.AppCompat.Light → white Friends UI)

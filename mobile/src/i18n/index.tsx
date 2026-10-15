@@ -26,10 +26,12 @@ export const SUPPORTED_LANGS = [
   "de",
   "es",
   "fr",
+  "it",
   "pt",
   "tr",
   "ar",
   "zh",
+  "id",
 ] as const;
 
 export type LangCode = (typeof SUPPORTED_LANGS)[number];
@@ -47,10 +49,12 @@ export const LANG_LABELS: Record<LangCode, string> = {
   de: "Deutsch",
   es: "Espa\u00f1ol",
   fr: "Fran\u00e7ais",
+  it: "Italiano",
   pt: "Portugu\u00eas",
   tr: "T\u00fcrk\u00e7e",
   ar: "\u0627\u0644\u0639\u0631\u0628\u064a\u0629",
   zh: "\u4e2d\u6587",
+  id: "Bahasa Indonesia",
 };
 
 type Pack = Record<string, string>;

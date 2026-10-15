@@ -19,6 +19,8 @@ export const MOBILE_BY_LANG: Record<string, Overlay> = {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   fr: require("./overlay/fr.json"),
   // eslint-disable-next-line @typescript-eslint/no-require-imports
+  it: require("./overlay/it.json"),
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   pl: require("./overlay/pl.json"),
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   pt: require("./overlay/pt.json"),
@@ -36,4 +38,6 @@ export const MOBILE_BY_LANG: Record<string, Overlay> = {
   sr: require("./overlay/sr.json"),
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   ar: require("./overlay/ar.json"),
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  id: require("./overlay/id.json"),
 };

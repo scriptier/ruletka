@@ -41,6 +41,7 @@ import {
   subscribePendingCallFromPush,
 } from "../push/pendingCall";
 import { tryRegisterPush } from "../push/register";
+import { playFriendIdentifyChime } from "../feedback/sounds";
 import { HubClient } from "./HubClient";
 import type {
   FriendInfo,
@@ -72,6 +73,8 @@ export type IncomingCall = {
   from_short: string;
   from_peer: string;
   from_code?: string;
+  /** Friend photo data URL / http — empty = letter tile. */
+  avatar?: string;
   /** Invite into existing call as 3rd (not private 1:1). */
   join?: boolean;
   with_user_id?: string;
@@ -81,6 +84,8 @@ export type IncomingCall = {
 export type OutboundCall = {
   user_id: string;
   name: string;
+  /** Friend photo data URL / http — empty = letter tile. */
+  avatar?: string;
   /** True when inviting into current live 1v1. */
   join?: boolean;
 };
@@ -116,6 +121,9 @@ type HubContextValue = {
   blockedIds: string[];
   incomingRequests: FriendInfo[];
   outgoingRequests: FriendInfo[];
+  /** Live friend-request popup (conversationalist / anyone). */
+  incomingFriendReq: FriendInfo | null;
+  clearIncomingFriendReq: () => void;
   incomingCall: IncomingCall | null;
   outboundCall: OutboundCall | null;
   /**
@@ -132,6 +140,9 @@ type HubContextValue = {
    */
   liveBusy: boolean;
   setLiveBusy: (busy: boolean) => void;
+  /** Live remotes (0–3). Friends hides Invite when >= 3 (party full). */
+  liveRemoteCount: number;
+  setLiveRemoteCount: (n: number) => void;
   ratePrompt: RatePromptState | null;
   clearRatePrompt: () => void;
   /**
@@ -210,6 +221,11 @@ export function HubProvider(props: {
   const [blockedIds, setBlockedIds] = useState<string[]>([]);
   const [incomingRequests, setIncomingRequests] = useState<FriendInfo[]>([]);
   const [outgoingRequests, setOutgoingRequests] = useState<FriendInfo[]>([]);
+  const [incomingFriendReq, setIncomingFriendReq] =
+    useState<FriendInfo | null>(null);
+  const clearIncomingFriendReq = useCallback(() => {
+    setIncomingFriendReq(null);
+  }, []);
   const [incomingCall, setIncomingCall] = useState<IncomingCall | null>(null);
   const [outboundCall, setOutboundCall] = useState<OutboundCall | null>(null);
   const [noAnswerPrompt, setNoAnswerPrompt] = useState<OutboundCall | null>(
@@ -218,6 +234,7 @@ export function HubProvider(props: {
   const [findThirdIncoming, setFindThirdIncoming] =
     useState<FindThirdIncoming | null>(null);
   const [liveBusy, setLiveBusy] = useState(false);
+  const [liveRemoteCount, setLiveRemoteCount] = useState(0);
   const [ratePrompt, setRatePrompt] = useState<RatePromptState | null>(null);
   /** Mirrors hub.hubBaseUrl for UI (failover / switch). */
   const [hubBaseUrl, setHubBaseUrl] = useState(() => hubRef.current.hubBaseUrl);
@@ -238,6 +255,7 @@ export function HubProvider(props: {
   const activeChatUserIdRef = useRef("");
   /** Online friend ids from last friends snapshot (for "came online" toasts). */
   const prevOnlineFriendsRef = useRef<Set<string> | null>(null);
+  const prevFriendIdsRef = useRef<Set<string> | null>(null);
   const liveBusyRef = useRef(false);
   liveBusyRef.current = liveBusy;
 
@@ -245,6 +263,8 @@ export function HubProvider(props: {
   const outboundRef = useRef<OutboundCall | null>(null);
   incomingRef.current = incomingCall;
   outboundRef.current = outboundCall;
+  const friendsRef = useRef<FriendInfo[]>([]);
+  friendsRef.current = friends;
 
   const clearToast = useCallback(() => {
     setToast("");
@@ -431,21 +451,28 @@ export function HubProvider(props: {
       onOpen: async () => {
         setConnected(true);
         failStreak = 0;
-        const prefs = await loadMatchPrefs();
+        // Hello BEFORE prefs I/O — hub 45s hold only adopts if we Hello fast.
         try {
           hub.hello({
             user_id: identity.user_id,
             name: identity.name,
-            gender: prefs.gender,
-            looking: prefs.looking,
-            flag: prefs.flag || "",
-            hide_ip: !!prefs.hideIp,
+            gender: "",
+            looking: "any",
+            flag: "",
+            hide_ip: false,
+            avatar: "",
           });
+        } catch {
+          /* ignore */
+        }
+        const prefs = await loadMatchPrefs();
+        try {
           hub.setPrefs({
             gender: prefs.gender,
             looking: prefs.looking,
             flag: prefs.flag || "",
             hide_ip: !!prefs.hideIp,
+            avatar: prefs.avatar ?? "",
           });
         } catch {
           /* ignore */
@@ -580,6 +607,19 @@ export function HubProvider(props: {
               }
             }
             prevOnlineFriendsRef.current = nextOnline;
+            const prevIds = prevFriendIdsRef.current;
+            const nextIds = new Set(
+              list.map((f) => String(f.user_id || "").trim()).filter(Boolean)
+            );
+            if (prevIds) {
+              const became = list.filter(
+                (f) => f.user_id && !prevIds.has(String(f.user_id))
+              );
+              if (became.length > 0) {
+                void playFriendIdentifyChime();
+              }
+            }
+            prevFriendIdsRef.current = nextIds;
             setFriends(list);
             if (m.friend_code) setFriendCode(m.friend_code);
             if (Array.isArray(m.blocked)) {
@@ -589,18 +629,35 @@ export function HubProvider(props: {
             }
             setIncomingRequests(m.incoming_requests || []);
             setOutgoingRequests(m.outgoing_requests || []);
+            setIncomingFriendReq((cur) => {
+              if (!cur) return null;
+              const still = (m.incoming_requests || []).some(
+                (r) => r.user_id === cur.user_id
+              );
+              return still ? cur : null;
+            });
             break;
           }
           case "friend_request": {
             const m = msg as {
               from_name?: string;
               from_user_id?: string;
+              from_code?: string;
             };
-            setToast(
-              tRef.current("mobile.toast.friendRequest", {
-                code: m.from_name || m.from_user_id || "…",
-              })
-            );
+            const uid = String(m.from_user_id || "").trim();
+            if (!uid) break;
+            const req: FriendInfo = {
+              user_id: uid,
+              name: String(m.from_name || m.from_code || "Friend"),
+              friend_code: String(m.from_code || ""),
+              short_id: "",
+              online: true,
+            };
+            setIncomingRequests((prev) => {
+              if (prev.some((r) => r.user_id === uid)) return prev;
+              return [req, ...prev];
+            });
+            setIncomingFriendReq(req);
             break;
           }
           case "friend_chat": {
@@ -638,12 +695,19 @@ export function HubProvider(props: {
           }
           case "call_incoming": {
             const m = msg as ServerCallIncoming;
+            const wireAv = String(
+              (m as { from_avatar?: string }).from_avatar || ""
+            ).trim();
+            const listed = friendsRef.current.find(
+              (f) => f.user_id === m.from_user_id
+            );
             const incoming = {
               from_user_id: m.from_user_id,
               from_name: m.from_name,
               from_short: m.from_short,
               from_peer: m.from_peer,
               from_code: m.from_code,
+              avatar: wireAv || listed?.avatar || "",
               join: !!m.join,
               with_user_id: m.with_user_id,
               with_name: m.with_name,
@@ -812,10 +876,24 @@ export function HubProvider(props: {
               effect?: string;
               cost?: number;
               spender_stars?: number;
+              target_stars?: number;
+              user_id?: string;
+              from_user_id?: string;
               message?: string;
               from_name?: string;
             };
-            if (m.spender_stars != null) setStars(Number(m.spender_stars));
+            const me = String(identity.user_id || "").trim().toLowerCase();
+            const from = String(m.from_user_id || "").trim().toLowerCase();
+            const target = String(m.user_id || "").trim().toLowerCase();
+            // Spender keeps remaining wallet; target gets minted ★1 (not bars/fence).
+            // Never copy spender_stars onto the receiver.
+            if (me && from && me === from && m.spender_stars != null) {
+              setStars(Number(m.spender_stars));
+            } else if (me && target && me === target && m.target_stars != null) {
+              setStars(Number(m.target_stars));
+            } else if (m.spender_stars != null && !from && !target) {
+              setStars(Number(m.spender_stars));
+            }
             if (m.ok && m.effect) {
               // Prefer emoji label (heart/bars/…) over raw effect id
               let effectLabel = String(m.effect);
@@ -1037,6 +1115,8 @@ export function HubProvider(props: {
       blockedIds,
       incomingRequests,
       outgoingRequests,
+      incomingFriendReq,
+      clearIncomingFriendReq,
       incomingCall,
       outboundCall,
       noAnswerPrompt,
@@ -1045,6 +1125,8 @@ export function HubProvider(props: {
       clearFindThirdIncoming,
       liveBusy,
       setLiveBusy,
+      liveRemoteCount,
+      setLiveRemoteCount,
       ratePrompt,
       clearRatePrompt,
       offerRatePrompt,
@@ -1089,6 +1171,8 @@ export function HubProvider(props: {
       blockedIds,
       incomingRequests,
       outgoingRequests,
+      incomingFriendReq,
+      clearIncomingFriendReq,
       incomingCall,
       outboundCall,
       noAnswerPrompt,
@@ -1096,6 +1180,7 @@ export function HubProvider(props: {
       findThirdIncoming,
       clearFindThirdIncoming,
       liveBusy,
+      liveRemoteCount,
       ratePrompt,
       offerRatePrompt,
       clearRatePrompt,

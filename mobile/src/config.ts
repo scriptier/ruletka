@@ -24,6 +24,30 @@ export function setHubBaseOverride(base: string) {
 }
 
 /**
+ * Same hub, other public TLD: ruletka.vip ↔ ruletka.me.
+ * Used for WS failover (vip /health without HTTP ALPN is broken pipe).
+ * Non-ruletka hosts return the input (stripped).
+ */
+export function siblingHubBase(base: string): string {
+  const raw = String(base || "").trim().replace(/\/$/, "");
+  if (!raw) return "";
+  try {
+    const u = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`);
+    const host = u.hostname.toLowerCase();
+    if (host === "ruletka.vip" || host.endsWith(".ruletka.vip")) {
+      u.hostname = host.replace(/ruletka\.vip$/i, "ruletka.me");
+    } else if (host === "ruletka.me" || host.endsWith(".ruletka.me")) {
+      u.hostname = host.replace(/ruletka\.me$/i, "ruletka.vip");
+    } else {
+      return raw;
+    }
+    return u.origin;
+  } catch {
+    return raw;
+  }
+}
+
+/**
  * Store contingency: hide stranger queue, keep Friends + Call.
  * Set EXPO_PUBLIC_FRIENDS_ONLY=1 or eas profile *-friends.
  */

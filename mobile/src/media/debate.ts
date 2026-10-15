@@ -32,6 +32,71 @@ export type DebateSnapshot = {
 
 export type DebateMsg = Record<string, unknown> & { type?: string };
 
+/** Hub chat fallback — same room fan-out as mute (`handle_chat` → session_peers). */
+export const DEBATE_HUB_PREFIX = "__debate:";
+const DEBATE_HUB_MAX = 480;
+
+export function encodeDebateHubBody(msg: DebateMsg): string {
+  if (!msg || typeof msg !== "object") return "";
+  const slim: Record<string, unknown> = {};
+  const keys = [
+    "type",
+    "invite_id",
+    "host_id",
+    "first_speaker_id",
+    "partner_id",
+    "speakers",
+    "turn_ms",
+    "topic",
+    "turn_index",
+    "turn_ends_at",
+    "started_at",
+    "sync",
+    "from_name",
+    "user_id",
+    "reason",
+    "speaker_id",
+  ];
+  for (const k of keys) {
+    const v = msg[k];
+    if (v == null || v === "") continue;
+    slim[k] = v;
+  }
+  const pack = (): string => DEBATE_HUB_PREFIX + JSON.stringify(slim);
+  let s = pack();
+  if (s.length > DEBATE_HUB_MAX && "topic" in slim) {
+    delete slim.topic;
+    s = pack();
+  }
+  if (s.length > DEBATE_HUB_MAX && "speakers" in slim) {
+    delete slim.speakers;
+    s = pack();
+  }
+  return s.length <= 500 ? s : "";
+}
+
+export function parseDebateHubBody(body: string): DebateMsg | null {
+  const raw = String(body || "");
+  const prefixes = ["\x01debate:", "__debate:", "debate:"];
+  let json = "";
+  for (const p of prefixes) {
+    if (raw.startsWith(p)) {
+      json = raw.slice(p.length);
+      break;
+    }
+  }
+  if (!json) return null;
+  try {
+    const obj = JSON.parse(json);
+    if (!obj || typeof obj !== "object") return null;
+    const type = String((obj as DebateMsg).type || "");
+    if (!type.startsWith("debate_")) return null;
+    return obj as DebateMsg;
+  } catch {
+    return null;
+  }
+}
+
 export function debateUidEq(a: string, b: string): boolean {
   const x = String(a || "")
     .trim()
@@ -59,9 +124,10 @@ export function normalizeDebateTopic(raw: unknown): string {
     .slice(0, 80);
 }
 
-export function debateRoundNumber(turnIndex: number): number {
+export function debateRoundNumber(turnIndex: number, speakerCount = 2): number {
   const idx = Math.max(0, Number(turnIndex) || 0);
-  return Math.floor(idx / 2) + 1;
+  const n = Math.max(2, Number(speakerCount) || 2);
+  return Math.floor(idx / n) + 1;
 }
 
 function newInviteId(): string {
@@ -76,6 +142,8 @@ export type DebateCallbacks = {
   partnerName: () => string;
   isMatched: () => boolean;
   isDcOpen: () => boolean;
+  /** All user ids in the room (1v1 or 3-way). */
+  roomUserIds?: () => string[];
   onStatus: (text: string) => void;
   onMicLock: (lockedMute: boolean) => void;
   onChange: (snap: DebateSnapshot) => void;
@@ -113,6 +181,7 @@ export class DebateSession {
   private turnIndex = 0;
   private turnEndsAt = 0;
   private composeTurnSecs = 30;
+  private speakers: string[] = [];
   private inviteTimer: ReturnType<typeof setTimeout> | null = null;
   private tickIv: ReturnType<typeof setInterval> | null = null;
   private cb: DebateCallbacks;
@@ -432,6 +501,11 @@ export class DebateSession {
   }
 
   private handleInviteIncoming(msg: DebateMsg, fromUid: string): void {
+    const sameInvite =
+      !!msg.invite_id &&
+      !!this.inviteId &&
+      String(msg.invite_id) === String(this.inviteId);
+    if (sameInvite && (this.active || this.pending)) return;
     if (this.active || this.pending) {
       this.send({
         type: "debate_decline",
@@ -440,17 +514,11 @@ export class DebateSession {
       });
       return;
     }
-    // Must be in a call. partnerUserId can lag a tick after Matched — allow
-    // invite with fromUid only so Play↔web debate is not dropped silently.
+    // Must be in a call. 3-way laptop uid may not be in roomUserIds yet —
+    // never drop a live invite just because the roster lagged.
     if (!this.cb.isMatched()) return;
     const partner = this.cb.partnerUserId() || "";
-    if (
-      fromUid &&
-      partner &&
-      !debateUidEq(fromUid, partner)
-    ) {
-      return;
-    }
+    if (fromUid && debateUidEq(fromUid, this.cb.myUserId())) return;
     this.pending = "in";
     this.inviteId = String(msg.invite_id || "");
     this.partnerId = fromUid || partner;
@@ -487,12 +555,14 @@ export class DebateSession {
     const now = Date.now();
     const firstSpeaker = this.cb.myUserId() || "";
     const turnEndsAt = now + turnMs;
+    const speakers = this.collectRoster(fromUid);
     const startMsg: DebateMsg = {
       type: "debate_start",
       invite_id: this.inviteId,
       host_id: this.cb.myUserId() || "",
       first_speaker_id: firstSpeaker,
       partner_id: fromUid || this.cb.partnerUserId(),
+      speakers,
       turn_ms: turnMs,
       topic,
       turn_index: 0,
@@ -524,6 +594,11 @@ export class DebateSession {
   }
 
   private applyStart(msg: DebateMsg): void {
+    const sameInvite =
+      !!msg.invite_id &&
+      !!this.inviteId &&
+      String(msg.invite_id) === String(this.inviteId);
+    if (this.active && sameInvite && msg.sync) return;
     this.clearPending();
     const turnMs = normalizeDebateTurnMs(
       msg.turn_ms || this.turnMs || DEBATE_TURN_MS
@@ -539,6 +614,19 @@ export class DebateSession {
       (first === this.cb.myUserId()
         ? this.cb.partnerUserId()
         : first);
+    const rosterIn = Array.isArray(msg.speakers) ? msg.speakers : [];
+    const speakers: string[] = [];
+    const add = (id: unknown) => {
+      const s = String(id || "").trim();
+      if (!s || speakers.some((x) => debateUidEq(x, s))) return;
+      speakers.push(s);
+    };
+    for (const id of rosterIn) add(id);
+    add(first);
+    add(partner);
+    add(this.cb.myUserId());
+    for (const id of this.cb.roomUserIds?.() || []) add(id);
+    this.speakers = speakers;
     this.active = true;
     this.pending = null;
     this.hostId = String(msg.host_id || first).slice(0, 64);
@@ -573,7 +661,49 @@ export class DebateSession {
     this.cb.onStatus(iSpeak ? "debate.yourTurnRound" : "debate.theirTurnRound");
   }
 
+  /** Replay live debate onto a late / extra DC. */
+  sendSnapshot(): boolean {
+    if (!this.active) return false;
+    return this.send({
+      type: "debate_start",
+      invite_id: this.inviteId,
+      host_id: this.hostId,
+      first_speaker_id: this.speakerId,
+      partner_id: this.partnerId,
+      speakers: this.speakers.length ? this.speakers : this.collectRoster(),
+      turn_ms: this.turnMs,
+      topic: this.topic,
+      turn_index: this.turnIndex,
+      turn_ends_at: this.turnEndsAt,
+      started_at: Date.now(),
+      sync: true,
+    });
+  }
+
+  private collectRoster(extra?: string): string[] {
+    const ids: string[] = [];
+    const add = (id: unknown) => {
+      const s = String(id || "").trim();
+      if (!s || s === "legacy" || ids.some((x) => debateUidEq(x, s))) return;
+      ids.push(s);
+    };
+    add(this.cb.myUserId());
+    add(this.cb.partnerUserId());
+    add(this.hostId);
+    add(this.partnerId);
+    add(extra);
+    for (const id of this.cb.roomUserIds?.() || []) add(id);
+    return ids;
+  }
+
   private otherSpeaker(): string {
+    const roster = this.speakers.length ? this.speakers : this.collectRoster();
+    if (roster.length >= 2) {
+      const cur = String(this.speakerId || "").trim();
+      let i = roster.findIndex((id) => debateUidEq(id, cur));
+      if (i < 0) i = 0;
+      return roster[(i + 1) % roster.length];
+    }
     if (this.iAmSpeaker()) {
       return (
         String(this.partnerId || this.cb.partnerUserId() || "").trim() ||
@@ -610,7 +740,7 @@ export class DebateSession {
         turn_index: turnIndex,
         turn_ends_at: turnEndsAt,
         turn_ms: turnMs,
-        round: debateRoundNumber(turnIndex),
+        round: debateRoundNumber(turnIndex, this.speakers.length || 2),
         invite_id: this.inviteId,
       });
     }

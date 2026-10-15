@@ -292,6 +292,7 @@
   "mobile.live.longSearchBody": "La cola puede estar tranquila. Invita a un amigo o detente e inténtalo más tarde.",
   "mobile.live.longSearchTitle": "Sigo buscando... ( {s} s)",
   "mobile.live.looking": "Buscando…",
+  "mobile.live.matchBanned": "Tienes prohibido emparejar",
   "mobile.live.matched": "Emparejado",
   "mobile.live.mediaResumed": "Cámara y micrófono nuevamente encendidos después del fondo",
   "mobile.live.meta": "★ {stars} · online {online} · espera {wait}",

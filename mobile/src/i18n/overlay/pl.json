@@ -292,6 +292,7 @@
   "mobile.live.longSearchBody": "Kolejka może być cicha. Zaproś znajomego lub zatrzymaj się i spróbuj później.",
   "mobile.live.longSearchTitle": "Wciąż szukam… ( {s} s)",
   "mobile.live.looking": "Szukam…",
+  "mobile.live.matchBanned": "Masz zakaz łączenia",
   "mobile.live.matched": "Połączono",
   "mobile.live.mediaResumed": "Kamera i mikrofon zostaną ponownie włączone po włączeniu tła",
   "mobile.live.meta": "★ {stars} · online {online} · czekają {wait}",

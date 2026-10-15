@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 
 // Mirror reduceStatusMsg / reduceLobbyInfoMsg (keep in sync with hubLobby.ts)
 function isQueuePhase(phase) {
@@ -56,7 +57,7 @@ function reduceLobbyInfoMsg(m, ctx) {
 
 function pickPrimaryPeerIndex(peerIds, opts) {
   if (!peerIds.length) return 0;
-  const { wasMatched, prevPrimary, prevSecondary } = opts;
+  const { wasMatched, prevPrimary, prevSecondary, keepFirstOnOmit } = opts;
   if (
     wasMatched &&
     prevPrimary &&
@@ -72,6 +73,15 @@ function pickPrimaryPeerIndex(peerIds, opts) {
     peerIds.includes(prevSecondary)
   ) {
     return peerIds.indexOf(prevSecondary);
+  }
+  // 3rd-join rematch: hub listed only the new extra — do not remount them as primary.
+  if (
+    wasMatched &&
+    keepFirstOnOmit &&
+    prevPrimary &&
+    prevPrimary !== "legacy"
+  ) {
+    return -1;
   }
   return 0;
 }
@@ -130,6 +140,26 @@ function pickPrimaryPeerIndex(peerIds, opts) {
   assert.equal(i, 1);
 }
 
+// keepFirstOnOmit: fresh 1v1 (wasMatched false) still 0 even if prev omitted
+{
+  const i = pickPrimaryPeerIndex(["laptop"], {
+    wasMatched: false,
+    prevPrimary: "courtier-pc",
+    keepFirstOnOmit: true,
+  });
+  assert.equal(i, 0);
+}
+
+// keepFirstOnOmit: wasMatched + prevPrimary omitted from list → -1
+{
+  const i = pickPrimaryPeerIndex(["laptop"], {
+    wasMatched: true,
+    prevPrimary: "courtier-pc",
+    keepFirstOnOmit: true,
+  });
+  assert.equal(i, -1);
+}
+
 // status: malformed/negative fields never leak NaN or negative counts
 {
   const p = reduceStatusMsg(
@@ -150,6 +180,31 @@ function pickPrimaryPeerIndex(peerIds, opts) {
   assert.equal(Number.isNaN(p.online), false);
   assert.equal(p.online, 0);
   assert.equal(p.waiting, 0);
+}
+
+function isHubPartnerLeaveDetail(detail) {
+  const d = String(detail || "");
+  if (/still chatting|still with match|still connected/i.test(d)) {
+    return false;
+  }
+  return /partner hit Next|partner disconnected|partner stopped|party moved on|partner blocked you|restricted due to reports|restricted by operator|party partner left/i.test(
+    d
+  );
+}
+
+{
+  assert.equal(isHubPartnerLeaveDetail("partner stopped"), true);
+  assert.equal(isHubPartnerLeaveDetail("partner disconnected — searching again"), true);
+  assert.equal(isHubPartnerLeaveDetail("partner hit Next — searching again"), true);
+  assert.equal(isHubPartnerLeaveDetail("partner left — still chatting"), false);
+  assert.equal(isHubPartnerLeaveDetail("still connected"), false);
+  assert.equal(isHubPartnerLeaveDetail(""), false);
+  const src = fs.readFileSync(new URL("./hubLobby.ts", import.meta.url), "utf8");
+  assert.ok(
+    src.includes("export function isHubPartnerLeaveDetail"),
+    "hubLobby.ts must export isHubPartnerLeaveDetail (PC Stop → Android Next)"
+  );
+  assert.ok(src.includes("partner stopped"), "must match hub Stop detail");
 }
 
 console.log("hubLobby.test.mjs ok");

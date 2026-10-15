@@ -1,5 +1,5 @@
 /**
- * Camera / mic runtime permissions (Android).
+ * Camera / mic runtime permissions (Android + iOS).
  * Once granted, subsequent calls are silent — no system dialogs.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -27,13 +27,74 @@ async function checkOne(
   }
 }
 
+type IosPermissionName = "camera" | "microphone";
+type IosPermissions = {
+  query: (d: { name: IosPermissionName }) => Promise<string>;
+  request: (d: { name: IosPermissionName }) => Promise<boolean>;
+  RESULT: { GRANTED: string; DENIED: string; PROMPT: string };
+};
+
+/**
+ * react-native-webrtc bridges AVCaptureDevice auth status/requests on iOS
+ * (WebRTCModule.checkPermission / requestPermission) — same native prompt
+ * getUserMedia would trigger, just queryable ahead of Start.
+ */
+function loadIosPermissions(): IosPermissions | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require("react-native-webrtc") as {
+      permissions?: IosPermissions;
+    };
+    return mod?.permissions ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function checkOneIOS(
+  perms: IosPermissions,
+  name: IosPermissionName
+): Promise<boolean> {
+  try {
+    return (await perms.query({ name })) === perms.RESULT.GRANTED;
+  } catch {
+    return false;
+  }
+}
+
+async function requestOneIOS(
+  perms: IosPermissions,
+  name: IosPermissionName
+): Promise<boolean> {
+  try {
+    return !!(await perms.request({ name }));
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Fast path: true only if OS already granted cam+mic.
  * No system UI. Safe to call from UI warm paths.
  */
 export async function hasMediaPermissions(): Promise<boolean> {
-  if (Platform.OS !== "android") return true;
   if (cached?.allGranted) return true;
+
+  if (Platform.OS === "ios") {
+    const perms = loadIosPermissions();
+    // Module not linked (should not happen in a real build) — don't block Start.
+    if (!perms) return true;
+    const camera = await checkOneIOS(perms, "camera");
+    const micOk = await checkOneIOS(perms, "microphone");
+    if (camera && micOk) {
+      cached = { camera: true, mic: true, bluetooth: true, allGranted: true };
+      return true;
+    }
+    return false;
+  }
+
+  if (Platform.OS !== "android") return true;
+
   const cam = PermissionsAndroid.PERMISSIONS.CAMERA;
   const mic = PermissionsAndroid.PERMISSIONS.RECORD_AUDIO;
   const camera = await checkOne(cam);
@@ -61,7 +122,7 @@ export async function ensureMediaPermissions(opts?: {
   /** When true, may request BLUETOOTH_CONNECT once (API 31+). Default false. */
   requestBluetooth?: boolean;
 }): Promise<MediaPermissionResult> {
-  if (Platform.OS !== "android") {
+  if (Platform.OS !== "android" && Platform.OS !== "ios") {
     const ok = {
       camera: true,
       mic: true,
@@ -82,6 +143,27 @@ export async function ensureMediaPermissions(opts?: {
         allGranted: true,
       }
     );
+  }
+
+  if (Platform.OS === "ios") {
+    const perms = loadIosPermissions();
+    if (!perms) {
+      const ok = { camera: true, mic: true, bluetooth: true, allGranted: true };
+      cached = ok;
+      return ok;
+    }
+    // AVCaptureDevice shows its native dialog at most once per permission —
+    // a second request() after a denial just resolves false, no re-prompt.
+    const camera = await requestOneIOS(perms, "camera");
+    const micOk = await requestOneIOS(perms, "microphone");
+    const result: MediaPermissionResult = {
+      camera,
+      mic: micOk,
+      bluetooth: true,
+      allGranted: camera && micOk,
+    };
+    cached = result.allGranted ? result : null;
+    return result;
   }
 
   const title = opts?.rationaleTitle || "Camera & microphone";

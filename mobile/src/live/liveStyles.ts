@@ -1,7 +1,7 @@
 /**
  * Live screen StyleSheet — kept separate so app/live.tsx stays logic-focused.
  */
-import { StyleSheet } from "react-native";
+import { Platform, StyleSheet } from "react-native";
 
 export const liveStyles = StyleSheet.create({
   // Idle: dark shell. Matched: live.tsx switches rootMatched (transparent)
@@ -386,6 +386,75 @@ export const liveStyles = StyleSheet.create({
     includeFontPadding: false,
   },
   /**
+   * Browser 1v1: you as a real second TILE.
+   * Portrait: bottom half. Landscape: right half.
+   * Partner RTCView stays full-stage underneath (no remount).
+   */
+  youTileDock: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: "50%",
+    zIndex: 40,
+    elevation: 24,
+    backgroundColor: "#050608",
+    overflow: "hidden",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(255,255,255,0.16)",
+  },
+  youTileDockWide: {
+    top: 0,
+    bottom: 0,
+    left: "50%",
+    right: 0,
+    height: "100%",
+    width: "50%",
+    borderTopWidth: 0,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: "rgba(255,255,255,0.16)",
+  },
+  youTileVideo: {
+    width: "100%",
+    height: "100%",
+  },
+  duoMatchCluster: {
+    position: "absolute",
+    right: 8,
+    bottom: "52%",
+    zIndex: 50,
+    elevation: 28,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  duoMatchClusterWide: {
+    right: "50%",
+    bottom: 12,
+    marginRight: 8,
+  },
+  duoMatchBtn: {
+    width: 36,
+    height: 36,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(8,12,20,0.82)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.16)",
+  },
+  duoMatchBtnNext: {
+    backgroundColor: "rgba(232, 45, 85, 0.92)",
+    borderColor: "rgba(255,255,255,0.2)",
+  },
+  duoMatchBtnText: {
+    color: "#f0f3f8",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  /**
    * Match elapsed timer — bottom-left of partner conversationalist window
    * (replaces "Say hi in chat…" empty hint + bottom chrome timer chip).
    */
@@ -406,6 +475,14 @@ export const liveStyles = StyleSheet.create({
     shadowOpacity: 0.4,
     shadowRadius: 4,
     shadowOffset: { width: 0, height: 1 },
+  },
+  partnerCallTimerChipDuo: {
+    bottom: "52%",
+    marginBottom: 8,
+  },
+  partnerCallTimerChipDuoWide: {
+    left: 10,
+    bottom: 12,
   },
   partnerCallTimerText: {
     color: "#e8eef7",
@@ -1864,8 +1941,8 @@ export const liveStyles = StyleSheet.create({
   btn: {
     flex: 1,
     backgroundColor: "#ff2d55",
-    paddingVertical: 14,
-    minHeight: 48,
+    paddingVertical: Platform.select({ ios: 11, default: 14 }),
+    minHeight: Platform.select({ ios: 44, default: 48 }),
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
@@ -1889,8 +1966,8 @@ export const liveStyles = StyleSheet.create({
   },
   btnStopFace: {
     backgroundColor: "#2a141c",
-    minHeight: 48,
-    paddingVertical: 12,
+    minHeight: Platform.select({ ios: 44, default: 48 }),
+    paddingVertical: Platform.select({ ios: 10, default: 12 }),
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
@@ -1915,8 +1992,8 @@ export const liveStyles = StyleSheet.create({
   /** Next is the primary matched action — slightly wider / stronger than Stop. */
   btnNext: {
     backgroundColor: "#ff2d55",
-    paddingVertical: 12,
-    minHeight: 48,
+    paddingVertical: Platform.select({ ios: 10, default: 12 }),
+    minHeight: Platform.select({ ios: 44, default: 48 }),
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
@@ -1948,8 +2025,8 @@ export const liveStyles = StyleSheet.create({
   btnIcon: {
     flex: 1,
     backgroundColor: "rgba(255,255,255,0.08)",
-    minHeight: 48,
-    paddingVertical: 12,
+    minHeight: Platform.select({ ios: 44, default: 48 }),
+    paddingVertical: Platform.select({ ios: 10, default: 12 }),
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
@@ -2214,38 +2291,42 @@ export const liveStyles = StyleSheet.create({
     borderRadius: 999,
     overflow: "hidden",
   },
-  /** Idle Start on brand diamond (~PC 81%). */
+  /**
+   * Idle Start on the gold diamond between ruletka.vip and Chat Roulette.
+   * loading-screen.mp4 is 720×1096; diamond sits ~70% down the frame.
+   * Android portrait COVER keeps that Y (PC 81% was after landscape crop).
+   */
   idleArcadeWrap: {
     position: "absolute",
     left: 0,
     right: 0,
-    top: "81%",
-    marginTop: -28,
+    top: "70%",
+    marginTop: -24,
     alignItems: "center",
     zIndex: 36,
     elevation: 36,
   },
   idleArcadeFloor: {
     position: "absolute",
-    width: 168,
-    height: 56,
+    width: 152,
+    height: 48,
     borderRadius: 999,
     backgroundColor: "#4a0816",
-    top: 8,
+    top: 6,
   },
   idleArcadeHalo: {
     position: "absolute",
-    width: 176,
-    height: 62,
+    width: 160,
+    height: 54,
     borderRadius: 999,
     backgroundColor: "rgba(232, 196, 120, 0.35)",
-    top: -4,
+    top: -3,
   },
   idleArcadeBtn: {
-    minWidth: 168,
-    minHeight: 52,
-    paddingHorizontal: 36,
-    paddingVertical: 12,
+    minWidth: 152,
+    minHeight: 46,
+    paddingHorizontal: 32,
+    paddingVertical: 10,
     borderRadius: 999,
     backgroundColor: "#ff2d55",
     borderWidth: 1.5,
@@ -2264,7 +2345,7 @@ export const liveStyles = StyleSheet.create({
   },
   idleArcadeText: {
     color: "#fff",
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "800",
     letterSpacing: 1.2,
     textAlign: "center",

@@ -13,6 +13,8 @@ const dirs = [
   join(root, "src/live"),
   join(root, "src/prefs"),
   join(root, "src/media"), // CONNECTIVITY_LOCK auto-retry schedule
+  join(root, "src/friends"),
+  join(root, "src/identity"),
 ];
 let fail = 0;
 let ran = 0;

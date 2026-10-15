@@ -19,12 +19,13 @@ APK="artifacts/ruletka-${VER}-vc${VC}.apk"
 
 notes() {
   cat <<EOF
-${VER} (${VC}) — closed testing
+${VER} (${VC}) — internal testing
 
+• 2v2 default 2×2 (other pair on top; swipe Next pair)
+• Stop / close tab tells partners you left; Android Stop → Next
+• Let’s Go invite taps immediately
+• 3-way extras kick sooner; gifts stay on that tile
 • Play↔PC both cams (CONNECTIVITY_LOCK · no blanket force_relay)
-• Same Wi‑Fi: host P2P (no same-IP force_relay pure-TURN hang)
-• Blur mosaic (zOrder 0) · mute badges · post-call Start restored
-• Partner name · place · ★; gifts “To {partner}”
 • Privacy · Terms · Safety; 18+ · CSAE
 
 Hub: https://ruletka.vip
@@ -87,7 +88,7 @@ check fail "hub health" bash -c 'curl -sf https://ruletka.vip/health | grep -q "
 
 echo
 echo "-- Build config --"
-check fail "targetSdk 35" grep -q 'targetSdkVersion' android/app/build.gradle
+check fail "targetSdk 36" grep -E 'targetSdkVersion.*=.*36|android.targetSdkVersion=36' android/build.gradle android/gradle.properties
 MINIFY=$(grep -E 'enableProguardInReleaseBuilds\s*=' android/gradle.properties 2>/dev/null | tail -1 || true)
 if grep -q 'enableProguardInReleaseBuilds=false\|enableProguardInReleaseBuilds = false' android/gradle.properties 2>/dev/null \
   || grep -q 'enableProguardInReleaseBuilds = false\|def enableProguardInReleaseBuilds = false' android/app/build.gradle 2>/dev/null; then

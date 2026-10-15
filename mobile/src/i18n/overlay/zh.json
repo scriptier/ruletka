@@ -292,6 +292,7 @@
   "mobile.live.longSearchBody": "队列可以很安静。邀请朋友，或者停下来稍后再尝试。",
   "mobile.live.longSearchTitle": "仍在寻找......（{s} s）",
   "mobile.live.looking": "寻找中…",
+  "mobile.live.matchBanned": "你已被禁止匹配",
   "mobile.live.matched": "已匹配",
   "mobile.live.mediaResumed": "背景结束后相机和麦克风重新打开",
   "mobile.live.meta": "★ {stars} · 在线 {online} · 等待 {wait}",

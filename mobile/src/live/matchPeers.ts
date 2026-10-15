@@ -16,18 +16,27 @@ export type PeerPick = {
   /** Public reputation (tier chrome). 0 when unknown/missing. */
   trust: number;
   /**
+   * Unique people who praised (hub `trust_gifters`). Optional so live.tsx
+   * reconstructs without this field stay typed. 0 / omitted = unknown.
+   */
+  trustGifters?: number;
+  /**
    * Hub sent an explicit stars field (incl. 0). When false, same-partner
    * re-Matched must not wipe a known non-zero badge with placeholder 0.
    */
   starsKnown: boolean;
   /** Hub sent an explicit trust field (incl. 0). */
   trustKnown: boolean;
+  /** Hub sent an explicit trust_gifters field (incl. 0). */
+  trustGiftersKnown?: boolean;
   role: string;
   flag: string;
   country: string;
   city: string;
   /** Partner chose hide-IP privacy (partners only see cosmetic flag). */
   hideIp: boolean;
+  /** Partner photo (data URL / https / file). Empty when none. */
+  avatar: string;
 };
 
 function normFlag(raw: unknown): string {
@@ -145,6 +154,50 @@ export function readPeerTrust(p: MatchPeer | Record<string, unknown>): {
     any.score
   );
   return { trust: n ?? 0, known: n !== undefined };
+}
+
+/**
+ * Unique praisers (hub MatchPeer.trust_gifters). Not the trust score.
+ * Distinct people who post-chat gifted ★ — Trusted needs ≥5, Senior ≥12.
+ */
+export function readPeerGifters(p: MatchPeer | Record<string, unknown>): {
+  gifters: number;
+  known: boolean;
+} {
+  const any = p as MatchPeer & Record<string, unknown>;
+  const asObj = (v: unknown): Record<string, unknown> | undefined =>
+    v && typeof v === "object" && !Array.isArray(v)
+      ? (v as Record<string, unknown>)
+      : undefined;
+  const nested =
+    asObj(any.reputation) ||
+    asObj(any.social) ||
+    asObj(any.public) ||
+    asObj(any.identity) ||
+    undefined;
+  const n = readNonNegInt(
+    any.trust_gifters,
+    any.trustGifters,
+    any.gifters,
+    any.unique_gifters,
+    any.uniqueGifters,
+    nested?.trust_gifters,
+    nested?.trustGifters,
+    nested?.gifters,
+    nested?.unique_gifters,
+    nested?.uniqueGifters
+  );
+  return { gifters: n ?? 0, known: n !== undefined };
+}
+
+/**
+ * English fallback for compact "praised by N" (unique gifters, not trust score).
+ * Callers prefer t("mobile.live.praisedBy", { n }) when that key exists.
+ */
+export function formatPraisedBy(gifters: number): string {
+  const nRaw = Number(gifters);
+  const n = Number.isFinite(nRaw) ? Math.max(0, Math.floor(nRaw)) : 0;
+  return `praised by ${n}`;
 }
 
 /**
@@ -312,20 +365,18 @@ export function partnerGeoHasSignal(opts: {
 }
 
 /**
- * Visible partner ★ chip: max(spendable, trust).
- * Spendable alone can be 0 while hub trust/social_health is real reputation.
- *
- * ★0 diagnosis (0.1.341 screenshot mid-match):
- * - starsKnown=true + trustKnown=true + both 0 → **correct empty ledger**
- *   (hub MatchPeer always serializes stars/trust as serde u64; stranger with
- *   no gifts shows ★0). Self gift bar ★N is *your* spendable balance, not partner.
- * - starsKnown=false (field omitted / legacy peers[]) → do not treat as known 0;
- *   mergePartnerStars keeps prior non-zero on same-partner re-Matched.
- * - If either stars or trust >0, dock MUST show max (never paint 0 over real).
+ * Visible partner ★ chip = public score: max(wallet, trust).
+ * Wallet-only (grants / hour) and Rep-only (praise) both read as “their ★”.
+ * Omitted / NaN fields do not force ★0 when the other number is known.
  */
 export function displayPartnerStars(stars: number, trust: number): number {
-  const s = Math.max(0, Math.floor(Number(stars) || 0));
-  const t = Math.max(0, Math.floor(Number(trust) || 0));
+  const sRaw = Number(stars);
+  const tRaw = Number(trust);
+  const sOk = Number.isFinite(sRaw) || sRaw === Infinity;
+  const tOk = Number.isFinite(tRaw) || tRaw === Infinity;
+  if (sRaw === Infinity || tRaw === Infinity) return Infinity;
+  const s = sOk ? Math.max(0, Math.floor(sRaw)) : 0;
+  const t = tOk ? Math.max(0, Math.floor(tRaw)) : 0;
   return Math.max(s, t);
 }
 
@@ -573,6 +624,12 @@ export function isBetterPartnerDisplayName(
 }
 
 export function normalizePeer(p: MatchPeer, msg: ServerMatched): PeerPick {
+  // Poisoned peers[] rows (null / non-object) must not crash the whole
+  // Matched handler — fall back to an empty row so the caller still gets
+  // "legacy"/"Partner" placeholders instead of an uncaught throw.
+  if (!p || typeof p !== "object") {
+    p = {} as MatchPeer;
+  }
   // Hub MatchPeer uses snake_case; tolerate camelCase from older bridges.
   // Also merge any top-level Matched fields when peer row omitted them (weak hub).
   const any = p as MatchPeer & {
@@ -584,12 +641,15 @@ export function normalizePeer(p: MatchPeer, msg: ServerMatched): PeerPick {
     isOfferer?: boolean;
     display_name?: string;
     displayName?: string;
+    Avatar?: string;
   };
   const msgAny = msg as ServerMatched & Record<string, unknown>;
   // Merge peer + top-level matched so stars/trust/geo survive sparse peers[] rows.
   const merged: Record<string, unknown> = { ...msgAny, ...any };
   const { stars, known: starsKnown } = readPeerStars(merged);
   const { trust, known: trustKnown } = readPeerTrust(merged);
+  const { gifters: trustGifters, known: trustGiftersKnown } =
+    readPeerGifters(merged);
   const { flag, country, city, hideIp } = readPeerGeo(merged);
   const peerId = String(p.peer_id || any.peerId || "legacy");
   const userId = String(p.user_id || any.userId || "");
@@ -597,8 +657,11 @@ export function normalizePeer(p: MatchPeer, msg: ServerMatched): PeerPick {
     .trim()
     .toUpperCase();
   // Real display name aliases (never short_id hex). friend_code beats "Partner".
-  const rawName =
-    any.name || any.display_name || any.displayName || msgAny.name || "";
+  // Never fall back to top-level Matched.name — that is the PRIMARY
+  // conversationalist. Extras with empty/anon names were all painting Courtier.
+  const rawName = String(any.name || any.display_name || any.displayName || "");
+  // Peer-row only (not top-level Matched) so extras never inherit primary photo.
+  const avatar = String(any.avatar ?? any.Avatar ?? "").trim();
   return {
     peerId,
     userId,
@@ -607,7 +670,12 @@ export function normalizePeer(p: MatchPeer, msg: ServerMatched): PeerPick {
     isOfferer: !!(msg.is_offerer ?? p.is_offerer ?? any.isOfferer),
     name: resolvePartnerDisplayName({
       name: rawName,
-      shortId: p.short_id || any.shortId || msg.partner_short,
+      shortId:
+        p.short_id ||
+        any.shortId ||
+        (!p.peer_id || p.peer_id === "legacy"
+          ? String(msg.partner_short || "")
+          : ""),
       friendCode,
       peerId,
       userId,
@@ -616,18 +684,21 @@ export function normalizePeer(p: MatchPeer, msg: ServerMatched): PeerPick {
     friendCode,
     stars,
     trust,
+    trustGifters,
     starsKnown,
     trustKnown,
+    trustGiftersKnown,
     role: String(p.role || "stranger"),
     flag,
     country,
     city,
     hideIp,
+    avatar,
   };
 }
 
 export function pickPeer(msg: ServerMatched): PeerPick {
-  const peers = (msg.peers || []) as MatchPeer[];
+  const peers = Array.isArray(msg.peers) ? (msg.peers as MatchPeer[]) : [];
   if (peers.length) {
     return normalizePeer(peers[0], msg);
   }
@@ -643,24 +714,236 @@ export function pickPeer(msg: ServerMatched): PeerPick {
     friendCode: "",
     stars: 0,
     trust: 0,
+    trustGifters: 0,
     starsKnown: false,
     trustKnown: false,
+    trustGiftersKnown: false,
     role: "stranger",
     flag: "",
     country: "",
     city: "",
     hideIp: false,
+    avatar: "",
   };
 }
 
-/** Extra peers after the primary (multi / party). */
+/**
+ * Max extra (non-primary) peers for multi / party.
+ * Hub joinPeers cap is 3 opponents → primary + 2 extras in 3-way,
+ * or up to 3 extras in 4-way (you + 3 remotes).
+ */
+/** Non-primary extras. 2 extras + 1 primary = 3 remotes = 4 people. Never a 5th. */
+export const MAX_EXTRA_PEERS = 2;
+
+/** True when prev id is still among listed peer ids (exact or loose). */
+export function peerStillListed(
+  prevId: string | null | undefined,
+  listed: Array<string | null | undefined>
+): boolean {
+  const prev = String(prevId || "").trim();
+  if (!prev || prev === "legacy") return false;
+  return (listed || []).some((id) => {
+    const s = String(id || "").trim();
+    if (!s || s === "legacy") return false;
+    return s === prev || peerIdsLooseMatch(s, prev);
+  });
+}
+
+/**
+ * Prefer the live first conversationalist after a 3rd-join rematch.
+ * Hub may reorder peers[] (laptop first) or change id form (fed/ vs hex).
+ * Loose match so we do not remount primary RTCView onto the 3rd.
+ */
+export function pickPrimaryPeerIndex(
+  peerIds: string[],
+  opts: {
+    wasMatched: boolean;
+    prevPrimary: string;
+    prevSecondary?: string;
+    /** Find-3rd / party: hub may list only the new extra — do not remount them as primary. */
+    keepFirstOnOmit?: boolean;
+  }
+): number {
+  if (!peerIds.length) return 0;
+  const { wasMatched, prevPrimary, prevSecondary, keepFirstOnOmit } = opts;
+  if (wasMatched && prevPrimary && prevPrimary !== "legacy") {
+    const i = peerIds.findIndex(
+      (id) =>
+        !!id &&
+        id !== "legacy" &&
+        (id === prevPrimary || peerIdsLooseMatch(id, prevPrimary))
+    );
+    if (i >= 0) return i;
+  }
+  if (wasMatched && prevSecondary && prevSecondary !== "legacy") {
+    const i = peerIds.findIndex(
+      (id) =>
+        !!id &&
+        id !== "legacy" &&
+        (id === prevSecondary || peerIdsLooseMatch(id, prevSecondary))
+    );
+    if (i >= 0 && peerIds.length >= 2) return i;
+  }
+  // 030650Z: hub 3rd-join Matched peers=[Laptop] only. Returning 0 made
+  // Laptop the primary → startCall tore Courtier (PC left tile frozen).
+  if (
+    wasMatched &&
+    keepFirstOnOmit &&
+    prevPrimary &&
+    prevPrimary !== "legacy"
+  ) {
+    return -1;
+  }
+  return 0;
+}
+
+/**
+ * Same human on two extra rows (Pixel 3-way 2155: Laptop×2, one friendCode).
+ * peerId first; then non-empty userId; then friendCode ≥6. Empty codes never match.
+ */
+export function sameExtraPerson(
+  a:
+    | { peerId?: string; userId?: string; friendCode?: string }
+    | undefined,
+  b:
+    | { peerId?: string; userId?: string; friendCode?: string }
+    | undefined
+): boolean {
+  if (!a || !b) return false;
+  const aid = String(a.peerId || "").trim();
+  const bid = String(b.peerId || "").trim();
+  if (aid && bid && aid !== "legacy" && bid !== "legacy") {
+    if (aid === bid || peerIdsLooseMatch(aid, bid)) return true;
+  }
+  const au = String(a.userId || "").trim();
+  const bu = String(b.userId || "").trim();
+  if (au && bu && au === bu) return true;
+  const ac = String(a.friendCode || "").trim().toUpperCase();
+  const bc = String(b.friendCode || "").trim().toUpperCase();
+  if (ac.length >= 6 && ac === bc) return true;
+  return false;
+}
+
+/**
+ * Extra peers after the primary (multi / party). Drops legacy + poison ids.
+ *
+ * Do NOT short-circuit on raw `peers.length <= 1`: a 3rd-join Matched delta
+ * from the hub often lists only the *new* peer (e.g. peers=[laptop]) without
+ * re-listing the already-established primary. Excluding on length alone
+ * dropped that single-row Laptop extra entirely (2-screen 3-way split
+ * disappeared). Filtering purely by primary-id match instead naturally
+ * yields: single row that IS the primary (or all rows collapse to the
+ * primary via loose match) → [] (1 unique remote, 1v1 lock); single or
+ * multi rows with a genuinely different peer id → returned as extras.
+ */
 export function extraPeersFromMatch(
   msg: ServerMatched,
   primaryPeerId: string
 ): PeerPick[] {
-  const peers = (msg.peers || []) as MatchPeer[];
-  if (peers.length <= 1) return [];
-  return peers
-    .map((p) => normalizePeer(p, msg))
-    .filter((p) => p.peerId !== primaryPeerId && p.peerId !== "legacy");
+  // msg.peers is hub/partner-influenced JSON; a poisoned non-array value
+  // (string, plain object, number) must not crash .map on the Matched path.
+  const peers = Array.isArray(msg.peers) ? (msg.peers as MatchPeer[]) : [];
+  if (!peers.length) return [];
+  const primary = String(primaryPeerId || "").trim();
+  const out: PeerPick[] = [];
+  for (const p of peers.map((row) => normalizePeer(row, msg))) {
+    if (!p.peerId || p.peerId === "legacy") continue;
+    if (primary && (p.peerId === primary || peerIdsLooseMatch(p.peerId, primary))) {
+      continue;
+    }
+    if (out.some((x) => sameExtraPerson(x, p))) continue;
+    out.push(p);
+    if (out.length >= MAX_EXTRA_PEERS) break;
+  }
+  return out;
+}
+
+/**
+ * Hub 3rd-join / party_browse often re-sends Matched with only the primary
+ * (notify_party_browse_searching, incremental delta). That used to wipe
+ * extras → phone 1v1 while PC stayed 3-col (040100Z all-day FAIL).
+ * Keep the previous extra id when this payload lists only the primary.
+ */
+export function extrasAfterOmitPrimary(opts: {
+  extras: PeerPick[];
+  wasMatched: boolean;
+  prevSecondary: string;
+  /** Last latched extras (sync ref). Restored when hub re-lists only primary. */
+  prevExtras?: PeerPick[];
+  listedIds: string[];
+  primaryId: string;
+  /** False on 1v1 Let's go — never resurrect a leftover 3rd. */
+  keepListed3rd?: boolean;
+}): PeerPick[] {
+  if (opts.extras.length > 0) {
+    if (!opts.wasMatched || opts.keepListed3rd === false) {
+      return opts.extras.slice(0, MAX_EXTRA_PEERS);
+    }
+    // 4th-join delta often lists only the new extra — union with live extras.
+    const primary = String(opts.primaryId || "").trim();
+    const out: PeerPick[] = [];
+    const add = (p: PeerPick | undefined, replace: boolean) => {
+      const id = String(p?.peerId || "").trim();
+      if (!id || id === "legacy") return;
+      if (primary && (id === primary || peerIdsLooseMatch(id, primary))) return;
+      const i = out.findIndex((x) => sameExtraPerson(x, p));
+      if (i >= 0) {
+        // Newer listed extra wins (ICE restart / rematch peerId).
+        if (replace) out[i] = p as PeerPick;
+        return;
+      }
+      out.push(p as PeerPick);
+    };
+    for (const p of opts.prevExtras || []) add(p, false);
+    for (const p of opts.extras) add(p, true);
+    return out.slice(0, MAX_EXTRA_PEERS);
+  }
+  if (!opts.wasMatched) return opts.extras;
+  if (!opts.keepListed3rd) return opts.extras;
+  const primary = String(opts.primaryId || "").trim();
+  const listed = (opts.listedIds || [])
+    .map((id) => String(id || "").trim())
+    .filter(Boolean);
+  const onlyPrimary =
+    listed.length === 0 ||
+    listed.every(
+      (id) =>
+        (primary && (id === primary || peerIdsLooseMatch(id, primary))) ||
+        id === "legacy"
+    );
+  if (!onlyPrimary) return opts.extras;
+  const kept = (opts.prevExtras || []).filter((p) => {
+    const id = String(p?.peerId || "").trim();
+    if (!id || id === "legacy") return false;
+    if (primary && (id === primary || peerIdsLooseMatch(id, primary))) return false;
+    return true;
+  });
+  if (kept.length > 0) return kept.slice(0, MAX_EXTRA_PEERS);
+  const prev = String(opts.prevSecondary || "").trim();
+  if (!prev || prev === "legacy") return opts.extras;
+  if (primary && (prev === primary || peerIdsLooseMatch(prev, primary))) {
+    return opts.extras;
+  }
+  return [
+    {
+      peerId: prev,
+      userId: "",
+      isOfferer: false,
+      name: "",
+      mode: "party_browse",
+      friendCode: "",
+      stars: 0,
+      trust: 0,
+      trustGifters: 0,
+      starsKnown: false,
+      trustKnown: false,
+      trustGiftersKnown: false,
+      role: "stranger",
+      flag: "",
+      country: "",
+      city: "",
+      hideIp: false,
+      avatar: "",
+    },
+  ];
 }

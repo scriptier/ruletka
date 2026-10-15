@@ -2,6 +2,7 @@ import Constants from "expo-constants";
 import { Link, Redirect, router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 import { hapticLight } from "../src/feedback/haptics";
 import {
@@ -76,6 +77,7 @@ function HomeBody() {
     refreshPool,
   } = useHub();
   const t = useT();
+  const insets = useSafeAreaInsets();
   const friendsOnly = isFriendsOnly();
   const [missed, setMissed] = useState(0);
   const [unreadDmTotal, setUnreadDmTotal] = useState(0);
@@ -87,6 +89,12 @@ function HomeBody() {
   const trustN = trustEffective || trust;
   /** Busy = 2+ waiting in queue — soft nudge to Start. */
   const poolBusy = poolWaiting >= 2;
+  const goLive = useCallback(() => {
+    void markWhatsNewSeen();
+    setWhatsNew(false);
+    hapticLight();
+    router.push({ pathname: "/live", params: { autostart: "1" } });
+  }, []);
   const appVer =
     Constants.expoConfig?.version ||
     Constants.nativeAppVersion ||
@@ -113,15 +121,21 @@ function HomeBody() {
   );
 
   return (
-    <View style={styles.root}>
+    <View
+      style={[
+        styles.root,
+        {
+          paddingTop: Math.max(insets.top, 24),
+          paddingBottom: Math.max(insets.bottom, 24),
+        },
+      ]}
+    >
       <Pressable
         onPress={() => {
           if (friendsOnly) {
             router.push("/friends");
           } else {
-            hapticLight();
-            // Start chatting → Live already spinning (no second Start tap)
-            router.push({ pathname: "/live", params: { autostart: "1" } });
+            goLive();
           }
         }}
         accessibilityRole="button"
@@ -228,9 +242,8 @@ function HomeBody() {
         <Pressable
           style={styles.poolBusyCard}
           onPress={() => {
-            hapticLight();
             track("funnel_home_pack_live", { via: "pool_busy" });
-            router.push({ pathname: "/live", params: { autostart: "1" } });
+            goLive();
           }}
         >
           <Text style={styles.poolBusyTitle}>
@@ -276,6 +289,38 @@ function HomeBody() {
           </Text>
         </View>
       </View>
+
+      {friendsOnly ? (
+        <Link href="/friends" asChild>
+          <Pressable
+            style={styles.cta}
+            onPressIn={() => hapticLight()}
+            accessibilityRole="button"
+            accessibilityLabel={
+              friendsBadge > 0
+                ? `${t("mobile.home.friends")} (${friendsBadge})`
+                : t("mobile.home.friends")
+            }
+          >
+            <Text style={styles.ctaText} importantForAccessibility="no">
+              {t("mobile.home.friends")}
+              {friendsBadge > 0 ? ` (${friendsBadge})` : ""}
+            </Text>
+          </Pressable>
+        </Link>
+      ) : (
+        <Pressable
+          style={styles.cta}
+          onPress={goLive}
+          accessibilityRole="button"
+          accessibilityLabel={t("mobile.home.start")}
+          testID="home-start-cta"
+        >
+          <Text style={styles.ctaText} importantForAccessibility="no">
+            {t("mobile.home.start")}
+          </Text>
+        </Pressable>
+      )}
 
       {whatsNew ? (
         <View style={styles.whatsNew}>
@@ -484,39 +529,6 @@ function HomeBody() {
         </View>
       ) : null}
 
-      {friendsOnly ? (
-        <Link href="/friends" asChild>
-          <Pressable
-            style={styles.cta}
-            onPressIn={() => hapticLight()}
-            accessibilityRole="button"
-            accessibilityLabel={
-              friendsBadge > 0
-                ? `${t("mobile.home.friends")} (${friendsBadge})`
-                : t("mobile.home.friends")
-            }
-          >
-            <Text style={styles.ctaText} importantForAccessibility="no">
-              {t("mobile.home.friends")}
-              {friendsBadge > 0 ? ` (${friendsBadge})` : ""}
-            </Text>
-          </Pressable>
-        </Link>
-      ) : (
-        <Link href={{ pathname: "/live", params: { autostart: "1" } }} asChild>
-          <Pressable
-            style={styles.cta}
-            onPressIn={() => hapticLight()}
-            accessibilityRole="button"
-            accessibilityLabel={t("mobile.home.start")}
-          >
-            <Text style={styles.ctaText} importantForAccessibility="no">
-              {t("mobile.home.start")}
-            </Text>
-          </Pressable>
-        </Link>
-      )}
-
       <Link href={friendsOnly ? "/live" : "/friends"} asChild>
         <Pressable
           style={styles.secondary}
@@ -642,7 +654,7 @@ function HomeBody() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    padding: 24,
+    paddingHorizontal: 24,
     justifyContent: "center",
     gap: 12,
   },

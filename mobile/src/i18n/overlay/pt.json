@@ -292,6 +292,7 @@
   "mobile.live.longSearchBody": "A fila pode ficar tranquila. Convide um amigo ou pare e tente mais tarde.",
   "mobile.live.longSearchTitle": "Ainda procurando… ({s} s)",
   "mobile.live.looking": "Procurando…",
+  "mobile.live.matchBanned": "Você está banido de combinar",
   "mobile.live.matched": "Combinado",
   "mobile.live.mediaResumed": "Câmera e microfone voltam a funcionar após o fundo",
   "mobile.live.meta": "★ {stars} · online {online} · espera {wait}",

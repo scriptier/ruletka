@@ -292,6 +292,7 @@
   "mobile.live.longSearchBody": "Die Warteschlange kann ruhig sein. Laden Sie einen Freund ein oder bleiben Sie stehen und versuchen Sie es später noch einmal.",
   "mobile.live.longSearchTitle": "Immer noch auf der Suche... ( {s} s)",
   "mobile.live.looking": "Suche…",
+  "mobile.live.matchBanned": "Matching gesperrt",
   "mobile.live.matched": "Verbunden",
   "mobile.live.mediaResumed": "Kamera und Mikrofon nach dem Hintergrund wieder eingeschaltet",
   "mobile.live.meta": "★ {stars} · online {online} · warten {wait}",

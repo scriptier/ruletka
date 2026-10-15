@@ -1,9 +1,14 @@
 /**
- * Live bottom control rows: Start/Next/Stop/Report + icon mic/cam/flip/friends/more.
+ * Live bottom control rows: Start/Next/Stop + icon strip.
  *
- * Primary bar (matched stranger / search):
- *   Stop (left) · Report (middle, danger, matched stranger only) · Next (right)
+ * Primary bar (matched stranger / search): Stop · Next, full width.
+ * Self PiP lives on the video above this slab — do not pad the bar for it.
  * Friend call: Hangup alone. Idle: Start alone.
+ * Report lives in the partner-actions sheet (tap a face), not this bar.
+ *
+ * Secondary icons (left → right, full width):
+ *   Mic · Flip · partner mute · blur · more · Settings
+ * Cam off/on is intentionally omitted (use Settings if needed later).
  *
  * Start → Next/Stop flips optimistically on press so the bar never
  * stays on "Start" while parent media/hub work is still starting.
@@ -12,17 +17,20 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import {
-  Alert,
-  Pressable,
+  Platform,
   Text,
+  useWindowDimensions,
   View,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { TapPressable } from "../ui/TapPressable";
 import { liveStyles as styles } from "./liveStyles";
 
 const ICON = 22;
 const ICON_COLOR = "#fff";
+const BAR_ROW = { width: "100%" as const };
 
 export type LiveBottomBarProps = {
   phase: string;
@@ -72,6 +80,8 @@ export type LiveBottomBarProps = {
     friends: string;
     friendsMenuTitle: string;
     friendsOnlyHint: string;
+    /** Settings (far-right icon). */
+    settings?: string;
   };
   onStart: () => void;
   onNext: () => void;
@@ -81,7 +91,8 @@ export type LiveBottomBarProps = {
   /** @deprecated use onReport */
   onBlockReport?: () => void;
   onToggleMic: () => void;
-  onToggleCam: () => void;
+  /** Kept for callers; cam toggle removed from the bar UI. */
+  onToggleCam?: () => void;
   onFlipCam: () => void;
   onTogglePartnerMute: () => void;
   /** Toggle partner privacy veil (strangers only). */
@@ -89,6 +100,14 @@ export type LiveBottomBarProps = {
   onToggleMore: () => void;
   onInvite: () => void;
   onOpenFriends: () => void;
+  /** Opens Settings screen (far-right icon). */
+  onOpenSettings?: () => void;
+  /** Idle Start lives on the brand diamond — hide the full-width pink bar. */
+  hideIdleStart?: boolean;
+  /** Arcade Start already pressed — show Next/Stop immediately. */
+  searchArmed?: boolean;
+  /** Browser-duo 1v1: Next/Stop live on the partner tile, not this bar. */
+  hideSearchControls?: boolean;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -100,7 +119,8 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
     stayRemSecs,
     nextGraceRemSecs = 0,
     micOn,
-    camOn,
+    // camOn kept on props for callers; bar no longer toggles camera
+    camOn: _camOn,
     hasLocal,
     partnerMuted,
     remoteBlurred = false,
@@ -111,20 +131,39 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
     onStart,
     onNext,
     onStop,
-    onReport,
-    onBlockReport,
     onToggleMic,
-    onToggleCam,
     onFlipCam,
     onTogglePartnerMute,
     onToggleBlur,
+    onOpenSettings,
     onToggleMore,
-    onInvite,
-    onOpenFriends,
+    hideIdleStart = false,
+    searchArmed = false,
+    hideSearchControls = false,
     style,
   } = props;
 
-  const reportHandler = onReport ?? onBlockReport;
+  // iPhone home indicator: parent already pads the bar's outer edge by
+  // insets.bottom, but the icon row (closest to the pill) still wants a
+  // few extra points of breathing room so it never reads as "under" it.
+  const insets = useSafeAreaInsets();
+  const iosHomeIndicatorGap =
+    Platform.OS === "ios" && insets.bottom > 0 ? 6 : 0;
+
+  // Landscape iPhone: the notch/Dynamic Island (and the rotated home
+  // indicator) land on one side (insets.left xor insets.right). The bar's
+  // outer paddingHorizontal comes from parent styles (bar/browserDock) we
+  // don't own, so add the missing side room here instead — iOS only,
+  // no-op in portrait where these insets are ~0.
+  const { width: winW, height: winH } = useWindowDimensions();
+  const isLandscape = winW > winH;
+  const iosSideStyle =
+    Platform.OS === "ios" && isLandscape
+      ? {
+          paddingLeft: Math.max(insets.left, 0),
+          paddingRight: Math.max(insets.right, 0),
+        }
+      : null;
 
   // Immediate Start → Next/Stop; clear once parent phase catches up
   const [pendingSearch, setPendingSearch] = useState(false);
@@ -135,19 +174,23 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
   }, [phase]);
 
   const barPhase =
-    pendingSearch && (phase === "idle" || phase === "error")
+    (pendingSearch || searchArmed) && (phase === "idle" || phase === "error")
       ? "search"
       : phase;
 
   const showStart =
-    (barPhase === "idle" || barPhase === "error") && !friendsOnly;
+    (barPhase === "idle" || barPhase === "error") &&
+    !friendsOnly &&
+    !hideIdleStart;
+  /** Idle (Start not pressed): no Stop/Next. After Start → searchArmed paints them. */
+  const idleBeforeStart =
+    (phase === "idle" || phase === "error") &&
+    !pendingSearch &&
+    !searchArmed;
   const showSearchControls =
-    barPhase === "search" || barPhase === "matched";
-  /** Report only when live with a stranger (sheet also blocks). */
-  const showReport =
-    barPhase === "matched" &&
-    !isFriendCall &&
-    typeof reportHandler === "function";
+    !idleBeforeStart &&
+    !hideSearchControls &&
+    (barPhase === "search" || barPhase === "matched");
 
   const micForcedOff = debateActive && !debateISpeak;
   const micLabel = micForcedOff
@@ -156,24 +199,16 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
       ? L.micOn
       : L.micOff;
 
-  function openFriendsMenu() {
-    Alert.alert(L.friendsMenuTitle, undefined, [
-      { text: L.invite, onPress: () => onInvite() },
-      { text: L.friends, onPress: () => onOpenFriends() },
-      { text: L.cancel, style: "cancel" },
-    ]);
-  }
-
   return (
     <View style={style}>
       {friendsOnly && barPhase === "idle" ? (
         <Text style={styles.friendsOnlyHint}>{L.friendsOnlyHint}</Text>
       ) : null}
-      <View style={styles.row}>
+      <View style={[styles.row, BAR_ROW, iosSideStyle]}>
         {showStart ? (
-          <Pressable
+          <TapPressable
             style={styles.btn}
-            onPress={() => {
+            onPressIn={() => {
               // Paint Next/Stop this frame — don't wait for hub/media
               setPendingSearch(true);
               onStart();
@@ -185,84 +220,100 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
             hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
             android_ripple={{ color: "rgba(255,255,255,0.15)" }}
           >
-            <Text style={styles.btnText} importantForAccessibility="no">
-              {L.start}
-            </Text>
-          </Pressable>
+            <Ionicons
+              name="play"
+              size={ICON}
+              color={ICON_COLOR}
+              importantForAccessibility="no"
+            />
+          </TapPressable>
         ) : null}
         {showSearchControls ? (
           <>
-            {/* Order: Stop · Report · Next (friend call: Hangup only) */}
-            <Pressable
-              style={styles.btnGhost}
-              onPress={() => {
-                setPendingSearch(false);
-                onStop();
-              }}
-              accessibilityRole="button"
-              accessibilityLabel={isFriendCall ? L.hangup : L.stop}
-              testID="live-stop-btn"
-              hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+            {/* Order: Stop · Next (friend call: Hangup only). Report is in the sheet. */}
+            <View
+              style={[
+                styles.btnStopFloor,
+                isFriendCall || friendsOnly ? { flex: 1 } : null,
+              ]}
             >
-              <Text style={styles.btnText} importantForAccessibility="no">
-                {isFriendCall ? L.hangup : L.stop}
-              </Text>
-            </Pressable>
-            {showReport ? (
-              <Pressable
-                style={styles.btnDanger}
-                onPress={() => reportHandler?.()}
-                accessibilityRole="button"
-                accessibilityLabel={L.report || "Report"}
-                testID="live-report-btn"
-                hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-                android_ripple={{ color: "rgba(255,120,90,0.25)" }}
-              >
-                <Text style={styles.btnText} importantForAccessibility="no">
-                  {L.report || "⚑ Report"}
-                </Text>
-              </Pressable>
-            ) : null}
-            {!isFriendCall && !friendsOnly ? (
-              <Pressable
-                style={[
-                  styles.btnNext,
-                  (stayRemSecs > 0 || nextGraceRemSecs > 0) &&
-                    styles.btnStayLocked,
-                ]}
-                onPress={onNext}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  stayRemSecs > 0
-                    ? L.stayLock(stayRemSecs)
-                    : nextGraceRemSecs > 0 && L.nextGrace
-                      ? L.nextGrace(nextGraceRemSecs)
-                      : L.next
-                }
-                accessibilityState={{
-                  disabled: stayRemSecs > 0 || nextGraceRemSecs > 0,
+              <TapPressable
+                style={styles.btnStopFace}
+                onPressIn={() => {
+                  setPendingSearch(false);
+                  onStop();
                 }}
-                accessibilityHint={
-                  L.nextHint || "Skip to next person · or swipe partner video"
-                }
-                testID="live-next-btn"
+                accessibilityRole="button"
+                accessibilityLabel={isFriendCall ? L.hangup : L.stop}
+                testID="live-stop-btn"
                 hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-                android_ripple={{ color: "rgba(255,255,255,0.2)" }}
               >
-                <Text style={styles.btnText} importantForAccessibility="no">
-                  {stayRemSecs > 0
-                    ? L.stayNext(stayRemSecs)
-                    : nextGraceRemSecs > 0 && L.nextGrace
-                      ? L.nextGrace(nextGraceRemSecs)
-                      : L.next}
-                </Text>
-              </Pressable>
+                <Ionicons
+                  name={isFriendCall ? "call" : "stop"}
+                  size={ICON}
+                  color="#ffd0dc"
+                  importantForAccessibility="no"
+                />
+              </TapPressable>
+            </View>
+            {!isFriendCall && !friendsOnly ? (
+              <View style={styles.btnNextFloor}>
+                <TapPressable
+                  style={[
+                    styles.btnNext,
+                    (stayRemSecs > 0 || nextGraceRemSecs > 0) &&
+                      styles.btnStayLocked,
+                  ]}
+                  onPressIn={onNext}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    stayRemSecs > 0
+                      ? L.stayLock(stayRemSecs)
+                      : nextGraceRemSecs > 0 && L.nextGrace
+                        ? L.nextGrace(nextGraceRemSecs)
+                        : L.next
+                  }
+                  accessibilityState={{
+                    disabled: stayRemSecs > 0 || nextGraceRemSecs > 0,
+                  }}
+                  accessibilityHint={
+                    L.nextHint || "Skip to next person · or swipe partner video"
+                  }
+                  testID="live-next-btn"
+                  hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                  android_ripple={{ color: "rgba(255,255,255,0.2)" }}
+                >
+                  {stayRemSecs > 0 || nextGraceRemSecs > 0 ? (
+                    <Text
+                      style={styles.btnNextText}
+                      importantForAccessibility="no"
+                    >
+                      {stayRemSecs > 0 ? stayRemSecs : nextGraceRemSecs}
+                    </Text>
+                  ) : (
+                    <Ionicons
+                      name="play-skip-forward"
+                      size={ICON}
+                      color={ICON_COLOR}
+                      importantForAccessibility="no"
+                    />
+                  )}
+                </TapPressable>
+              </View>
             ) : null}
           </>
         ) : null}
       </View>
-      <View style={styles.row}>
-        <Pressable
+      <View
+        style={[
+          styles.row,
+          BAR_ROW,
+          { alignItems: "center" },
+          iosHomeIndicatorGap ? { paddingBottom: iosHomeIndicatorGap } : null,
+          iosSideStyle,
+        ]}
+      >
+        <TapPressable
           style={[
             styles.btnIcon,
             (!micOn || micForcedOff) && styles.btnOff,
@@ -276,7 +327,10 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
           }}
           testID="live-mic-btn"
           hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
-          android_ripple={{ color: "rgba(255,255,255,0.12)", borderless: false }}
+          android_ripple={{
+            color: "rgba(255,255,255,0.12)",
+            borderless: false,
+          }}
         >
           <Ionicons
             name={micOn && !micForcedOff ? "mic" : "mic-off"}
@@ -284,33 +338,19 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
             color={ICON_COLOR}
             importantForAccessibility="no"
           />
-        </Pressable>
-        <Pressable
-          style={[styles.btnIcon, !camOn && styles.btnOff]}
-          onPress={onToggleCam}
-          accessibilityRole="button"
-          accessibilityLabel={camOn ? L.camOn : L.camOff}
-          accessibilityState={{ selected: camOn }}
-          testID="live-cam-btn"
-          hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
-          android_ripple={{ color: "rgba(255,255,255,0.12)", borderless: false }}
-        >
-          <Ionicons
-            name={camOn ? "videocam" : "videocam-off"}
-            size={ICON}
-            color={ICON_COLOR}
-            importantForAccessibility="no"
-          />
-        </Pressable>
+        </TapPressable>
         {hasLocal ? (
-          <Pressable
+          <TapPressable
             style={styles.btnIcon}
             onPress={onFlipCam}
             accessibilityRole="button"
             accessibilityLabel={L.flipCam}
             testID="live-flip-btn"
             hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
-            android_ripple={{ color: "rgba(255,255,255,0.12)", borderless: false }}
+            android_ripple={{
+              color: "rgba(255,255,255,0.12)",
+              borderless: false,
+            }}
           >
             <Ionicons
               name="camera-reverse"
@@ -318,14 +358,11 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
               color={ICON_COLOR}
               importantForAccessibility="no"
             />
-          </Pressable>
+          </TapPressable>
         ) : null}
         {phase === "matched" ? (
-          <Pressable
-            style={[
-              styles.btnIcon,
-              partnerMuted && styles.btnMuteOn,
-            ]}
+          <TapPressable
+            style={[styles.btnIcon, partnerMuted && styles.btnMuteOn]}
             onPress={onTogglePartnerMute}
             accessibilityRole="button"
             accessibilityLabel={
@@ -334,7 +371,10 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
             accessibilityState={{ selected: partnerMuted }}
             testID="live-partner-mute-btn"
             hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
-            android_ripple={{ color: "rgba(255,120,90,0.2)", borderless: false }}
+            android_ripple={{
+              color: "rgba(255,120,90,0.2)",
+              borderless: false,
+            }}
           >
             <Ionicons
               name={partnerMuted ? "volume-mute" : "volume-high"}
@@ -342,11 +382,11 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
               color={partnerMuted ? "#ffb4a0" : ICON_COLOR}
               importantForAccessibility="no"
             />
-          </Pressable>
+          </TapPressable>
         ) : null}
-        {/* Blur: eye-off = clear video (tap to veil); eye = veiled (tap Show) */}
+        {/* Blur: eye-off = clear (tap to veil); eye = veiled (tap Show) */}
         {phase === "matched" && typeof onToggleBlur === "function" ? (
-          <Pressable
+          <TapPressable
             style={[styles.btnIcon, remoteBlurred && styles.btnBlurOn]}
             onPress={onToggleBlur}
             accessibilityRole="button"
@@ -363,7 +403,10 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
             }
             testID="live-blur-btn"
             hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
-            android_ripple={{ color: "rgba(100,160,255,0.2)", borderless: false }}
+            android_ripple={{
+              color: "rgba(100,160,255,0.2)",
+              borderless: false,
+            }}
           >
             <Ionicons
               name={remoteBlurred ? "eye" : "eye-off"}
@@ -371,10 +414,10 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
               color={remoteBlurred ? "#9fd0ff" : ICON_COLOR}
               importantForAccessibility="no"
             />
-          </Pressable>
+          </TapPressable>
         ) : null}
         {phase === "matched" ? (
-          <Pressable
+          <TapPressable
             style={[styles.btnIcon, moreOpen && styles.btnSecondary]}
             onPress={onToggleMore}
             accessibilityRole="button"
@@ -388,41 +431,30 @@ export function LiveBottomBar(props: LiveBottomBarProps) {
               color={ICON_COLOR}
               importantForAccessibility="no"
             />
-          </Pressable>
-        ) : (
-          <Pressable
+          </TapPressable>
+        ) : null}
+        {typeof onOpenSettings === "function" ? (
+          <TapPressable
             style={styles.btnIcon}
-            onPress={openFriendsMenu}
+            onPress={onOpenSettings}
             accessibilityRole="button"
-            accessibilityLabel={L.friends}
-            accessibilityHint={L.invite}
-            testID="live-friends-btn"
+            accessibilityLabel={L.settings || "Settings"}
+            testID="live-settings-btn"
             hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
-            android_ripple={{ color: "rgba(255,255,255,0.12)", borderless: false }}
+            android_ripple={{
+              color: "rgba(255,255,255,0.12)",
+              borderless: false,
+            }}
           >
             <Ionicons
-              name="people"
+              name="settings-outline"
               size={ICON}
               color={ICON_COLOR}
               importantForAccessibility="no"
             />
-          </Pressable>
-        )}
+          </TapPressable>
+        ) : null}
       </View>
-      {!camOn && L.camOffHint ? (
-        <Text
-          style={{
-            color: "rgba(255,255,255,0.72)",
-            fontSize: 12,
-            textAlign: "center",
-            marginTop: 4,
-            marginBottom: 2,
-          }}
-          accessibilityLiveRegion="polite"
-        >
-          {L.camOffHint}
-        </Text>
-      ) : null}
     </View>
   );
 }

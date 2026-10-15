@@ -26,7 +26,10 @@
     "verify:strict": "VERIFY_STRICT_L2=1 bash scripts/verify-before-apk.sh",
     "preflight": "bash scripts/preflight.sh",
     "build:apk": "bash scripts/build-apk-local.sh",
-    "build:apk:bump": "bash scripts/build-apk-local.sh --bump"
+    "build:apk:bump": "bash scripts/build-apk-local.sh --bump",
+    "build:ios": "eas build --profile production --platform ios",
+    "build:ios:preview": "eas build --profile preview --platform ios",
+    "submit:ios": "eas submit --profile production --platform ios"
   },
   "dependencies": {
     "@config-plugins/react-native-webrtc": "^10.0.0",
@@ -45,6 +48,7 @@
     "expo-document-picker": "~13.0.3",
     "expo-file-system": "~18.0.12",
     "expo-font": "~13.0.4",
+    "expo-image-manipulator": "~13.0.6",
     "expo-keep-awake": "~14.0.3",
     "expo-linking": "~7.0.0",
     "expo-notifications": "~0.29.14",
@@ -65,6 +69,7 @@
   "devDependencies": {
     "@babel/core": "^7.25.0",
     "@types/react": "~18.3.0",
+    "eas-cli": "^16.28.0",
     "typescript": "~5.3.0"
   },
   "expo": {

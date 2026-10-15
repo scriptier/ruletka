@@ -11,6 +11,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { childSafetyUrl, safetyToolsUrl } from "../src/config";
 import { rulesAccepted, setRulesAccepted } from "../src/identity/store";
 import { useT } from "../src/i18n";
@@ -24,9 +25,20 @@ import { useApp } from "./_layout";
 
 type Step = "age" | "perm";
 
+/** i18n with English fallback when overlay key is not shipped yet (ns-i18n). */
+function tf(
+  t: (key: string, vars?: Record<string, string | number>) => string,
+  key: string,
+  fallback: string,
+): string {
+  const s = t(key);
+  return !s || s === key ? fallback : s;
+}
+
 export default function RulesScreen() {
   const { refreshRules, rulesOk } = useApp();
   const t = useT();
+  const insets = useSafeAreaInsets();
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState<Step>("age");
 
@@ -111,7 +123,12 @@ export default function RulesScreen() {
 
   if (step === "perm") {
     return (
-      <ScrollView contentContainerStyle={styles.root}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.root,
+          { paddingTop: Math.max(insets.top, 24) },
+        ]}
+      >
         <View accessibilityLiveRegion="polite" accessible={false}>
           <PermissionRationaleCard
             busy={busy}
@@ -125,7 +142,12 @@ export default function RulesScreen() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.root}>
+    <ScrollView
+      contentContainerStyle={[
+        styles.root,
+        { paddingTop: Math.max(insets.top, 24) },
+      ]}
+    >
       <Text style={styles.badge}>{t("mobile.rules.badge")}</Text>
       <Text style={styles.h1}>{t("rules.ageGateTitle")}</Text>
       <Text style={styles.p}>{t("rules.age")}</Text>
@@ -137,7 +159,15 @@ export default function RulesScreen() {
         <Text style={styles.cardLine}>• {t("mobile.rules.noMinors")}</Text>
       </View>
       <Text style={styles.p}>{t("rules.agreeLead")}</Text>
-      <Text style={styles.hint}>{t("mobile.perm.firstRunHint")}</Text>
+      <Text style={styles.hint}>
+        {Platform.OS === "ios"
+          ? tf(
+              t,
+              "mobile.perm.firstRunHintIos",
+              "After age check we’ll explain camera & mic, then iOS will ask.",
+            )
+          : t("mobile.perm.firstRunHint")}
+      </Text>
       <Pressable
         style={[styles.cta, busy && styles.ctaBusy]}
         onPress={acceptAge}
@@ -191,7 +221,7 @@ export default function RulesScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { padding: 24, gap: 14 },
+  root: { paddingHorizontal: 24, paddingBottom: 24, gap: 14 },
   badge: {
     color: "#ff8fab",
     fontSize: 12,

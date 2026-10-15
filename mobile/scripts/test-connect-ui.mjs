@@ -1,66 +1,35 @@
 /**
- * Pure unit checks for connectUi helpers (no RN runtime).
- * Keep in sync with src/media/connectUi.ts
+ * Unit checks for connectUi helpers (no RN runtime).
+ * Transpiles src/media/connectUi.ts on the fly (no ts-node dep) so the test
+ * exercises the real implementation, not a mirror.
  * Run: node scripts/test-connect-ui.mjs
  */
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-function computeConnSlow(opts) {
-  const {
-    phase,
-    conn,
-    awaitingRemoteVideo,
-    hasRemoteVideo,
-    connSince,
-    now,
-    slowMs = 6000,
-  } = opts;
-  if (phase !== "matched") return false;
-  if (connSince <= 0) return false;
-  if (now - connSince <= slowMs) return false;
-  if (conn === "checking" || conn === "connecting") {
-    return awaitingRemoteVideo && !hasRemoteVideo && now - connSince > slowMs;
-  }
-  return (
-    conn === "failed" ||
-    conn === "disconnected" ||
-    (awaitingRemoteVideo && !hasRemoteVideo)
-  );
-}
+const require = createRequire(import.meta.url);
+const ts = require("typescript");
 
-function nextAutoRetryAction(autoCount, elapsedMs) {
-  // Keep in sync with src/media/connectUi.ts
-  if (elapsedMs >= 10_000 && elapsedMs < 14_000 && autoCount < 1) return "soft";
-  if (elapsedMs >= 18_000 && elapsedMs < 22_000 && autoCount < 2) return "hard";
-  if (elapsedMs >= 28_000 && elapsedMs < 34_000 && autoCount < 3) return "tip";
-  return null;
-}
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const srcPath = path.join(__dirname, "..", "src", "media", "connectUi.ts");
+const src = fs.readFileSync(srcPath, "utf8");
+const { outputText } = ts.transpileModule(src, {
+  compilerOptions: {
+    module: ts.ModuleKind.CommonJS,
+    target: ts.ScriptTarget.ES2019,
+  },
+});
 
-function computeShowHardRetry(opts) {
-  const {
-    phase,
-    conn,
-    linkTier,
-    awaitingRemoteVideo,
-    hasRemoteVideo,
-    matchStartedAt,
-    now,
-    hardMs = 14000,
-  } = opts;
-  if (phase !== "matched") return false;
-  if (matchStartedAt > 0 && now - matchStartedAt < hardMs) return false;
-  if (conn === "failed" || conn === "disconnected") return true;
-  if (linkTier === "bad" && matchStartedAt > 0 && now - matchStartedAt > hardMs)
-    return true;
-  if (
-    awaitingRemoteVideo &&
-    !hasRemoteVideo &&
-    matchStartedAt > 0 &&
-    now - matchStartedAt > hardMs
-  )
-    return true;
-  return false;
-}
+const mod = { exports: {} };
+new Function("exports", "module", "require", outputText)(
+  mod.exports,
+  mod,
+  require
+);
+const { computeConnSlow, nextAutoRetryAction, computeShowHardRetry } = mod.exports;
 
 // Early connecting is NOT "slow"
 assert.equal(
@@ -87,12 +56,13 @@ assert.equal(
   true
 );
 
-// Auto-retry: soft ~10s, hard(demoted soft) ~18s, tip ~28s
+// Auto-retry LOCK: no soft@10s; real schedule soft>=16s, hard>=26s, tip>=36s
 assert.equal(nextAutoRetryAction(0, 3500), null);
 assert.equal(nextAutoRetryAction(0, 9500), null);
-assert.equal(nextAutoRetryAction(0, 10500), "soft");
-assert.equal(nextAutoRetryAction(1, 18500), "hard");
-assert.equal(nextAutoRetryAction(2, 29000), "tip");
+assert.equal(nextAutoRetryAction(0, 10_500), null, "LOCK: no soft@10s");
+assert.equal(nextAutoRetryAction(0, 16_500), "soft");
+assert.equal(nextAutoRetryAction(1, 26_500), "hard");
+assert.equal(nextAutoRetryAction(2, 36_500), "tip");
 
 assert.equal(
   computeShowHardRetry({
@@ -158,4 +128,4 @@ assert.equal(
   false
 );
 
-console.log("test-connect-ui: ok");
+console.log("test-connect-ui: ok (real module)");
