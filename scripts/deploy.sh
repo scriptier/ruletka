@@ -169,7 +169,7 @@ rollback() {
   MUTATED=0
   say "!! failure (rc=$rc) -> ROLLBACK from $BK"
   ssh "${SSH_OPTS[@]}" "$HOST" "set -x
-    cp -a $BK/bin/roulette-bridge $APP/bin/roulette-bridge
+    cp -a $BK/bin/roulette-bridge $APP/bin/roulette-bridge.rb && mv -f $APP/bin/roulette-bridge.rb $APP/bin/roulette-bridge
     rsync -a --delete --exclude download/archive/ $BK/ui/ $APP/ui/
     rsync -a --delete $BK/deploy/ $APP/deploy/
     cp -a $BK/etc/Caddyfile /etc/caddy/Caddyfile
@@ -226,7 +226,8 @@ served_v="$(curl -fsS --max-time 20 "https://${DOMAINS%% *}/deploy.json" || true
 say "  served deploy.json: $served_v"
 if [[ $DRY == 0 ]]; then
   [[ "$served_v" == *"$DEPLOY_V"* ]] || { say "  FAIL deploy.json is not $DEPLOY_V"; fails=$((fails+1)); }
-  curl -fsS --max-time 20 "https://${DOMAINS%% *}/live.html" | grep -q "$PIN_LIVE" || { say "  FAIL live.html does not pin $PIN_LIVE"; fails=$((fails+1)); }
+  live_html="$(curl -fsS --max-time 20 "https://${DOMAINS%% *}/live.html" || true)"
+  grep -qF "$PIN_LIVE" <<<"$live_html" || { say "  FAIL live.html does not pin $PIN_LIVE"; fails=$((fails+1)); }
 fi
 say "  TURN allocate:"
 python3 "$ROOT/scripts/deploy/turn-alloc-test.py" "https://${DOMAINS%% *}/config.json" | sed 's/^/    /' || fails=$((fails+1))
