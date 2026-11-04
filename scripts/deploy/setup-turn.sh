@@ -91,6 +91,19 @@ ufw allow 49160:50000/udp comment 'TURN relay'
 ufw allow 49160:50000/tcp comment 'TURN relay'
 yes | ufw enable || true
 ufw status | head -30 || true
+ufw allow 5349/tcp comment 'TURNS' || true
+
+# TURNS cert sync + TLS self-heal. Lives outside /opt/ruletka/bin because
+# push.sh rsyncs bin/ with --delete (that wiped the old copy in Oct 2026).
+if [[ -f "$APP_DIR/deploy/setup-turns-tls.sh" ]]; then
+  install -m 0755 "$APP_DIR/deploy/setup-turns-tls.sh" /usr/local/sbin/ruletka-turns-tls.sh
+  for u in ruletka-turns-certs.service ruletka-turns-certs.timer; do
+    [[ -f "$APP_DIR/deploy/$u" ]] && install -m 0644 "$APP_DIR/deploy/$u" "/etc/systemd/system/$u"
+  done
+  systemctl daemon-reload
+  systemctl enable --now ruletka-turns-certs.timer || true
+  /usr/local/sbin/ruletka-turns-tls.sh || true
+fi
 
 systemctl enable coturn
 systemctl restart coturn

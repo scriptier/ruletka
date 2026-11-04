@@ -2,6 +2,10 @@
 
 Parse tip: `grep '^## \[' knowledge/wiki/log.md | tail -10`
 
+## [2026-11-04] hop | relay fix: zombie partner + TURNS back (deployed)
+- Incident CA↔RU "Trying relay… 32s": RU app JS frozen, WS open 17 min, matched anyway, never offered. Bridge now skips waiters silent ≥30s and dissolves a 1v1 whose partner sent nothing since match (20s silent / 45s hard) → live side gets `partner disconnected — searching again` + instant rematch. No app update.
+- TURNS 443/5349 dead since Oct 13 deploy (template had TLS commented; cert script wiped by push.sh). Template TLS ON; `/usr/local/sbin/ruletka-turns-tls.sh` + timer. Notes: `docs/RELAY_FIX_2026-11-04.md`. Tag `deployed-2026-11-04`.
+
 ## [2026-11-03] hop | safety filter pass (branch safety/2026-11-03, not deployed)
 - Web NSFW filter on lite/Safari (wasm/cpu fallback, 6s scan), self-hosted under `ui/vendor/nsfw` (old cloudfront model host is dead), blur held while loading/failed, 2-of-3 confirm. Server chat filter (`chat_filter.rs`). Underage: 1 report = 24h hold; 30d needs 2 clusters / 4 points in 7d or + explicit_ai. Pins live.js **989** · i18n **275**. Notes: `docs/SAFETY_FILTER_2026-11-03.md`. **No GOAL_MET.**
 

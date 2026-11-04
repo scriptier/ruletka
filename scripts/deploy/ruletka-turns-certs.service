@@ -1,0 +1,7 @@
+[Unit]
+Description=Refresh coturn TLS certs from Caddy and keep TURNS 5349 enabled
+After=caddy.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ruletka-turns-tls.sh

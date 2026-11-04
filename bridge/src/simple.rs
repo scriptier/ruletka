@@ -250,6 +250,13 @@ pub struct Client {
     ws_hold_until: Option<Instant>,
     /// Set when a reconnect Hello adopted a hold (reload Spin in a few seconds = Next).
     ws_adopted_at: Option<Instant>,
+    /// Last app-level text frame of any kind (incl. JSON `ping`). Android with
+    /// frozen JS (screen off / backgrounded) keeps the socket alive through
+    /// native WS pongs but stops JSON pings + 6s keep-alive spins.
+    last_rx: Instant,
+    /// Last non-ping frame (spin, signal, av_path, chat…). A matched partner
+    /// that sent nothing since the match never started its call.
+    last_active_rx: Option<Instant>,
 }
 
 /// Daily hub counters (persisted as JSONL under data/metrics.jsonl).
@@ -4202,7 +4209,7 @@ impl SimpleHub {
                     continue;
                 }
                 let Some(c) = self.clients.get(id) else { continue };
-                if c.phase != Phase::Waiting {
+                if c.phase != Phase::Waiting || !self.client_rx_fresh(*id) {
                     continue;
                 }
                 return Some((
@@ -4247,6 +4254,7 @@ impl SimpleHub {
                     .map(|c| c.phase == Phase::Waiting)
                     .unwrap_or(false)
                     && !self.fed_by_client.contains_key(id)
+                    && self.client_rx_fresh(*id)
                 {
                     found = Some(*id);
                     break;
@@ -4605,6 +4613,8 @@ impl SimpleHub {
                 pending_rate_secs: 0,
                 ws_hold_until: None,
                 ws_adopted_at: None,
+                last_rx: Instant::now(),
+                last_active_rx: None,
             },
         );
         // by_user/code_index set on Hello with persistent user_id (not ephemeral uuid)
@@ -5071,6 +5081,108 @@ impl SimpleHub {
             QueueEntry::Party { a, b } => vec![*a, *b],
             QueueEntry::Party3 { a, b, c } => vec![*a, *b, *c],
         }
+    }
+
+    /// Waiter with no app frame for this long is not matchable (frozen JS):
+    /// Android sends a JSON ping every 10s and a keep-alive spin every 6s.
+    const STALE_WAITER_SECS: u64 = 30;
+    /// Matched partner silent (no non-ping frame since match) this long while
+    /// also not pinging → dissolve so the live side hunts again.
+    const ZOMBIE_PARTNER_SECS: u64 = 20;
+    /// Silent since match this long → dissolve even if JSON pings still arrive.
+    const ZOMBIE_PARTNER_HARD_SECS: u64 = 45;
+
+    /// Record an inbound app frame. Returns true if this client was a stale
+    /// waiter (skipped by try_match) and is now fresh again.
+    fn note_client_rx(&mut self, id: Uuid, is_ping: bool) -> bool {
+        let Some(c) = self.clients.get_mut(&id) else {
+            return false;
+        };
+        let was_stale = c.phase == Phase::Waiting
+            && c.last_rx.elapsed() >= Duration::from_secs(Self::STALE_WAITER_SECS);
+        let now = Instant::now();
+        c.last_rx = now;
+        if !is_ping {
+            c.last_active_rx = Some(now);
+        }
+        was_stale
+    }
+
+    fn client_rx_fresh(&self, id: Uuid) -> bool {
+        self.clients
+            .get(&id)
+            .map(|c| c.last_rx.elapsed() < Duration::from_secs(Self::STALE_WAITER_SECS))
+            .unwrap_or(false)
+    }
+
+    fn queue_entry_fresh(&self, e: &QueueEntry) -> bool {
+        Self::queue_entry_ids(e)
+            .into_iter()
+            .all(|id| self.client_rx_fresh(id))
+    }
+
+    /// 1v1 stranger match where the partner never answered (2026-11-04 RU
+    /// zombie: matched, socket open 17 min, zero offer/ICE/av_path → the live
+    /// side sat on "Trying relay…"). Called whenever the live side sends a frame.
+    fn drop_zombie_partner(&mut self, id: Uuid) {
+        let Some(c) = self.clients.get(&id) else {
+            return;
+        };
+        if c.phase != Phase::Matched
+            || c.friend_call.is_some()
+            || c.party_with.is_some()
+            || c.session_peers.len() > 1
+        {
+            return;
+        }
+        let Some(pid) = c.partner else {
+            return;
+        };
+        if pid == id {
+            return;
+        }
+        let Some(p) = self.clients.get(&pid) else {
+            return;
+        };
+        if p.phase != Phase::Matched
+            || p.partner != Some(id)
+            || p.ws_hold_until.is_some()
+            || p.friend_call.is_some()
+            || p.party_with.is_some()
+            || p.session_peers.len() > 1
+        {
+            return;
+        }
+        let Some(started) = p.match_started else {
+            return;
+        };
+        let age = started.elapsed();
+        if age < Duration::from_secs(Self::ZOMBIE_PARTNER_SECS) {
+            return;
+        }
+        if p.last_active_rx.map(|t| t >= started).unwrap_or(false) {
+            return;
+        }
+        let rx_idle = p.last_rx.elapsed();
+        let pinging = rx_idle < Duration::from_secs(Self::ZOMBIE_PARTNER_SECS);
+        if pinging && age < Duration::from_secs(Self::ZOMBIE_PARTNER_HARD_SECS) {
+            return;
+        }
+        tracing::warn!(
+            live = %id,
+            zombie = %pid,
+            zombie_short = %p.short_id,
+            zombie_platform = %p.platform,
+            match_age_ms = age.as_millis() as u64,
+            zombie_rx_idle_ms = rx_idle.as_millis() as u64,
+            "zombie partner — silent since match; dissolving 1v1, live side hunts again"
+        );
+        // Same path as the zombie pressing Next: live side gets the standard
+        // "partner disconnected" detail (apps already map it to i18n) and is requeued.
+        self.clear_match_state_with_partner_msg(pid, "partner disconnected — searching again");
+        self.status(pid, "idle");
+        // Live side is back in the solo queue — pair it now, don't wait for the next spin.
+        self.try_match();
     }
 
     fn queue_entry_waiting_ok(&self, e: &QueueEntry) -> bool {
@@ -6762,6 +6874,14 @@ impl SimpleHub {
             if !self.queue_entry_waiting_ok(&first) {
                 continue;
             }
+            // Frozen client (no app frame 30s): keep its slot, but don't match it.
+            if !self.queue_entry_fresh(&first) {
+                self.queue.push_back(first);
+                if steps < self.queue.len() {
+                    break;
+                }
+                continue;
+            }
 
             let room = self.queue_entry_room(&first);
 
@@ -6779,6 +6899,9 @@ impl SimpleHub {
                     continue;
                 }
                 if !self.queue_entry_waiting_ok(e) {
+                    continue;
+                }
+                if !self.queue_entry_fresh(e) {
                     continue;
                 }
                 // Allowed: 1v1, 1v2, 2v2 (see entries_compatible). No 3v1/2v3 queue.
@@ -7091,6 +7214,12 @@ impl SimpleHub {
         } else {
             return;
         }
+        let woke_stale_waiter = self.note_client_rx(id, matches!(msg, ClientMsg::Ping));
+        if woke_stale_waiter {
+            tracing::info!(%id, "stale waiter woke — try_match");
+            self.try_match();
+        }
+        self.drop_zombie_partner(id);
 
         match msg {
             ClientMsg::Hello {
@@ -11266,6 +11395,76 @@ mod ws_hold_tests {
                 platform: "web".into(),
             },
         );
+    }
+
+    #[test]
+    fn stale_waiter_not_matched_until_it_wakes() {
+        let mut hub = hub();
+        let a = add(&mut hub, "178.46.111.242");
+        let b = add(&mut hub, "96.1.124.108");
+        hello(&mut hub, a, "user-ru-zombie");
+        hello(&mut hub, b, "user-ca");
+        hub.handle(a, ClientMsg::Spin { room: String::new() });
+        // a's JS freezes: no frames for 4 min (socket still open)
+        hub.clients.get_mut(&a).unwrap().last_rx = Instant::now() - Duration::from_secs(240);
+        hub.handle(b, ClientMsg::Spin { room: String::new() });
+        assert_eq!(hub.clients.get(&b).unwrap().phase, Phase::Waiting, "never match a frozen waiter");
+        assert_eq!(hub.clients.get(&a).unwrap().phase, Phase::Waiting, "frozen waiter keeps its slot");
+        // a wakes up (JSON ping) → matched right away
+        hub.handle(a, ClientMsg::Ping);
+        assert_eq!(hub.clients.get(&a).unwrap().phase, Phase::Matched);
+        assert_eq!(hub.clients.get(&b).unwrap().partner, Some(a));
+    }
+
+    #[test]
+    fn zombie_partner_dissolved_live_side_hunts_again() {
+        let mut hub = hub();
+        let a = add(&mut hub, "178.46.111.242");
+        let b = add(&mut hub, "96.1.124.108");
+        let c = add(&mut hub, "1.2.3.4");
+        hello(&mut hub, a, "user-ru-zombie");
+        hello(&mut hub, b, "user-ca");
+        hello(&mut hub, c, "user-third");
+        hub.handle(a, ClientMsg::Spin { room: String::new() });
+        hub.handle(b, ClientMsg::Spin { room: String::new() });
+        assert_eq!(hub.clients.get(&b).unwrap().partner, Some(a));
+        // 25s later: a sent nothing since the match and stopped pinging
+        let past = Instant::now() - Duration::from_secs(25);
+        {
+            let ca = hub.clients.get_mut(&a).unwrap();
+            ca.match_started = Some(past);
+            ca.last_rx = past - Duration::from_secs(1);
+            ca.last_active_rx = Some(past - Duration::from_secs(1));
+        }
+        hub.handle(c, ClientMsg::Spin { room: String::new() });
+        assert_eq!(hub.clients.get(&c).unwrap().phase, Phase::Waiting);
+        // b (live) sends an av_path beacon → zombie dropped, b re-hunts and meets c
+        hub.handle(b, ClientMsg::Ping);
+        assert_ne!(hub.clients.get(&a).unwrap().phase, Phase::Matched, "zombie leaves the match");
+        assert_eq!(hub.clients.get(&b).unwrap().phase, Phase::Matched);
+        assert_eq!(hub.clients.get(&b).unwrap().partner, Some(c));
+    }
+
+    #[test]
+    fn slow_but_alive_partner_not_dissolved() {
+        let mut hub = hub();
+        let a = add(&mut hub, "178.46.111.242");
+        let b = add(&mut hub, "96.1.124.108");
+        hello(&mut hub, a, "user-ru");
+        hello(&mut hub, b, "user-ca");
+        hub.handle(a, ClientMsg::Spin { room: String::new() });
+        hub.handle(b, ClientMsg::Spin { room: String::new() });
+        let past = Instant::now() - Duration::from_secs(25);
+        hub.clients.get_mut(&a).unwrap().match_started = Some(past);
+        // a still pings (JS alive, e.g. camera prompt) → keep the match < 45s
+        hub.handle(a, ClientMsg::Ping);
+        hub.handle(b, ClientMsg::Ping);
+        assert_eq!(hub.clients.get(&b).unwrap().partner, Some(a));
+        // a sent a real frame after match → never a zombie
+        hub.clients.get_mut(&a).unwrap().match_started = Some(Instant::now() - Duration::from_secs(60));
+        hub.clients.get_mut(&a).unwrap().last_active_rx = Some(Instant::now());
+        hub.handle(b, ClientMsg::Ping);
+        assert_eq!(hub.clients.get(&b).unwrap().partner, Some(a));
     }
 
     #[test]

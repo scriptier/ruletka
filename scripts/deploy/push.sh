@@ -154,11 +154,15 @@ cp -a scripts/deploy/Caddyfile \
   scripts/deploy/install-on-server.sh \
   scripts/deploy/coturn.conf \
   scripts/deploy/setup-turn.sh \
+  scripts/deploy/setup-turns-tls.sh \
+  scripts/deploy/ruletka-turns-certs.service \
+  scripts/deploy/ruletka-turns-certs.timer \
   scripts/deploy/backup-ruletka-data.sh \
   "$STAGE/deploy/"
 chmod +x "$STAGE/bin/roulette-bridge" \
   "$STAGE/deploy/install-on-server.sh" \
   "$STAGE/deploy/setup-turn.sh" \
+  "$STAGE/deploy/setup-turns-tls.sh" \
   "$STAGE/deploy/backup-ruletka-data.sh"
 # NEVER put friends/ledger/secrets in STAGE — production data must survive deploys.
 # (Older push.sh rsync --delete'd the whole /opt/ruletka tree and wiped backups + env.)
