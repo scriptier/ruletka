@@ -353,7 +353,7 @@ ok(html.includes('id="remote-avatar-letter"'), "remote-avatar-letter");
 ok(html.includes('id="local-avatar-letter"'), "local-avatar-letter");
 ok(live.includes("call-toast-av"), "call-toast-av");
 ok(
-  /function setTileAvatar[\s\S]{0,1200}(remote-avatar-letter|avatarLetterFromName)/.test(
+  /function setTileAvatar[\s\S]{0,2500}(remote-avatar-letter|avatarLetterFromName)/.test(
     live
   ),
   "setTileAvatar letter fallback"
@@ -363,14 +363,9 @@ ok(css.includes(".tile-avatar-letter"), ".tile-avatar-letter");
 ok(live.includes('sent: true'), "shooting-star sender comet popup");
 ok(live.includes("#remote-avatar-stars"), "avatar stack tap gifts a star");
 {
-  const pinJs = html.includes("live.js?v=859");
-  const pinCss = html.includes("live-stage.css?v=572");
-  if (pinJs || pinCss) {
-    ok(pinJs, "live.js pin 859");
-    ok(pinCss, "live-stage.css pin 572");
-  } else {
-    console.log("note pin pending live.js?v=856 live-stage.css?v=569");
-  }
+  // Exact pin numbers go stale every deploy; just require both pins.
+  ok(/live\.js\?v=\d+/.test(html), "live.html pins live.js?v=N");
+  ok(/live-stage\.css\?v=\d+/.test(html), "live.html pins live-stage.css?v=N");
 }
 if (fail) process.exit(1);
 console.log("ok gift-kinds", "asserts");

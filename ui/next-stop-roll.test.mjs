@@ -33,12 +33,12 @@ assert.doesNotMatch(
   "click must not closeAllPeers before hub ack"
 );
 assert.match(click[0], /send\(nextPayload\(\)\)/, "click sends next");
-assert.match(html, /live\.js\?v=756/, "pin 756");
+assert.match(html, /live\.js\?v=\d+/, "live.html pins live.js?v=N");
 assert.match(js, /pendingNextTear = true/, "NSFW next waits for hub");
 assert.match(
   android,
-  /nextGraceUntilRef\.current = Date\.now\(\) \+ 12000/,
-  "android grace 12s (disk; no APK this hop)"
+  /nextGraceUntilRef\.current = Date\.now\(\) \+ 2000/,
+  "android fat-finger grace 2s (6050d2a: 12s lock made Next feel dead)"
 );
 
 console.log("next-stop-roll.test.mjs OK");

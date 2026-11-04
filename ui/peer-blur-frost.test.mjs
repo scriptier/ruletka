@@ -15,7 +15,13 @@ const css = fs.readFileSync(path.join(dir, "live-stage.css"), "utf8");
 
 const start = js.match(/function startPeerBlurCanvas\([^)]*\) \{[\s\S]*?\n\}/);
 assert.ok(start, "startPeerBlurCanvas missing");
-assert.match(start[0], /bindFrostVideo/, "Blur them must bind frost-vid");
+// Frost binding moved into getPeerFrostStream() (binds only after a real draw).
+const frostStream = js.match(/function getPeerFrostStream\([^)]*\) \{[\s\S]*?\n\}/);
+assert.ok(
+  /bindFrostVideo/.test(start[0]) ||
+    (/getPeerFrostStream\(/.test(start[0]) && frostStream && /bindFrostVideo/.test(frostStream[0])),
+  "Blur them must bind frost-vid (directly or via getPeerFrostStream)"
+);
 assert.doesNotMatch(
   start[0],
   /mountPeerFrostPaint/,
@@ -25,23 +31,23 @@ assert.match(js, /function detachPeerFrostPaint/, "detach leftover canvas overla
 assert.match(js, /function frostVidId/, "frostVidId helper");
 
 assert.match(html, /id="remote-frost"/, "live.html has #remote-frost");
-assert.match(html, /live\.js\?v=756/, "pin live.js 756");
-assert.match(html, /live-stage\.css\?v=514/, "pin live-stage 514");
+assert.match(html, /live\.js\?v=\d+/, "live.html pins live.js?v=N");
+assert.match(html, /live-stage\.css\?v=\d+/, "live.html pins live-stage.css?v=N");
 assert.match(js, /function wireSelfBlurTapToReveal/, "tap local tile reveals Hide");
 
 assert.match(
   css,
-  /#tile-remote\.partner-blurred #remote-frost\.is-on/,
+  /#tile-remote\.(?:partner|peer-slot)-blurred(?::has\()? ?#remote-frost\.is-on/,
   "CSS shows frost-vid when blurred"
 );
 assert.match(
   css,
-  /#tile-remote\.partner-blurred #remote/,
+  /#tile-remote\.(?:partner|peer-slot)-blurred[^{]*#remote/,
   "partner-blurred targets #remote"
 );
 assert.match(
   css,
-  /#tile-remote\.has-remote-feed\.partner-blurred #remote[\s\S]{0,800}?visibility:\s*hidden/,
+  /#tile-remote\.has-remote-feed\.(?:partner|peer-slot)-blurred[^{]*#remote[\s\S]{0,800}?visibility:\s*hidden/,
   "blurred #remote must not paint (HW punch-through)"
 );
 
