@@ -700,5 +700,13 @@
   "trio.slotEmpty": "Шукаємо третього…",
   "trio.searching": "Шукаємо третього разом…",
   "mobile.settings.downloadApk": "Download Android APK",
-  "mobile.settings.downloadApkSub": "Latest sideload build · 0.1.465"
+  "mobile.settings.downloadApkSub": "Latest sideload build · 0.1.465",
+  "mobile.live.partnerBanned": "Співрозмовника заблоковано за порушення правил",
+  "mobile.ban.title": "Вас заблоковано",
+  "mobile.ban.bodyGenitals": "Вас заблоковано {dur} за показ геніталій на камеру. Це порушує правила Рулетки.",
+  "mobile.ban.bodyPermanent": "Вас заблоковано назавжди за повторний показ геніталій на камеру.",
+  "mobile.ban.dur24h": "на 24 години",
+  "mobile.ban.dur7d": "на 7 днів",
+  "mobile.ban.until": "До: {when}",
+  "mobile.ban.ok": "Зрозуміло"
 }

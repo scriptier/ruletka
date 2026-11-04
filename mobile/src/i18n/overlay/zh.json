@@ -700,5 +700,13 @@
   "trio.slotEmpty": "正在找第三人…",
   "trio.searching": "一起寻找第三人…",
   "mobile.settings.downloadApk": "Download Android APK",
-  "mobile.settings.downloadApkSub": "Latest sideload build · 0.1.465"
+  "mobile.settings.downloadApkSub": "Latest sideload build · 0.1.465",
+  "mobile.live.partnerBanned": "对方因违反规则已被封禁",
+  "mobile.ban.title": "你已被封禁",
+  "mobile.ban.bodyGenitals": "你因在镜头前暴露生殖器被封禁{dur}。这违反了 Ruletka 的规则。",
+  "mobile.ban.bodyPermanent": "你因再次在镜头前暴露生殖器被永久封禁。",
+  "mobile.ban.dur24h": "24 小时",
+  "mobile.ban.dur7d": "7 天",
+  "mobile.ban.until": "截止：{when}",
+  "mobile.ban.ok": "知道了"
 }

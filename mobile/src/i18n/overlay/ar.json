@@ -700,5 +700,13 @@
   "trio.slotEmpty": "ابحث عن الثالث…",
   "trio.searching": "نبحث عن الثالث معًا…",
   "mobile.settings.downloadApk": "Download Android APK",
-  "mobile.settings.downloadApkSub": "Latest sideload build · 0.1.465"
+  "mobile.settings.downloadApkSub": "Latest sideload build · 0.1.465",
+  "mobile.live.partnerBanned": "تم حظر الطرف الآخر لمخالفته القواعد",
+  "mobile.ban.title": "تم حظرك",
+  "mobile.ban.bodyGenitals": "تم حظرك {dur} بسبب إظهار الأعضاء التناسلية أمام الكاميرا. هذا يخالف قواعد روليتكا.",
+  "mobile.ban.bodyPermanent": "تم حظرك نهائيًا بسبب إظهار الأعضاء التناسلية أمام الكاميرا مرة أخرى.",
+  "mobile.ban.dur24h": "لمدة 24 ساعة",
+  "mobile.ban.dur7d": "لمدة 7 أيام",
+  "mobile.ban.until": "حتى: {when}",
+  "mobile.ban.ok": "حسنًا"
 }

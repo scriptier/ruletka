@@ -700,5 +700,13 @@
   "trio.slotEmpty": "Hledá se 3.…",
   "trio.searching": "Hledáme 3. spolu…",
   "mobile.settings.downloadApk": "Download Android APK",
-  "mobile.settings.downloadApkSub": "Latest sideload build · 0.1.465"
+  "mobile.settings.downloadApkSub": "Latest sideload build · 0.1.465",
+  "mobile.live.partnerBanned": "Protějšek byl zablokován za porušení pravidel",
+  "mobile.ban.title": "Jste zablokováni",
+  "mobile.ban.bodyGenitals": "Jste zablokováni {dur} za ukazování genitálií na kameru. To porušuje pravidla Ruletky.",
+  "mobile.ban.bodyPermanent": "Jste zablokováni natrvalo za opakované ukazování genitálií na kameru.",
+  "mobile.ban.dur24h": "na 24 hodin",
+  "mobile.ban.dur7d": "na 7 dní",
+  "mobile.ban.until": "Do: {when}",
+  "mobile.ban.ok": "Rozumím"
 }

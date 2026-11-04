@@ -708,5 +708,13 @@
   "trio.slotEmpty": "Looking for a 3rd…",
   "trio.searching": "Looking for a 3rd together…",
   "mobile.settings.downloadApk": "Download Android APK",
-  "mobile.settings.downloadApkSub": "Latest sideload build · 0.1.465"
+  "mobile.settings.downloadApkSub": "Latest sideload build · 0.1.465",
+  "mobile.live.partnerBanned": "Your partner was banned for breaking the rules",
+  "mobile.ban.title": "You are banned",
+  "mobile.ban.bodyGenitals": "You are banned {dur} for showing genitals on camera. This breaks Ruletka's rules.",
+  "mobile.ban.bodyPermanent": "You are banned permanently for showing genitals on camera again.",
+  "mobile.ban.dur24h": "for 24 hours",
+  "mobile.ban.dur7d": "for 7 days",
+  "mobile.ban.until": "Until: {when}",
+  "mobile.ban.ok": "OK"
 }

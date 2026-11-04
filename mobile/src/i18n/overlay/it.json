@@ -379,7 +379,7 @@
   "mobile.live.permDeniedBody": "Consenti fotocamera e microfono nelle impostazioni di sistema, quindi riprova, altrimenti la chat video non funzionerà.",
   "mobile.live.permDeniedTitle": "Fotocamera o microfono bloccati",
   "mobile.live.permRetry": "Riprova",
-  "mobile.live.pipHint": "Trascina · tocca due volte scambia",
+  "mobile.live.pipHint": "Trascina · tocca per dividere",
   "mobile.live.plusPeers": "+ {n}",
   "mobile.live.praisedBy": "lodato da {n}",
   "mobile.live.preview": "La tua fotocamera",
@@ -706,5 +706,15 @@
   "trio.slotEmpty": "Cerco un terzo…",
   "trio.searching": "Cerchiamo un terzo insieme…",
   "mobile.settings.downloadApk": "Scarica APK Android",
-  "mobile.settings.downloadApkSub": "Ultima build sideload · 0.1.465"
+  "mobile.settings.downloadApkSub": "Ultima build sideload · 0.1.465",
+  "mobile.live.partnerBanned": "Il tuo interlocutore è stato bannato per aver violato le regole",
+  "mobile.ban.title": "Sei stato bannato",
+  "mobile.ban.bodyGenitals": "Sei stato bannato {dur} per aver mostrato i genitali in camera. Questo viola le regole di Ruletka.",
+  "mobile.ban.bodyPermanent": "Sei stato bannato per sempre per aver mostrato di nuovo i genitali in camera.",
+  "mobile.ban.dur24h": "per 24 ore",
+  "mobile.ban.dur7d": "per 7 giorni",
+  "mobile.ban.until": "Fino a: {when}",
+  "mobile.ban.ok": "Ho capito",
+  "mobile.live.splitView": "Schermo diviso",
+  "mobile.live.pipView": "Finestra piccola"
 }

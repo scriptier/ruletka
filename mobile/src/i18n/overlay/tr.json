@@ -700,5 +700,13 @@
   "trio.slotEmpty": "3. kişi aranıyor…",
   "trio.searching": "Birlikte 3. kişi aranıyor…",
   "mobile.settings.downloadApk": "Download Android APK",
-  "mobile.settings.downloadApkSub": "Latest sideload build · 0.1.465"
+  "mobile.settings.downloadApkSub": "Latest sideload build · 0.1.465",
+  "mobile.live.partnerBanned": "Karşındaki kişi kuralları çiğnediği için engellendi",
+  "mobile.ban.title": "Engellendiniz",
+  "mobile.ban.bodyGenitals": "Kamerada cinsel organ gösterdiğiniz için {dur} engellendiniz. Bu, Ruletka kurallarına aykırıdır.",
+  "mobile.ban.bodyPermanent": "Kamerada tekrar cinsel organ gösterdiğiniz için kalıcı olarak engellendiniz.",
+  "mobile.ban.dur24h": "24 saatliğine",
+  "mobile.ban.dur7d": "7 günlüğüne",
+  "mobile.ban.until": "Bitiş: {when}",
+  "mobile.ban.ok": "Tamam"
 }

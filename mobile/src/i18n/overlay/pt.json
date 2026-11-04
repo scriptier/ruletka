@@ -700,5 +700,13 @@
   "trio.slotEmpty": "Procurando o 3º…",
   "trio.searching": "Procurando um 3º juntos…",
   "mobile.settings.downloadApk": "Download Android APK",
-  "mobile.settings.downloadApkSub": "Latest sideload build · 0.1.465"
+  "mobile.settings.downloadApkSub": "Latest sideload build · 0.1.465",
+  "mobile.live.partnerBanned": "Seu parceiro foi banido por violar as regras",
+  "mobile.ban.title": "Você foi banido",
+  "mobile.ban.bodyGenitals": "Você foi banido {dur} por mostrar os genitais na câmera. Isso viola as regras da Ruletka.",
+  "mobile.ban.bodyPermanent": "Você foi banido permanentemente por mostrar os genitais na câmera novamente.",
+  "mobile.ban.dur24h": "por 24 horas",
+  "mobile.ban.dur7d": "por 7 dias",
+  "mobile.ban.until": "Até: {when}",
+  "mobile.ban.ok": "Entendi"
 }

@@ -700,5 +700,13 @@
   "trio.slotEmpty": "Suche 3.…",
   "trio.searching": "Suchen gemeinsam einen 3.…",
   "mobile.settings.downloadApk": "Download Android APK",
-  "mobile.settings.downloadApkSub": "Latest sideload build · 0.1.465"
+  "mobile.settings.downloadApkSub": "Latest sideload build · 0.1.465",
+  "mobile.live.partnerBanned": "Dein Gegenüber wurde wegen Regelverstoßes gesperrt",
+  "mobile.ban.title": "Du bist gesperrt",
+  "mobile.ban.bodyGenitals": "Du bist {dur} gesperrt, weil du Genitalien vor der Kamera gezeigt hast. Das verstößt gegen die Regeln von Ruletka.",
+  "mobile.ban.bodyPermanent": "Du bist dauerhaft gesperrt, weil du erneut Genitalien vor der Kamera gezeigt hast.",
+  "mobile.ban.dur24h": "für 24 Stunden",
+  "mobile.ban.dur7d": "für 7 Tage",
+  "mobile.ban.until": "Bis: {when}",
+  "mobile.ban.ok": "Verstanden"
 }

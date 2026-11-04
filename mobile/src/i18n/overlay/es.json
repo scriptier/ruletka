@@ -700,5 +700,13 @@
   "trio.slotEmpty": "Buscando un 3.º…",
   "trio.searching": "Buscando un 3.º juntos…",
   "mobile.settings.downloadApk": "Download Android APK",
-  "mobile.settings.downloadApkSub": "Latest sideload build · 0.1.465"
+  "mobile.settings.downloadApkSub": "Latest sideload build · 0.1.465",
+  "mobile.live.partnerBanned": "Tu pareja fue bloqueada por romper las normas",
+  "mobile.ban.title": "Estás bloqueado",
+  "mobile.ban.bodyGenitals": "Estás bloqueado {dur} por mostrar los genitales en cámara. Esto rompe las normas de Ruletka.",
+  "mobile.ban.bodyPermanent": "Estás bloqueado de forma permanente por volver a mostrar los genitales en cámara.",
+  "mobile.ban.dur24h": "durante 24 horas",
+  "mobile.ban.dur7d": "durante 7 días",
+  "mobile.ban.until": "Hasta: {when}",
+  "mobile.ban.ok": "Entendido"
 }

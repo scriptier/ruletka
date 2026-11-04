@@ -700,5 +700,13 @@
   "trio.slotEmpty": "Търся 3-ти...",
   "trio.searching": "Търсите 3-ти заедно...",
   "mobile.settings.downloadApk": "Download Android APK",
-  "mobile.settings.downloadApkSub": "Latest sideload build · 0.1.465"
+  "mobile.settings.downloadApkSub": "Latest sideload build · 0.1.465",
+  "mobile.live.partnerBanned": "Събеседникът е блокиран за нарушаване на правилата",
+  "mobile.ban.title": "Блокирани сте",
+  "mobile.ban.bodyGenitals": "Блокирани сте {dur} за показване на гениталии пред камерата. Това нарушава правилата на Рулетка.",
+  "mobile.ban.bodyPermanent": "Блокирани сте завинаги за повторно показване на гениталии пред камерата.",
+  "mobile.ban.dur24h": "за 24 часа",
+  "mobile.ban.dur7d": "за 7 дни",
+  "mobile.ban.until": "До: {when}",
+  "mobile.ban.ok": "Разбрах"
 }

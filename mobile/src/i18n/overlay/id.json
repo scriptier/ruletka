@@ -379,7 +379,7 @@
   "mobile.live.permDeniedBody": "Izinkan kamera & mikrofon di pengaturan sistem, lalu coba lagi — atau obrolan video tidak akan berfungsi.",
   "mobile.live.permDeniedTitle": "Kamera atau mikrofon diblokir",
   "mobile.live.permRetry": "Coba lagi",
-  "mobile.live.pipHint": "Geser · ketuk dua kali untuk tukar",
+  "mobile.live.pipHint": "Geser · ketuk untuk bagi layar",
   "mobile.live.plusPeers": " +{n}",
   "mobile.live.praisedBy": "dipuji oleh {n}",
   "mobile.live.preview": "Kameramu",
@@ -706,5 +706,15 @@
   "trio.slotEmpty": "Mencari orang ke-3…",
   "trio.searching": "Mencari orang ke-3 bersama…",
   "mobile.settings.downloadApk": "Unduh APK Android",
-  "mobile.settings.downloadApkSub": "Build sideload terbaru · 0.1.465"
+  "mobile.settings.downloadApkSub": "Build sideload terbaru · 0.1.465",
+  "mobile.live.partnerBanned": "Lawan bicaramu diblokir karena melanggar aturan",
+  "mobile.ban.title": "Kamu diblokir",
+  "mobile.ban.bodyGenitals": "Kamu diblokir {dur} karena memperlihatkan alat kelamin di kamera. Ini melanggar aturan Ruletka.",
+  "mobile.ban.bodyPermanent": "Kamu diblokir permanen karena kembali memperlihatkan alat kelamin di kamera.",
+  "mobile.ban.dur24h": "selama 24 jam",
+  "mobile.ban.dur7d": "selama 7 hari",
+  "mobile.ban.until": "Sampai: {when}",
+  "mobile.ban.ok": "Mengerti",
+  "mobile.live.splitView": "Layar terbagi",
+  "mobile.live.pipView": "Jendela kecil"
 }

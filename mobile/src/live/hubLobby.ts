@@ -25,13 +25,14 @@ export type LobbyContext = {
  * Hub status detail that means the stranger/partner left this call.
  * PC Stop sends "partner stopped" — must auto-Next on Android (frozen last
  * frame if we treat it as mid-call noise). "still chatting" is 3-way keep.
+ * "partner removed for breaking the rules" = hub auto-banned the partner.
  */
 export function isHubPartnerLeaveDetail(detail: string): boolean {
   const d = String(detail || "");
   if (/still chatting|still with match|still connected/i.test(d)) {
     return false;
   }
-  return /partner hit Next|partner disconnected|partner stopped|party moved on|partner blocked you|restricted due to reports|restricted by operator|party partner left/i.test(
+  return /partner hit Next|partner disconnected|partner stopped|party moved on|partner blocked you|restricted due to reports|restricted by operator|partner removed|party partner left/i.test(
     d
   );
 }
