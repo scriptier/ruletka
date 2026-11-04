@@ -681,6 +681,7 @@
   "nav.terms": "Koşullar",
   "nav.updates": "Güncellemeler",
   "nsfw.blocked": "müstehcen video için otomatik engel",
+  "nsfw.suspect": "olası çıplaklık — video bulanıklaştırıldı",
   "nsfw.hit": "müstehcen içerik — atlandı",
   "nsfw.loading": "güvenlik filtresi yükleniyor…",
   "onboard.gotIt": "Anladım",

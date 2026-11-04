@@ -681,6 +681,7 @@
   "nav.terms": "条款",
   "nav.updates": "更新",
   "nsfw.blocked": "因露骨视频已自动屏蔽",
+  "nsfw.suspect": "疑似裸露 — 视频已模糊",
   "nsfw.hit": "检测到露骨内容 — 已跳过",
   "nsfw.loading": "正在加载安全过滤…",
   "onboard.gotIt": "知道了",

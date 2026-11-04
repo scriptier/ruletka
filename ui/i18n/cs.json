@@ -681,6 +681,7 @@
   "nav.terms": "Podmínky",
   "nav.updates": "Aktualizace",
   "nsfw.blocked": "automaticky blokováno pro explicitní video",
+  "nsfw.suspect": "možná nahota — video rozmazáno",
   "nsfw.hit": "detekován explicitní obsah – přeskočeno",
   "nsfw.loading": "načítání bezpečnostního filtru…",
   "onboard.gotIt": "Rozumím",

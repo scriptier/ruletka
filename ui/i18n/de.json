@@ -681,6 +681,7 @@
   "nav.terms": "Nutzungsbedingungen",
   "nav.updates": "Aktualisierungen",
   "nsfw.blocked": "auto-blockiert wegen explizitem Video",
+  "nsfw.suspect": "mögliche Nacktheit — Video unscharf",
   "nsfw.hit": "expliziter Inhalt erkannt — übersprungen",
   "nsfw.loading": "Sicherheitsfilter laden…",
   "onboard.gotIt": "Verstanden",
