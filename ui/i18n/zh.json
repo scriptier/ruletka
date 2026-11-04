@@ -2073,5 +2073,9 @@
   "page.updates.uAug232": "<strong>Stop / refresh</strong> — Stop or closing the tab tells the others you left. On Android, partner Stop goes to Next instead of a frozen last frame.",
   "page.updates.uAug233": "<strong>Let’s Go</strong> — Find-3rd invite taps immediately (was eating the first press).",
   "page.updates.uAug234": "<strong>3-way</strong> — extra cameras kick sooner; gift effects stay on the person you gifted. Linking can still take a few seconds — no “fixed connect” claim.",
-  "page.updates.uAug235": "<strong>Android 0.1.471</strong> — same 2v2 2×2, Stop→Next, Let’s Go. Sideload from Downloads. Play listing is a separate AAB."
+  "page.updates.uAug235": "<strong>Android 0.1.471</strong> — same 2v2 2×2, Stop→Next, Let’s Go. Sideload from Downloads. Play listing is a separate AAB.",
+  "face.prompt": "请将脸对准摄像头以开始",
+  "face.camOff": "请打开摄像头并露出脸以开始",
+  "face.loading": "正在检查摄像头…",
+  "face.hint": "在看到你的脸之前，匹配会暂停。"
 }

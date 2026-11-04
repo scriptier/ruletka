@@ -257,6 +257,45 @@ pub struct Client {
     /// Last non-ping frame (spin, signal, av_path, chat…). A matched partner
     /// that sent nothing since the match never started its call.
     last_active_rx: Option<Instant>,
+    /// Face-before-match gate state. None = this connection never sent
+    /// `face_ok` (old web tab, Android app) → not gated.
+    face: Option<FaceGate>,
+}
+
+/// Last `face_ok` report from one connection (web face check, 2026-11-04).
+#[derive(Clone, Debug)]
+struct FaceGate {
+    ok: bool,
+    ready: bool,
+    fail_open: bool,
+    model: String,
+    reported_at: Instant,
+    /// First report in the current "detector not ready" run.
+    unready_since: Option<Instant>,
+    /// One log line per fail-open episode (not per try_match pass).
+    fail_open_logged: bool,
+}
+
+/// How the hub treats `face_ok`. Env `RULETKA_FACE_GATE`: `off` disables the
+/// gate entirely (kill switch); anything else (default) = opt-in gate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FaceGateMode {
+    Off,
+    OptIn,
+}
+
+impl FaceGateMode {
+    pub fn from_env() -> Self {
+        match std::env::var("RULETKA_FACE_GATE")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "off" | "0" | "false" | "no" => FaceGateMode::Off,
+            _ => FaceGateMode::OptIn,
+        }
+    }
 }
 
 /// Daily hub counters (persisted as JSONL under data/metrics.jsonl).
@@ -438,6 +477,8 @@ pub struct SimpleHub {
     join_call_pending: Option<JoinCallPending>,
     /// In-memory daily metrics (flushed to metrics.jsonl).
     metrics: DayMetrics,
+    /// Face-before-match gate (env RULETKA_FACE_GATE=off disables).
+    pub face_gate_mode: FaceGateMode,
 }
 
 /// Invite from A → B to search for a 3rd together.
@@ -872,6 +913,7 @@ impl SimpleHub {
                 day: utc_day(),
                 ..DayMetrics::default()
             },
+            face_gate_mode: FaceGateMode::from_env(),
         };
         // Persist reconciled star_counts so friends.json cache matches ledger
         hub.persist_friends();
@@ -4209,7 +4251,10 @@ impl SimpleHub {
                     continue;
                 }
                 let Some(c) = self.clients.get(id) else { continue };
-                if c.phase != Phase::Waiting || !self.client_rx_fresh(*id) {
+                if c.phase != Phase::Waiting
+                    || !self.client_rx_fresh(*id)
+                    || !self.client_face_ok(*id)
+                {
                     continue;
                 }
                 return Some((
@@ -4248,11 +4293,12 @@ impl SimpleHub {
                 if self.room_of(*id) != room {
                     continue;
                 }
-                if self
-                    .clients
-                    .get(id)
-                    .map(|c| c.phase == Phase::Waiting)
-                    .unwrap_or(false)
+                if self.client_face_ok(*id)
+                    && self
+                        .clients
+                        .get(id)
+                        .map(|c| c.phase == Phase::Waiting)
+                        .unwrap_or(false)
                     && !self.fed_by_client.contains_key(id)
                     && self.client_rx_fresh(*id)
                 {
@@ -4615,6 +4661,7 @@ impl SimpleHub {
                 ws_adopted_at: None,
                 last_rx: Instant::now(),
                 last_active_rx: None,
+                face: None,
             },
         );
         // by_user/code_index set on Hello with persistent user_id (not ephemeral uuid)
@@ -5119,6 +5166,124 @@ impl SimpleHub {
         Self::queue_entry_ids(e)
             .into_iter()
             .all(|id| self.client_rx_fresh(id))
+    }
+
+    /// A `face_ok` report older than this no longer counts (client froze or
+    /// stopped its loop). Web heartbeats every ~4s while searching and during
+    /// stranger calls, so a quick Next after a call still has a fresh state.
+    /// Loose enough for 1/s background-tab timer throttling.
+    const FACE_OK_TTL_SECS: u64 = 45;
+    /// Detector still "loading" (ready=false) while queued this long → let
+    /// the client match anyway (fail open) so a stuck model load never
+    /// locks people out. Counted from the later of queue join / first
+    /// not-ready report.
+    const FACE_LOAD_GRACE_SECS: u64 = 20;
+
+    /// Face-before-match gate. True = may be matched.
+    /// - mode off, or the connection never sent `face_ok` → true (exempt:
+    ///   Android app, old cached web tabs).
+    /// - `fail_open` (detector failed to load on the client) → true.
+    /// - last report ok and younger than FACE_OK_TTL → true.
+    /// - detector not ready for FACE_LOAD_GRACE while queued → true (logged).
+    fn client_face_ok(&self, id: Uuid) -> bool {
+        if self.face_gate_mode == FaceGateMode::Off {
+            return true;
+        }
+        let Some(c) = self.clients.get(&id) else {
+            return false;
+        };
+        let Some(f) = c.face.as_ref() else {
+            return true;
+        };
+        if f.reported_at.elapsed() >= Duration::from_secs(Self::FACE_OK_TTL_SECS) {
+            return false;
+        }
+        if f.fail_open || f.ok {
+            return true;
+        }
+        if !f.ready {
+            if let (Some(unready), Some(waiting)) = (f.unready_since, c.wait_started) {
+                let since = unready.max(waiting);
+                if since.elapsed() >= Duration::from_secs(Self::FACE_LOAD_GRACE_SECS) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    fn queue_entry_face_ok(&self, e: &QueueEntry) -> bool {
+        Self::queue_entry_ids(e)
+            .into_iter()
+            .all(|id| self.client_face_ok(id))
+    }
+
+    /// One warn line when a gated client is let through without a face
+    /// (detector failed or never got ready). Called right before matching.
+    fn log_face_fail_open(&mut self, ids: &[Uuid]) {
+        for id in ids {
+            let Some(c) = self.clients.get_mut(id) else { continue };
+            let short = c.short_id.clone();
+            let platform = c.platform.clone();
+            let Some(f) = c.face.as_mut() else { continue };
+            if f.ok || f.fail_open_logged {
+                continue;
+            }
+            f.fail_open_logged = true;
+            let why = if f.fail_open { "detector failed to load" } else { "detector not ready (grace)" };
+            tracing::warn!(
+                client = %short,
+                platform = %platform,
+                model = %f.model,
+                why,
+                "face gate fail-open — matched without a face check"
+            );
+        }
+    }
+
+    /// `face_ok` from the client: store it; if it newly unlocks a waiter, match.
+    fn handle_face_ok(&mut self, id: Uuid, ok: bool, ready: bool, fail_open: bool, model: String) {
+        let Some(c) = self.clients.get_mut(&id) else {
+            return;
+        };
+        let now = Instant::now();
+        let model = model.trim().chars().take(32).collect::<String>();
+        let prev = c.face.take();
+        let was_ok = prev.as_ref().map(|f| f.ok).unwrap_or(false);
+        let unready_since = if ready || ok {
+            None
+        } else {
+            prev.as_ref().and_then(|f| f.unready_since).or(Some(now))
+        };
+        let fail_open_logged = prev
+            .as_ref()
+            .map(|f| f.fail_open_logged && !ok)
+            .unwrap_or(false);
+        if prev.is_none() || was_ok != ok || prev.as_ref().map(|f| f.fail_open) != Some(fail_open) {
+            tracing::info!(
+                client = %c.short_id,
+                ok,
+                ready,
+                fail_open,
+                model = %model,
+                "face_ok state"
+            );
+        }
+        c.face = Some(FaceGate {
+            ok,
+            ready,
+            fail_open,
+            model,
+            reported_at: now,
+            unready_since,
+            fail_open_logged,
+        });
+        let waiting = c.phase == Phase::Waiting;
+        // Waiting and now allowed (face seen, fail-open, or load grace over):
+        // match without waiting for the next spin.
+        if waiting && self.client_face_ok(id) {
+            self.try_match();
+        }
     }
 
     /// 1v1 stranger match where the partner never answered (2026-11-04 RU
@@ -6882,6 +7047,14 @@ impl SimpleHub {
                 }
                 continue;
             }
+            // Face check (web): no recent face_ok → keep slot, don't match.
+            if !self.queue_entry_face_ok(&first) {
+                self.queue.push_back(first);
+                if steps < self.queue.len() {
+                    break;
+                }
+                continue;
+            }
 
             let room = self.queue_entry_room(&first);
 
@@ -6902,6 +7075,9 @@ impl SimpleHub {
                     continue;
                 }
                 if !self.queue_entry_fresh(e) {
+                    continue;
+                }
+                if !self.queue_entry_face_ok(e) {
                     continue;
                 }
                 // Allowed: 1v1, 1v2, 2v2 (see entries_compatible). No 3v1/2v3 queue.
@@ -6956,6 +7132,11 @@ impl SimpleHub {
                 continue;
             };
             let second = self.queue.remove(i).unwrap();
+            {
+                let mut ids = Self::queue_entry_ids(&first);
+                ids.extend(Self::queue_entry_ids(&second));
+                self.log_face_fail_open(&ids);
+            }
 
             match (first, second) {
                 (QueueEntry::Solo(a), QueueEntry::Solo(b)) => {
@@ -7427,6 +7608,12 @@ impl SimpleHub {
             ClientMsg::RemoveFriend { user_id } => self.handle_remove_friend(id, user_id),
             ClientMsg::BlockUser { user_id } => self.handle_block_user(id, user_id),
             ClientMsg::UnblockUser { user_id } => self.handle_unblock_user(id, user_id),
+            ClientMsg::FaceOk {
+                ok,
+                ready,
+                fail_open,
+                model,
+            } => self.handle_face_ok(id, ok, ready, fail_open, model),
             ClientMsg::SafetyLog {
                 log_only,
                 reason,
@@ -11395,6 +11582,212 @@ mod ws_hold_tests {
                 platform: "web".into(),
             },
         );
+    }
+
+    fn face(hub: &mut SimpleHub, id: Uuid, ok: bool, ready: bool, fail_open: bool) {
+        hub.handle(
+            id,
+            ClientMsg::FaceOk {
+                ok,
+                ready,
+                fail_open,
+                model: "blazeface".into(),
+            },
+        );
+    }
+
+    fn hello_platform(hub: &mut SimpleHub, id: Uuid, uid: &str, platform: &str) {
+        hub.handle(
+            id,
+            ClientMsg::Hello {
+                user_id: uid.into(),
+                name: "T".into(),
+                gender: String::new(),
+                looking: "any".into(),
+                flag: String::new(),
+                avatar: String::new(),
+                tags: vec![],
+                hide_ip: false,
+                platform: platform.into(),
+            },
+        );
+    }
+
+    fn spin(hub: &mut SimpleHub, id: Uuid) {
+        hub.handle(id, ClientMsg::Spin { room: String::new() });
+    }
+
+    fn face_hub() -> SimpleHub {
+        let mut h = hub();
+        h.face_gate_mode = FaceGateMode::OptIn;
+        h
+    }
+
+    #[test]
+    fn face_gate_no_face_is_never_matched() {
+        let mut hub = face_hub();
+        let a = add(&mut hub, "178.46.111.242");
+        let b = add(&mut hub, "96.1.124.108");
+        face(&mut hub, a, false, true, false);
+        hello(&mut hub, a, "user-face-a");
+        hello(&mut hub, b, "user-face-b");
+        face(&mut hub, b, true, true, false);
+        spin(&mut hub, a);
+        spin(&mut hub, b);
+        assert_eq!(hub.clients.get(&a).unwrap().phase, Phase::Waiting, "no face → stays queued");
+        assert_eq!(hub.clients.get(&b).unwrap().phase, Phase::Waiting);
+        // a shows their face → matched right away, no new spin needed
+        face(&mut hub, a, true, true, false);
+        assert_eq!(hub.clients.get(&a).unwrap().phase, Phase::Matched);
+        assert_eq!(hub.clients.get(&b).unwrap().partner, Some(a));
+    }
+
+    #[test]
+    fn face_gate_face_lost_while_queued_blocks_again() {
+        let mut hub = face_hub();
+        let a = add(&mut hub, "178.46.111.242");
+        let b = add(&mut hub, "96.1.124.108");
+        let c = add(&mut hub, "5.18.1.1");
+        for (id, uid) in [(a, "fa"), (b, "fb"), (c, "fc")] {
+            face(&mut hub, id, true, true, false);
+            hello(&mut hub, id, uid);
+        }
+        spin(&mut hub, a);
+        face(&mut hub, a, false, true, false); // pointed the camera away
+        spin(&mut hub, b);
+        assert_eq!(hub.clients.get(&a).unwrap().phase, Phase::Waiting);
+        assert_eq!(hub.clients.get(&b).unwrap().phase, Phase::Waiting);
+        spin(&mut hub, c);
+        assert_eq!(hub.clients.get(&b).unwrap().partner, Some(c), "face-ok pair matches past the blocked one");
+        assert_eq!(hub.clients.get(&a).unwrap().phase, Phase::Waiting);
+    }
+
+    #[test]
+    fn face_gate_exempts_clients_that_never_report_android_and_old_tabs() {
+        let mut hub = face_hub();
+        let app = add(&mut hub, "178.46.111.242");
+        let old_web = add(&mut hub, "96.1.124.108");
+        hello_platform(&mut hub, app, "user-android", "android");
+        hello_platform(&mut hub, old_web, "user-old-tab", "web");
+        spin(&mut hub, app);
+        spin(&mut hub, old_web);
+        assert_eq!(hub.clients.get(&app).unwrap().phase, Phase::Matched);
+        assert_eq!(hub.clients.get(&app).unwrap().partner, Some(old_web));
+    }
+
+    #[test]
+    fn face_gate_app_user_still_blocked_by_gated_web_without_face() {
+        // The exemption is per client: a gated web user with no face does
+        // not get matched with an (exempt) app user either.
+        let mut hub = face_hub();
+        let app = add(&mut hub, "178.46.111.242");
+        let web = add(&mut hub, "96.1.124.108");
+        hello_platform(&mut hub, app, "user-android", "android");
+        face(&mut hub, web, false, true, false);
+        hello(&mut hub, web, "user-web");
+        spin(&mut hub, app);
+        spin(&mut hub, web);
+        assert_eq!(hub.clients.get(&web).unwrap().phase, Phase::Waiting);
+        face(&mut hub, web, true, true, false);
+        assert_eq!(hub.clients.get(&web).unwrap().partner, Some(app));
+    }
+
+    #[test]
+    fn face_gate_fail_open_when_model_cannot_load() {
+        let mut hub = face_hub();
+        let a = add(&mut hub, "178.46.111.242");
+        let b = add(&mut hub, "96.1.124.108");
+        face(&mut hub, a, false, false, true); // client: detector failed → fail open
+        face(&mut hub, b, true, true, false);
+        hello(&mut hub, a, "fa");
+        hello(&mut hub, b, "fb");
+        spin(&mut hub, a);
+        spin(&mut hub, b);
+        assert_eq!(hub.clients.get(&a).unwrap().phase, Phase::Matched);
+        assert!(hub.clients.get(&a).unwrap().face.as_ref().unwrap().fail_open_logged);
+    }
+
+    #[test]
+    fn face_gate_stuck_loading_gets_grace_then_matches() {
+        let mut hub = face_hub();
+        let a = add(&mut hub, "178.46.111.242");
+        let b = add(&mut hub, "96.1.124.108");
+        face(&mut hub, a, false, false, false); // still loading
+        face(&mut hub, b, true, true, false);
+        hello(&mut hub, a, "fa");
+        hello(&mut hub, b, "fb");
+        spin(&mut hub, a);
+        spin(&mut hub, b);
+        assert_eq!(hub.clients.get(&a).unwrap().phase, Phase::Waiting, "loading < grace → wait");
+        let past = Instant::now() - Duration::from_secs(SimpleHub::FACE_LOAD_GRACE_SECS + 1);
+        {
+            let c = hub.clients.get_mut(&a).unwrap();
+            c.wait_started = Some(past);
+            c.face.as_mut().unwrap().unready_since = Some(past);
+        }
+        face(&mut hub, a, false, false, false); // heartbeat, still loading
+        assert_eq!(hub.clients.get(&a).unwrap().phase, Phase::Matched, "grace over → fail open");
+    }
+
+    #[test]
+    fn face_gate_idle_loading_does_not_skip_the_check_on_start() {
+        // Loaded page, sat idle 5 min with the detector "not ready", then
+        // pressed Start: grace counts from queue join, not from page load.
+        let mut hub = face_hub();
+        let a = add(&mut hub, "178.46.111.242");
+        let b = add(&mut hub, "96.1.124.108");
+        face(&mut hub, a, false, false, false);
+        hub.clients.get_mut(&a).unwrap().face.as_mut().unwrap().unready_since =
+            Some(Instant::now() - Duration::from_secs(300));
+        face(&mut hub, b, true, true, false);
+        hello(&mut hub, a, "fa");
+        hello(&mut hub, b, "fb");
+        spin(&mut hub, a);
+        spin(&mut hub, b);
+        assert_eq!(hub.clients.get(&a).unwrap().phase, Phase::Waiting);
+    }
+
+    #[test]
+    fn face_gate_stale_report_blocks() {
+        let mut hub = face_hub();
+        let a = add(&mut hub, "178.46.111.242");
+        let b = add(&mut hub, "96.1.124.108");
+        face(&mut hub, a, true, true, false);
+        hub.clients.get_mut(&a).unwrap().face.as_mut().unwrap().reported_at =
+            Instant::now() - Duration::from_secs(SimpleHub::FACE_OK_TTL_SECS + 1);
+        hello(&mut hub, a, "fa");
+        hello(&mut hub, b, "fb");
+        spin(&mut hub, a);
+        spin(&mut hub, b);
+        assert_eq!(hub.clients.get(&a).unwrap().phase, Phase::Waiting, "old face_ok does not count");
+        face(&mut hub, a, true, true, false);
+        assert_eq!(hub.clients.get(&a).unwrap().phase, Phase::Matched);
+    }
+
+    #[test]
+    fn face_gate_off_switch_ignores_reports() {
+        let mut hub = hub();
+        hub.face_gate_mode = FaceGateMode::Off;
+        let a = add(&mut hub, "178.46.111.242");
+        let b = add(&mut hub, "96.1.124.108");
+        face(&mut hub, a, false, true, false);
+        hello(&mut hub, a, "fa");
+        hello(&mut hub, b, "fb");
+        spin(&mut hub, a);
+        spin(&mut hub, b);
+        assert_eq!(hub.clients.get(&a).unwrap().phase, Phase::Matched);
+    }
+
+    #[test]
+    fn face_gate_federation_skips_no_face_waiter() {
+        let mut hub = face_hub();
+        let a = add(&mut hub, "178.46.111.242");
+        face(&mut hub, a, false, true, false);
+        hello(&mut hub, a, "fa");
+        spin(&mut hub, a);
+        assert!(hub.pick_waiting_solo_for_federation().is_none());
+        face(&mut hub, a, true, true, false);
+        assert!(hub.pick_waiting_solo_for_federation().is_some());
     }
 
     #[test]

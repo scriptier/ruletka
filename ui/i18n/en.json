@@ -2105,5 +2105,9 @@
   "page.updates.uAug24Title": "Android 0.1.475 · Start diamond · Friends Blocked",
   "page.updates.uAug241": "<strong>Start</strong> — sits on the gold diamond between Ruletka.me and Chat Roulette. Stop and Next stay hidden until you press Start.",
   "page.updates.uAug242": "<strong>Friends</strong> — Chats · Calls · Blocked. Calls: Add / Block / Report. Friends: Message. Blocked: on-device face thumbs, tap to unblock.",
-  "page.updates.uAug243": "<strong>Android 0.1.475</strong> — sideload from Downloads. Play listing is a separate AAB you upload in Console."
+  "page.updates.uAug243": "<strong>Android 0.1.475</strong> — sideload from Downloads. Play listing is a separate AAB you upload in Console.",
+  "face.prompt": "Show your face to the camera to start",
+  "face.camOff": "Turn on your camera and show your face to start",
+  "face.loading": "Checking your camera…",
+  "face.hint": "Matching is paused until your face is in view."
 }

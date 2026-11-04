@@ -187,6 +187,22 @@ pub enum ClientMsg {
         #[serde(default)]
         clear: bool,
     },
+    /// Face check before matching (web live.js, 2026-11-04). The client samples
+    /// its own camera and reports whether a face is visible. Opt-in: a
+    /// connection that never sends this (old cached tab, Android app) is
+    /// not gated. `fail_open` = detector could not load; hub lets it match
+    /// and logs it. `ready` = detector loaded (false while loading).
+    FaceOk {
+        #[serde(default)]
+        ok: bool,
+        #[serde(default)]
+        ready: bool,
+        #[serde(default)]
+        fail_open: bool,
+        /// "blazeface" | "facedetector" | "none" … (log only, capped)
+        #[serde(default)]
+        model: String,
+    },
     /// On-device shadow observation from the phone (`buildSafetyLog`).
     /// Log only. This is not `report_user` and must never ban.
     SafetyLog {
@@ -705,6 +721,27 @@ mod safety_log_parse_tests {
             }
             other => panic!("expected SafetyLog, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parses_face_ok_and_defaults() {
+        let raw = r#"{"type":"face_ok","ok":true,"ready":true,"model":"blazeface"}"#;
+        match serde_json::from_str::<ClientMsg>(raw).unwrap() {
+            ClientMsg::FaceOk { ok, ready, fail_open, model } => {
+                assert!(ok && ready && !fail_open);
+                assert_eq!(model, "blazeface");
+            }
+            other => panic!("expected FaceOk, got {other:?}"),
+        }
+        // Bare message: everything false → "no face yet", not ok.
+        match serde_json::from_str::<ClientMsg>(r#"{"type":"face_ok"}"#).unwrap() {
+            ClientMsg::FaceOk { ok, ready, fail_open, .. } => assert!(!ok && !ready && !fail_open),
+            other => panic!("expected FaceOk, got {other:?}"),
+        }
+        // Old hub/new client compat in the other direction: extra fields ignored.
+        let spin: ClientMsg =
+            serde_json::from_str(r#"{"type":"spin","room":"","face_ok":true}"#).unwrap();
+        assert!(matches!(spin, ClientMsg::Spin { .. }));
     }
 
     #[test]

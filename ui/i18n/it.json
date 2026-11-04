@@ -2096,5 +2096,9 @@
   "page.updates.uAug24Title": "Android 0.1.475 · Inizia diamante · Amici bloccati",
   "page.updates.uAug241": "<strong>Inizio </strong> — si trova sul diamante d'oro tra Ruletka.me e Chat Roulette. Stop e Avanti rimangono nascosti finché non premi Start.",
   "page.updates.uAug242": "<strong>Amici </strong> — Chat · Chiamate · Bloccati. Chiamate: Aggiungi/Blocca/Segnala. Amici: messaggio. Bloccato: pollici del viso sul dispositivo, tocca per sbloccare.",
-  "page.updates.uAug243": "<strong>Android 0.1.475</strong>: caricamento laterale da Download. L'elenco di riproduzione è un AAB separato che carichi nella console."
+  "page.updates.uAug243": "<strong>Android 0.1.475</strong>: caricamento laterale da Download. L'elenco di riproduzione è un AAB separato che carichi nella console.",
+  "face.prompt": "Mostra il viso alla fotocamera per iniziare",
+  "face.camOff": "Accendi la fotocamera e mostra il viso per iniziare",
+  "face.loading": "Controllo della fotocamera…",
+  "face.hint": "La ricerca è in pausa finché il viso non è visibile."
 }

@@ -2096,5 +2096,9 @@
   "page.updates.uAug24Title": "Android 0.1.475 · Berlian Mulai · Teman Diblokir",
   "page.updates.uAug241": "<strong>Mulai</strong> — duduk di berlian emas antara Ruletka.me dan Chat Roulette. Berhenti dan Berikutnya tetap tersembunyi sampai kamu tekan Mulai.",
   "page.updates.uAug242": "<strong>Teman</strong> — Obrolan · Panggilan · Diblokir. Panggilan: Tambah / Blokir / Laporkan. Teman: Pesan. Diblokir: jempol wajah di perangkat, ketuk untuk buka blokir.",
-  "page.updates.uAug243": "<strong>Android 0.1.475</strong> — sideload dari Downloads. Listing Play adalah AAB terpisah yang kamu unggah di Console."
+  "page.updates.uAug243": "<strong>Android 0.1.475</strong> — sideload dari Downloads. Listing Play adalah AAB terpisah yang kamu unggah di Console.",
+  "face.prompt": "Tunjukkan wajahmu ke kamera untuk mulai",
+  "face.camOff": "Nyalakan kamera dan tunjukkan wajahmu untuk mulai",
+  "face.loading": "Memeriksa kamera…",
+  "face.hint": "Pencarian dijeda sampai wajahmu terlihat."
 }

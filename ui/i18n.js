@@ -390,6 +390,10 @@
       "nsfw.hit": "explicit content detected — skipped",
       "nsfw.blocked": "auto-blocked for explicit video",
       "nsfw.suspect": "possible nudity — video blurred",
+      "face.prompt": "Show your face to the camera to start",
+      "face.camOff": "Turn on your camera and show your face to start",
+      "face.loading": "Checking your camera…",
+      "face.hint": "Matching is paused until your face is in view.",
       "log.blurOn": "partner video blurred",
       "log.blurOff": "partner video unblurred",
       "btn.cam": "Cam",
@@ -1332,6 +1336,10 @@
       "nsfw.hit": "явный контент — пропуск",
       "nsfw.blocked": "автоблок за явный контент",
       "nsfw.suspect": "возможна нагота — видео размыто",
+      "face.prompt": "Покажите лицо в камеру, чтобы начать",
+      "face.camOff": "Включите камеру и покажите лицо, чтобы начать",
+      "face.loading": "Проверяем камеру…",
+      "face.hint": "Подбор собеседника на паузе, пока лица не видно.",
       "log.blurOn": "видео собеседника размыто",
       "log.blurOff": "размытие снято",
       "btn.cam": "Кам",
@@ -2111,7 +2119,7 @@
     } catch (_) {}
 
     // Always fetch /i18n/{code}.json and merge over built-ins (en/ru too)
-    loading[c] = fetch(`/i18n/${c}.json?v=152`, { cache: "force-cache" })
+    loading[c] = fetch(`/i18n/${c}.json?v=153`, { cache: "force-cache" })
       .then((r) => {
         if (!r.ok) throw new Error("lang pack " + c);
         return r.json();

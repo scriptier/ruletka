@@ -3637,6 +3637,10 @@ function sendHelloPayload(name) {
   if (isPoisonDisplayName(n)) {
     n = "anon";
   }
+  // Face check first, so the hub gates this connection before any spin.
+  try {
+    faceGateBeforeHello();
+  } catch (_) {}
   send({
     type: "hello",
     user_id: idn.user_id,
@@ -28164,6 +28168,404 @@ async function handleNsfwDetected(scores) {
     nsfwHitCooldown = false;
   }, 4000);
 }
+
+/* ───────────────────────── Face check before matching ─────────────────────────
+ * 2026-11-04. No face in your own camera → the hub does not match you
+ * (black screens, crotch shots, camera pointed away). On-device only: frames
+ * never leave the browser; the hub only gets {ok, ready, fail_open}.
+ *
+ * - Detector: BlazeFace (tfjs, self-hosted under /vendor/face, tfjs shared
+ *   with the NSFW filter). If it cannot load: browser FaceDetector API when
+ *   present, else FAIL OPEN (face_ok fail_open:true; hub matches and logs).
+ * - ~2 fps while searching (1 fps on lite hardware), slower during a
+ *   stranger call so a quick Next still has a fresh state on the hub.
+ * - Face needed in FACE_NEED of the last FACE_WINDOW frames to turn ok;
+ *   FACE_LOSE_MISSES misses in a row to turn back to not ok.
+ * - Hub side: bridge/src/simple.rs `client_face_ok` (opt-in per connection:
+ *   tabs that never send face_ok, and the Android app, are not gated).
+ */
+const FACE_SOURCES = [
+  {
+    name: "self",
+    tf: "/vendor/nsfw/tfjs-4.22.0/tf.min.js",
+    wasm: "/vendor/nsfw/tfjs-backend-wasm-4.22.0/tf-backend-wasm.min.js",
+    wasmDir: "/vendor/nsfw/tfjs-backend-wasm-4.22.0/",
+    blazeface: "/vendor/face/blazeface-0.1.0/blazeface.min.js",
+    model: "/vendor/face/model/blazeface-1/model.json",
+  },
+];
+const FACE_SCAN_MS = 500;
+const FACE_SCAN_LITE_MS = 1000;
+const FACE_SCAN_CALL_MS = 2000;
+const FACE_NEED = 2;
+const FACE_WINDOW = 4;
+const FACE_LOSE_MISSES = 6;
+const FACE_MIN_PROB = 0.8;
+/** Box must be at least this share of the frame's short side (tiny far faces / posters in the back). */
+const FACE_MIN_SIZE = 0.08;
+const FACE_HEARTBEAT_MS = 4000;
+/** Give up on loading and fail open after this long. */
+const FACE_LOAD_TIMEOUT_MS = 15000;
+/** Detector threw this many times in a row → treat as broken, fail open. */
+const FACE_MAX_ERRORS = 5;
+const FACE_RETRY_MS = 60_000;
+
+const faceGate = {
+  /** "blazeface" | "facedetector" | "" */
+  kind: "",
+  model: null,
+  loadPromise: null,
+  loadFailedAt: 0,
+  failOpen: false,
+  ok: false,
+  recent: [],
+  misses: 0,
+  errors: 0,
+  timer: 0,
+  tickMs: 0,
+  busy: false,
+  lastSentAt: 0,
+  lastSentKey: "",
+  /** "loading" | "nocam" | "noface" | "ok" | "" */
+  reason: "",
+  canvas: null,
+};
+
+/** Test/debug hook: ?facegate=off skips the check on this tab (hub then exempts it). */
+function faceGateDisabledByUrl() {
+  try {
+    return new URLSearchParams(location.search).get("facegate") === "off";
+  } catch (_) {
+    return false;
+  }
+}
+
+function faceGateEnabled() {
+  return !faceGateDisabledByUrl();
+}
+
+/** Searching for a stranger (queue / about to queue). */
+function faceGateSearching() {
+  return !!(wantSearch || inQueue) && !matched && !inFriendCall && matchMode !== "friend";
+}
+
+/** In a stranger call: keep a slow check so Next has a fresh state. */
+function faceGateInStrangerCall() {
+  return !!matched && !inFriendCall && matchMode !== "friend";
+}
+
+function faceWithTimeout(p, ms) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error("timeout")), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      }
+    );
+  });
+}
+
+async function faceLoadBlazeface(src) {
+  if (!window.tf) await loadScriptOnce(src.tf);
+  if (!nsfwBackend) nsfwBackend = await pickNsfwBackend(src);
+  if (!window.blazeface) await loadScriptOnce(src.blazeface);
+  if (!window.blazeface?.load) throw new Error("blazeface unavailable");
+  const m = await window.blazeface.load({
+    modelUrl: src.model,
+    maxFaces: 3,
+    scoreThreshold: 0.7,
+  });
+  return m;
+}
+
+async function faceLoadNativeDetector() {
+  if (typeof window.FaceDetector !== "function") throw new Error("no FaceDetector");
+  const d = new window.FaceDetector({ fastMode: true, maxDetectedFaces: 3 });
+  // Probe once: some builds expose the constructor but throw on detect().
+  const c = document.createElement("canvas");
+  c.width = 32;
+  c.height = 32;
+  await d.detect(c);
+  return d;
+}
+
+function ensureFaceModel() {
+  if (faceGate.model) return Promise.resolve(faceGate.model);
+  if (faceGate.loadPromise) return faceGate.loadPromise;
+  if (faceGate.loadFailedAt && Date.now() - faceGate.loadFailedAt < FACE_RETRY_MS) {
+    return Promise.resolve(null);
+  }
+  faceGate.loadPromise = (async () => {
+    for (const src of FACE_SOURCES) {
+      try {
+        const m = await faceWithTimeout(faceLoadBlazeface(src), FACE_LOAD_TIMEOUT_MS);
+        faceGate.model = m;
+        faceGate.kind = "blazeface";
+        console.info("[face] ready blazeface", nsfwBackend || "?");
+        return m;
+      } catch (e) {
+        console.warn("[face] blazeface", src.name, e);
+      }
+    }
+    try {
+      const d = await faceWithTimeout(faceLoadNativeDetector(), 5000);
+      faceGate.model = d;
+      faceGate.kind = "facedetector";
+      console.info("[face] ready FaceDetector API");
+      return d;
+    } catch (e) {
+      console.warn("[face] FaceDetector", e);
+    }
+    faceGate.loadFailedAt = Date.now();
+    return null;
+  })().then((m) => {
+    faceGate.loadPromise = null;
+    if (m) {
+      faceGate.failOpen = false;
+      faceGate.errors = 0;
+    } else {
+      // Fail open: never lock people out because a model did not load.
+      faceGate.failOpen = true;
+      console.warn("[face] detector unavailable — face check FAIL OPEN (hub matches without it)");
+      try {
+        trackEvent("face_gate_fail_open", { why: "load" });
+      } catch (_) {}
+    }
+    faceGateReport(true);
+    return m;
+  });
+  return faceGate.loadPromise;
+}
+
+/** Letterbox the local frame into a square canvas (keeps face proportions). */
+function faceFrameCanvas(video) {
+  const size = 192;
+  let c = faceGate.canvas;
+  if (!c) {
+    c = document.createElement("canvas");
+    c.width = size;
+    c.height = size;
+    faceGate.canvas = c;
+  }
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+  const vw = video.videoWidth || 0;
+  const vh = video.videoHeight || 0;
+  if (vw < 2 || vh < 2) return null;
+  const k = Math.min(size / vw, size / vh);
+  const w = Math.round(vw * k);
+  const h = Math.round(vh * k);
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, size, size);
+  ctx.drawImage(video, (size - w) >> 1, (size - h) >> 1, w, h);
+  return { canvas: c, w, h, size };
+}
+
+/** One frame → true (face) / false (none). Throws on detector error. */
+async function faceDetectOnce(video) {
+  const fr = faceFrameCanvas(video);
+  if (!fr) return false;
+  const minSide = Math.min(fr.w, fr.h) * FACE_MIN_SIZE;
+  if (faceGate.kind === "facedetector") {
+    const faces = await faceGate.model.detect(fr.canvas);
+    return (faces || []).some((f) => {
+      const b = f.boundingBox || {};
+      return Math.min(b.width || 0, b.height || 0) >= minSide;
+    });
+  }
+  const preds = await faceGate.model.estimateFaces(fr.canvas, false);
+  return (preds || []).some((p) => {
+    const prob = Array.isArray(p.probability) ? p.probability[0] : Number(p.probability);
+    if (!(prob >= FACE_MIN_PROB)) return false;
+    const tl = p.topLeft || [0, 0];
+    const br = p.bottomRight || [0, 0];
+    const bw = Math.abs(br[0] - tl[0]);
+    const bh = Math.abs(br[1] - tl[1]);
+    return Math.min(bw, bh) >= minSide;
+  });
+}
+
+function faceLocalVideo() {
+  const v = $("local");
+  if (!v || !v.srcObject) return null;
+  if ((v.videoWidth || 0) < 2 || v.readyState < 2) return null;
+  return v;
+}
+
+function faceCameraUsable() {
+  if (camOff || noLocalCamera) return false;
+  try {
+    if (!localVideoTrackLive()) return false;
+  } catch (_) {
+    return false;
+  }
+  return !!faceLocalVideo();
+}
+
+function faceSetOk(ok) {
+  if (faceGate.ok === ok) return;
+  faceGate.ok = ok;
+  faceGateReport(true);
+}
+
+/** Push state to the hub: on change, and as a heartbeat while relevant. */
+function faceGateReport(force) {
+  if (!faceGateEnabled()) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const msg = {
+    type: "face_ok",
+    ok: !!faceGate.ok,
+    ready: !!faceGate.model,
+    fail_open: !!faceGate.failOpen && !faceGate.model,
+    model: faceGate.model ? faceGate.kind : faceGate.failOpen ? "none" : "loading",
+  };
+  const key = `${msg.ok}|${msg.ready}|${msg.fail_open}`;
+  const now = Date.now();
+  if (!force && key === faceGate.lastSentKey && now - faceGate.lastSentAt < FACE_HEARTBEAT_MS) {
+    return;
+  }
+  try {
+    ws.send(JSON.stringify(msg));
+    faceGate.lastSentAt = now;
+    faceGate.lastSentKey = key;
+  } catch (_) {}
+}
+
+/** Called right before every hello so the hub gates this connection from frame one. */
+function faceGateBeforeHello() {
+  if (!faceGateEnabled()) return;
+  faceGate.lastSentKey = "";
+  faceGateReport(true);
+  faceGateSchedule();
+}
+
+async function faceGateTick() {
+  if (faceGate.busy) return;
+  const searching = faceGateSearching();
+  const inCall = !searching && faceGateInStrangerCall();
+  if (!faceGateEnabled() || (!searching && !inCall)) {
+    faceGate.reason = "";
+    faceGateRenderPrompt();
+    faceGateSchedule();
+    return;
+  }
+  faceGate.busy = true;
+  try {
+    if (!faceGate.model && !faceGate.failOpen) {
+      faceGate.reason = "loading";
+      faceGateRenderPrompt();
+      await ensureFaceModel();
+    } else if (!faceGate.model && faceGate.failOpen) {
+      // Retry quietly after FACE_RETRY_MS; stay fail-open meanwhile.
+      if (Date.now() - faceGate.loadFailedAt >= FACE_RETRY_MS) ensureFaceModel();
+    }
+    if (faceGate.model) {
+      if (!faceCameraUsable()) {
+        faceGate.recent.push(false);
+        faceGate.reason = "nocam";
+      } else {
+        let hit = false;
+        try {
+          hit = await faceDetectOnce(faceLocalVideo());
+          faceGate.errors = 0;
+        } catch (e) {
+          faceGate.errors++;
+          if (faceGate.errors >= FACE_MAX_ERRORS) {
+            console.warn("[face] detector keeps failing — FAIL OPEN", e);
+            faceGate.model = null;
+            faceGate.kind = "";
+            faceGate.failOpen = true;
+            faceGate.loadFailedAt = Date.now();
+            try {
+              trackEvent("face_gate_fail_open", { why: "detect" });
+            } catch (_) {}
+          }
+        }
+        faceGate.recent.push(hit);
+        faceGate.reason = hit ? "ok" : "noface";
+      }
+      while (faceGate.recent.length > FACE_WINDOW) faceGate.recent.shift();
+      const last = faceGate.recent[faceGate.recent.length - 1];
+      faceGate.misses = last ? 0 : faceGate.misses + 1;
+      const hits = faceGate.recent.filter(Boolean).length;
+      if (!faceGate.ok && hits >= FACE_NEED) faceSetOk(true);
+      else if (faceGate.ok && (faceGate.misses >= FACE_LOSE_MISSES || faceGate.reason === "nocam")) {
+        faceSetOk(false);
+      }
+    }
+    if (faceGate.failOpen && !faceGate.model) faceGate.reason = "";
+    else if (faceGate.ok) faceGate.reason = "ok";
+    faceGateReport(false);
+  } finally {
+    faceGate.busy = false;
+    faceGateRenderPrompt();
+    faceGateSchedule();
+  }
+}
+
+function faceGateSchedule() {
+  if (!faceGateEnabled()) return;
+  let ms;
+  if (faceGateSearching()) ms = _fxLiteHw ? FACE_SCAN_LITE_MS : FACE_SCAN_MS;
+  else if (faceGateInStrangerCall()) ms = _fxLiteHw ? FACE_SCAN_CALL_MS * 2 : FACE_SCAN_CALL_MS;
+  else ms = 1000; // idle: cheap state check only
+  if (faceGate.timer && faceGate.tickMs === ms) return;
+  if (faceGate.timer) clearInterval(faceGate.timer);
+  faceGate.tickMs = ms;
+  faceGate.timer = setInterval(() => {
+    faceGateTick().catch(() => {});
+  }, ms);
+}
+
+function faceGateRenderPrompt() {
+  let el = document.getElementById("face-gate-prompt");
+  const show =
+    faceGateSearching() &&
+    (faceGate.reason === "noface" || faceGate.reason === "nocam" || faceGate.reason === "loading") &&
+    !faceGate.ok;
+  if (!show) {
+    if (el) el.hidden = true;
+    try {
+      document.body.classList.remove("face-gate-blocked");
+    } catch (_) {}
+    return;
+  }
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "face-gate-prompt";
+    el.className = "face-gate-prompt";
+    el.setAttribute("role", "status");
+    el.setAttribute("aria-live", "polite");
+    el.innerHTML =
+      '<span class="face-gate-icon" aria-hidden="true">🙂</span>' +
+      '<span class="face-gate-text"><strong class="face-gate-title"></strong>' +
+      '<span class="face-gate-hint"></span></span>';
+    document.body.appendChild(el);
+  }
+  const title =
+    faceGate.reason === "loading"
+      ? _t("face.loading") || "Checking your camera…"
+      : faceGate.reason === "nocam"
+        ? _t("face.camOff") || "Turn on your camera and show your face to start"
+        : _t("face.prompt") || "Show your face to the camera to start";
+  const hint = _t("face.hint") || "Matching is paused until your face is in view.";
+  el.querySelector(".face-gate-title").textContent = title;
+  el.querySelector(".face-gate-hint").textContent = faceGate.reason === "loading" ? "" : hint;
+  el.dataset.reason = faceGate.reason;
+  el.hidden = false;
+  try {
+    document.body.classList.add("face-gate-blocked");
+  } catch (_) {}
+}
+
+try {
+  window.__ruletFaceGate = faceGate; // debug / headless test hook (read-only use)
+} catch (_) {}
 
 /**
  * Camera LED can be on while the <video> stays black (wrong /dev/video* on Linux,
