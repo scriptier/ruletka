@@ -3637,6 +3637,10 @@ function sendHelloPayload(name) {
   if (isPoisonDisplayName(n)) {
     n = "anon";
   }
+  // Face check first, so the hub gates this connection before any spin.
+  try {
+    faceGateBeforeHello();
+  } catch (_) {}
   send({
     type: "hello",
     user_id: idn.user_id,
@@ -24655,6 +24659,14 @@ function applyMatchBannedUi(detail) {
   const body =
     _t("status.matchBannedBody") ||
     "This account can't search until a moderator unbans you.";
+  // Genital auto-ban already shows its own screen with the duration.
+  const banScreen = document.getElementById("ban-screen");
+  if (banScreen && !banScreen.hidden) {
+    try {
+      syncMatchChrome();
+    } catch (_) {}
+    return;
+  }
   setStatus(title);
   try {
     showStarFeedbackToast("gift", {
@@ -28003,6 +28015,7 @@ function stopNsfwWatch() {
   nsfwHitCooldown = false;
   nsfwRecent = [];
   nsfwSuspectLatched = false;
+  if (typeof genitalReset === "function") genitalReset();
   try {
     syncAiSafetyChip();
   } catch (_) {}
@@ -28019,6 +28032,7 @@ function startNsfwWatch() {
     return;
   }
   const pending = ensureNsfwModel();
+  if (typeof genitalStartForMatch === "function") genitalStartForMatch();
   try {
     syncAiSafetyChip();
   } catch (_) {}
@@ -28089,6 +28103,13 @@ async function scanRemoteForNsfw() {
   const porn = score("Porn");
   const hentai = score("Hentai");
   const sexy = score("Sexy");
+  // Genital detector (auto-ban signal) on the same frame. Once it has
+  // confirmed, it owns this partner: blur stays, nsfwjs does not skip.
+  if (typeof genitalCheckFrame === "function") {
+    const g = await genitalCheckFrame(video, { porn, hentai, sexy }, gen);
+    if (gen !== nsfwWatchGen || !matched || nsfwHitCooldown) return;
+    if (g === "locked") return;
+  }
   // Conservative thresholds — prefer false negatives over false positives
   const hit = nsfwScoresHit(porn, hentai, sexy);
   nsfwRecent = [...nsfwRecent, hit].slice(-NSFW_CONFIRM_WINDOW);
@@ -28122,7 +28143,7 @@ function handleNsfwSuspect(scores) {
   log(_t("nsfw.suspect") || "possible nudity — video blurred");
 }
 
-async function handleNsfwDetected(scores) {
+async function handleNsfwDetected(scores, evidenceB64) {
   if (nsfwHitCooldown || !matched) return;
   nsfwHitCooldown = true;
   stopNsfwWatch();
@@ -28137,7 +28158,9 @@ async function handleNsfwDetected(scores) {
       type: "report_user",
       user_id: uid,
       reason: "explicit_ai",
-      screenshot_jpeg_b64: captureReportEvidenceB64(uid),
+      // Genital give-up passes the small masked proof instead of a full still.
+      screenshot_jpeg_b64:
+        typeof evidenceB64 === "string" ? evidenceB64 : captureReportEvidenceB64(uid),
     });
     saveLocalReport({
       t: Date.now(),
@@ -28164,6 +28187,705 @@ async function handleNsfwDetected(scores) {
     nsfwHitCooldown = false;
   }, 4000);
 }
+
+/* ───────────────────────── Genital detector → auto-ban ─────────────────────────
+ * 2026-11-04 (docs/GENITAL_BAN_2026-11-04.md). The viewer's device runs NudeNet
+ * 320n (ui/genital-guard.js, lazy, self-hosted) on the stranger's video, on the
+ * same frames nsfwjs checks. 2 of 3 detector hits → blur locks and the hub gets
+ * `genital_hit` (seq 1). We keep checking faster; a second confirmation sends
+ * seq 2 and the hub bans the offender (`partner_banned` to us, `banned` to them).
+ * No ban in time → old path: report + block + next.
+ * Devices on Save-Data / 2G/3G / ≤1 GB RAM / no wasm SIMD never download the
+ * detector: they send `porn_only` hits (nsfwjs Porn ≥ 0.92), which only count
+ * when a second, different viewer confirms the same person.
+ */
+const GENITAL_GUARD_SRC = "/genital-guard.js?v=1";
+const GENITAL_FAST_MS = 1200;
+const GENITAL_FAST_LITE_MS = 2500;
+/** After the first confirmation: how long we wait for a second one. */
+const GENITAL_SECOND_HIT_MS = 25_000;
+/** After the second confirmation: how long we wait for the hub's ban. */
+const GENITAL_BAN_WAIT_MS = 3000;
+let genitalConfirm = null;
+let genitalSeq = 0;
+let genitalLocked = false;
+let genitalBusy = false;
+let genitalFastTimer = 0;
+let genitalGiveUpTimer = 0;
+let genitalLastScores = null;
+let genitalScriptPromise = null;
+
+/** "detector" | "porn_only" for this device (network / memory / wasm). */
+function genitalDeviceMode() {
+  try {
+    const c = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (c?.saveData) return "porn_only";
+    if (/^(slow-2g|2g|3g)$/.test(String(c?.effectiveType || ""))) return "porn_only";
+    const mem = Number(navigator.deviceMemory) || 0;
+    if (mem > 0 && mem <= 1) return "porn_only";
+    if (typeof WebAssembly !== "object") return "porn_only";
+  } catch (_) {}
+  return "detector";
+}
+
+function genitalGuardApi() {
+  return window.RuletkaGenitalGuard || null;
+}
+
+/**
+ * Load the guard script (small, always: porn_only devices need its verdict
+ * logic) and, on capable devices only, ORT + model (~14 MB, cached).
+ */
+function genitalEnsureLoaded() {
+  if (!genitalScriptPromise) {
+    genitalScriptPromise = (genitalGuardApi() ? Promise.resolve() : loadScriptOnce(GENITAL_GUARD_SRC)).catch(
+      (e) => {
+        console.warn("[genital] script", e);
+        genitalScriptPromise = null;
+      }
+    );
+  }
+  return genitalScriptPromise.then(() => {
+    const G = genitalGuardApi();
+    if (!G) return null;
+    if (G.ready) return G;
+    if (genitalDeviceMode() !== "detector") return null;
+    return G.load({ lite: !!_fxLiteHw }).then((s) => {
+      if (s) console.info("[genital] ready", JSON.stringify(G.stats));
+      return s ? G : null;
+    });
+  });
+}
+
+function genitalClearTimers() {
+  if (genitalFastTimer) clearInterval(genitalFastTimer);
+  if (genitalGiveUpTimer) clearTimeout(genitalGiveUpTimer);
+  genitalFastTimer = 0;
+  genitalGiveUpTimer = 0;
+}
+
+/** New partner / stop: forget everything about the previous one. */
+function genitalReset() {
+  genitalClearTimers();
+  genitalSeq = 0;
+  genitalLocked = false;
+  genitalBusy = false;
+  genitalLastScores = null;
+  genitalConfirm = null;
+}
+
+/** Stranger match started: start loading (does not block nsfwjs). */
+function genitalStartForMatch() {
+  genitalReset();
+  if (!matched || matchMode === "friend" || !nsfwAutoEnabled()) return;
+  genitalEnsureLoaded().catch(() => {});
+}
+
+function genitalLockBlur() {
+  genitalLocked = true;
+  try {
+    clearIntroBlurTimer();
+    introBlurGen++;
+    introBlurPending = false;
+  } catch (_) {}
+  if (!partnerBlurred) setPartnerBlur(true);
+  try {
+    syncPartnerBlurButtonLabels();
+  } catch (_) {}
+}
+
+/**
+ * Called from scanRemoteForNsfw with this frame's nsfwjs scores.
+ * Returns "locked" while the detector owns this partner (nsfwjs must not skip),
+ * "" otherwise.
+ */
+async function genitalCheckFrame(video, nsfw, gen) {
+  const G = genitalGuardApi();
+  if (!G || !matched || matchMode === "friend" || genitalBusy) return genitalLocked ? "locked" : "";
+  if (genitalSeq >= 2) return "locked";
+  const uid = primaryPartnerUserId;
+  if (!uid) return genitalLocked ? "locked" : "";
+  genitalBusy = true;
+  let det = null;
+  try {
+    if (G.ready) {
+      try {
+        det = await G.detect(video);
+      } catch (e) {
+        console.warn("[genital] detect", e);
+        det = null;
+      }
+      if (!det) return genitalLocked ? "locked" : "";
+    }
+  } finally {
+    genitalBusy = false;
+  }
+  if (gen !== nsfwWatchGen || !matched || uid !== primaryPartnerUserId) return "";
+  if (!genitalConfirm) genitalConfirm = G.makeConfirm();
+  const v = G.frameVerdict(det, nsfw);
+  const c = genitalConfirm.push(v.hit);
+  if (v.hit) {
+    genitalLastScores = { det, nsfw, kind: v.kind };
+    if (v.kind === "detector") genitalLockBlur();
+  }
+  if (!c.confirmed) return genitalLocked ? "locked" : "";
+  genitalConfirm.reset();
+  genitalSeq++;
+  genitalLockBlur();
+  const proof = v.kind === "detector" && det ? G.proofThumb(video, det.boxes || []) : "";
+  send({
+    type: "genital_hit",
+    target_user_id: uid,
+    seq: genitalSeq,
+    kind: v.kind,
+    cls: det?.cls || "",
+    det_score: Math.round((det?.score || 0) * 1000) / 1000,
+    porn: Math.round((nsfw.porn || 0) * 1000) / 1000,
+    hentai: Math.round((nsfw.hentai || 0) * 1000) / 1000,
+    sexy: Math.round((nsfw.sexy || 0) * 1000) / 1000,
+    frames: c.hits,
+    window: c.window,
+    model: det ? G.MODEL_ID : "nsfwjs-2.4.2",
+    box_area: Math.round((det?.boxFrac || 0) * 10000) / 10000,
+    proof_jpeg_b64: proof || undefined,
+    ts: Date.now(),
+  });
+  log(_t("genital.checking") || "possible nudity — video blurred");
+  genitalClearTimers();
+  if (genitalSeq === 1) {
+    genitalFastTimer = setInterval(() => {
+      scanRemoteForNsfw().catch(() => {});
+    }, _fxLiteHw ? GENITAL_FAST_LITE_MS : GENITAL_FAST_MS);
+    genitalGiveUpTimer = setTimeout(() => genitalGiveUp(gen), GENITAL_SECOND_HIT_MS);
+  } else {
+    genitalGiveUpTimer = setTimeout(() => genitalGiveUp(gen), GENITAL_BAN_WAIT_MS);
+  }
+  return "locked";
+}
+
+/** No ban came: leave like the nsfwjs path (report + block + next), small proof only. */
+function genitalGiveUp(gen) {
+  genitalClearTimers();
+  if (gen !== nsfwWatchGen || !matched) return;
+  const s = genitalLastScores?.nsfw || { porn: 0, hentai: 0, sexy: 0 };
+  let proof = "";
+  try {
+    const G = genitalGuardApi();
+    const det = genitalLastScores?.det;
+    if (G && det) proof = G.proofThumb($("remote"), det.boxes || []);
+  } catch (_) {}
+  genitalLocked = false;
+  handleNsfwDetected(s, proof).catch(() => {});
+}
+
+function handleGenitalHitResult(msg) {
+  if (!msg) return;
+  if (!msg.counted && msg.message) console.info("[genital] hit not counted:", msg.message);
+}
+
+/** Center notice over the stage (viewer side). */
+function showGenitalNotice(text) {
+  try {
+    $("partner-banned-notice")?.remove?.();
+    const el = document.createElement("div");
+    el.id = "partner-banned-notice";
+    el.className = "partner-banned-notice";
+    el.setAttribute("role", "status");
+    el.setAttribute("aria-live", "assertive");
+    el.innerHTML = `<span class="pbn-ico" aria-hidden="true">⛔</span><span class="pbn-text">${escapeHtml(text)}</span>`;
+    document.body.appendChild(el);
+    setTimeout(() => {
+      if (el.parentNode) el.remove();
+    }, 4500);
+  } catch (_) {}
+}
+
+/** Hub banned the person we were watching. The hub requeues us right after. */
+function handlePartnerBanned(msg) {
+  const text = _t("genital.partnerBanned") || "Собеседник заблокирован за нарушение правил";
+  const uid = primaryPartnerUserId;
+  genitalReset();
+  try {
+    setPartnerBlur(true);
+  } catch (_) {}
+  showGenitalNotice(text);
+  setStatus(text);
+  log(text);
+  if (uid) {
+    saveLocalReport({
+      t: Date.now(),
+      user_id: uid,
+      name: lastMatchMeta?.name || "",
+      short_id: lastMatchMeta?.short_id || "",
+      friend_code: lastMatchMeta?.friend_code || "",
+      reason: "genitals_ai",
+      scores: genitalLastScores?.nsfw || null,
+    });
+    send({ type: "block_user", user_id: uid });
+  }
+  try {
+    trackEvent("genital_partner_banned", { reason: String(msg?.reason || "") });
+  } catch (_) {}
+}
+
+function genitalBanDurationText(msg) {
+  const level = Number(msg?.level) || 0;
+  if (msg?.permanent || level >= 3) return "";
+  if (level === 2) return _t("ban.dur7d") || "for 7 days";
+  return _t("ban.dur24h") || "for 24 hours";
+}
+
+/** We were banned (live, or on reconnect while the ban runs). */
+function handleBannedMsg(msg) {
+  const permanent = !!msg?.permanent || Number(msg?.level) >= 3;
+  const title = _t("ban.title") || "You are banned";
+  const body = permanent
+    ? _t("ban.bodyPermanent") || "You are banned permanently for showing genitals on camera again."
+    : _t("ban.bodyGenitals", { dur: genitalBanDurationText(msg) }) ||
+      `You are banned ${genitalBanDurationText(msg)} for showing genitals on camera. This breaks Ruletka's rules.`;
+  let until = "";
+  const u = Number(msg?.until) || 0;
+  if (!permanent && u > 0) {
+    try {
+      until = _t("ban.until", { when: new Date(u * 1000).toLocaleString() }) || "";
+    } catch (_) {}
+  }
+  genitalReset();
+  try {
+    stopNsfwWatch();
+  } catch (_) {}
+  wantSearch = false;
+  inQueue = false;
+  try {
+    setFooterSearchStatus(false);
+  } catch (_) {}
+  try {
+    showStartButton(true);
+  } catch (_) {}
+  setStatus(title);
+  try {
+    let el = $("ban-screen");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "ban-screen";
+      el.className = "ban-screen";
+      el.setAttribute("role", "alertdialog");
+      el.setAttribute("aria-modal", "true");
+      el.setAttribute("aria-labelledby", "ban-screen-title");
+      document.body.appendChild(el);
+    }
+    el.innerHTML = `<div class="ban-card"><div class="ban-ico" aria-hidden="true">⛔</div><h2 id="ban-screen-title">${escapeHtml(
+      title
+    )}</h2><p class="ban-body">${escapeHtml(body)}</p>${
+      until ? `<p class="ban-until">${escapeHtml(until)}</p>` : ""
+    }<button type="button" class="ban-ok">${escapeHtml(_t("ban.ok") || "OK")}</button></div>`;
+    el.hidden = false;
+    el.querySelector(".ban-ok")?.addEventListener("click", () => {
+      el.hidden = true;
+    });
+  } catch (_) {}
+  try {
+    log("banned: genitals level " + (msg?.level || "?"));
+  } catch (_) {}
+}
+
+/* ───────────────────────── Face check before matching ─────────────────────────
+ * 2026-11-04. No face in your own camera → the hub does not match you
+ * (black screens, crotch shots, camera pointed away). On-device only: frames
+ * never leave the browser; the hub only gets {ok, ready, fail_open}.
+ *
+ * - Detector: BlazeFace (tfjs, self-hosted under /vendor/face, tfjs shared
+ *   with the NSFW filter). If it cannot load: browser FaceDetector API when
+ *   present, else FAIL OPEN (face_ok fail_open:true; hub matches and logs).
+ * - ~2 fps while searching (1 fps on lite hardware), slower during a
+ *   stranger call so a quick Next still has a fresh state on the hub.
+ * - Face needed in FACE_NEED of the last FACE_WINDOW frames to turn ok;
+ *   FACE_LOSE_MISSES misses in a row to turn back to not ok.
+ * - Hub side: bridge/src/simple.rs `client_face_ok` (opt-in per connection:
+ *   tabs that never send face_ok, and the Android app, are not gated).
+ */
+const FACE_SOURCES = [
+  {
+    name: "self",
+    tf: "/vendor/nsfw/tfjs-4.22.0/tf.min.js",
+    wasm: "/vendor/nsfw/tfjs-backend-wasm-4.22.0/tf-backend-wasm.min.js",
+    wasmDir: "/vendor/nsfw/tfjs-backend-wasm-4.22.0/",
+    blazeface: "/vendor/face/blazeface-0.1.0/blazeface.min.js",
+    model: "/vendor/face/model/blazeface-1/model.json",
+  },
+];
+const FACE_SCAN_MS = 500;
+const FACE_SCAN_LITE_MS = 1000;
+const FACE_SCAN_CALL_MS = 2000;
+const FACE_NEED = 2;
+const FACE_WINDOW = 4;
+const FACE_LOSE_MISSES = 6;
+const FACE_MIN_PROB = 0.8;
+/** Box must be at least this share of the frame's short side (tiny far faces / posters in the back). */
+const FACE_MIN_SIZE = 0.08;
+const FACE_HEARTBEAT_MS = 4000;
+/** Give up on loading and fail open after this long. */
+const FACE_LOAD_TIMEOUT_MS = 15000;
+/** Detector threw this many times in a row → treat as broken, fail open. */
+const FACE_MAX_ERRORS = 5;
+const FACE_RETRY_MS = 60_000;
+
+const faceGate = {
+  /** "blazeface" | "facedetector" | "" */
+  kind: "",
+  model: null,
+  loadPromise: null,
+  loadFailedAt: 0,
+  failOpen: false,
+  ok: false,
+  recent: [],
+  misses: 0,
+  errors: 0,
+  timer: 0,
+  tickMs: 0,
+  busy: false,
+  lastSentAt: 0,
+  lastSentKey: "",
+  /** "loading" | "nocam" | "noface" | "ok" | "" */
+  reason: "",
+  canvas: null,
+};
+
+/** Test/debug hook: ?facegate=off skips the check on this tab (hub then exempts it). */
+function faceGateDisabledByUrl() {
+  try {
+    return new URLSearchParams(location.search).get("facegate") === "off";
+  } catch (_) {
+    return false;
+  }
+}
+
+function faceGateEnabled() {
+  return !faceGateDisabledByUrl();
+}
+
+/** Searching for a stranger (queue / about to queue). */
+function faceGateSearching() {
+  return !!(wantSearch || inQueue) && !matched && !inFriendCall && matchMode !== "friend";
+}
+
+/** In a stranger call: keep a slow check so Next has a fresh state. */
+function faceGateInStrangerCall() {
+  return !!matched && !inFriendCall && matchMode !== "friend";
+}
+
+function faceWithTimeout(p, ms) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error("timeout")), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      }
+    );
+  });
+}
+
+async function faceLoadBlazeface(src) {
+  if (!window.tf) await loadScriptOnce(src.tf);
+  if (!nsfwBackend) nsfwBackend = await pickNsfwBackend(src);
+  if (!window.blazeface) await loadScriptOnce(src.blazeface);
+  if (!window.blazeface?.load) throw new Error("blazeface unavailable");
+  const m = await window.blazeface.load({
+    modelUrl: src.model,
+    maxFaces: 3,
+    scoreThreshold: 0.7,
+  });
+  return m;
+}
+
+async function faceLoadNativeDetector() {
+  if (typeof window.FaceDetector !== "function") throw new Error("no FaceDetector");
+  const d = new window.FaceDetector({ fastMode: true, maxDetectedFaces: 3 });
+  // Probe once: some builds expose the constructor but throw on detect().
+  const c = document.createElement("canvas");
+  c.width = 32;
+  c.height = 32;
+  await d.detect(c);
+  return d;
+}
+
+function ensureFaceModel() {
+  if (faceGate.model) return Promise.resolve(faceGate.model);
+  if (faceGate.loadPromise) return faceGate.loadPromise;
+  if (faceGate.loadFailedAt && Date.now() - faceGate.loadFailedAt < FACE_RETRY_MS) {
+    return Promise.resolve(null);
+  }
+  faceGate.loadPromise = (async () => {
+    for (const src of FACE_SOURCES) {
+      try {
+        const m = await faceWithTimeout(faceLoadBlazeface(src), FACE_LOAD_TIMEOUT_MS);
+        faceGate.model = m;
+        faceGate.kind = "blazeface";
+        console.info("[face] ready blazeface", nsfwBackend || "?");
+        return m;
+      } catch (e) {
+        console.warn("[face] blazeface", src.name, e);
+      }
+    }
+    try {
+      const d = await faceWithTimeout(faceLoadNativeDetector(), 5000);
+      faceGate.model = d;
+      faceGate.kind = "facedetector";
+      console.info("[face] ready FaceDetector API");
+      return d;
+    } catch (e) {
+      console.warn("[face] FaceDetector", e);
+    }
+    faceGate.loadFailedAt = Date.now();
+    return null;
+  })().then((m) => {
+    faceGate.loadPromise = null;
+    if (m) {
+      faceGate.failOpen = false;
+      faceGate.errors = 0;
+    } else {
+      // Fail open: never lock people out because a model did not load.
+      faceGate.failOpen = true;
+      console.warn("[face] detector unavailable — face check FAIL OPEN (hub matches without it)");
+      try {
+        trackEvent("face_gate_fail_open", { why: "load" });
+      } catch (_) {}
+    }
+    faceGateReport(true);
+    return m;
+  });
+  return faceGate.loadPromise;
+}
+
+/** Letterbox the local frame into a square canvas (keeps face proportions). */
+function faceFrameCanvas(video) {
+  const size = 192;
+  let c = faceGate.canvas;
+  if (!c) {
+    c = document.createElement("canvas");
+    c.width = size;
+    c.height = size;
+    faceGate.canvas = c;
+  }
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+  const vw = video.videoWidth || 0;
+  const vh = video.videoHeight || 0;
+  if (vw < 2 || vh < 2) return null;
+  const k = Math.min(size / vw, size / vh);
+  const w = Math.round(vw * k);
+  const h = Math.round(vh * k);
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, size, size);
+  ctx.drawImage(video, (size - w) >> 1, (size - h) >> 1, w, h);
+  return { canvas: c, w, h, size };
+}
+
+/** One frame → true (face) / false (none). Throws on detector error. */
+async function faceDetectOnce(video) {
+  const fr = faceFrameCanvas(video);
+  if (!fr) return false;
+  const minSide = Math.min(fr.w, fr.h) * FACE_MIN_SIZE;
+  if (faceGate.kind === "facedetector") {
+    const faces = await faceGate.model.detect(fr.canvas);
+    return (faces || []).some((f) => {
+      const b = f.boundingBox || {};
+      return Math.min(b.width || 0, b.height || 0) >= minSide;
+    });
+  }
+  const preds = await faceGate.model.estimateFaces(fr.canvas, false);
+  return (preds || []).some((p) => {
+    const prob = Array.isArray(p.probability) ? p.probability[0] : Number(p.probability);
+    if (!(prob >= FACE_MIN_PROB)) return false;
+    const tl = p.topLeft || [0, 0];
+    const br = p.bottomRight || [0, 0];
+    const bw = Math.abs(br[0] - tl[0]);
+    const bh = Math.abs(br[1] - tl[1]);
+    return Math.min(bw, bh) >= minSide;
+  });
+}
+
+function faceLocalVideo() {
+  const v = $("local");
+  if (!v || !v.srcObject) return null;
+  if ((v.videoWidth || 0) < 2 || v.readyState < 2) return null;
+  return v;
+}
+
+function faceCameraUsable() {
+  if (camOff || noLocalCamera) return false;
+  try {
+    if (!localVideoTrackLive()) return false;
+  } catch (_) {
+    return false;
+  }
+  return !!faceLocalVideo();
+}
+
+function faceSetOk(ok) {
+  if (faceGate.ok === ok) return;
+  faceGate.ok = ok;
+  faceGateReport(true);
+}
+
+/** Push state to the hub: on change, and as a heartbeat while relevant. */
+function faceGateReport(force) {
+  if (!faceGateEnabled()) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const msg = {
+    type: "face_ok",
+    ok: !!faceGate.ok,
+    ready: !!faceGate.model,
+    fail_open: !!faceGate.failOpen && !faceGate.model,
+    model: faceGate.model ? faceGate.kind : faceGate.failOpen ? "none" : "loading",
+  };
+  const key = `${msg.ok}|${msg.ready}|${msg.fail_open}`;
+  const now = Date.now();
+  if (!force && key === faceGate.lastSentKey && now - faceGate.lastSentAt < FACE_HEARTBEAT_MS) {
+    return;
+  }
+  try {
+    ws.send(JSON.stringify(msg));
+    faceGate.lastSentAt = now;
+    faceGate.lastSentKey = key;
+  } catch (_) {}
+}
+
+/** Called right before every hello so the hub gates this connection from frame one. */
+function faceGateBeforeHello() {
+  if (!faceGateEnabled()) return;
+  faceGate.lastSentKey = "";
+  faceGateReport(true);
+  faceGateSchedule();
+}
+
+async function faceGateTick() {
+  if (faceGate.busy) return;
+  const searching = faceGateSearching();
+  const inCall = !searching && faceGateInStrangerCall();
+  if (!faceGateEnabled() || (!searching && !inCall)) {
+    faceGate.reason = "";
+    faceGateRenderPrompt();
+    faceGateSchedule();
+    return;
+  }
+  faceGate.busy = true;
+  try {
+    if (!faceGate.model && !faceGate.failOpen) {
+      faceGate.reason = "loading";
+      faceGateRenderPrompt();
+      await ensureFaceModel();
+    } else if (!faceGate.model && faceGate.failOpen) {
+      // Retry quietly after FACE_RETRY_MS; stay fail-open meanwhile.
+      if (Date.now() - faceGate.loadFailedAt >= FACE_RETRY_MS) ensureFaceModel();
+    }
+    if (faceGate.model) {
+      if (!faceCameraUsable()) {
+        faceGate.recent.push(false);
+        faceGate.reason = "nocam";
+      } else {
+        let hit = false;
+        try {
+          hit = await faceDetectOnce(faceLocalVideo());
+          faceGate.errors = 0;
+        } catch (e) {
+          faceGate.errors++;
+          if (faceGate.errors >= FACE_MAX_ERRORS) {
+            console.warn("[face] detector keeps failing — FAIL OPEN", e);
+            faceGate.model = null;
+            faceGate.kind = "";
+            faceGate.failOpen = true;
+            faceGate.loadFailedAt = Date.now();
+            try {
+              trackEvent("face_gate_fail_open", { why: "detect" });
+            } catch (_) {}
+          }
+        }
+        faceGate.recent.push(hit);
+        faceGate.reason = hit ? "ok" : "noface";
+      }
+      while (faceGate.recent.length > FACE_WINDOW) faceGate.recent.shift();
+      const last = faceGate.recent[faceGate.recent.length - 1];
+      faceGate.misses = last ? 0 : faceGate.misses + 1;
+      const hits = faceGate.recent.filter(Boolean).length;
+      if (!faceGate.ok && hits >= FACE_NEED) faceSetOk(true);
+      else if (faceGate.ok && (faceGate.misses >= FACE_LOSE_MISSES || faceGate.reason === "nocam")) {
+        faceSetOk(false);
+      }
+    }
+    if (faceGate.failOpen && !faceGate.model) faceGate.reason = "";
+    else if (faceGate.ok) faceGate.reason = "ok";
+    faceGateReport(false);
+  } finally {
+    faceGate.busy = false;
+    faceGateRenderPrompt();
+    faceGateSchedule();
+  }
+}
+
+function faceGateSchedule() {
+  if (!faceGateEnabled()) return;
+  let ms;
+  if (faceGateSearching()) ms = _fxLiteHw ? FACE_SCAN_LITE_MS : FACE_SCAN_MS;
+  else if (faceGateInStrangerCall()) ms = _fxLiteHw ? FACE_SCAN_CALL_MS * 2 : FACE_SCAN_CALL_MS;
+  else ms = 1000; // idle: cheap state check only
+  if (faceGate.timer && faceGate.tickMs === ms) return;
+  if (faceGate.timer) clearInterval(faceGate.timer);
+  faceGate.tickMs = ms;
+  faceGate.timer = setInterval(() => {
+    faceGateTick().catch(() => {});
+  }, ms);
+}
+
+function faceGateRenderPrompt() {
+  let el = document.getElementById("face-gate-prompt");
+  const show =
+    faceGateSearching() &&
+    (faceGate.reason === "noface" || faceGate.reason === "nocam" || faceGate.reason === "loading") &&
+    !faceGate.ok;
+  if (!show) {
+    if (el) el.hidden = true;
+    try {
+      document.body.classList.remove("face-gate-blocked");
+    } catch (_) {}
+    return;
+  }
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "face-gate-prompt";
+    el.className = "face-gate-prompt";
+    el.setAttribute("role", "status");
+    el.setAttribute("aria-live", "polite");
+    el.innerHTML =
+      '<span class="face-gate-icon" aria-hidden="true">🙂</span>' +
+      '<span class="face-gate-text"><strong class="face-gate-title"></strong>' +
+      '<span class="face-gate-hint"></span></span>';
+    document.body.appendChild(el);
+  }
+  const title =
+    faceGate.reason === "loading"
+      ? _t("face.loading") || "Checking your camera…"
+      : faceGate.reason === "nocam"
+        ? _t("face.camOff") || "Turn on your camera and show your face to start"
+        : _t("face.prompt") || "Show your face to the camera to start";
+  const hint = _t("face.hint") || "Matching is paused until your face is in view.";
+  el.querySelector(".face-gate-title").textContent = title;
+  el.querySelector(".face-gate-hint").textContent = faceGate.reason === "loading" ? "" : hint;
+  el.dataset.reason = faceGate.reason;
+  el.hidden = false;
+  try {
+    document.body.classList.add("face-gate-blocked");
+  } catch (_) {}
+}
+
+try {
+  window.__ruletFaceGate = faceGate; // debug / headless test hook (read-only use)
+} catch (_) {}
 
 /**
  * Camera LED can be on while the <video> stays black (wrong /dev/video* on Linux,
@@ -34628,6 +35350,15 @@ function handleServer(msg) {
           }
         }
       }
+      break;
+    case "genital_hit_result":
+      handleGenitalHitResult(msg);
+      break;
+    case "partner_banned":
+      handlePartnerBanned(msg);
+      break;
+    case "banned":
+      handleBannedMsg(msg);
       break;
     case "report_result":
       {

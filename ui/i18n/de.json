@@ -2073,5 +2073,19 @@
   "page.updates.uAug232": "<strong>Stop / refresh</strong> — Stop or closing the tab tells the others you left. On Android, partner Stop goes to Next instead of a frozen last frame.",
   "page.updates.uAug233": "<strong>Let’s Go</strong> — Find-3rd invite taps immediately (was eating the first press).",
   "page.updates.uAug234": "<strong>3-way</strong> — extra cameras kick sooner; gift effects stay on the person you gifted. Linking can still take a few seconds — no “fixed connect” claim.",
-  "page.updates.uAug235": "<strong>Android 0.1.471</strong> — same 2v2 2×2, Stop→Next, Let’s Go. Sideload from Downloads. Play listing is a separate AAB."
+  "page.updates.uAug235": "<strong>Android 0.1.471</strong> — same 2v2 2×2, Stop→Next, Let’s Go. Sideload from Downloads. Play listing is a separate AAB.",
+  "face.prompt": "Zeig dein Gesicht in die Kamera, um zu starten",
+  "face.camOff": "Schalte die Kamera ein und zeig dein Gesicht, um zu starten",
+  "face.loading": "Kamera wird geprüft…",
+  "face.hint": "Die Suche pausiert, bis dein Gesicht zu sehen ist.",
+  "genital.partnerBanned": "Dein Gegenüber wurde wegen Regelverstoßes gesperrt",
+  "genital.checking": "Mögliche Nacktheit — Video unscharf, wird geprüft",
+  "ban.title": "Du bist gesperrt",
+  "ban.bodyGenitals": "Du bist {dur} gesperrt, weil du Genitalien vor der Kamera gezeigt hast. Das verstößt gegen die Regeln von Ruletka.",
+  "ban.bodyPermanent": "Du bist dauerhaft gesperrt, weil du erneut Genitalien vor der Kamera gezeigt hast.",
+  "ban.dur24h": "für 24 Stunden",
+  "ban.dur7d": "für 7 Tage",
+  "ban.until": "Bis: {when}",
+  "ban.ok": "Verstanden",
+  "srv.partnerRemoved": "Gegenüber wegen Regelverstoßes gesperrt — suche erneut"
 }

@@ -2073,5 +2073,19 @@
   "page.updates.uAug232": "<strong>Stop / refresh</strong> — Stop or closing the tab tells the others you left. On Android, partner Stop goes to Next instead of a frozen last frame.",
   "page.updates.uAug233": "<strong>Let’s Go</strong> — Find-3rd invite taps immediately (was eating the first press).",
   "page.updates.uAug234": "<strong>3-way</strong> — extra cameras kick sooner; gift effects stay on the person you gifted. Linking can still take a few seconds — no “fixed connect” claim.",
-  "page.updates.uAug235": "<strong>Android 0.1.471</strong> — same 2v2 2×2, Stop→Next, Let’s Go. Sideload from Downloads. Play listing is a separate AAB."
+  "page.updates.uAug235": "<strong>Android 0.1.471</strong> — same 2v2 2×2, Stop→Next, Let’s Go. Sideload from Downloads. Play listing is a separate AAB.",
+  "face.prompt": "Покажите лице у камеру да бисте почели",
+  "face.camOff": "Укључите камеру и покажите лице да бисте почели",
+  "face.loading": "Проверавамо камеру…",
+  "face.hint": "Тражење саговорника је паузирано док се лице не види.",
+  "genital.partnerBanned": "Саговорник је блокиран због кршења правила",
+  "genital.checking": "Могућа голотиња — видео је замућен, проверавамо",
+  "ban.title": "Блокирани сте",
+  "ban.bodyGenitals": "Блокирани сте {dur} због показивања гениталија на камери. То крши правила Рулетке.",
+  "ban.bodyPermanent": "Трајно сте блокирани због поновног показивања гениталија на камери.",
+  "ban.dur24h": "на 24 сата",
+  "ban.dur7d": "на 7 дана",
+  "ban.until": "До: {when}",
+  "ban.ok": "У реду",
+  "srv.partnerRemoved": "саговорник блокиран због кршења правила — тражимо поново"
 }

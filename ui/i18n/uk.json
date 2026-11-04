@@ -2073,5 +2073,19 @@
   "page.updates.uAug232": "<strong>Stop / refresh</strong> — Stop or closing the tab tells the others you left. On Android, partner Stop goes to Next instead of a frozen last frame.",
   "page.updates.uAug233": "<strong>Let’s Go</strong> — Find-3rd invite taps immediately (was eating the first press).",
   "page.updates.uAug234": "<strong>3-way</strong> — extra cameras kick sooner; gift effects stay on the person you gifted. Linking can still take a few seconds — no “fixed connect” claim.",
-  "page.updates.uAug235": "<strong>Android 0.1.471</strong> — same 2v2 2×2, Stop→Next, Let’s Go. Sideload from Downloads. Play listing is a separate AAB."
+  "page.updates.uAug235": "<strong>Android 0.1.471</strong> — same 2v2 2×2, Stop→Next, Let’s Go. Sideload from Downloads. Play listing is a separate AAB.",
+  "face.prompt": "Покажіть обличчя в камеру, щоб почати",
+  "face.camOff": "Увімкніть камеру й покажіть обличчя, щоб почати",
+  "face.loading": "Перевіряємо камеру…",
+  "face.hint": "Пошук співрозмовника на паузі, доки обличчя не видно.",
+  "genital.partnerBanned": "Співрозмовника заблоковано за порушення правил",
+  "genital.checking": "Можлива оголеність — відео розмите, перевіряємо",
+  "ban.title": "Вас заблоковано",
+  "ban.bodyGenitals": "Вас заблоковано {dur} за показ геніталій на камеру. Це порушує правила Рулетки.",
+  "ban.bodyPermanent": "Вас заблоковано назавжди за повторний показ геніталій на камеру.",
+  "ban.dur24h": "на 24 години",
+  "ban.dur7d": "на 7 днів",
+  "ban.until": "До: {when}",
+  "ban.ok": "Зрозуміло",
+  "srv.partnerRemoved": "співрозмовника заблоковано за порушення правил — шукаємо знову"
 }

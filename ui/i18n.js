@@ -388,8 +388,22 @@
       "btn.fullTitle": "Fullscreen (F)",
       "nsfw.loading": "loading safety filter…",
       "nsfw.hit": "explicit content detected — skipped",
+      "genital.partnerBanned": "Your partner was banned for breaking the rules",
+      "genital.checking": "Possible nudity — video blurred, checking",
+      "ban.title": "You are banned",
+      "ban.bodyGenitals": "You are banned {dur} for showing genitals on camera. This breaks Ruletka's rules.",
+      "ban.bodyPermanent": "You are banned permanently for showing genitals on camera again.",
+      "ban.dur24h": "for 24 hours",
+      "ban.dur7d": "for 7 days",
+      "ban.until": "Until: {when}",
+      "ban.ok": "OK",
+      "srv.partnerRemoved": "partner was banned for breaking the rules — searching again",
       "nsfw.blocked": "auto-blocked for explicit video",
       "nsfw.suspect": "possible nudity — video blurred",
+      "face.prompt": "Show your face to the camera to start",
+      "face.camOff": "Turn on your camera and show your face to start",
+      "face.loading": "Checking your camera…",
+      "face.hint": "Matching is paused until your face is in view.",
       "log.blurOn": "partner video blurred",
       "log.blurOff": "partner video unblurred",
       "btn.cam": "Cam",
@@ -1330,8 +1344,22 @@
       "btn.fullTitle": "На весь экран (F)",
       "nsfw.loading": "загрузка фильтра…",
       "nsfw.hit": "явный контент — пропуск",
+      "genital.partnerBanned": "Собеседник заблокирован за нарушение правил",
+      "genital.checking": "Возможная нагота — видео размыто, проверяем",
+      "ban.title": "Вы заблокированы",
+      "ban.bodyGenitals": "Вы заблокированы {dur} за показ гениталий на камеру. Это нарушает правила Рулетки.",
+      "ban.bodyPermanent": "Вы заблокированы навсегда за повторный показ гениталий на камеру.",
+      "ban.dur24h": "на 24 часа",
+      "ban.dur7d": "на 7 дней",
+      "ban.until": "До: {when}",
+      "ban.ok": "Понятно",
+      "srv.partnerRemoved": "собеседник заблокирован за нарушение правил — снова ищем",
       "nsfw.blocked": "автоблок за явный контент",
       "nsfw.suspect": "возможна нагота — видео размыто",
+      "face.prompt": "Покажите лицо в камеру, чтобы начать",
+      "face.camOff": "Включите камеру и покажите лицо, чтобы начать",
+      "face.loading": "Проверяем камеру…",
+      "face.hint": "Подбор собеседника на паузе, пока лица не видно.",
       "log.blurOn": "видео собеседника размыто",
       "log.blurOff": "размытие снято",
       "btn.cam": "Кам",
@@ -1895,6 +1923,7 @@
     [/partner hit Next/i, "srv.partnerNext"],
     [/partner stopped/i, "srv.partnerStopped"],
     [/partner disconnected/i, "srv.partnerDisc"],
+    [/partner was banned|partner removed for breaking the rules/i, "srv.partnerRemoved"],
     [/report received.*user restricted/i, "srv.reportRestricted"],
     [/report received.*paused/i, "srv.reportHold"],
     [/report received/i, "srv.reportOk"],
@@ -2111,7 +2140,7 @@
     } catch (_) {}
 
     // Always fetch /i18n/{code}.json and merge over built-ins (en/ru too)
-    loading[c] = fetch(`/i18n/${c}.json?v=152`, { cache: "force-cache" })
+    loading[c] = fetch(`/i18n/${c}.json?v=154`, { cache: "force-cache" })
       .then((r) => {
         if (!r.ok) throw new Error("lang pack " + c);
         return r.json();

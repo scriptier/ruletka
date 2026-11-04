@@ -12,6 +12,7 @@ mod config;
 mod expo_push;
 mod federation;
 mod friends_store;
+mod genital_ban;
 mod geo;
 mod limits;
 mod protocol;

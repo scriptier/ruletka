@@ -2073,5 +2073,19 @@
   "page.updates.uAug232": "<strong>Stop / refresh</strong> — Stop or closing the tab tells the others you left. On Android, partner Stop goes to Next instead of a frozen last frame.",
   "page.updates.uAug233": "<strong>Let’s Go</strong> — Find-3rd invite taps immediately (was eating the first press).",
   "page.updates.uAug234": "<strong>3-way</strong> — extra cameras kick sooner; gift effects stay on the person you gifted. Linking can still take a few seconds — no “fixed connect” claim.",
-  "page.updates.uAug235": "<strong>Android 0.1.471</strong> — same 2v2 2×2, Stop→Next, Let’s Go. Sideload from Downloads. Play listing is a separate AAB."
+  "page.updates.uAug235": "<strong>Android 0.1.471</strong> — same 2v2 2×2, Stop→Next, Let’s Go. Sideload from Downloads. Play listing is a separate AAB.",
+  "face.prompt": "Muestra tu cara a la cámara para empezar",
+  "face.camOff": "Enciende la cámara y muestra tu cara para empezar",
+  "face.loading": "Comprobando tu cámara…",
+  "face.hint": "La búsqueda está en pausa hasta que se vea tu cara.",
+  "genital.partnerBanned": "Tu pareja fue bloqueada por romper las normas",
+  "genital.checking": "Posible desnudez — vídeo difuminado, comprobando",
+  "ban.title": "Estás bloqueado",
+  "ban.bodyGenitals": "Estás bloqueado {dur} por mostrar los genitales en cámara. Esto rompe las normas de Ruletka.",
+  "ban.bodyPermanent": "Estás bloqueado de forma permanente por volver a mostrar los genitales en cámara.",
+  "ban.dur24h": "durante 24 horas",
+  "ban.dur7d": "durante 7 días",
+  "ban.until": "Hasta: {when}",
+  "ban.ok": "Entendido",
+  "srv.partnerRemoved": "tu pareja fue bloqueada por romper las normas — buscando de nuevo"
 }

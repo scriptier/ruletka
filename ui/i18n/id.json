@@ -2096,5 +2096,19 @@
   "page.updates.uAug24Title": "Android 0.1.475 · Berlian Mulai · Teman Diblokir",
   "page.updates.uAug241": "<strong>Mulai</strong> — duduk di berlian emas antara Ruletka.me dan Chat Roulette. Berhenti dan Berikutnya tetap tersembunyi sampai kamu tekan Mulai.",
   "page.updates.uAug242": "<strong>Teman</strong> — Obrolan · Panggilan · Diblokir. Panggilan: Tambah / Blokir / Laporkan. Teman: Pesan. Diblokir: jempol wajah di perangkat, ketuk untuk buka blokir.",
-  "page.updates.uAug243": "<strong>Android 0.1.475</strong> — sideload dari Downloads. Listing Play adalah AAB terpisah yang kamu unggah di Console."
+  "page.updates.uAug243": "<strong>Android 0.1.475</strong> — sideload dari Downloads. Listing Play adalah AAB terpisah yang kamu unggah di Console.",
+  "face.prompt": "Tunjukkan wajahmu ke kamera untuk mulai",
+  "face.camOff": "Nyalakan kamera dan tunjukkan wajahmu untuk mulai",
+  "face.loading": "Memeriksa kamera…",
+  "face.hint": "Pencarian dijeda sampai wajahmu terlihat.",
+  "genital.partnerBanned": "Lawan bicaramu diblokir karena melanggar aturan",
+  "genital.checking": "Kemungkinan ketelanjangan — video diburamkan, sedang diperiksa",
+  "ban.title": "Kamu diblokir",
+  "ban.bodyGenitals": "Kamu diblokir {dur} karena memperlihatkan alat kelamin di kamera. Ini melanggar aturan Ruletka.",
+  "ban.bodyPermanent": "Kamu diblokir permanen karena kembali memperlihatkan alat kelamin di kamera.",
+  "ban.dur24h": "selama 24 jam",
+  "ban.dur7d": "selama 7 hari",
+  "ban.until": "Sampai: {when}",
+  "ban.ok": "Mengerti",
+  "srv.partnerRemoved": "lawan bicara diblokir karena melanggar aturan — mencari lagi"
 }

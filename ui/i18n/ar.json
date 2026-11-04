@@ -2073,5 +2073,19 @@
   "page.updates.uAug232": "<strong>Stop / refresh</strong> — Stop or closing the tab tells the others you left. On Android, partner Stop goes to Next instead of a frozen last frame.",
   "page.updates.uAug233": "<strong>Let’s Go</strong> — Find-3rd invite taps immediately (was eating the first press).",
   "page.updates.uAug234": "<strong>3-way</strong> — extra cameras kick sooner; gift effects stay on the person you gifted. Linking can still take a few seconds — no “fixed connect” claim.",
-  "page.updates.uAug235": "<strong>Android 0.1.471</strong> — same 2v2 2×2, Stop→Next, Let’s Go. Sideload from Downloads. Play listing is a separate AAB."
+  "page.updates.uAug235": "<strong>Android 0.1.471</strong> — same 2v2 2×2, Stop→Next, Let’s Go. Sideload from Downloads. Play listing is a separate AAB.",
+  "face.prompt": "أظهر وجهك أمام الكاميرا للبدء",
+  "face.camOff": "شغّل الكاميرا وأظهر وجهك للبدء",
+  "face.loading": "جارٍ فحص الكاميرا…",
+  "face.hint": "المطابقة متوقفة مؤقتًا حتى يظهر وجهك.",
+  "genital.partnerBanned": "تم حظر الطرف الآخر لمخالفته القواعد",
+  "genital.checking": "عُري محتمل — تم تمويه الفيديو، جارٍ التحقق",
+  "ban.title": "تم حظرك",
+  "ban.bodyGenitals": "تم حظرك {dur} بسبب إظهار الأعضاء التناسلية أمام الكاميرا. هذا يخالف قواعد روليتكا.",
+  "ban.bodyPermanent": "تم حظرك نهائيًا بسبب إظهار الأعضاء التناسلية أمام الكاميرا مرة أخرى.",
+  "ban.dur24h": "لمدة 24 ساعة",
+  "ban.dur7d": "لمدة 7 أيام",
+  "ban.until": "حتى: {when}",
+  "ban.ok": "حسنًا",
+  "srv.partnerRemoved": "تم حظر الطرف الآخر لمخالفته القواعد — نبحث من جديد"
 }
