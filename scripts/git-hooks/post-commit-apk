@@ -2,15 +2,21 @@
 # post-commit: if this commit touched mobile app source, rebuild sideload APK
 # (no --bump, so we don't dirty app.json and loop).
 #
-# Install once:
-#   ln -sf ../../scripts/git-hooks/post-commit-apk .git/hooks/post-commit
-#   # or: ./scripts/git-hooks/install-apk-hook.sh
+# OPT-IN. Does nothing unless one of these is set:
+#   git config ruletka.apkHook true      (per clone; shared by its worktrees)
+#   RULETKA_APK_HOOK=1 git commit ...    (one commit)
+# Install the wrapper once (works in worktrees too):
+#   ./scripts/git-hooks/install-apk-hook.sh
 #
 # Disable for one commit: SKIP_APK_HOOK=1 git commit ...
-# Disable forever: rm .git/hooks/post-commit
+# Disable forever: git config --unset ruletka.apkHook
 set -euo pipefail
 
 [[ "${SKIP_APK_HOOK:-}" == "1" ]] && exit 0
+if [[ "${RULETKA_APK_HOOK:-}" != "1" ]] && \
+   [[ "$(git config --bool ruletka.apkHook 2>/dev/null || true)" != "true" ]]; then
+  exit 0
+fi
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
 cd "$ROOT"
