@@ -2,6 +2,12 @@
 
 Parse tip: `grep '^## \[' knowledge/wiki/log.md | tail -10`
 
+## [2026-11-04] hop | tidy-up: integrate/2026-11-04 + scripts/deploy.sh (local, not pushed, not deployed)
+- New branch `integrate/2026-11-04` (worktree `freenet-roulette-unified`) off live 9aa5a7b: merged genital-ban (+face check), app/combined (token-diet app + PiP + ban screen, 0.1.481/vc489), pip-split. Pins live.js **991** · i18n **277**. polish/2026-10-10 and polish/ml-native NOT merged. Inventory + delete-later list: `docs/BRANCHES.md`.
+- Tests: cargo 93 ok · ui 12/12 · mobile npm test ok · tsc 0 errors (was 23; fixed `log()` on string[] state, out-of-scope media2/media3, dead uiPhase effect) · verify-match-ux 140 ok · expo export android ok.
+- push.sh: no `--delete` on bin/ui (it wiped setup-turns-tls.sh). install-on-server.sh: survives caddy cloudsmith 402. APK post-commit hook opt-in (`git config ruletka.apkHook true`).
+- `scripts/deploy.sh [--dry-run] [--bridge PATH]`: backup, vendor-*, hub first, caddy validate, smoke incl. TURN Allocate, auto-rollback, tag, log in ~/rustore-ru-work. Dry-run against prod clean (genital vendor 404 = not deployed yet). **No GOAL_MET.**
+
 ## [2026-11-04] hop | relay fix: zombie partner + TURNS back (deployed)
 - Incident CA↔RU "Trying relay… 32s": RU app JS frozen, WS open 17 min, matched anyway, never offered. Bridge now skips waiters silent ≥30s and dissolves a 1v1 whose partner sent nothing since match (20s silent / 45s hard) → live side gets `partner disconnected — searching again` + instant rematch. No app update.
 - TURNS 443/5349 dead since Oct 13 deploy (template had TLS commented; cert script wiped by push.sh). Template TLS ON; `/usr/local/sbin/ruletka-turns-tls.sh` + timer. Notes: `docs/RELAY_FIX_2026-11-04.md`. Tag `deployed-2026-11-04`.
