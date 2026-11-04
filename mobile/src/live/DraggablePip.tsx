@@ -1,106 +1,156 @@
 /**
- * Draggable PiP: snap to corners, remember position, double-tap swap.
+ * Draggable self-view PiP.
+ * - Drag (past PIP_DRAG_SLOP) moves it; release snaps to the nearest corner
+ *   inside the stage minus top chrome (safeTop) and bottom dock (safeBottom).
+ *   Corner is remembered (AsyncStorage).
+ * - Tap → onTap (classic split view). Double-tap → onDoubleTap (swap /
+ *   unblur) when provided; single tap then waits PIP_DOUBLE_TAP_MS.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { PanResponder, StyleSheet, Text, View } from "react-native";
+import { loadPipPrefs, savePipPrefs } from "../media/pipPrefs";
 import {
-  loadPipPrefs,
-  savePipPrefs,
-  snapPipToCorner,
-} from "../media/pipPrefs";
+  PIP_DOUBLE_TAP_MS,
+  clampPip,
+  cornerFromLegacyXY,
+  cornerToPos,
+  isDragMove,
+  nearestCorner,
+  pipBounds,
+  type PipCorner,
+} from "./pipLayout";
 
 export const PIP_W = 108;
 export const PIP_H = 148;
 
 export function DraggablePip(props: {
   children: ReactNode;
-  onDoubleTap: () => void;
+  /** Single tap (after the double-tap window when onDoubleTap is set). */
+  onTap?: () => void;
+  /** Optional double-tap; return false to fall back to onTap. */
+  onDoubleTap?: () => boolean | void;
   stageW: number;
   stageH: number;
+  /** Height of chrome over the stage top (status / steps / identity). */
+  safeTop?: number;
+  /** Height of the control dock over the stage bottom. */
+  safeBottom?: number;
   showHint: boolean;
   hintText: string;
   onHintSeen: () => void;
+  accessibilityLabel?: string;
 }) {
   const {
     children,
-    onDoubleTap,
     stageW,
     stageH,
+    safeTop = 0,
+    safeBottom = 0,
     showHint,
     hintText,
     onHintSeen,
+    accessibilityLabel,
   } = props;
-  const [pos, setPos] = useState({ x: -1, y: -1 });
-  const posRef = useRef(pos);
-  posRef.current = pos;
-  const stageRefPip = useRef({ w: stageW, h: stageH });
-  stageRefPip.current = { w: stageW, h: stageH };
-  const onDoubleTapRef = useRef(onDoubleTap);
-  onDoubleTapRef.current = onDoubleTap;
+  const [corner, setCorner] = useState<PipCorner>("br");
+  /** Live finger position while dragging (null = parked at corner). */
+  const [drag, setDrag] = useState<{ x: number; y: number } | null>(null);
+
+  const bounds = pipBounds(stageW, stageH, PIP_W, PIP_H, safeTop, safeBottom);
+  const boundsRef = useRef(bounds);
+  boundsRef.current = bounds;
+  const cornerRef = useRef(corner);
+  cornerRef.current = corner;
+  const dragRef = useRef(drag);
+  dragRef.current = drag;
+  const onTapRef = useRef(props.onTap);
+  onTapRef.current = props.onTap;
+  const onDoubleTapRef = useRef(props.onDoubleTap);
+  onDoubleTapRef.current = props.onDoubleTap;
   const onHintSeenRef = useRef(onHintSeen);
   onHintSeenRef.current = onHintSeen;
-  const startRef = useRef({ px: 0, py: 0 });
-  const lastTap = useRef(0);
+  const startRef = useRef({ x: 0, y: 0 });
   const moved = useRef(false);
+  const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stageRef = useRef({ w: stageW, h: stageH });
+  stageRef.current = { w: stageW, h: stageH };
 
   useEffect(() => {
+    let alive = true;
     loadPipPrefs().then((p) => {
-      if (p && p.x >= 0 && p.y >= 0) setPos({ x: p.x, y: p.y });
+      if (!alive || !p) return;
+      if (p.corner) {
+        setCorner(p.corner);
+        return;
+      }
+      const { w, h } = stageRef.current;
+      const legacy = cornerFromLegacyXY(p.x, p.y, w, h, PIP_W, PIP_H);
+      if (legacy) setCorner(legacy);
     });
+    return () => {
+      alive = false;
+      if (tapTimer.current) clearTimeout(tapTimer.current);
+    };
   }, []);
 
-  const maxX = Math.max(8, stageW - PIP_W - 8);
-  const maxY = Math.max(8, stageH - PIP_H - 8);
-  const x = pos.x < 0 ? maxX : Math.min(maxX, Math.max(8, pos.x));
-  const y = pos.y < 0 ? maxY : Math.min(maxY, Math.max(8, pos.y));
+  const parked = cornerToPos(corner, bounds);
+  const pos = drag ? clampPip(drag.x, drag.y, bounds) : parked;
+
+  const fireTap = () => {
+    const dbl = onDoubleTapRef.current;
+    if (!dbl) {
+      onTapRef.current?.();
+      return;
+    }
+    if (tapTimer.current) {
+      clearTimeout(tapTimer.current);
+      tapTimer.current = null;
+      if (dbl() === false) onTapRef.current?.();
+      return;
+    }
+    tapTimer.current = setTimeout(() => {
+      tapTimer.current = null;
+      onTapRef.current?.();
+    }, PIP_DOUBLE_TAP_MS);
+  };
 
   const pan = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, g) =>
-        Math.abs(g.dx) > 3 || Math.abs(g.dy) > 3,
+      onMoveShouldSetPanResponder: () => true,
+      // Swipe-to-next / stage gestures must not steal a PiP drag.
+      onPanResponderTerminationRequest: () => false,
       onPanResponderGrant: () => {
         moved.current = false;
-        const { w, h } = stageRefPip.current;
-        const mx = Math.max(8, w - PIP_W - 8);
-        const my = Math.max(8, h - PIP_H - 8);
-        const cur = posRef.current;
-        startRef.current = {
-          px: cur.x < 0 ? mx : cur.x,
-          py: cur.y < 0 ? my : cur.y,
-        };
-        const now = Date.now();
-        if (now - lastTap.current < 280) {
-          onDoubleTapRef.current();
-          lastTap.current = 0;
-        } else {
-          lastTap.current = now;
-        }
+        startRef.current = cornerToPos(cornerRef.current, boundsRef.current);
       },
       onPanResponderMove: (_, g) => {
-        if (Math.abs(g.dx) > 4 || Math.abs(g.dy) > 4) moved.current = true;
-        const { w, h } = stageRefPip.current;
-        const mx = Math.max(8, w - PIP_W - 8);
-        const my = Math.max(8, h - PIP_H - 8);
-        const nx = Math.min(mx, Math.max(8, startRef.current.px + g.dx));
-        const ny = Math.min(my, Math.max(8, startRef.current.py + g.dy));
-        setPos({ x: nx, y: ny });
+        if (!moved.current && !isDragMove(g.dx, g.dy)) return;
+        moved.current = true;
+        setDrag({
+          x: startRef.current.x + g.dx,
+          y: startRef.current.y + g.dy,
+        });
       },
-      onPanResponderRelease: () => {
-        if (!moved.current) return;
-        const { w, h } = stageRefPip.current;
-        const cur = posRef.current;
-        const snapped = snapPipToCorner(
-          cur.x < 0 ? w - PIP_W - 8 : cur.x,
-          cur.y < 0 ? h - PIP_H - 8 : cur.y,
-          w,
-          h,
-          PIP_W,
-          PIP_H
+      onPanResponderRelease: (_, g) => {
+        if (!moved.current && !isDragMove(g.dx, g.dy)) {
+          setDrag(null);
+          fireTap();
+          return;
+        }
+        const b = boundsRef.current;
+        const cur = clampPip(
+          startRef.current.x + g.dx,
+          startRef.current.y + g.dy,
+          b
         );
-        setPos(snapped);
-        void savePipPrefs({ ...snapped, hintSeen: true });
+        const next = nearestCorner(cur.x, cur.y, PIP_W, PIP_H, b);
+        setCorner(next);
+        setDrag(null);
+        void savePipPrefs({ corner: next, hintSeen: true });
         onHintSeenRef.current();
+      },
+      onPanResponderTerminate: () => {
+        setDrag(null);
       },
     })
   ).current;
@@ -109,15 +159,23 @@ export function DraggablePip(props: {
     <View
       style={[
         styles.pip,
-        { left: x, top: y, right: undefined, bottom: undefined },
+        { left: pos.x, top: pos.y, right: undefined, bottom: undefined },
+        drag ? styles.pipDragging : null,
       ]}
       {...pan.panHandlers}
       collapsable={false}
+      accessible
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      onAccessibilityTap={() => onTapRef.current?.()}
+      testID="live-self-pip"
     >
       {children}
       {showHint ? (
         <View style={styles.pipHint} pointerEvents="none">
-          <Text style={styles.pipHintText}>{hintText}</Text>
+          <Text style={styles.pipHintText} numberOfLines={1}>
+            {hintText}
+          </Text>
         </View>
       ) : null}
     </View>
@@ -137,6 +195,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#12151c",
     zIndex: 8,
     elevation: 6,
+  },
+  pipDragging: {
+    borderColor: "rgba(255,255,255,0.7)",
+    opacity: 0.92,
   },
   pipHint: {
     position: "absolute",

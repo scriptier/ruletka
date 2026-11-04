@@ -53,6 +53,7 @@ import {
   shouldShowExtraRemoteTile3,
 } from "./stageStreams";
 import { VideoView } from "./VideoView";
+import { resolveSplitView, type StageViewPref } from "./pipLayout";
 import { flagEmoji } from "../identity/flagTrust";
 
 export type LiveStageVideoProps = {
@@ -198,6 +199,10 @@ export type LiveStageVideoProps = {
     retryPath?: string;
     focus: string;
     pipHint: string;
+    /** a11y: tap the self-view PiP → classic split screen */
+    splitView?: string;
+    /** a11y / chip: split screen → back to the small self-view */
+    pipView?: string;
     partnerMutedBadge?: string;
     theyMutedYouBadge?: string;
     longPressReport?: string;
@@ -254,6 +259,15 @@ export type LiveStageVideoProps = {
    * conversationalist. Partner RTCView stays full-stage (no remount).
    */
   browserDuo?: boolean;
+  /**
+   * Self-view mode the user picked (tap PiP → "split", tap you-half → "pip").
+   * null = legacy default (PiP while waiting; split when matched in browser).
+   */
+  stageView?: StageViewPref;
+  onSetStageView?: (view: "pip" | "split") => void;
+  /** Chrome heights over the stage (PiP never parks under them). */
+  pipSafeTop?: number;
+  pipSafeBottom?: number;
   onNext?: () => void;
   onStop?: () => void;
   onOpenFriends?: () => void;
@@ -605,6 +619,10 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
     onSwipeDropExtra,
     onSwipeStart,
     browserDuo: browserDuoPref = false,
+    stageView = null,
+    onSetStageView,
+    pipSafeTop = 0,
+    pipSafeBottom = 0,
     onNext,
     onStop,
     onOpenFriends,
@@ -916,20 +934,33 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
   // Hunt stays 1v1 full partner (status/toast only). Split only when a
   // 3rd tile exists (multiRemote / extras). wrapping on huntingThird
   // restyled remoteFill → overflow:hidden and tore SurfaceView (400 hunt FAIL).
-  const browserDuo =
-    !!browserDuoPref &&
-    phase === "matched" &&
-    (hasRemote || !!remoteStream) &&
-    !multiRemote &&
-    !huntingThird &&
-    extraPeerCount < 1;
+  // Classic split (partner | you) vs draggable self PiP — see pipLayout.ts.
+  const splitInputs = {
+    browserLayout: !!browserDuoPref,
+    phase: String(phase),
+    hasPartner: hasRemote || !!remoteStream,
+    multiRemote,
+    huntingThird: !!huntingThird,
+    extraPeerCount,
+    pipYou: stageLayout.pipYou,
+    hasSelf: !!localStream,
+  };
+  const browserDuo = resolveSplitView({ ...splitInputs, pref: stageView });
+  /** Tapping the PiP can open the split right now (1v1 only). */
+  const canSplit =
+    !!onSetStageView && resolveSplitView({ ...splitInputs, pref: "split" });
   const splitStage = multiRemote;
   // Always column for 3-way / 4-way (portrait and landscape). Row split was
   // landscape-only; user wants the same vertical stack when the phone is on its side.
   // Wrap-only restyle — do not remount live-first-remote.
   const useWideSplit = false;
   const outerStageStyle = !splitStage
-    ? styles.remoteFill
+    ? browserDuo
+      ? [
+          styles.remoteFill,
+          splitWide ? styles.duoPartnerHalfWide : styles.duoPartnerHalf,
+        ]
+      : styles.remoteFill
     : stageLayout.useGrid2x2
       ? styles.splitRemoteGrid2x2
       : useWideSplit
@@ -1058,6 +1089,8 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
         style={outerStageStyle}
         collapsable={false}
         onLayout={(e) => {
+          // Split shrinks this wrap to the partner half — not the stage size.
+          if (browserDuo) return;
           const { width, height } = e.nativeEvent.layout;
           onStageLayout(width, height);
         }}
@@ -1363,13 +1396,8 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
           !coverMainPartnerHide &&
           callTimerText ? (
             <View
-              style={[
-                styles.partnerCallTimerChip,
-                browserDuo &&
-                  (splitWide
-                    ? styles.partnerCallTimerChipDuoWide
-                    : styles.partnerCallTimerChipDuo),
-              ]}
+              // Split: partner tile is its own half now — default corner fits.
+              style={styles.partnerCallTimerChip}
               pointerEvents="none"
               collapsable={false}
               accessibilityRole="text"
@@ -1638,7 +1666,7 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
         Never unmount partner RTCView while veiled.
         1v1 + 3-way: PiP = you. 4-way: you is a stage tile, hide PiP.
       */}
-      {browserDuo && phase === "matched" ? (
+      {browserDuo && browserDuoPref && phase === "matched" ? (
         <View
           style={[
             styles.duoMatchCluster,
@@ -1694,9 +1722,16 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
         </View>
       ) : null}
       {browserDuo && (mountPipVideo || coverPip) && stageLayout.pipYou ? (
-        <View
+        <Pressable
           style={[styles.youTileDock, splitWide && styles.youTileDockWide]}
           testID="live-you-tile-dock"
+          onPress={() => {
+            if (!onSetStageView) return;
+            onHaptic();
+            onSetStageView("pip");
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={L.pipView || "Small window"}
         >
           {mountPipVideo ? (
             <VideoView
@@ -1704,29 +1739,78 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
               streamEpoch={0}
               mirror={displayPipMirror}
               style={styles.youTileVideo}
-              zOrder={pipZOrder}
+              // zOrder 0: split halves never overlap, and the browser dock /
+              // native bar (RN views) must paint above the self SurfaceView.
+              zOrder={0}
             />
           ) : null}
-        </View>
+          {pipBars && !swapViews ? (
+            <View
+              style={[styles.barsOnPip, styles.barsOnSplitTile]}
+              pointerEvents="none"
+            >
+              {pipFxKind === "fence" ? <FenceOverlay /> : <BarsOverlay />}
+            </View>
+          ) : null}
+          {!camOn && mountPipVideo && L.selfHiddenBadge ? (
+            <View style={styles.selfHiddenOverlay} pointerEvents="none">
+              <Text style={styles.selfHiddenBadge} numberOfLines={1}>
+                {L.selfHiddenBadge}
+              </Text>
+            </View>
+          ) : null}
+          {onSetStageView ? (
+            <Pressable
+              style={[
+                styles.splitToPipChip,
+                splitWide && { top: Math.max(8, pipSafeTop + 4) },
+              ]}
+              onPress={() => {
+                onHaptic();
+                onSetStageView("pip");
+              }}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel={L.pipView || "Small window"}
+              testID="live-split-to-pip"
+            >
+              <Ionicons name="contract-outline" size={16} color="#f0f3f8" />
+            </Pressable>
+          ) : null}
+        </Pressable>
       ) : null}
       {(mountPipVideo || coverPip) && stageLayout.pipYou && !browserDuo ? (
         <DraggablePip
           stageW={layoutW}
           stageH={layoutH}
+          safeTop={pipSafeTop}
+          safeBottom={pipSafeBottom}
           showHint={pipHint}
           hintText={L.pipHint}
           onHintSeen={onPipHintSeen}
-          onDoubleTap={() => {
-            if (multiRemote) return;
-            if (!hasRemote || !remoteHasVideo) return;
-            if (coverPipPartner && blurVeil) {
-              onHaptic();
-              blurVeil.onUnblur();
-              return;
-            }
-            onHaptic();
-            onSwapViews();
-          }}
+          accessibilityLabel={canSplit ? L.splitView : undefined}
+          onTap={
+            canSplit
+              ? () => {
+                  onHaptic();
+                  onPipHintSeen();
+                  onSetStageView?.("split");
+                }
+              : undefined
+          }
+          onDoubleTap={
+            multiRemote || !hasRemote || !remoteHasVideo
+              ? undefined
+              : () => {
+                  if (coverPipPartner && blurVeil) {
+                    onHaptic();
+                    blurVeil.onUnblur();
+                    return;
+                  }
+                  onHaptic();
+                  onSwapViews();
+                }
+          }
         >
           {mountPipVideo ? (
             <VideoView

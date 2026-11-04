@@ -418,6 +418,34 @@ export const liveStyles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
+  /** Classic split: partner wrap = top half (portrait) / left half (landscape). */
+  duoPartnerHalf: {
+    bottom: "50%",
+    height: "50%",
+  },
+  duoPartnerHalfWide: {
+    right: "50%",
+    width: "50%",
+  },
+  barsOnSplitTile: {
+    borderRadius: 0,
+  },
+  /** Split → back to the small draggable self-view. */
+  splitToPipChip: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    zIndex: 30,
+    elevation: 26,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(6, 10, 18, 0.62)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.28)",
+  },
   duoMatchCluster: {
     position: "absolute",
     right: 8,

@@ -1,11 +1,22 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+  parseCorner,
+  parseStageView,
+  type PipCorner,
+  type StageViewPref,
+} from "../live/pipLayout";
 
 const KEY = "ruletka-pip-prefs-v1";
 
 export type PipPrefs = {
+  /** Legacy absolute position (pre-corner builds); -1 = unset. */
   x: number;
   y: number;
   hintSeen: boolean;
+  /** Snapped corner for the self-view PiP. */
+  corner?: PipCorner | null;
+  /** Self-view mode: small draggable PiP or classic split screen. */
+  view?: StageViewPref;
 };
 
 export async function loadPipPrefs(): Promise<PipPrefs | null> {
@@ -17,21 +28,25 @@ export async function loadPipPrefs(): Promise<PipPrefs | null> {
       x: typeof j.x === "number" ? j.x : -1,
       y: typeof j.y === "number" ? j.y : -1,
       hintSeen: !!j.hintSeen,
+      corner: parseCorner(j.corner),
+      view: parseStageView(j.view),
     };
   } catch {
     return null;
   }
 }
 
-export async function savePipPrefs(p: PipPrefs): Promise<void> {
+/** Merge-write so corner / view / hint updates never clobber each other. */
+export async function savePipPrefs(p: Partial<PipPrefs>): Promise<void> {
   try {
-    await AsyncStorage.setItem(KEY, JSON.stringify(p));
+    const prev = (await loadPipPrefs()) || { x: -1, y: -1, hintSeen: false };
+    await AsyncStorage.setItem(KEY, JSON.stringify({ ...prev, ...p }));
   } catch {
     /* ignore */
   }
 }
 
-/** Snap to nearest corner with padding. */
+/** Snap to nearest corner with padding (kept for older callers). */
 export function snapPipToCorner(
   x: number,
   y: number,
