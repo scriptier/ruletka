@@ -949,6 +949,21 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
   /** Tapping the PiP can open the split right now (1v1 only). */
   const canSplit =
     !!onSetStageView && resolveSplitView({ ...splitInputs, pref: "split" });
+  /**
+   * When the split opens from a PiP tap, the same finger lands on the new
+   * "you" half (web ghost click / fast double-tap) — ignore presses briefly
+   * so it does not bounce straight back to the PiP.
+   */
+  const splitOpenedAt = useRef(0);
+  const wasSplit = useRef(browserDuo);
+  if (browserDuo && !wasSplit.current) splitOpenedAt.current = Date.now();
+  wasSplit.current = browserDuo;
+  const backToPip = () => {
+    if (!onSetStageView) return;
+    if (Date.now() - splitOpenedAt.current < 450) return;
+    onHaptic();
+    onSetStageView("pip");
+  };
   const splitStage = multiRemote;
   // Always column for 3-way / 4-way (portrait and landscape). Row split was
   // landscape-only; user wants the same vertical stack when the phone is on its side.
@@ -1725,11 +1740,7 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
         <Pressable
           style={[styles.youTileDock, splitWide && styles.youTileDockWide]}
           testID="live-you-tile-dock"
-          onPress={() => {
-            if (!onSetStageView) return;
-            onHaptic();
-            onSetStageView("pip");
-          }}
+          onPress={backToPip}
           accessibilityRole="button"
           accessibilityLabel={L.pipView || "Small window"}
         >
@@ -1765,10 +1776,7 @@ export function LiveStageVideo(props: LiveStageVideoProps) {
                 styles.splitToPipChip,
                 splitWide && { top: Math.max(8, pipSafeTop + 4) },
               ]}
-              onPress={() => {
-                onHaptic();
-                onSetStageView("pip");
-              }}
+              onPress={backToPip}
               hitSlop={10}
               accessibilityRole="button"
               accessibilityLabel={L.pipView || "Small window"}
