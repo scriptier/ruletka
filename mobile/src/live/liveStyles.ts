@@ -388,7 +388,7 @@ export const liveStyles = StyleSheet.create({
   /**
    * Browser 1v1: you as a real second TILE.
    * Portrait: bottom half. Landscape: right half.
-   * Partner RTCView stays full-stage underneath (no remount).
+   * Partner wrap shrinks to the other half (duoPartnerHalf*); same RTCView, no remount.
    */
   youTileDock: {
     position: "absolute",
