@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# LEGACY first-install / bootstrap path. For normal releases use
+#   scripts/deploy.sh   (backup, hub-first, caddy validate, smoke, auto-rollback)
+# push.sh builds the bridge on THIS machine; prod needs a binary linked against
+# Ubuntu 24.04 glibc 2.39 / OpenSSL 3.0 (build on the Grok box, not omarchy).
+#
 # Build + upload + install to DigitalOcean droplet.
 # Usage:
 #   ./scripts/deploy/push.sh
@@ -188,10 +193,16 @@ EOF
 fi
 
 echo "Uploading to $HOST:/opt/ruletka (bin/ui/deploy only — data & backups preserved)…"
-"${SSH[@]}" "$HOST" 'mkdir -p /opt/ruletka/{bin,ui,deploy,data,backups} && apt-get update -qq && apt-get install -y -qq rsync >/dev/null || true'
-# Sync only code/UI/deploy. --delete is safe inside these dirs; never touch data/ or backups/.
-rsync -az --delete -e "$RSYNC_SSH" "$STAGE/bin/"    "$HOST:/opt/ruletka/bin/"
-rsync -az --delete -e "$RSYNC_SSH" "$STAGE/ui/"     "$HOST:/opt/ruletka/ui/"
+# No apt-get here: the droplet's Caddy cloudsmith repo answers 402 and broke
+# `apt-get update`; rsync is already installed on the server.
+"${SSH[@]}" "$HOST" 'mkdir -p /opt/ruletka/{bin,ui,deploy,data,backups} && command -v rsync >/dev/null'
+# Sync only code/UI/deploy; never touch data/ or backups/.
+# NO --delete on bin/ or ui/: --delete on bin/ wiped setup-turns-tls.sh (TURNS
+# dead Oct 13 -> Nov 4), and on ui/ it would drop the server-only files
+# (APKs in ui/download, download/archive/, livekit-media.js, i18n/.mt-cache/).
+rsync -az -e "$RSYNC_SSH" "$STAGE/bin/"    "$HOST:/opt/ruletka/bin/"
+rsync -az -e "$RSYNC_SSH" "$STAGE/ui/"     "$HOST:/opt/ruletka/ui/"
+# deploy/ only holds files from this repo, so mirroring it is fine.
 rsync -az --delete -e "$RSYNC_SSH" "$STAGE/deploy/" "$HOST:/opt/ruletka/deploy/"
 # Seed empty friends.json ONLY if production has none (first install).
 "${SSH[@]}" "$HOST" 'if [[ ! -f /opt/ruletka/data/friends.json ]]; then echo "{}" >/opt/ruletka/data/friends.json; chown ruletka:ruletka /opt/ruletka/data/friends.json 2>/dev/null || true; echo "seeded empty friends.json"; fi'

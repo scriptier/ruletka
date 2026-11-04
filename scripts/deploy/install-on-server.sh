@@ -12,18 +12,31 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -y
-apt-get install -y curl ca-certificates ufw
 
-# Caddy (official repo)
-if ! command -v caddy >/dev/null 2>&1; then
-  apt-get install -y debian-keyring debian-archive-keyring apt-transport-https
-  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
-    | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
-    | tee /etc/apt/sources.list.d/caddy-stable.list
-  apt-get update -y
-  apt-get install -y caddy
+# apt-get update that survives a broken third-party repo. The Caddy cloudsmith
+# repo (sources.list.d/caddy-stable.list) started answering 402 Payment
+# Required, which makes plain `apt-get update` exit non-zero under set -e.
+# On failure, retry with only the Ubuntu sources (a temp sourceparts dir
+# without the caddy list; ubuntu.sources itself lives in sources.list.d).
+apt_update() {
+  if apt-get update -y; then return 0; fi
+  echo "WARN: apt-get update failed; retrying without third-party repos (caddy cloudsmith)" >&2
+  local parts; parts="$(mktemp -d)"
+  find /etc/apt/sources.list.d -maxdepth 1 -type f \( -name '*.sources' -o -name '*.list' \) \
+    ! -name 'caddy-stable.list' -exec cp -a {} "$parts/" \;
+  apt-get update -y -o Dir::Etc::sourceparts="$parts" || echo "WARN: apt-get update still failing; using cached lists" >&2
+  rm -rf "$parts"
+}
+
+NEED=()
+for p in curl ca-certificates ufw; do
+  dpkg -s "$p" >/dev/null 2>&1 || NEED+=("$p")
+done
+if ! command -v caddy >/dev/null 2>&1; then NEED+=(caddy); fi
+if [[ ${#NEED[@]} -gt 0 ]]; then
+  apt_update
+  # Caddy: Ubuntu 24.04 ships a caddy package; no cloudsmith repo needed.
+  apt-get install -y "${NEED[@]}"
 fi
 
 id -u ruletka >/dev/null 2>&1 || useradd --system --home "$APP_DIR" --shell /usr/sbin/nologin ruletka
