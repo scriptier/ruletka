@@ -25,15 +25,11 @@
     home_invite_pack_live: 1,
     friend_nudge_show: 1,
     friend_nudge_accept: 1,
-    start_match: 1,
-    friend_call_place: 1,
-    friend_online_toast_call: 1,
-    // Core product health (admin glance / DayMetrics)
-    app_open: 1,
-    match: 1,
-    match_ok: 1,
-    match_fail_ice: 1,
-    match_summary: 1,
+    // Only events the hub's metrics_inc_funnel() accepts (bridge/src/simple.rs).
+    // Anything else got 400 "unknown event" on every page load (app_open,
+    // start_match, match*, friend_call_place, friend_online_toast_call).
+    // Those stay in the local ring + YM/GA; add them here only after the hub
+    // counts them.
   };
 
   function todayKey() {
