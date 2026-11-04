@@ -149,7 +149,8 @@ import {
   tickReconnect,
   type ReconnectSnap,
 } from "../src/media/partnerReconnect";
-import { loadPipPrefs } from "../src/media/pipPrefs";
+import { loadPipPrefs, savePipPrefs } from "../src/media/pipPrefs";
+import type { StageViewPref } from "../src/live/pipLayout";
 import { useAutoConnectRetry } from "../src/media/useAutoConnectRetry";
 import { useNetworkMediaPolicy } from "../src/media/useNetworkMediaPolicy";
 import {
@@ -829,6 +830,18 @@ function LiveBody() {
   /** Adaptive outbound quality label (high|mid|low|min). */
   const [qualityTier, setQualityTier] = useState("");
   const [swapViews, setSwapViews] = useState(false);
+  /** Self-view: draggable PiP or classic split (remembered, pipPrefs.view). */
+  const [stageView, setStageView] = useState<StageViewPref>(null);
+  const chooseStageView = useCallback((view: "pip" | "split") => {
+    setStageView(view);
+    // Split always shows partner | you — drop any PiP swap.
+    if (view === "split") setSwapViews(false);
+    void savePipPrefs({ view, hintSeen: true });
+  }, []);
+  /** Chrome over the stage — the self PiP never parks underneath. */
+  const [stageTopChromeH, setStageTopChromeH] = useState(0);
+  const [matchTopChromeH, setMatchTopChromeH] = useState(0);
+  const [bottomDockH, setBottomDockH] = useState(0);
   const [stageSize, setStageSize] = useState({ w: 320, h: 480 });
   // Follow physical rotate (app.json default + manifest fullUser).
   // LiveStageVideo also listens; keep parent stageW/H in sync so chrome reflows.
@@ -2361,6 +2374,7 @@ function LiveBody() {
     });
     loadPipPrefs().then((p) => {
       if (p?.hintSeen) setPipHint(false);
+      if (p?.view) setStageView(p.view);
     });
     void preloadUiSounds();
 
@@ -8020,6 +8034,16 @@ function LiveBody() {
           // only — matchMode party_browse alone must not stick after cancel.
           // Matched + party_browse sets huntingWithPartner; remote2/3 ends it.
           browserDuo={isBrowserLayout}
+          stageView={stageView}
+          onSetStageView={chooseStageView}
+          pipSafeTop={Math.min(
+            stageSize.h * 0.4,
+            Math.max(
+              insets.top,
+              uiPhase === "matched" ? matchTopChromeH : stageTopChromeH
+            )
+          )}
+          pipSafeBottom={isBrowserLayout ? bottomDockH : 0}
           onNext={next}
           onStop={stop}
           onOpenFriends={() => {
@@ -8156,6 +8180,8 @@ function LiveBody() {
             retryPath: t("mobile.live.retryPath"),
             focus: t("mobile.live.focus"),
             pipHint: t("mobile.live.pipHint"),
+            splitView: t("mobile.live.splitView") || "Split screen",
+            pipView: t("mobile.live.pipView") || "Small window",
             // Mute badges unused in LiveStageVideo (void'd) — mid-stage 🔇 only
             longPressReport: t("mobile.live.longPressReport"),
             selfHiddenBadge:
@@ -8275,6 +8301,11 @@ function LiveBody() {
               : null,
           ]}
           pointerEvents="box-none"
+          onLayout={(e) => {
+            const { y, height } = e.nativeEvent.layout;
+            const h = Math.round(y + height);
+            setStageTopChromeH((prev) => (prev === h ? prev : h));
+          }}
         >
           <View pointerEvents="box-none">
             {/*
@@ -8640,6 +8671,10 @@ function LiveBody() {
         <View
           pointerEvents="box-none"
           collapsable={false}
+          onLayout={(e) => {
+            const h = Math.round(e.nativeEvent.layout.height);
+            setMatchTopChromeH((prev) => (prev === h ? prev : h));
+          }}
           style={{
             position: "absolute",
             top: 0,
@@ -8843,6 +8878,10 @@ function LiveBody() {
               ]
             : [styles.bar, { paddingBottom: Math.max(insets.bottom, 10) }]
         }
+        onLayout={(e) => {
+          const h = Math.round(e.nativeEvent.layout.height);
+          setBottomDockH((prev) => (prev === h ? prev : h));
+        }}
       >
         {/* Call timer is on partner video (bottom-left), not above Stop bar */}
         <LiveBottomBar
@@ -8850,9 +8889,11 @@ function LiveBody() {
           hideIdleStart={!friendsOnly}
           searchArmed={searchArmed}
           hideSearchControls={
+            // Split owns Next/Stop on the partner half; PiP mode keeps the dock.
             isBrowserLayout &&
             uiPhase === "matched" &&
-            extraPeers.length < 1
+            extraPeers.length < 1 &&
+            stageView !== "pip"
           }
           friendsOnly={friendsOnly}
           isFriendCall={isFriendCall}
