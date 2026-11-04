@@ -371,6 +371,11 @@ pub struct SimpleHub {
     /// sender user_id → stranger-chat grooming hits (unix secs, last 7 days).
     /// Internal flag only (memory; each hit is also in safety-logs.jsonl).
     chat_grooming_flags: HashMap<String, Vec<u64>>,
+    /// target_user_id → underage reports in the last 7 days (memory only; a
+    /// restart forgets the count, the hold/ban itself is in `match_bans`).
+    underage_reports: HashMap<String, Vec<UnderageReport>>,
+    /// target_user_id → `explicit_ai` report times in the last 7 days (memory only).
+    explicit_ai_hits: HashMap<String, Vec<u64>>,
     /// In-memory ring of recent matches for admin (not persisted across restart).
     recent_matches: VecDeque<serde_json::Value>,
     /// Connect forensics ring (match/offer/answer/ice/drop) for admin live monitor.
@@ -625,6 +630,75 @@ fn hex_short(bytes: &[u8]) -> String {
         })
 }
 
+/// One underage report kept for the 7-day window (memory only).
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct UnderageReport {
+    reporter_uid: String,
+    /// Same-LAN dedupe key (`net:<ipv4 /24>` or `uid:<id>`), see `reporter_cluster_key`.
+    cluster: String,
+    /// Reporter has ★≥5 or praise from 2+ people (`reporter_counts_toward_ban`).
+    established: bool,
+    at: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UnderageAction {
+    /// Short match pause + mod review (one report is not enough to ban).
+    Hold,
+    /// Full underage ban (30 days).
+    Ban,
+}
+
+/// Underage report window: reports older than this do not add up.
+const UNDERAGE_WINDOW_SECS: u64 = 7 * 24 * 3600;
+/// Match pause after an underage report that is not (yet) a ban.
+const UNDERAGE_HOLD_SECS: u64 = 24 * 3600;
+/// Points needed for a ban: established reporter = 2, low-star reporter = 1.
+/// So 2 established people, or 1 established + 2 low-star, or 4 low-star.
+const UNDERAGE_BAN_POINTS: u32 = 4;
+/// …and they must come from at least this many different networks/people.
+const UNDERAGE_BAN_CLUSTERS: usize = 2;
+
+/// Decide what the latest underage report does to the target.
+///
+/// - Reports outside the 7-day window are ignored.
+/// - Same-LAN reporters (same cluster) count once, using the best one.
+/// - Low-star reporters count half (1 point instead of 2).
+/// - Ban when enough points from 2+ clusters, or when there is at least one
+///   underage report and the target also had an `explicit_ai` hit in the window
+///   (a minor on camera with nudity: no waiting for a second person).
+/// - Otherwise: hold.
+///
+/// Returns (action, clusters counted, points).
+fn underage_action(
+    reports: &[UnderageReport],
+    explicit_ai_recent: bool,
+    now: u64,
+) -> (UnderageAction, usize, u32) {
+    let mut best: HashMap<&str, u32> = HashMap::new();
+    for r in reports {
+        if now.saturating_sub(r.at) >= UNDERAGE_WINDOW_SECS {
+            continue;
+        }
+        let pts = if r.established { 2 } else { 1 };
+        let slot = best.entry(r.cluster.as_str()).or_insert(0);
+        *slot = (*slot).max(pts);
+    }
+    let clusters = best.len();
+    let points: u32 = best.values().sum();
+    let ban = (clusters >= UNDERAGE_BAN_CLUSTERS && points >= UNDERAGE_BAN_POINTS)
+        || (clusters >= 1 && explicit_ai_recent);
+    (
+        if ban {
+            UnderageAction::Ban
+        } else {
+            UnderageAction::Hold
+        },
+        clusters,
+        points,
+    )
+}
+
 /// Empty / anon / ellipsis / literal "Partner" / 6–12 hex (peer short id paint).
 fn is_placeholder_display_name(raw: &str) -> bool {
     let s = raw.trim();
@@ -757,6 +831,8 @@ impl SimpleHub {
             user_last_ip: stored.user_last_ip,
             report_recent: HashMap::new(),
             chat_grooming_flags: HashMap::new(),
+            underage_reports: HashMap::new(),
+            explicit_ai_hits: HashMap::new(),
             recent_matches: VecDeque::new(),
             connect_events: VecDeque::new(),
             dms: stored.dms,
@@ -3256,7 +3332,8 @@ impl SimpleHub {
     const REPORT_PERMANENT_MIN_REPORTERS: usize = 3;
 
     /// Severity → (score needed, ban duration secs).
-    /// Underage: single report → long restriction (safety priority).
+    /// Underage: 30 days, but only via `underage_action` (2+ independent
+    /// reporters, or 1 report + explicit_ai). A single report is a 24h hold.
     /// Explicit: 3 independent reporters → 90 days (was 2 weighted / easy brigade).
     /// Permanent only via multi-reporter escalate or admin — not stream raids.
     fn report_severity(reason: &str) -> (usize, u64) {
@@ -3320,6 +3397,62 @@ impl SimpleHub {
     const REPORT_MIN_WALLET_STARS: u64 = 5;
     /// Distinct gifters needed for praise to count as a ban vote (one friend ≠ vote).
     const REPORT_MIN_GIFTERS: u32 = 2;
+
+    /// Record an underage report (one entry per reporter, refreshed on repeat)
+    /// and decide hold vs ban. See `underage_action`.
+    fn note_underage_report(
+        &mut self,
+        target_uid: &str,
+        reporter_uid: &str,
+        now: u64,
+    ) -> (UnderageAction, usize, u32) {
+        let cluster = self.reporter_cluster_key(reporter_uid);
+        let established = self.reporter_counts_toward_ban(reporter_uid, false);
+        let explicit_ai_recent = self.explicit_ai_recent(target_uid, now);
+        let list = self.underage_reports.entry(target_uid.to_string()).or_default();
+        list.retain(|r| now.saturating_sub(r.at) < UNDERAGE_WINDOW_SECS);
+        if let Some(r) = list.iter_mut().find(|r| r.reporter_uid == reporter_uid) {
+            r.cluster = cluster;
+            r.established = established;
+            r.at = now;
+        } else {
+            list.push(UnderageReport {
+                reporter_uid: reporter_uid.to_string(),
+                cluster,
+                established,
+                at: now,
+            });
+        }
+        if list.len() > 64 {
+            let drop = list.len() - 64;
+            list.drain(..drop);
+        }
+        underage_action(list, explicit_ai_recent, now)
+    }
+
+    fn note_explicit_ai_hit(&mut self, target_uid: &str, now: u64) {
+        let hits = self.explicit_ai_hits.entry(target_uid.to_string()).or_default();
+        hits.retain(|t| now.saturating_sub(*t) < UNDERAGE_WINDOW_SECS);
+        hits.push(now);
+        if hits.len() > 64 {
+            let drop = hits.len() - 64;
+            hits.drain(..drop);
+        }
+    }
+
+    fn explicit_ai_recent(&self, target_uid: &str, now: u64) -> bool {
+        self.explicit_ai_hits
+            .get(target_uid)
+            .map(|h| h.iter().any(|t| now.saturating_sub(*t) < UNDERAGE_WINDOW_SECS))
+            .unwrap_or(false)
+    }
+
+    fn underage_report_recent(&self, target_uid: &str, now: u64) -> bool {
+        self.underage_reports
+            .get(target_uid)
+            .map(|l| l.iter().any(|r| now.saturating_sub(r.at) < UNDERAGE_WINDOW_SECS))
+            .unwrap_or(false)
+    }
 
     /// Established reporter: peer praise from ≥2 gifters, **or** wallet ★ ≥ 5.
     /// 0★ unpraised / 1★ throwaway / one-friend praise → no non-underage vote.
@@ -8165,6 +8298,38 @@ impl SimpleHub {
         let score_ok = report_score as usize >= effective_threshold;
         // Only ★/praised reporters count toward the 3-person bar (not anons).
         let diversity_ok = counting_reps >= min_reps;
+        // Underage (2026-11-03): one report = 24h match hold + mod review, not
+        // a 30-day ban. 30 days needs 2+ independent reporters in 7 days
+        // (same-LAN once, low-star counts half) or 1 report + explicit_ai.
+        let mut underage_hold = false;
+        let mut underage_info = serde_json::Value::Null;
+        // explicit_ai on someone already reported underage → underage ban now.
+        let mut ai_underage_combo = false;
+        let (score_ok, diversity_ok) = if is_underage {
+            let (action, clusters, points) =
+                self.note_underage_report(&user_id, &reporter.0, now_unix);
+            underage_info = serde_json::json!({
+                "action": if action == UnderageAction::Ban { "ban" } else { "hold" },
+                "clusters_7d": clusters,
+                "points_7d": points,
+                "points_needed": UNDERAGE_BAN_POINTS,
+                "explicit_ai_7d": self.explicit_ai_recent(&user_id, now_unix),
+            });
+            if action == UnderageAction::Hold {
+                underage_hold = true;
+                ban_secs = UNDERAGE_HOLD_SECS;
+            }
+            (true, true)
+        } else {
+            if is_ai {
+                self.note_explicit_ai_hit(&user_id, now_unix);
+                if self.underage_report_recent(&user_id, now_unix) {
+                    ai_underage_combo = true;
+                    ban_secs = ban_secs.max(Self::report_severity("underage").1);
+                }
+            }
+            (score_ok || ai_underage_combo, diversity_ok || ai_underage_combo)
+        };
         let mut banned = false;
         let mut escalate_permanent = false;
         let mut ban_until: u64 = 0;
@@ -8191,7 +8356,10 @@ impl SimpleHub {
                 banned = true;
                 ban_until = until;
                 // Strip some ★ / trust so banned accounts don't keep Senior power
-                self.clawback_on_ban(&user_id, &reason_s);
+                // (not for a one-report underage hold — that is only a pause).
+                if !underage_hold {
+                    self.clawback_on_ban(&user_id, &reason_s);
+                }
                 tracing::warn!(
                     target = %user_id,
                     reporters = counting_reps,
@@ -8205,6 +8373,8 @@ impl SimpleHub {
                     permanent = escalate_permanent,
                     raid_spike,
                     recent_n,
+                    underage_hold,
+                    ai_underage_combo,
                     "auto match-ban after independent reports"
                 );
                 let short = if user_id.len() > 14 {
@@ -8213,7 +8383,13 @@ impl SimpleHub {
                     user_id.clone()
                 };
                 self.fire_mod_webhook(serde_json::json!({
-                    "event": if raid_spike { "auto_ban_raid" } else { "auto_ban" },
+                    "event": if underage_hold {
+                        "underage_hold"
+                    } else if raid_spike {
+                        "auto_ban_raid"
+                    } else {
+                        "auto_ban"
+                    },
                     "text": format!(
                         "ruletka auto-ban: {short} reason={reason_s} score={report_score}/{effective_threshold} reporters={report_count} ban_secs={ban_secs} raid={raid_spike}"
                     ),
@@ -8238,6 +8414,8 @@ impl SimpleHub {
                     "last_reporter_applied_weight": applied_weight,
                     "last_reporter_stars": reporter_stars,
                     "mutual_feud": mutual_feud,
+                    "underage": underage_info.clone(),
+                    "underage_explicit_ai_combo": ai_underage_combo,
                 }));
             }
         } else if raid_spike && score_ok && !diversity_ok {
@@ -8296,7 +8474,10 @@ impl SimpleHub {
             "ai_assisted": is_ai,
             "raid_spike": raid_spike,
             "recent_reports_window": recent_n,
-            "auto_banned": banned,
+            "auto_banned": banned && !underage_hold,
+            "underage_hold": banned && underage_hold,
+            "underage": underage_info,
+            "underage_explicit_ai_combo": ai_underage_combo,
             "permanent": escalate_permanent,
             "ban_secs": if banned { ban_secs } else { 0 },
             "until": ban_until,
@@ -8325,7 +8506,9 @@ impl SimpleHub {
             }
         }
         self.metrics_inc_report();
-        let status_msg = if banned && escalate_permanent {
+        let status_msg = if banned && underage_hold {
+            "report received — user paused while we review"
+        } else if banned && escalate_permanent {
             "report received — user permanently restricted"
         } else if banned && raid_spike {
             "report received — user restricted (short; raid-like spike)"
@@ -8350,7 +8533,7 @@ impl SimpleHub {
             id,
             ServerMsg::ReportResult {
                 ok: true,
-                auto_banned: banned,
+                auto_banned: banned && !underage_hold,
                 reporter_weight,
                 applied_weight,
                 report_score,
@@ -11288,6 +11471,137 @@ mod safety_log_hub_tests {
         );
         assert!(hub.report_reporters.is_empty());
         assert!(hub.match_bans.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod underage_decision_tests {
+    use super::{underage_action, UnderageAction, UnderageReport, UNDERAGE_WINDOW_SECS};
+
+    const NOW: u64 = 1_800_000_000;
+
+    fn rep(uid: &str, cluster: &str, established: bool, ago: u64) -> UnderageReport {
+        UnderageReport {
+            reporter_uid: uid.into(),
+            cluster: cluster.into(),
+            established,
+            at: NOW - ago,
+        }
+    }
+
+    #[test]
+    fn one_report_is_a_hold() {
+        let r = [rep("a", "net:1.2.3", true, 0)];
+        assert_eq!(underage_action(&r, false, NOW).0, UnderageAction::Hold);
+    }
+
+    #[test]
+    fn two_established_from_two_networks_ban() {
+        let r = [rep("a", "net:1.2.3", true, 3600), rep("b", "net:5.6.7", true, 0)];
+        assert_eq!(underage_action(&r, false, NOW), (UnderageAction::Ban, 2, 4));
+    }
+
+    #[test]
+    fn same_lan_counts_once() {
+        let r = [rep("a", "net:1.2.3", true, 60), rep("b", "net:1.2.3", true, 0)];
+        assert_eq!(underage_action(&r, false, NOW), (UnderageAction::Hold, 1, 2));
+    }
+
+    #[test]
+    fn low_star_reporters_count_half() {
+        let two_low = [rep("a", "uid:a", false, 0), rep("b", "uid:b", false, 0)];
+        assert_eq!(underage_action(&two_low, false, NOW).0, UnderageAction::Hold);
+        let mixed = [
+            rep("a", "net:1.2.3", true, 0),
+            rep("b", "uid:b", false, 0),
+            rep("c", "uid:c", false, 0),
+        ];
+        assert_eq!(underage_action(&mixed, false, NOW).0, UnderageAction::Ban);
+        let one_est_one_low = [rep("a", "net:1.2.3", true, 0), rep("b", "uid:b", false, 0)];
+        assert_eq!(
+            underage_action(&one_est_one_low, false, NOW),
+            (UnderageAction::Hold, 2, 3)
+        );
+    }
+
+    #[test]
+    fn reports_older_than_a_week_do_not_add_up() {
+        let r = [
+            rep("a", "net:1.2.3", true, UNDERAGE_WINDOW_SECS + 1),
+            rep("b", "net:5.6.7", true, 0),
+        ];
+        assert_eq!(underage_action(&r, false, NOW), (UnderageAction::Hold, 1, 2));
+    }
+
+    #[test]
+    fn one_report_plus_explicit_ai_bans() {
+        let r = [rep("a", "uid:a", false, 0)];
+        assert_eq!(underage_action(&r, true, NOW).0, UnderageAction::Ban);
+        assert_eq!(underage_action(&[], true, NOW).0, UnderageAction::Hold);
+    }
+}
+
+#[cfg(test)]
+mod underage_hub_tests {
+    use super::{ClientMsg, LimitConfig, SimpleHub, UNDERAGE_HOLD_SECS};
+    use tokio::sync::mpsc;
+    use uuid::Uuid;
+
+    fn hub() -> (SimpleHub, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("ruletka-underage-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let hub = SimpleHub::with_limits_and_store(LimitConfig::default(), dir.join("friends.json"));
+        (hub, dir)
+    }
+
+    fn client(hub: &mut SimpleHub, ip: &str) -> Uuid {
+        let (tx, rx) = mpsc::unbounded_channel();
+        std::mem::forget(rx);
+        let id = Uuid::new_v4();
+        hub.try_add_client(id, tx, ip.into()).expect("client");
+        id
+    }
+
+    fn report(hub: &mut SimpleHub, id: Uuid, target: &str, reason: &str) {
+        hub.handle(
+            id,
+            ClientMsg::ReportUser {
+                user_id: target.into(),
+                reason: reason.into(),
+                screenshot_jpeg_b64: String::new(),
+            },
+        );
+    }
+
+    #[test]
+    fn single_underage_report_is_a_24h_hold_then_explicit_ai_bans() {
+        let (mut hub, dir) = hub();
+        let target = "ffffeeeeccccdddd";
+        let a = client(&mut hub, "203.0.113.10");
+        let now = SimpleHub::now_unix();
+        report(&mut hub, a, target, "underage");
+        let until = *hub.match_bans.get(target).expect("hold");
+        assert!(until <= now + UNDERAGE_HOLD_SECS + 5, "hold, not 30 days");
+        assert!(until >= now + UNDERAGE_HOLD_SECS - 5);
+
+        let b = client(&mut hub, "198.51.100.8");
+        report(&mut hub, b, target, "explicit_ai");
+        let until = *hub.match_bans.get(target).expect("ban");
+        assert!(until >= now + 29 * 24 * 3600, "underage + explicit_ai → 30 days");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn same_reporter_twice_stays_a_hold() {
+        let (mut hub, dir) = hub();
+        let target = "aaaabbbbccccdddd";
+        let a = client(&mut hub, "203.0.113.10");
+        let now = SimpleHub::now_unix();
+        report(&mut hub, a, target, "underage");
+        report(&mut hub, a, target, "underage");
+        let until = *hub.match_bans.get(target).expect("hold");
+        assert!(until <= now + UNDERAGE_HOLD_SECS + 5);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
