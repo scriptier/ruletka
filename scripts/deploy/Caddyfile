@@ -94,6 +94,13 @@ ruletka.vip, ruletka.me {
 		header Cache-Control "no-store, no-cache, must-revalidate"
 	}
 
+	# On-device NSFW filter (tfjs / nsfwjs / model weights). Folder names carry
+	# versions (ui/vendor/nsfw/*-<ver>/), so long cache is safe. ~8 MB, loaded once.
+	handle /vendor/* {
+		reverse_proxy 127.0.0.1:8790
+		header Cache-Control "public, max-age=2592000"
+	}
+
 	# Brand media (video loops) — medium cache
 	@media {
 		path /brand/*
