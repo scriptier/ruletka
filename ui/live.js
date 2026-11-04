@@ -493,8 +493,17 @@ let nsfwTimer = 0;
 let nsfwHitCooldown = false;
 /** Bumps on every stop/start so a late model load cannot mark safety on. */
 let nsfwWatchGen = 0;
-/** Cached: weak GPU / Safari Iris — skip canvas FX + NSFW WebGL. */
+/** Cached: weak GPU / Safari Iris / reduced motion — skip canvas FX only. */
 let _fxLite = null;
+/**
+ * Hardware part of fxLite (weak / software GPU, Safari with no renderer).
+ * Reduced motion is not in here. The NSFW filter reads this to pick a slower
+ * scan interval; it never turns the filter off.
+ */
+let _fxLiteHw = false;
+/** WebGL probe from isFxLite(): any context at all, and the renderer string. */
+let _fxHasGl = false;
+let _fxGlRenderer = "";
 
 /**
  * Intel Iris / UHD / software GL + Safari-with-no-renderer.
@@ -515,6 +524,7 @@ function isFxLite() {
       c.getContext("webgl") ||
       c.getContext("experimental-webgl");
     if (gl) {
+      _fxHasGl = true;
       const ext = gl.getExtension("WEBGL_debug_renderer_info");
       if (ext) {
         renderer = String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || "");
@@ -539,6 +549,8 @@ function isFxLite() {
       renderer
     );
   const safariBlind = safari && /Macintosh/i.test(ua) && !renderer;
+  _fxGlRenderer = renderer;
+  _fxLiteHw = !discrete && !!(weakChip || safariBlind || !_fxHasGl);
   // Discrete GPU wins over Windows "Animation effects off" (reduce-motion).
   _fxLite = discrete ? false : !!(weakChip || safariBlind || reduceMotion);
   try {
@@ -1066,6 +1078,8 @@ function peelIntroBlurOnFrames() {
     if (!introBlurPending) return false;
     if (!matched || !partnerBlurred) return false;
     if (strangerKeepsBlurUntilUnblur()) return false;
+    // NSFW filter wanted but not scanning yet: stay blurred (startNsfwWatch re-peels)
+    if (nsfwGuardHoldsBlur()) return false;
     let frames = false;
     try {
       frames = !!(
@@ -1152,6 +1166,8 @@ function applyStrangerIntroBlur() {
     if (!matched) return;
     if (strangerKeepsBlurUntilUnblur()) return;
     if (!partnerBlurred) return; // user already unblurred
+    // NSFW filter still loading / failed: keep blur (startNsfwWatch re-peels when ready)
+    if (nsfwGuardHoldsBlur()) return;
     introBlurPending = false;
     setPartnerBlur(false);
     log(_t("log.blurIntroDone") || "partner unblurred");
@@ -27775,57 +27791,177 @@ function nsfwAutoEnabled() {
   return prefs.nsfwAuto !== false; // default ON
 }
 
+/**
+ * Filter files. Same-origin copies in ui/vendor/nsfw (scripts/vendor-nsfw.sh)
+ * load first; jsDelivr is the fallback only. nsfwjs 2.4.2's built-in default
+ * model host (cloudfront) is gone, so the model URL is always passed in.
+ */
+const NSFW_SOURCES = [
+  {
+    name: "local",
+    tf: "/vendor/nsfw/tfjs-4.22.0/tf.min.js",
+    wasm: "/vendor/nsfw/tfjs-backend-wasm-4.22.0/tf-backend-wasm.min.js",
+    wasmDir: "/vendor/nsfw/tfjs-backend-wasm-4.22.0/",
+    nsfwjs: "/vendor/nsfw/nsfwjs-2.4.2/nsfwjs.min.js",
+    model: "/vendor/nsfw/model/quant_nsfw_mobilenet-v2.4.1/",
+  },
+  {
+    name: "cdn",
+    tf: "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js",
+    wasm: "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@4.22.0/dist/tf-backend-wasm.min.js",
+    wasmDir: "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@4.22.0/dist/",
+    nsfwjs: "https://cdn.jsdelivr.net/npm/nsfwjs@2.4.2/dist/nsfwjs.min.js",
+    model:
+      "https://cdn.jsdelivr.net/gh/infinitered/nsfwjs@v2.4.1/example/nsfw_demo/public/quant_nsfw_mobilenet/",
+  },
+];
+/** Scan interval: normal devices / weak or software GPU (_fxLiteHw). */
+const NSFW_SCAN_MS = 2200;
+const NSFW_SCAN_LITE_MS = 6000;
+/** Act (report + block + skip) only when this many of the last N checked frames hit. */
+const NSFW_CONFIRM_HITS = 2;
+const NSFW_CONFIRM_WINDOW = 3;
+/** After a failed load, wait this long before the next match tries again. */
+const NSFW_RETRY_MS = 60_000;
+/** Time of the last failed load (0 = none). Failed = strangers stay blurred. */
+let nsfwLoadFailedAt = 0;
+/** tfjs backend in use ("webgl" | "wasm" | "cpu" | ""). */
+let nsfwBackend = "";
+/** Hit / clean per checked frame, current partner only (newest last). */
+let nsfwRecent = [];
+/** First single hit already blurred this partner (one blur per partner). */
+let nsfwSuspectLatched = false;
+
 function loadScriptOnce(src) {
   return new Promise((resolve, reject) => {
-    if (document.querySelector(`script[data-src="${src}"]`)) {
+    const prev = document.querySelector(`script[data-src="${src}"]`);
+    if (prev && prev.dataset.loaded === "1") {
       resolve();
       return;
     }
+    // A failed tag stays in the DOM; drop it so a retry really fetches again.
+    if (prev) prev.remove();
     const s = document.createElement("script");
     s.src = src;
     s.async = true;
     s.dataset.src = src;
-    s.onload = () => resolve();
-    s.onerror = () => reject(new Error("load failed: " + src));
+    s.onload = () => {
+      s.dataset.loaded = "1";
+      resolve();
+    };
+    s.onerror = () => {
+      s.remove();
+      reject(new Error("load failed: " + src));
+    };
     document.head.appendChild(s);
   });
+}
+
+/** WebGL that is a real GPU (not SwiftShader / llvmpipe / no context). */
+function nsfwWebglUsable() {
+  try {
+    isFxLite(); // fills _fxHasGl / _fxGlRenderer once
+  } catch (_) {}
+  if (!_fxHasGl) return false;
+  return !/SwiftShader|llvmpipe|Software Adapter|Microsoft Basic Render/i.test(
+    _fxGlRenderer || ""
+  );
+}
+
+/**
+ * Pick the tfjs backend before nsfwjs loads. nsfwjs 2.4.2 bundles its own
+ * tfjs core, but both share the global engine, so this choice applies.
+ * Real WebGL → webgl. No WebGL or a software renderer → wasm, then cpu.
+ */
+async function pickNsfwBackend(src) {
+  const tf = window.tf;
+  if (!tf?.setBackend) return "";
+  const order = nsfwWebglUsable() ? ["webgl", "wasm", "cpu"] : ["wasm", "cpu"];
+  for (const name of order) {
+    try {
+      if (name === "wasm") {
+        if (typeof WebAssembly !== "object") continue;
+        if (!tf.wasm) await loadScriptOnce(src.wasm);
+        tf.wasm?.setWasmPaths?.(new URL(src.wasmDir, location.href).href);
+      }
+      if (await tf.setBackend(name)) {
+        await tf.ready();
+        return name;
+      }
+    } catch (e) {
+      console.warn("[nsfw] backend", name, e);
+    }
+  }
+  try {
+    return String(tf.getBackend?.() || "");
+  } catch (_) {
+    return "";
+  }
 }
 
 async function ensureNsfwModel() {
   if (nsfwModel) return nsfwModel;
   if (nsfwLoadPromise) return nsfwLoadPromise;
+  if (nsfwLoadFailedAt && Date.now() - nsfwLoadFailedAt < NSFW_RETRY_MS) {
+    return null;
+  }
   nsfwLoadPromise = (async () => {
-    try {
-      if (!window.tf) {
-        await loadScriptOnce(
-          "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"
-        );
+    for (const src of NSFW_SOURCES) {
+      try {
+        if (!window.tf) await loadScriptOnce(src.tf);
+        if (!nsfwBackend) nsfwBackend = await pickNsfwBackend(src);
+        if (!window.nsfwjs) await loadScriptOnce(src.nsfwjs);
+        if (!window.nsfwjs?.load) throw new Error("nsfwjs unavailable");
+        // Quant MobileNet v2, 224px (nsfwjs 2.4.2 default model)
+        const m = await window.nsfwjs.load(src.model, { size: 224 });
+        nsfwModel = m;
+        nsfwLoadFailedAt = 0;
+        console.info("[nsfw] ready", src.name, nsfwBackend || "?");
+        return m;
+      } catch (e) {
+        console.warn("[nsfw]", src.name, e);
       }
-      if (!window.nsfwjs) {
-        await loadScriptOnce(
-          "https://cdn.jsdelivr.net/npm/nsfwjs@2.4.2/dist/nsfwjs.min.js"
-        );
-      }
-      if (!window.nsfwjs?.load) throw new Error("nsfwjs unavailable");
-      // MobileNet mid size — balance of speed vs accuracy
-      nsfwModel = await window.nsfwjs.load();
-      return nsfwModel;
-    } catch (e) {
-      console.warn("[nsfw]", e);
-      nsfwLoadPromise = null;
-      return null;
     }
+    nsfwLoadFailedAt = Date.now();
+    nsfwLoadPromise = null;
+    try {
+      syncAiSafetyChip();
+    } catch (_) {}
+    return null;
   })();
   return nsfwLoadPromise;
+}
+
+/** Stranger call with the filter switched on (any device; lite only scans slower). */
+function nsfwFilterWanted() {
+  return !!matched && matchMode !== "friend" && nsfwAutoEnabled();
+}
+
+/**
+ * Filter wanted but not scanning yet (loading or failed to load).
+ * Intro auto-unblur waits on this, so a stranger is never shown unchecked.
+ * The user can still tap Unblur.
+ */
+function nsfwGuardHoldsBlur() {
+  try {
+    return nsfwFilterWanted() && !(nsfwModel && nsfwTimer);
+  } catch (_) {
+    return false;
+  }
 }
 
 function syncAiSafetyChip() {
   const el = $("ai-safety-chip");
   if (!el) return;
-  const stranger =
-    !!matched && matchMode !== "friend" && nsfwAutoEnabled() && !isFxLite();
+  const stranger = nsfwFilterWanted();
   const running = !!(stranger && nsfwModel && nsfwTimer);
   const loading = !!(stranger && !nsfwModel && nsfwLoadPromise);
+  const failed = !!(
+    stranger &&
+    !nsfwModel &&
+    !nsfwLoadPromise &&
+    nsfwLoadFailedAt
+  );
   if (running) {
     el.hidden = false;
     el.classList.add("is-on");
@@ -27841,7 +27977,15 @@ function syncAiSafetyChip() {
     el.textContent = _t("safety.aiLoading") || "Safety filter loading";
     el.title =
       _t("safety.aiLoadingTitle") ||
-      "The on-device check is still loading. It is not running yet.";
+      "The on-device check is still loading. Their video stays blurred until it is ready.";
+  } else if (failed) {
+    el.hidden = false;
+    el.classList.remove("is-on");
+    el.classList.add("is-loading");
+    el.textContent = _t("safety.aiFailed") || "Safety filter off";
+    el.title =
+      _t("safety.aiFailedTitle") ||
+      "The on-device check could not load. Their video stays blurred. Tap Unblur to see them.";
   } else {
     el.hidden = true;
     el.classList.remove("is-on", "is-loading");
@@ -27857,6 +28001,8 @@ function stopNsfwWatch() {
     nsfwTimer = 0;
   }
   nsfwHitCooldown = false;
+  nsfwRecent = [];
+  nsfwSuspectLatched = false;
   try {
     syncAiSafetyChip();
   } catch (_) {}
@@ -27865,7 +28011,8 @@ function stopNsfwWatch() {
 function startNsfwWatch() {
   stopNsfwWatch();
   const gen = ++nsfwWatchGen;
-  if (isFxLite() || !nsfwAutoEnabled() || matchMode === "friend") {
+  // Lite devices / Safari / reduced motion still run the filter (slower on weak GPUs).
+  if (!nsfwAutoEnabled() || matchMode === "friend") {
     try {
       syncAiSafetyChip();
     } catch (_) {}
@@ -27877,7 +28024,7 @@ function startNsfwWatch() {
   } catch (_) {}
   pending.then((m) => {
     if (gen !== nsfwWatchGen) return;
-    if (!m || !matched || matchMode === "friend" || !nsfwAutoEnabled() || isFxLite()) {
+    if (!m || !matched || matchMode === "friend" || !nsfwAutoEnabled()) {
       try {
         syncAiSafetyChip();
       } catch (_) {}
@@ -27886,17 +28033,32 @@ function startNsfwWatch() {
     if (nsfwTimer) return;
     nsfwTimer = setInterval(() => {
       scanRemoteForNsfw().catch(() => {});
-    }, 2200);
+    }, _fxLiteHw ? NSFW_SCAN_LITE_MS : NSFW_SCAN_MS);
     try {
       syncAiSafetyChip();
     } catch (_) {}
+    // Check one frame now, then let a held intro blur finish its normal path.
+    scanRemoteForNsfw()
+      .catch(() => {})
+      .then(() => {
+        if (gen !== nsfwWatchGen) return;
+        try {
+          peelIntroBlurOnFrames();
+        } catch (_) {}
+      });
   });
+}
+
+/** True if this frame's scores count as explicit (conservative gates). */
+function nsfwScoresHit(porn, hentai, sexy) {
+  return porn >= 0.72 || hentai >= 0.78 || (porn >= 0.55 && sexy >= 0.5);
 }
 
 async function scanRemoteForNsfw() {
   if (!matched || nsfwHitCooldown) return;
   if (!nsfwAutoEnabled()) return;
   if (matchMode === "friend") return;
+  const gen = nsfwWatchGen;
   const video = $("remote");
   if (!video || video.readyState < 2 || !video.videoWidth) return;
   const model = await ensureNsfwModel();
@@ -27920,16 +28082,44 @@ async function scanRemoteForNsfw() {
   } catch (e) {
     return;
   }
+  // Partner changed while classify ran: this frame belongs to someone else.
+  if (gen !== nsfwWatchGen || !matched || nsfwHitCooldown) return;
   const score = (name) =>
     preds.find((p) => p.className === name)?.probability || 0;
   const porn = score("Porn");
   const hentai = score("Hentai");
   const sexy = score("Sexy");
   // Conservative thresholds — prefer false negatives over false positives
-  const hit = porn >= 0.72 || hentai >= 0.78 || (porn >= 0.55 && sexy >= 0.5);
-  if (hit) {
+  const hit = nsfwScoresHit(porn, hentai, sexy);
+  nsfwRecent = [...nsfwRecent, hit].slice(-NSFW_CONFIRM_WINDOW);
+  const hits = nsfwRecent.filter(Boolean).length;
+  if (hits >= NSFW_CONFIRM_HITS) {
+    // 2 of the last 3 checked frames: report + block + skip
     await handleNsfwDetected({ porn, hentai, sexy });
+  } else if (hit) {
+    handleNsfwSuspect({ porn, hentai, sexy });
   }
+}
+
+/**
+ * One frame hit (not confirmed yet): blur now, no report, keep scanning.
+ * Once per partner, so a user who taps Unblur is not fought every frame;
+ * a second hit inside the window confirms and skips anyway.
+ */
+function handleNsfwSuspect(scores) {
+  if (nsfwSuspectLatched || !matched) return;
+  nsfwSuspectLatched = true;
+  console.warn("[nsfw] suspect", scores);
+  try {
+    clearIntroBlurTimer();
+    introBlurGen++;
+    introBlurPending = false;
+  } catch (_) {}
+  if (!partnerBlurred) setPartnerBlur(true);
+  try {
+    syncPartnerBlurButtonLabels();
+  } catch (_) {}
+  log(_t("nsfw.suspect") || "possible nudity — video blurred");
 }
 
 async function handleNsfwDetected(scores) {
