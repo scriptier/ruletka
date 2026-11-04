@@ -932,7 +932,7 @@ function LiveBody() {
       const snap = startReconnect(t1);
       reconnectSnapRef.current = snap;
       setReconnectSnap(snap);
-      push(`reconnect start chance=${snap.chance} ${why}`);
+      push(`reconnect start chance=${snap?.chance} ${why}`);
     };
     if (shouldStartReconnect(iceDownSinceRef.current, now)) {
       arm();
@@ -1223,12 +1223,6 @@ function LiveBody() {
     }, 1000);
     return () => clearInterval(t);
   }, [phase, matchStartedAt]);
-
-  useEffect(() => {
-    if (uiPhase === "search" || uiPhase === "matched") {
-      setSearchArmed(false);
-    }
-  }, [uiPhase]);
 
   // One-shot toast when ★ gift unlock becomes ready
   useEffect(() => {
@@ -6705,23 +6699,23 @@ function LiveBody() {
       }) ||
       (on && slot === "primary" && primaryHasPictures)
     ) {
-      log(`ignore_nocam_has_pictures via=${via} slot=${slot}`);
+      push(`ignore_nocam_has_pictures via=${via} slot=${slot}`);
       return;
     }
     if (slot === "extra0") {
       setExtraNoCam2(on);
-      log(`extra_nocam2 on=${on ? 1 : 0} via=${via}`);
+      push(`extra_nocam2 on=${on ? 1 : 0} via=${via}`);
       return;
     }
     if (slot === "extra1") {
       setExtraNoCam3(on);
-      log(`extra_nocam3 on=${on ? 1 : 0} via=${via}`);
+      push(`extra_nocam3 on=${on ? 1 : 0} via=${via}`);
       return;
     }
     setPartnerNoCam(on);
     partnerNoCamRef.current = on;
     if (on) setAwaitingRemoteVideo(false);
-    log(`partner_nocam on=${on ? 1 : 0} via=${via}`);
+    push(`partner_nocam on=${on ? 1 : 0} via=${via}`);
   }
 
   function applyHideFromPeer(
@@ -6750,24 +6744,24 @@ function LiveBody() {
     // Extra/laptop hide must not cover a primary tile that already painted.
     // Real hide from the first person still applies (they tapped Hide).
     if (on && slot === "primary" && primaryHasPictures && !fromIsPrimary) {
-      log(`ignore_nocam_has_pictures via=${via} slot=${slot} hide=1`);
+      push(`ignore_nocam_has_pictures via=${via} slot=${slot} hide=1`);
       return;
     }
     if (slot === "extra0") {
       setExtraNoCam2(on);
-      log(`extra_hide2 on=${on ? 1 : 0} via=${via}`);
+      push(`extra_hide2 on=${on ? 1 : 0} via=${via}`);
       return;
     }
     if (slot === "extra1") {
       setExtraNoCam3(on);
-      log(`extra_hide3 on=${on ? 1 : 0} via=${via}`);
+      push(`extra_hide3 on=${on ? 1 : 0} via=${via}`);
       return;
     }
     setPartnerCamHidden(on);
     partnerCamHiddenRef.current = on;
     if (on) setAwaitingRemoteVideo(false);
     console.log(`[blur] partner_hide on=${on ? 1 : 0}`);
-    log(`partner_hide on=${on ? 1 : 0} via=${via}`);
+    push(`partner_hide on=${on ? 1 : 0} via=${via}`);
   }
 
   /** Parse no-cam advertise: "\x01nocam:1" / "__nocam:0" */
@@ -6968,7 +6962,7 @@ function LiveBody() {
       phaseRef.current = "matched";
     }
     searchingRef.current = false;
-    log(`hunt_with_partner why=${why}`);
+    push(`hunt_with_partner why=${why}`);
   }
 
   function sendChat() {
@@ -7492,12 +7486,12 @@ function LiveBody() {
           /* ignore */
         }
         try {
-          if (media2.sendDataMessage(payload)) dcOk = true;
+          if (media2Ref.current?.sendDataMessage?.(payload)) dcOk = true;
         } catch {
           /* ignore */
         }
         try {
-          if (media3.sendDataMessage(payload)) dcOk = true;
+          if (media3Ref.current?.sendDataMessage?.(payload)) dcOk = true;
         } catch {
           /* ignore */
         }
@@ -7577,6 +7571,14 @@ function LiveBody() {
       : phase === "matched" || remoteLive
         ? "matched"
         : phase;
+
+  // Moved below the uiPhase declaration (was used before it was declared,
+  // so the deps were always undefined and this never fired).
+  useEffect(() => {
+    if (uiPhase === "search" || uiPhase === "matched") {
+      setSearchArmed(false);
+    }
+  }, [uiPhase]);
 
   // Heal desync: remote media alive but React phase stuck idle/error.
   // Also re-ensure armed auto-veil once remote is live while already matched
@@ -8463,6 +8465,7 @@ function LiveBody() {
                 opacity: 0.45,
                 color: "#c8d0dc",
               }}
+              // @ts-expect-error RN <Text> takes pointerEvents at runtime; types omit it
               pointerEvents="none"
             >
               {Constants.expoConfig?.version || "?"}
@@ -8530,7 +8533,7 @@ function LiveBody() {
           {phase === "idle" && lastMatchHint && !friendsOnly ? (
             <Pressable
               style={styles.lastHintCard}
-              onPress={start}
+              onPress={() => start()}
               accessibilityRole="button"
               accessibilityLabel={t("btn.start")}
             >

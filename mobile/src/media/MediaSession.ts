@@ -1727,7 +1727,7 @@ export class MediaSession {
       return null;
     }
 
-    const tryGum = async (video: object, audio: object | boolean) => {
+    const tryGum = async (video: object | boolean, audio: object | boolean) => {
       const stream = await rtc.mediaDevices.getUserMedia({ audio, video });
       this.localStream = stream;
       this.localStreamOwned = true;

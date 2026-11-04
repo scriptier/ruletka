@@ -67,7 +67,7 @@ export function getStreamUrl(
 
 function readNativeConfig(): unknown {
   try {
-    const ui = UIManager as {
+    const ui = UIManager as unknown as {
       getViewManagerConfig?: (name: string) => unknown;
       hasViewManagerConfig?: (name: string) => boolean;
       [key: string]: unknown;

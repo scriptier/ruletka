@@ -56,6 +56,14 @@ export type LiveMoreSheetProps = {
     send?: string;
     pleaseStay?: string;
     cancel?: string;
+    /** Leftover labels live.tsx still passes (rows not rendered here). */
+    partnerUnmute?: string;
+    partnerMute?: string;
+    unblur?: string;
+    reblur?: string;
+    flipCam?: string;
+    layoutNative?: string;
+    layoutBrowser?: string;
   };
   onBrowseTogether: () => void;
   onFindThirdToggle: () => void;

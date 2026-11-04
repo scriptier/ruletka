@@ -402,5 +402,5 @@ export function extraPartnerActionTarget(opts: {
   const extras = opts?.extras || [];
   const e = extras[i];
   if (!e) return null;
-  return { slot, ...identOf(e) };
+  return { slot: slot as PartnerActionSlot, ...identOf(e) };
 }
