@@ -2077,5 +2077,15 @@
   "face.prompt": "Muestra tu cara a la cámara para empezar",
   "face.camOff": "Enciende la cámara y muestra tu cara para empezar",
   "face.loading": "Comprobando tu cámara…",
-  "face.hint": "La búsqueda está en pausa hasta que se vea tu cara."
+  "face.hint": "La búsqueda está en pausa hasta que se vea tu cara.",
+  "genital.partnerBanned": "Tu pareja fue bloqueada por romper las normas",
+  "genital.checking": "Posible desnudez — vídeo difuminado, comprobando",
+  "ban.title": "Estás bloqueado",
+  "ban.bodyGenitals": "Estás bloqueado {dur} por mostrar los genitales en cámara. Esto rompe las normas de Ruletka.",
+  "ban.bodyPermanent": "Estás bloqueado de forma permanente por volver a mostrar los genitales en cámara.",
+  "ban.dur24h": "durante 24 horas",
+  "ban.dur7d": "durante 7 días",
+  "ban.until": "Hasta: {when}",
+  "ban.ok": "Entendido",
+  "srv.partnerRemoved": "tu pareja fue bloqueada por romper las normas — buscando de nuevo"
 }

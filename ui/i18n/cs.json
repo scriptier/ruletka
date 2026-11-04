@@ -2077,5 +2077,15 @@
   "face.prompt": "Ukažte obličej do kamery a začněte",
   "face.camOff": "Zapněte kameru a ukažte obličej, abyste mohli začít",
   "face.loading": "Kontrolujeme kameru…",
-  "face.hint": "Hledání je pozastaveno, dokud není vidět obličej."
+  "face.hint": "Hledání je pozastaveno, dokud není vidět obličej.",
+  "genital.partnerBanned": "Protějšek byl zablokován za porušení pravidel",
+  "genital.checking": "Možná nahota — video rozmazáno, kontrolujeme",
+  "ban.title": "Jste zablokováni",
+  "ban.bodyGenitals": "Jste zablokováni {dur} za ukazování genitálií na kameru. To porušuje pravidla Ruletky.",
+  "ban.bodyPermanent": "Jste zablokováni natrvalo za opakované ukazování genitálií na kameru.",
+  "ban.dur24h": "na 24 hodin",
+  "ban.dur7d": "na 7 dní",
+  "ban.until": "Do: {when}",
+  "ban.ok": "Rozumím",
+  "srv.partnerRemoved": "protějšek zablokován za porušení pravidel — hledáme znovu"
 }

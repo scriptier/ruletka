@@ -2109,5 +2109,15 @@
   "face.prompt": "Show your face to the camera to start",
   "face.camOff": "Turn on your camera and show your face to start",
   "face.loading": "Checking your camera…",
-  "face.hint": "Matching is paused until your face is in view."
+  "face.hint": "Matching is paused until your face is in view.",
+  "genital.partnerBanned": "Your partner was banned for breaking the rules",
+  "genital.checking": "Possible nudity — video blurred, checking",
+  "ban.title": "You are banned",
+  "ban.bodyGenitals": "You are banned {dur} for showing genitals on camera. This breaks Ruletka's rules.",
+  "ban.bodyPermanent": "You are banned permanently for showing genitals on camera again.",
+  "ban.dur24h": "for 24 hours",
+  "ban.dur7d": "for 7 days",
+  "ban.until": "Until: {when}",
+  "ban.ok": "OK",
+  "srv.partnerRemoved": "partner was banned for breaking the rules — searching again"
 }

@@ -2100,5 +2100,15 @@
   "face.prompt": "Mostra il viso alla fotocamera per iniziare",
   "face.camOff": "Accendi la fotocamera e mostra il viso per iniziare",
   "face.loading": "Controllo della fotocamera…",
-  "face.hint": "La ricerca è in pausa finché il viso non è visibile."
+  "face.hint": "La ricerca è in pausa finché il viso non è visibile.",
+  "genital.partnerBanned": "Il tuo interlocutore è stato bannato per aver violato le regole",
+  "genital.checking": "Possibile nudità — video sfocato, verifica in corso",
+  "ban.title": "Sei stato bannato",
+  "ban.bodyGenitals": "Sei stato bannato {dur} per aver mostrato i genitali in camera. Questo viola le regole di Ruletka.",
+  "ban.bodyPermanent": "Sei stato bannato per sempre per aver mostrato di nuovo i genitali in camera.",
+  "ban.dur24h": "per 24 ore",
+  "ban.dur7d": "per 7 giorni",
+  "ban.until": "Fino a: {when}",
+  "ban.ok": "Ho capito",
+  "srv.partnerRemoved": "interlocutore bannato per violazione delle regole — nuova ricerca"
 }

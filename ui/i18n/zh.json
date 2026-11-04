@@ -2077,5 +2077,15 @@
   "face.prompt": "请将脸对准摄像头以开始",
   "face.camOff": "请打开摄像头并露出脸以开始",
   "face.loading": "正在检查摄像头…",
-  "face.hint": "在看到你的脸之前，匹配会暂停。"
+  "face.hint": "在看到你的脸之前，匹配会暂停。",
+  "genital.partnerBanned": "对方因违反规则已被封禁",
+  "genital.checking": "可能有裸露 — 视频已模糊，正在检查",
+  "ban.title": "你已被封禁",
+  "ban.bodyGenitals": "你因在镜头前暴露生殖器被封禁{dur}。这违反了 Ruletka 的规则。",
+  "ban.bodyPermanent": "你因再次在镜头前暴露生殖器被永久封禁。",
+  "ban.dur24h": "24 小时",
+  "ban.dur7d": "7 天",
+  "ban.until": "截止：{when}",
+  "ban.ok": "知道了",
+  "srv.partnerRemoved": "对方因违反规则已被封禁 — 重新搜索"
 }

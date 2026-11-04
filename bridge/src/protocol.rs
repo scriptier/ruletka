@@ -231,6 +231,46 @@ pub enum ClientMsg {
         #[serde(default)]
         ts: u64,
     },
+    /// On-device genital detector confirmed (2 of 3 frames) on the partner's
+    /// incoming video. The hub checks that the sender is really watching
+    /// `target_user_id` in a live stranger match, then counts it toward an
+    /// auto-ban (`genital_ban.rs`). Not a `report_user`.
+    GenitalHit {
+        #[serde(default)]
+        target_user_id: String,
+        /// 1 = first confirmation in this match, 2 = second, …
+        #[serde(default)]
+        seq: u32,
+        /// "detector" (NudeNet on device) | "porn_only" (lite fallback, nsfwjs only)
+        #[serde(default)]
+        kind: String,
+        /// Detector class, e.g. "MALE_GENITALIA_EXPOSED" (empty for porn_only).
+        #[serde(default)]
+        cls: String,
+        #[serde(default)]
+        det_score: f64,
+        #[serde(default)]
+        porn: f64,
+        #[serde(default)]
+        hentai: f64,
+        #[serde(default)]
+        sexy: f64,
+        /// Hits inside the confirm window (2) and window size (3).
+        #[serde(default)]
+        frames: u32,
+        #[serde(default)]
+        window: u32,
+        #[serde(default)]
+        model: String,
+        /// Detected box area as a share of the frame (0..1).
+        #[serde(default)]
+        box_area: f64,
+        /// Optional 64 px, blurred, boxes-blacked JPEG (no data: prefix).
+        #[serde(default)]
+        proof_jpeg_b64: Option<String>,
+        #[serde(default)]
+        ts: u64,
+    },
 }
 
 /// porn / hentai / sexy scores on a `safety_log`. Absent object ≠ zeros.
@@ -652,6 +692,40 @@ pub enum ServerMsg {
         #[serde(default)]
         message: String,
     },
+    /// Reply to `genital_hit`. `counted` = accepted toward a ban.
+    GenitalHitResult {
+        ok: bool,
+        #[serde(default)]
+        counted: bool,
+        #[serde(default)]
+        banned: bool,
+        /// Short machine reason when not counted ("not_partner", "rate", …).
+        #[serde(default)]
+        message: String,
+    },
+    /// Your partner was just auto-banned (viewer side). Client shows
+    /// "Собеседник заблокирован за нарушение правил" and moves on.
+    PartnerBanned {
+        #[serde(default)]
+        reason: String,
+    },
+    /// You are match-banned. Sent on auto-ban and on hello / spin while a
+    /// genital ban is active. `secs` = remaining seconds (0 when permanent).
+    Banned {
+        #[serde(default)]
+        reason: String,
+        #[serde(default)]
+        secs: u64,
+        #[serde(default)]
+        until: u64,
+        #[serde(default)]
+        permanent: bool,
+        /// 1 = 24 h, 2 = 7 days, 3 = permanent.
+        #[serde(default)]
+        level: u32,
+        #[serde(default)]
+        message: String,
+    },
 }
 
 fn default_mode() -> String {
@@ -742,6 +816,61 @@ mod safety_log_parse_tests {
         let spin: ClientMsg =
             serde_json::from_str(r#"{"type":"spin","room":"","face_ok":true}"#).unwrap();
         assert!(matches!(spin, ClientMsg::Spin { .. }));
+    }
+
+    #[test]
+    fn parses_genital_hit_and_defaults() {
+        let raw = r#"{"type":"genital_hit","target_user_id":"u2","seq":2,"kind":"detector",
+            "cls":"MALE_GENITALIA_EXPOSED","det_score":0.81,"porn":0.6,"hentai":0.1,"sexy":0.2,
+            "frames":2,"window":3,"model":"nudenet-320n-3.4.2","box_area":0.03,
+            "proof_jpeg_b64":"AAAA","ts":5}"#;
+        match serde_json::from_str::<ClientMsg>(raw).unwrap() {
+            ClientMsg::GenitalHit { target_user_id, seq, kind, cls, det_score, frames, window, proof_jpeg_b64, .. } => {
+                assert_eq!(target_user_id, "u2");
+                assert_eq!(seq, 2);
+                assert_eq!(kind, "detector");
+                assert_eq!(cls, "MALE_GENITALIA_EXPOSED");
+                assert!((det_score - 0.81).abs() < 1e-9);
+                assert_eq!((frames, window), (2, 3));
+                assert_eq!(proof_jpeg_b64.as_deref(), Some("AAAA"));
+            }
+            other => panic!("expected GenitalHit, got {other:?}"),
+        }
+        match serde_json::from_str::<ClientMsg>(r#"{"type":"genital_hit"}"#).unwrap() {
+            ClientMsg::GenitalHit { target_user_id, seq, det_score, proof_jpeg_b64, .. } => {
+                assert!(target_user_id.is_empty());
+                assert_eq!(seq, 0);
+                assert_eq!(det_score, 0.0);
+                assert!(proof_jpeg_b64.is_none());
+            }
+            other => panic!("expected GenitalHit, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn genital_server_msgs_serialize_snake_case() {
+        use super::ServerMsg;
+        let v = serde_json::to_value(ServerMsg::PartnerBanned { reason: "genitals".into() }).unwrap();
+        assert_eq!(v["type"], "partner_banned");
+        let v = serde_json::to_value(ServerMsg::Banned {
+            reason: "genitals".into(),
+            secs: 86_400,
+            until: 1,
+            permanent: false,
+            level: 1,
+            message: String::new(),
+        })
+        .unwrap();
+        assert_eq!(v["type"], "banned");
+        assert_eq!(v["secs"], 86_400);
+        let v = serde_json::to_value(ServerMsg::GenitalHitResult {
+            ok: true,
+            counted: true,
+            banned: false,
+            message: String::new(),
+        })
+        .unwrap();
+        assert_eq!(v["type"], "genital_hit_result");
     }
 
     #[test]

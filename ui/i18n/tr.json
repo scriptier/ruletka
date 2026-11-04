@@ -2077,5 +2077,15 @@
   "face.prompt": "Başlamak için yüzünü kameraya göster",
   "face.camOff": "Başlamak için kamerayı aç ve yüzünü göster",
   "face.loading": "Kamera kontrol ediliyor…",
-  "face.hint": "Yüzün görünene kadar eşleştirme duraklatıldı."
+  "face.hint": "Yüzün görünene kadar eşleştirme duraklatıldı.",
+  "genital.partnerBanned": "Karşındaki kişi kuralları çiğnediği için engellendi",
+  "genital.checking": "Olası çıplaklık — video bulanıklaştırıldı, kontrol ediliyor",
+  "ban.title": "Engellendiniz",
+  "ban.bodyGenitals": "Kamerada cinsel organ gösterdiğiniz için {dur} engellendiniz. Bu, Ruletka kurallarına aykırıdır.",
+  "ban.bodyPermanent": "Kamerada tekrar cinsel organ gösterdiğiniz için kalıcı olarak engellendiniz.",
+  "ban.dur24h": "24 saatliğine",
+  "ban.dur7d": "7 günlüğüne",
+  "ban.until": "Bitiş: {when}",
+  "ban.ok": "Tamam",
+  "srv.partnerRemoved": "karşındaki kişi kuralları çiğnediği için engellendi — yeniden aranıyor"
 }

@@ -24659,6 +24659,14 @@ function applyMatchBannedUi(detail) {
   const body =
     _t("status.matchBannedBody") ||
     "This account can't search until a moderator unbans you.";
+  // Genital auto-ban already shows its own screen with the duration.
+  const banScreen = document.getElementById("ban-screen");
+  if (banScreen && !banScreen.hidden) {
+    try {
+      syncMatchChrome();
+    } catch (_) {}
+    return;
+  }
   setStatus(title);
   try {
     showStarFeedbackToast("gift", {
@@ -28007,6 +28015,7 @@ function stopNsfwWatch() {
   nsfwHitCooldown = false;
   nsfwRecent = [];
   nsfwSuspectLatched = false;
+  if (typeof genitalReset === "function") genitalReset();
   try {
     syncAiSafetyChip();
   } catch (_) {}
@@ -28023,6 +28032,7 @@ function startNsfwWatch() {
     return;
   }
   const pending = ensureNsfwModel();
+  if (typeof genitalStartForMatch === "function") genitalStartForMatch();
   try {
     syncAiSafetyChip();
   } catch (_) {}
@@ -28093,6 +28103,13 @@ async function scanRemoteForNsfw() {
   const porn = score("Porn");
   const hentai = score("Hentai");
   const sexy = score("Sexy");
+  // Genital detector (auto-ban signal) on the same frame. Once it has
+  // confirmed, it owns this partner: blur stays, nsfwjs does not skip.
+  if (typeof genitalCheckFrame === "function") {
+    const g = await genitalCheckFrame(video, { porn, hentai, sexy }, gen);
+    if (gen !== nsfwWatchGen || !matched || nsfwHitCooldown) return;
+    if (g === "locked") return;
+  }
   // Conservative thresholds — prefer false negatives over false positives
   const hit = nsfwScoresHit(porn, hentai, sexy);
   nsfwRecent = [...nsfwRecent, hit].slice(-NSFW_CONFIRM_WINDOW);
@@ -28126,7 +28143,7 @@ function handleNsfwSuspect(scores) {
   log(_t("nsfw.suspect") || "possible nudity — video blurred");
 }
 
-async function handleNsfwDetected(scores) {
+async function handleNsfwDetected(scores, evidenceB64) {
   if (nsfwHitCooldown || !matched) return;
   nsfwHitCooldown = true;
   stopNsfwWatch();
@@ -28141,7 +28158,9 @@ async function handleNsfwDetected(scores) {
       type: "report_user",
       user_id: uid,
       reason: "explicit_ai",
-      screenshot_jpeg_b64: captureReportEvidenceB64(uid),
+      // Genital give-up passes the small masked proof instead of a full still.
+      screenshot_jpeg_b64:
+        typeof evidenceB64 === "string" ? evidenceB64 : captureReportEvidenceB64(uid),
     });
     saveLocalReport({
       t: Date.now(),
@@ -28167,6 +28186,307 @@ async function handleNsfwDetected(scores) {
   setTimeout(() => {
     nsfwHitCooldown = false;
   }, 4000);
+}
+
+/* ───────────────────────── Genital detector → auto-ban ─────────────────────────
+ * 2026-11-04 (docs/GENITAL_BAN_2026-11-04.md). The viewer's device runs NudeNet
+ * 320n (ui/genital-guard.js, lazy, self-hosted) on the stranger's video, on the
+ * same frames nsfwjs checks. 2 of 3 detector hits → blur locks and the hub gets
+ * `genital_hit` (seq 1). We keep checking faster; a second confirmation sends
+ * seq 2 and the hub bans the offender (`partner_banned` to us, `banned` to them).
+ * No ban in time → old path: report + block + next.
+ * Devices on Save-Data / 2G/3G / ≤1 GB RAM / no wasm SIMD never download the
+ * detector: they send `porn_only` hits (nsfwjs Porn ≥ 0.92), which only count
+ * when a second, different viewer confirms the same person.
+ */
+const GENITAL_GUARD_SRC = "/genital-guard.js?v=1";
+const GENITAL_FAST_MS = 1200;
+const GENITAL_FAST_LITE_MS = 2500;
+/** After the first confirmation: how long we wait for a second one. */
+const GENITAL_SECOND_HIT_MS = 25_000;
+/** After the second confirmation: how long we wait for the hub's ban. */
+const GENITAL_BAN_WAIT_MS = 3000;
+let genitalConfirm = null;
+let genitalSeq = 0;
+let genitalLocked = false;
+let genitalBusy = false;
+let genitalFastTimer = 0;
+let genitalGiveUpTimer = 0;
+let genitalLastScores = null;
+let genitalScriptPromise = null;
+
+/** "detector" | "porn_only" for this device (network / memory / wasm). */
+function genitalDeviceMode() {
+  try {
+    const c = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (c?.saveData) return "porn_only";
+    if (/^(slow-2g|2g|3g)$/.test(String(c?.effectiveType || ""))) return "porn_only";
+    const mem = Number(navigator.deviceMemory) || 0;
+    if (mem > 0 && mem <= 1) return "porn_only";
+    if (typeof WebAssembly !== "object") return "porn_only";
+  } catch (_) {}
+  return "detector";
+}
+
+function genitalGuardApi() {
+  return window.RuletkaGenitalGuard || null;
+}
+
+/**
+ * Load the guard script (small, always: porn_only devices need its verdict
+ * logic) and, on capable devices only, ORT + model (~14 MB, cached).
+ */
+function genitalEnsureLoaded() {
+  if (!genitalScriptPromise) {
+    genitalScriptPromise = (genitalGuardApi() ? Promise.resolve() : loadScriptOnce(GENITAL_GUARD_SRC)).catch(
+      (e) => {
+        console.warn("[genital] script", e);
+        genitalScriptPromise = null;
+      }
+    );
+  }
+  return genitalScriptPromise.then(() => {
+    const G = genitalGuardApi();
+    if (!G) return null;
+    if (G.ready) return G;
+    if (genitalDeviceMode() !== "detector") return null;
+    return G.load({ lite: !!_fxLiteHw }).then((s) => {
+      if (s) console.info("[genital] ready", JSON.stringify(G.stats));
+      return s ? G : null;
+    });
+  });
+}
+
+function genitalClearTimers() {
+  if (genitalFastTimer) clearInterval(genitalFastTimer);
+  if (genitalGiveUpTimer) clearTimeout(genitalGiveUpTimer);
+  genitalFastTimer = 0;
+  genitalGiveUpTimer = 0;
+}
+
+/** New partner / stop: forget everything about the previous one. */
+function genitalReset() {
+  genitalClearTimers();
+  genitalSeq = 0;
+  genitalLocked = false;
+  genitalBusy = false;
+  genitalLastScores = null;
+  genitalConfirm = null;
+}
+
+/** Stranger match started: start loading (does not block nsfwjs). */
+function genitalStartForMatch() {
+  genitalReset();
+  if (!matched || matchMode === "friend" || !nsfwAutoEnabled()) return;
+  genitalEnsureLoaded().catch(() => {});
+}
+
+function genitalLockBlur() {
+  genitalLocked = true;
+  try {
+    clearIntroBlurTimer();
+    introBlurGen++;
+    introBlurPending = false;
+  } catch (_) {}
+  if (!partnerBlurred) setPartnerBlur(true);
+  try {
+    syncPartnerBlurButtonLabels();
+  } catch (_) {}
+}
+
+/**
+ * Called from scanRemoteForNsfw with this frame's nsfwjs scores.
+ * Returns "locked" while the detector owns this partner (nsfwjs must not skip),
+ * "" otherwise.
+ */
+async function genitalCheckFrame(video, nsfw, gen) {
+  const G = genitalGuardApi();
+  if (!G || !matched || matchMode === "friend" || genitalBusy) return genitalLocked ? "locked" : "";
+  if (genitalSeq >= 2) return "locked";
+  const uid = primaryPartnerUserId;
+  if (!uid) return genitalLocked ? "locked" : "";
+  genitalBusy = true;
+  let det = null;
+  try {
+    if (G.ready) {
+      try {
+        det = await G.detect(video);
+      } catch (e) {
+        console.warn("[genital] detect", e);
+        det = null;
+      }
+      if (!det) return genitalLocked ? "locked" : "";
+    }
+  } finally {
+    genitalBusy = false;
+  }
+  if (gen !== nsfwWatchGen || !matched || uid !== primaryPartnerUserId) return "";
+  if (!genitalConfirm) genitalConfirm = G.makeConfirm();
+  const v = G.frameVerdict(det, nsfw);
+  const c = genitalConfirm.push(v.hit);
+  if (v.hit) {
+    genitalLastScores = { det, nsfw, kind: v.kind };
+    if (v.kind === "detector") genitalLockBlur();
+  }
+  if (!c.confirmed) return genitalLocked ? "locked" : "";
+  genitalConfirm.reset();
+  genitalSeq++;
+  genitalLockBlur();
+  const proof = v.kind === "detector" && det ? G.proofThumb(video, det.boxes || []) : "";
+  send({
+    type: "genital_hit",
+    target_user_id: uid,
+    seq: genitalSeq,
+    kind: v.kind,
+    cls: det?.cls || "",
+    det_score: Math.round((det?.score || 0) * 1000) / 1000,
+    porn: Math.round((nsfw.porn || 0) * 1000) / 1000,
+    hentai: Math.round((nsfw.hentai || 0) * 1000) / 1000,
+    sexy: Math.round((nsfw.sexy || 0) * 1000) / 1000,
+    frames: c.hits,
+    window: c.window,
+    model: det ? G.MODEL_ID : "nsfwjs-2.4.2",
+    box_area: Math.round((det?.boxFrac || 0) * 10000) / 10000,
+    proof_jpeg_b64: proof || undefined,
+    ts: Date.now(),
+  });
+  log(_t("genital.checking") || "possible nudity — video blurred");
+  genitalClearTimers();
+  if (genitalSeq === 1) {
+    genitalFastTimer = setInterval(() => {
+      scanRemoteForNsfw().catch(() => {});
+    }, _fxLiteHw ? GENITAL_FAST_LITE_MS : GENITAL_FAST_MS);
+    genitalGiveUpTimer = setTimeout(() => genitalGiveUp(gen), GENITAL_SECOND_HIT_MS);
+  } else {
+    genitalGiveUpTimer = setTimeout(() => genitalGiveUp(gen), GENITAL_BAN_WAIT_MS);
+  }
+  return "locked";
+}
+
+/** No ban came: leave like the nsfwjs path (report + block + next), small proof only. */
+function genitalGiveUp(gen) {
+  genitalClearTimers();
+  if (gen !== nsfwWatchGen || !matched) return;
+  const s = genitalLastScores?.nsfw || { porn: 0, hentai: 0, sexy: 0 };
+  let proof = "";
+  try {
+    const G = genitalGuardApi();
+    const det = genitalLastScores?.det;
+    if (G && det) proof = G.proofThumb($("remote"), det.boxes || []);
+  } catch (_) {}
+  genitalLocked = false;
+  handleNsfwDetected(s, proof).catch(() => {});
+}
+
+function handleGenitalHitResult(msg) {
+  if (!msg) return;
+  if (!msg.counted && msg.message) console.info("[genital] hit not counted:", msg.message);
+}
+
+/** Center notice over the stage (viewer side). */
+function showGenitalNotice(text) {
+  try {
+    $("partner-banned-notice")?.remove?.();
+    const el = document.createElement("div");
+    el.id = "partner-banned-notice";
+    el.className = "partner-banned-notice";
+    el.setAttribute("role", "status");
+    el.setAttribute("aria-live", "assertive");
+    el.innerHTML = `<span class="pbn-ico" aria-hidden="true">⛔</span><span class="pbn-text">${escapeHtml(text)}</span>`;
+    document.body.appendChild(el);
+    setTimeout(() => {
+      if (el.parentNode) el.remove();
+    }, 4500);
+  } catch (_) {}
+}
+
+/** Hub banned the person we were watching. The hub requeues us right after. */
+function handlePartnerBanned(msg) {
+  const text = _t("genital.partnerBanned") || "Собеседник заблокирован за нарушение правил";
+  const uid = primaryPartnerUserId;
+  genitalReset();
+  try {
+    setPartnerBlur(true);
+  } catch (_) {}
+  showGenitalNotice(text);
+  setStatus(text);
+  log(text);
+  if (uid) {
+    saveLocalReport({
+      t: Date.now(),
+      user_id: uid,
+      name: lastMatchMeta?.name || "",
+      short_id: lastMatchMeta?.short_id || "",
+      friend_code: lastMatchMeta?.friend_code || "",
+      reason: "genitals_ai",
+      scores: genitalLastScores?.nsfw || null,
+    });
+    send({ type: "block_user", user_id: uid });
+  }
+  try {
+    trackEvent("genital_partner_banned", { reason: String(msg?.reason || "") });
+  } catch (_) {}
+}
+
+function genitalBanDurationText(msg) {
+  const level = Number(msg?.level) || 0;
+  if (msg?.permanent || level >= 3) return "";
+  if (level === 2) return _t("ban.dur7d") || "for 7 days";
+  return _t("ban.dur24h") || "for 24 hours";
+}
+
+/** We were banned (live, or on reconnect while the ban runs). */
+function handleBannedMsg(msg) {
+  const permanent = !!msg?.permanent || Number(msg?.level) >= 3;
+  const title = _t("ban.title") || "You are banned";
+  const body = permanent
+    ? _t("ban.bodyPermanent") || "You are banned permanently for showing genitals on camera again."
+    : _t("ban.bodyGenitals", { dur: genitalBanDurationText(msg) }) ||
+      `You are banned ${genitalBanDurationText(msg)} for showing genitals on camera. This breaks Ruletka's rules.`;
+  let until = "";
+  const u = Number(msg?.until) || 0;
+  if (!permanent && u > 0) {
+    try {
+      until = _t("ban.until", { when: new Date(u * 1000).toLocaleString() }) || "";
+    } catch (_) {}
+  }
+  genitalReset();
+  try {
+    stopNsfwWatch();
+  } catch (_) {}
+  wantSearch = false;
+  inQueue = false;
+  try {
+    setFooterSearchStatus(false);
+  } catch (_) {}
+  try {
+    showStartButton(true);
+  } catch (_) {}
+  setStatus(title);
+  try {
+    let el = $("ban-screen");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "ban-screen";
+      el.className = "ban-screen";
+      el.setAttribute("role", "alertdialog");
+      el.setAttribute("aria-modal", "true");
+      el.setAttribute("aria-labelledby", "ban-screen-title");
+      document.body.appendChild(el);
+    }
+    el.innerHTML = `<div class="ban-card"><div class="ban-ico" aria-hidden="true">⛔</div><h2 id="ban-screen-title">${escapeHtml(
+      title
+    )}</h2><p class="ban-body">${escapeHtml(body)}</p>${
+      until ? `<p class="ban-until">${escapeHtml(until)}</p>` : ""
+    }<button type="button" class="ban-ok">${escapeHtml(_t("ban.ok") || "OK")}</button></div>`;
+    el.hidden = false;
+    el.querySelector(".ban-ok")?.addEventListener("click", () => {
+      el.hidden = true;
+    });
+  } catch (_) {}
+  try {
+    log("banned: genitals level " + (msg?.level || "?"));
+  } catch (_) {}
 }
 
 /* ───────────────────────── Face check before matching ─────────────────────────
@@ -35030,6 +35350,15 @@ function handleServer(msg) {
           }
         }
       }
+      break;
+    case "genital_hit_result":
+      handleGenitalHitResult(msg);
+      break;
+    case "partner_banned":
+      handlePartnerBanned(msg);
+      break;
+    case "banned":
+      handleBannedMsg(msg);
       break;
     case "report_result":
       {

@@ -177,6 +177,25 @@ fn queue_shape_ok(left: &QueueEntry, right: &QueueEntry) -> bool {
     }
 }
 
+/// Parsed `genital_hit` (see `ClientMsg::GenitalHit`).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct GenitalHitIn {
+    pub target_user_id: String,
+    pub seq: u32,
+    pub kind: String,
+    pub cls: String,
+    pub det_score: f64,
+    pub porn: f64,
+    pub hentai: f64,
+    pub sexy: f64,
+    pub frames: u32,
+    pub window: u32,
+    pub model: String,
+    pub box_area: f64,
+    pub proof_jpeg_b64: Option<String>,
+    pub ts: u64,
+}
+
 pub struct Client {
     pub short_id: String,
     pub peer_id: String,
@@ -422,6 +441,10 @@ pub struct SimpleHub {
     underage_reports: HashMap<String, Vec<UnderageReport>>,
     /// target_user_id → `explicit_ai` report times in the last 7 days (memory only).
     explicit_ai_hits: HashMap<String, Vec<u64>>,
+    /// On-device genital detector hits + offense ladder (`genital_ban.rs`).
+    genital: crate::genital_ban::GenitalLedger,
+    /// `genital-offenses.json` beside the friends store.
+    genital_path: PathBuf,
     /// In-memory ring of recent matches for admin (not persisted across restart).
     recent_matches: VecDeque<serde_json::Value>,
     /// Connect forensics ring (match/offer/answer/ice/drop) for admin live monitor.
@@ -816,6 +839,8 @@ impl SimpleHub {
         vapid: Option<crate::web_push_send::VapidKeys>,
     ) -> Self {
         let stored = friends_store::load(&friends_path);
+        let genital_path = Self::genital_path_beside(&friends_path);
+        let genital = crate::genital_ban::GenitalLedger::with_book(Self::load_genital_book(&genital_path));
         if !stored.friendships.is_empty()
             || !stored.code_index.is_empty()
             || !stored.blocks.is_empty()
@@ -881,6 +906,8 @@ impl SimpleHub {
             chat_grooming_flags: HashMap::new(),
             underage_reports: HashMap::new(),
             explicit_ai_hits: HashMap::new(),
+            genital,
+            genital_path,
             recent_matches: VecDeque::new(),
             connect_events: VecDeque::new(),
             dms: stored.dms,
@@ -4167,6 +4194,7 @@ impl SimpleHub {
     fn deny_if_match_banned(&mut self, id: Uuid) -> bool {
         let banned = self.is_match_banned_conn(id);
         if banned {
+            self.send_genital_banned_if_active(id);
             self.send(
                 id,
                 ServerMsg::Error {
@@ -7643,6 +7671,41 @@ impl SimpleHub {
                 reason,
                 screenshot_jpeg_b64,
             } => self.handle_report_user(id, user_id, reason, screenshot_jpeg_b64),
+            ClientMsg::GenitalHit {
+                target_user_id,
+                seq,
+                kind,
+                cls,
+                det_score,
+                porn,
+                hentai,
+                sexy,
+                frames,
+                window,
+                model,
+                box_area,
+                proof_jpeg_b64,
+                ts,
+            } => {
+                let hit = GenitalHitIn {
+                    target_user_id,
+                    seq,
+                    kind,
+                    cls,
+                    det_score,
+                    porn,
+                    hentai,
+                    sexy,
+                    frames,
+                    window,
+                    model,
+                    box_area,
+                    proof_jpeg_b64,
+                    ts,
+                };
+                let now_ms = Self::unix_now_ms();
+                self.handle_genital_hit(id, hit, now_ms);
+            }
             ClientMsg::CallFriend { user_id, join } => {
                 self.handle_call_friend(id, user_id, join)
             }
@@ -8023,6 +8086,7 @@ impl SimpleHub {
         self.push_friends_list(id);
         self.notify_friends_of_user(&user_id);
         self.broadcast_lobby_info();
+        self.send_genital_banned_if_active(id);
     }
 
     fn handle_add_friend(&mut self, id: Uuid, code: String) {
@@ -8374,6 +8438,355 @@ impl SimpleHub {
         if let Err(e) = std::io::Write::write_all(&mut file, text.as_bytes()) {
             tracing::warn!(error = %e, "safety_log write");
         }
+    }
+
+    // ───────────── genital detector auto-ban (2026-11-04) ─────────────
+
+    fn unix_now_ms() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0)
+    }
+
+    fn genital_path_beside(friends_path: &std::path::Path) -> PathBuf {
+        friends_path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("data"))
+            .join("genital-offenses.json")
+    }
+
+    fn load_genital_book(path: &std::path::Path) -> crate::genital_ban::OffenseBook {
+        match std::fs::read_to_string(path) {
+            Ok(t) => serde_json::from_str(&t).unwrap_or_else(|e| {
+                tracing::error!(error = %e, path = %path.display(), "genital offenses parse — starting empty");
+                Default::default()
+            }),
+            Err(_) => Default::default(),
+        }
+    }
+
+    fn save_genital_book(&mut self) {
+        self.genital.gc(Self::now_unix());
+        let Ok(text) = serde_json::to_string(&self.genital.book) else { return };
+        if let Some(parent) = self.genital_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let tmp = self.genital_path.with_extension("json.tmp");
+        if std::fs::write(&tmp, text).is_ok() {
+            if let Err(e) = std::fs::rename(&tmp, &self.genital_path) {
+                tracing::warn!(error = %e, "genital offenses save");
+            }
+        }
+    }
+
+    /// (secs left, until, permanent, level) when `uid` is match-banned by a genital offense.
+    fn genital_ban_active(&self, uid: &str) -> Option<(u64, u64, bool, u32)> {
+        if uid.is_empty() || !self.is_match_banned(uid) {
+            return None;
+        }
+        let now = Self::now_unix();
+        let o = self.genital.latest_active(uid)?;
+        let until = self.match_bans.get(uid).copied().unwrap_or(0);
+        let permanent = until >= Self::PERMANENT_BAN_UNTIL;
+        let ends = if o.level >= 3 {
+            u64::MAX
+        } else {
+            o.at.saturating_add(crate::genital_ban::LADDER_SECS[(o.level.max(1) as usize - 1).min(1)])
+        };
+        if now >= ends {
+            return None;
+        }
+        Some((if permanent { 0 } else { until.saturating_sub(now) }, until, permanent, o.level))
+    }
+
+    fn send_genital_banned_if_active(&self, id: Uuid) {
+        let Some(uid) = self.clients.get(&id).map(|c| c.user_id.clone()) else { return };
+        if let Some((secs, until, permanent, level)) = self.genital_ban_active(&uid) {
+            self.send(
+                id,
+                ServerMsg::Banned {
+                    reason: "genitals".into(),
+                    secs,
+                    until,
+                    permanent,
+                    level,
+                    message: "banned for showing genitals on camera".into(),
+                },
+            );
+        }
+    }
+
+    fn genital_reply(&self, id: Uuid, counted: bool, banned: bool, message: &str) {
+        self.send(
+            id,
+            ServerMsg::GenitalHitResult {
+                ok: true,
+                counted,
+                banned,
+                message: message.into(),
+            },
+        );
+    }
+
+    /// Validate that `id` is really watching `target` in a live stranger match.
+    /// Returns (target conn, session id) or a reject reason.
+    fn genital_binding(&self, id: Uuid, target_uid: &str) -> Result<(Uuid, String), &'static str> {
+        let me = self.clients.get(&id).ok_or("no_client")?;
+        if me.user_id.is_empty() {
+            return Err("no_identity");
+        }
+        if target_uid.is_empty() || target_uid == me.user_id {
+            return Err("bad_target");
+        }
+        if me.phase != Phase::Matched {
+            return Err("not_matched");
+        }
+        let &tid = self.by_user.get(target_uid).ok_or("target_offline")?;
+        if me.friend_call == Some(tid) || me.party_with == Some(tid) {
+            return Err("friend_call");
+        }
+        if me.partner != Some(tid) && !me.session_peers.contains(&tid) {
+            return Err("not_partner");
+        }
+        let them = self.clients.get(&tid).ok_or("target_offline")?;
+        let sid = me.session_id.clone().ok_or("no_session")?;
+        if them.session_id.as_deref() != Some(sid.as_str()) || them.phase != Phase::Matched {
+            return Err("not_partner");
+        }
+        if them.partner != Some(id) && !them.session_peers.contains(&id) {
+            return Err("not_partner");
+        }
+        if self.are_mutual_friends(&me.user_id, target_uid) {
+            return Err("friend");
+        }
+        let age_ok = me
+            .match_started
+            .map(|t| t.elapsed() >= Duration::from_millis(crate::genital_ban::MIN_MATCH_AGE_MS))
+            .unwrap_or(false);
+        if !age_ok {
+            return Err("too_early");
+        }
+        Ok((tid, sid))
+    }
+
+    fn handle_genital_hit(&mut self, id: Uuid, hit: GenitalHitIn, now_ms: u64) {
+        use crate::genital_ban::{score_reject, Decision, Guards, Hit, HitKind};
+        let now_secs = now_ms / 1000;
+        let reporter_uid = self.clients.get(&id).map(|c| c.user_id.clone()).unwrap_or_default();
+        let target_uid: String = hit.target_user_id.trim().chars().take(80).collect();
+        let kind = HitKind::parse(&hit.kind);
+        let cls: String = hit.cls.chars().take(40).collect();
+        let model: String = hit.model.chars().take(40).collect();
+
+        let pre: Result<(Uuid, String, HitKind), &'static str> = (|| {
+            if self.is_match_banned_conn(id) {
+                return Err("reporter_banned");
+            }
+            let kind = kind.ok_or("bad_kind")?;
+            if hit.frames < 2 || hit.window < hit.frames || hit.window > 5 {
+                return Err("bad_window");
+            }
+            if let Some(r) = score_reject(kind, hit.det_score, hit.porn, &cls) {
+                return Err(r);
+            }
+            let (tid, sid) = self.genital_binding(id, &target_uid)?;
+            if self.is_match_banned(&target_uid) {
+                return Err("already_banned");
+            }
+            Ok((tid, sid, kind))
+        })();
+        let (tid, sid, kind) = match pre {
+            Ok(v) => v,
+            Err(why) => {
+                tracing::info!(reporter = %reporter_uid, target = %target_uid, why, "genital_hit rejected");
+                self.genital_reply(id, false, false, why);
+                return;
+            }
+        };
+
+        let cluster = self.reporter_cluster_key(&reporter_uid);
+        let guards = Guards {
+            target_senior: self.effective_trust_for(&target_uid) >= Self::SENIOR_REPORTER_STARS,
+            mutual_feud: self.genital.reported_back(&target_uid, &reporter_uid, now_ms)
+                || self
+                    .report_reporters
+                    .get(&reporter_uid)
+                    .map(|s| s.contains(&target_uid))
+                    .unwrap_or(false),
+        };
+        let decision = self.genital.record(
+            &target_uid,
+            Hit {
+                reporter_uid: reporter_uid.clone(),
+                reporter_cluster: cluster.clone(),
+                session_id: sid.clone(),
+                kind,
+                at_ms: now_ms,
+            },
+            guards,
+            now_ms,
+        );
+
+        // Proof: tiny blurred thumb with the boxes blacked out (client side).
+        // RULETKA_GENITAL_PROOF=off keeps nothing but the scores.
+        let keep_proof = std::env::var("RULETKA_GENITAL_PROOF")
+            .map(|v| v.trim() != "off")
+            .unwrap_or(true);
+        let proof = if keep_proof && !matches!(decision, Decision::Reject(_)) {
+            hit.proof_jpeg_b64
+                .as_deref()
+                .filter(|b| b.len() <= 16_000)
+                .and_then(|b| Self::save_report_screenshot(self.reports_path().as_ref(), b, &target_uid))
+        } else {
+            None
+        };
+
+        let outcome = match &decision {
+            Decision::Reject(r) => r.to_string(),
+            Decision::Counted(r) => r.to_string(),
+            Decision::Ban(b) => format!("ban_{}", b.path),
+        };
+        self.append_safety_log_line(&serde_json::json!({
+            "t": now_ms,
+            "kind": "genital_hit",
+            "reporter_user_id": reporter_uid,
+            "reporter_cluster": cluster,
+            "target_user_id": target_uid,
+            "session_id": sid,
+            "seq": hit.seq,
+            "hit_kind": kind.as_str(),
+            "cls": cls,
+            "det_score": hit.det_score,
+            "porn": hit.porn,
+            "hentai": hit.hentai,
+            "sexy": hit.sexy,
+            "frames": hit.frames,
+            "window": hit.window,
+            "box_area": hit.box_area,
+            "model": model,
+            "client_ts": hit.ts,
+            "target_senior": guards.target_senior,
+            "mutual_feud": guards.mutual_feud,
+            "outcome": outcome,
+            "proof": proof,
+        }));
+
+        let ban = match decision {
+            Decision::Reject(r) => {
+                self.genital_reply(id, false, false, r);
+                return;
+            }
+            Decision::Counted(r) => {
+                self.genital_reply(id, true, false, r);
+                return;
+            }
+            Decision::Ban(b) => b,
+        };
+
+        let until = if ban.permanent {
+            Self::PERMANENT_BAN_UNTIL
+        } else {
+            now_secs.saturating_add(ban.secs)
+        };
+        let prev = self.match_bans.get(&target_uid).copied().unwrap_or(0);
+        if until > prev {
+            self.match_bans.insert(target_uid.clone(), until);
+        }
+        let until = until.max(prev);
+        self.clawback_on_ban(&target_uid, "genitals");
+        self.note_explicit_ai_hit(&target_uid, now_secs);
+        self.persist_friends();
+        self.save_genital_book();
+        let target_name = self.known_names.get(&target_uid).cloned().unwrap_or_default();
+        tracing::warn!(
+            target = %target_uid,
+            level = ban.level,
+            path = ban.path,
+            until,
+            reporters = ban.reporter_clusters.len(),
+            "genital auto-ban"
+        );
+        let short = if target_uid.len() > 14 {
+            format!("{}…", &target_uid[..12])
+        } else {
+            target_uid.clone()
+        };
+        self.fire_mod_webhook(serde_json::json!({
+            "event": "genital_auto_ban",
+            "text": format!(
+                "ruletka genital auto-ban: {short} level={} path={} det={:.2} cls={cls} reporters={}",
+                ban.level, ban.path, hit.det_score, ban.reporter_clusters.len()
+            ),
+            "target_user_id": target_uid,
+            "target_name": target_name,
+            "level": ban.level,
+            "ban_secs": ban.secs,
+            "permanent": ban.permanent,
+            "until": until,
+            "path": ban.path,
+            "reporter_clusters": ban.reporter_clusters,
+            "det_score": hit.det_score,
+            "cls": cls,
+            "model": model,
+            "evidence": proof,
+        }));
+        if let Some(path) = self.reports_path() {
+            let line = serde_json::json!({
+                "t": now_ms,
+                "reporter_user_id": reporter_uid,
+                "target_user_id": target_uid,
+                "target_name": target_name,
+                "reason": "genitals_ai",
+                "auto_banned": true,
+                "genital_level": ban.level,
+                "genital_path": ban.path,
+                "reporter_clusters": ban.reporter_clusters,
+                "permanent": ban.permanent,
+                "ban_secs": ban.secs,
+                "until": until,
+                "evidence": proof,
+            });
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+                use std::io::Write;
+                let _ = writeln!(f, "{line}");
+            }
+        }
+        self.metrics_inc_report();
+
+        // Viewer(s) first: notice, then the hub moves them on.
+        let viewers: Vec<Uuid> = self
+            .clients
+            .get(&tid)
+            .map(|c| {
+                let mut v: Vec<Uuid> = c.session_peers.iter().copied().collect();
+                if let Some(p) = c.partner {
+                    if !v.contains(&p) {
+                        v.push(p);
+                    }
+                }
+                v.retain(|p| Some(*p) != c.friend_call && Some(*p) != c.party_with);
+                v
+            })
+            .unwrap_or_default();
+        for v in &viewers {
+            self.send(*v, ServerMsg::PartnerBanned { reason: "genitals".into() });
+        }
+        self.send(
+            tid,
+            ServerMsg::Banned {
+                reason: "genitals".into(),
+                secs: if ban.permanent { 0 } else { until.saturating_sub(now_secs) },
+                until,
+                permanent: ban.permanent,
+                level: ban.level,
+                message: "banned for showing genitals on camera".into(),
+            },
+        );
+        self.clear_match_state_with_partner_msg(tid, "partner removed for breaking the rules");
+        self.status(tid, "restricted — cannot match right now");
+        self.genital_reply(id, true, true, "banned");
     }
 
     fn handle_report_user(
@@ -9029,6 +9442,12 @@ impl SimpleHub {
             return false;
         }
         let mut removed = self.match_bans.remove(user_id).is_some();
+        // Genital auto-ban overturned by ops: skip it on the ladder and take the
+        // solo path away from the reporter(s) behind it.
+        if self.genital.overturn_recent(user_id, Self::now_unix()) > 0 {
+            self.save_genital_book();
+            tracing::warn!(%user_id, "genital auto-ban overturned by admin");
+        }
         // Clear linked IP bans so they can rematch from same network if ops choose
         let ips: Vec<String> = self
             .match_ip_ban_users
@@ -12261,5 +12680,271 @@ mod chat_filter_hub_tests {
         let log = std::fs::read_to_string(dir.join("safety-logs.jsonl")).unwrap();
         assert!(log.contains("\"category\":\"grooming\""), "{log}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod genital_hub_tests {
+    use super::*;
+    use tokio::sync::mpsc::UnboundedReceiver;
+
+    struct C {
+        id: Uuid,
+        rx: UnboundedReceiver<ServerMsg>,
+    }
+
+    fn hub_at(path: &std::path::Path) -> SimpleHub {
+        SimpleHub::with_limits_and_store(LimitConfig::default(), path.to_path_buf())
+    }
+
+    fn tmp_path() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("ruletka-genital-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("friends.json")
+    }
+
+    fn join(hub: &mut SimpleHub, ip: &str, uid: &str) -> C {
+        let id = Uuid::new_v4();
+        let (tx, rx) = mpsc::unbounded_channel();
+        hub.try_add_client(id, tx, ip.into()).unwrap();
+        hub.handle(
+            id,
+            ClientMsg::Hello {
+                user_id: uid.into(),
+                name: "T".into(),
+                gender: String::new(),
+                looking: "any".into(),
+                flag: String::new(),
+                avatar: String::new(),
+                tags: vec![],
+                hide_ip: false,
+                platform: "web".into(),
+            },
+        );
+        C { id, rx }
+    }
+
+    fn drain(c: &mut C) -> Vec<ServerMsg> {
+        let mut v = vec![];
+        while let Ok(m) = c.rx.try_recv() {
+            v.push(m);
+        }
+        v
+    }
+
+    /// Spin both and age the match past MIN_MATCH_AGE_MS.
+    fn matched(hub: &mut SimpleHub, a: &C, b: &C) {
+        hub.handle(a.id, ClientMsg::Spin { room: String::new() });
+        hub.handle(b.id, ClientMsg::Spin { room: String::new() });
+        assert_eq!(hub.clients[&a.id].partner, Some(b.id), "test pair should match");
+        age(hub, a.id, 10);
+        age(hub, b.id, 10);
+    }
+
+    fn age(hub: &mut SimpleHub, id: Uuid, secs: u64) {
+        hub.clients.get_mut(&id).unwrap().match_started = Some(Instant::now() - Duration::from_secs(secs));
+    }
+
+    fn hit(target: &str) -> GenitalHitIn {
+        GenitalHitIn {
+            target_user_id: target.into(),
+            seq: 1,
+            kind: "detector".into(),
+            cls: "MALE_GENITALIA_EXPOSED".into(),
+            det_score: 0.82,
+            porn: 0.7,
+            frames: 2,
+            window: 3,
+            model: "nudenet-320n-3.4.2".into(),
+            box_area: 0.03,
+            ..Default::default()
+        }
+    }
+
+    fn last_result(msgs: &[ServerMsg]) -> (bool, bool, String) {
+        msgs.iter()
+            .rev()
+            .find_map(|m| match m {
+                ServerMsg::GenitalHitResult { counted, banned, message, .. } => {
+                    Some((*counted, *banned, message.clone()))
+                }
+                _ => None,
+            })
+            .expect("genital_hit_result")
+    }
+
+    const T0: u64 = 1_900_000_000_000;
+
+    #[test]
+    fn two_confirmed_hits_in_a_session_ban_24h_and_notify_both() {
+        let p = tmp_path();
+        let mut hub = hub_at(&p);
+        let mut v = join(&mut hub, "178.46.111.242", "viewer-1");
+        let mut o = join(&mut hub, "96.1.124.108", "offender-1");
+        matched(&mut hub, &v, &o);
+        drain(&mut v);
+        drain(&mut o);
+
+        hub.handle_genital_hit(v.id, hit("offender-1"), T0);
+        assert_eq!(last_result(&drain(&mut v)), (true, false, "counted".into()));
+        assert!(!hub.is_match_banned("offender-1"));
+
+        hub.handle_genital_hit(v.id, GenitalHitIn { seq: 2, ..hit("offender-1") }, T0 + 4000);
+        let vm = drain(&mut v);
+        assert!(vm.iter().any(|m| matches!(m, ServerMsg::PartnerBanned { .. })), "viewer notice");
+        assert_eq!(last_result(&vm), (true, true, "banned".into()));
+        let om = drain(&mut o);
+        let banned = om
+            .iter()
+            .find_map(|m| match m {
+                ServerMsg::Banned { secs, level, permanent, reason, .. } => Some((*secs, *level, *permanent, reason.clone())),
+                _ => None,
+            })
+            .expect("offender gets banned msg");
+        assert_eq!(banned.1, 1);
+        assert!(!banned.2);
+        assert_eq!(banned.3, "genitals");
+        assert!(banned.0 > 86_000 && banned.0 <= 86_400, "{banned:?}");
+        assert!(hub.is_match_banned("offender-1"));
+        assert_ne!(hub.clients[&o.id].phase, Phase::Matched);
+        assert_ne!(hub.clients[&v.id].phase, Phase::Matched);
+        assert_eq!(hub.clients[&v.id].phase, Phase::Waiting, "viewer keeps searching");
+        // persisted beside friends.json
+        let book = std::fs::read_to_string(p.parent().unwrap().join("genital-offenses.json")).unwrap();
+        assert!(book.contains("offender-1"));
+        // spin while banned → banned msg again, not matched
+        hub.handle(o.id, ClientMsg::Spin { room: String::new() });
+        assert!(drain(&mut o).iter().any(|m| matches!(m, ServerMsg::Banned { .. })));
+        assert_eq!(hub.clients[&o.id].phase, Phase::Idle);
+    }
+
+    #[test]
+    fn hit_on_someone_you_are_not_watching_is_rejected() {
+        let mut hub = hub_at(&tmp_path());
+        let mut v = join(&mut hub, "178.46.111.242", "viewer-2");
+        let o = join(&mut hub, "96.1.124.108", "partner-2");
+        let _x = join(&mut hub, "5.18.1.1", "bystander-2");
+        matched(&mut hub, &v, &o);
+        drain(&mut v);
+        for t in [T0, T0 + 4000, T0 + 8000] {
+            hub.handle_genital_hit(v.id, hit("bystander-2"), t);
+            let r = last_result(&drain(&mut v));
+            assert!(!r.0);
+            assert!(r.2 == "not_partner" || r.2 == "not_matched", "{r:?}");
+        }
+        assert!(!hub.is_match_banned("bystander-2"));
+        // Not matched at all
+        let mut lone = join(&mut hub, "5.18.2.2", "lone-2");
+        hub.handle_genital_hit(lone.id, hit("partner-2"), T0);
+        assert_eq!(last_result(&drain(&mut lone)).2, "not_matched");
+    }
+
+    #[test]
+    fn hit_right_after_match_is_too_early() {
+        let mut hub = hub_at(&tmp_path());
+        let mut v = join(&mut hub, "178.46.111.242", "viewer-3");
+        let o = join(&mut hub, "96.1.124.108", "partner-3");
+        matched(&mut hub, &v, &o);
+        age(&mut hub, v.id, 0);
+        drain(&mut v);
+        hub.handle_genital_hit(v.id, hit("partner-3"), T0);
+        assert_eq!(last_result(&drain(&mut v)), (false, false, "too_early".into()));
+    }
+
+    #[test]
+    fn friends_cannot_ban_each_other() {
+        let mut hub = hub_at(&tmp_path());
+        let mut v = join(&mut hub, "178.46.111.242", "viewer-4");
+        let o = join(&mut hub, "96.1.124.108", "partner-4");
+        hub.establish_friendship("viewer-4", "partner-4");
+        matched(&mut hub, &v, &o);
+        drain(&mut v);
+        hub.handle_genital_hit(v.id, hit("partner-4"), T0);
+        assert_eq!(last_result(&drain(&mut v)).2, "friend");
+    }
+
+    #[test]
+    fn junk_scores_and_porn_only_are_handled() {
+        let mut hub = hub_at(&tmp_path());
+        let mut v = join(&mut hub, "178.46.111.242", "viewer-5");
+        let o = join(&mut hub, "96.1.124.108", "partner-5");
+        matched(&mut hub, &v, &o);
+        drain(&mut v);
+        hub.handle_genital_hit(v.id, GenitalHitIn { det_score: 0.2, ..hit("partner-5") }, T0);
+        assert_eq!(last_result(&drain(&mut v)).2, "low_score");
+        hub.handle_genital_hit(v.id, GenitalHitIn { frames: 1, ..hit("partner-5") }, T0);
+        assert_eq!(last_result(&drain(&mut v)).2, "bad_window");
+        hub.handle_genital_hit(v.id, GenitalHitIn { kind: "whatever".into(), ..hit("partner-5") }, T0);
+        assert_eq!(last_result(&drain(&mut v)).2, "bad_kind");
+        // lite fallback: two porn_only confirmations in one session never ban alone
+        let po = GenitalHitIn { kind: "porn_only".into(), cls: String::new(), det_score: 0.0, porn: 0.95, ..hit("partner-5") };
+        hub.handle_genital_hit(v.id, po.clone(), T0);
+        hub.handle_genital_hit(v.id, po, T0 + 5000);
+        assert_eq!(last_result(&drain(&mut v)), (true, false, "counted".into()));
+        assert!(!hub.is_match_banned("partner-5"));
+    }
+
+    #[test]
+    fn senior_target_needs_two_viewers_then_cross_ban() {
+        let mut hub = hub_at(&tmp_path());
+        let mut v1 = join(&mut hub, "178.46.111.242", "viewer-6a");
+        let o = join(&mut hub, "96.1.124.108", "senior-6");
+        // make the target a senior: big trust from many gifters
+        for i in 0..14 {
+            hub.star_ledger
+                .mint_from(&format!("g{i}"), "senior-6", 30, "mint:rate_partner", "test")
+                .unwrap();
+        }
+        assert!(hub.effective_trust_for("senior-6") >= SimpleHub::SENIOR_REPORTER_STARS);
+        matched(&mut hub, &v1, &o);
+        drain(&mut v1);
+        hub.handle_genital_hit(v1.id, hit("senior-6"), T0);
+        hub.handle_genital_hit(v1.id, hit("senior-6"), T0 + 4000);
+        assert_eq!(last_result(&drain(&mut v1)).2, "needs_second_reporter_senior");
+        assert!(!hub.is_match_banned("senior-6"));
+        // second viewer from another network, new match
+        hub.handle(v1.id, ClientMsg::Stop);
+        let mut v2 = join(&mut hub, "5.18.9.9", "viewer-6b");
+        hub.handle(o.id, ClientMsg::Spin { room: String::new() });
+        hub.handle(v2.id, ClientMsg::Spin { room: String::new() });
+        assert_eq!(hub.clients[&v2.id].partner, Some(o.id));
+        age(&mut hub, v2.id, 10);
+        drain(&mut v2);
+        hub.handle_genital_hit(v2.id, hit("senior-6"), T0 + 60_000);
+        assert_eq!(last_result(&drain(&mut v2)), (true, true, "banned".into()));
+    }
+
+    #[test]
+    fn ladder_continues_after_restart_and_admin_unban_overturns() {
+        let p = tmp_path();
+        let mut t = T0;
+        let mut levels = vec![];
+        for (i, ip) in ["178.46.111.242", "5.18.9.9", "31.1.1.1"].iter().enumerate() {
+            // new hub each time = restart; offenses come back from disk
+            let mut hub = hub_at(&p);
+            hub.match_bans.remove("offender-7"); // previous ban served
+            let mut v = join(&mut hub, ip, &format!("viewer-7{i}"));
+            let mut o = join(&mut hub, "96.1.124.108", "offender-7");
+            matched(&mut hub, &v, &o);
+            hub.handle_genital_hit(v.id, hit("offender-7"), t);
+            hub.handle_genital_hit(v.id, hit("offender-7"), t + 4000);
+            assert!(last_result(&drain(&mut v)).1);
+            let lvl = drain(&mut o)
+                .iter()
+                .find_map(|m| match m {
+                    ServerMsg::Banned { level, permanent, .. } => Some((*level, *permanent)),
+                    _ => None,
+                })
+                .unwrap();
+            levels.push(lvl);
+            hub.persist_friends();
+            t += 2 * 24 * 3600 * 1000;
+            if i == 2 {
+                assert_eq!(hub.match_bans["offender-7"], SimpleHub::PERMANENT_BAN_UNTIL);
+                assert!(hub.admin_unban("offender-7"));
+                assert!(hub.genital.latest_active("offender-7").map(|o| o.level) != Some(3));
+            }
+        }
+        assert_eq!(levels, vec![(1, false), (2, false), (3, true)]);
     }
 }

@@ -2077,5 +2077,15 @@
   "face.prompt": "Montrez votre visage à la caméra pour commencer",
   "face.camOff": "Activez la caméra et montrez votre visage pour commencer",
   "face.loading": "Vérification de la caméra…",
-  "face.hint": "La recherche est en pause tant que votre visage n’est pas visible."
+  "face.hint": "La recherche est en pause tant que votre visage n’est pas visible.",
+  "genital.partnerBanned": "Votre interlocuteur a été banni pour non-respect des règles",
+  "genital.checking": "Nudité possible — vidéo floutée, vérification",
+  "ban.title": "Vous êtes banni",
+  "ban.bodyGenitals": "Vous êtes banni {dur} pour avoir montré vos parties génitales à la caméra. Cela enfreint les règles de Ruletka.",
+  "ban.bodyPermanent": "Vous êtes banni définitivement pour avoir de nouveau montré vos parties génitales à la caméra.",
+  "ban.dur24h": "pendant 24 heures",
+  "ban.dur7d": "pendant 7 jours",
+  "ban.until": "Jusqu'au : {when}",
+  "ban.ok": "Compris",
+  "srv.partnerRemoved": "interlocuteur banni pour non-respect des règles — nouvelle recherche"
 }

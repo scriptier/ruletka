@@ -2077,5 +2077,15 @@
   "face.prompt": "Pokaż twarz do kamery, aby zacząć",
   "face.camOff": "Włącz kamerę i pokaż twarz, aby zacząć",
   "face.loading": "Sprawdzamy kamerę…",
-  "face.hint": "Dobieranie jest wstrzymane, dopóki nie widać twarzy."
+  "face.hint": "Dobieranie jest wstrzymane, dopóki nie widać twarzy.",
+  "genital.partnerBanned": "Rozmówca został zablokowany za łamanie zasad",
+  "genital.checking": "Możliwa nagość — wideo rozmyte, sprawdzamy",
+  "ban.title": "Zostałeś zablokowany",
+  "ban.bodyGenitals": "Zostałeś zablokowany {dur} za pokazywanie genitaliów przed kamerą. To łamie zasady Ruletki.",
+  "ban.bodyPermanent": "Zostałeś zablokowany na stałe za ponowne pokazywanie genitaliów przed kamerą.",
+  "ban.dur24h": "na 24 godziny",
+  "ban.dur7d": "na 7 dni",
+  "ban.until": "Do: {when}",
+  "ban.ok": "OK",
+  "srv.partnerRemoved": "rozmówca zablokowany za łamanie zasad — szukamy dalej"
 }

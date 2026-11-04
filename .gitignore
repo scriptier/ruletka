@@ -82,3 +82,6 @@ tasks/admin-queue/reports/
 # Local pre-sleep snapshot metadata (git branches backup/* hold the real restore)
 backups/
 artifacts/connect-scorecard.jsonl
+# Genital detector big binaries: fetched + sha256-checked by scripts/vendor-genital.sh
+ui/vendor/genital/ort-1.22.0/ort-wasm-simd-threaded.wasm
+ui/vendor/genital/model/nudenet-320n-3.4.2/320n.onnx

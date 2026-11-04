@@ -2100,5 +2100,15 @@
   "face.prompt": "Tunjukkan wajahmu ke kamera untuk mulai",
   "face.camOff": "Nyalakan kamera dan tunjukkan wajahmu untuk mulai",
   "face.loading": "Memeriksa kamera…",
-  "face.hint": "Pencarian dijeda sampai wajahmu terlihat."
+  "face.hint": "Pencarian dijeda sampai wajahmu terlihat.",
+  "genital.partnerBanned": "Lawan bicaramu diblokir karena melanggar aturan",
+  "genital.checking": "Kemungkinan ketelanjangan — video diburamkan, sedang diperiksa",
+  "ban.title": "Kamu diblokir",
+  "ban.bodyGenitals": "Kamu diblokir {dur} karena memperlihatkan alat kelamin di kamera. Ini melanggar aturan Ruletka.",
+  "ban.bodyPermanent": "Kamu diblokir permanen karena kembali memperlihatkan alat kelamin di kamera.",
+  "ban.dur24h": "selama 24 jam",
+  "ban.dur7d": "selama 7 hari",
+  "ban.until": "Sampai: {when}",
+  "ban.ok": "Mengerti",
+  "srv.partnerRemoved": "lawan bicara diblokir karena melanggar aturan — mencari lagi"
 }
