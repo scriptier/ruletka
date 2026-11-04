@@ -7,6 +7,7 @@
 //!
 //! Media is browser WebRTC P2P; the bridge only does match + signaling.
 
+mod chat_filter;
 mod config;
 mod expo_push;
 mod federation;

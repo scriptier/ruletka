@@ -7,6 +7,7 @@
 //! Queue never forms **3v1 / 1v3** or **2v3**. A 4th person joins only when
 //! someone in a live 3-way **calls a friend** in (`call_friend` join).
 
+use crate::chat_filter::{self, ChatCategory};
 use crate::federation::{
     self, caller_is_offerer, federated_peer_id, parse_federated_peer_id, ClaimRequest,
     ClaimResponse, FedOutbound, FedPeerDesc, FederationInfo, RelayKind, RelayRequest, RoomWaiting,
@@ -226,6 +227,9 @@ pub struct Client {
     report_times: Vec<Instant>,
     /// Sliding window of log-only safety_log lines. Separate from reports.
     safety_log_times: Vec<Instant>,
+    /// Last stranger-chat message that asked for age or mentioned a minor
+    /// (chat_filter). A sexual message soon after counts as grooming.
+    chat_age_ctx_at: Option<Instant>,
     /// When current stranger match began (for avg match length metrics).
     match_started: Option<Instant>,
     /// Last SDP offer time **per target** (`to=` peer_id). 3.5s debounce is per pair,
@@ -364,6 +368,9 @@ pub struct SimpleHub {
     user_last_ip: HashMap<String, String>,
     /// target_user_id → recent report timestamps (unix secs). Memory-only raid detection.
     report_recent: HashMap<String, Vec<u64>>,
+    /// sender user_id → stranger-chat grooming hits (unix secs, last 7 days).
+    /// Internal flag only (memory; each hit is also in safety-logs.jsonl).
+    chat_grooming_flags: HashMap<String, Vec<u64>>,
     /// In-memory ring of recent matches for admin (not persisted across restart).
     recent_matches: VecDeque<serde_json::Value>,
     /// Connect forensics ring (match/offer/answer/ice/drop) for admin live monitor.
@@ -749,6 +756,7 @@ impl SimpleHub {
             match_ip_ban_users: stored.match_ip_ban_users,
             user_last_ip: stored.user_last_ip,
             report_recent: HashMap::new(),
+            chat_grooming_flags: HashMap::new(),
             recent_matches: VecDeque::new(),
             connect_events: VecDeque::new(),
             dms: stored.dms,
@@ -4453,6 +4461,7 @@ impl SimpleHub {
                 limiter: ClientLimiter::new(),
                 report_times: Vec::new(),
                 safety_log_times: Vec::new(),
+                chat_age_ctx_at: None,
                 match_started: None,
                 last_offer_at: HashMap::new(),
                 last_answer_at: HashMap::new(),
@@ -9932,6 +9941,11 @@ impl SimpleHub {
             return;
         }
         let body = body.to_string();
+        // Stranger chat safety filter: contact swaps, explicit words and
+        // grooming are not delivered (sender gets a short notice).
+        if self.chat_filter_blocks(id, &body) {
+            return;
+        }
         // Federated chat relay
         if let Some(sid) = self.fed_by_client.get(&id).cloned() {
             if let Some(sess) = self.fed_sessions.get(&sid) {
@@ -10013,6 +10027,100 @@ impl SimpleHub {
         for t in targets {
             self.send(t, chat.clone());
         }
+    }
+
+    /// How long an age question / minor mention from one sender is remembered.
+    const CHAT_AGE_CONTEXT: Duration = Duration::from_secs(10 * 60);
+    /// Window for the in-memory grooming flag count.
+    const CHAT_FLAG_WINDOW_SECS: u64 = 7 * 24 * 3600;
+
+    /// Run `chat_filter::classify` on a stranger chat line. Returns true when
+    /// the line must not be delivered. Only stranger matches (local or
+    /// federated) are checked; friend calls are skipped because friends chose
+    /// each other and may swap contacts. Blocked lines get one safety-logs.jsonl
+    /// entry; grooming also bumps `chat_grooming_flags`.
+    fn chat_filter_blocks(&mut self, id: Uuid, body: &str) -> bool {
+        let now = Instant::now();
+        let federated = self.fed_by_client.contains_key(&id);
+        let (verdict, sender_user_id, peers) = match self.clients.get_mut(&id) {
+            Some(c) if c.phase == Phase::Matched || federated => {
+                let recent = c
+                    .chat_age_ctx_at
+                    .map(|t| now.duration_since(t) < Self::CHAT_AGE_CONTEXT)
+                    .unwrap_or(false);
+                let verdict = chat_filter::classify(body, recent);
+                if verdict.age_context {
+                    c.chat_age_ctx_at = Some(now);
+                }
+                let mut peers: Vec<Uuid> = c.session_peers.iter().copied().collect();
+                if peers.is_empty() {
+                    if let Some(p) = c.partner {
+                        peers.push(p);
+                    }
+                }
+                (verdict, c.user_id.clone(), peers)
+            }
+            _ => return false,
+        };
+        let Some(category) = verdict.category else {
+            return false;
+        };
+        let target_user_ids: Vec<String> = peers
+            .iter()
+            .filter_map(|p| self.clients.get(p).map(|c| c.user_id.clone()))
+            .collect();
+        let now_unix = Self::now_unix();
+        let mut grooming_flags_7d = 0usize;
+        if category == ChatCategory::Grooming && !sender_user_id.is_empty() {
+            let hits = self
+                .chat_grooming_flags
+                .entry(sender_user_id.clone())
+                .or_default();
+            hits.retain(|t| now_unix.saturating_sub(*t) < Self::CHAT_FLAG_WINDOW_SECS);
+            hits.push(now_unix);
+            grooming_flags_7d = hits.len();
+        }
+        tracing::warn!(
+            sender = %sender_user_id,
+            category = category.as_str(),
+            rule = verdict.rule,
+            grooming_flags_7d,
+            "chat_filter: message not delivered"
+        );
+        let server_ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let mut line = serde_json::json!({
+            "kind": "chat_filter",
+            "category": category.as_str(),
+            "rule": verdict.rule,
+            "action": "not_delivered",
+            "sender_user_id": sender_user_id,
+            "target_user_ids": target_user_ids,
+            // Short excerpt so a moderator can check false positives.
+            "excerpt": body.chars().take(160).collect::<String>(),
+            "server_ts": server_ts,
+        });
+        if category == ChatCategory::Grooming {
+            line["grooming_flags_7d"] = serde_json::json!(grooming_flags_7d);
+        }
+        self.append_safety_log_line(&line);
+        let message = match category {
+            ChatCategory::ContactSwap => {
+                "message not sent — contacts and links are hidden in stranger chat"
+            }
+            ChatCategory::Explicit | ChatCategory::Grooming => {
+                "message not sent — explicit content"
+            }
+        };
+        self.send(
+            id,
+            ServerMsg::Error {
+                message: message.into(),
+            },
+        );
+        true
     }
 
     /// Friend direct message — works when peer is offline (stored + delivered later via history).
@@ -11180,6 +11288,72 @@ mod safety_log_hub_tests {
         );
         assert!(hub.report_reporters.is_empty());
         assert!(hub.match_bans.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod chat_filter_hub_tests {
+    use super::{ClientMsg, LimitConfig, Phase, ServerMsg, SimpleHub};
+    use tokio::sync::mpsc;
+    use uuid::Uuid;
+
+    #[test]
+    fn stranger_contact_swap_is_not_delivered_and_logged() {
+        let dir = std::env::temp_dir().join(format!("ruletka-chatf-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut hub =
+            SimpleHub::with_limits_and_store(LimitConfig::default(), dir.join("friends.json"));
+        let (ta, mut ra) = mpsc::unbounded_channel();
+        let (tb, mut rb) = mpsc::unbounded_channel();
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        hub.try_add_client(a, ta, "203.0.113.10".into()).unwrap();
+        hub.try_add_client(b, tb, "198.51.100.8".into()).unwrap();
+        for (me, other) in [(a, b), (b, a)] {
+            let c = hub.clients.get_mut(&me).unwrap();
+            c.phase = Phase::Matched;
+            c.partner = Some(other);
+        }
+        while ra.try_recv().is_ok() {}
+        while rb.try_recv().is_ok() {}
+
+        hub.handle(a, ClientMsg::Chat { body: "пиши в тг @anna_2005".into() });
+        let mut b_got_chat = false;
+        while let Ok(m) = rb.try_recv() {
+            if matches!(m, ServerMsg::Chat { .. }) {
+                b_got_chat = true;
+            }
+        }
+        assert!(!b_got_chat, "contact swap must not reach the stranger");
+        let mut a_notice = false;
+        while let Ok(m) = ra.try_recv() {
+            if let ServerMsg::Error { message } = m {
+                a_notice |= message.contains("message not sent");
+            }
+        }
+        assert!(a_notice);
+        let log = std::fs::read_to_string(dir.join("safety-logs.jsonl")).unwrap();
+        assert!(log.contains("\"kind\":\"chat_filter\""), "{log}");
+        assert!(log.contains("\"category\":\"contact_swap\""), "{log}");
+
+        hub.handle(a, ClientMsg::Chat { body: "привет, как дела?".into() });
+        let mut delivered = false;
+        while let Ok(m) = rb.try_recv() {
+            if matches!(m, ServerMsg::Chat { .. }) {
+                delivered = true;
+            }
+        }
+        assert!(delivered, "normal chat still delivered");
+
+        hub.handle(a, ClientMsg::Chat { body: "сколько тебе лет?".into() });
+        hub.handle(a, ClientMsg::Chat { body: "покажи грудь".into() });
+        let uid = hub.clients.get(&a).unwrap().user_id.clone();
+        if !uid.is_empty() {
+            assert_eq!(hub.chat_grooming_flags.get(&uid).map(|v| v.len()), Some(1));
+        }
+        let log = std::fs::read_to_string(dir.join("safety-logs.jsonl")).unwrap();
+        assert!(log.contains("\"category\":\"grooming\""), "{log}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
