@@ -12,6 +12,7 @@ Goal: keep **real abuse** bans working while making **info-war / stream raids** 
 7. **Permanent escalate** only when explicit strikes again with **≥3 counting** reporters and **not** during a raid spike (admin can still permanent ban).
 8. **Politics / flags / language** are not ban categories. Clients should use **Next** or **Block**.
 9. **Export cannot mint stars** (unchanged) — reputation ledger is hub-side.
+10. **Underage (2026-11-03):** one report = 24h match hold, not a ban. 30 days needs 4 points from 2+ clusters in 7 days (established 2, low-star 1, same /24 once) or an underage report + an `explicit_ai` report. See `underage_action` and `docs/SAFETY_FILTER_2026-11-03.md`.
 
 ## Code
 

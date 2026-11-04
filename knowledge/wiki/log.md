@@ -2,6 +2,9 @@
 
 Parse tip: `grep '^## \[' knowledge/wiki/log.md | tail -10`
 
+## [2026-11-03] hop | safety filter pass (branch safety/2026-11-03, not deployed)
+- Web NSFW filter on lite/Safari (wasm/cpu fallback, 6s scan), self-hosted under `ui/vendor/nsfw` (old cloudfront model host is dead), blur held while loading/failed, 2-of-3 confirm. Server chat filter (`chat_filter.rs`). Underage: 1 report = 24h hold; 30d needs 2 clusters / 4 points in 7d or + explicit_ai. Pins live.js **989** · i18n **275**. Notes: `docs/SAFETY_FILTER_2026-11-03.md`. **No GOAL_MET.**
+
 ## [2026-10-07] hop | SMOKE-NEXT slim + archive two current specs
 - Live `SMOKE-NEXT.md` is A–F checklists + pins from `now.md` (APK **0.1.480-vc488** · live.js **985** · stage **655** · webrtc **356** · brand **24** · i18n **267**). F17–F70 keyguard dump → `specs/archive/SMOKE-NEXT-F17-F70-dump.md`. Archived `current-ship-ux.md` + `current-ui-dedupe-connect-cleanup.md`. `current-av.md` stub stays live. `python3 scripts/test_session_brief.py`.
 
