@@ -350,7 +350,9 @@
   "mobile.live.permDeniedBody": "Разрешите камеру и микрофон в настройках системы, затем повторите.",
   "mobile.live.permDeniedTitle": "Камера или микрофон заблокированы",
   "mobile.live.permRetry": "Повторить",
-  "mobile.live.pipHint": "Тяни · 2× тап смена",
+  "mobile.live.pipHint": "Тяни · тап: 50/50",
+  "mobile.live.splitView": "Разделить экран",
+  "mobile.live.pipView": "Маленькое окно",
   "mobile.live.plusPeers": " +{n}",
   "mobile.live.praisedBy": "хвалили {n}",
   "mobile.live.preview": "Ваша камера",
@@ -706,5 +708,13 @@
   "trio.slotEmpty": "Ищем третьего…",
   "trio.searching": "Ищем третьего вместе…",
   "mobile.settings.downloadApk": "Download Android APK",
-  "mobile.settings.downloadApkSub": "Latest sideload build · 0.1.465"
+  "mobile.settings.downloadApkSub": "Latest sideload build · 0.1.465",
+  "mobile.live.partnerBanned": "Собеседник заблокирован за нарушение правил",
+  "mobile.ban.title": "Вы заблокированы",
+  "mobile.ban.bodyGenitals": "Вы заблокированы {dur} за показ гениталий на камеру. Это нарушает правила Рулетки.",
+  "mobile.ban.bodyPermanent": "Вы заблокированы навсегда за повторный показ гениталий на камеру.",
+  "mobile.ban.dur24h": "на 24 часа",
+  "mobile.ban.dur7d": "на 7 дней",
+  "mobile.ban.until": "До: {when}",
+  "mobile.ban.ok": "Понятно"
 }

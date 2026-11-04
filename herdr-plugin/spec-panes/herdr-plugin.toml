@@ -1,0 +1,23 @@
+id = "ruletka.spec-panes"
+name = "Ruletka live spec tabs"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+description = "ruletka-main space keeps tabs connect, mobile, ios, site, store. Maps live specs into those groups and starts Grok on the wait slots. Never closes a tab; never touches connect."
+platforms = ["linux"]
+
+[[startup]]
+command = ["python3", "spec_panes.py", "ensure"]
+
+[[events]]
+on = "workspace.focused"
+command = ["python3", "spec_panes.py", "focused"]
+
+[[events]]
+on = "workspace.created"
+command = ["python3", "spec_panes.py", "ensure"]
+
+[[actions]]
+id = "ensure"
+title = "Sync live spec tabs"
+contexts = ["workspace"]
+command = ["python3", "spec_panes.py", "ensure"]

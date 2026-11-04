@@ -55,6 +55,7 @@ import {
 import { useHub } from "../src/hub/HubProvider";
 import { TapPressable } from "../src/ui/TapPressable";
 import type { MatchPeer, ServerMatched, ServerMsg } from "../src/hub/types";
+import type { HubBan } from "../src/live/hubBan";
 import { useI18n, useT } from "../src/i18n";
 import { friendInviteShareMessage } from "../src/linking/friendInvite";
 import {
@@ -65,6 +66,11 @@ import {
   LiveDebateChrome,
   DebateIncomingOverlay,
   StarGiftPopup,
+  BanScreen,
+  banCopy,
+  isHubBanActive,
+  parseHubBan,
+  partnerBannedRecently,
   LiveMoreSheet,
   PartnerIdentityDock,
   LiveQueueHints,
@@ -149,7 +155,8 @@ import {
   tickReconnect,
   type ReconnectSnap,
 } from "../src/media/partnerReconnect";
-import { loadPipPrefs } from "../src/media/pipPrefs";
+import { loadPipPrefs, savePipPrefs } from "../src/media/pipPrefs";
+import type { StageViewPref } from "../src/live/pipLayout";
 import { useAutoConnectRetry } from "../src/media/useAutoConnectRetry";
 import { useNetworkMediaPolicy } from "../src/media/useNetworkMediaPolicy";
 import {
@@ -829,6 +836,18 @@ function LiveBody() {
   /** Adaptive outbound quality label (high|mid|low|min). */
   const [qualityTier, setQualityTier] = useState("");
   const [swapViews, setSwapViews] = useState(false);
+  /** Self-view: draggable PiP or classic split (remembered, pipPrefs.view). */
+  const [stageView, setStageView] = useState<StageViewPref>(null);
+  const chooseStageView = useCallback((view: "pip" | "split") => {
+    setStageView(view);
+    // Split always shows partner | you — drop any PiP swap.
+    if (view === "split") setSwapViews(false);
+    void savePipPrefs({ view, hintSeen: true });
+  }, []);
+  /** Chrome over the stage — the self PiP never parks underneath. */
+  const [stageTopChromeH, setStageTopChromeH] = useState(0);
+  const [matchTopChromeH, setMatchTopChromeH] = useState(0);
+  const [bottomDockH, setBottomDockH] = useState(0);
   const [stageSize, setStageSize] = useState({ w: 320, h: 480 });
   // Follow physical rotate (app.json default + manifest fullUser).
   // LiveStageVideo also listens; keep parent stageW/H in sync so chrome reflows.
@@ -865,6 +884,10 @@ function LiveBody() {
   // t for hooks that only read via ref (bg media, debate mount effect)
   const tRef = useRef(t);
   tRef.current = t;
+  // Hub moderation (`banned` / `partner_banned`, see src/live/hubBan.ts)
+  const [hubBan, setHubBan] = useState<HubBan | null>(null);
+  const hubBanRef = useRef<HubBan | null>(null);
+  const partnerBannedAtRef = useRef(0);
 
   const push = useCallback((line: string) => {
     setLog((prev) => [line, ...prev].slice(0, 50));
@@ -2361,6 +2384,7 @@ function LiveBody() {
     });
     loadPipPrefs().then((p) => {
       if (p?.hintSeen) setPipHint(false);
+      if (p?.view) setStageView(p.view);
     });
     void preloadUiSounds();
 
@@ -2406,6 +2430,71 @@ function LiveBody() {
         setMediaBlocked(true);
       }
     })();
+
+    /** Drop the current match on this side only (no bye, no hub message). */
+    function endMatchLocally() {
+      forceRelayHubRef.current = false;
+      try {
+        media2.closeCall({ keepLocal: true, sendBye: false });
+        media3.closeCall({ keepLocal: true, sendBye: false });
+        media.closeCall({ keepLocal: true, sendBye: false });
+      } catch {
+        /* ignore */
+      }
+      setRemoteStream(null);
+      setRemoteStream2(null);
+      setRemoteStream3(null);
+      extraPeersRef.current = [];
+      setExtraPeers([]);
+      extraMuted2Ref.current = false;
+      extraMuted3Ref.current = false;
+      setExtraMuted2(false);
+      setExtraMuted3(false);
+      setPartner("");
+      setPartnerCode("");
+      setPartnerStars(0);
+      setPartnerTrust(0);
+      setPartnerTrustGifters(0);
+      setPartnerFlag("");
+      setPartnerCountry("");
+      setPartnerCity("");
+      setPartnerHideIp(false);
+      partnerAvatarRef.current = "";
+      setPartnerAvatar("");
+      pendingPartnerGeoRef.current = null;
+      clearIdentityPollRef.current();
+      identityStarsKnownRef.current = false;
+      hubStarsKnownRef.current = false;
+      setPartnerCamHidden(false);
+      partnerCamHiddenRef.current = false;
+      setPartnerNoCam(false);
+      partnerNoCamRef.current = false;
+      setExtraNoCam2(false);
+      setExtraNoCam3(false);
+      setTheyMutedMe(false);
+      setRemoteBlurred(false);
+      remoteBlurredRef.current = false;
+      blurAutoAppliedRef.current = false;
+      blurWantAutoRef.current = false;
+      clearIntroUnblurTimer();
+      setAwaitingRemoteVideo(false);
+      setMoreOpen(false);
+      // End find-3rd hunt UI (partner left mid-hunt or any match)
+      setFindThirdPending(false);
+      setHuntingWithPartner(false);
+      remotePeerId.current = "";
+      secondaryPeerId.current = "";
+      tertiaryPeerId.current = "";
+      extrasCountRef.current = 0;
+      listedPeerIdsRef.current = [];
+      partnerUserId.current = "";
+      partnerFriendCode.current = "";
+      matchStartedAtRef.current = 0;
+      setMatchStartedAt(0);
+      setMatchMode("");
+      matchModeRef.current = "";
+      void leaveCallAudio();
+    }
 
     const unsub = addMsgRef.current((msg: ServerMsg) => {
       switch (msg.type) {
@@ -2593,10 +2682,12 @@ function LiveBody() {
             setQueueAcked(false);
             setPhase("idle");
             phaseRef.current = "idle";
-            showToastRef.current(
-              t("mobile.live.matchBanned") ||
-                "You're banned from matching"
-            );
+            if (!isHubBanActive(hubBanRef.current)) {
+              showToastRef.current(
+                t("mobile.live.matchBanned") ||
+                  "You're banned from matching"
+              );
+            }
           }
           // Partner left: only tear down on EXPLICIT leave details.
           // Never kill a live call on bare phase=idle/waiting (that regressed
@@ -2666,67 +2757,9 @@ function LiveBody() {
             // Hub already requeues the leaver; only auto-spin the abandoned side
             // when it was a real short chat (not a 0s thrash bounce).
             const requeue = hubRequeue || shortCallAutoNext;
-            forceRelayHubRef.current = false;
-            try {
-              media2.closeCall({ keepLocal: true, sendBye: false });
-              media3.closeCall({ keepLocal: true, sendBye: false });
-              media.closeCall({ keepLocal: true, sendBye: false });
-            } catch {
-              /* ignore */
-            }
-            setRemoteStream(null);
-            setRemoteStream2(null);
-            setRemoteStream3(null);
-            extraPeersRef.current = [];
-            setExtraPeers([]);
-            extraMuted2Ref.current = false;
-            extraMuted3Ref.current = false;
-            setExtraMuted2(false);
-            setExtraMuted3(false);
-            setPartner("");
-            setPartnerCode("");
-            setPartnerStars(0);
-            setPartnerTrust(0);
-            setPartnerTrustGifters(0);
-            setPartnerFlag("");
-            setPartnerCountry("");
-            setPartnerCity("");
-            setPartnerHideIp(false);
-            partnerAvatarRef.current = "";
-            setPartnerAvatar("");
-            pendingPartnerGeoRef.current = null;
-            clearIdentityPollRef.current();
-            identityStarsKnownRef.current = false;
-            hubStarsKnownRef.current = false;
-            setPartnerCamHidden(false);
-            partnerCamHiddenRef.current = false;
-            setPartnerNoCam(false);
-            partnerNoCamRef.current = false;
-            setExtraNoCam2(false);
-            setExtraNoCam3(false);
-            setTheyMutedMe(false);
-            setRemoteBlurred(false);
-            remoteBlurredRef.current = false;
-            blurAutoAppliedRef.current = false;
-            blurWantAutoRef.current = false;
-            clearIntroUnblurTimer();
-            setAwaitingRemoteVideo(false);
-            setMoreOpen(false);
-            // End find-3rd hunt UI (partner left mid-hunt or any match)
-            setFindThirdPending(false);
-            setHuntingWithPartner(false);
-            remotePeerId.current = "";
-            secondaryPeerId.current = "";
-            tertiaryPeerId.current = "";
-            extrasCountRef.current = 0;
-            listedPeerIdsRef.current = [];
-            partnerUserId.current = "";
-            partnerFriendCode.current = "";
-            matchStartedAtRef.current = 0;
-            setMatchStartedAt(0);
-            setMatchMode("");
-            matchModeRef.current = "";
-            void leaveCallAudio();
+            const partnerBanned = partnerBannedRecently(partnerBannedAtRef.current);
+            partnerBannedAtRef.current = 0;
+            endMatchLocally();
             if (!requeue) {
               searchingRef.current = false;
               queueAckedRef.current = false;
@@ -2734,7 +2767,9 @@ function LiveBody() {
               setPhase("idle");
               phaseRef.current = "idle";
               showToastRef.current(
-                tRef.current("mobile.live.partnerLeft", { name: leftName })
+                partnerBanned
+                  ? tRef.current("mobile.live.partnerBanned")
+                  : tRef.current("mobile.live.partnerLeft", { name: leftName })
               );
             } else {
               searchingRef.current = true;
@@ -2745,10 +2780,12 @@ function LiveBody() {
               setAlone(true);
               setWaiting((w) => Math.max(w, 1));
               showToastRef.current(
-                tRef.current("mobile.live.autoNextSkip", { name: leftName }) ||
-                  tRef.current("mobile.live.autoNextShort", {
-                    name: leftName,
-                  })
+                partnerBanned
+                  ? tRef.current("mobile.live.partnerBanned")
+                  : tRef.current("mobile.live.autoNextSkip", { name: leftName }) ||
+                      tRef.current("mobile.live.autoNextShort", {
+                        name: leftName,
+                      })
               );
               try {
                 hubRefLive.current.spin();
@@ -4757,6 +4794,60 @@ function LiveBody() {
                 log(`handle ${e}`);
               });
           }
+          break;
+        }
+        case "partner_banned": {
+          // The stranger we watched was auto-banned. The hub's leave status
+          // follows; the partner-left path above shows this notice instead.
+          partnerBannedAtRef.current = Date.now();
+          const uid = String(partnerUserId.current || "").trim();
+          setRemoteBlurred(true);
+          remoteBlurredRef.current = true;
+          if (uid) {
+            try {
+              hubRefLive.current.blockUser(uid);
+            } catch {
+              /* ignore */
+            }
+            void rememberBlock(
+              uid,
+              paintSafePartnerName(partnerNameRef.current, "Partner", {
+                userId: uid,
+              })
+            );
+          }
+          showToastRef.current(tRef.current("mobile.live.partnerBanned"));
+          track("genital_partner_banned", {
+            reason: String((msg as { reason?: string }).reason || ""),
+          });
+          log(`partner_banned uid=${uid.slice(0, 8) || "-"}`);
+          break;
+        }
+        case "banned": {
+          // We are match-banned (sent on the ban, and on hello / spin while it lasts).
+          const ban = parseHubBan(
+            msg as {
+              permanent?: boolean;
+              level?: number;
+              until?: number;
+              secs?: number;
+            }
+          );
+          hubBanRef.current = ban;
+          if (phaseRef.current === "matched") endMatchLocally();
+          searchingRef.current = false;
+          queueAckedRef.current = false;
+          setQueueAcked(false);
+          setPhase("idle");
+          phaseRef.current = "idle";
+          setHubBan(ban);
+          track("hub_banned", {
+            level: ban.level,
+            permanent: ban.permanent ? 1 : 0,
+          });
+          log(
+            `banned level=${ban.level} permanent=${ban.permanent ? 1 : 0} until=${ban.untilMs}`
+          );
           break;
         }
         case "error": {
@@ -8020,6 +8111,16 @@ function LiveBody() {
           // only — matchMode party_browse alone must not stick after cancel.
           // Matched + party_browse sets huntingWithPartner; remote2/3 ends it.
           browserDuo={isBrowserLayout}
+          stageView={stageView}
+          onSetStageView={chooseStageView}
+          pipSafeTop={Math.min(
+            stageSize.h * 0.4,
+            Math.max(
+              insets.top,
+              uiPhase === "matched" ? matchTopChromeH : stageTopChromeH
+            )
+          )}
+          pipSafeBottom={isBrowserLayout ? bottomDockH : 0}
           onNext={next}
           onStop={stop}
           onOpenFriends={() => {
@@ -8156,6 +8257,8 @@ function LiveBody() {
             retryPath: t("mobile.live.retryPath"),
             focus: t("mobile.live.focus"),
             pipHint: t("mobile.live.pipHint"),
+            splitView: t("mobile.live.splitView") || "Split screen",
+            pipView: t("mobile.live.pipView") || "Small window",
             // Mute badges unused in LiveStageVideo (void'd) — mid-stage 🔇 only
             longPressReport: t("mobile.live.longPressReport"),
             selfHiddenBadge:
@@ -8275,6 +8378,11 @@ function LiveBody() {
               : null,
           ]}
           pointerEvents="box-none"
+          onLayout={(e) => {
+            const { y, height } = e.nativeEvent.layout;
+            const h = Math.round(y + height);
+            setStageTopChromeH((prev) => (prev === h ? prev : h));
+          }}
         >
           <View pointerEvents="box-none">
             {/*
@@ -8640,6 +8748,10 @@ function LiveBody() {
         <View
           pointerEvents="box-none"
           collapsable={false}
+          onLayout={(e) => {
+            const h = Math.round(e.nativeEvent.layout.height);
+            setMatchTopChromeH((prev) => (prev === h ? prev : h));
+          }}
           style={{
             position: "absolute",
             top: 0,
@@ -8843,6 +8955,10 @@ function LiveBody() {
               ]
             : [styles.bar, { paddingBottom: Math.max(insets.bottom, 10) }]
         }
+        onLayout={(e) => {
+          const h = Math.round(e.nativeEvent.layout.height);
+          setBottomDockH((prev) => (prev === h ? prev : h));
+        }}
       >
         {/* Call timer is on partner video (bottom-left), not above Stop bar */}
         <LiveBottomBar
@@ -8850,9 +8966,11 @@ function LiveBody() {
           hideIdleStart={!friendsOnly}
           searchArmed={searchArmed}
           hideSearchControls={
+            // Split owns Next/Stop on the partner half; PiP mode keeps the dock.
             isBrowserLayout &&
             uiPhase === "matched" &&
-            extraPeers.length < 1
+            extraPeers.length < 1 &&
+            stageView !== "pip"
           }
           friendsOnly={friendsOnly}
           isFriendCall={isFriendCall}
@@ -9136,6 +9254,10 @@ function LiveBody() {
         </View>
       ) : null}
 
+      <BanScreen
+        copy={hubBan ? banCopy(hubBan, t, lang) : null}
+        onClose={() => setHubBan(null)}
+      />
       <StarGiftPopup
         visible={!!starGiftPop}
         title={starGiftPop?.title || ""}

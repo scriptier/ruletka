@@ -187,7 +187,7 @@ function isHubPartnerLeaveDetail(detail) {
   if (/still chatting|still with match|still connected/i.test(d)) {
     return false;
   }
-  return /partner hit Next|partner disconnected|partner stopped|party moved on|partner blocked you|restricted due to reports|restricted by operator|party partner left/i.test(
+  return /partner hit Next|partner disconnected|partner stopped|party moved on|partner blocked you|restricted due to reports|restricted by operator|partner removed|party partner left/i.test(
     d
   );
 }
@@ -196,6 +196,7 @@ function isHubPartnerLeaveDetail(detail) {
   assert.equal(isHubPartnerLeaveDetail("partner stopped"), true);
   assert.equal(isHubPartnerLeaveDetail("partner disconnected — searching again"), true);
   assert.equal(isHubPartnerLeaveDetail("partner hit Next — searching again"), true);
+  assert.equal(isHubPartnerLeaveDetail("partner removed for breaking the rules"), true);
   assert.equal(isHubPartnerLeaveDetail("partner left — still chatting"), false);
   assert.equal(isHubPartnerLeaveDetail("still connected"), false);
   assert.equal(isHubPartnerLeaveDetail(""), false);

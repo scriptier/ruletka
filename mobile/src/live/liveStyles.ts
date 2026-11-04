@@ -388,7 +388,7 @@ export const liveStyles = StyleSheet.create({
   /**
    * Browser 1v1: you as a real second TILE.
    * Portrait: bottom half. Landscape: right half.
-   * Partner RTCView stays full-stage underneath (no remount).
+   * Partner wrap shrinks to the other half (duoPartnerHalf*); same RTCView, no remount.
    */
   youTileDock: {
     position: "absolute",
@@ -417,6 +417,34 @@ export const liveStyles = StyleSheet.create({
   youTileVideo: {
     width: "100%",
     height: "100%",
+  },
+  /** Classic split: partner wrap = top half (portrait) / left half (landscape). */
+  duoPartnerHalf: {
+    bottom: "50%",
+    height: "50%",
+  },
+  duoPartnerHalfWide: {
+    right: "50%",
+    width: "50%",
+  },
+  barsOnSplitTile: {
+    borderRadius: 0,
+  },
+  /** Split → back to the small draggable self-view. */
+  splitToPipChip: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    zIndex: 30,
+    elevation: 26,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(6, 10, 18, 0.62)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.28)",
   },
   duoMatchCluster: {
     position: "absolute",
@@ -2190,6 +2218,64 @@ export const liveStyles = StyleSheet.create({
     color: "#c8d0dc",
     fontSize: 13,
     textAlign: "center",
+  },
+  banScreenCover: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 90,
+    elevation: 56,
+    backgroundColor: "rgba(4,6,12,0.82)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  banCard: {
+    width: "100%",
+    maxWidth: 340,
+    paddingVertical: 22,
+    paddingHorizontal: 22,
+    borderRadius: 18,
+    backgroundColor: "rgba(12,14,22,0.97)",
+    borderWidth: 1,
+    borderColor: "rgba(255,90,90,0.55)",
+    alignItems: "center",
+    gap: 8,
+    elevation: 24,
+  },
+  banIcon: {
+    fontSize: 40,
+    lineHeight: 48,
+  },
+  banTitle: {
+    color: "#ffb4b4",
+    fontSize: 19,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  banBody: {
+    color: "#e6eaf0",
+    fontSize: 15,
+    lineHeight: 21,
+    textAlign: "center",
+  },
+  banUntil: {
+    color: "#c8d0dc",
+    fontSize: 14,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  banOk: {
+    marginTop: 8,
+    minWidth: 140,
+    paddingVertical: 11,
+    paddingHorizontal: 22,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    alignItems: "center",
+  },
+  banOkText: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "700",
   },
   debateScreenCover: {
     ...StyleSheet.absoluteFillObject,

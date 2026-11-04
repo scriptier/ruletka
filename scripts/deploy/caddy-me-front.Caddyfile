@@ -1,0 +1,51 @@
+# ruletka.me HTTPS-only front (Hetzner).
+# RU users hit this IP — not DigitalOcean, not TURNS mux.
+# Origin is the FRA droplet; SNI/Host stay ruletka.me (HAProxy → Caddy).
+# MUST NOT terminate TURNS here. MUST NOT proxy ruletka.vip.
+
+{
+	email support@ruletka.me
+	# FRA Caddy is h1/h2 only. h3 Alt-Svc on this front hung some RU checkers
+	# on `/` (223k HTML) while `/health` (1k) returned 200.
+	servers {
+		protocols h1 h2
+	}
+}
+
+www.ruletka.me {
+	redir https://ruletka.me{uri} permanent
+}
+
+ruletka.me {
+	encode gzip zstd
+
+	@ws {
+		path /ws
+		header Connection *Upgrade*
+		header Upgrade websocket
+	}
+	handle @ws {
+		reverse_proxy https://209.38.204.153 {
+			header_up Host ruletka.me
+			header_up X-Forwarded-Proto https
+			# Real visitor IP (not this box). FRA Caddy trusts 78.47.217.35.
+			header_up X-Forwarded-For {http.request.remote.host}
+			header_up X-Real-IP {http.request.remote.host}
+			transport http {
+				tls_server_name ruletka.me
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy https://209.38.204.153 {
+			header_up Host ruletka.me
+			header_up X-Forwarded-Proto https
+			header_up X-Forwarded-For {http.request.remote.host}
+			header_up X-Real-IP {http.request.remote.host}
+			transport http {
+				tls_server_name ruletka.me
+			}
+		}
+	}
+}

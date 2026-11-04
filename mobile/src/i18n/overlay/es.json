@@ -342,7 +342,9 @@
   "mobile.live.permDeniedBody": "Allow camera & mic in system settings, then retry — or video chat won't work.",
   "mobile.live.permDeniedTitle": "Camera or microphone blocked",
   "mobile.live.permRetry": "Retry",
-  "mobile.live.pipHint": "Drag · double-tap swap",
+  "mobile.live.pipHint": "Arrastra · toca: 50/50",
+  "mobile.live.splitView": "Pantalla dividida",
+  "mobile.live.pipView": "Ventana pequeña",
   "mobile.live.plusPeers": "+ {n}",
   "mobile.live.praisedBy": "elogiado por {n}",
   "mobile.live.preview": "Vista previa",
@@ -698,5 +700,13 @@
   "trio.slotEmpty": "Buscando un 3.º…",
   "trio.searching": "Buscando un 3.º juntos…",
   "mobile.settings.downloadApk": "Download Android APK",
-  "mobile.settings.downloadApkSub": "Latest sideload build · 0.1.465"
+  "mobile.settings.downloadApkSub": "Latest sideload build · 0.1.465",
+  "mobile.live.partnerBanned": "Tu pareja fue bloqueada por romper las normas",
+  "mobile.ban.title": "Estás bloqueado",
+  "mobile.ban.bodyGenitals": "Estás bloqueado {dur} por mostrar los genitales en cámara. Esto rompe las normas de Ruletka.",
+  "mobile.ban.bodyPermanent": "Estás bloqueado de forma permanente por volver a mostrar los genitales en cámara.",
+  "mobile.ban.dur24h": "durante 24 horas",
+  "mobile.ban.dur7d": "durante 7 días",
+  "mobile.ban.until": "Hasta: {when}",
+  "mobile.ban.ok": "Entendido"
 }

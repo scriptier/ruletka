@@ -1,0 +1,5 @@
+# Ruletka-only plugin mask. Keep ruletka-connect. Drop Vercel from this repo's prompt.
+[plugins]
+disabled = [
+  "vercel",
+]

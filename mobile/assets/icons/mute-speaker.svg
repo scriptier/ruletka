@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Speaker (matches 21-03 crop) -->
+  <path
+    d="M16 26.5h7.2L36 16.2v31.6L23.2 37.5H16A3.5 3.5 0 0 1 12.5 34v-4A3.5 3.5 0 0 1 16 26.5z"
+    fill="#e8e8e8"
+    opacity="0.95"
+  />
+  <path
+    d="M39.2 25.2a8.4 8.4 0 0 1 0 13.6"
+    stroke="#e8e8e8"
+    stroke-width="3"
+    stroke-linecap="round"
+    opacity="0.55"
+  />
+  <!-- Red prohibition -->
+  <circle cx="32" cy="32" r="24.5" stroke="#e45b4c" stroke-width="4.4" />
+  <line
+    x1="16.2"
+    y1="47.8"
+    x2="47.8"
+    y2="16.2"
+    stroke="#e45b4c"
+    stroke-width="4.4"
+    stroke-linecap="round"
+  />
+</svg>
