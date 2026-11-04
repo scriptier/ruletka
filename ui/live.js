@@ -48945,3 +48945,431 @@ window.addEventListener("orientationchange", () => {
 window.addEventListener("resize", () => {
   if (trioBrowse) syncTrioLayout();
 });
+
+/* ── Phone self-view: draggable PiP ↔ classic split (2026-11-04) ──
+ * Same model as the Android app (mobile/src/live/DraggablePip.tsx):
+ * on phone-size layouts the partner/stage fills the screen and your camera is
+ * a small box. Drag past 8px moves it; release snaps to the nearest corner
+ * clear of the top chrome, bottom controls, side rails and safe-area insets.
+ * Tap the box → classic split (top/bottom portrait, side by side landscape).
+ * Tap your half (or ⤤) → back to the box. Corner + view are in localStorage.
+ * Desktop / tablets / trio / multi layouts are untouched (no classes set). */
+const SELF_VIEW_KEY = "ruletka-self-view-v1"; // "pip" | "split"
+const SELF_PIP_CORNER_KEY = "ruletka-self-pip-corner-v1"; // tl | tr | bl | br
+const SELF_PIP_HINT_KEY = "ruletka-self-pip-hint-v1";
+const SELF_PIP_SLOP = 8;
+const SELF_PIP_PAD = 8;
+/** Ignore taps on your half right after opening the split (the opening tap's
+ * click lands on the now-big tile and bounced it back — app bug 2026-11). */
+const SELF_SPLIT_TAP_GUARD_MS = 450;
+
+const selfPip = {
+  mode: "",
+  corner: "br",
+  splitAt: 0,
+  drag: null,
+  suppressClickUntil: 0,
+  raf: 0,
+  timer: 0,
+};
+
+function selfPipLs(key, val) {
+  try {
+    if (val === undefined) return localStorage.getItem(key);
+    localStorage.setItem(key, val);
+  } catch (_) {}
+  return null;
+}
+
+function selfPipPhoneMq() {
+  try {
+    return window.matchMedia(
+      "(max-width: 600px) and (orientation: portrait), (max-height: 500px) and (orientation: landscape)"
+    ).matches;
+  } catch (_) {
+    return false;
+  }
+}
+
+function selfPipEligible() {
+  const stage = $("stage");
+  const tile = $("tile-local");
+  if (!stage || !tile || tile.hidden) return false;
+  if (!selfPipPhoneMq()) return false;
+  const c = stage.classList;
+  if (!c.contains("stage-duo")) return false;
+  if (c.contains("stage-trio") || c.contains("stage-multi") || c.contains("stage-quad")) return false;
+  return true;
+}
+
+function selfPipWanted() {
+  return selfPipLs(SELF_VIEW_KEY) === "split" ? "split" : "pip";
+}
+
+function selfPipInsets() {
+  let probe = $("self-pip-inset-probe");
+  if (!probe) {
+    probe = document.createElement("div");
+    probe.id = "self-pip-inset-probe";
+    probe.setAttribute("aria-hidden", "true");
+    probe.style.cssText =
+      "position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;" +
+      "padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)";
+    document.body.appendChild(probe);
+  }
+  const s = getComputedStyle(probe);
+  return {
+    top: parseFloat(s.paddingTop) || 0,
+    right: parseFloat(s.paddingRight) || 0,
+    bottom: parseFloat(s.paddingBottom) || 0,
+    left: parseFloat(s.paddingLeft) || 0,
+  };
+}
+
+function selfPipVisible(el) {
+  if (!el || el.hidden) return null;
+  const r = el.getBoundingClientRect();
+  if (r.width < 2 || r.height < 2) return null;
+  const s = getComputedStyle(el);
+  if (s.display === "none" || s.visibility === "hidden" || parseFloat(s.opacity) < 0.05) return null;
+  return r;
+}
+
+/** Chrome the box must never cover (partner id/stars, banners, rails, start, face prompt, bottom dock). */
+function selfPipObstacles(stageR) {
+  const tile = $("tile-local");
+  const out = [];
+  const sel = [
+    "#tile-remote button",
+    "#tile-remote [role=button]",
+    "#tile-remote input",
+    "#tile-remote .tile-tag",
+    "#tile-remote .tile-avatar-stars-stack",
+    "#tile-remote .side-rail",
+    "#tile-floor-partner button",
+    "#tile-floor-partner form",
+    "#tile-floor-partner .tile-match-actions",
+    "#idle-self-hint",
+    "#btn-start-match",
+    ".reconnect-banner",
+    "#tile-local .side-rail-right",
+    ".stage-top:not([hidden])",
+  ].join(",");
+  const area = stageR.width * stageR.height;
+  for (const el of document.querySelectorAll(sel)) {
+    if (el === tile || (tile.contains(el) && !el.classList.contains("side-rail-right"))) continue;
+    const r = selfPipVisible(el);
+    if (!r) continue;
+    if (r.width * r.height > area * 0.3) continue;
+    if (r.bottom <= stageR.top || r.top >= stageR.bottom) continue;
+    if (r.right <= stageR.left || r.left >= stageR.right) continue;
+    out.push({ l: r.left - 4, t: r.top - 4, r: r.right + 4, b: r.bottom + 4, tall: r.height > r.width * 1.6 });
+  }
+  return out;
+}
+
+function selfPipSize(stageR, land) {
+  if (land) {
+    const h = Math.round(Math.max(88, Math.min(132, stageR.height * 0.3)));
+    return { w: Math.round((h * 4) / 3), h };
+  }
+  const w = Math.round(Math.max(96, Math.min(132, stageR.width * 0.27)));
+  return { w, h: Math.round((w * 4) / 3) };
+}
+
+function selfPipGeometry() {
+  const stage = $("stage");
+  const stageR = stage.getBoundingClientRect();
+  const land = stageR.width > stageR.height;
+  const { w, h } = selfPipSize(stageR, land);
+  const ins = selfPipInsets();
+  const P = SELF_PIP_PAD;
+  const b = {
+    minX: stageR.left + Math.max(P, ins.left + 4),
+    maxX: stageR.right - Math.max(P, ins.right + 4) - w,
+    minY: stageR.top + Math.max(P, ins.top + 4),
+    maxY: stageR.bottom - Math.max(P, ins.bottom + 4) - h,
+  };
+  if (b.maxX < b.minX) b.maxX = b.minX;
+  if (b.maxY < b.minY) b.maxY = b.minY;
+  return { stageR, land, w, h, b, obs: selfPipObstacles(stageR) };
+}
+
+function selfPipHits(x, y, g) {
+  return g.obs.find((o) => x < o.r && x + g.w > o.l && y < o.b && y + g.h > o.t);
+}
+
+/** Corner spot (viewport px) pushed clear of chrome; stays inside bounds. */
+function selfPipCornerPos(corner, g) {
+  const left = corner === "tl" || corner === "bl";
+  const top = corner === "tl" || corner === "tr";
+  let x = left ? g.b.minX : g.b.maxX;
+  let y = top ? g.b.minY : g.b.maxY;
+  const inX = (v) => v >= g.b.minX - 0.5 && v <= g.b.maxX + 0.5;
+  const inY = (v) => v >= g.b.minY - 0.5 && v <= g.b.maxY + 0.5;
+  for (let i = 0; i < 10; i++) {
+    const o = selfPipHits(x, y, g);
+    if (!o) break;
+    const ny = top ? o.b + 2 : o.t - 2 - g.h;
+    const nx = left ? o.r + 2 : o.l - 2 - g.w;
+    if (o.tall && inX(nx)) x = nx;
+    else if (inY(ny)) y = ny;
+    else if (inX(nx)) x = nx;
+    else break;
+  }
+  return { x: Math.round(x), y: Math.round(y) };
+}
+
+function selfPipNearestCorner(x, y, g) {
+  let best = "br";
+  let bestD = Infinity;
+  for (const c of ["tl", "tr", "bl", "br"]) {
+    const p = selfPipCornerPos(c, g);
+    const d = (p.x - x) ** 2 + (p.y - y) ** 2;
+    if (d < bestD) {
+      bestD = d;
+      best = c;
+    }
+  }
+  return best;
+}
+
+function selfPipSetBox(x, y, g) {
+  const tile = $("tile-local");
+  if (!tile) return;
+  const sr = g.stageR;
+  const st = tile.style;
+  st.setProperty("left", `${Math.round(x - sr.left)}px`, "important");
+  st.setProperty("top", `${Math.round(y - sr.top)}px`, "important");
+  st.setProperty("width", `${g.w}px`, "important");
+  st.setProperty("height", `${g.h}px`, "important");
+  tile.dataset.pipCorner = selfPip.corner;
+}
+
+/** Side controls (flip / mic / hide / settings) move to the stage edge as a compact column. */
+function selfPipPlaceRail(g) {
+  const rail = $("tile-local")?.querySelector(".side-rail-right");
+  if (!rail) return;
+  const ins = selfPipInsets();
+  const sr = g.stageR;
+  const rh = rail.getBoundingClientRect().height || 200;
+  // Top chrome on the right edge (partner ★ / avatar) pushes the column down.
+  let minTop = sr.top + Math.max(SELF_PIP_PAD, ins.top + 4);
+  for (const o of g.obs) {
+    if (o.r > sr.right - 70 && o.t < sr.top + sr.height * 0.3 && !o.tall) minTop = Math.max(minTop, o.b + 4);
+  }
+  let top = sr.top + (sr.height - rh) / 2;
+  top = Math.max(minTop, Math.min(top, sr.bottom - Math.max(SELF_PIP_PAD, ins.bottom + 4) - rh));
+  rail.style.setProperty("top", `${Math.round(top)}px`, "important");
+  rail.style.setProperty(
+    "right",
+    `${Math.round(window.innerWidth - sr.right + Math.max(6, ins.right + 4))}px`,
+    "important"
+  );
+}
+
+function selfPipClearInline() {
+  const tile = $("tile-local");
+  if (tile) {
+    for (const p of ["left", "top", "width", "height"]) tile.style.removeProperty(p);
+    delete tile.dataset.pipCorner;
+    if (tile.getAttribute("data-self-pip-a11y") === "1") {
+      tile.removeAttribute("role");
+      tile.removeAttribute("tabindex");
+      tile.removeAttribute("aria-label");
+      tile.removeAttribute("data-self-pip-a11y");
+    }
+  }
+  const rail = tile?.querySelector(".side-rail-right");
+  if (rail) {
+    rail.style.removeProperty("top");
+    rail.style.removeProperty("right");
+  }
+}
+
+function selfPipLayout() {
+  if (selfPip.mode !== "pip" || selfPip.drag) return;
+  const g = selfPipGeometry();
+  // Rail first: it is an obstacle for the box.
+  selfPipPlaceRail(g);
+  const g2 = selfPipGeometry();
+  const p = selfPipCornerPos(selfPip.corner, g2);
+  selfPipSetBox(p.x, p.y, g2);
+}
+
+function selfPipScheduleLayout() {
+  if (selfPip.raf) return;
+  selfPip.raf = requestAnimationFrame(() => {
+    selfPip.raf = 0;
+    selfPipSync();
+  });
+}
+
+function selfPipSyncHint() {
+  const hint = $("self-pip-hint");
+  if (!hint) return;
+  hint.hidden = !(selfPip.mode === "pip" && selfPipLs(SELF_PIP_HINT_KEY) !== "1");
+}
+
+/** Apply the right mode for the current viewport + stage (idempotent). */
+function selfPipSync() {
+  const root = document.documentElement;
+  const want = selfPipEligible() ? selfPipWanted() : "";
+  if (want !== selfPip.mode) {
+    selfPip.mode = want;
+    root.classList.toggle("self-pip-on", want === "pip");
+    root.classList.toggle("self-split-on", want === "split");
+    if (want !== "pip") selfPipClearInline();
+    const tile = $("tile-local");
+    if (want === "pip" && tile) {
+      tile.setAttribute("data-self-pip-a11y", "1");
+      tile.setAttribute("role", "button");
+      tile.setAttribute("tabindex", "0");
+      tile.setAttribute("aria-label", _t("live.splitView") || "Split screen");
+    }
+  }
+  const land = window.innerWidth > window.innerHeight;
+  root.classList.toggle("self-pip-land", !!want && land);
+  selfPipSyncHint();
+  if (want === "pip") selfPipLayout();
+}
+
+function selfPipSetMode(mode) {
+  selfPipLs(SELF_VIEW_KEY, mode);
+  if (mode === "split") selfPip.splitAt = Date.now();
+  selfPipLs(SELF_PIP_HINT_KEY, "1");
+  selfPipSync();
+  try {
+    trackEvent(mode === "split" ? "self_view_split" : "self_view_pip");
+  } catch (_) {}
+}
+
+const SELF_PIP_NO_TAP =
+  "button, a, input, select, textarea, label, [role=button]:not(#tile-local), .side-rail, .tile-avatar-stars-local, .tile-local-id, .tile-floor, .local-cam-restart, .gift-strip";
+
+function selfPipOnPointerDown(e) {
+  if (selfPip.mode !== "pip") return;
+  if (e.button !== 0 || e.isPrimary === false) return;
+  if (e.target?.closest?.(".side-rail")) return;
+  const tile = $("tile-local");
+  const r = tile.getBoundingClientRect();
+  selfPip.drag = {
+    id: e.pointerId,
+    sx: e.clientX,
+    sy: e.clientY,
+    ox: r.left,
+    oy: r.top,
+    moved: false,
+    onControl: !!e.target?.closest?.(SELF_PIP_NO_TAP),
+    g: selfPipGeometry(),
+  };
+}
+
+function selfPipOnPointerMove(e) {
+  const d = selfPip.drag;
+  if (!d || e.pointerId !== d.id) return;
+  const dx = e.clientX - d.sx;
+  const dy = e.clientY - d.sy;
+  if (!d.moved) {
+    if (Math.hypot(dx, dy) < SELF_PIP_SLOP) return;
+    d.moved = true;
+    document.documentElement.classList.add("self-pip-drag");
+    try {
+      $("tile-local").setPointerCapture(e.pointerId);
+    } catch (_) {}
+  }
+  const b = d.g.b;
+  const x = Math.min(b.maxX, Math.max(b.minX, d.ox + dx));
+  const y = Math.min(b.maxY, Math.max(b.minY, d.oy + dy));
+  selfPipSetBox(x, y, d.g);
+  e.preventDefault();
+  e.stopPropagation();
+}
+
+function selfPipOnPointerUp(e) {
+  const d = selfPip.drag;
+  if (!d || e.pointerId !== d.id) return;
+  selfPip.drag = null;
+  document.documentElement.classList.remove("self-pip-drag");
+  e.stopPropagation();
+  if (e.type === "pointercancel") {
+    selfPipLayout();
+    return;
+  }
+  if (d.moved) {
+    const r = $("tile-local").getBoundingClientRect();
+    const g = selfPipGeometry();
+    selfPip.corner = selfPipNearestCorner(r.left, r.top, g);
+    selfPipLs(SELF_PIP_CORNER_KEY, selfPip.corner);
+    selfPipLs(SELF_PIP_HINT_KEY, "1");
+    selfPip.suppressClickUntil = Date.now() + 400;
+    selfPipSyncHint();
+    selfPipLayout();
+    return;
+  }
+  if (d.onControl) return; // let the inner button click normally
+  selfPip.suppressClickUntil = Date.now() + 400;
+  selfPipSetMode("split");
+}
+
+function selfPipOnClickCapture(e) {
+  const tile = $("tile-local");
+  if (!tile || !tile.contains(e.target)) return;
+  if (Date.now() < selfPip.suppressClickUntil && !e.target.closest?.(SELF_PIP_NO_TAP)) {
+    e.stopPropagation();
+    e.preventDefault();
+    return;
+  }
+  if (selfPip.mode !== "split") return;
+  if (e.target.closest?.("#btn-self-pip")) return; // own handler
+  if (e.target.closest?.(SELF_PIP_NO_TAP)) return;
+  if (Date.now() - selfPip.splitAt < SELF_SPLIT_TAP_GUARD_MS) return;
+  selfPipSetMode("pip");
+}
+
+function initSelfPip() {
+  const tile = $("tile-local");
+  if (!tile || tile.dataset.selfPipInit === "1") return;
+  tile.dataset.selfPipInit = "1";
+  const c = selfPipLs(SELF_PIP_CORNER_KEY);
+  if (c === "tl" || c === "tr" || c === "bl" || c === "br") selfPip.corner = c;
+  tile.addEventListener("pointerdown", selfPipOnPointerDown);
+  tile.addEventListener("pointermove", selfPipOnPointerMove);
+  tile.addEventListener("pointerup", selfPipOnPointerUp);
+  tile.addEventListener("pointercancel", selfPipOnPointerUp);
+  document.addEventListener("click", selfPipOnClickCapture, true);
+  tile.addEventListener("keydown", (e) => {
+    if (selfPip.mode !== "pip" || e.target !== tile) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      selfPipSetMode("split");
+    }
+  });
+  $("btn-self-pip")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (Date.now() - selfPip.splitAt < SELF_SPLIT_TAP_GUARD_MS) return;
+    selfPipSetMode("pip");
+  });
+  window.addEventListener("resize", selfPipScheduleLayout);
+  window.addEventListener("orientationchange", () => setTimeout(selfPipScheduleLayout, 120));
+  window.visualViewport?.addEventListener?.("resize", selfPipScheduleLayout);
+  try {
+    const mo = new MutationObserver(selfPipScheduleLayout);
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    mo.observe($("stage"), { attributes: true, attributeFilter: ["class"] });
+    mo.observe(tile, { attributes: true, attributeFilter: ["hidden"] });
+    const floor = $("tile-floor-partner");
+    if (floor) mo.observe(floor, { attributes: true, subtree: true, attributeFilter: ["hidden", "class"] });
+  } catch (_) {}
+  // Chrome that appears without a class flip (banners, partner tag) — cheap re-check.
+  selfPip.timer = setInterval(() => {
+    if (selfPip.mode === "pip" && !document.hidden) selfPipLayout();
+  }, 1200);
+  selfPipSync();
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initSelfPip);
+} else {
+  initSelfPip();
+}

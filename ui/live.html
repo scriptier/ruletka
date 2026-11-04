@@ -581,11 +581,11 @@
     /* vol-hud-v2 look lives in live-stage.css */
 </style>
   <!-- Load stage CSS as all immediately — no media=print FOUC trick (was leaving rails opacity:0) -->
-  <link rel="preload" href="live-stage.css?v=658" as="style" />
-  <link rel="stylesheet" href="live-stage.css?v=658" />
+  <link rel="preload" href="live-stage.css?v=659" as="style" />
+  <link rel="stylesheet" href="live-stage.css?v=659" />
   <link rel="stylesheet" href="live-brand.css?v=26" />
-  <link rel="preload" href="live.js?v=991" as="script" />
-  <link rel="preload" href="i18n.js?v=277" as="script" />
+  <link rel="preload" href="live.js?v=992" as="script" />
+  <link rel="preload" href="i18n.js?v=278" as="script" />
   <script src="brand.js?v=3" defer></script>
   <script>
     /* Apply saved theme before paint to avoid flash */
@@ -1575,6 +1575,9 @@
             <span class="tile-avatar-letter" id="local-avatar-letter" hidden aria-hidden="true">?</span>
           </span>
         </div>
+        <!-- Phone self-view: tap the small box → 50/50; ⤤ (or tap your half) → small box again. live.js selfPip* -->
+        <button type="button" class="self-pip-toggle" id="btn-self-pip" data-i18n-title="live.pipView" data-i18n-aria="live.pipView" title="Small window" aria-label="Small window"><span aria-hidden="true">⤤</span></button>
+        <span class="self-pip-hint" id="self-pip-hint" data-i18n="live.pipHint" hidden aria-hidden="true">Drag · tap to split</span>
         <aside class="side-rail side-rail-right">
           <!-- Cam on/off fully removed — use Hide (self-blur) for privacy; camera stays on for preview -->
           <button type="button" class="side-btn" id="btn-flip-cam" data-i18n-title="btn.flipCamTitle" title="Flip video left / right (C)" aria-label="Flip video" aria-pressed="false">
@@ -3567,12 +3570,12 @@
   <script src="analytics.js?v=4" defer></script>
   <script src="pwa-install.js?v=13" defer></script>
   <script src="web-push.js?v=1" defer></script>
-  <script src="i18n.js?v=277" defer></script>
+  <script src="i18n.js?v=278" defer></script>
   <script src="geoLocalize.js?v=3" defer></script>
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=157" defer></script>
   <script src="webrtc.js?v=356" defer></script>
-  <script src="live.js?v=991" defer></script>
+  <script src="live.js?v=992" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {

@@ -449,6 +449,9 @@
       "friends.yourName": "Display name",
       "friends.nameHint": "This name is what strangers and friends see in chat and when you match. Edit it in the top bar, Friends, or Settings.",
       "name.you": "You",
+      "live.pipHint": "Drag · tap to split",
+      "live.splitView": "Split screen",
+      "live.pipView": "Small window",
       "name.saved": "name saved",
       "name.needed": "Pick a display name so others know who you are",
       "friends.addCode": "Add friend by code",
@@ -1388,6 +1391,9 @@
       "friends.yourName": "Имя",
       "friends.nameHint": "Это имя видят собеседники в чате и при матче. Меняйте вверху, в «Друзья» или в настройках.",
       "name.you": "Вы",
+      "live.pipHint": "Тяни · тап: 50/50",
+      "live.splitView": "Разделить экран",
+      "live.pipView": "Маленькое окно",
       "name.saved": "имя сохранено",
       "name.needed": "Укажите имя, чтобы собеседники видели, кто вы",
       "friends.addCode": "Добавить по коду",
@@ -2140,7 +2146,7 @@
     } catch (_) {}
 
     // Always fetch /i18n/{code}.json and merge over built-ins (en/ru too)
-    loading[c] = fetch(`/i18n/${c}.json?v=154`, { cache: "force-cache" })
+    loading[c] = fetch(`/i18n/${c}.json?v=155`, { cache: "force-cache" })
       .then((r) => {
         if (!r.ok) throw new Error("lang pack " + c);
         return r.json();

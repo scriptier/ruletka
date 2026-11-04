@@ -27096,3 +27096,179 @@ html.start-idle.idle-self-preview #tile-local .tile-floor {
   visibility: hidden;
   pointer-events: none;
 }
+
+/* ── Phone self-view: draggable PiP ↔ classic split (2026-11-04) ──
+ * live.js selfPip* sets html.self-pip-on / html.self-split-on only on
+ * phone-size duo layouts; desktop, tablets, trio and multi never get them.
+ * Box left/top/width/height and the side column top/right are inline. */
+.self-pip-toggle,
+.self-pip-hint {
+  display: none;
+}
+
+/* PiP: partner / stage fills the screen */
+html.self-pip-on #stage#stage.stage-duo > #tile-remote {
+  grid-column: 1 / -1 !important;
+  grid-row: 1 / -1 !important;
+}
+html.self-pip-on:not(.self-pip-land) #stage#stage.stage-duo > #tile-floor-partner {
+  top: 0 !important;
+  bottom: 0 !important;
+  height: auto !important;
+  max-height: none !important;
+}
+html.self-pip-on #stage#stage.stage-duo > #tile-local.tile-local {
+  position: absolute !important;
+  right: auto !important;
+  bottom: auto !important;
+  inset-inline: auto;
+  grid-area: auto !important;
+  display: block !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  z-index: 75 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  border-radius: 14px !important;
+  overflow: hidden !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.55) !important;
+  background: #0a0c12 !important;
+  touch-action: none !important;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  cursor: grab;
+  transition: left 0.18s ease-out, top 0.18s ease-out !important;
+}
+html.self-pip-on.self-pip-drag #stage#stage.stage-duo > #tile-local.tile-local {
+  transition: none !important;
+  cursor: grabbing;
+}
+html.self-pip-on #stage#stage.stage-duo > #tile-local > video#local {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  border-radius: inherit;
+}
+html.self-pip-on #stage#stage.stage-duo > #tile-local:focus-visible {
+  outline: 2px solid #ffd36b !important;
+  outline-offset: 2px;
+}
+/* Too big for the box: own ★/avatar, watermark, room tray (all back in 50/50) */
+html.self-pip-on #stage#stage.stage-duo > #tile-local #local-avatar-stars,
+html.self-pip-on #stage#stage.stage-duo > #tile-local #stage-wm-local,
+html.self-pip-on #stage#stage.stage-duo > #tile-local #tile-floor-local {
+  display: none !important;
+}
+/* Name pill + flag badge stay, scaled into the box corner */
+html.self-pip-on #stage#stage.stage-duo > #tile-local #local-id-stack {
+  top: 4px !important;
+  left: 4px !important;
+  transform: scale(0.7) !important;
+  transform-origin: top left !important;
+  max-width: 140% !important;
+  pointer-events: none;
+}
+/* No-cam / restart copy shrinks to fit the box */
+html.self-pip-on #stage#stage.stage-duo > #tile-local #local-empty,
+html.self-pip-on #stage#stage.stage-duo > #tile-local #local-no-cam,
+html.self-pip-on #stage#stage.stage-duo > #tile-local #local-cam-restart {
+  font-size: 0.62rem !important;
+}
+html.self-pip-on #stage#stage.stage-duo > #tile-local #local-empty .empty-icon,
+html.self-pip-on #stage#stage.stage-duo > #tile-local #local-empty .empty-sub,
+html.self-pip-on #stage#stage.stage-duo > #tile-local #local-empty .local-cam-help,
+html.self-pip-on #stage#stage.stage-duo > #tile-local .local-cam-restart-hint,
+html.self-pip-on #stage#stage.stage-duo > #tile-local .no-cam-portrait-sub {
+  display: none !important;
+}
+html.self-pip-on #stage#stage.stage-duo > #tile-local .enable-cam-btn {
+  font-size: 0.66rem !important;
+  padding: 0.3rem 0.5rem !important;
+  min-height: 0 !important;
+}
+/* Side controls: compact column on the stage edge, never hidden.
+ * position:fixed escapes the box's overflow clip (tile has no transform). */
+html.self-pip-on #stage#stage.stage-duo > #tile-local .side-rail-right {
+  position: fixed !important;
+  left: auto !important;
+  bottom: auto !important;
+  transform: none !important;
+  z-index: 76 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  touch-action: manipulation !important;
+}
+/* Mouse (chrome-autohide): the rail sits outside the box, so hover can't
+ * reveal it — keep its buttons clickable while the PiP is shown. */
+html.self-pip-on #stage#stage.stage-duo > #tile-local.tile-local .side-rail-right > *,
+html.self-pip-on #stage#stage.stage-duo > #tile-local.tile-local .side-rail-right .side-btn,
+html.self-pip-on #stage#stage.stage-duo > #tile-local.tile-local .side-rail-right .side-btn * {
+  pointer-events: auto !important;
+}
+/* First-run hint inside the box: "Тяни · тап: 50/50" */
+html.self-pip-on #tile-local .self-pip-hint:not([hidden]) {
+  display: block;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  padding: 3px 4px;
+  font-size: 10px;
+  line-height: 1.2;
+  font-weight: 600;
+  text-align: center;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+/* Split chosen on a phone: ⤤ back to the small window (bottom-left of your half) */
+html.self-split-on #tile-local .self-pip-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  left: calc(8px + env(safe-area-inset-left, 0px));
+  bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  z-index: 56;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(12, 14, 20, 0.72);
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+/* Landscape split: partner left, you right — also while idle (classic hides you there) */
+html.self-split-on.self-pip-land #stage#stage.stage-duo {
+  grid-template-columns: 1fr 1fr !important;
+  grid-template-rows: 100% !important;
+}
+html.self-split-on.self-pip-land #stage#stage.stage-duo > #tile-remote {
+  grid-column: 1 / 2 !important;
+  grid-row: 1 / 2 !important;
+}
+html.self-split-on.self-pip-land #stage#stage.stage-duo > #tile-local {
+  grid-column: 2 / 3 !important;
+  grid-row: 1 / 2 !important;
+  position: relative !important;
+  inset: auto !important;
+  width: auto !important;
+  height: auto !important;
+  display: block !important;
+  min-height: 0 !important;
+}
