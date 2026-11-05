@@ -3,7 +3,6 @@
 #
 # TURNS mux: public TCP 443 is HAProxy (ALPN h2/http/1.1 → this Caddy HTTPS
 # on 8443 with PROXY v2 so hub geo sees the real client IP; other TLS → coturn 5349).
-
 {
 	https_port 8443
 	servers {
