@@ -44,3 +44,24 @@ See [`docs/OPS.md`](../../docs/OPS.md) for backups, TURN, stars, admin.
 - Never put production tokens in git.
 - `push.sh` must **not** rsync-delete the whole `/opt/ruletka` tree (data + backups).
 - After deploy: hard-refresh live once; check `/health` and `/config.json`.
+
+
+## UDP TURN on 443 (connectivity 2026-11)
+
+`coturn.conf` sets `alt-listening-port=443` so clients can use
+`turn:ruletka.vip:443?transport=udp` when UDP 3478 is blocked.
+
+**Deploy-time steps (not done by `scripts/deploy.sh` alone):**
+
+1. Confirm Caddy has `protocols h1 h2` only (no HTTP/3 / QUIC on UDP 443).
+2. Install updated `coturn.conf` → `/etc/turnserver.conf` via
+   `bash /opt/ruletka/deploy/setup-turn.sh` (or careful manual merge).
+3. `systemctl restart coturn` and check `ss -ulnp | grep 443` shows coturn.
+4. Confirm `ufw allow 443/udp` (install-on-server.sh already has it).
+5. Ensure bridge `ROULETTE_TURN` includes `turn:ruletka.vip:443?transport=udp`
+   (unit file / turn.env), then `systemctl restart roulette-bridge`.
+6. Verify `/config.json` lists the udp 443 URL.
+
+`deploy.sh` rsyncs `deploy/coturn.conf` to `/opt/ruletka/deploy/` and reloads
+Caddy when the Caddyfile changes; it does **not** rewrite `/etc/turnserver.conf`
+or restart coturn. UDP 443 is a deliberate extra step.

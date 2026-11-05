@@ -84,10 +84,17 @@
   }
 
   /** Beacon to hub DayMetrics (best-effort, no cookies). */
-  function beaconHub(event) {
+  function beaconHub(event, params) {
     if (!isFunnelEvent(event)) return;
+    var payload = { event: String(event) };
     try {
-      var body = JSON.stringify({ event: String(event) });
+      if (params && typeof params === "object") {
+        if (params.ice_path) payload.ice_path = String(params.ice_path).slice(0, 32);
+        if (params.relay_rung) payload.relay_rung = String(params.relay_rung).slice(0, 32);
+      }
+    } catch (_) {}
+    try {
+      var body = JSON.stringify(payload);
       if (navigator.sendBeacon) {
         var blob = new Blob([body], { type: "application/json" });
         navigator.sendBeacon("/v1/funnel", blob);
@@ -98,7 +105,7 @@
       fetch("/v1/funnel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ event: String(event) }),
+        body: JSON.stringify(payload),
         credentials: "omit",
         keepalive: true,
       }).catch(function () {});
@@ -187,7 +194,7 @@
       recordLocal(String(event), p);
     } catch (_) {}
     try {
-      beaconHub(String(event));
+      beaconHub(String(event), p);
     } catch (_) {}
     try {
       if (yandexId && typeof window.ym === "function") {

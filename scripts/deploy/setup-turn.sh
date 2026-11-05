@@ -87,6 +87,7 @@ fi
 # Firewall (must cover min-port..max-port from coturn.conf)
 ufw allow 3478/tcp comment 'TURN'
 ufw allow 3478/udp comment 'TURN'
+ufw allow 443/udp comment 'TURN-UDP-443' || true
 ufw allow 49160:50000/udp comment 'TURN relay'
 ufw allow 49160:50000/tcp comment 'TURN relay'
 yes | ufw enable || true

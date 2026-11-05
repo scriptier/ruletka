@@ -1182,12 +1182,51 @@ function getIceMeta() {
 }
 
 /**
+ * Classify getStats local candidate → funnel ice_path label.
+ * @param {string} candType
+ * @param {string} protocol
+ * @param {string} [urlOrRelay]
+ * @returns {"host"|"srflx"|"prflx"|"relay_udp"|"relay_tcp"|"relay_tls"|"unknown"}
+ */
+function classifyIcePathLabel(candType, protocol, urlOrRelay) {
+  const t = String(candType || "").toLowerCase();
+  const p = String(protocol || "").toLowerCase();
+  const u = String(urlOrRelay || "").toLowerCase();
+  if (t === "host") return "host";
+  if (t === "srflx") return "srflx";
+  if (t === "prflx") return "prflx";
+  if (t === "relay") {
+    if (u.startsWith("turns:") || p === "tls" || u.includes("transport=tls")) {
+      return "relay_tls";
+    }
+    if (p === "tcp" || u.includes("transport=tcp")) return "relay_tcp";
+    return "relay_udp";
+  }
+  return "unknown";
+}
+
+/**
  * Inspect selected ICE candidate pair: "direct" | "relay" | "unknown"
  * @param {RTCPeerConnection} pc
  * @returns {Promise<"direct"|"relay"|"unknown">}
  */
 async function getIcePathKind(pc) {
-  if (!pc) return "unknown";
+  const detail = await getIcePathDetail(pc);
+  if (detail.path === "host" || detail.path === "srflx" || detail.path === "prflx") {
+    return "direct";
+  }
+  if (String(detail.path || "").startsWith("relay")) return "relay";
+  return "unknown";
+}
+
+/**
+ * Detailed selected-pair path for funnel metrics.
+ * @param {RTCPeerConnection} pc
+ * @returns {Promise<{ path: string, protocol: string, url: string }>}
+ */
+async function getIcePathDetail(pc) {
+  const out = { path: "unknown", protocol: "", url: "" };
+  if (!pc) return out;
   try {
     const report = await pc.getStats();
     /** @type {RTCStats | null} */
@@ -1197,17 +1236,84 @@ async function getIcePathKind(pc) {
         if (r.nominated || r.selected || !selected) selected = r;
       }
     });
-    if (!selected || !selected.localCandidateId) return "unknown";
+    if (!selected || !selected.localCandidateId) return out;
     const local = report.get(selected.localCandidateId);
-    if (!local) return "unknown";
+    if (!local) return out;
     const t = String(local.candidateType || local.type || "").toLowerCase();
-    if (t === "relay") return "relay";
-    if (t === "host" || t === "srflx" || t === "prflx") return "direct";
-    return "unknown";
+    const protocol = String(local.protocol || local.relayProtocol || "").toLowerCase();
+    const url = String(local.url || local.address || "");
+    out.protocol = protocol;
+    out.url = url;
+    out.path = classifyIcePathLabel(t, protocol, url);
+    return out;
   } catch {
-    return "unknown";
+    return out;
   }
 }
+
+/** Ordered relay-only ICE retry ladder after ICE fails. */
+const RELAY_RETRY_RUNGS = ["all_relays", "turns_443", "turn_udp"];
+
+/**
+ * Filter iceServers for one ladder rung. Does not mutate Hide IP prefs —
+ * callers decide when to run the ladder (never instead of soft ICE).
+ * @param {RTCIceServer[]} servers
+ * @param {"all_relays"|"turns_443"|"turn_udp"} rung
+ * @returns {RTCIceServer[]}
+ */
+function filterIceServersForRung(servers, rung) {
+  const list = servers || [];
+  const urlOf = (s) =>
+    String(Array.isArray(s.urls) ? s.urls[0] : s.urls || "").toLowerCase();
+  if (rung === "all_relays") {
+    const keep = list.filter((s) => {
+      const u = urlOf(s);
+      return u.startsWith("turn:") || u.startsWith("turns:");
+    });
+    return keep.length ? keep : list;
+  }
+  if (rung === "turns_443") {
+    const keep = list.filter((s) => {
+      const u = urlOf(s);
+      return u.startsWith("turns:") && u.includes(":443");
+    });
+    // Fall back to any turns: if :443 not advertised yet
+    if (keep.length) return keep;
+    const anyTurns = list.filter((s) => urlOf(s).startsWith("turns:"));
+    return anyTurns.length ? anyTurns : list;
+  }
+  if (rung === "turn_udp") {
+    const keep = list.filter((s) => {
+      const u = urlOf(s);
+      if (!u.startsWith("turn:") || u.startsWith("turns:")) return false;
+      if (u.includes("transport=tcp")) return false;
+      // Prefer 3478 and udp-443 aliases
+      return u.includes(":3478") || u.includes(":443");
+    });
+    return keep.length ? keep : list.filter((s) => {
+      const u = urlOf(s);
+      return u.startsWith("turn:") && !u.startsWith("turns:") && !u.includes("transport=tcp");
+    });
+  }
+  return list;
+}
+
+/**
+ * @param {string|null|undefined} prev
+ * @returns {"all_relays"|"turns_443"|"turn_udp"|null}
+ */
+function nextRelayRetryRung(prev) {
+  const i = RELAY_RETRY_RUNGS.indexOf(String(prev || ""));
+  if (i < 0) return RELAY_RETRY_RUNGS[0];
+  if (i + 1 >= RELAY_RETRY_RUNGS.length) return null;
+  return RELAY_RETRY_RUNGS[i + 1];
+}
+
+/**
+ * Cap for the whole relay ladder (ms). Soft ICE / Hide IP stay outside this.
+ */
+const RELAY_LADDER_BUDGET_MS = 24000;
+const RELAY_LADDER_PER_RUNG_MS = 8000;
 
 /** Prefer better codecs when the browser exposes setCodecPreferences. */
 function preferCodecs(pc) {
@@ -4719,6 +4825,13 @@ async function collectAvPathSnapshot(pc, extra = {}) {
 
 if (typeof window !== "undefined") {
   window.getIcePathKind = getIcePathKind;
+  window.getIcePathDetail = getIcePathDetail;
+  window.classifyIcePathLabel = classifyIcePathLabel;
+  window.RELAY_RETRY_RUNGS = RELAY_RETRY_RUNGS;
+  window.filterIceServersForRung = filterIceServersForRung;
+  window.nextRelayRetryRung = nextRelayRetryRung;
+  window.RELAY_LADDER_BUDGET_MS = RELAY_LADDER_BUDGET_MS;
+  window.RELAY_LADDER_PER_RUNG_MS = RELAY_LADDER_PER_RUNG_MS;
   window.getIceMeta = getIceMeta;
   window.collectAvPathSnapshot = collectAvPathSnapshot;
   window.RouletteWebRtc = RouletteWebRtc;

@@ -416,3 +416,7 @@ export type RTCIceServer = {
   username?: string;
   credential?: string;
 };
+
+/** Alias used by connectRetry relay ladder. */
+export type IceServer = RTCIceServer;
+

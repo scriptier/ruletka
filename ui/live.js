@@ -15963,6 +15963,7 @@ function dismissLinkingIfMediaLive() {
   }
   try {
     webrtcConnectedOk = true;
+    try { void reportMatchOkFunnel(); } catch (_) {}
   } catch (_) {}
   // Audio without frames is NOT "no camera" — video may still be linking.
   // Portrait only from inbound no_cam / self_hide (laptop GUM with 0 video tracks).
@@ -15989,6 +15990,131 @@ function showPreferDirectAutoToast() {
     _t("conn.preferDirectAutoOffBody") ||
       "Direct-only couldn’t connect — TURN relay is on again for the next match."
   );
+}
+
+/** Active relay-only ladder rung for this match (null = not in ladder). */
+let relayLadderRung = null;
+let relayLadderStartedAt = 0;
+let relayLadderConnectedRung = null;
+
+function resetRelayLadderState() {
+  relayLadderRung = null;
+  relayLadderStartedAt = 0;
+  relayLadderConnectedRung = null;
+}
+
+/**
+ * Report match_ok with selected ICE path + which ladder rung connected.
+ * Fire-and-forget; falls back quickly if getStats is slow.
+ */
+async function reportMatchOkFunnel() {
+  try {
+    if (window.__ruletMatchOkSent) return;
+    window.__ruletMatchOkSent = true;
+  } catch (_) {}
+  const base = {
+    mode: matchMode || "solo",
+    role: yourRole || "solo",
+  };
+  try {
+    markRelayLadderConnectedIfAny();
+    const pc =
+      (typeof rtc !== "undefined" && rtc && rtc.pc) ||
+      (typeof peerPcs !== "undefined" &&
+        [...peerPcs.values()].map((p) => p && p.pc).find(Boolean)) ||
+      null;
+    let ice_path = "unknown";
+    if (pc && typeof getIcePathDetail === "function") {
+      const detail = await Promise.race([
+        getIcePathDetail(pc),
+        new Promise((r) => setTimeout(() => r(null), 1200)),
+      ]);
+      if (detail && detail.path) ice_path = detail.path;
+    } else if (pc && typeof getIcePathKind === "function") {
+      const kind = await Promise.race([
+        getIcePathKind(pc),
+        new Promise((r) => setTimeout(() => r("unknown"), 1200)),
+      ]);
+      ice_path = kind === "relay" ? "relay_udp" : kind === "direct" ? "host" : "unknown";
+    }
+    const relay_rung =
+      relayLadderConnectedRung || relayLadderRung || "initial";
+    trackEvent("match_ok", Object.assign(base, { ice_path, relay_rung }));
+  } catch (_) {
+    trackEvent("match_ok", Object.assign(base, { ice_path: "unknown", relay_rung: "initial" }));
+  }
+}
+
+/**
+ * After soft ICE is exhausted: ordered relay-only rebuild ladder.
+ * (a) all relays  (b) turns:443 only  (c) turn udp 3478/443
+ * Does not replace soft ICE or Hide IP pure-relay — only runs when those
+ * already failed / are not the active privacy mode.
+ * @param {object} pc
+ * @returns {Promise<boolean>} true if a rung was armed
+ */
+async function tryRelayRetryLadder(pc) {
+  try {
+    if (!matched || !pc) return false;
+    // Hide IP / hub force_relay already pure relay — do not thrash filter
+    if (
+      (typeof hideIpRelayOnlyEnabled === "function" && hideIpRelayOnlyEnabled()) ||
+      (typeof isRelayMediaMode === "function" && isRelayMediaMode() && !relayLadderRung)
+    ) {
+      // Still allow ladder when Hide IP is on but first pure path failed
+      if (typeof hideIpRelayOnlyEnabled === "function" && hideIpRelayOnlyEnabled() && !relayLadderRung) {
+        /* continue into ladder with all_relays first */
+      } else if (!relayLadderRung) {
+        return false;
+      }
+    }
+    const budget = (typeof RELAY_LADDER_BUDGET_MS === "number" && RELAY_LADDER_BUDGET_MS) || 24000;
+    if (!relayLadderStartedAt) relayLadderStartedAt = Date.now();
+    if (Date.now() - relayLadderStartedAt > budget) {
+      console.info("[relay ladder] budget exhausted");
+      return false;
+    }
+    const next =
+      typeof nextRelayRetryRung === "function"
+        ? nextRelayRetryRung(relayLadderRung)
+        : null;
+    if (!next) return false;
+    const cfg = typeof getIceConfig === "function" ? getIceConfig() : null;
+    const servers = (cfg && cfg.iceServers) || [];
+    if (!servers.length || typeof filterIceServersForRung !== "function") return false;
+    const filtered = filterIceServersForRung(servers, next);
+    if (!filtered.length) return false;
+    relayLadderRung = next;
+    console.info("[relay ladder] arm rung", next, "servers", filtered.length);
+    trackEvent("relay_ladder_arm", { rung: next });
+    try {
+      if (typeof setSessionForceRelay === "function") setSessionForceRelay(true);
+    } catch (_) {}
+    // Apply filtered servers onto next PC build
+    try {
+      if (cfg) {
+        cfg.iceServers = filtered;
+        if (pc.setIceConfig) pc.setIceConfig(cfg);
+        else if (typeof loadRtcConfig === "function") {
+          /* keep filtered on window last config via apply below */
+        }
+        try {
+          window.__ruletRelayLadderServers = filtered;
+          window.__ruletRelayLadderRung = next;
+        } catch (_) {}
+      }
+    } catch (_) {}
+    return true;
+  } catch (e) {
+    console.warn("[relay ladder]", e);
+    return false;
+  }
+}
+
+function markRelayLadderConnectedIfAny() {
+  if (relayLadderRung) {
+    relayLadderConnectedRung = relayLadderRung;
+  }
 }
 
 /**
@@ -16736,6 +16862,7 @@ function clearSoftRecoverFlags(pc) {
     pc._softRecoverActive = false;
     pc._softReconnectScheduled = false;
     pc._iceRestartCount = 0;
+    markRelayLadderConnectedIfAny();
   } catch (_) {}
 }
 
@@ -17120,6 +17247,10 @@ function schedulePeerHardReconnect(peerId, oldPc) {
   // Before rebuild: force TURN if still failing (VPN / CGNAT / corporate)
   try {
     tryVpnRelayRecovery();
+  } catch (_) {}
+  // Ordered relay-only ladder (does not replace soft ICE — that already ran).
+  try {
+    void tryRelayRetryLadder(oldPc);
   } catch (_) {}
   schedulePeerHardReconnect._busy = true;
   // Generation token — Stop/Next bumps media generation; ignore stale rebuilds
@@ -22565,6 +22696,7 @@ function markPartnerVideoFramesSeen(reason) {
   } catch (_) {}
   try {
     webrtcConnectedOk = true;
+    try { void reportMatchOkFunnel(); } catch (_) {}
     clearWebrtcWatch();
   } catch (_) {}
   // CONNECT stopwatch: frameMs (console only — no toast)
@@ -37239,10 +37371,11 @@ function handleMatched(msg) {
     mode: matchMode || "solo",
     role: yourRole || "solo",
   });
-  trackEvent("match_ok", {
-    mode: matchMode || "solo",
-    role: yourRole || "solo",
-  });
+  try {
+    resetRelayLadderState();
+    // match_ok waits for ICE connected (+ getStats path); see reportMatchOkFunnel
+    window.__ruletMatchOkSent = false;
+  } catch (_) {}
   // joinPeers already started at top of handleMatched (speed path)
   try {
     updatePartyRoleStrip(msg);

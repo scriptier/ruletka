@@ -2180,6 +2180,40 @@
           (nudgeShow
             ? " · nudge " + nudgeAcc + "/" + nudgeShow
             : "");
+      // Connectivity extras (country / ICE path / rung) — codes + counts only
+      try {
+        const mok = Number(fun.match_ok != null ? fun.match_ok : today.funnel_match_ok) || 0;
+        const mfail =
+          Number(fun.match_fail_ice != null ? fun.match_fail_ice : today.funnel_match_fail_ice) || 0;
+        const c = (fun.conn && typeof fun.conn === "object" && fun.conn) || today.funnel_conn || {};
+        const byC = c.match_ok_by_country || {};
+        const byP = c.match_ok_by_ice_path || {};
+        const byR = c.match_ok_by_rung || {};
+        const topC = Object.keys(byC)
+          .sort((a, b) => (byC[b] || 0) - (byC[a] || 0))
+          .slice(0, 5)
+          .map((k) => k + ":" + byC[k])
+          .join(" ");
+        const topP = Object.keys(byP)
+          .sort((a, b) => (byP[b] || 0) - (byP[a] || 0))
+          .slice(0, 5)
+          .map((k) => k + ":" + byP[k])
+          .join(" ");
+        const topR = Object.keys(byR)
+          .sort((a, b) => (byR[b] || 0) - (byR[a] || 0))
+          .map((k) => k + ":" + byR[k])
+          .join(" ");
+        if ($("gl-funnel-s") && (mok || mfail || topC || topP)) {
+          $("gl-funnel-s").textContent +=
+            " · ice ok/fail " +
+            mok +
+            "/" +
+            mfail +
+            (topC ? " · " + topC : "") +
+            (topP ? " · path " + topP : "") +
+            (topR ? " · rung " + topR : "");
+        }
+      } catch (_) {}
       setGlanceTone(
         "gl-funnel",
         conn > 0 || req > 0

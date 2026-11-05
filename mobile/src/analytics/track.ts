@@ -88,14 +88,23 @@ async function saveLocal(f: FunnelDay): Promise<void> {
   }
 }
 
-function beaconHub(event: string): void {
+function beaconHub(
+  event: string,
+  params?: Record<string, string | number | boolean>
+): void {
   if (!FUNNEL_EVENTS[event]) return;
   try {
     const url = `${hubBase().replace(/\/$/, "")}/v1/funnel`;
+    const body: Record<string, string> = { event };
+    if (params) {
+      if (params.ice_path != null) body.ice_path = String(params.ice_path).slice(0, 32);
+      if (params.relay_rung != null)
+        body.relay_rung = String(params.relay_rung).slice(0, 32);
+    }
     fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ event }),
+      body: JSON.stringify(body),
     }).catch(() => {});
   } catch {
     /* ignore */
@@ -122,7 +131,7 @@ export function track(
         return saveLocal(f);
       })
       .catch(() => {});
-    beaconHub(name);
+    beaconHub(name, clean);
   } catch {
     /* ignore */
   }

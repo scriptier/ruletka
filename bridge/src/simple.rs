@@ -18,6 +18,7 @@ use crate::limits::{ClientLimiter, LimitConfig};
 use crate::protocol::{ClientMsg, FriendChatLine, FriendInfo, MatchPeer, SafetyScores, ServerMsg};
 use crate::push_tokens::{self, PushToken};
 use crate::star_ledger::{SpendError, StarLedger};
+use crate::conn_metrics::{self, ConnFunnelExtras, COUNTRY_TOP_N};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
@@ -420,6 +421,9 @@ pub struct DayMetrics {
     pub funnel_friend_call_place: u64,
     #[serde(default)]
     pub funnel_friend_online_toast_call: u64,
+    /// Connectivity funnel extras (country / ICE path / relay rung). Bounded.
+    #[serde(default)]
+    pub funnel_conn: ConnFunnelExtras,
 }
 
 pub struct SimpleHub {
@@ -4038,6 +4042,18 @@ impl SimpleHub {
 
     /// Public growth funnel events from the UI (rate-limit at HTTP layer).
     pub fn metrics_inc_funnel(&mut self, event: &str) -> bool {
+        self.metrics_inc_funnel_ex(event, None, None, None)
+    }
+
+    /// Funnel increment with optional connectivity dimensions (country / ICE path / rung).
+    /// Country codes and coarse path labels only — no IPs or personal data.
+    pub fn metrics_inc_funnel_ex(
+        &mut self,
+        event: &str,
+        country: Option<&str>,
+        ice_path: Option<&str>,
+        relay_rung: Option<&str>,
+    ) -> bool {
         let Some(key) = Self::funnel_counter(event) else {
             return false;
         };
@@ -4063,6 +4079,34 @@ impl SimpleHub {
             _ => return false,
         };
         *slot = slot.saturating_add(1);
+
+        if key == "match_ok" || key == "match_fail_ice" {
+            let cc = conn_metrics::normalize_country(country.unwrap_or(""));
+            if key == "match_ok" {
+                conn_metrics::bump_top_n(
+                    &mut m.funnel_conn.match_ok_by_country,
+                    &cc,
+                    COUNTRY_TOP_N,
+                );
+                if let Some(p) = ice_path {
+                    let path = conn_metrics::normalize_ice_path(p);
+                    conn_metrics::bump_fixed(&mut m.funnel_conn.match_ok_by_ice_path, &path);
+                }
+                if let Some(r) = relay_rung {
+                    let rung = conn_metrics::normalize_rung(r);
+                    conn_metrics::bump_fixed(&mut m.funnel_conn.match_ok_by_rung, &rung);
+                } else {
+                    conn_metrics::bump_fixed(&mut m.funnel_conn.match_ok_by_rung, "initial");
+                }
+            } else {
+                conn_metrics::bump_top_n(
+                    &mut m.funnel_conn.match_fail_ice_by_country,
+                    &cc,
+                    COUNTRY_TOP_N,
+                );
+            }
+        }
+
         // Flush every 10 funnel hits (any kind) so a restart loses little.
         let total = m.funnel_invite_share
             + m.funnel_invite_land
@@ -4234,6 +4278,7 @@ impl SimpleHub {
                     "match_summary": self.metrics.funnel_match_summary,
                     "friend_call_place": self.metrics.funnel_friend_call_place,
                     "friend_online_toast_call": self.metrics.funnel_friend_online_toast_call,
+                    "conn": self.metrics.funnel_conn,
                 },
             },
             "stars_ledger": self.stars_ledger_snapshot(),
@@ -13048,5 +13093,53 @@ mod funnel_event_tests {
             assert!(SimpleHub::funnel_counter(e).is_none(), "{e}");
             assert!(!hub.metrics_inc_funnel(e), "{e}");
         }
+    }
+
+    #[test]
+    fn match_ok_records_country_path_and_rung() {
+        let mut hub = temp_hub();
+        assert!(hub.metrics_inc_funnel_ex(
+            "match_ok",
+            Some("ru"),
+            Some("relay_udp"),
+            Some("turns_443"),
+        ));
+        assert!(hub.metrics_inc_funnel_ex(
+            "match_ok",
+            Some("RU"),
+            Some("host"),
+            None,
+        ));
+        assert!(hub.metrics_inc_funnel_ex(
+            "match_fail_ice",
+            Some("ca"),
+            None,
+            None,
+        ));
+        let c = &hub.metrics.funnel_conn;
+        assert_eq!(c.match_ok_by_country.get("RU"), Some(&2));
+        assert_eq!(c.match_fail_ice_by_country.get("CA"), Some(&1));
+        assert_eq!(c.match_ok_by_ice_path.get("relay_udp"), Some(&1));
+        assert_eq!(c.match_ok_by_ice_path.get("host"), Some(&1));
+        assert_eq!(c.match_ok_by_rung.get("turns_443"), Some(&1));
+        assert_eq!(c.match_ok_by_rung.get("initial"), Some(&1));
+    }
+
+    #[test]
+    fn country_map_stays_bounded() {
+        let mut hub = temp_hub();
+        for i in 0..40u8 {
+            let code = format!("{}{}", (b'A' + (i / 26)) as char, (b'A' + (i % 26)) as char);
+            assert!(hub.metrics_inc_funnel_ex("match_ok", Some(&code), None, None));
+        }
+        let named = hub
+            .metrics
+            .funnel_conn
+            .match_ok_by_country
+            .keys()
+            .filter(|k| k.as_str() != "other")
+            .count();
+        assert!(named <= crate::conn_metrics::COUNTRY_TOP_N);
+        assert!(hub.metrics.funnel_conn.match_ok_by_country.contains_key("other"));
     }
 }

@@ -65,13 +65,27 @@ from pathlib import Path
 p = Path("/etc/systemd/system/roulette-bridge.service.d/turns.conf")
 t = p.read_text()
 want = "turns:ruletka.vip:443?transport=tcp"
+want_udp = "turn:ruletka.vip:443?transport=udp"
+changed = False
 if want not in t:
     t = t.replace(
         "turns:ruletka.vip:5349?transport=tcp",
         "turns:ruletka.vip:443?transport=tcp,turns:ruletka.vip:5349?transport=tcp",
     )
     if want not in t:
-        t = t.rstrip() + f",{want}\n" if "ROULETTE_TURN=" in t else t
+        t = t.rstrip() + (f",{want}\n" if "ROULETTE_TURN=" in t else "")
+    changed = True
+if want_udp not in t and "ROULETTE_TURN=" in t:
+    if "turn:ruletka.vip:3478?transport=udp" in t:
+        t = t.replace(
+            "turn:ruletka.vip:3478?transport=udp",
+            "turn:ruletka.vip:3478?transport=udp,turn:ruletka.vip:443?transport=udp",
+            1,
+        )
+    else:
+        t = t.rstrip() + f",{want_udp}\n"
+    changed = True
+if changed:
     p.write_text(t)
 print(p.read_text())
 PY
@@ -85,4 +99,5 @@ echo "--- curl ---"
 curl -sS -o /dev/null -w "https_vip:%{http_code} time:%{time_total}\n" --max-time 10 https://ruletka.vip/health || true
 curl -sS -o /dev/null -w "https_8443:%{http_code}\n" --max-time 5 -k https://127.0.0.1:8443/health || true
 echo "TURNS mux live: turns:ruletka.vip:443?transport=tcp → sslh → coturn 5349"
+echo "UDP TURN alias (needs coturn alt-listening-port=443): turn:ruletka.vip:443?transport=udp"
 echo "Rollback: systemctl stop sslh; restore Caddyfile from $BACKUP_DIR; systemctl reload caddy"

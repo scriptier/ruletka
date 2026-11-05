@@ -107,9 +107,22 @@ pub fn parse_urls(csv: &str) -> Vec<String> {
 }
 
 /// Normalize TURN URLs for RN WebRTC + browser.
-/// `?transport=udp` is default for turn: — keep it and some RN stacks never ALLOCATE.
+/// `?transport=udp` is default for turn: — strip it and some RN stacks never ALLOCATE.
+/// Exception: `turn:host:443?transport=udp` MUST keep the query — bare turn:443
+/// dual-stacks TCP against HAProxy HTTPS on TCP 443 and wastes ICE time.
 pub fn normalize_turn_url(url: &str) -> String {
-    let mut s = url.trim().to_string();
+    let raw = url.trim().to_string();
+    let lower = raw.to_ascii_lowercase();
+    let keep_udp_443 = lower.starts_with("turn:")
+        && !lower.starts_with("turns:")
+        && (lower.contains(":443?") || lower.ends_with(":443") || lower.contains(":443&"))
+        && lower.contains("transport=udp");
+    if keep_udp_443 {
+        // Canonical form
+        let base = raw.split('?').next().unwrap_or(&raw).trim_end_matches('&');
+        return format!("{base}?transport=udp");
+    }
+    let mut s = raw;
     for pat in [
         "?transport=udp",
         "?transport=UDP",
@@ -122,6 +135,27 @@ pub fn normalize_turn_url(url: &str) -> String {
         s.pop();
     }
     s
+}
+
+/// Sensible ICE URL order for self-hosted coturn (STUN stays separate).
+/// Prefer: turns:443, turns:5349, turn udp 3478, turn udp 443, turn tcp 3478.
+pub fn order_ruletka_turn_urls(urls: &mut Vec<String>) {
+    urls.sort_by_key(|u| {
+        let l = u.to_ascii_lowercase();
+        if l.starts_with("turns:") && l.contains(":443") {
+            0u8
+        } else if l.starts_with("turns:") {
+            1
+        } else if l.starts_with("turn:") && l.contains(":3478") && !l.contains("transport=tcp") {
+            2
+        } else if l.starts_with("turn:") && l.contains(":443") && !l.contains("transport=tcp") {
+            3
+        } else if l.starts_with("turn:") && l.contains("transport=tcp") {
+            4
+        } else {
+            5
+        }
+    });
 }
 
 /// Resolve TURN from env-style args.
@@ -252,6 +286,8 @@ pub fn build_public_config(
             };
             // One IceServer per URL — multi-url arrays break RN WebRTC ALLOCATE
             // (coturn only saw :web sessions with peer_usage=0 for Play↔browser).
+            let mut urls = urls;
+            order_ruletka_turn_urls(&mut urls);
             for url in urls {
                 let nurl = normalize_turn_url(&url);
                 if nurl.is_empty() {
@@ -363,6 +399,42 @@ mod ice_order_tests {
                 "stun:stun.l.google.com:19302",
                 "turns:ruletka.vip:5349?transport=tcp",
                 "turn:ruletka.vip:3478",
+                "turn:ruletka.vip:3478?transport=tcp",
+            ]
+        );
+    }
+
+    #[test]
+    fn normalize_keeps_udp_443_transport() {
+        use super::normalize_turn_url;
+        assert_eq!(
+            normalize_turn_url("turn:ruletka.vip:443?transport=udp"),
+            "turn:ruletka.vip:443?transport=udp"
+        );
+        assert_eq!(
+            normalize_turn_url("turn:ruletka.vip:3478?transport=udp"),
+            "turn:ruletka.vip:3478"
+        );
+    }
+
+    #[test]
+    fn order_puts_udp_443_after_3478_udp() {
+        use super::order_ruletka_turn_urls;
+        let mut u = vec![
+            "turn:ruletka.vip:3478?transport=tcp".into(),
+            "turn:ruletka.vip:443?transport=udp".into(),
+            "turns:ruletka.vip:443?transport=tcp".into(),
+            "turn:ruletka.vip:3478".into(),
+            "turns:ruletka.vip:5349?transport=tcp".into(),
+        ];
+        order_ruletka_turn_urls(&mut u);
+        assert_eq!(
+            u,
+            [
+                "turns:ruletka.vip:443?transport=tcp",
+                "turns:ruletka.vip:5349?transport=tcp",
+                "turn:ruletka.vip:3478",
+                "turn:ruletka.vip:443?transport=udp",
                 "turn:ruletka.vip:3478?transport=tcp",
             ]
         );

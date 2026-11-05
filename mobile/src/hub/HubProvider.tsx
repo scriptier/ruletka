@@ -814,8 +814,11 @@ export function HubProvider(props: {
             void dismissLocalCallAlert();
             clearPendingCallFromPush();
             setLastError("");
+            // ice_path/relay_rung filled when media reports connected (ships next app build).
             track("match_ok", {
               mode: (msg as { mode?: string }).mode || "solo",
+              ice_path: "unknown",
+              relay_rung: "initial",
             });
             break;
           }

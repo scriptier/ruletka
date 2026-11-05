@@ -14,6 +14,7 @@ mod federation;
 mod friends_store;
 mod genital_ban;
 mod geo;
+mod conn_metrics;
 mod limits;
 mod protocol;
 mod push_tokens;
@@ -843,10 +844,18 @@ async fn health_handler(State(state): State<AppState>) -> impl IntoResponse {
 struct FunnelBody {
     #[serde(default)]
     event: String,
+    /// Optional selected ICE path from getStats (host/srflx/relay_udp/…).
+    #[serde(default)]
+    ice_path: Option<String>,
+    /// Optional relay retry rung that connected (all_relays/turns_443/turn_udp).
+    #[serde(default)]
+    relay_rung: Option<String>,
 }
 
 async fn funnel_handler(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(body): Json<FunnelBody>,
 ) -> impl IntoResponse {
     let event = body.event.trim();
@@ -882,8 +891,52 @@ async fn funnel_handler(
         }
         rl.1 = rl.1.saturating_add(1);
     }
+
+    // Country from client IP geo (codes only). Test override:
+    // X-Ruletka-Test-Country: RU when ROULETTE_ALLOW_TEST_GEO=1 or loopback.
+    let mut country: Option<String> = None;
+    let client_ip = geo::client_ip_from_headers(&headers, addr);
+    let allow_test = std::env::var("ROULETTE_ALLOW_TEST_GEO")
+        .map(|v| matches!(v.as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false)
+        || client_ip.is_loopback();
+    if allow_test {
+        if let Some(h) = headers
+            .get("x-ruletka-test-country")
+            .and_then(|v| v.to_str().ok())
+        {
+            let n = conn_metrics::normalize_country(h);
+            if n != "other" {
+                country = Some(n);
+            }
+        }
+    }
+    if country.is_none() && matches!(event, "match_ok" | "match_fail_ice") {
+        if let Ok(Some(loc)) =
+            tokio::time::timeout(std::time::Duration::from_millis(250), geo::lookup(client_ip)).await
+        {
+            country = Some(conn_metrics::normalize_country(&loc.code));
+        }
+    }
+
+    let ice_path = body
+        .ice_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let relay_rung = body
+        .relay_rung
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
     let mut hub = state.hub.lock().await;
-    if hub.metrics_inc_funnel(event) {
+    if hub.metrics_inc_funnel_ex(
+        event,
+        country.as_deref(),
+        ice_path,
+        relay_rung,
+    ) {
         (
             StatusCode::OK,
             Json(serde_json::json!({"ok": true})),
