@@ -137,6 +137,14 @@ fn permanent_redirect(to: &'static str) -> Response {
         .into_response()
 }
 
+/// 302 so a future real /live route is not pinned in browser caches.
+fn live_redirect(to: &str) -> Response {
+    match HeaderValue::from_str(to) {
+        Ok(v) => (StatusCode::FOUND, [(header::LOCATION, v)]).into_response(),
+        Err(_) => permanent_redirect("/live.html"),
+    }
+}
+
 /// Collapse "ruletka.me and/or/ / ruletka.me" left by a blind vip→me replace.
 fn collapse_doubled_brand(body: &str) -> String {
     const PHRASES: &[&str] = &[
@@ -203,6 +211,14 @@ async fn branded_ui(
     // One Android URL. /download and the .html filename both 301 there.
     if path == "/download" || path == "/download/" || path == "/download/android.html" {
         return permanent_redirect("/download/android");
+    }
+    // People type /live. The app shell is /live.html; keep ?invite=… etc.
+    if path == "/live" || path == "/live/" {
+        let to = match uri.query() {
+            Some(q) if !q.is_empty() => format!("/live.html?{q}"),
+            _ => "/live.html".to_string(),
+        };
+        return live_redirect(&to);
     }
     // Store listings and old notes use /privacy.html. The page is /legal/privacy.html.
     if let Some(to) = legal_shortcut(path) {
@@ -841,7 +857,13 @@ async fn funnel_handler(
         )
             .into_response();
     }
-    // ~120 funnel posts per minute globally (small hub; enough for real traffic)
+    // Events the hub does not count (newer/older web or app builds): 204, no
+    // 400 spam in logs/devtools, and they do not eat the rate-limit budget.
+    if simple::SimpleHub::funnel_counter(event).is_none() {
+        return StatusCode::NO_CONTENT.into_response();
+    }
+    // ~600 funnel posts per minute globally (app_open / start_match / match*
+    // fire per spin, so 120 would starve the invite counters at peak).
     {
         let minute = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -851,7 +873,7 @@ async fn funnel_handler(
         if rl.0 != minute {
             *rl = (minute, 0);
         }
-        if rl.1 >= 120 {
+        if rl.1 >= 600 {
             return (
                 StatusCode::TOO_MANY_REQUESTS,
                 Json(serde_json::json!({"ok": false, "error": "rate limit"})),
@@ -868,11 +890,7 @@ async fn funnel_handler(
         )
             .into_response()
     } else {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"ok": false, "error": "unknown event"})),
-        )
-            .into_response()
+        StatusCode::NO_CONTENT.into_response()
     }
 }
 
