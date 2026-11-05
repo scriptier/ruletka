@@ -48952,9 +48952,14 @@ window.addEventListener("resize", () => {
  * a small box. Drag past 8px moves it; release snaps to the nearest corner
  * clear of the top chrome, bottom controls, side rails and safe-area insets.
  * Tap the box → classic split (top/bottom portrait, side by side landscape).
- * Tap your half (or ⤤) → back to the box. Corner + view are in localStorage.
+ * Tap your half (or ⤤) → back to the box. Corner is in localStorage; the
+ * split choice lasts for this page only (each load starts as the box).
  * Desktop / tablets / trio / multi layouts are untouched (no classes set). */
-const SELF_VIEW_KEY = "ruletka-self-view-v1"; // "pip" | "split"
+/** Legacy: "split" was persisted here forever, so one tap on the box left
+ * phones stuck in the old 50/50 layout on every later visit (Pixel 9 Pro /
+ * Brave, 2026-11-04). Dropped on init; the split choice now lasts only for
+ * the current page (every load starts with the small box). */
+const SELF_VIEW_LEGACY_KEY = "ruletka-self-view-v1";
 const SELF_PIP_CORNER_KEY = "ruletka-self-pip-corner-v1"; // tl | tr | bl | br
 const SELF_PIP_HINT_KEY = "ruletka-self-pip-hint-v1";
 const SELF_PIP_SLOP = 8;
@@ -48965,6 +48970,8 @@ const SELF_SPLIT_TAP_GUARD_MS = 450;
 
 const selfPip = {
   mode: "",
+  /** "pip" | "split" — this page only (not persisted). */
+  view: "pip",
   corner: "br",
   splitAt: 0,
   drag: null,
@@ -49003,7 +49010,7 @@ function selfPipEligible() {
 }
 
 function selfPipWanted() {
-  return selfPipLs(SELF_VIEW_KEY) === "split" ? "split" : "pip";
+  return selfPip.view === "split" ? "split" : "pip";
 }
 
 function selfPipInsets() {
@@ -49235,7 +49242,7 @@ function selfPipSync() {
 }
 
 function selfPipSetMode(mode) {
-  selfPipLs(SELF_VIEW_KEY, mode);
+  selfPip.view = mode === "split" ? "split" : "pip";
   if (mode === "split") selfPip.splitAt = Date.now();
   selfPipLs(SELF_PIP_HINT_KEY, "1");
   selfPipSync();
@@ -49331,6 +49338,9 @@ function initSelfPip() {
   const tile = $("tile-local");
   if (!tile || tile.dataset.selfPipInit === "1") return;
   tile.dataset.selfPipInit = "1";
+  try {
+    localStorage.removeItem(SELF_VIEW_LEGACY_KEY);
+  } catch (_) {}
   const c = selfPipLs(SELF_PIP_CORNER_KEY);
   if (c === "tl" || c === "tr" || c === "bl" || c === "br") selfPip.corner = c;
   tile.addEventListener("pointerdown", selfPipOnPointerDown);
