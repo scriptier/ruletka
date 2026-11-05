@@ -9217,6 +9217,8 @@ html.stage-html {
   font-size: 0.92rem;
 }
 .conn-lobby-low[hidden] { display: none !important; }
+.conn-lobby-stats[hidden] { display: none !important; }
+.conn-lobby-low + .conn-lobby-stats { margin-top: 0.6rem; }
 .conn-lobby-stats {
   display: flex;
   align-items: flex-end;
