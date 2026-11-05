@@ -27272,3 +27272,13 @@ html.self-split-on.self-pip-land #stage#stage.stage-duo > #tile-local {
   display: block !important;
   min-height: 0 !important;
 }
+
+/* Portrait split while idle: the partner half is only ~420px tall, so Start
+ * (top 83% of the half, the 56px button hanging below it) landed on the
+ * Friends dock button (~40px at the tile bottom) with the face hint right on
+ * top of it (Pixel 9 Pro / Brave). Anchor the group from the bottom instead
+ * (it is shifted up by half its height), just clear of the dock. */
+html.self-split-on.start-idle:not(.self-pip-land) #stage#stage.stage-duo #remote-empty .empty-content {
+  top: auto !important;
+  bottom: 24px !important;
+}
