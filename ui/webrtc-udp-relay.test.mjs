@@ -237,8 +237,8 @@ const liveHtml = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "live.html"),
   "utf8"
 );
-if (!liveHtml.includes("webrtc.js?v=356")) {
-  console.error("FAIL live.html pin not webrtc.js?v=356");
+if (!liveHtml.includes("webrtc.js?v=357")) {
+  console.error("FAIL live.html pin not webrtc.js?v=357");
   process.exit(1);
 }
 if ((src.match(/turn\.slice\(0, 1\)/g) || []).length > 0) {

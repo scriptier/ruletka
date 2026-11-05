@@ -581,10 +581,10 @@
     /* vol-hud-v2 look lives in live-stage.css */
 </style>
   <!-- Load stage CSS as all immediately — no media=print FOUC trick (was leaving rails opacity:0) -->
-  <link rel="preload" href="live-stage.css?v=662" as="style" />
-  <link rel="stylesheet" href="live-stage.css?v=662" />
+  <link rel="preload" href="live-stage.css?v=663" as="style" />
+  <link rel="stylesheet" href="live-stage.css?v=663" />
   <link rel="stylesheet" href="live-brand.css?v=26" />
-  <link rel="preload" href="live.js?v=995" as="script" />
+  <link rel="preload" href="live.js?v=996" as="script" />
   <link rel="preload" href="i18n.js?v=279" as="script" />
   <script src="brand.js?v=3" defer></script>
   <script>
@@ -3567,15 +3567,15 @@
   </div>
 
   <!-- Critical path: defer app scripts. QR / invite-copy / live-window load on demand. -->
-  <script src="analytics.js?v=6" defer></script>
+  <script src="analytics.js?v=7" defer></script>
   <script src="pwa-install.js?v=13" defer></script>
   <script src="web-push.js?v=1" defer></script>
   <script src="i18n.js?v=279" defer></script>
   <script src="geoLocalize.js?v=3" defer></script>
   <script src="identity.js?v=156" defer></script>
   <script src="hubs.js?v=157" defer></script>
-  <script src="webrtc.js?v=356" defer></script>
-  <script src="live.js?v=995" defer></script>
+  <script src="webrtc.js?v=357" defer></script>
+  <script src="live.js?v=996" defer></script>
   <script>
     // Belt-and-suspenders: if live.js deferred somehow, still try after load
     window.addEventListener("load", function () {
