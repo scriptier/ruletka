@@ -1726,7 +1726,7 @@ function SettingsBody() {
             style={styles.linkRow}
             onPress={() => {
               hapticLight();
-              const url = `${hubBase().replace(/\/$/, "")}/download/android.html`;
+              const url = `${hubBase().replace(/\/$/, "")}/download/android`;
               void Linking.openURL(url).catch(() => {
                 showToast(url);
               });

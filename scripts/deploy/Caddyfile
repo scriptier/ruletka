@@ -46,30 +46,34 @@ ruletka.vip, ruletka.me {
 	# Mobile app-site association (JSON from bridge; do not HTML-rewrite)
 	handle /.well-known/apple-app-site-association {
 		reverse_proxy 127.0.0.1:8790
-		header Cache-Control "public, max-age=300"
+		header >Cache-Control "public, max-age=300"
 	}
 	handle /apple-app-site-association {
 		reverse_proxy 127.0.0.1:8790
-		header Cache-Control "public, max-age=300"
+		header >Cache-Control "public, max-age=300"
 	}
 	handle /.well-known/assetlinks.json {
 		reverse_proxy 127.0.0.1:8790
-		header Cache-Control "public, max-age=300"
+		header >Cache-Control "public, max-age=300"
 	}
 
 	# API / health / federation / ICE config — short cache / no cache
 	handle /health {
 		reverse_proxy 127.0.0.1:8790
-		header Cache-Control "no-store"
+		header >Cache-Control "no-store"
 	}
 	handle /config.json {
 		reverse_proxy 127.0.0.1:8790
-		header Cache-Control "private, max-age=30"
+		header >Cache-Control "private, max-age=30"
 	}
 	handle /v1/* {
 		reverse_proxy 127.0.0.1:8790
-		header Cache-Control "no-store"
+		header >Cache-Control "no-store"
 	}
+
+	# Cache-Control: the bridge also sets its own (e.g. "public, max-age=60" on
+	# HTML/manifest). `header >Cache-Control` is a deferred set, so it REPLACES
+	# the upstream value instead of adding a second header.
 
 	# Only long-cache when ?v= is present (deploy bust). Bare /foo.js must revalidate.
 	@fingerprinted {
@@ -78,7 +82,7 @@ ruletka.vip, ruletka.me {
 	}
 	handle @fingerprinted {
 		reverse_proxy 127.0.0.1:8790
-		header Cache-Control "public, max-age=31536000, immutable"
+		header >Cache-Control "public, max-age=31536000, immutable"
 	}
 
 	# Live app shell — never serve stale HTML/JS/CSS after a deploy
@@ -87,18 +91,18 @@ ruletka.vip, ruletka.me {
 	}
 	handle @liveApp {
 		reverse_proxy 127.0.0.1:8790
-		header Cache-Control "no-store, no-cache, must-revalidate"
+		header >Cache-Control "no-store, no-cache, must-revalidate"
 	}
 	handle /i18n/* {
 		reverse_proxy 127.0.0.1:8790
-		header Cache-Control "no-store, no-cache, must-revalidate"
+		header >Cache-Control "no-store, no-cache, must-revalidate"
 	}
 
 	# On-device NSFW filter (tfjs / nsfwjs / model weights). Folder names carry
 	# versions (ui/vendor/nsfw/*-<ver>/), so long cache is safe. ~8 MB, loaded once.
 	handle /vendor/* {
 		reverse_proxy 127.0.0.1:8790
-		header Cache-Control "public, max-age=2592000"
+		header >Cache-Control "public, max-age=2592000"
 	}
 
 	# Brand media (video loops) — medium cache
@@ -107,7 +111,7 @@ ruletka.vip, ruletka.me {
 	}
 	handle @media {
 		reverse_proxy 127.0.0.1:8790
-		header Cache-Control "public, max-age=86400"
+		header >Cache-Control "public, max-age=86400"
 	}
 
 	# Tiny `/` / index.html: client redirect stub → /live.html (no landing flash).
@@ -116,13 +120,19 @@ ruletka.vip, ruletka.me {
 	@home path / /index.html
 	handle @home {
 		reverse_proxy 127.0.0.1:8790
-		header Cache-Control "public, max-age=60, must-revalidate"
+		header >Cache-Control "public, max-age=60, must-revalidate"
+	}
+
+	# PWA manifest (bare URL; ?v= is long-cached above) — short cache
+	handle /manifest.webmanifest {
+		reverse_proxy 127.0.0.1:8790
+		header >Cache-Control "public, max-age=300"
 	}
 
 	# HTML / rest — short cache so deploys show without hard-fight
 	handle {
 		reverse_proxy 127.0.0.1:8790
-		header Cache-Control "public, max-age=30, must-revalidate"
+		header >Cache-Control "public, max-age=30, must-revalidate"
 	}
 
 	header {

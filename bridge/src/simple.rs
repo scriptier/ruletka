@@ -403,6 +403,23 @@ pub struct DayMetrics {
     pub funnel_friend_nudge_show: u64,
     #[serde(default)]
     pub funnel_friend_nudge_accept: u64,
+    /// Client product events (POST /v1/funnel) — app open, spin, match, friend call.
+    #[serde(default)]
+    pub funnel_app_open: u64,
+    #[serde(default)]
+    pub funnel_start_match: u64,
+    #[serde(default)]
+    pub funnel_match: u64,
+    #[serde(default)]
+    pub funnel_match_ok: u64,
+    #[serde(default)]
+    pub funnel_match_fail_ice: u64,
+    #[serde(default)]
+    pub funnel_match_summary: u64,
+    #[serde(default)]
+    pub funnel_friend_call_place: u64,
+    #[serde(default)]
+    pub funnel_friend_online_toast_call: u64,
 }
 
 pub struct SimpleHub {
@@ -3990,48 +4007,74 @@ impl SimpleHub {
         }
     }
 
-    /// Public growth funnel events from the UI (rate-limit at HTTP layer).
-    pub fn metrics_inc_funnel(&mut self, event: &str) -> bool {
-        self.metrics_roll_day();
+    /// Canonical DayMetrics counter for a client funnel event name, or None
+    /// when the hub does not count it (caller answers 204, not 400).
+    pub fn funnel_counter(event: &str) -> Option<&'static str> {
         let e = event.trim().to_ascii_lowercase().replace('-', "_");
-        match e.as_str() {
+        Some(match e.as_str() {
             "funnel_invite_share" | "friend_invite_share" | "empty_alone_invite_share" => {
-                self.metrics.funnel_invite_share =
-                    self.metrics.funnel_invite_share.saturating_add(1);
+                "invite_share"
             }
             "funnel_invite_land" | "friend_invite_deep_link" | "invite_landing_open" => {
-                self.metrics.funnel_invite_land =
-                    self.metrics.funnel_invite_land.saturating_add(1);
+                "invite_land"
             }
-            "funnel_invite_request" => {
-                self.metrics.funnel_invite_request =
-                    self.metrics.funnel_invite_request.saturating_add(1);
-            }
-            "funnel_invite_connected" => {
-                self.metrics.funnel_invite_connected =
-                    self.metrics.funnel_invite_connected.saturating_add(1);
-            }
-            "home_invite_pack_copy" | "funnel_home_pack_copy" => {
-                self.metrics.funnel_home_pack_copy =
-                    self.metrics.funnel_home_pack_copy.saturating_add(1);
-            }
-            "home_invite_pack_live" | "funnel_home_pack_live" => {
-                self.metrics.funnel_home_pack_live =
-                    self.metrics.funnel_home_pack_live.saturating_add(1);
-            }
-            "friend_nudge_show" => {
-                self.metrics.funnel_friend_nudge_show =
-                    self.metrics.funnel_friend_nudge_show.saturating_add(1);
-            }
-            "friend_nudge_accept" => {
-                self.metrics.funnel_friend_nudge_accept =
-                    self.metrics.funnel_friend_nudge_accept.saturating_add(1);
-            }
+            "funnel_invite_request" => "invite_request",
+            "funnel_invite_connected" => "invite_connected",
+            "home_invite_pack_copy" | "funnel_home_pack_copy" => "home_pack_copy",
+            "home_invite_pack_live" | "funnel_home_pack_live" => "home_pack_live",
+            "friend_nudge_show" => "friend_nudge_show",
+            "friend_nudge_accept" => "friend_nudge_accept",
+            "app_open" => "app_open",
+            "start_match" => "start_match",
+            "match" => "match",
+            "match_ok" => "match_ok",
+            "match_fail_ice" => "match_fail_ice",
+            "match_summary" => "match_summary",
+            "friend_call_place" => "friend_call_place",
+            "friend_online_toast_call" => "friend_online_toast_call",
+            _ => return None,
+        })
+    }
+
+    /// Public growth funnel events from the UI (rate-limit at HTTP layer).
+    pub fn metrics_inc_funnel(&mut self, event: &str) -> bool {
+        let Some(key) = Self::funnel_counter(event) else {
+            return false;
+        };
+        self.metrics_roll_day();
+        let m = &mut self.metrics;
+        let slot = match key {
+            "invite_share" => &mut m.funnel_invite_share,
+            "invite_land" => &mut m.funnel_invite_land,
+            "invite_request" => &mut m.funnel_invite_request,
+            "invite_connected" => &mut m.funnel_invite_connected,
+            "home_pack_copy" => &mut m.funnel_home_pack_copy,
+            "home_pack_live" => &mut m.funnel_home_pack_live,
+            "friend_nudge_show" => &mut m.funnel_friend_nudge_show,
+            "friend_nudge_accept" => &mut m.funnel_friend_nudge_accept,
+            "app_open" => &mut m.funnel_app_open,
+            "start_match" => &mut m.funnel_start_match,
+            "match" => &mut m.funnel_match,
+            "match_ok" => &mut m.funnel_match_ok,
+            "match_fail_ice" => &mut m.funnel_match_fail_ice,
+            "match_summary" => &mut m.funnel_match_summary,
+            "friend_call_place" => &mut m.funnel_friend_call_place,
+            "friend_online_toast_call" => &mut m.funnel_friend_online_toast_call,
             _ => return false,
-        }
-        let total = self.metrics.funnel_invite_share
-            + self.metrics.funnel_invite_land
-            + self.metrics.funnel_home_pack_copy;
+        };
+        *slot = slot.saturating_add(1);
+        // Flush every 10 funnel hits (any kind) so a restart loses little.
+        let total = m.funnel_invite_share
+            + m.funnel_invite_land
+            + m.funnel_home_pack_copy
+            + m.funnel_app_open
+            + m.funnel_start_match
+            + m.funnel_match
+            + m.funnel_match_ok
+            + m.funnel_match_fail_ice
+            + m.funnel_match_summary
+            + m.funnel_friend_call_place
+            + m.funnel_friend_online_toast_call;
         if total % 10 == 0 {
             self.metrics_flush();
         }
@@ -4183,6 +4226,14 @@ impl SimpleHub {
                     "home_pack_live": self.metrics.funnel_home_pack_live,
                     "friend_nudge_show": self.metrics.funnel_friend_nudge_show,
                     "friend_nudge_accept": self.metrics.funnel_friend_nudge_accept,
+                    "app_open": self.metrics.funnel_app_open,
+                    "start_match": self.metrics.funnel_start_match,
+                    "match": self.metrics.funnel_match,
+                    "match_ok": self.metrics.funnel_match_ok,
+                    "match_fail_ice": self.metrics.funnel_match_fail_ice,
+                    "match_summary": self.metrics.funnel_match_summary,
+                    "friend_call_place": self.metrics.funnel_friend_call_place,
+                    "friend_online_toast_call": self.metrics.funnel_friend_online_toast_call,
                 },
             },
             "stars_ledger": self.stars_ledger_snapshot(),
@@ -12946,5 +12997,56 @@ mod genital_hub_tests {
             }
         }
         assert_eq!(levels, vec![(1, false), (2, false), (3, true)]);
+    }
+}
+
+#[cfg(test)]
+mod funnel_event_tests {
+    use super::{LimitConfig, SimpleHub};
+
+    fn temp_hub() -> SimpleHub {
+        let dir = std::env::temp_dir().join(format!("ruletka-funnel-{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::create_dir_all(&dir);
+        SimpleHub::with_limits_and_store(LimitConfig::default(), dir.join("friends.json"))
+    }
+
+    #[test]
+    fn product_events_are_counted() {
+        let mut hub = temp_hub();
+        for e in [
+            "app_open",
+            "start_match",
+            "match",
+            "match_ok",
+            "match_fail_ice",
+            "match_summary",
+            "friend_call_place",
+            "friend_online_toast_call",
+            "funnel_invite_share",
+            "friend_nudge_show",
+        ] {
+            assert!(hub.metrics_inc_funnel(e), "{e}");
+        }
+        assert!(hub.metrics_inc_funnel("Match-OK"));
+        let m = &hub.metrics;
+        assert_eq!(m.funnel_app_open, 1);
+        assert_eq!(m.funnel_start_match, 1);
+        assert_eq!(m.funnel_match, 1);
+        assert_eq!(m.funnel_match_ok, 2);
+        assert_eq!(m.funnel_match_fail_ice, 1);
+        assert_eq!(m.funnel_match_summary, 1);
+        assert_eq!(m.funnel_friend_call_place, 1);
+        assert_eq!(m.funnel_friend_online_toast_call, 1);
+        assert_eq!(m.funnel_invite_share, 1);
+        assert_eq!(m.funnel_friend_nudge_show, 1);
+    }
+
+    #[test]
+    fn unknown_events_are_not_counted() {
+        let mut hub = temp_hub();
+        for e in ["video_ok", "connect_video_ms", "", "boot_error"] {
+            assert!(SimpleHub::funnel_counter(e).is_none(), "{e}");
+            assert!(!hub.metrics_inc_funnel(e), "{e}");
+        }
     }
 }
