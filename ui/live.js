@@ -21348,6 +21348,8 @@ function setStatus(s) {
 
 /** Last pool online count (for empty-share presence line). */
 let lastOnlineCount = 0;
+/** True once the hub sent a real online/waiting count (lobby_info / status). */
+let lobbyCountsKnown = false;
 
 function tickConnLobbyNum(el, next) {
   if (!el) return;
@@ -21364,10 +21366,14 @@ function tickConnLobbyNum(el, next) {
 function paintConnLobbyTicker() {
   const online = Math.max(0, lastOnlineCount || 0);
   const waiting = Math.max(0, lastWaitingCount || 0);
+  // Always show the real counts (server sends them on every lobby_info even
+  // when quiet); the low-liquidity line is an extra hint, not a replacement.
+  // Before 2026-11-04 the stats were hidden when online < 5, but CSS
+  // display:flex beat [hidden], so users saw "—" placeholders instead.
   const low = online < 5;
   const stats = $("conn-lobby-stats");
   const note = $("conn-lobby-low");
-  if (stats) stats.hidden = low;
+  if (stats) stats.hidden = !lobbyCountsKnown;
   if (note) {
     note.hidden = !low;
     if (low) {
@@ -21376,7 +21382,7 @@ function paintConnLobbyTicker() {
         "Ищем собеседника по всему миру… пригласите друга";
     }
   }
-  if (low) return;
+  if (!lobbyCountsKnown) return;
   tickConnLobbyNum($("conn-stat-online"), online);
   tickConnLobbyNum($("conn-stat-waiting"), waiting);
 }
@@ -21384,6 +21390,7 @@ function paintConnLobbyTicker() {
 function setPool({ online, waiting, offers, room }) {
   if (online != null) {
     lastOnlineCount = online;
+    lobbyCountsKnown = true;
     if ($("stat-online")) $("stat-online").textContent = String(online);
   }
   if (waiting != null) {
