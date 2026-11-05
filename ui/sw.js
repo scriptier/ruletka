@@ -6,7 +6,7 @@
  * - Bump CACHE when shell list changes so activate cleans old entries.
  * - No skipWaiting on install (avoids mid-call takeover); client posts SKIP_WAITING on Reload.
  */
-const CACHE = "rulet-shell-v26";
+const CACHE = "rulet-shell-v27";
 
 /** Offline-safe shell only — keep small (no 250KB icons / mp4). Live stack is network-first. */
 const SHELL = [
@@ -49,17 +49,65 @@ self.addEventListener("install", (event) => {
   // lose the controller mid-session; client shows “Update available” and
   // posts SKIP_WAITING when the user reloads.
   event.waitUntil(
-    caches.open(CACHE).then((c) =>
-      Promise.all(
-        SHELL.map((url) =>
-          c.add(url).catch(() => {
-            /* optional asset missing — ignore */
-          })
+    Promise.all([
+      addNavigationRoutes(event),
+      caches.open(CACHE).then((c) =>
+        Promise.all(
+          SHELL.map((url) =>
+            c.add(url).catch(() => {
+              /* optional asset missing — ignore */
+            })
+          )
         )
-      )
-    )
+      ),
+    ])
   );
 });
+
+/**
+ * Installed desktop app (Brave PWA, 2026-11-04): on a cold browser start the
+ * start_url navigation (/live.html?source=pwa) went into this worker and never
+ * reached the server — the app window sat on the manifest background colour
+ * (#07080c) with the app name as title until Ctrl+Shift+R (which skips the SW).
+ * Normal tabs were fine. Two guards so a stuck worker can never blank the app:
+ *  1. Static routing (Chromium 123+): navigations race the network against
+ *     this worker, so the page loads even if the worker is slow to start or
+ *     its fetch stalls. Offline, the fetch handler still serves offline.html.
+ *  2. Navigation fetches made here time out → offline.html (it retries).
+ */
+const NAV_TIMEOUT_MS = 12000;
+
+function addNavigationRoutes(event) {
+  try {
+    if (event && typeof event.addRoutes === "function") {
+      return Promise.resolve(
+        event.addRoutes([
+          {
+            condition: { requestMode: "navigate" },
+            source: "race-network-and-fetch-handler",
+          },
+        ])
+      ).catch(() => {});
+    }
+  } catch (_) {}
+  return Promise.resolve();
+}
+
+function fetchNav(req) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error("nav timeout")), NAV_TIMEOUT_MS);
+    fetch(req).then(
+      (res) => {
+        clearTimeout(t);
+        resolve(res);
+      },
+      (err) => {
+        clearTimeout(t);
+        reject(err);
+      }
+    );
+  });
+}
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
@@ -196,8 +244,8 @@ self.addEventListener("fetch", (event) => {
   if (isVolatilePath(url.pathname)) {
     if (req.mode === "navigate" || url.pathname === "/live.html") {
       event.respondWith(
-        fetch(req).catch(() =>
-          caches.match("/offline.html").then((r) => r || caches.match("/"))
+        (req.mode === "navigate" ? fetchNav(req) : fetch(req)).catch(() =>
+          caches.match("/offline.html").then((r) => r || Response.error())
         )
       );
       return;
@@ -214,7 +262,7 @@ self.addEventListener("fetch", (event) => {
   // Navigations: network first → offline page
   if (req.mode === "navigate") {
     event.respondWith(
-      fetch(req)
+      fetchNav(req)
         .then((res) => {
           if (res.ok) {
             const copy = res.clone();
@@ -225,12 +273,8 @@ self.addEventListener("fetch", (event) => {
         .catch(() =>
           caches
             .match(req)
-            .then(
-              (r) =>
-                r ||
-                caches.match("/offline.html") ||
-                caches.match("/")
-            )
+            .then((r) => r || caches.match("/offline.html"))
+            .then((r) => r || Response.error())
         )
     );
     return;
