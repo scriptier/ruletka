@@ -27282,3 +27282,172 @@ html.self-split-on.start-idle:not(.self-pip-land) #stage#stage.stage-duo #remote
   top: auto !important;
   bottom: 24px !important;
 }
+
+/* ── PC split + hidden controls (2026-11-04) ──
+ * live.js deskSplit* sets html.desk-split-on on mouse/desktop windows in the
+ * duo stage (never phone-size, touch, trio or multi), html.desk-split-port
+ * when the window is portrait, html.desk-chrome-awake while the mouse/keys
+ * are active. Partner half left (top in portrait), your camera right (bottom). */
+html.desk-split-on #stage#stage.stage-duo {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+  grid-template-rows: minmax(0, 1fr) !important;
+  grid-auto-rows: 0 !important;
+}
+html.desk-split-on.desk-split-port #stage#stage.stage-duo {
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr) !important;
+}
+html.desk-split-on #stage#stage.stage-duo > #tile-remote {
+  grid-column: 1 / 2 !important;
+  grid-row: 1 / 2 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+}
+html.desk-split-on #stage#stage.stage-duo > #tile-local.tile-local {
+  grid-column: 2 / 3 !important;
+  grid-row: 1 / 2 !important;
+  position: relative !important;
+  inset: auto !important;
+  width: auto !important;
+  height: auto !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  display: block !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  z-index: 1 !important;
+}
+html.desk-split-on.desk-split-port #stage#stage.stage-duo > #tile-local.tile-local {
+  grid-column: 1 / 2 !important;
+  grid-row: 2 / 3 !important;
+}
+/* Partner floor (Friends / Next / Stop) follows the partner half */
+html.desk-split-on #stage#stage.stage-duo > #tile-floor-partner {
+  left: 0 !important;
+  right: auto !important;
+  width: 50% !important;
+  max-width: 50% !important;
+}
+html.desk-split-on.desk-split-port #stage#stage.stage-duo > #tile-floor-partner {
+  width: 100% !important;
+  max-width: 100% !important;
+  top: auto !important;
+  bottom: 50% !important;
+}
+
+/* Idle: the partner half is the logo + Start again (the old full-stage idle
+ * self-preview made the partner tile a transparent overlay over your camera). */
+html.desk-split-on.start-idle #stage#stage.stage-duo > #tile-remote {
+  pointer-events: auto !important;
+  background: #07080c !important;
+}
+html.desk-split-on.start-idle #remote-empty .empty-bg-video {
+  opacity: 1 !important;
+  visibility: visible !important;
+  object-fit: contain !important;
+  object-position: center !important;
+  background: #07080c;
+}
+html.desk-split-on.start-idle #remote-empty .empty-bg-scrim {
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+html.desk-split-on.start-idle #stage#stage.stage-duo > #tile-local.tile-local {
+  background: #07080c !important;
+}
+/* Face hint sits on your half (moved there by live.js) */
+html.desk-split-on #tile-local > #idle-self-hint {
+  position: absolute !important;
+  left: 50% !important;
+  top: auto !important;
+  bottom: 9% !important;
+  transform: translateX(-50%) !important;
+  z-index: 47 !important;
+  padding: 0.4rem 0.85rem;
+  border-radius: 999px;
+  background: rgba(8, 10, 16, 0.55);
+  font-size: 0.95rem;
+}
+
+/* Hidden controls: any mouse move / key / focus shows BOTH halves' controls;
+ * live.js removes desk-chrome-awake after ~2.8s still (not while a menu,
+ * sheet, hovered or keyboard-focused control needs them). Start is not chrome. */
+html.chrome-autohide.desk-split-on.desk-chrome-awake #tile-remote.tile-remote .side-rail-left,
+html.chrome-autohide.desk-split-on.desk-chrome-awake #tile-remote.tile-remote .tile-floor-partner,
+html.chrome-autohide.desk-split-on.desk-chrome-awake #stage#stage.stage-duo > #tile-floor-partner,
+html.chrome-autohide.desk-split-on.desk-chrome-awake #tile-local.tile-local > .side-rail.side-rail-right,
+html.chrome-autohide.desk-split-on.desk-chrome-awake #tile-local.tile-local .side-rail-right,
+html.chrome-autohide.desk-split-on.desk-chrome-awake #tile-local.tile-local .tile-floor-local,
+html.chrome-autohide.desk-split-on.desk-chrome-awake #tile-local.tile-local #local-id-stack {
+  opacity: 1 !important;
+  visibility: visible !important;
+  transform: none !important;
+  pointer-events: auto !important;
+}
+html.chrome-autohide.desk-split-on.desk-chrome-awake #tile-remote.tile-remote .side-rail-left > *,
+html.chrome-autohide.desk-split-on.desk-chrome-awake #tile-remote.tile-remote .tile-floor-partner *,
+html.chrome-autohide.desk-split-on.desk-chrome-awake #stage#stage.stage-duo > #tile-floor-partner *,
+html.chrome-autohide.desk-split-on.desk-chrome-awake #tile-local.tile-local .side-rail-right *,
+html.chrome-autohide.desk-split-on.desk-chrome-awake #tile-local.tile-local .tile-floor-local * {
+  pointer-events: auto !important;
+}
+/* Keyboard focus inside a rail keeps it up even if the timer fired */
+html.chrome-autohide.desk-split-on #tile-remote.tile-remote .side-rail-left:focus-within,
+html.chrome-autohide.desk-split-on #tile-local.tile-local .side-rail-right:focus-within,
+html.chrome-autohide.desk-split-on #tile-local.tile-local .tile-floor-local:focus-within,
+html.chrome-autohide.desk-split-on #stage#stage.stage-duo > #tile-floor-partner:focus-within {
+  opacity: 1 !important;
+  visibility: visible !important;
+  transform: none !important;
+  pointer-events: auto !important;
+}
+/* Fade a little slower than the per-tile hover chrome */
+html.chrome-autohide.desk-split-on #tile-remote.tile-remote .side-rail-left,
+html.chrome-autohide.desk-split-on #tile-remote.tile-remote .tile-floor-partner,
+html.chrome-autohide.desk-split-on #stage#stage.stage-duo > #tile-floor-partner,
+html.chrome-autohide.desk-split-on #tile-local.tile-local .side-rail-right,
+html.chrome-autohide.desk-split-on #tile-local.tile-local .tile-floor-local {
+  transition:
+    opacity 0.35s ease,
+    visibility 0.35s ease,
+    transform 0.35s ease !important;
+}
+/* Idle: Start is always visible (it is not part of the chrome) */
+html.desk-split-on.start-idle #remote-empty .empty-content,
+html.desk-split-on.start-idle #btn-start-match:not([hidden]) {
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+}
+/* In a call the cursor hides together with the controls */
+html.desk-split-on.match-live:not(.desk-chrome-awake) #stage#stage.stage-duo,
+html.desk-split-on.match-live:not(.desk-chrome-awake) #stage#stage.stage-duo * {
+  cursor: none !important;
+}
+/* No camera yet / permission denied: the empty #local video (z 20, opaque bg)
+ * painted over #local-empty, so "Enable camera" was clickable but invisible. */
+html.desk-split-on #tile-local.tile-local:not(.has-local-feed) > #local-empty:not([hidden]):not(.hidden) {
+  z-index: 30 !important;
+  inset: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  width: auto !important;
+  max-width: none !important;
+  height: auto !important;
+  margin: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+}
+/* PC split: the older per-tile hover chrome (is-chrome-open, also poked on
+ * every idle sync) only shows while the page is awake, so everything fades
+ * together. Open menus/sheets keep the page awake from live.js. */
+html.chrome-autohide.desk-split-on:not(.desk-chrome-awake) #tile-remote.tile-remote .side-rail-left:not(:focus-within),
+html.chrome-autohide.desk-split-on:not(.desk-chrome-awake) #tile-remote.tile-remote .tile-floor-partner:not(:focus-within),
+html.chrome-autohide.desk-split-on:not(.desk-chrome-awake) #stage#stage.stage-duo > #tile-floor-partner#tile-floor-partner:not(:focus-within),
+html.chrome-autohide.desk-split-on:not(.desk-chrome-awake) #tile-local.tile-local .side-rail-right:not(:focus-within),
+html.chrome-autohide.desk-split-on:not(.desk-chrome-awake) #tile-local.tile-local .tile-floor-local:not(:focus-within) {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}

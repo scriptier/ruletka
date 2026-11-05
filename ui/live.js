@@ -49383,3 +49383,152 @@ if (document.readyState === "loading") {
 } else {
   initSelfPip();
 }
+
+/* ── Desktop split + hidden controls (2026-11-04) ──
+ * PC / mouse windows (not phone-size, fine pointer) in the duo stage:
+ * html.desk-split-on → partner half | your half (side by side; stacked when
+ * the window is portrait → html.desk-split-port). Idle: partner half keeps the
+ * logo + Start (logo fits), your half shows the live camera + face hint.
+ * Controls (both tiles' rails + floor) fade in on mouse move / key / focus
+ * via html.desk-chrome-awake and fade out after DESK_CHROME_IDLE_MS; Start,
+ * flyouts, sheets and focused controls are never hidden. During a call the
+ * cursor hides with them. Phone PiP/split (selfPip*) and touch are untouched. */
+const DESK_CHROME_IDLE_MS = 2800;
+const deskSplit = { on: false, timer: 0, hintHome: null, hintNext: null, raf: 0 };
+
+function deskSplitEligible() {
+  const stage = $("stage");
+  const tile = $("tile-local");
+  if (!stage || !tile || tile.hidden) return false;
+  if (selfPipPhoneMq()) return false;
+  try {
+    if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) return false;
+  } catch (_) {
+    return false;
+  }
+  const c = stage.classList;
+  if (!c.contains("stage-duo")) return false;
+  if (c.contains("stage-trio") || c.contains("stage-multi") || c.contains("stage-quad")) return false;
+  if (c.contains("stage-count-3") || c.contains("stage-count-4") || c.contains("stage-trio-searching")) return false;
+  return true;
+}
+
+/** Face hint lives in the partner half's Start group; on PC split it belongs on your half. */
+function deskSplitPlaceHint(on) {
+  const hint = $("idle-self-hint");
+  const tile = $("tile-local");
+  if (!hint || !tile) return;
+  if (on) {
+    if (hint.parentElement === tile) return;
+    deskSplit.hintHome = hint.parentElement;
+    deskSplit.hintNext = hint.nextSibling;
+    tile.appendChild(hint);
+  } else if (deskSplit.hintHome && hint.parentElement === tile) {
+    try {
+      deskSplit.hintHome.insertBefore(hint, deskSplit.hintNext && deskSplit.hintNext.parentNode === deskSplit.hintHome ? deskSplit.hintNext : null);
+    } catch (_) {
+      deskSplit.hintHome.appendChild(hint);
+    }
+  }
+}
+
+function deskSplitSync() {
+  const root = document.documentElement;
+  const on = deskSplitEligible();
+  if (on !== deskSplit.on) {
+    deskSplit.on = on;
+    root.classList.toggle("desk-split-on", on);
+    if (!on) {
+      root.classList.remove("desk-chrome-awake", "desk-split-port");
+      if (deskSplit.timer) clearTimeout(deskSplit.timer);
+      deskSplit.timer = 0;
+    } else {
+      deskWake();
+    }
+    deskSplitPlaceHint(on);
+  }
+  if (on) root.classList.toggle("desk-split-port", window.innerHeight > window.innerWidth);
+}
+
+function deskSplitSchedule() {
+  if (deskSplit.raf) return;
+  deskSplit.raf = requestAnimationFrame(() => {
+    deskSplit.raf = 0;
+    deskSplitSync();
+  });
+}
+
+/** Something needs the controls to stay up (open menu/sheet, focused or hovered control). */
+function deskChromePinned() {
+  if (document.querySelector(".is-flyout-open")) return true;
+  const more = $("match-more-menu");
+  if (more && !more.hidden) return true;
+  for (const id of ["settings-sheet", "friends-sheet", "messages-sheet"]) {
+    const s = $(id);
+    if (s && !s.hidden && s.classList.contains("is-open")) return true;
+  }
+  const a = document.activeElement;
+  if (a && a !== document.body && a.closest?.(".side-rail, .tile-floor, .tile-corner-btn")) {
+    if (a.matches?.(":focus-visible")) return true;
+  }
+  if (document.querySelector(".side-rail:hover, .tile-floor:hover")) return true;
+  return false;
+}
+
+function deskWake() {
+  if (!deskSplit.on) return;
+  const root = document.documentElement;
+  if (!root.classList.contains("desk-chrome-awake")) root.classList.add("desk-chrome-awake");
+  if (deskSplit.timer) clearTimeout(deskSplit.timer);
+  const tick = () => {
+    deskSplit.timer = 0;
+    if (!deskSplit.on) return;
+    if (deskChromePinned()) {
+      deskSplit.timer = setTimeout(tick, 600);
+      return;
+    }
+    root.classList.remove("desk-chrome-awake");
+  };
+  deskSplit.timer = setTimeout(tick, DESK_CHROME_IDLE_MS);
+}
+
+function initDeskSplit() {
+  const tile = $("tile-local");
+  if (!tile || tile.dataset.deskSplitInit === "1") return;
+  tile.dataset.deskSplitInit = "1";
+  let lastX = -1;
+  let lastY = -1;
+  document.addEventListener(
+    "pointermove",
+    (e) => {
+      if (!deskSplit.on || e.pointerType === "touch") return;
+      // Ignore synthetic 0px moves (layout shifts under a still mouse)
+      if (e.clientX === lastX && e.clientY === lastY) return;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      deskWake();
+    },
+    { passive: true }
+  );
+  document.addEventListener("pointerdown", () => deskWake(), { passive: true, capture: true });
+  document.addEventListener("wheel", () => deskWake(), { passive: true });
+  // Keydown runs before Tab moves focus, so rails are visible (focusable) in time.
+  document.addEventListener("keydown", () => deskWake(), true);
+  document.addEventListener("focusin", () => deskWake(), true);
+  window.addEventListener("resize", deskSplitSchedule);
+  try {
+    const mo = new MutationObserver(deskSplitSchedule);
+    mo.observe($("stage"), { attributes: true, attributeFilter: ["class"] });
+    mo.observe(tile, { attributes: true, attributeFilter: ["hidden"] });
+  } catch (_) {}
+  try {
+    window.__ruletDeskSplit = { sync: deskSplitSync, wake: deskWake, state: deskSplit, idleMs: DESK_CHROME_IDLE_MS };
+  } catch (_) {}
+  deskSplitSync();
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initDeskSplit);
+} else {
+  initDeskSplit();
+}
