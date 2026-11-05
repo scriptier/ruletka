@@ -48,20 +48,26 @@ See [`docs/OPS.md`](../../docs/OPS.md) for backups, TURN, stars, admin.
 
 ## UDP TURN on 443 (connectivity 2026-11)
 
-`coturn.conf` sets `alt-listening-port=443` so clients can use
-`turn:ruletka.vip:443?transport=udp` when UDP 3478 is blocked.
+Clients can use `turn:ruletka.vip:443?transport=udp` when UDP 3478 is blocked.
+Live since deploy `deployed-2026-11-04.6` (2026-11-05 UTC).
 
-**Deploy-time steps (not done by `scripts/deploy.sh` alone):**
+**How:** `ruletka-turn-udp443.service` (oneshot) adds
+`iptables -t nat -I PREROUTING -d 209.38.204.153 -p udp --dport 443 -j REDIRECT --to-ports 3478`.
+coturn itself is unchanged (still 3478 udp/tcp + 5349 TLS/DTLS).
+We do **not** use coturn `alt-listening-port=443`: coturn 4.6.1 also binds TCP
+on the alt port, HAProxy owns TCP/443, and coturn exits after ~60 s of retries.
 
-1. Confirm Caddy has `protocols h1 h2` only (no HTTP/3 / QUIC on UDP 443).
-2. Install updated `coturn.conf` → `/etc/turnserver.conf` via
-   `bash /opt/ruletka/deploy/setup-turn.sh` (or careful manual merge).
-3. `systemctl restart coturn` and check `ss -ulnp | grep 443` shows coturn.
-4. Confirm `ufw allow 443/udp` (install-on-server.sh already has it).
-5. Ensure bridge `ROULETTE_TURN` includes `turn:ruletka.vip:443?transport=udp`
-   (unit file / turn.env), then `systemctl restart roulette-bridge`.
-6. Verify `/config.json` lists the udp 443 URL.
+**Install / verify (not done by `scripts/deploy.sh`):**
 
-`deploy.sh` rsyncs `deploy/coturn.conf` to `/opt/ruletka/deploy/` and reloads
-Caddy when the Caddyfile changes; it does **not** rewrite `/etc/turnserver.conf`
-or restart coturn. UDP 443 is a deliberate extra step.
+1. Caddy must keep `protocols h1 h2` (no HTTP/3 / QUIC on UDP 443).
+2. `cp /opt/ruletka/deploy/ruletka-turn-udp443.service /etc/systemd/system/ &&
+   systemctl daemon-reload && systemctl enable --now ruletka-turn-udp443`
+3. `iptables -t nat -S PREROUTING | grep 'dport 443'` shows the REDIRECT.
+   ufw needs no new rule: INPUT sees the redirected port (3478/udp, allowed).
+4. Bridge drop-in `/etc/systemd/system/roulette-bridge.service.d/turns.conf`:
+   `ROULETTE_TURN` includes `turn:ruletka.vip:443?transport=udp`
+   (`setup-turns-443.sh` adds it), then `systemctl restart roulette-bridge`.
+5. `/config.json` lists the udp 443 URL; `turn-alloc-test.py` passes on it.
+
+Rollback: `systemctl disable --now ruletka-turn-udp443`, remove the udp 443 URL
+from the bridge drop-in, `systemctl daemon-reload && systemctl restart roulette-bridge`.

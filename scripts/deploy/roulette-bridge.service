@@ -14,7 +14,7 @@ Environment=ROULETTE_LISTEN=127.0.0.1:8790
 Environment=ROULETTE_OPEN_TURN=false
 Environment=ROULETTE_TURN=turns:ruletka.vip:443?transport=tcp,turns:ruletka.vip:5349?transport=tcp,turn:ruletka.vip:3478?transport=udp,turn:ruletka.vip:443?transport=udp,turn:ruletka.vip:3478?transport=tcp
 # Live order: TURNS :443 / :5349, then UDP :3478 / :443, then TCP :3478.
-# UDP :443 needs coturn alt-listening-port=443 (see coturn.conf). After setup-turns-tls.sh the turns: URLs are required.
+# UDP :443 needs ruletka-turn-udp443.service (udp/443 -> 3478 redirect). After setup-turns-tls.sh the turns: URLs are required.
 Environment=ROULETTE_TURN_TTL=21600
 # Secrets (not in git) — created by setup scripts
 EnvironmentFile=-/opt/ruletka/data/turn.env

@@ -7,7 +7,7 @@
 	https_port 8443
 	servers {
 		# h1 h2 only — do NOT enable h3/quic. UDP 443 is reserved for coturn
-		# TURN (alt-listening-port=443). HTTP/3 would steal that port.
+		# TURN (ruletka-turn-udp443.service redirect). HTTP/3 would steal that port.
 		protocols h1 h2
 		# Direct visitors: HAProxy PROXY v2 supplies client IP. No Hetzner XFF front.
 		listener_wrappers {

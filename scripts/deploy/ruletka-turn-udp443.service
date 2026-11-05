@@ -1,0 +1,22 @@
+# UDP TURN alias on public 443: redirect udp/443 -> coturn udp/3478.
+# Why not coturn alt-listening-port=443: coturn 4.6.1 also opens a TCP
+# listener on the alt port, HAProxy owns TCP/443, and coturn exits fatally
+# after ~60 s of bind retries. This REDIRECT is UDP-only; TCP 443 stays
+# with HAProxy (HTTPS + TURNS mux). ufw INPUT sees the post-redirect
+# port (3478/udp, already allowed). Caddy must stay h1/h2 (no QUIC).
+# Install: cp to /etc/systemd/system/, systemctl daemon-reload,
+#          systemctl enable --now ruletka-turn-udp443
+# Rollback: systemctl disable --now ruletka-turn-udp443
+[Unit]
+Description=Ruletka: redirect UDP 443 to coturn 3478 (TURN UDP 443 alias)
+After=network-online.target ufw.service docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'iptables -t nat -C PREROUTING -d 209.38.204.153/32 -p udp --dport 443 -j REDIRECT --to-ports 3478 2>/dev/null || iptables -t nat -I PREROUTING 1 -d 209.38.204.153/32 -p udp --dport 443 -j REDIRECT --to-ports 3478'
+ExecStop=/bin/sh -c 'while iptables -t nat -D PREROUTING -d 209.38.204.153/32 -p udp --dport 443 -j REDIRECT --to-ports 3478 2>/dev/null; do :; done'
+
+[Install]
+WantedBy=multi-user.target

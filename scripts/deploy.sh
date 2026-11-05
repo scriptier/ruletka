@@ -142,7 +142,7 @@ else
 fi
 cp -a ui/download/android.html "$STAGE/ui/download/android.html"
 for f in Caddyfile roulette-bridge.service install-on-server.sh coturn.conf setup-turn.sh setup-turns-tls.sh \
-         ruletka-turns-certs.service ruletka-turns-certs.timer backup-ruletka-data.sh; do
+         ruletka-turns-certs.service ruletka-turns-certs.timer backup-ruletka-data.sh ruletka-turn-udp443.service; do
   cp -a "scripts/deploy/$f" "$STAGE/deploy/"
 done
 [[ -n "$BRIDGE" ]] && install -m 755 "$BRIDGE" "$STAGE/bin/roulette-bridge.new"

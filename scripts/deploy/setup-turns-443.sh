@@ -99,5 +99,5 @@ echo "--- curl ---"
 curl -sS -o /dev/null -w "https_vip:%{http_code} time:%{time_total}\n" --max-time 10 https://ruletka.vip/health || true
 curl -sS -o /dev/null -w "https_8443:%{http_code}\n" --max-time 5 -k https://127.0.0.1:8443/health || true
 echo "TURNS mux live: turns:ruletka.vip:443?transport=tcp → sslh → coturn 5349"
-echo "UDP TURN alias (needs coturn alt-listening-port=443): turn:ruletka.vip:443?transport=udp"
+echo "UDP TURN alias (needs ruletka-turn-udp443.service): turn:ruletka.vip:443?transport=udp"
 echo "Rollback: systemctl stop sslh; restore Caddyfile from $BACKUP_DIR; systemctl reload caddy"
