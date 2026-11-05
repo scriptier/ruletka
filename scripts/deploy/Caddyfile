@@ -110,8 +110,9 @@ ruletka.vip, ruletka.me {
 		header Cache-Control "public, max-age=86400"
 	}
 
-	# Tiny `/` still (camble-sized). Instant client redirect to /live.html — no splash.
-	# Do not rewrite `/` → live.html — 223k shell timed out some RU checkers.
+	# Tiny `/` / index.html: client redirect stub → /live.html (no landing flash).
+	# Marketing landing stays at /home.html. Do NOT rewrite `/` → live.html here —
+	# the 223k live shell timed out some RU checkers; keep `/` a small static file.
 	@home path / /index.html
 	handle @home {
 		reverse_proxy 127.0.0.1:8790
